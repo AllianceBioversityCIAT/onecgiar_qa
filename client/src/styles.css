@@ -120,38 +120,3 @@
     @apply bg-background text-foreground;
   }
 }
-
-/*
- * Glass surfaces (app shell). Dark blue-grey tint, not black, over the matte backdrop:
- * top sheen + edge vignette + 1px light rim. Only floating chrome uses it; content stays solid.
- */
-:root {
-  --glass-tint: oklch(0.3 0.035 255 / 0.66);
-  --glass-tint-solid: oklch(0.3 0.035 255 / 0.95);
-  --glass-shade: oklch(0.17 0.03 255 / 0.5);
-  --glass-rim: oklch(1 0 0 / 0.12);
-  --glass-sheen: oklch(1 0 0 / 0.07);
-  --glass-ink: oklch(0.97 0.005 255);
-  --glass-muted: oklch(0.83 0.02 255);
-}
-
-@layer components {
-  .glass {
-    background:
-      radial-gradient(120% 70% at 50% 0%, var(--glass-sheen), transparent 60%),
-      radial-gradient(140% 110% at 50% 45%, transparent 55%, var(--glass-shade)), var(--glass-tint);
-    border: 1px solid var(--glass-rim);
-    box-shadow:
-      inset 0 1px 0 oklch(1 0 0 / 0.1),
-      0 30px 60px -30px rgb(0 0 0 / 0.6);
-    -webkit-backdrop-filter: blur(28px) saturate(150%);
-    backdrop-filter: blur(28px) saturate(150%);
-  }
-
-  /* No blur support: an opaque surface, so text never sits on the raw shapes. */
-  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-    .glass {
-      background: var(--glass-tint-solid);
-    }
-  }
-}

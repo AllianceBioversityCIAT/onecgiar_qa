@@ -7,23 +7,12 @@ import { HlmInput } from '@spartan/input';
 import { HlmSpinner } from '@spartan/spinner';
 import { AuthError, AuthProvider } from '../../auth/auth-provider';
 import { AuthSession } from '../../auth/auth-session';
-import { LOGIN_PREFILL } from '../../auth/login-prefill';
 import { safeReturnUrl } from '../../auth/auth-guards';
-import { BackgroundStore } from '../../theme/background-store';
-import { MatteBackdrop } from '../../ui/matte-backdrop';
 import { ResultPreview } from './result-preview';
 
 @Component({
   selector: 'app-login',
-  imports: [
-    FormField,
-    HlmButton,
-    HlmFieldImports,
-    HlmInput,
-    HlmSpinner,
-    MatteBackdrop,
-    ResultPreview,
-  ],
+  imports: [FormField, HlmButton, HlmFieldImports, HlmInput, HlmSpinner, ResultPreview],
   templateUrl: './login.html',
   styles: `
     /* Spartan tokens re-pointed to the active palette inside the dark form panel. */
@@ -33,20 +22,6 @@ import { ResultPreview } from './result-preview';
       --input: transparent;
       --ring: var(--qa-primary-soft);
       --destructive: var(--qa-danger);
-    }
-    /* Glass layer inside the form panel: the palette surface tinting the image under it. */
-    .crystal {
-      -webkit-backdrop-filter: blur(16px) saturate(150%);
-      backdrop-filter: blur(16px) saturate(150%);
-      background:
-        radial-gradient(120% 70% at 50% 0%, oklch(1 0 0 / 0.08), transparent 60%),
-        color-mix(in oklch, var(--qa-surface) 58%, transparent);
-      box-shadow: inset 1px 0 0 oklch(1 0 0 / 0.1);
-    }
-    @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-      .crystal {
-        background: var(--qa-surface);
-      }
     }
     .filled {
       height: 2.875rem;
@@ -62,6 +37,11 @@ import { ResultPreview } from './result-preview';
         inset 0 1px 2px rgb(0 0 0 / 0.25),
         0 0 0 1.5px var(--qa-danger);
     }
+    @media (prefers-reduced-motion: no-preference) {
+      .drift {
+        transition: translate 900ms cubic-bezier(0.22, 1, 0.36, 1);
+      }
+    }
   `,
 })
 export class LoginPage {
@@ -69,22 +49,31 @@ export class LoginPage {
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
 
-  protected readonly backgrounds = inject(BackgroundStore);
   protected readonly isStub = inject(AuthProvider).isStub;
   protected readonly busy = this.session.signingIn;
   protected readonly failure = signal<string | null>(null);
 
-  private readonly prefill = this.isStub ? inject(LOGIN_PREFILL, { optional: true }) : null;
+  /** Pointer offset (-0.5..0.5) for the slow parallax of the matte background shapes. */
+  protected readonly pointer = signal({ x: 0, y: 0 });
 
-  protected readonly model = signal({
-    email: this.prefill?.email ?? '',
-    password: this.prefill?.password ?? '',
-  });
+  protected readonly model = signal({ email: '', password: '' });
   protected readonly loginForm = form(this.model, (fields) => {
     required(fields.email, { message: 'Enter your email.' });
     email(fields.email, { message: 'Enter a valid email address, like name@cgiar.org.' });
     required(fields.password, { message: 'Enter your password.' });
   });
+
+  protected trackPointer(event: PointerEvent): void {
+    this.pointer.set({
+      x: event.clientX / window.innerWidth - 0.5,
+      y: event.clientY / window.innerHeight - 0.5,
+    });
+  }
+
+  protected shift(depth: number): string {
+    const { x, y } = this.pointer();
+    return `${(x * depth).toFixed(1)}px ${(y * depth).toFixed(1)}px`;
+  }
 
   /** Errors show once the field was touched (blur) or a submit was attempted. */
   protected showErrors(field: FieldTree<string>): boolean {

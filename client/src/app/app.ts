@@ -1,6 +1,5 @@
 import { Component, afterNextRender, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
-import { BackgroundStore } from './theme/background-store';
 import { PaletteStore } from './theme/palette-store';
 import { PaletteSwitcher } from './theme/palette-switcher';
 
@@ -12,10 +11,6 @@ import { PaletteSwitcher } from './theme/palette-switcher';
 export class App {
   constructor() {
     const palettes = inject(PaletteStore);
-    const backgrounds = inject(BackgroundStore);
-    afterNextRender(() => {
-      palettes.restore();
-      backgrounds.restore();
-    });
+    afterNextRender(() => palettes.restore());
   }
 }
