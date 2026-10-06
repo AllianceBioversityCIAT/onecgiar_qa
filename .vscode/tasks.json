@@ -5,7 +5,7 @@
     {
       "type": "npm",
       "script": "start",
-      "path": "onecgiar-qa-client",
+      "path": "client",
       "isBackground": true,
       "problemMatcher": {
         "owner": "typescript",
@@ -24,7 +24,7 @@
     {
       "type": "npm",
       "script": "test",
-      "path": "onecgiar-qa-client",
+      "path": "client",
       "isBackground": true,
       "problemMatcher": {
         "owner": "typescript",
