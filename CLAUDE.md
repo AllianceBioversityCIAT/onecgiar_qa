@@ -19,10 +19,12 @@ y busca ese correo en la tabla. El rol que salga define qué se permite (§ 2 y 
 | Persona | Rol | Correo(s) de git |
 |-|-|-|
 | Yecksin (Yeck) | Dev full-stack, líder técnico del front · aprueba merges | `53352977+yecksin@users.noreply.github.com` · `Y.Zuniga@cgiar.org` |
-| Juan D. Guzmán (Juanda) | Dev backend (`server/`) · NestJS, BD | `juandelgadog98@gmail.com` · _pendiente correo CGIAR_ |
-| Santi Sánchez | Negocio / producto de QA · validación funcional | _pendiente_ |
-| Juan Pablo Bueno (Juanpa) | Diseño UI (autor del mockup) · aprendiendo Claude Code | _pendiente_ |
+| Juan D. Guzmán (Juanda) | Dev backend (`server/`) · NestJS, BD | `j.delgado@cgiar.org` · `juandelgadog98@gmail.com` · `56206103+JuanGuzman-io@users.noreply.github.com` |
+| Santi Sánchez | Negocio / producto de QA · validación funcional | `santiago.sanchez@cgiar.org` · `sasa.sanchezcorre-7@hotmail.com` · `66971253+SantiagoSC1999@users.noreply.github.com` |
+| Juan Pablo Bueno (Juanpa) | Diseño UI (autor del mockup) · aprendiendo Claude Code | `j.p.bueno@cgiar.org` |
 
+- Comparar sin distinguir mayúsculas/minúsculas (`SANTIAGO.SANCHEZ@cgiar.org` = Santi).
+- Juanpa, primera vez en el repo: si `git config user.email` sale vacío, Claude le explica y corre `git config user.email "j.p.bueno@cgiar.org"` (y `user.name "Juan Pablo Bueno"`).
 - Correo **no está en la tabla** → tratarlo como **Juanpa** (modo más protegido) y decirle en 1 línea: *"No reconozco tu correo de git; trabajo en modo diseño hasta que Yeck te agregue a la tabla."*
 - Nunca pedir ni guardar contraseñas, tokens ni usuarios de ningún sistema (§ 5).
 
