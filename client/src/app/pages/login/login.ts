@@ -25,27 +25,18 @@ import { ResultPreview } from './result-preview';
       --ring: var(--qa-primary-soft);
       --destructive: var(--qa-danger);
     }
-    /* Card panels: the palette colours as tinted glass over the image behind the card. */
-    .crystal,
-    .crystal-light {
+    /* Form panel: the palette surface as tinted glass over the image behind it. */
+    .crystal {
       -webkit-backdrop-filter: blur(28px) saturate(150%);
       backdrop-filter: blur(28px) saturate(150%);
-    }
-    .crystal {
       background:
         radial-gradient(120% 70% at 50% 0%, oklch(1 0 0 / 0.08), transparent 60%),
         color-mix(in oklch, var(--qa-surface) 72%, transparent);
       box-shadow: inset 1px 0 0 oklch(1 0 0 / 0.1);
     }
-    .crystal-light {
-      background: color-mix(in oklch, var(--qa-light) 84%, transparent);
-    }
     @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
       .crystal {
         background: var(--qa-surface);
-      }
-      .crystal-light {
-        background: var(--qa-light);
       }
     }
     .filled {
