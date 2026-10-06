@@ -7,6 +7,7 @@ import { HlmInput } from '@spartan/input';
 import { HlmSpinner } from '@spartan/spinner';
 import { AuthError, AuthProvider } from '../../auth/auth-provider';
 import { AuthSession } from '../../auth/auth-session';
+import { LOGIN_PREFILL } from '../../auth/login-prefill';
 import { safeReturnUrl } from '../../auth/auth-guards';
 import { Backdrop } from '../../ui/backdrop';
 import { ResultPreview } from './result-preview';
@@ -49,7 +50,12 @@ export class LoginPage {
   protected readonly busy = this.session.signingIn;
   protected readonly failure = signal<string | null>(null);
 
-  protected readonly model = signal({ email: '', password: '' });
+  private readonly prefill = this.isStub ? inject(LOGIN_PREFILL, { optional: true }) : null;
+
+  protected readonly model = signal({
+    email: this.prefill?.email ?? '',
+    password: this.prefill?.password ?? '',
+  });
   protected readonly loginForm = form(this.model, (fields) => {
     required(fields.email, { message: 'Enter your email.' });
     email(fields.email, { message: 'Enter a valid email address, like name@cgiar.org.' });
