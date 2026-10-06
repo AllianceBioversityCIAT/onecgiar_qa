@@ -1,127 +1,57 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, afterNextRender, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { FieldTree, FormField, email, form, required, submit } from '@angular/forms/signals';
+import { HlmButton } from '@spartan/button';
+import { HlmFieldImports } from '@spartan/field';
+import { HlmInput } from '@spartan/input';
+import { HlmSpinner } from '@spartan/spinner';
 import { AuthError, AuthProvider } from '../../auth/auth-provider';
 import { AuthSession } from '../../auth/auth-session';
 import { safeReturnUrl } from '../../auth/auth-guards';
-import { QaShowcase } from './qa-showcase';
+import { PaletteSwitcher } from './palette-switcher';
+import { DEFAULT_PALETTE, PALETTES, Palette, paletteStyle } from './palettes';
+import { ResultPreview } from './result-preview';
+
+const PALETTE_KEY = 'qa.login.palette';
 
 @Component({
   selector: 'app-login',
-  imports: [FormField, QaShowcase],
+  imports: [
+    FormField,
+    HlmButton,
+    HlmFieldImports,
+    HlmInput,
+    HlmSpinner,
+    PaletteSwitcher,
+    ResultPreview,
+  ],
   templateUrl: './login.html',
   styles: `
-    .brand-spotlight {
-      background: radial-gradient(
-        26rem circle at var(--spot-x, 70%) var(--spot-y, 30%),
-        rgb(94 234 212 / 0.13),
-        transparent 70%
-      );
+    /* Spartan tokens re-pointed to the active palette inside the dark form panel. */
+    .on-dark {
+      --foreground: var(--qa-on-dark);
+      --muted-foreground: var(--qa-muted-on-dark);
+      --input: transparent;
+      --ring: var(--qa-primary-soft);
+      --destructive: var(--qa-danger);
     }
-    @media (prefers-reduced-motion: no-preference) {
-      .brand-shimmer {
-        background: linear-gradient(100deg, #5eead4 35%, #ecfeff 50%, #5eead4 65%) 0 0 / 250% 100%;
-        background-clip: text;
-        color: transparent;
-        animation: brand-shimmer 5s ease-in-out infinite;
-      }
-    }
-    @keyframes brand-shimmer {
-      from {
-        background-position: 100% 0;
-      }
-      to {
-        background-position: 0% 0;
-      }
-    }
-    .field-wrap {
-      position: relative;
-      display: grid;
-    }
-    .field-icon {
-      position: absolute;
-      inset-block: 0;
-      left: 0.875rem;
-      width: 1.125rem;
-      height: 100%;
-      color: var(--color-ink-muted);
-      pointer-events: none;
-      transition: color 150ms;
-    }
-    .field {
-      width: 100%;
-      height: 3rem;
+    .filled {
+      height: 2.875rem;
       border-radius: 0.75rem;
-      border: 1px solid var(--color-line);
-      background: white;
-      padding-inline: 2.625rem 0.875rem;
-      font-size: 0.9375rem;
-      color: var(--color-ink);
-      box-shadow: 0 1px 2px rgb(19 32 30 / 0.04);
-      transition:
-        border-color 150ms,
-        box-shadow 150ms;
+      border-color: transparent;
+      background: var(--qa-field);
+      color: var(--qa-on-dark);
+      padding-inline: 0.875rem;
+      box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.25);
     }
-    .field:hover {
-      border-color: color-mix(in srgb, var(--color-primary) 35%, var(--color-line));
+    .filled[data-show-error='true'] {
+      box-shadow:
+        inset 0 1px 2px rgb(0 0 0 / 0.25),
+        0 0 0 1.5px var(--qa-danger);
     }
-    .field:focus-visible {
-      outline: none;
-      border-color: var(--color-primary);
-      box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-primary-ring) 45%, transparent);
-    }
-    .field-wrap:focus-within .field-icon {
-      color: var(--color-primary);
-    }
-    .field[aria-invalid='true'] {
-      border-color: var(--color-danger);
-    }
-    .field[aria-invalid='true']:focus-visible {
-      box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-danger) 18%, transparent);
-    }
-    .field-wrap:has(.field[aria-invalid='true']) .field-icon {
-      color: var(--color-danger);
-    }
-    .field-error {
-      display: flex;
-      gap: 0.375rem;
-      align-items: baseline;
-      font-size: 0.875rem;
-      color: var(--color-danger);
-    }
-    .field-error::before {
-      content: '';
-      flex: none;
-      width: 0.375rem;
-      height: 0.375rem;
-      border-radius: 9999px;
-      background: currentColor;
-      transform: translateY(-0.125rem);
-    }
-
     @media (prefers-reduced-motion: no-preference) {
-      .login-enter {
-        animation: login-rise 420ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
-      }
-      .field-error {
-        animation: login-rise 180ms ease-out both;
-      }
-      .login-shake {
-        animation: login-shake 320ms ease-in-out;
-      }
-    }
-    @keyframes login-rise {
-      from {
-        opacity: 0;
-        transform: translateY(6px);
-      }
-    }
-    @keyframes login-shake {
-      25% {
-        transform: translateX(-3px);
-      }
-      75% {
-        transform: translateX(3px);
+      .drift {
+        transition: translate 900ms cubic-bezier(0.22, 1, 0.36, 1);
       }
     }
   `,
@@ -135,6 +65,13 @@ export class LoginPage {
   protected readonly busy = this.session.signingIn;
   protected readonly failure = signal<string | null>(null);
 
+  protected readonly palettes = PALETTES;
+  protected readonly palette = signal<Palette>(DEFAULT_PALETTE);
+  protected readonly paletteVars = computed(() => paletteStyle(this.palette()));
+
+  /** Pointer offset (-0.5..0.5) for the slow parallax of the matte background shapes. */
+  protected readonly pointer = signal({ x: 0, y: 0 });
+
   protected readonly model = signal({ email: '', password: '' });
   protected readonly loginForm = form(this.model, (fields) => {
     required(fields.email, { message: 'Enter your email.' });
@@ -142,12 +79,35 @@ export class LoginPage {
     required(fields.password, { message: 'Enter your password.' });
   });
 
-  /** Moves the soft light of the brand panel under the pointer. */
-  protected followPointer(event: PointerEvent): void {
-    const panel = event.currentTarget as HTMLElement;
-    const box = panel.getBoundingClientRect();
-    panel.style.setProperty('--spot-x', `${event.clientX - box.left}px`);
-    panel.style.setProperty('--spot-y', `${event.clientY - box.top}px`);
+  constructor() {
+    afterNextRender(() => {
+      const saved = readSavedPalette();
+      const match = PALETTES.find((p) => p.id === saved);
+      if (match) {
+        this.palette.set(match);
+      }
+    });
+  }
+
+  protected choosePalette(palette: Palette): void {
+    this.palette.set(palette);
+    try {
+      localStorage.setItem(PALETTE_KEY, palette.id);
+    } catch {
+      // storage blocked: the choice still applies for this visit
+    }
+  }
+
+  protected trackPointer(event: PointerEvent): void {
+    this.pointer.set({
+      x: event.clientX / window.innerWidth - 0.5,
+      y: event.clientY / window.innerHeight - 0.5,
+    });
+  }
+
+  protected shift(depth: number): string {
+    const { x, y } = this.pointer();
+    return `${(x * depth).toFixed(1)}px ${(y * depth).toFixed(1)}px`;
   }
 
   /** Errors show once the field was touched (blur) or a submit was attempted. */
@@ -173,6 +133,14 @@ export class LoginPage {
       await this.router.navigateByUrl(target);
       return undefined;
     });
+  }
+}
+
+function readSavedPalette(): string | null {
+  try {
+    return localStorage.getItem(PALETTE_KEY);
+  } catch {
+    return null;
   }
 }
 
