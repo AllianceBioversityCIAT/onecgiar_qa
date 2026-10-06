@@ -10,11 +10,20 @@ import { AuthSession } from '../../auth/auth-session';
 import { LOGIN_PREFILL } from '../../auth/login-prefill';
 import { safeReturnUrl } from '../../auth/auth-guards';
 import { BackgroundStore } from '../../theme/background-store';
+import { MatteBackdrop } from '../../ui/matte-backdrop';
 import { ResultPreview } from './result-preview';
 
 @Component({
   selector: 'app-login',
-  imports: [FormField, HlmButton, HlmFieldImports, HlmInput, HlmSpinner, ResultPreview],
+  imports: [
+    FormField,
+    HlmButton,
+    HlmFieldImports,
+    HlmInput,
+    HlmSpinner,
+    MatteBackdrop,
+    ResultPreview,
+  ],
   templateUrl: './login.html',
   styles: `
     /* Spartan tokens re-pointed to the active palette inside the dark form panel. */
@@ -25,10 +34,10 @@ import { ResultPreview } from './result-preview';
       --ring: var(--qa-primary-soft);
       --destructive: var(--qa-danger);
     }
-    /* Form panel: the palette surface as tinted glass over the image behind it. */
+    /* Glass layer inside the form panel: the palette surface tinting the image under it. */
     .crystal {
-      -webkit-backdrop-filter: blur(28px) saturate(150%);
-      backdrop-filter: blur(28px) saturate(150%);
+      -webkit-backdrop-filter: blur(16px) saturate(150%);
+      backdrop-filter: blur(16px) saturate(150%);
       background:
         radial-gradient(120% 70% at 50% 0%, oklch(1 0 0 / 0.08), transparent 60%),
         color-mix(in oklch, var(--qa-surface) 72%, transparent);
