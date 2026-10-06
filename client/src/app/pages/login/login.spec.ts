@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 import { AuthError, AuthProvider, AuthUser, Credentials } from '../../auth/auth-provider';
+import { LOGIN_PREFILL } from '../../auth/login-prefill';
 import { LoginPage } from './login';
 
 class FakeProvider extends AuthProvider {
@@ -14,7 +15,7 @@ class FakeProvider extends AuthProvider {
   }
 }
 
-async function setup(url = '/login') {
+async function setup(url = '/login', prefill?: Credentials) {
   sessionStorage.clear();
   const provider = new FakeProvider();
   TestBed.configureTestingModule({
@@ -22,6 +23,7 @@ async function setup(url = '/login') {
     providers: [
       provideRouter([{ path: 'login', component: LoginPage }]),
       { provide: AuthProvider, useValue: provider },
+      ...(prefill ? [{ provide: LOGIN_PREFILL, useValue: prefill }] : []),
     ],
   });
   const router = TestBed.inject(Router);
@@ -125,5 +127,15 @@ describe('LoginPage', () => {
     type('password', 'secret');
     await submit();
     expect(navigate).toHaveBeenCalledWith('/');
+  });
+
+  it('dev prefill: one click signs in with the dummy credentials', async () => {
+    const { host, provider, submit } = await setup('/login', {
+      email: 'qa.lead@cgiar.org',
+      password: 'dev-stub',
+    });
+    expect(host.querySelector<HTMLInputElement>('#email')!.value).toBe('qa.lead@cgiar.org');
+    await submit();
+    expect(provider.calls).toBe(1);
   });
 });
