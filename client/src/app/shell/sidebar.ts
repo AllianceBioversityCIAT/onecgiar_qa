@@ -20,7 +20,10 @@ const ICON_CLOSE = 'M18 6 6 18M6 6l12 12';
       [class.narrow]="narrow()"
       [style.width]="drawer() ? '100%' : narrow() ? '4.5rem' : '16rem'"
     >
-      <div class="flex h-16 shrink-0 items-center gap-2.5 px-5" [class.justify-center]="narrow()">
+      <div
+        class="flex shrink-0 items-center gap-2.5"
+        [class]="narrow() ? 'flex-col pt-5' : 'h-16 pt-3 pr-3 pl-5'"
+      >
         <svg
           aria-hidden="true"
           class="size-7 shrink-0 text-[var(--qa-mark)]"
@@ -32,12 +35,27 @@ const ICON_CLOSE = 'M18 6 6 18M6 6l12 12';
           />
         </svg>
         @if (!narrow()) {
-          <span class="min-w-0 truncate whitespace-nowrap">
-            <span class="font-bold tracking-tight">PRMS</span>
-            <span class="text-sm text-[var(--glass-muted)]"> quality assurance</span>
+          <span class="min-w-0 leading-tight whitespace-nowrap">
+            <span class="block font-bold tracking-tight">PRMS</span>
+            <span class="block text-xs text-[var(--glass-muted)]">quality assurance</span>
           </span>
         }
-        @if (drawer()) {
+        @if (!drawer()) {
+          <button
+            type="button"
+            class="icon-btn"
+            [class.ml-auto]="!narrow()"
+            aria-controls="main-nav"
+            [attr.aria-expanded]="!collapsed()"
+            [attr.aria-label]="collapsed() ? 'Expand sidebar' : 'Collapse sidebar'"
+            [attr.title]="collapsed() ? 'Expand sidebar' : 'Collapse sidebar'"
+            (click)="toggle.emit()"
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24" class="size-5">
+              <path [attr.d]="iconPanel" />
+            </svg>
+          </button>
+        } @else {
           <button
             type="button"
             class="icon-btn ml-auto"
@@ -90,24 +108,7 @@ const ICON_CLOSE = 'M18 6 6 18M6 6l12 12';
         }
       </nav>
 
-      <div class="grid shrink-0 gap-1 border-t border-white/10 p-3">
-        @if (!drawer()) {
-          <button
-            type="button"
-            class="nav-link"
-            aria-controls="main-nav"
-            [attr.aria-expanded]="!collapsed()"
-            [attr.title]="narrow() ? 'Expand sidebar' : null"
-            (click)="toggle.emit()"
-          >
-            <svg aria-hidden="true" viewBox="0 0 24 24" class="size-5 shrink-0">
-              <path [attr.d]="iconPanel" />
-            </svg>
-            <span class="whitespace-nowrap" [class.sr-only]="narrow()">{{
-              collapsed() ? 'Expand sidebar' : 'Collapse sidebar'
-            }}</span>
-          </button>
-        }
+      <div class="shrink-0 border-t border-white/10 p-3">
         <div class="flex items-center gap-2.5 rounded-2xl p-1.5" [class.flex-col]="narrow()">
           <span
             class="grid size-9 shrink-0 place-items-center rounded-full bg-white/12 text-sm font-semibold uppercase shadow-[inset_0_1px_0_rgb(255_255_255/0.15)]"

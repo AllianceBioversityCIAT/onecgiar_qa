@@ -79,7 +79,7 @@ describe('Sidebar', () => {
     expect(first.title).toBe('Overview');
     const toggle = host.querySelector<HTMLButtonElement>('button[aria-controls="main-nav"]')!;
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
-    expect(toggle.textContent?.trim()).toBe('Expand sidebar');
+    expect(toggle.getAttribute('aria-label')).toBe('Expand sidebar');
   });
 
   it('asks the layout to toggle', async () => {
