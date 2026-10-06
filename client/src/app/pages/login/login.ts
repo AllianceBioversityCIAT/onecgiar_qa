@@ -9,12 +9,12 @@ import { AuthError, AuthProvider } from '../../auth/auth-provider';
 import { AuthSession } from '../../auth/auth-session';
 import { LOGIN_PREFILL } from '../../auth/login-prefill';
 import { safeReturnUrl } from '../../auth/auth-guards';
-import { Backdrop } from '../../ui/backdrop';
+import { BackgroundStore } from '../../theme/background-store';
 import { ResultPreview } from './result-preview';
 
 @Component({
   selector: 'app-login',
-  imports: [FormField, HlmButton, HlmFieldImports, HlmInput, HlmSpinner, Backdrop, ResultPreview],
+  imports: [FormField, HlmButton, HlmFieldImports, HlmInput, HlmSpinner, ResultPreview],
   templateUrl: './login.html',
   styles: `
     /* Spartan tokens re-pointed to the active palette inside the dark form panel. */
@@ -24,6 +24,29 @@ import { ResultPreview } from './result-preview';
       --input: transparent;
       --ring: var(--qa-primary-soft);
       --destructive: var(--qa-danger);
+    }
+    /* Card panels: the palette colours as tinted glass over the image behind the card. */
+    .crystal,
+    .crystal-light {
+      -webkit-backdrop-filter: blur(28px) saturate(150%);
+      backdrop-filter: blur(28px) saturate(150%);
+    }
+    .crystal {
+      background:
+        radial-gradient(120% 70% at 50% 0%, oklch(1 0 0 / 0.08), transparent 60%),
+        color-mix(in oklch, var(--qa-surface) 72%, transparent);
+      box-shadow: inset 1px 0 0 oklch(1 0 0 / 0.1);
+    }
+    .crystal-light {
+      background: color-mix(in oklch, var(--qa-light) 84%, transparent);
+    }
+    @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+      .crystal {
+        background: var(--qa-surface);
+      }
+      .crystal-light {
+        background: var(--qa-light);
+      }
     }
     .filled {
       height: 2.875rem;
@@ -46,6 +69,7 @@ export class LoginPage {
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
 
+  protected readonly backgrounds = inject(BackgroundStore);
   protected readonly isStub = inject(AuthProvider).isStub;
   protected readonly busy = this.session.signingIn;
   protected readonly failure = signal<string | null>(null);
