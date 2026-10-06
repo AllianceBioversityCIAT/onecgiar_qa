@@ -78,53 +78,80 @@ const HEX = /^#[0-9a-f]{6}$/i;
       </form>
     }
 
+    <!-- Compact handle; the full row opens on hover or focus (tap on touch screens). -->
     <div
       role="group"
       aria-label="Palette and background preview"
-      class="flex max-w-[calc(100vw-2rem)] items-center gap-1 overflow-x-auto rounded-full bg-white/95 p-1.5 shadow-[0_10px_30px_-12px_rgb(0_0_0/0.45)] ring-1 ring-black/5 sm:pl-3.5"
+      class="group ml-auto flex w-fit max-w-[calc(100vw-2rem)] items-center gap-1 overflow-x-auto rounded-full bg-white/95 p-1.5 shadow-[0_10px_30px_-12px_rgb(0_0_0/0.45)] ring-1 ring-black/5"
     >
-      <span class="mr-1 hidden text-xs font-medium text-zinc-600 sm:inline">Palette</span>
-      @for (palette of store.palettes(); track palette.id) {
-        <button
-          type="button"
-          class="flex h-8 shrink-0 items-center gap-1.5 rounded-full px-2 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none aria-pressed:bg-zinc-900 aria-pressed:text-white"
-          [attr.aria-pressed]="palette.id === store.active().id"
-          [attr.title]="palette.name"
-          (click)="store.select(palette.id)"
-        >
-          <span
-            aria-hidden="true"
-            class="flex size-4 overflow-hidden rounded-full ring-1 ring-black/10"
-          >
-            <span class="w-1/2" [style.background]="palette.bg"></span>
-            <span class="w-1/2" [style.background]="palette.primary"></span>
-          </span>
-          <span class="sr-only sm:not-sr-only">{{ palette.name }}</span>
-        </button>
-      }
       <button
         type="button"
-        class="flex h-8 shrink-0 items-center gap-1 rounded-full border border-dashed border-zinc-300 px-2.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none"
-        aria-controls="custom-palette"
-        [attr.aria-expanded]="editing()"
-        (click)="toggleEditor()"
+        class="flex h-8 shrink-0 items-center gap-1 rounded-full px-1.5 transition-colors hover:bg-zinc-100 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none"
+        aria-label="Show palette and background options"
+        title="Palette and background"
       >
-        <span aria-hidden="true">+</span>
-        <span class="sr-only sm:not-sr-only">Try colours</span>
+        <span
+          aria-hidden="true"
+          class="flex size-5 overflow-hidden rounded-full ring-1 ring-black/10"
+        >
+          <span class="w-1/2" [style.background]="store.active().bg"></span>
+          <span class="w-1/2" [style.background]="store.active().primary"></span>
+        </span>
+        <span
+          aria-hidden="true"
+          class="size-5 rounded-full bg-cover bg-center ring-1 ring-black/10"
+          [style.background-image]="'url(' + backgrounds.active().src + ')'"
+        ></span>
       </button>
-      <span aria-hidden="true" class="mx-1.5 h-5 w-px shrink-0 bg-zinc-200"></span>
-      <span class="mr-1 hidden text-xs font-medium text-zinc-600 sm:inline">Background</span>
-      @for (bg of backgrounds.backgrounds; track bg.id) {
+      <div
+        class="items-center gap-1 group-focus-within:flex group-hover:flex"
+        [class.hidden]="!editing()"
+        [class.flex]="editing()"
+      >
+        <span aria-hidden="true" class="mx-1 h-5 w-px shrink-0 bg-zinc-200"></span>
+        <span class="mr-1 hidden text-xs font-medium text-zinc-600 sm:inline">Palette</span>
+        @for (palette of store.palettes(); track palette.id) {
+          <button
+            type="button"
+            class="flex h-8 shrink-0 items-center gap-1.5 rounded-full px-2 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none aria-pressed:bg-zinc-900 aria-pressed:text-white"
+            [attr.aria-pressed]="palette.id === store.active().id"
+            [attr.title]="palette.name"
+            (click)="store.select(palette.id)"
+          >
+            <span
+              aria-hidden="true"
+              class="flex size-4 overflow-hidden rounded-full ring-1 ring-black/10"
+            >
+              <span class="w-1/2" [style.background]="palette.bg"></span>
+              <span class="w-1/2" [style.background]="palette.primary"></span>
+            </span>
+            <span class="sr-only sm:not-sr-only">{{ palette.name }}</span>
+          </button>
+        }
         <button
           type="button"
-          class="size-8 shrink-0 rounded-full bg-cover bg-center ring-1 ring-black/10 transition-shadow hover:ring-zinc-400 focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none aria-pressed:ring-2 aria-pressed:ring-zinc-900 aria-pressed:ring-offset-2"
-          [style.background-image]="'url(' + bg.src + ')'"
-          [attr.aria-pressed]="bg.id === backgrounds.active().id"
-          [attr.aria-label]="'Background: ' + bg.name"
-          [attr.title]="bg.name"
-          (click)="backgrounds.select(bg.id)"
-        ></button>
-      }
+          class="flex h-8 shrink-0 items-center gap-1 rounded-full border border-dashed border-zinc-300 px-2.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none"
+          aria-controls="custom-palette"
+          [attr.aria-expanded]="editing()"
+          (click)="toggleEditor()"
+        >
+          <span aria-hidden="true">+</span>
+          <span class="sr-only sm:not-sr-only">Try colours</span>
+        </button>
+        <span aria-hidden="true" class="mx-1.5 h-5 w-px shrink-0 bg-zinc-200"></span>
+        <span class="mr-1 hidden text-xs font-medium text-zinc-600 sm:inline">Background</span>
+        @for (bg of backgrounds.backgrounds; track bg.id) {
+          <button
+            type="button"
+            class="size-8 shrink-0 rounded-full bg-cover bg-center ring-1 ring-black/10 transition-shadow hover:ring-zinc-400 focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none aria-pressed:ring-2 aria-pressed:ring-zinc-900 aria-pressed:ring-offset-2"
+            [style.background-image]="'url(' + bg.src + ')'"
+            [attr.aria-pressed]="bg.id === backgrounds.active().id"
+            [attr.aria-label]="'Background: ' + bg.name"
+            [attr.title]="bg.name"
+            (click)="backgrounds.select(bg.id)"
+          ></button>
+        }
+      </div>
     </div>
   `,
 })

@@ -6,17 +6,17 @@ import { ActivatedRoute } from '@angular/router';
   selector: 'app-placeholder-page',
   template: `
     <header>
-      <p class="text-xs font-semibold tracking-[0.12em] text-[var(--qa-muted-ink)] uppercase">
+      <p class="text-xs font-semibold tracking-[0.12em] text-[var(--glass-muted)] uppercase">
         {{ group }}
       </p>
-      <h1 class="mt-1.5 text-3xl font-semibold tracking-tight text-[var(--qa-ink)]">
+      <h1 class="mt-1.5 text-3xl font-semibold tracking-tight text-[var(--glass-ink)]">
         {{ heading }}
       </h1>
     </header>
     <div
-      class="mt-8 grid min-h-72 place-items-center rounded-2xl border border-dashed border-[color-mix(in_oklch,var(--qa-ink)_15%,transparent)] bg-[var(--qa-blob)]/40 p-6 text-center"
+      class="mt-8 grid min-h-72 place-items-center rounded-2xl border border-dashed border-white/15 bg-white/[0.04] p-6 text-center shadow-[inset_0_1px_0_rgb(255_255_255/0.06)]"
     >
-      <p class="text-sm text-[var(--qa-muted-ink)]">This page is not built yet.</p>
+      <p class="text-sm text-[var(--glass-muted)]">This page is not built yet.</p>
     </div>
   `,
 })

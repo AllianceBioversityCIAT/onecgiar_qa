@@ -5,7 +5,7 @@ import { Backdrop } from '../ui/backdrop';
 import { ShellState } from './shell-state';
 import { Sidebar } from './sidebar';
 
-/** Signed-in layout: glass sidebar floating over the matte backdrop, solid content panel. */
+/** Signed-in layout: glass sidebar and glass content panel floating over the image backdrop. */
 @Component({
   selector: 'app-shell-layout',
   imports: [RouterOutlet, CdkTrapFocus, Backdrop, Sidebar],
@@ -48,7 +48,7 @@ import { Sidebar } from './sidebar';
         (toggle)="state.toggleCollapsed()"
       />
       <main
-        class="min-h-[calc(100dvh-5.75rem)] min-w-0 flex-1 rounded-[1.75rem] bg-[var(--qa-light)] p-6 shadow-[0_40px_90px_-35px_rgb(0_0_0/0.65)] sm:p-10 lg:min-h-[calc(100dvh-1.5rem)]"
+        class="glass min-h-[calc(100dvh-5.75rem)] min-w-0 flex-1 rounded-[1.75rem] p-6 text-[var(--glass-ink)] sm:p-10 lg:min-h-[calc(100dvh-1.5rem)]"
       >
         <router-outlet />
       </main>
