@@ -1,0 +1,135 @@
+<main class="grid min-h-dvh lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
+  <!-- Brand panel -->
+  <section
+    aria-labelledby="brand-title"
+    class="relative isolate flex flex-col justify-between gap-10 overflow-hidden bg-brand-900 px-6 py-8 text-white sm:px-10 lg:px-14 lg:py-12"
+  >
+    <div
+      aria-hidden="true"
+      class="absolute -top-32 -right-24 -z-10 size-[28rem] rounded-full bg-brand-700/40 blur-3xl"
+    ></div>
+    <div
+      aria-hidden="true"
+      class="absolute -bottom-40 -left-24 -z-10 size-[24rem] rounded-full bg-prms/25 blur-3xl"
+    ></div>
+
+    <div class="flex items-center gap-3">
+      <span
+        aria-hidden="true"
+        class="grid size-10 place-items-center rounded-xl bg-prms text-sm font-bold tracking-wide"
+        >QA</span
+      >
+      <span class="text-sm font-semibold tracking-[0.18em] text-white/80 uppercase">PRMS</span>
+    </div>
+
+    <div class="max-w-md">
+      <h1 id="brand-title" class="text-3xl leading-tight font-semibold text-balance sm:text-4xl">
+        Quality Assurance for CGIAR results
+      </h1>
+      <p class="mt-4 text-base leading-relaxed text-white/75">
+        Assess every reported result field by field, from the first review to the final
+        agreed correction.
+      </p>
+    </div>
+
+    <ol class="hidden gap-3 text-sm text-white/80 sm:grid" aria-label="QA workflow">
+      @for (step of ['Assess', 'Respond', 'Review', 'Decide', 'Apply']; track step; let i = $index) {
+        <li class="flex items-center gap-3">
+          <span
+            aria-hidden="true"
+            class="grid size-6 place-items-center rounded-full border border-white/25 text-xs"
+            >{{ i + 1 }}</span
+          >
+          {{ step }}
+        </li>
+      }
+    </ol>
+  </section>
+
+  <!-- Form -->
+  <section class="flex items-center justify-center px-4 py-10 sm:px-8">
+    <div class="w-full max-w-sm">
+      <h2 class="text-2xl font-semibold text-ink">Sign in</h2>
+      <p class="mt-1 text-sm text-ink-muted">Use your institutional email to continue.</p>
+
+      @if (isStub) {
+        <p
+          class="mt-6 flex gap-2 rounded-lg border border-amber-300 bg-warning-soft px-3 py-2 text-sm text-warning-ink"
+          data-testid="stub-notice"
+        >
+          <span aria-hidden="true">⚠</span>
+          <span
+            ><strong class="font-semibold">Development stub.</strong> Authentication is not
+            connected yet; any well-formed email and password are accepted.</span
+          >
+        </p>
+      }
+
+      <div role="alert" aria-live="assertive" class="empty:hidden mt-6" data-testid="failure">
+        @if (failure(); as message) {
+          <p
+            class="rounded-lg border border-danger/30 bg-danger-soft px-3 py-2 text-sm text-danger"
+          >
+            {{ message }}
+          </p>
+        }
+      </div>
+
+      <form class="mt-6 grid gap-5" novalidate (submit)="onSubmit($event)">
+        <div class="grid gap-1.5">
+          <label for="email" class="text-sm font-medium text-ink">Email</label>
+          <input
+            id="email"
+            type="email"
+            autocomplete="username"
+            inputmode="email"
+            class="field"
+            [formField]="loginForm.email"
+            [attr.aria-invalid]="showErrors(loginForm.email)"
+            [attr.aria-describedby]="showErrors(loginForm.email) ? 'email-error' : null"
+          />
+          @if (showErrors(loginForm.email)) {
+            <p id="email-error" class="text-sm text-danger">
+              {{ loginForm.email().errors()[0].message }}
+            </p>
+          }
+        </div>
+
+        <div class="grid gap-1.5">
+          <label for="password" class="text-sm font-medium text-ink">Password</label>
+          <input
+            id="password"
+            type="password"
+            autocomplete="current-password"
+            class="field"
+            [formField]="loginForm.password"
+            [attr.aria-invalid]="showErrors(loginForm.password)"
+            [attr.aria-describedby]="showErrors(loginForm.password) ? 'password-error' : null"
+          />
+          @if (showErrors(loginForm.password)) {
+            <p id="password-error" class="text-sm text-danger">
+              {{ loginForm.password().errors()[0].message }}
+            </p>
+          }
+        </div>
+
+        <button
+          type="submit"
+          class="mt-1 inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-white transition-colors hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary-ring disabled:cursor-wait disabled:opacity-80"
+          [disabled]="busy()"
+          [attr.aria-busy]="busy()"
+        >
+          @if (busy()) {
+            <span
+              aria-hidden="true"
+              class="size-4 animate-spin rounded-full border-2 border-white/40 border-t-white"
+            ></span>
+            Signing in…
+          } @else {
+            Sign in
+          }
+        </button>
+      </form>
+    </div>
+  </section>
+</main>
