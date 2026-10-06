@@ -1,12 +1,12 @@
 <main
   class="relative isolate grid min-h-dvh place-items-center overflow-hidden bg-[var(--qa-bg)] px-4 py-10 transition-colors duration-500 sm:px-8"
 >
-  <!-- Solid page; the generated image sits only behind the card, seen through its glass -->
+  <!-- Solid page; the generated image sits only behind the form side, seen through its glass -->
   <div class="relative isolate w-full max-w-[66rem]">
     <div
       aria-hidden="true"
       data-testid="login-image"
-      class="absolute -inset-2.5 -z-10 rounded-[2.5rem] bg-cover bg-center shadow-[0_50px_100px_-40px_rgb(0_0_0/0.7)] transition-[background-image] duration-500 sm:-inset-10"
+      class="absolute -inset-2.5 -z-10 rounded-[2.5rem] bg-cover bg-center shadow-[0_50px_100px_-40px_rgb(0_0_0/0.7)] transition-[background-image] duration-500 sm:-inset-10 lg:left-[48%]"
       [style.background-image]="'url(' + backgrounds.active().src + ')'"
     ></div>
 
@@ -15,7 +15,7 @@
     >
       <!-- Light panel: brand + product preview -->
       <div
-        class="crystal-light relative isolate hidden flex-col gap-10 overflow-hidden p-10 lg:flex xl:p-12"
+        class="relative isolate hidden flex-col gap-10 overflow-hidden bg-[var(--qa-light)] p-10 lg:flex xl:p-12"
       >
         <div class="flex items-center gap-2.5">
           <svg
