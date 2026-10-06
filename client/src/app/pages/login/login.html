@@ -1,175 +1,174 @@
 <main
   class="relative isolate grid min-h-dvh place-items-center overflow-hidden bg-[var(--qa-bg)] px-4 py-10 transition-colors duration-500 sm:px-8"
 >
-  <!-- Solid page; the generated image sits only behind the form side, seen through its glass -->
-  <div class="relative isolate w-full max-w-[66rem]">
+  <app-matte-backdrop />
+
+  <section
+    class="grid w-full max-w-[66rem] overflow-hidden rounded-[1.75rem] shadow-[0_40px_90px_-35px_rgb(0_0_0/0.65),0_2px_8px_-2px_rgb(0_0_0/0.25)] ring-1 ring-white/12 lg:grid-cols-[1.05fr_1fr]"
+  >
+    <!-- Light panel: brand + product preview -->
     <div
-      aria-hidden="true"
-      data-testid="login-image"
-      class="absolute -inset-2.5 -z-10 rounded-[2.5rem] bg-cover bg-center shadow-[0_50px_100px_-40px_rgb(0_0_0/0.7)] transition-[background-image] duration-500 sm:-inset-10 lg:left-[48%]"
-      [style.background-image]="'url(' + backgrounds.active().src + ')'"
-    ></div>
-
-    <section
-      class="grid w-full overflow-hidden rounded-[1.75rem] shadow-[0_40px_90px_-35px_rgb(0_0_0/0.65),0_2px_8px_-2px_rgb(0_0_0/0.25)] ring-1 ring-white/12 lg:grid-cols-[1.05fr_1fr]"
+      class="relative isolate hidden flex-col gap-10 overflow-hidden bg-[var(--qa-light)] p-10 lg:flex xl:p-12"
     >
-      <!-- Light panel: brand + product preview -->
-      <div
-        class="relative isolate hidden flex-col gap-10 overflow-hidden bg-[var(--qa-light)] p-10 lg:flex xl:p-12"
-      >
-        <div class="flex items-center gap-2.5">
-          <svg
-            aria-hidden="true"
-            class="size-7 text-[var(--qa-mark)]"
-            viewBox="0 0 32 32"
-            fill="currentColor"
-          >
-            <path
-              d="M16 15C11 3 3 4 4 10s6 6 12 5Zm0 0c5-12 13-11 12-5s-6 6-12 5Zm0 2c-5 12-13 11-12 5s6-6 12-5Zm0 0c5 12 13 11 12 5s-6-6-12-5Z"
-            />
-          </svg>
-          <span class="text-lg font-bold tracking-tight text-[var(--qa-ink)]">PRMS</span>
-          <span class="text-sm text-[var(--qa-muted-ink)]">quality assurance</span>
-        </div>
-
-        <div class="relative mx-auto w-full max-w-[24rem]">
-          <svg
-            aria-hidden="true"
-            class="absolute -inset-x-16 -inset-y-12 -z-10 h-[calc(100%+6rem)] w-[calc(100%+8rem)] text-[var(--qa-blob)]"
-            viewBox="0 0 400 420"
-            preserveAspectRatio="none"
-            fill="currentColor"
-          >
-            <path
-              d="M214 8c78 4 150 46 170 122 18 70-26 112-16 176 10 66-40 110-118 108-74-2-112-38-170-46C10 360-8 296 4 232 16 168 66 150 72 98 80 30 140 4 214 8Z"
-            />
-          </svg>
-          <app-result-preview />
-        </div>
-
-        <div class="mt-auto max-w-sm">
-          <p
-            class="text-2xl leading-snug font-semibold tracking-tight text-balance text-[var(--qa-ink)]"
-          >
-            Quality assurance for CGIAR results
-          </p>
-          <p class="mt-2 text-sm leading-relaxed text-[var(--qa-muted-ink)]">
-            Assess every reported result field by field, from the first review to the final agreed
-            correction.
-          </p>
-        </div>
+      <div class="flex items-center gap-2.5">
+        <svg
+          aria-hidden="true"
+          class="size-7 text-[var(--qa-mark)]"
+          viewBox="0 0 32 32"
+          fill="currentColor"
+        >
+          <path
+            d="M16 15C11 3 3 4 4 10s6 6 12 5Zm0 0c5-12 13-11 12-5s-6 6-12 5Zm0 2c-5 12-13 11-12 5s6-6 12-5Zm0 0c5 12 13 11 12 5s-6-6-12-5Z"
+          />
+        </svg>
+        <span class="text-lg font-bold tracking-tight text-[var(--qa-ink)]">PRMS</span>
+        <span class="text-sm text-[var(--qa-muted-ink)]">quality assurance</span>
       </div>
 
-      <!-- Form panel -->
+      <div class="relative mx-auto w-full max-w-[24rem]">
+        <svg
+          aria-hidden="true"
+          class="absolute -inset-x-16 -inset-y-12 -z-10 h-[calc(100%+6rem)] w-[calc(100%+8rem)] text-[var(--qa-blob)]"
+          viewBox="0 0 400 420"
+          preserveAspectRatio="none"
+          fill="currentColor"
+        >
+          <path
+            d="M214 8c78 4 150 46 170 122 18 70-26 112-16 176 10 66-40 110-118 108-74-2-112-38-170-46C10 360-8 296 4 232 16 168 66 150 72 98 80 30 140 4 214 8Z"
+          />
+        </svg>
+        <app-result-preview />
+      </div>
+
+      <div class="mt-auto max-w-sm">
+        <p
+          class="text-2xl leading-snug font-semibold tracking-tight text-balance text-[var(--qa-ink)]"
+        >
+          Quality assurance for CGIAR results
+        </p>
+        <p class="mt-2 text-sm leading-relaxed text-[var(--qa-muted-ink)]">
+          Assess every reported result field by field, from the first review to the final agreed
+          correction.
+        </p>
+      </div>
+    </div>
+
+    <!-- Form panel -->
+    <div
+      class="on-dark relative isolate flex flex-col justify-center overflow-hidden px-6 py-10 sm:px-12 lg:py-14 xl:px-16"
+    >
+      <!-- Generated image only inside the form panel, seen through a glass layer -->
       <div
-        class="on-dark crystal flex flex-col justify-center px-6 py-10 sm:px-12 lg:py-14 xl:px-16"
-      >
-        <div class="mb-10 flex items-center gap-2.5 lg:hidden">
-          <svg
-            aria-hidden="true"
-            class="size-6 text-[var(--qa-mark)]"
-            viewBox="0 0 32 32"
-            fill="currentColor"
+        aria-hidden="true"
+        data-testid="login-image"
+        class="absolute inset-0 -z-20 bg-cover bg-center transition-[background-image] duration-500"
+        [style.background-image]="'url(' + backgrounds.active().src + ')'"
+      ></div>
+      <div aria-hidden="true" class="crystal absolute inset-0 -z-10"></div>
+
+      <div class="mb-10 flex items-center gap-2.5 lg:hidden">
+        <svg
+          aria-hidden="true"
+          class="size-6 text-[var(--qa-mark)]"
+          viewBox="0 0 32 32"
+          fill="currentColor"
+        >
+          <path
+            d="M16 15C11 3 3 4 4 10s6 6 12 5Zm0 0c5-12 13-11 12-5s-6 6-12 5Zm0 2c-5 12-13 11-12 5s6-6 12-5Zm0 0c5 12 13 11 12 5s-6-6-12-5Z"
+          />
+        </svg>
+        <span class="font-bold tracking-tight text-[var(--qa-on-dark)]">PRMS</span>
+        <span class="text-sm text-[var(--qa-muted-on-dark)]">quality assurance</span>
+      </div>
+
+      <div class="w-full max-w-sm">
+        <h1 class="text-3xl font-semibold tracking-tight text-[var(--qa-on-dark)]">Sign in</h1>
+        <p class="mt-2 text-sm text-[var(--qa-muted-on-dark)]">
+          Use your institutional email to continue.
+        </p>
+
+        @if (isStub) {
+          <p
+            class="mt-6 flex gap-2.5 rounded-xl bg-[var(--qa-field)] px-3.5 py-3 text-sm leading-relaxed text-[var(--qa-muted-on-dark)]"
+            data-testid="stub-notice"
           >
-            <path
-              d="M16 15C11 3 3 4 4 10s6 6 12 5Zm0 0c5-12 13-11 12-5s-6 6-12 5Zm0 2c-5 12-13 11-12 5s6-6 12-5Zm0 0c5 12 13 11 12 5s-6-6-12-5Z"
-            />
-          </svg>
-          <span class="font-bold tracking-tight text-[var(--qa-on-dark)]">PRMS</span>
-          <span class="text-sm text-[var(--qa-muted-on-dark)]">quality assurance</span>
-        </div>
-
-        <div class="w-full max-w-sm">
-          <h1 class="text-3xl font-semibold tracking-tight text-[var(--qa-on-dark)]">Sign in</h1>
-          <p class="mt-2 text-sm text-[var(--qa-muted-on-dark)]">
-            Use your institutional email to continue.
-          </p>
-
-          @if (isStub) {
-            <p
-              class="mt-6 flex gap-2.5 rounded-xl bg-[var(--qa-field)] px-3.5 py-3 text-sm leading-relaxed text-[var(--qa-muted-on-dark)]"
-              data-testid="stub-notice"
+            <span
+              aria-hidden="true"
+              class="mt-1.5 size-1.5 shrink-0 rounded-full bg-[var(--qa-accent)]"
+            ></span>
+            <span
+              ><strong class="font-semibold text-[var(--qa-on-dark)]">Development stub.</strong>
+              Authentication is not connected yet; any well-formed email and password are
+              accepted.</span
             >
-              <span
-                aria-hidden="true"
-                class="mt-1.5 size-1.5 shrink-0 rounded-full bg-[var(--qa-accent)]"
-              ></span>
-              <span
-                ><strong class="font-semibold text-[var(--qa-on-dark)]">Development stub.</strong>
-                Authentication is not connected yet; any well-formed email and password are
-                accepted.</span
-              >
+          </p>
+        }
+
+        <div role="alert" aria-live="assertive" class="mt-6 empty:hidden" data-testid="failure">
+          @if (failure(); as message) {
+            <p class="rounded-xl bg-[var(--qa-field)] px-3.5 py-3 text-sm text-[var(--qa-danger)]">
+              {{ message }}
             </p>
           }
+        </div>
 
-          <div role="alert" aria-live="assertive" class="mt-6 empty:hidden" data-testid="failure">
-            @if (failure(); as message) {
-              <p
-                class="rounded-xl bg-[var(--qa-field)] px-3.5 py-3 text-sm text-[var(--qa-danger)]"
-              >
-                {{ message }}
-              </p>
+        <form class="mt-7 grid gap-5" novalidate (submit)="onSubmit($event)">
+          <div hlmField class="data-[matches-spartan-invalid=true]:text-[var(--qa-on-dark)]">
+            <label hlmFieldLabel for="email" class="text-[var(--qa-on-dark)]">Email</label>
+            <input
+              hlmInput
+              id="email"
+              type="email"
+              autocomplete="username"
+              inputmode="email"
+              placeholder="name@cgiar.org"
+              class="filled placeholder:text-[var(--qa-muted-on-dark)]/70 data-[matches-spartan-invalid=true]:border-transparent data-[matches-spartan-invalid=true]:ring-0"
+              [formField]="loginForm.email"
+              [attr.data-show-error]="showErrors(loginForm.email)"
+              [attr.aria-describedby]="showErrors(loginForm.email) ? 'email-error' : null"
+            />
+            @if (showErrors(loginForm.email)) {
+              <hlm-field-error id="email-error" forceShow class="text-[var(--qa-danger)]">
+                {{ loginForm.email().errors()[0].message }}
+              </hlm-field-error>
             }
           </div>
 
-          <form class="mt-7 grid gap-5" novalidate (submit)="onSubmit($event)">
-            <div hlmField class="data-[matches-spartan-invalid=true]:text-[var(--qa-on-dark)]">
-              <label hlmFieldLabel for="email" class="text-[var(--qa-on-dark)]">Email</label>
-              <input
-                hlmInput
-                id="email"
-                type="email"
-                autocomplete="username"
-                inputmode="email"
-                placeholder="name@cgiar.org"
-                class="filled placeholder:text-[var(--qa-muted-on-dark)]/70 data-[matches-spartan-invalid=true]:border-transparent data-[matches-spartan-invalid=true]:ring-0"
-                [formField]="loginForm.email"
-                [attr.data-show-error]="showErrors(loginForm.email)"
-                [attr.aria-describedby]="showErrors(loginForm.email) ? 'email-error' : null"
-              />
-              @if (showErrors(loginForm.email)) {
-                <hlm-field-error id="email-error" forceShow class="text-[var(--qa-danger)]">
-                  {{ loginForm.email().errors()[0].message }}
-                </hlm-field-error>
-              }
-            </div>
+          <div hlmField class="data-[matches-spartan-invalid=true]:text-[var(--qa-on-dark)]">
+            <label hlmFieldLabel for="password" class="text-[var(--qa-on-dark)]">Password</label>
+            <input
+              hlmInput
+              id="password"
+              type="password"
+              autocomplete="current-password"
+              class="filled placeholder:text-[var(--qa-muted-on-dark)]/70 data-[matches-spartan-invalid=true]:border-transparent data-[matches-spartan-invalid=true]:ring-0"
+              [formField]="loginForm.password"
+              [attr.data-show-error]="showErrors(loginForm.password)"
+              [attr.aria-describedby]="showErrors(loginForm.password) ? 'password-error' : null"
+            />
+            @if (showErrors(loginForm.password)) {
+              <hlm-field-error id="password-error" forceShow class="text-[var(--qa-danger)]">
+                {{ loginForm.password().errors()[0].message }}
+              </hlm-field-error>
+            }
+          </div>
 
-            <div hlmField class="data-[matches-spartan-invalid=true]:text-[var(--qa-on-dark)]">
-              <label hlmFieldLabel for="password" class="text-[var(--qa-on-dark)]">Password</label>
-              <input
-                hlmInput
-                id="password"
-                type="password"
-                autocomplete="current-password"
-                class="filled placeholder:text-[var(--qa-muted-on-dark)]/70 data-[matches-spartan-invalid=true]:border-transparent data-[matches-spartan-invalid=true]:ring-0"
-                [formField]="loginForm.password"
-                [attr.data-show-error]="showErrors(loginForm.password)"
-                [attr.aria-describedby]="showErrors(loginForm.password) ? 'password-error' : null"
-              />
-              @if (showErrors(loginForm.password)) {
-                <hlm-field-error id="password-error" forceShow class="text-[var(--qa-danger)]">
-                  {{ loginForm.password().errors()[0].message }}
-                </hlm-field-error>
-              }
-            </div>
-
-            <button
-              hlmBtn
-              type="submit"
-              class="mt-2 h-11 w-full rounded-full bg-[var(--qa-light)] text-sm font-semibold text-[var(--qa-ink)] shadow-[0_10px_24px_-12px_rgb(0_0_0/0.6)] hover:bg-white focus-visible:ring-[var(--qa-primary-soft)]"
-              [disabled]="busy()"
-              [attr.aria-busy]="busy()"
-            >
-              @if (busy()) {
-                <hlm-spinner aria-label="Signing in" />
-                Signing in…
-              } @else {
-                Sign in
-              }
-            </button>
-          </form>
-        </div>
+          <button
+            hlmBtn
+            type="submit"
+            class="mt-2 h-11 w-full rounded-full bg-[var(--qa-light)] text-sm font-semibold text-[var(--qa-ink)] shadow-[0_10px_24px_-12px_rgb(0_0_0/0.6)] hover:bg-white focus-visible:ring-[var(--qa-primary-soft)]"
+            [disabled]="busy()"
+            [attr.aria-busy]="busy()"
+          >
+            @if (busy()) {
+              <hlm-spinner aria-label="Signing in" />
+              Signing in…
+            } @else {
+              Sign in
+            }
+          </button>
+        </form>
       </div>
-    </section>
-  </div>
+    </div>
+  </section>
 </main>
