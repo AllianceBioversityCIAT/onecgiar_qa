@@ -89,7 +89,7 @@ const FIELDS: readonly PreviewField[] = [
               <p class="mt-1 truncate text-[0.8125rem] text-[var(--qa-ink)]">{{ field.value }}</p>
               @if (field.comment) {
                 <p
-                  class="preview-comment mt-2 flex overflow-hidden items-start gap-2 border-t border-black/5 pt-2 text-xs text-[var(--qa-muted-ink)]"
+                  class="preview-comment mt-2 flex items-start gap-2 border-t border-black/5 pt-2 text-xs text-[var(--qa-muted-ink)]"
                 >
                   <span
                     class="grid size-5 shrink-0 place-items-center rounded-full bg-[var(--qa-ink)] text-[0.5625rem] font-semibold text-white"
@@ -150,7 +150,7 @@ export class ResultPreview {
 
       const timeline = createTimeline({ loop: true, loopDelay: 2600, delay: 600 })
         .set(verdicts, { opacity: 0, translateX: 6 })
-        .set(comment, { opacity: 0, maxHeight: 0, marginTop: 0, paddingTop: 0 })
+        .set(comment, { opacity: 0, translateY: 4 })
         .set('.preview-progress', { scaleX: 0 })
         .call(() => {
           count.textContent = '0';
@@ -171,9 +171,7 @@ export class ResultPreview {
             comment,
             {
               opacity: 1,
-              maxHeight: 64,
-              marginTop: 8,
-              paddingTop: 8,
+              translateY: 0,
               duration: 420,
               ease: 'outCubic',
             },
