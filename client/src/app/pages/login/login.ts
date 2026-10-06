@@ -40,7 +40,7 @@ import { ResultPreview } from './result-preview';
       backdrop-filter: blur(16px) saturate(150%);
       background:
         radial-gradient(120% 70% at 50% 0%, oklch(1 0 0 / 0.08), transparent 60%),
-        color-mix(in oklch, var(--qa-surface) 72%, transparent);
+        color-mix(in oklch, var(--qa-surface) 58%, transparent);
       box-shadow: inset 1px 0 0 oklch(1 0 0 / 0.1);
     }
     @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
