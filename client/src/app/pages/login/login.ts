@@ -25,20 +25,6 @@ import { ResultPreview } from './result-preview';
       --ring: var(--qa-primary-soft);
       --destructive: var(--qa-danger);
     }
-    /* Form panel: the palette surface as tinted glass over the backdrop image. */
-    .crystal {
-      background:
-        radial-gradient(120% 70% at 50% 0%, oklch(1 0 0 / 0.08), transparent 60%),
-        color-mix(in oklch, var(--qa-surface) 72%, transparent);
-      box-shadow: inset 1px 0 0 oklch(1 0 0 / 0.1);
-      -webkit-backdrop-filter: blur(28px) saturate(150%);
-      backdrop-filter: blur(28px) saturate(150%);
-    }
-    @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-      .crystal {
-        background: var(--qa-surface);
-      }
-    }
     .filled {
       height: 2.875rem;
       border-radius: 0.75rem;
