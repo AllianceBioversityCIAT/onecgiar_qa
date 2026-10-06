@@ -23,25 +23,9 @@
         <mask id="login-grid-mask">
           <rect width="600" height="900" fill="url(#login-grid-fade)" />
         </mask>
-        <linearGradient id="login-arc" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" style="stop-color: var(--color-primary-ring); stop-opacity: 0.55" />
-          <stop offset="1" style="stop-color: var(--color-primary-ring); stop-opacity: 0" />
-        </linearGradient>
       </defs>
 
       <rect width="600" height="900" fill="url(#login-grid)" mask="url(#login-grid-mask)" />
-
-      <g stroke="url(#login-arc)" stroke-width="1">
-        <circle cx="600" cy="900" r="180" />
-        <circle cx="600" cy="900" r="260" />
-        <circle cx="600" cy="900" r="340" stroke-dasharray="2 6" />
-        <circle cx="600" cy="900" r="420" />
-        <circle cx="600" cy="900" r="500" stroke-opacity="0.6" />
-      </g>
-
-      <path d="M-40 640 L640 120" class="stroke-prms-soft" stroke-opacity="0.18" />
-      <circle cx="372" cy="325" r="4" class="fill-primary-ring" />
-      <circle cx="372" cy="325" r="12" stroke-opacity="0.4" class="login-pulse stroke-primary-ring" />
     </svg>
     <div
       aria-hidden="true"
@@ -60,6 +44,8 @@
       >
       <span class="text-sm font-semibold tracking-[0.18em] text-white/85 uppercase">PRMS</span>
     </div>
+
+    <app-qa-showcase class="mx-auto hidden w-full max-w-[30rem] lg:block" />
 
     <div class="max-w-md">
       <p
@@ -81,25 +67,9 @@
       </p>
     </div>
 
-    <ol class="relative hidden gap-4 text-sm sm:grid" aria-label="QA workflow">
-      <span
-        aria-hidden="true"
-        class="absolute top-3 bottom-3 left-[0.6875rem] w-px bg-gradient-to-b from-primary-ring/70 via-white/20 to-white/5"
-      ></span>
-      @for (step of ['Assess', 'Respond', 'Review', 'Decide', 'Apply']; track step; let i = $index) {
-        <li class="relative flex items-center gap-4 text-white/85">
-          <span
-            aria-hidden="true"
-            class="grid size-6 place-items-center rounded-full border bg-brand-950 font-mono text-[0.6875rem]"
-            [class]="
-              i === 0
-                ? 'border-primary-ring text-primary-ring shadow-[0_0_0_4px_rgb(94_234_212/0.12)]'
-                : 'border-white/30 text-white/80'
-            "
-            >{{ i + 1 }}</span
-          >
-          {{ step }}
-        </li>
+    <ol class="sr-only" aria-label="QA workflow">
+      @for (step of ['Assess', 'Respond', 'Review', 'Decide', 'Apply']; track step) {
+        <li>{{ step }}</li>
       }
     </ol>
   </section>
@@ -255,21 +225,6 @@
           }
         </button>
       </form>
-
-      <p class="mt-8 flex items-center gap-2 text-xs text-ink-muted">
-        <svg
-          aria-hidden="true"
-          class="size-3.5 shrink-0 text-primary"
-          viewBox="0 0 20 20"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="1.75"
-          stroke-linejoin="round"
-        >
-          <path d="M10 2.5 4 5v4.5c0 3.7 2.6 6.9 6 8 3.4-1.1 6-4.3 6-8V5l-6-2.5Z" />
-        </svg>
-        Access is limited to CGIAR QA reviewers and reporting teams.
-      </p>
     </div>
   </section>
 </main>

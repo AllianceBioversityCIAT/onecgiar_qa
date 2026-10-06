@@ -4,10 +4,11 @@ import { FieldTree, FormField, email, form, required, submit } from '@angular/fo
 import { AuthError, AuthProvider } from '../../auth/auth-provider';
 import { AuthSession } from '../../auth/auth-session';
 import { safeReturnUrl } from '../../auth/auth-guards';
+import { QaShowcase } from './qa-showcase';
 
 @Component({
   selector: 'app-login',
-  imports: [FormField],
+  imports: [FormField, QaShowcase],
   templateUrl: './login.html',
   styles: `
     .field-wrap {
@@ -85,10 +86,6 @@ import { safeReturnUrl } from '../../auth/auth-guards';
       .login-shake {
         animation: login-shake 320ms ease-in-out;
       }
-      .login-pulse {
-        transform-origin: 372px 325px;
-        animation: login-pulse 2.8s ease-out infinite;
-      }
     }
     @keyframes login-rise {
       from {
@@ -102,16 +99,6 @@ import { safeReturnUrl } from '../../auth/auth-guards';
       }
       75% {
         transform: translateX(3px);
-      }
-    }
-    @keyframes login-pulse {
-      from {
-        transform: scale(0.6);
-        opacity: 1;
-      }
-      to {
-        transform: scale(2.2);
-        opacity: 0;
       }
     }
   `,
