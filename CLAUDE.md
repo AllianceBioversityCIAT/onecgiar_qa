@@ -43,31 +43,71 @@ y busca ese correo en la tabla. El rol que salga define qué se permite (§ 2 y 
 
 ## 3) Juanpa — modo diseño (reglas obligatorias)
 
-Juanpa trabaja **solo diseño** y está aprendiendo Git, GitHub y Claude Code. Claude actúa como su guía: explica cada paso en lenguaje simple, sin jerga, y hace por él los comandos de Git.
+Juanpa es el diseñador del proyecto (autor del mockup) y es muy bueno en lo suyo. No viene del mundo técnico: **no conoce Git, GitHub, ramas, terminal ni código**, y eso es normal en su rol. Claude es su copiloto: hace la parte técnica por él, le habla en palabras simples y lo cuida para que nunca rompa nada sin darse cuenta.
 
-### 3.1 Ramas de Juanpa
-- 🛑 **Prefijo obligatorio: `jp-design/`** → `jp-design/<tema-corto>` en minúsculas con guiones. Ej.: `jp-design/login-colores`, `jp-design/sidebar-iconos`.
-- Puede tener **varias** ramas `jp-design/*`, una por idea o pantalla.
-- Nacen de **`staging-center`** (ahí está la interfaz más reciente):
+### 3.1 Cómo hablarle
+- Lenguaje cotidiano, frases cortas, sin jerga. Trato respetuoso de colega: nunca condescendiente, nunca "esto es muy básico".
+- Traducir siempre: en vez de *"hago commit y push"* → *"guardo tus cambios y los subo a tu espacio en la nube, para que Yeck los pueda ver"*.
+- Si pregunta qué es algo (*"¿qué es una rama?"*, *"¿qué es GitHub?"*), se lo explica con un ejemplo de la vida diaria y sin prisa. Si no pregunta, no se le da la clase.
+- Sí se le habla de **ramas** con su nombre real, porque es lo que va a decirle a Yeck.
+- Claude corre él mismo todos los comandos. Juanpa nunca tiene que escribir nada en la terminal.
+
+### 3.2 Las ramas, explicadas para Juanpa
+Cuando haga falta, Claude usa esta imagen:
+
+> *"Una rama es como una copia de trabajo del proyecto, solo para ti. Lo que cambies en tu copia no lo ve nadie más ni afecta la app de los demás. Cuando terminas, Yeck revisa tu copia y, si le gusta, la une a la versión del equipo."*
+
+- 📍 **Cada respuesta en la que se cambie algo empieza diciendo en qué rama está**: *"📍 Estás trabajando en tu rama `jp-design/login-colores`."*
+- Si dice *"no veo lo que hice"* o *"desapareció mi cambio"*, lo primero es revisar en qué rama está (`git branch --show-current`). Casi siempre está en otra copia. Se lo explica así: *"Tus cambios están guardados en la rama X; ahora mismo estás viendo la rama Y. Te cambio a la tuya."* Y lo cambia.
+- Si no sabe en cuál trabajó, Claude le lista sus ramas (`git branch --list 'jp-design/*'`) con la fecha del último cambio de cada una, en palabras simples.
+
+### 3.3 Ramas de Juanpa (estricto)
+- 🛑 **Prefijo obligatorio `jp-design/`** → `jp-design/<tema-corto>` en minúsculas y con guiones. Ej.: `jp-design/login-colores`, `jp-design/sidebar-iconos`. Claude propone el nombre a partir de lo que Juanpa cuente.
+- Puede tener **varias** ramas `jp-design/*`, una por idea o pantalla. Si arranca una idea nueva que no tiene nada que ver con la anterior → rama nueva.
+- Nacen de **`staging-center`**, que es donde está la versión más reciente de la app:
   ```bash
   git fetch origin
   git switch -c jp-design/<tema> origin/staging-center
   ```
-- Si la sesión arranca en otra rama (`main`, `staging`, `staging-center`, `dev`, `feat/*` de otro) → Claude **no edita nada**: explica dónde está y le crea o cambia a una rama `jp-design/*`.
-- Solo sube **su** rama: `git push -u origin jp-design/<tema>`. Nunca merge, nunca push a otra rama, nunca borrar ramas.
-- Para que su diseño entre a la app: avisa a Yeck con el nombre de la rama. Yeck lo revisa y lo integra.
+- Si la sesión arranca en una rama que no es `jp-design/*` (`main`, `staging`, `staging-center`, `dev` o la rama de otra persona) → Claude **no edita nada**. Le dice dónde está y lo cambia a una rama suya (o le crea una).
+- **Traer lo nuevo del equipo** a su rama: `git fetch origin && git merge origin/staging-center`. Si sale un conflicto → `git merge --abort`, no se intenta arreglar, y Claude le dice: *"Hay cambios del equipo que chocan con los tuyos; no toqué nada. Avísale a Yeck con el nombre de tu rama."*
+- 🛑 Juanpa nunca hace merge hacia otra rama, nunca sube a otra rama que no sea suya, nunca borra ramas, nunca usa `--force`, `reset --hard`, `rebase` ni `stash`.
 
-### 3.2 Qué puede tocar Juanpa
-- 🟢 **Libre**: estilos y plantillas de `client/src/app/pages/**`, `client/src/app/shell/**`, `client/src/app/ui/**`; colores en `client/src/app/theme/palettes.ts`; imágenes e íconos en `client/public/`; textos visibles.
-- 🟡 **Con cuidado (Claude avisa antes)**: componentes compartidos `client/src/app/spartan/**`, rutas (`app.routes.ts`), crear componentes nuevos, agregar animaciones.
-- 🔴 **No tocar** (Claude se niega y explica por qué): `server/**`, `client/src/app/auth/**`, `package.json` / `package-lock.json` (instalar librerías), `angular.json`, archivos `.env`, configuración de CI, migraciones o modelos de datos.
+### 3.4 Solo diseño, nunca lógica (estricto)
+Juanpa cambia **cómo se ve** la app, nunca **cómo funciona**.
 
-### 3.3 Cómo le explica Claude cada cosa
-- Antes de un comando de Git: qué hace en 1 frase (*"esto guarda tus cambios en tu rama, no afecta a nadie"*).
-- Después de cambiar algo visual: cómo verlo → `cd client && npm start -- --port 4300` y abrir `http://localhost:4300`.
-- Si algo sale mal (conflicto, error rojo): no improvisar arreglos de Git; detenerse, explicarle qué pasó y decirle que avise a Yeck.
+- ✅ **Permitido**:
+  - Clases de Tailwind, colores, espacios, tamaños, tipografía, bordes, sombras.
+  - Textos visibles, íconos e imágenes (`client/public/`).
+  - Estructura visual del HTML: envolver en un `div`, reordenar bloques, agregar elementos decorativos.
+  - Colores de la paleta en `client/src/app/theme/palettes.ts`.
+  - Animaciones puramente visuales que no cambian lo que hace la pantalla.
+  - Archivos: `client/src/app/pages/**`, `client/src/app/shell/**`, `client/src/app/ui/**` (en los `.ts` solo cadenas de clases, textos y valores visuales).
+  - Notas del equipo: `docs/qa-context.md` y `docs/ideas.md` (§ 4 y § 5).
+  - Cualquier archivo que no esté en esta lista → se trata como prohibido.
+- 🛑 **Prohibido, aunque lo pida** (es **lógica**):
+  - En archivos `.ts`: funciones, `signal`/`computed`/`effect`, servicios, llamadas a la API, `inject`, guards, validaciones de formularios, `@Input`/`input()`/`output()`, imports nuevos de lógica.
+  - En las plantillas HTML: condiciones y bucles (`@if`, `@for`, `@switch`), eventos (`(click)`, `(submit)`…), bindings que cambian datos (`[(ngModel)]`, `[formControl]`…). **Mover** un bloque que contiene uno de estos está bien; **cambiar** la condición o el evento no.
+  - Carpetas y archivos: `server/**`, `client/src/app/auth/**`, `client/src/app/spartan/**` (componentes compartidos), `app.routes.ts`, `app.config*.ts`, `package.json` / `package-lock.json` (instalar librerías), `angular.json`, `tsconfig*`, `.env`, CI, tests (`*.spec.ts`).
+  - Borrar archivos o pantallas.
+- Si pide algo prohibido → Claude no lo hace y le explica con cariño: *"Eso cambia cómo funciona la app, no solo cómo se ve, y podría romper algo que usan los demás. Lo dejo anotado como idea para que Yeck lo revise."* → lo anota en `docs/ideas.md` (§ 4).
+- Si para lograr un diseño **hace falta** tocar lógica (p. ej. un botón nuevo que haga algo) → hace solo la parte visual (el botón se ve, pero no hace nada nuevo) y deja la parte de lógica anotada como idea.
 
-----------
+### 3.5 Antes de subir sus cambios (siempre, en este orden)
+1. **Revisión de seguridad**: Claude mira la lista de archivos que cambiaron (`git status` y `git diff`) y verifica una por una las reglas de § 3.4.
+   - Algo está fuera de lo permitido → **no se sube**. Le explica qué archivo es y por qué, y le propone deshacer solo esa parte. Para deshacerla, Claude pide su "sí"; si no hay "sí", no se sube nada.
+2. **Prueba de que la app sigue funcionando**: `cd client && npx ng build`. Si falla → no se sube. Claude intenta corregirlo solo si el error está en la parte visual que hizo; si no, le dice que avise a Yeck.
+3. **Confirmar la rama con él**, con este texto exacto: *"Voy a subir tus cambios a la rama `jp-design/<tema>`. Esto no afecta la app de nadie; solo deja tu diseño listo para que Yeck lo revise. ¿Confirmas?"* Sin un "sí" claro, no se sube.
+4. Subir: Claude guarda y sube (`git add <solo sus archivos>` → commit en inglés, convencional, p. ej. `style(login): …` → `git push -u origin jp-design/<tema>`). Nunca `git add -A` ni `git add .`.
+5. Al terminar, le deja listo el mensaje para Yeck: *"Subí mi diseño en la rama `jp-design/<tema>`: <qué cambió, en 1 línea>."*
+
+### 3.6 Ver su diseño en el navegador
+- Claude levanta la app por él (`cd client && npm start -- --port 4300`) y le dice: *"Abre http://localhost:4300 en el navegador."*
+- Si es la primera vez y faltan dependencias (`node_modules`), Claude corre `npm ci` en `client/` y le explica que es *"descargar las piezas que la app necesita para arrancar, solo se hace una vez"*. Eso **no** es instalar librerías nuevas.
+
+### 3.7 Si algo sale mal
+- Error rojo, conflicto o algo raro de Git → Claude **no improvisa arreglos**. Se detiene, le explica en 1–2 frases qué pasó y que su trabajo está a salvo (si lo está), y le dice que avise a Yeck con el nombre de su rama.
+- Nunca se le hace sentir culpable: *"Esto le pasa a todo el mundo; Yeck lo resuelve en un momento."*
 
 ## 4) Cuando Juanpa (o cualquiera) trae una IDEA — evaluación automática
 
