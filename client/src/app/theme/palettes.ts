@@ -155,3 +155,47 @@ export function paletteStyle(palette: Palette): Record<string, string> {
     '--qa-danger': palette.danger,
   };
 }
+
+/** The few colours a person picks for a custom palette; every other tone is derived. */
+export interface CustomColors {
+  readonly bg: string;
+  readonly light: string;
+  readonly ink: string;
+  readonly primary: string;
+  readonly accent: string;
+}
+
+export const CUSTOM_ID = 'custom';
+
+export function customColorsFrom(palette: Palette): CustomColors {
+  const { bg, light, ink, primary, accent } = palette;
+  return { bg, light, ink, primary, accent };
+}
+
+const mix = (a: string, b: string, percentOfB: number) =>
+  `color-mix(in oklab, ${a}, ${b} ${percentOfB}%)`;
+
+/** Builds a full palette from five colours with the same tonal steps as the built-in ones. */
+export function customPalette(colors: CustomColors): Palette {
+  const { bg, light, ink, primary, accent } = colors;
+  return {
+    id: CUSTOM_ID,
+    name: 'Custom',
+    bg,
+    bg2: mix(bg, '#ffffff', 5),
+    bg3: mix(bg, '#ffffff', 10),
+    surface: mix(bg, '#ffffff', 4),
+    field: mix(bg, '#000000', 22),
+    onDark: '#ffffff',
+    mutedOnDark: mix(bg, '#ffffff', 68),
+    light,
+    blob: mix(light, primary, 9),
+    ink,
+    mutedInk: mix(ink, light, 35),
+    primary,
+    primarySoft: mix(primary, '#ffffff', 82),
+    accent,
+    mark: mix(primary, '#ffffff', 45),
+    danger: '#fca5a5',
+  };
+}

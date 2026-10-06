@@ -1,6 +1,5 @@
 <main
   class="relative isolate grid min-h-dvh place-items-center overflow-hidden bg-[var(--qa-bg)] px-4 py-10 transition-colors duration-500 sm:px-8"
-  [style]="paletteVars()"
   (pointermove)="trackPointer($event)"
 >
   <!-- Matte background: tonal shapes of the same hue, no glow -->
@@ -196,11 +195,4 @@
       </div>
     </div>
   </section>
-
-  <app-palette-switcher
-    class="fixed bottom-4 left-1/2 -translate-x-1/2 sm:right-5 sm:left-auto sm:translate-x-0"
-    [palettes]="palettes"
-    [selected]="palette().id"
-    (pick)="choosePalette($event)"
-  />
 </main>

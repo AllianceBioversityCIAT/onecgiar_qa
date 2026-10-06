@@ -1,4 +1,4 @@
-import { Component, afterNextRender, computed, inject, signal } from '@angular/core';
+import { Component, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { FieldTree, FormField, email, form, required, submit } from '@angular/forms/signals';
 import { HlmButton } from '@spartan/button';
@@ -8,23 +8,11 @@ import { HlmSpinner } from '@spartan/spinner';
 import { AuthError, AuthProvider } from '../../auth/auth-provider';
 import { AuthSession } from '../../auth/auth-session';
 import { safeReturnUrl } from '../../auth/auth-guards';
-import { PaletteSwitcher } from './palette-switcher';
-import { DEFAULT_PALETTE, PALETTES, Palette, paletteStyle } from './palettes';
 import { ResultPreview } from './result-preview';
-
-const PALETTE_KEY = 'qa.login.palette';
 
 @Component({
   selector: 'app-login',
-  imports: [
-    FormField,
-    HlmButton,
-    HlmFieldImports,
-    HlmInput,
-    HlmSpinner,
-    PaletteSwitcher,
-    ResultPreview,
-  ],
+  imports: [FormField, HlmButton, HlmFieldImports, HlmInput, HlmSpinner, ResultPreview],
   templateUrl: './login.html',
   styles: `
     /* Spartan tokens re-pointed to the active palette inside the dark form panel. */
@@ -65,10 +53,6 @@ export class LoginPage {
   protected readonly busy = this.session.signingIn;
   protected readonly failure = signal<string | null>(null);
 
-  protected readonly palettes = PALETTES;
-  protected readonly palette = signal<Palette>(DEFAULT_PALETTE);
-  protected readonly paletteVars = computed(() => paletteStyle(this.palette()));
-
   /** Pointer offset (-0.5..0.5) for the slow parallax of the matte background shapes. */
   protected readonly pointer = signal({ x: 0, y: 0 });
 
@@ -78,25 +62,6 @@ export class LoginPage {
     email(fields.email, { message: 'Enter a valid email address, like name@cgiar.org.' });
     required(fields.password, { message: 'Enter your password.' });
   });
-
-  constructor() {
-    afterNextRender(() => {
-      const saved = readSavedPalette();
-      const match = PALETTES.find((p) => p.id === saved);
-      if (match) {
-        this.palette.set(match);
-      }
-    });
-  }
-
-  protected choosePalette(palette: Palette): void {
-    this.palette.set(palette);
-    try {
-      localStorage.setItem(PALETTE_KEY, palette.id);
-    } catch {
-      // storage blocked: the choice still applies for this visit
-    }
-  }
 
   protected trackPointer(event: PointerEvent): void {
     this.pointer.set({
@@ -133,14 +98,6 @@ export class LoginPage {
       await this.router.navigateByUrl(target);
       return undefined;
     });
-  }
-}
-
-function readSavedPalette(): string | null {
-  try {
-    return localStorage.getItem(PALETTE_KEY);
-  } catch {
-    return null;
   }
 }
 
