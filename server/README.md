@@ -31,6 +31,13 @@
 $ pnpm install
 ```
 
+## Persistence
+
+The server talks to two databases. Copy `.env.example` to `.env` and fill in the values.
+
+- **MySQL with Drizzle** (`src/database/drizzle`): inject the client with `@Inject(DRIZZLE) db: DrizzleDB` from a module that imports `DrizzleModule`. Define tables in `src/database/drizzle/schema/` and re-export them from `index.ts`. Migrations: `pnpm db:generate`, `pnpm db:migrate`, `pnpm db:studio`.
+- **DynamoDB with ElectroDB** (`src/database/dynamodb`): `DynamoDbModule` exports `DYNAMODB_CLIENT` and `DYNAMODB_TABLE_NAME`. Build each entity in a provider factory: `new Entity(schema, { client, table })`. Set `DYNAMODB_ENDPOINT` only for DynamoDB Local.
+
 ## Compile and run the project
 
 ```bash
