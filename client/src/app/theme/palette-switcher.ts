@@ -2,6 +2,7 @@ import { Component, inject, signal } from '@angular/core';
 import { HlmButton } from '@spartan/button';
 import { HlmInput } from '@spartan/input';
 import { CUSTOM_ID, CustomColors, customColorsFrom } from './palettes';
+import { BackgroundStore } from './background-store';
 import { PaletteStore } from './palette-store';
 
 interface ColorSlot {
@@ -79,7 +80,7 @@ const HEX = /^#[0-9a-f]{6}$/i;
 
     <div
       role="group"
-      aria-label="Colour palette preview"
+      aria-label="Palette and background preview"
       class="flex max-w-[calc(100vw-2rem)] items-center gap-1 overflow-x-auto rounded-full bg-white/95 p-1.5 shadow-[0_10px_30px_-12px_rgb(0_0_0/0.45)] ring-1 ring-black/5 sm:pl-3.5"
     >
       <span class="mr-1 hidden text-xs font-medium text-zinc-600 sm:inline">Palette</span>
@@ -111,11 +112,25 @@ const HEX = /^#[0-9a-f]{6}$/i;
         <span aria-hidden="true">+</span>
         <span class="sr-only sm:not-sr-only">Try colours</span>
       </button>
+      <span aria-hidden="true" class="mx-1.5 h-5 w-px shrink-0 bg-zinc-200"></span>
+      <span class="mr-1 hidden text-xs font-medium text-zinc-600 sm:inline">Background</span>
+      @for (bg of backgrounds.backgrounds; track bg.id) {
+        <button
+          type="button"
+          class="size-8 shrink-0 rounded-full bg-cover bg-center ring-1 ring-black/10 transition-shadow hover:ring-zinc-400 focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:outline-none aria-pressed:ring-2 aria-pressed:ring-zinc-900 aria-pressed:ring-offset-2"
+          [style.background-image]="'url(' + bg.src + ')'"
+          [attr.aria-pressed]="bg.id === backgrounds.active().id"
+          [attr.aria-label]="'Background: ' + bg.name"
+          [attr.title]="bg.name"
+          (click)="backgrounds.select(bg.id)"
+        ></button>
+      }
     </div>
   `,
 })
 export class PaletteSwitcher {
   protected readonly store = inject(PaletteStore);
+  protected readonly backgrounds = inject(BackgroundStore);
   protected readonly slots = SLOTS;
   protected readonly editing = signal(false);
   protected readonly draft = signal<CustomColors>(customColorsFrom(this.store.active()));
