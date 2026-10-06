@@ -11,6 +11,29 @@ import { QaShowcase } from './qa-showcase';
   imports: [FormField, QaShowcase],
   templateUrl: './login.html',
   styles: `
+    .brand-spotlight {
+      background: radial-gradient(
+        26rem circle at var(--spot-x, 70%) var(--spot-y, 30%),
+        rgb(94 234 212 / 0.13),
+        transparent 70%
+      );
+    }
+    @media (prefers-reduced-motion: no-preference) {
+      .brand-shimmer {
+        background: linear-gradient(100deg, #5eead4 35%, #ecfeff 50%, #5eead4 65%) 0 0 / 250% 100%;
+        background-clip: text;
+        color: transparent;
+        animation: brand-shimmer 5s ease-in-out infinite;
+      }
+    }
+    @keyframes brand-shimmer {
+      from {
+        background-position: 100% 0;
+      }
+      to {
+        background-position: 0% 0;
+      }
+    }
     .field-wrap {
       position: relative;
       display: grid;
@@ -118,6 +141,14 @@ export class LoginPage {
     email(fields.email, { message: 'Enter a valid email address, like name@cgiar.org.' });
     required(fields.password, { message: 'Enter your password.' });
   });
+
+  /** Moves the soft light of the brand panel under the pointer. */
+  protected followPointer(event: PointerEvent): void {
+    const panel = event.currentTarget as HTMLElement;
+    const box = panel.getBoundingClientRect();
+    panel.style.setProperty('--spot-x', `${event.clientX - box.left}px`);
+    panel.style.setProperty('--spot-y', `${event.clientY - box.top}px`);
+  }
 
   /** Errors show once the field was touched (blur) or a submit was attempted. */
   protected showErrors(field: FieldTree<string>): boolean {
