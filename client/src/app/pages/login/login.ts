@@ -10,23 +10,109 @@ import { safeReturnUrl } from '../../auth/auth-guards';
   imports: [FormField],
   templateUrl: './login.html',
   styles: `
+    .field-wrap {
+      position: relative;
+      display: grid;
+    }
+    .field-icon {
+      position: absolute;
+      inset-block: 0;
+      left: 0.875rem;
+      width: 1.125rem;
+      height: 100%;
+      color: var(--color-ink-muted);
+      pointer-events: none;
+      transition: color 150ms;
+    }
     .field {
-      height: 2.75rem;
-      border-radius: 0.5rem;
+      width: 100%;
+      height: 3rem;
+      border-radius: 0.75rem;
       border: 1px solid var(--color-line);
       background: white;
-      padding-inline: 0.75rem;
+      padding-inline: 2.625rem 0.875rem;
       font-size: 0.9375rem;
       color: var(--color-ink);
-      transition: border-color 120ms, box-shadow 120ms;
+      box-shadow: 0 1px 2px rgb(19 32 30 / 0.04);
+      transition:
+        border-color 150ms,
+        box-shadow 150ms;
+    }
+    .field:hover {
+      border-color: color-mix(in srgb, var(--color-primary) 35%, var(--color-line));
     }
     .field:focus-visible {
       outline: none;
       border-color: var(--color-primary);
-      box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-primary-ring) 55%, transparent);
+      box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-primary-ring) 45%, transparent);
+    }
+    .field-wrap:focus-within .field-icon {
+      color: var(--color-primary);
     }
     .field[aria-invalid='true'] {
       border-color: var(--color-danger);
+    }
+    .field[aria-invalid='true']:focus-visible {
+      box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-danger) 18%, transparent);
+    }
+    .field-wrap:has(.field[aria-invalid='true']) .field-icon {
+      color: var(--color-danger);
+    }
+    .field-error {
+      display: flex;
+      gap: 0.375rem;
+      align-items: baseline;
+      font-size: 0.875rem;
+      color: var(--color-danger);
+    }
+    .field-error::before {
+      content: '';
+      flex: none;
+      width: 0.375rem;
+      height: 0.375rem;
+      border-radius: 9999px;
+      background: currentColor;
+      transform: translateY(-0.125rem);
+    }
+
+    @media (prefers-reduced-motion: no-preference) {
+      .login-enter {
+        animation: login-rise 420ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+      }
+      .field-error {
+        animation: login-rise 180ms ease-out both;
+      }
+      .login-shake {
+        animation: login-shake 320ms ease-in-out;
+      }
+      .login-pulse {
+        transform-origin: 372px 325px;
+        animation: login-pulse 2.8s ease-out infinite;
+      }
+    }
+    @keyframes login-rise {
+      from {
+        opacity: 0;
+        transform: translateY(6px);
+      }
+    }
+    @keyframes login-shake {
+      25% {
+        transform: translateX(-3px);
+      }
+      75% {
+        transform: translateX(3px);
+      }
+    }
+    @keyframes login-pulse {
+      from {
+        transform: scale(0.6);
+        opacity: 1;
+      }
+      to {
+        transform: scale(2.2);
+        opacity: 0;
+      }
     }
   `,
 })
