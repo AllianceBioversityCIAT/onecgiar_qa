@@ -18,4 +18,4 @@
   4. Fonts: Manrope and JetBrains Mono load through a `<link>` in `shell/qa-shell.html`, because an `@import` in the component CSS breaks the `css-inline-fonts` budget. They belong in `index.html`.
   5. `bundle initial` budget warning (~542 kB > 500 kB). The cause is the temporary `app-palette-switcher`, which pulls spartan input, `@angular/forms` and the CDK overlay into the initial bundle. Wrapping it in `@defer (on idle)` in `app.html` brings it down to ~411 kB (tested; `app.spec.ts` then needs `getDeferBlocks()`). Not applied because those are Yeck's files.
   6. Contrast: the "Pending" badge and some grey texts from the mockup are below WCAG AA (≈ 2.9:1). This is a design decision pending with Juanpa.
-  7. The temporary palette switcher (`app-palette-switcher`) covers the bottom-right corner of the views.
+  7. The temporary palette switcher (`app-palette-switcher`) is hidden inside the workspace with CSS (`ui/tokens/qa-tokens.css`) and still shows on the login. Remove it from `app.html` once a palette is chosen.
