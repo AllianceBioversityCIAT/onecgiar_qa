@@ -1,6 +1,5 @@
-import { Component, input, output } from '@angular/core';
+import { Component, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { HlmButton } from '@spartan/button';
 import { ResultStatus } from './overview.mock';
 
 export type StageStatus = 'Closed' | 'In progress' | 'Behind' | 'Not started';
@@ -30,24 +29,13 @@ const STAGE_CHIP: Record<StageStatus, string> = {
 /** "Stage completion" table: one row per stage, each row opens its results. */
 @Component({
   selector: 'qa-ov-stages',
-  imports: [HlmButton, RouterLink],
+  imports: [RouterLink],
   host: { class: 'block @container' },
   template: `
     <section aria-labelledby="overview-stages-title" class="flex flex-col gap-4 rounded-[12px] border border-(--border) bg-(--surface) p-5">
-      <div class="flex flex-wrap items-start gap-4">
-        <div class="flex min-w-[220px] flex-1 flex-col gap-1 @max-md:min-w-0 @max-md:basis-full">
-          <h3 id="overview-stages-title" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">Stage completion</h3>
-          <p class="m-0 text-(length:--fs-13) font-normal text-(--text-3)">Each stage closes when its own condition is met. Nothing closes on a date alone.</p>
-        </div>
-        <button
-          hlmBtn
-          variant="outline"
-          type="button"
-          (click)="export.emit()"
-          class="h-auto min-h-9 flex-none gap-2 @max-md:min-h-10 @max-md:w-full rounded-[8px] border-(--border) bg-(--field-bg) px-[14px] text-(length:--fs-14) font-medium whitespace-nowrap text-(--text-2) shadow-none hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text-2) focus-visible:shadow-(--focus-ring) focus-visible:ring-0"
-        >
-          <svg class="flex-none" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"></path></svg>Export progress
-        </button>
+      <div class="flex flex-col gap-1">
+        <h3 id="overview-stages-title" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">Stage completion</h3>
+        <p class="m-0 text-(length:--fs-13) font-normal text-(--text-3)">Each stage closes when its own condition is met. Nothing closes on a date alone.</p>
       </div>
 
       <!-- >= @4xl: the mockup table. @2xl-@4xl: Status moves under the stage name. < @2xl: rows stack, no header row.
@@ -129,7 +117,6 @@ const STAGE_CHIP: Record<StageStatus, string> = {
 export class OvStages {
   readonly stages = input.required<readonly StageVm[]>();
   readonly shortNote = input<string | null>(null);
-  readonly export = output();
 
   protected readonly chip = STAGE_CHIP;
 }

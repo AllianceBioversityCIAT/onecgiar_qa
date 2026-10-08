@@ -1,16 +1,14 @@
-import { Component, DOCUMENT, DestroyRef, ElementRef, computed, inject, signal, viewChild } from '@angular/core';
+import { Component, DestroyRef, ElementRef, computed, inject, signal, viewChild } from '@angular/core';
 import { HlmButton } from '@spartan/button';
 import { OvAttention, AttentionGroupVm } from './ov-attention';
-import { OvDownloadDrawer } from './ov-download-drawer';
 import { OvLoadDrawer } from './ov-load-drawer';
 import { OvOutcomes, OutcomesVm } from './ov-outcomes';
-import { OvProgressDrawer, ProgressVm } from './ov-progress-drawer';
 import { OvResultsInQa, ResultsInQaVm } from './ov-results-in-qa';
 import { OvStages, StageVm } from './ov-stages';
 import { OvStepCard, StepCardVm } from './ov-step-card';
 import { OvTimelineMenu } from './ov-timeline-menu';
 import { OvWork, WorkRowVm, WorkTab } from './ov-work';
-import { csvDownload, daysFromToday, fmt, shortDate, timelineInfo } from './overview-calc';
+import { daysFromToday, fmt, shortDate, timelineInfo } from './overview-calc';
 import {
   ATTENTION,
   OUTCOMES,
@@ -44,15 +42,11 @@ const ANGLE: Record<'type' | 'program' | 'assessor', string> = { type: 'Result t
     OvWork,
     OvOutcomes,
     OvLoadDrawer,
-    OvProgressDrawer,
-    OvDownloadDrawer,
   ],
   templateUrl: './overview-view.html',
   host: { class: 'block' },
 })
 export class OverviewView {
-  private readonly doc = inject(DOCUMENT);
-
   // ---------- State ----------
   /** Selected timeline id, or 'all'. */
   protected readonly timelineId = signal('all');
@@ -60,8 +54,6 @@ export class OverviewView {
   /** Row of "Where the work is" briefly highlighted after a Needs attention link ("type:…"). */
   protected readonly highlight = signal<string | null>(null);
   protected readonly loadOpen = signal(false);
-  protected readonly progressOpen = signal(false);
-  protected readonly downloadOpen = signal(false);
   /** Load in progress (header shows "Loading results N of M"). */
   protected readonly running = signal<{ done: number; total: number } | null>(null);
 
@@ -112,7 +104,7 @@ export class OverviewView {
   });
 
   // ---------- Current step ----------
-  private readonly stepData = computed(() => {
+  protected readonly stepCard = computed<StepCardVm | null>(() => {
     const eff = this.selected();
     const b = eff ?? this.officials[0];
     if (!b) return null;
@@ -126,21 +118,18 @@ export class OverviewView {
       const card: StepCardVm = {
         eyebrow, audience: p.name, dates,
         tailPre: days > 0 ? 'closes in ' : 'closes today', tailNum: days > 0 ? String(days) : '', tailPost: days > 0 ? (days === 1 ? ' day' : ' days') : '',
-        big: fmt(st.done) + ' of ' + fmt(st.of || b.results), pct: st.pct, canOpen: true,
+        big: fmt(st.done) + ' of ' + fmt(st.of || b.results), pct: st.pct,
       };
-      const progress: ProgressVm = { title: p.name, subtitle: `${b.name} · closes ${p.end || p.start}`, pct: st.pct, done: st.done, of: st.of };
-      return { card, progress };
+      return card;
     }
     const opens = info.when === 'opens';
     const card: StepCardVm = {
       eyebrow, audience: p.name, dates,
       tailPre: opens ? 'opens in ' : 'closed', tailNum: opens ? String(Math.max(0, daysFromToday(p.start))) : '', tailPost: opens ? ' days' : '',
-      big: '0 of ' + fmt(b.results), pct: 0, canOpen: false,
+      big: '0 of ' + fmt(b.results), pct: 0,
     };
-    return { card, progress: null };
+    return card;
   });
-  protected readonly stepCard = computed(() => this.stepData()?.card ?? null);
-  protected readonly progress = computed(() => this.stepData()?.progress ?? null);
 
   // ---------- Stage completion ----------
   protected readonly stages = computed<StageVm[]>(() => {
@@ -286,17 +275,4 @@ export class OverviewView {
     const r = this.running();
     return r ? fmt(r.done) + ' of ' + fmt(r.total) : '';
   });
-
-  protected exportProgress(): void {
-    // TODO(api): server-side export of stage progress.
-    csvDownload(this.doc, 'stage-progress.csv', [
-      ['Stage', 'Name', 'Completion', 'Remaining', 'Status'],
-      ...this.stages().map((s) => [s.n, s.name, s.pct + '%', s.leftText, s.status]),
-    ]);
-  }
-
-  protected exportAttention(): void {
-    // TODO(api): server-side export of the Needs attention list.
-    csvDownload(this.doc, 'needs-attention.csv', [['Group', 'Alert'], ...this.attention().flatMap((g) => g.rows.map((r) => [g.name, r.text]))]);
-  }
 }

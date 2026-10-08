@@ -57,20 +57,9 @@ const TAB = '@max-2xl:h-10 @max-2xl:flex-auto @max-2xl:justify-center';
   host: { class: 'block @container' },
   template: `
     <section aria-labelledby="overview-ww-title" class="flex flex-col gap-4 rounded-[12px] border border-(--border) bg-(--surface) p-5">
-      <div class="flex flex-wrap items-start gap-4">
-        <div class="flex min-w-[200px] flex-1 flex-col gap-1 @max-md:min-w-0 @max-md:basis-full">
-          <h3 id="overview-ww-title" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">Where the work is</h3>
-          <p class="m-0 text-(length:--fs-13) font-normal text-(--text-3)">Least advanced first.</p>
-        </div>
-        <button
-          hlmBtn
-          variant="outline"
-          type="button"
-          (click)="download.emit()"
-          class="ml-auto h-auto min-h-9 flex-none gap-2 @max-md:min-h-10 @max-md:w-full rounded-[8px] border-(--border) bg-(--field-bg) px-[14px] text-(length:--fs-14) font-medium whitespace-nowrap text-(--text-2) shadow-none hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text-2) focus-visible:shadow-(--focus-ring) focus-visible:ring-0"
-        >
-          <svg class="flex-none" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"></path></svg>Download comments
-        </button>
+      <div class="flex flex-col gap-1">
+        <h3 id="overview-ww-title" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">Where the work is</h3>
+        <p class="m-0 text-(length:--fs-13) font-normal text-(--text-3)">Least advanced first.</p>
       </div>
 
       <div qaTabs variant="segmented" [(value)]="tab" class="gap-4">
@@ -184,7 +173,6 @@ export class OvWork {
   readonly tab = model<WorkTab>('type');
   readonly rows = input.required<readonly WorkRowVm[]>();
   readonly riskCount = input.required<number>();
-  readonly download = output();
   readonly pickTimeline = output<string>();
 
   protected readonly tabs = TABS;

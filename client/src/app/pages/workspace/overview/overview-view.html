@@ -41,26 +41,23 @@
   }
 
   @if (stepCard(); as card) {
-    <qa-ov-step-card [card]="card" [subsLiveText]="subsLiveText()" (viewProgress)="progressOpen.set(true)" (openSubs)="openSubs()" />
+    <qa-ov-step-card [card]="card" [subsLiveText]="subsLiveText()" (openSubs)="openSubs()" />
   }
 
-  <qa-ov-stages [stages]="stages()" [shortNote]="shortNote()" (export)="exportProgress()" />
+  <qa-ov-stages [stages]="stages()" [shortNote]="shortNote()" />
 
-  <qa-ov-attention [groups]="attention()" (export)="exportAttention()" (risk)="goRisk($event)" />
+  <qa-ov-attention [groups]="attention()" (risk)="goRisk($event)" />
 
   <qa-ov-work
     class="scroll-mt-6"
     [(tab)]="workTab"
     [rows]="workRows()"
     [riskCount]="riskCount"
-    (download)="downloadOpen.set(true)"
     (pickTimeline)="pickTimeline($event)"
   />
 
   <qa-ov-outcomes [data]="outcomes()" />
 </div>
 
-<!-- Drawers -->
+<!-- Drawer -->
 <qa-ov-load-drawer [(open)]="loadOpen" (load)="startRun($event)" />
-<qa-ov-progress-drawer [(open)]="progressOpen" [data]="progress()" />
-<qa-ov-download-drawer [(open)]="downloadOpen" />

@@ -12,11 +12,9 @@ export interface StepCardVm {
   /** "1,047 of 1,114". */
   readonly big: string;
   readonly pct: number;
-  /** False when the step has not opened yet (nothing to show in View progress). */
-  readonly canOpen: boolean;
 }
 
-/** Current step of the selected timeline, with its progress and "View progress". */
+/** Current step of the selected timeline, with its progress. */
 @Component({
   selector: 'qa-ov-step-card',
   imports: [HlmButton, RouterLink],
@@ -40,14 +38,6 @@ export interface StepCardVm {
           <div class="h-2 overflow-hidden rounded-full bg-(--surface-4)" role="progressbar" aria-label="Reviewed in this step" [attr.aria-valuenow]="card().pct" aria-valuemin="0" aria-valuemax="100">
             <div class="h-full rounded-full bg-(--primary) transition-[width] duration-200" [style.width.%]="card().pct"></div>
           </div>
-          <button
-            hlmBtn
-            variant="outline"
-            type="button"
-            [disabled]="!card().canOpen"
-            (click)="viewProgress.emit()"
-            class="h-auto min-h-8 self-start rounded-[8px] @max-xl:min-h-10 border-(--border) bg-(--field-bg) px-3 text-(length:--fs-13) font-medium text-(--text-2) shadow-none hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text-2) focus-visible:shadow-(--focus-ring) focus-visible:ring-0"
-          >View progress</button>
         </div>
       </div>
       <div class="mt-4 w-full self-stretch border-t border-(--surface-4) pt-[14px]">
@@ -66,6 +56,5 @@ export class OvStepCard {
   readonly card = input.required<StepCardVm>();
   /** "1 sub-timeline is also live" (only for All timelines), or null. */
   readonly subsLiveText = input<string | null>(null);
-  readonly viewProgress = output();
   readonly openSubs = output();
 }

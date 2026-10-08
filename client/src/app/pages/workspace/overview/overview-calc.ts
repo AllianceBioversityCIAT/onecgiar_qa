@@ -1,8 +1,6 @@
-// Pure helpers for the Overview view (date math, estimates, CSV). Ported from the mockup JS.
+// Pure helpers for the Overview view (date math, estimates). Ported from the mockup JS.
 import {
   AUTO_APPROVED,
-  COMMENTS_BY_PROGRAM,
-  COMMENT_KINDS,
   LOAD_ALREADY_IN_QA,
   LOAD_SUBMITTED,
   LOAD_TARGETS,
@@ -10,7 +8,6 @@ import {
   OFFICIAL_RESULTS,
   PHASE_NAMES,
   PROGRAMS,
-  PUBLISHED_PROGRAMS,
   RESULT_TYPES,
   RESULT_TYPE_ORDER,
   RESULT_TYPE_PLURAL,
@@ -121,40 +118,4 @@ export function loadEstimate(target: string, types: readonly string[], programs:
       .filter((t) => RESULT_TYPE_RULES[t].auto)
       .map((t) => ({ n: fmt(AUTO_APPROVED[t] ?? Math.round((TYPE_COUNTS[t] || 0) / 4)), what: RESULT_TYPE_PLURAL[t] })),
   };
-}
-
-// ---------- Download comments ----------
-
-export interface CommentsEstimate {
-  readonly rows: readonly { readonly code: string; readonly n: number }[];
-  readonly total: number;
-  readonly unpublished: number;
-}
-
-export function commentsEstimate(programs: readonly string[], types: readonly string[], include: readonly string[]): CommentsEstimate {
-  const typeFactor = types.length ? Math.min(1, (types.reduce((a, t) => a + (TYPE_COUNTS[t] || 0), 0) / OFFICIAL_RESULTS) * 1.4) : 1;
-  const kindFactor = COMMENT_KINDS.reduce((a, [kind, w]) => a + (include.includes(kind) ? w : 0), 0);
-  const rows = COMMENTS_BY_PROGRAM.filter((p) => !programs.length || programs.includes(p.code))
-    .map((p) => ({ code: p.code, n: Math.round(p.comments * typeFactor * kindFactor) }))
-    .filter((p) => p.n > 0);
-  return {
-    rows,
-    total: rows.reduce((a, p) => a + p.n, 0),
-    unpublished: rows.filter((p) => !PUBLISHED_PROGRAMS[p.code]).reduce((a, p) => a + p.n, 0),
-  };
-}
-
-// ---------- CSV ----------
-
-/** Downloads rows as a CSV file, as the mockup does. */
-export function csvDownload(doc: Document, name: string, rows: readonly (readonly (string | number)[])[]): void {
-  const csv = rows.map((l) => l.map((x) => '"' + String(x).replace(/"/g, '""') + '"').join(',')).join('\n');
-  const view = doc.defaultView;
-  if (!view) return;
-  const url = view.URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-  const a = doc.createElement('a');
-  a.href = url;
-  a.download = name;
-  a.click();
-  view.setTimeout(() => view.URL.revokeObjectURL(url), 0);
 }

@@ -325,23 +325,6 @@ export const OUTCOMES = {
   autoApproved: 84,
 } as const;
 
-// ---------- Step progress drawer ----------
-
-export interface ProgramProgress {
-  readonly code: string;
-  readonly done: number;
-  readonly of: number;
-}
-
-export const PROGRAM_PROGRESS: readonly ProgramProgress[] = [
-  { code: 'SP09', done: 8, of: 41 },
-  { code: 'SP02', done: 19, of: 58 },
-  { code: 'SP05', done: 24, of: 47 },
-  { code: 'SP11', done: 28, of: 34 },
-  { code: 'SP07', done: 30, of: 31 },
-  { code: 'SP04', done: 25, of: 25 },
-];
-
 // ---------- Load results into QA ----------
 
 export interface LoadTarget {
@@ -361,35 +344,3 @@ export const LOAD_TARGETS: readonly LoadTarget[] = [
 /** Submitted results available to load, and how many of them are already in QA. */
 export const LOAD_SUBMITTED = 1200;
 export const LOAD_ALREADY_IN_QA = 86;
-
-// ---------- Download comments ----------
-
-export interface CommentsByProgram {
-  readonly code: string;
-  readonly name: string;
-  readonly results: number;
-  readonly comments: number;
-}
-
-export const COMMENTS_BY_PROGRAM: readonly CommentsByProgram[] = [
-  { code: 'SP02', name: 'Rice Agrifood Systems', results: 214, comments: 41 },
-  { code: 'SP04', name: 'Climate Action', results: 96, comments: 7 },
-  { code: 'SP05', name: 'Multifunctional Landscapes', results: 147, comments: 28 },
-  { code: 'SP07', name: 'Genetic Innovation', results: 132, comments: 12 },
-  { code: 'SP09', name: 'Sustainable Animal and Aquatic Foods', results: 188, comments: 63 },
-  { code: 'SP11', name: 'Policy Innovations', results: 121, comments: 19 },
-  { code: 'SP01', name: 'Breeding for Tomorrow', results: 108, comments: 0 },
-  { code: 'SP12', name: 'Scaling for Impact', results: 108, comments: 0 },
-];
-
-/** What the comments file can include, with the share of comments each kind represents. */
-export const COMMENT_KINDS: readonly (readonly [kind: string, weight: number])[] = [
-  ['Assessor comments', 0.6],
-  ['Reporting tool updates', 0.3],
-  ['Highlighted fields', 0.1],
-];
-
-/** Programs whose comments are already published to them (Settings → Publication). */
-export const PUBLISHED_PROGRAMS: Readonly<Record<string, boolean>> = {
-  SP02: true, SP05: true, SP09: false, SP11: false, SP07: false, SP04: true,
-};

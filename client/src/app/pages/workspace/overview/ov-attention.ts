@@ -26,29 +26,18 @@ const VISIBLE = 5;
   host: { class: 'block @container' },
   template: `
     <section aria-labelledby="overview-attn-title" class="flex flex-col gap-4 rounded-[12px] border border-(--border) bg-(--surface) p-5">
-      <div class="flex flex-wrap items-start gap-4">
-        <div class="flex min-w-[200px] flex-1 flex-col gap-1 @max-md:min-w-0 @max-md:basis-full">
-          <div class="flex items-center gap-2">
-            <h3 id="overview-attn-title" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">Needs attention</h3>
-            @if (count()) {
-              <span
-                class="box-border flex h-5 min-w-5 items-center justify-center rounded-full px-[7px] font-(family-name:--qa-mono) text-(length:--fs-12) font-bold tabular-nums"
-                [class]="critical() ? 'bg-(--st-rejected-bg) text-(--st-rejected-fg)' : 'bg-(--st-editing-bg) text-(--st-editing-fg)'"
-                [attr.aria-label]="count() + ' items'"
-              >{{ count() }}</span>
-            }
-          </div>
-          <p class="m-0 text-(length:--fs-13) font-normal text-(--text-3)">Everything that will not resolve on its own.</p>
+      <div class="flex flex-col gap-1">
+        <div class="flex items-center gap-2">
+          <h3 id="overview-attn-title" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">Needs attention</h3>
+          @if (count()) {
+            <span
+              class="box-border flex h-5 min-w-5 items-center justify-center rounded-full px-[7px] font-(family-name:--qa-mono) text-(length:--fs-12) font-bold tabular-nums"
+              [class]="critical() ? 'bg-(--st-rejected-bg) text-(--st-rejected-fg)' : 'bg-(--st-editing-bg) text-(--st-editing-fg)'"
+              [attr.aria-label]="count() + ' items'"
+            >{{ count() }}</span>
+          }
         </div>
-        <button
-          hlmBtn
-          variant="outline"
-          type="button"
-          (click)="export.emit()"
-          class="h-auto min-h-9 flex-none gap-2 @max-md:min-h-10 @max-md:w-full rounded-[8px] border-(--border) bg-(--field-bg) px-[14px] text-(length:--fs-14) font-medium whitespace-nowrap text-(--text-2) shadow-none hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text-2) focus-visible:shadow-(--focus-ring) focus-visible:ring-0"
-        >
-          <svg class="flex-none" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"></path></svg>Export list
-        </button>
+        <p class="m-0 text-(length:--fs-13) font-normal text-(--text-3)">Everything that will not resolve on its own.</p>
       </div>
 
       @if (count()) {
@@ -110,7 +99,6 @@ const VISIBLE = 5;
 })
 export class OvAttention {
   readonly groups = input.required<readonly AttentionGroupVm[]>();
-  readonly export = output();
   /** "See SP09"…: key of the row to show in Where the work is ("program:SP09"). */
   readonly risk = output<string>();
 
