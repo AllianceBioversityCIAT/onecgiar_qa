@@ -116,20 +116,6 @@ export function describeChange(from: FieldConfig, to: FieldConfig): string {
   return parts.join('; ');
 }
 
-export function sectionName(id: string): string {
-  return FIELD_SECTIONS.find((s) => s.id === id)?.name ?? id;
-}
-
-/** CSV with the effective configuration of one result type (same columns as the mockup). */
-export function configurationCsv(type: string, cfg: FieldConfigMap): string {
-  const rows: string[][] = [['Section', 'Field', 'Required', 'In QA', 'Core', 'AI']];
-  for (const f of fieldsFor(type)) {
-    const e = effective(cfg[f.id]);
-    rows.push([sectionName(f.section), f.name, f.required ? 'Yes' : 'No', STATE_LABEL[e.state], e.core ? 'On' : 'Off', e.ai ? 'On' : 'Off']);
-  }
-  return rows.map((r) => r.map((x) => `"${x.replace(/"/g, '""')}"`).join(',')).join('\n');
-}
-
 /** One row of the matrix, ready to render. */
 export interface FieldRowVm {
   readonly id: string;

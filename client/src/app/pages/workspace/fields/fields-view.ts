@@ -1,4 +1,3 @@
-import { DOCUMENT } from '@angular/common';
 import { Component, DestroyRef, ElementRef, afterNextRender, computed, effect, inject, signal, viewChild } from '@angular/core';
 import { HlmButton } from '@spartan/button';
 import { QaSelect, QaSelectOption } from '../../../ui';
@@ -8,7 +7,6 @@ import {
   FieldRowVm,
   FieldSectionVm,
   SUMMARY_OFFSETS,
-  configurationCsv,
   countFields,
   defaultOf,
   describeChange,
@@ -46,7 +44,6 @@ const COMPACT_BELOW = 900;
   imports: [HlmButton, QaSelect, FieldsColumnHeader, FieldsSection, FieldsPublishConfirm],
 })
 export class FieldsView {
-  private readonly document = inject(DOCUMENT);
 
   protected readonly notice = ACTIVE_STEP_NOTICE;
 
@@ -216,20 +213,6 @@ export class FieldsView {
       if (source[id]) next[id] = { ...source[id] };
     }
     this.drafts.update((all) => ({ ...all, [type]: next }));
-  }
-
-  protected download(): void {
-    const type = this.resultType();
-    // TODO(api): download the "Field configuration" export from the server. Built locally from the draft for now.
-    const csv = configurationCsv(type, this.draft());
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-    const link = this.document.createElement('a');
-    link.href = url;
-    link.download = `qa-fields-${type.toLowerCase().replace(/\s+/g, '-')}.csv`;
-    this.document.body.appendChild(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(url));
   }
 
   // ── Helpers ────────────────────────────────────────────────────────────

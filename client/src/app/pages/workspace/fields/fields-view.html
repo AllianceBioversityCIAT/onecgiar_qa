@@ -48,7 +48,7 @@
     <qa-fields-publish-confirm [changes]="changes()" [resultType]="resultType()" (cancel)="cancelConfirm()" (publish)="publish()" />
   }
 
-  <!-- Result type selector + download -->
+  <!-- Result type selector -->
   <div class="flex flex-wrap items-center gap-3">
     <span aria-hidden="true" class="text-(length:--fs-13) font-medium text-(--text-3)">Result type</span>
     <qa-select
@@ -59,16 +59,6 @@
       panelWidth="300px"
       class="min-w-[260px] flex-none max-sm:min-w-[180px] max-sm:flex-1"
     />
-    <button
-      hlmBtn
-      type="button"
-      variant="outline"
-      (click)="download()"
-      class="ml-auto flex h-auto min-h-9 flex-none items-center gap-2 rounded-lg max-md:min-h-10 max-sm:ml-0 max-sm:w-full max-sm:justify-center border border-(--border) bg-(--field-bg) px-[14px] text-(length:--fs-14) font-medium text-(--text-2) shadow-none hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text-2) focus-visible:shadow-(--focus-ring) focus-visible:ring-0"
-    >
-      <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"></path></svg>
-      Download configuration
-    </button>
   </div>
 
   <!-- Summary figures (computed from the draft) -->
