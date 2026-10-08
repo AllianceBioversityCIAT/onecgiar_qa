@@ -1,0 +1,97 @@
+<qa-drawer [(open)]="open" [closeGuard]="closeGuard" [title]="field()?.label ?? 'Comments'" [subtitle]="field()?.section ?? ''" width="480px">
+  @if (field()?.highlighted) {
+    <span qaDrawerHeader="end" class="mt-0.5 rounded-full bg-(--st-rejected-bg) px-2 py-0.5 text-(length:--fs-11) font-semibold whitespace-nowrap text-(--st-rejected-fg)">Highlighted</span>
+  }
+  @if (open() && field(); as f) {
+    <div class="rounded-[8px] bg-(--surface-3) px-3 py-2.5 text-(length:--fs-14) leading-[1.55] wrap-anywhere text-(--text)">{{ f.value }}</div>
+
+    @if (f.comments.length) {
+      <ol class="m-0 flex list-none flex-col gap-2.5 p-0" aria-label="Comments">
+        @for (c of f.comments; track $index) {
+          @if (c.system) {
+            <li class="flex flex-col gap-1 border-l-2 border-(--st-submitted-bg) bg-transparent py-1 pl-3">
+              <div class="flex items-baseline gap-2">
+                <span class="text-(length:--fs-12) font-semibold text-(--text-4)">{{ c.who }}</span>
+                <span class="ml-auto flex-none font-(family-name:--qa-mono) text-(length:--fs-11) font-normal text-(--text-4) tabular-nums">{{ c.date }}</span>
+              </div>
+              <div class="text-(length:--fs-13) leading-[1.5] font-normal text-(--text-3)">{{ c.text }}</div>
+            </li>
+          } @else {
+            <li class="flex flex-col gap-1.5 rounded-[8px] bg-(--surface-2) px-[14px] py-3" [class]="c.role === 'Assessor' ? '' : 'ml-5 border-l-2 border-(--border)'">
+              <div class="flex items-baseline gap-2">
+                <span class="text-(length:--fs-12) font-semibold text-(--text-2)">{{ c.who }} · {{ c.role }}</span>
+                <span class="ml-auto flex-none font-(family-name:--qa-mono) text-(length:--fs-11) font-normal text-(--text-4) tabular-nums">{{ c.date }}</span>
+              </div>
+              <div class="text-(length:--fs-14) leading-[1.55] font-normal text-pretty text-(--text-2)">{{ c.text }}</div>
+            </li>
+          }
+        }
+      </ol>
+    } @else {
+      <div class="text-(length:--fs-13) font-normal text-(--text-4)">No comments on this field yet.</div>
+    }
+
+    <form id="review-comment-form" class="contents" novalidate (submit)="onSubmit($event)">
+      <div class="-mb-2 flex flex-wrap items-center gap-2">
+        <button type="button" [qaMenuTrigger]="quick" (qaMenuOpened)="onQuickOpened()" class="inline-flex min-h-[30px] items-center gap-[7px] rounded-[8px] border border-dashed border-(--border-strong) px-2.5 text-(length:--fs-13) font-medium text-(--text-3) hover:border-solid hover:border-(--accent) hover:text-(--accent) focus-visible:shadow-(--focus-ring) focus-visible:outline-none">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2zM8 8h8M8 12h5" /></svg>
+          Quick comment
+        </button>
+      </div>
+
+      <label for="review-comment-draft" class="sr-only">Write a comment</label>
+      <textarea
+        #draftBox
+        id="review-comment-draft"
+        [formField]="text()"
+        placeholder="Write a comment"
+        [attr.aria-invalid]="showError()"
+        [attr.aria-describedby]="showError() ? 'review-comment-error' : null"
+        class="box-border min-h-24 w-full resize-y rounded-[8px] border bg-(--field-bg) px-3 py-2.5 text-(length:--fs-14) leading-[1.55] text-(--text) outline-none placeholder:text-(--text-muted) focus:border-(--primary)"
+        [class]="showError() ? 'border-(--danger)' : 'border-(--border)'"
+      ></textarea>
+      @if (showError()) {
+        <span id="review-comment-error" class="sr-only" role="alert">Write a comment before adding it.</span>
+      }
+    </form>
+  }
+
+  <div qaDrawerFooter class="contents">
+    @if (confirmDiscard()) {
+      <div role="alertdialog" aria-label="Discard comment" class="mr-auto flex min-w-0 flex-[1_1_200px] flex-col gap-1">
+        <span class="text-(length:--fs-13) leading-[1.55] font-normal text-(--text-2)">Discard what you wrote?</span>
+      </div>
+      <button hlmBtn variant="outline" type="button" (click)="confirmDiscard.set(false)" class="h-auto min-h-9 gap-2 rounded-[8px] border-(--border) bg-(--field-bg) px-[14px] text-(length:--fs-14) font-medium text-(--text-2) shadow-none hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text-2) focus-visible:shadow-(--focus-ring) focus-visible:ring-0">Keep writing</button>
+      <button hlmBtn type="button" (click)="discardAndClose()" class="h-auto min-h-9 gap-2 rounded-[8px] border-0 bg-(--danger) px-[14px] text-(length:--fs-14) font-semibold whitespace-nowrap text-(--surface) hover:bg-(--danger) focus-visible:shadow-(--focus-ring) focus-visible:ring-0">Discard and close</button>
+    } @else {
+    <button hlmBtn type="submit" form="review-comment-form" class="h-auto min-h-9 gap-2 rounded-[8px] border-none bg-(color:--primary) px-[14px] text-(length:--fs-14) font-semibold text-(color:--surface) hover:bg-(color:--accent) focus-visible:shadow-(--focus-ring) focus-visible:ring-0 active:translate-y-0">Add comment</button>
+    }
+  </div>
+</qa-drawer>
+
+<ng-template #quick>
+  <qa-menu-panel width="420px" aria-label="Quick comments">
+    <input
+      #qcSearch
+      type="search"
+      aria-label="Search comments"
+      placeholder="Search comments"
+      class="box-border h-8 w-full flex-none rounded-[6px] border border-(--border) bg-(--field-bg) px-2.5 text-(length:--fs-13) text-(--text) outline-none placeholder:text-(--text-muted) focus:border-(--primary)"
+      [value]="query()"
+      (input)="query.set($any($event.target).value)"
+      (keydown)="onSearchKeydown($event)"
+    />
+    <div class="mt-2 flex max-h-[280px] min-h-0 flex-col gap-0.5 overflow-y-auto">
+      @for (g of groups(); track g.cat) {
+        <div qaMenuLabel>{{ g.cat }}</div>
+        @for (q of g.items; track q.id) {
+          <button qaMenuItem class="h-auto py-2" (triggered)="quickPick.emit(q.text)">
+            <span class="line-clamp-2 text-(length:--fs-13) leading-[1.5] font-normal text-(--text-2)">{{ q.text }}</span>
+          </button>
+        }
+      } @empty {
+        <div class="p-2 text-(length:--fs-13) text-(--text-3)">Nothing matches that search.</div>
+      }
+    </div>
+  </qa-menu-panel>
+</ng-template>
