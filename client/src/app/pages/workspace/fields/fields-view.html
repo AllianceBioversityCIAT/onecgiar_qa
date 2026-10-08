@@ -1,10 +1,10 @@
 <!-- Fields in QA: which reporting fields each result type is assessed on, and how. -->
 
 <!-- View header -->
-<div class="flex flex-wrap items-start gap-4 px-8 pt-8 max-md:px-4">
-  <div class="flex min-w-0 flex-1 flex-col gap-1">
-    <h1 class="m-0 text-(length:--fs-26) leading-[1.2] font-bold tracking-[-0.02em] text-(--text)">Fields in QA</h1>
-    <p class="m-0 text-(length:--fs-14) font-normal text-(--text-3)">Every reporting field is listed. Hidden fields never reach an assessor.</p>
+<div class="flex flex-wrap items-start gap-4 px-8 pt-8 max-lg:px-6 max-md:px-4">
+  <div class="flex min-w-[min(100%,16rem)] flex-1 flex-col gap-1">
+    <h1 class="m-0 text-(length:--fs-26) leading-[1.2] font-bold tracking-[-0.02em] text-balance text-(--text)">Fields in QA</h1>
+    <p class="m-0 text-(length:--fs-14) font-normal text-balance text-(--text-3)">Every reporting field is listed. Hidden fields never reach an assessor.</p>
   </div>
   <div class="flex w-auto flex-none items-center gap-2 max-md:w-full">
     @if (changes().length > 0) {
@@ -13,7 +13,7 @@
         type="button"
         variant="outline"
         (click)="discard()"
-        class="flex h-auto min-h-9 flex-none items-center justify-center rounded-lg border border-(--border) bg-(--field-bg) px-[14px] text-(length:--fs-14) font-medium text-(--text-2) shadow-none hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text-2) focus-visible:shadow-(--focus-ring) focus-visible:ring-0 max-md:flex-1"
+        class="flex h-auto min-h-9 flex-none items-center justify-center rounded-lg max-md:min-h-10 border border-(--border) bg-(--field-bg) px-[14px] text-(length:--fs-14) font-medium text-(--text-2) shadow-none hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text-2) focus-visible:shadow-(--focus-ring) focus-visible:ring-0 max-md:flex-1"
       >
         Discard
       </button>
@@ -22,7 +22,7 @@
         type="button"
         (click)="openConfirm()"
         [attr.aria-expanded]="showConfirm()"
-        class="flex h-auto min-h-9 flex-none items-center justify-center gap-2 rounded-lg border-0 bg-(--primary) px-[14px] text-(length:--fs-14) font-semibold text-(--surface) hover:bg-(--accent) focus-visible:shadow-(--focus-ring) focus-visible:ring-0 max-md:flex-1"
+        class="flex h-auto min-h-9 flex-none items-center justify-center gap-2 rounded-lg max-md:min-h-10 border-0 bg-(--primary) px-[14px] text-(length:--fs-14) font-semibold text-(--surface) hover:bg-(--accent) focus-visible:shadow-(--focus-ring) focus-visible:ring-0 max-md:flex-1"
       >
         Publish changes
         <span class="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-white/22 px-[5px] font-(family-name:--qa-mono) text-(length:--fs-11) font-semibold text-(--surface) tabular-nums">{{ changes().length }}</span>
@@ -36,7 +36,7 @@
   </div>
 </div>
 
-<div data-screen-label="Fields" class="flex flex-col items-stretch gap-5 px-8 pt-6 pb-8 max-md:px-4">
+<div data-screen-label="Fields" class="flex flex-col items-stretch gap-5 px-8 pt-6 pb-8 max-lg:px-6 max-md:px-4">
   <!-- Active step notice -->
   <div role="status" class="flex items-start gap-2.5 rounded-lg bg-(--st-editing-bg) px-[14px] py-3">
     <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--st-editing-fg)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="mt-0.5 flex-none"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01"></path></svg>
@@ -64,7 +64,7 @@
       type="button"
       variant="outline"
       (click)="download()"
-      class="ml-auto flex h-auto min-h-9 flex-none items-center gap-2 rounded-lg max-sm:ml-0 max-sm:w-full max-sm:justify-center border border-(--border) bg-(--field-bg) px-[14px] text-(length:--fs-14) font-medium text-(--text-2) shadow-none hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text-2) focus-visible:shadow-(--focus-ring) focus-visible:ring-0"
+      class="ml-auto flex h-auto min-h-9 flex-none items-center gap-2 rounded-lg max-md:min-h-10 max-sm:ml-0 max-sm:w-full max-sm:justify-center border border-(--border) bg-(--field-bg) px-[14px] text-(length:--fs-14) font-medium text-(--text-2) shadow-none hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text-2) focus-visible:shadow-(--focus-ring) focus-visible:ring-0"
     >
       <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"></path></svg>
       Download configuration

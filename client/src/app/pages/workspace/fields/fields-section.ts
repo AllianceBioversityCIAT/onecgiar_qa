@@ -26,8 +26,8 @@ export interface FieldRowEvent<T> {
       [class]="compact() ? 'top-0' : 'top-[40px]'"
     >
       <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flex-none transition-transform duration-[140ms]" [class.-rotate-90]="!s.open"><path d="M6 9l6 6 6-6"></path></svg>
-      <span class="text-(length:--fs-13) font-semibold tracking-[0.06em] text-(--text-3) uppercase">{{ s.name }}</span>
-      <span class="ml-auto text-(length:--fs-12) font-normal text-(--text-muted)"><span class="font-(family-name:--qa-mono) font-semibold text-(--text-3) tabular-nums">{{ s.assessed }}</span> of <span class="font-(family-name:--qa-mono) font-semibold text-(--text-3) tabular-nums">{{ s.total }}</span> assessed</span>
+      <span class="min-w-0 py-2 text-(length:--fs-13) font-semibold tracking-[0.06em] text-(--text-3) uppercase">{{ s.name }}</span>
+      <span class="ml-auto flex-none text-(length:--fs-12) font-normal whitespace-nowrap text-(--text-muted)"><span class="font-(family-name:--qa-mono) font-semibold text-(--text-3) tabular-nums">{{ s.assessed }}</span> of <span class="font-(family-name:--qa-mono) font-semibold text-(--text-3) tabular-nums">{{ s.total }}</span> assessed</span>
     </button>
     @if (s.open) {
       @for (row of s.rows; track row.id) {
