@@ -1,0 +1,137 @@
+<!-- Results in QA. Data: results.mock.ts (TODO(api)). State lives in results-view.ts. -->
+
+<!-- Page header -->
+<div class="flex flex-wrap items-start gap-4 px-4 pt-8 md:px-8">
+  <div class="flex min-w-0 flex-1 flex-col gap-1">
+    <h1 class="m-0 text-(length:--fs-26) leading-[1.2] font-bold tracking-[-0.02em] text-(--text)">Results in QA</h1>
+    <p class="m-0 text-(length:--fs-14) text-(--text-3)">Everything under assessment in this cycle.</p>
+
+    <div class="mt-3 mb-1 flex flex-wrap items-center gap-2.5">
+      <span class="text-(length:--fs-13) font-medium text-(--text-3)">Timeline</span>
+      <qa-select
+        [value]="timelineId()"
+        (valueChange)="timelineId.set($event ?? 'all')"
+        [options]="timelinePickerOptions()"
+        label="Timeline"
+        emphasis
+        searchable
+        searchPlaceholder="Search timelines"
+        panelWidth="340px"
+        class="min-w-[260px] flex-none"
+      >
+        <ng-template qaSelectOption let-option>
+          @let t = timelineById().get(option.value);
+          <span class="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span class="truncate text-(length:--fs-13) font-medium text-(--text-2)">{{ option.label }}</span>
+            @if (t) {
+              <span class="truncate text-(length:--fs-12) text-(--text-4)"><span class="font-(family-name:--qa-mono) tabular-nums font-medium">{{ t.count | number }}</span> results · step <span class="font-(family-name:--qa-mono) tabular-nums font-medium">{{ t.step }}</span> of <span class="font-(family-name:--qa-mono) tabular-nums font-medium">{{ t.steps }}</span> · {{ t.when }} <span class="font-(family-name:--qa-mono) tabular-nums font-medium">{{ t.date }}</span></span>
+            } @else {
+              <span class="text-(length:--fs-12) text-(--text-4)"><span class="font-(family-name:--qa-mono) tabular-nums font-medium">{{ allCount | number }}</span> results</span>
+            }
+          </span>
+          @if (t) {
+            <span
+              class="flex-none rounded-full px-2 py-0.5 text-(length:--fs-11) font-semibold whitespace-nowrap"
+              [class]="t.status === 'Live' ? 'bg-(--st-indigo-bg) text-(--st-indigo-fg)' : 'bg-(--st-submitted-bg) text-(--st-submitted-fg)'"
+            >{{ t.status }}</span>
+          }
+        </ng-template>
+        <a qaSelectFooter routerLink="/cycle" class="inline-flex min-h-8 items-center rounded-lg px-2 text-(length:--fs-13) font-medium text-(--accent) hover:bg-(--tint) outline-none focus-visible:shadow-(--focus-ring)">Manage timelines</a>
+      </qa-select>
+      <span class="text-(length:--fs-13) text-(--text-4)"><span class="font-(family-name:--qa-mono) tabular-nums font-semibold text-(--text-3)">{{ timelineTotal() | number }}</span> results</span>
+    </div>
+  </div>
+
+  <div class="flex flex-none items-center gap-2">
+    <button hlmBtn variant="outline" type="button" (click)="downloadOpen.set(true)" class="h-9 gap-[7px] rounded-lg border-(--border) bg-(--field-bg) px-3 text-(length:--fs-14) font-medium text-(--text-2) shadow-none hover:border-(--border-strong) hover:bg-(--field-bg) hover:text-(--text-2) focus-visible:border-(--border-strong) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) h-auto min-h-9 gap-2 px-[14px] hover:bg-(--surface-2)">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" /></svg>
+      Download comments
+    </button>
+  </div>
+</div>
+
+<!-- Results body -->
+<div class="flex flex-col items-stretch gap-5 px-4 pt-6 pb-8 md:px-8">
+  @if (!timelineEmpty()) {
+    <div class="flex flex-col gap-3">
+      <!-- Search + filter menus -->
+      <div class="flex flex-wrap items-center gap-3">
+        <label class="box-border flex h-9 w-[320px] max-w-full flex-none cursor-text items-center gap-2 rounded-lg border border-(--border) bg-(--surface) px-3 focus-within:shadow-(--focus-ring)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="flex-none"><path d="M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.35-4.35" /></svg>
+          <input hlmInput type="text" placeholder="Search by code or title..." aria-label="Search by code or title" [value]="search()" (input)="onSearch($event)" class="h-auto min-w-0 flex-1 rounded-none border-none bg-transparent p-0 text-(length:--fs-14) text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:ring-0 md:text-(length:--fs-14)" />
+        </label>
+        <qa-multi-select [(value)]="programs" [options]="programOptions" label="Science program" searchPlaceholder="Search programs" emptyText="Nothing matches that search." />
+        <qa-multi-select [(value)]="statuses" [options]="statusOptions" label="Status" searchPlaceholder="Search statuses" emptyText="Nothing matches that search." />
+        <qa-select [value]="round()" (valueChange)="round.set($event ?? '')" [options]="roundOptions" label="QA round" appearance="filter" indicator="radio" panelWidth="280px" listMaxHeight="220px" class="flex-none" />
+        <qa-multi-select [(value)]="assessors" [options]="assessorOptions" label="Assessor" searchPlaceholder="Search assessors" emptyText="Nothing matches that search." />
+        <qa-multi-select [(value)]="batches" [options]="batchOptions" label="Timeline" searchPlaceholder="Search timelines" emptyText="Nothing matches that search." />
+      </div>
+
+      <!-- Applied filters -->
+      @if (applied().length) {
+        <div class="flex flex-wrap items-center gap-2">
+          @for (f of applied(); track f.key) {
+            <span class="inline-flex h-7 max-w-[380px] items-center gap-1.5 rounded-full bg-(--tint) pr-1.5 pl-2.5 text-(length:--fs-12) font-medium text-(--accent)">
+              <span class="flex-none font-semibold">{{ f.label }}</span>
+              <span class="min-w-0 truncate">{{ f.values }}</span>
+              <button type="button" (click)="clearFilter(f.key)" [attr.aria-label]="'Remove ' + f.label + ' filter'" class="flex size-[18px] flex-none items-center justify-center rounded-full p-0 text-(--accent) hover:bg-(--tint-3) outline-none focus-visible:shadow-(--focus-ring)">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12" /></svg>
+              </button>
+            </span>
+          }
+          <button type="button" (click)="clearAll()" class="min-h-8 rounded-lg px-2.5 text-(length:--fs-13) font-medium text-(--accent) hover:bg-(--tint) outline-none focus-visible:shadow-(--focus-ring)">Clear all</button>
+        </div>
+      }
+
+      <!-- Result type chips -->
+      <div class="flex flex-wrap items-center gap-2" role="group" aria-label="Result type">
+        <button type="button" [attr.aria-pressed]="typeChip() === 'All'" (click)="typeChip.set('All')" class="inline-flex min-h-[30px] items-center gap-[7px] rounded-full px-3 text-(length:--fs-13) font-medium whitespace-nowrap outline-none focus-visible:shadow-(--focus-ring)" [class]="typeChip() === 'All' ? 'bg-(--tint-2) text-(--accent)' : 'bg-(--surface-3) text-(--text-3) hover:bg-(--surface-4)'">
+          <span>All</span>
+          <span class="font-(family-name:--qa-mono) tabular-nums text-(length:--fs-12) font-semibold" [class]="typeChip() === 'All' ? 'text-(--accent)' : 'text-(--text-muted)'">{{ typeCounts().get('All') ?? 0 | number }}</span>
+        </button>
+        @for (t of resultTypes; track t) {
+          @let on = typeChip() === t;
+          <button type="button" [attr.aria-pressed]="on" (click)="typeChip.set(t)" class="inline-flex min-h-[30px] items-center gap-[7px] rounded-full px-3 text-(length:--fs-13) font-medium whitespace-nowrap outline-none focus-visible:shadow-(--focus-ring)" [class]="on ? 'bg-(--tint-2) text-(--accent)' : 'bg-(--surface-3) text-(--text-3) hover:bg-(--surface-4)'">
+            <span>{{ t }}</span>
+            <span class="font-(family-name:--qa-mono) tabular-nums text-(length:--fs-12) font-semibold" [class]="on ? 'text-(--accent)' : 'text-(--text-muted)'">{{ typeCounts().get(t) ?? 0 | number }}</span>
+          </button>
+        }
+        <span aria-hidden="true" class="mx-1 h-5 w-px flex-none bg-(--border)"></span>
+        <button type="button" [attr.aria-pressed]="showAuto()" (click)="toggleAuto()" class="inline-flex min-h-[30px] items-center gap-[7px] rounded-full px-3 text-(length:--fs-13) font-medium whitespace-nowrap outline-none focus-visible:shadow-(--focus-ring)" [class]="showAuto() ? 'bg-(--tint-2) text-(--accent)' : 'bg-(--surface-3) text-(--text-3) hover:bg-(--surface-4)'">
+          <span class="inline-flex items-center gap-[5px]"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="flex-none"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" /></svg>Automatic</span>
+          <span class="font-(family-name:--qa-mono) tabular-nums text-(length:--fs-12) font-semibold" [class]="showAuto() ? 'text-(--accent)' : 'text-(--text-muted)'">{{ autoCount() | number }}</span>
+        </button>
+      </div>
+    </div>
+
+    @if (matchCount() > 0) {
+      <!-- Results table: each row opens its review page (/results/:code). -->
+      <qa-results-table
+        [rows]="visibleRows()"
+        [sortKey]="sortKey()"
+        [sortDir]="sortDir()"
+        (sort)="sortBy($event)"
+        (exportComments)="exportComments($event)"
+        (reassign)="reassign($event)"
+      />
+      <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <p class="m-0 text-(length:--fs-13) text-(--text-3)" aria-live="polite">Showing <span class="font-(family-name:--qa-mono) tabular-nums font-semibold text-(--text-2)">{{ visibleRows().length | number }}</span> of <span class="font-(family-name:--qa-mono) tabular-nums font-semibold text-(--text-2)">{{ matchCount() | number }}</span> results{{ timelineSuffix() }}</p>
+        @if (remaining() > 0) {
+          <button type="button" (click)="showMore()" class="min-h-8 rounded-lg px-2.5 text-(length:--fs-13) font-medium text-(--accent) hover:bg-(--tint) outline-none focus-visible:shadow-(--focus-ring)">Show {{ (remaining() < 50 ? remaining() : 50) | number }} more</button>
+        }
+      </div>
+    } @else {
+      <div class="flex max-w-[160px] flex-col items-start gap-2">
+        <p class="m-0 text-(length:--fs-14) text-(--text-3)">No results match your filters.</p>
+        <button type="button" (click)="clearAll()" class="-ml-2.5 min-h-8 rounded-lg px-2.5 text-(length:--fs-13) font-medium whitespace-nowrap text-(--accent) hover:bg-(--tint) outline-none focus-visible:shadow-(--focus-ring)">Clear all</button>
+      </div>
+    }
+  } @else {
+    <div class="flex max-w-[160px] flex-col items-start gap-2">
+      <p class="m-0 text-(length:--fs-14) text-(--text-3)">No results have entered QA yet.</p>
+      <a routerLink="/cycle" class="-ml-2.5 inline-flex min-h-8 items-center rounded-lg px-2.5 text-(length:--fs-13) font-medium whitespace-nowrap text-(--accent) hover:bg-(--tint) outline-none focus-visible:shadow-(--focus-ring)">Go to Cycle</a>
+    </div>
+  }
+</div>
+
+<qa-results-download-drawer [(open)]="downloadOpen" [presetPrograms]="programs()" />
