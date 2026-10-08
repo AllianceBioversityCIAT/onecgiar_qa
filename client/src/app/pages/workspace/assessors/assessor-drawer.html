@@ -1,0 +1,263 @@
+<!-- Person drawer: "Invite assessor" (new) and the edit drawer of any team member (edit). -->
+<qa-drawer [(open)]="open" [closeGuard]="closeGuard" [title]="title()" [subtitle]="subtitle()" width="720px">
+  @if (!isNew() && person(); as p) {
+    <span qaDrawerHeader aria-hidden="true" class="flex size-9 items-center justify-center rounded-full bg-(--tint-2) font-(family-name:--qa-mono) text-(length:--fs-13) font-semibold text-(--accent) tabular-nums">{{ initialsOf(p.name) }}</span>
+  }
+  @if (session() && (isNew() || person())) {
+    @if (isNew()) {
+      <div class="flex flex-col items-stretch gap-1.5">
+        <div class="flex items-center gap-1">
+          <label for="assessor-drawer-name" class="text-(length:--fs-13) font-semibold text-(--text-2)">Full name</label>
+          <span aria-hidden="true" class="text-(length:--fs-13) font-semibold text-(--danger-strong)">*</span>
+        </div>
+        <input
+          hlmInput
+          id="assessor-drawer-name"
+          type="text"
+          placeholder="Full name"
+          [formField]="personForm.name"
+          (input)="onNameInput($event)"
+          [attr.data-invalid]="showError(personForm.name)"
+          [attr.aria-invalid]="showError(personForm.name)"
+          [attr.aria-describedby]="showError(personForm.name) ? 'assessor-drawer-name-error' : null"
+          class="h-9 w-full rounded-lg border-(--border) bg-(--field-bg) px-3 py-0 text-(length:--fs-14) text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 md:text-(length:--fs-14) dark:bg-(--field-bg) data-[invalid=true]:border-(--danger)"
+        />
+        @if (showError(personForm.name)) {
+          <span id="assessor-drawer-name-error" class="text-(length:--fs-13) text-(--danger)">{{ errorOf(personForm.name) }}</span>
+        }
+      </div>
+      <div class="flex flex-col items-stretch gap-1.5">
+        <div class="flex items-center gap-1">
+          <label for="assessor-drawer-email" class="text-(length:--fs-13) font-semibold text-(--text-2)">Email address</label>
+          <span aria-hidden="true" class="text-(length:--fs-13) font-semibold text-(--danger-strong)">*</span>
+        </div>
+        <input
+          hlmInput
+          id="assessor-drawer-email"
+          type="text"
+          inputmode="email"
+          autocomplete="off"
+          placeholder="name&#64;cgiar.org"
+          [formField]="personForm.email"
+          (input)="confirmDiscard.set(false)"
+          [attr.data-invalid]="showError(personForm.email)"
+          [attr.aria-invalid]="showError(personForm.email)"
+          [attr.aria-describedby]="showError(personForm.email) ? 'assessor-drawer-email-error' : null"
+          class="h-9 w-full rounded-lg border-(--border) bg-(--field-bg) px-3 py-0 text-(length:--fs-14) text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 md:text-(length:--fs-14) dark:bg-(--field-bg) data-[invalid=true]:border-(--danger)"
+        />
+        @if (showError(personForm.email)) {
+          <span id="assessor-drawer-email-error" class="text-(length:--fs-13) text-(--danger)">{{ errorOf(personForm.email) }}</span>
+        }
+      </div>
+    }
+
+    <div class="flex flex-col items-stretch gap-1.5">
+      <div class="flex items-center gap-1">
+        <label for="assessor-drawer-nick" class="text-(length:--fs-13) font-semibold text-(--text-2)">Nickname</label>
+        <span aria-hidden="true" class="text-(length:--fs-13) font-semibold text-(--danger-strong)">*</span>
+        <button type="button" [qaTooltip]="info.nick" aria-label="More about Nickname" class="flex size-4 flex-none cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-0 text-(--text-muted) hover:text-(--primary) focus-visible:shadow-(--focus-ring) focus-visible:outline-none"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01"></path></svg></button>
+      </div>
+      <input
+        hlmInput
+        id="assessor-drawer-nick"
+        type="text"
+        placeholder="Assessor DD"
+        [formField]="personForm.nick"
+        (input)="onNickInput()"
+        [attr.data-invalid]="showError(personForm.nick)"
+        [attr.aria-invalid]="showError(personForm.nick)"
+        [attr.aria-describedby]="showError(personForm.nick) ? 'assessor-drawer-nick-error' : null"
+        class="h-9 w-full rounded-lg border-(--border) bg-(--field-bg) px-3 py-0 text-(length:--fs-14) text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 md:text-(length:--fs-14) dark:bg-(--field-bg) max-w-[320px] data-[invalid=true]:border-(--danger)"
+      />
+      @if (showError(personForm.nick)) {
+        <span id="assessor-drawer-nick-error" class="text-(length:--fs-13) text-(--danger)">{{ errorOf(personForm.nick) }}</span>
+      }
+    </div>
+
+    <div class="flex flex-col items-start gap-1.5">
+      <div class="flex items-center gap-1">
+        <span class="text-(length:--fs-13) font-semibold text-(--text-2)">Role</span>
+      </div>
+      <qa-select [value]="draft().role" (valueChange)="setRole($event)" [options]="roleOptions" label="Role" panelWidth="320px" class="w-[320px] max-w-full" />
+    </div>
+
+    @if (draft().role === 'Assessor') {
+      <div class="flex flex-col items-stretch gap-1.5">
+        <div class="flex items-center gap-1">
+          <span class="text-(length:--fs-13) font-semibold text-(--text-2)">Permissions</span>
+        </div>
+        <div class="flex min-h-[52px] items-center gap-4">
+          <div class="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span id="assessor-drawer-lead" class="text-(length:--fs-14) font-medium text-(--text-2)">Can edit and delete other assessors' comments</span>
+            <span id="assessor-drawer-lead-help" class="text-(length:--fs-13) font-normal text-pretty text-(--text-4)">Gives this assessor lead assessor permissions without changing their role.</span>
+          </div>
+          <qa-switch [checked]="draft().lead" (checkedChange)="patch({ lead: $event })" aria-labelledby="assessor-drawer-lead" aria-describedby="assessor-drawer-lead-help" />
+        </div>
+      </div>
+    } @else if (draft().role === 'Lead assessor') {
+      <div class="flex flex-col items-stretch gap-1.5">
+        <div class="flex items-center gap-1">
+          <span class="text-(length:--fs-13) font-semibold text-(--text-2)">Permissions</span>
+        </div>
+        <div class="box-border w-full rounded-lg border border-(--border) bg-(--surface-3) px-3 py-2.5 text-(length:--fs-14) text-(--text)">Included in the lead assessor role</div>
+      </div>
+    }
+
+    <div class="flex flex-col gap-1.5" [class]="draft().role === 'Assessor' ? 'items-start' : 'items-stretch'">
+      <div class="flex items-center gap-1">
+        <span class="text-(length:--fs-13) font-semibold text-(--text-2)">Result types</span>
+        @if (draft().role === 'Assessor') {
+          <button type="button" [qaTooltip]="info.types" aria-label="More about Result types" class="flex size-4 flex-none cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-0 text-(--text-muted) hover:text-(--primary) focus-visible:shadow-(--focus-ring) focus-visible:outline-none"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01"></path></svg></button>
+        }
+      </div>
+      @if (draft().role === 'Assessor') {
+        <qa-multi-select
+          [value]="draft().types"
+          (valueChange)="setTypes($event)"
+          [options]="typeOptions"
+          label="Result types"
+          placeholder="Select result types"
+          mutedPlaceholder
+          searchPlaceholder="Search result types"
+          appearance="field"
+          emptyText="Nothing matches that search."
+          panelWidth="320px"
+          sideOffset="4"
+          class="max-[400px]:w-full"
+        />
+      } @else {
+        <div class="box-border w-full rounded-lg border border-(--border) bg-(--surface-3) px-3 py-2.5 text-(length:--fs-14) text-(--text)">All result types</div>
+      }
+    </div>
+
+    <div class="flex flex-col items-start gap-1.5">
+      <div class="flex items-center gap-1">
+        <span class="text-(length:--fs-13) font-semibold text-(--text-2)">Science programs</span>
+        <button type="button" [qaTooltip]="info.programs" aria-label="More about Science programs" class="flex size-4 flex-none cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-0 text-(--text-muted) hover:text-(--primary) focus-visible:shadow-(--focus-ring) focus-visible:outline-none"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01"></path></svg></button>
+      </div>
+      <qa-multi-select
+        [value]="draft().programs"
+        (valueChange)="setPrograms($event)"
+        [options]="programOptions()"
+        label="Science programs"
+        placeholder="All programs"
+        searchPlaceholder="Search programs"
+        appearance="field"
+        emptyText="Nothing matches that search."
+        panelWidth="320px"
+        sideOffset="4"
+        class="max-[400px]:w-full"
+      />
+    </div>
+
+    <div class="flex flex-col items-stretch gap-1.5">
+      <div class="flex items-center gap-1">
+        <span class="text-(length:--fs-13) font-semibold text-(--text-2)">Blocked for conflict of interest</span>
+        <button type="button" [qaTooltip]="info.blocked" aria-label="More about Blocked for conflict of interest" class="flex size-4 flex-none cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-0 text-(--text-muted) hover:text-(--primary) focus-visible:shadow-(--focus-ring) focus-visible:outline-none"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01"></path></svg></button>
+      </div>
+      <div class="rounded-lg border border-(--border)">
+        @for (b of draft().blocked; track $index; let i = $index) {
+          <div class="border-b border-(--surface-4)">
+            @if (blockConfirm() === i) {
+              <div role="alertdialog" aria-label="Remove block" class="box-border flex min-h-14 flex-wrap items-center gap-2 px-3.5 py-2">
+                <span class="flex-[1_1_220px] text-(length:--fs-13) text-(--text-2)">Remove this block? This program becomes assignable again.</span>
+                <button hlmBtn variant="ghost" type="button" (click)="blockConfirm.set(null)" class="h-auto min-h-8 rounded-lg border-0 px-2.5 text-(length:--fs-13) font-medium text-(--accent) hover:bg-(--tint) hover:text-(--accent) dark:hover:bg-(--tint) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) focus-visible:outline-none">Keep it</button>
+                <button hlmBtn variant="ghost" type="button" (click)="removeBlock(i)" class="h-auto min-h-8 rounded-lg border-0 px-2.5 text-(length:--fs-13) font-semibold text-(--danger) hover:bg-(--danger-bg) hover:text-(--danger) dark:hover:bg-(--danger-bg) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) focus-visible:outline-none">Remove</button>
+              </div>
+            } @else {
+              <div class="grid min-h-14 grid-cols-[minmax(0,1fr)_150px_32px] items-center gap-3 px-3.5 max-sm:grid-cols-[minmax(0,1fr)_32px]">
+                @if (b.isNew) {
+                  <div class="flex min-w-0 flex-col gap-1.5 py-2.5">
+                    <qa-select
+                      [value]="b.code || null"
+                      (valueChange)="setBlockCode(i, $event)"
+                      [options]="blockOptions(i)"
+                      label="Blocked program"
+                      placeholder="Select a program"
+                      panelWidth="300px"
+                      class="w-full"
+                    />
+                    <input
+                      hlmInput
+                      type="text"
+                      aria-label="Reason"
+                      placeholder="Why this person cannot assess it"
+                      [value]="b.reason"
+                      (input)="setBlockReason(i, $event)"
+                      class="h-8 w-full rounded-lg border-(--border) bg-(--field-bg) px-2.5 py-0 text-(length:--fs-13) text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 md:text-(length:--fs-13) dark:bg-(--field-bg)"
+                    />
+                  </div>
+                } @else {
+                  <div class="flex min-w-0 flex-col gap-0.5 py-2">
+                    <div class="flex min-w-0 items-baseline gap-2">
+                      <span class="flex-none font-(family-name:--qa-mono) text-(length:--fs-13) font-semibold text-(--text-2)">{{ b.code }}</span>
+                      <span class="min-w-0 truncate text-(length:--fs-14) font-normal text-(--text)">{{ programName(b.code) }}</span>
+                    </div>
+                    <span [title]="b.reason" class="truncate text-(length:--fs-12) font-normal text-(--text-4)">{{ b.reason }}</span>
+                  </div>
+                }
+                <span class="text-right font-(family-name:--qa-mono) tabular-nums text-(length:--fs-12) font-medium text-(--text-4) max-sm:hidden">{{ b.date }}</span>
+                <button hlmBtn variant="ghost" type="button" (click)="blockConfirm.set(i)" [attr.aria-label]="'Remove block ' + (b.code || 'without program')" class="size-6 justify-self-end rounded-md border-0 bg-transparent p-0 text-(--text-3) hover:bg-transparent hover:text-(--danger) dark:hover:bg-transparent focus-visible:ring-0 focus-visible:shadow-(--focus-ring) focus-visible:outline-none"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"></path></svg></button>
+              </div>
+            }
+          </div>
+        } @empty {
+          <div class="px-3.5 pt-3.5 text-(length:--fs-13) text-(--text-3)">No conflicts recorded.</div>
+        }
+        <div class="flex min-h-12 items-center px-3.5"><button hlmBtn variant="ghost" type="button" (click)="addBlock()" class="h-auto min-h-8 rounded-lg border-0 px-2.5 text-(length:--fs-13) font-medium text-(--accent) hover:bg-(--tint) hover:text-(--accent) dark:hover:bg-(--tint) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) focus-visible:outline-none -ml-2.5">Add a blocked program</button></div>
+      </div>
+    </div>
+
+    @if (load(); as ld) {
+      <div aria-live="polite" class="flex flex-col gap-2 rounded-lg bg-(--surface-3) px-4 py-3.5">
+        <div class="text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--text-muted) uppercase">Estimated load</div>
+        @for (r of ld.rows; track r.name) {
+          <div class="flex items-baseline gap-2 text-(length:--fs-13) font-normal text-(--text-2)">
+            <span class="min-w-0">{{ r.name }}</span>
+            <span class="ml-auto flex-none"><span class="font-(family-name:--qa-mono) tabular-nums text-(length:--fs-13) font-semibold text-(--text)">{{ r.count }}</span> <span class="text-(length:--fs-12) text-(--text-4)">results</span></span>
+          </div>
+        }
+        <div class="border-t border-(--surface-4) pt-2 text-(length:--fs-13) font-semibold text-(--text)">About <span class="font-(family-name:--qa-mono) tabular-nums">{{ ld.total }}</span> results in the next load</div>
+        @if (ld.blockNote) {
+          <div class="border-t border-(--surface-4) pt-2 text-(length:--fs-12) font-normal text-(--text-4)">{{ ld.blockNote }}</div>
+        }
+      </div>
+    }
+
+    @if (assigned() > 0) {
+      <div class="flex items-start gap-2.5 rounded-lg bg-(--st-submitted-bg) px-3.5 py-3">
+        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--st-submitted-fg)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="mt-0.5 flex-none"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01"></path></svg>
+        <span class="text-(length:--fs-13) leading-[1.55] font-normal text-pretty text-(--st-submitted-fg)">Changing result types does not move the <span class="font-(family-name:--qa-mono) tabular-nums font-semibold">{{ fmt(assigned()) }}</span> results already assigned in the {{ subtimeline }}. It applies from the next load.</span>
+      </div>
+    }
+  }
+
+  <div qaDrawerFooter class="contents">
+    @if (confirmDiscard()) {
+      <div role="alertdialog" aria-label="Discard invitation" class="mr-auto flex min-w-0 flex-[1_1_280px] flex-col gap-1">
+        <span class="text-(length:--fs-13) leading-[1.55] font-normal text-(--text-2)">Discard what you wrote?</span>
+      </div>
+      <button hlmBtn variant="outline" type="button" (click)="confirmDiscard.set(false)" class="h-auto min-h-9 gap-2 rounded-lg border-(--border) bg-(--field-bg) px-3.5 text-(length:--fs-14) font-medium text-(--text-2) shadow-none hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text-2) dark:border-(--border) dark:bg-(--field-bg) dark:hover:bg-(--surface-2) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) focus-visible:outline-none">Keep writing</button>
+      <button hlmBtn type="button" (click)="open.set(false)" class="h-auto min-h-9 gap-2 rounded-lg border-0 px-3.5 text-(length:--fs-14) font-semibold text-(--surface) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) focus-visible:outline-none bg-(--danger) whitespace-nowrap hover:bg-(--danger)">Discard and close</button>
+    } @else if (confirmRemove() && removeCopy(); as rc) {
+      <div role="alertdialog" aria-label="Remove from team" class="mr-auto flex min-w-0 flex-[1_1_280px] flex-col gap-1">
+        <span class="text-(length:--fs-13) leading-[1.55] font-normal text-(--text-2)">{{ rc.lead }}<span class="font-(family-name:--qa-mono) tabular-nums font-semibold text-(--text)">{{ rc.n }}</span>{{ rc.tail }}</span>
+        @if (rc.warn) {
+          <span class="text-(length:--fs-13) leading-[1.55] font-medium text-(--danger)">{{ rc.warn }}</span>
+        }
+        @if (rc.warn2) {
+          <span class="text-(length:--fs-13) leading-[1.55] font-medium text-(--warning)">{{ rc.warn2 }}</span>
+        }
+      </div>
+      <button hlmBtn variant="outline" type="button" (click)="confirmRemove.set(false)" class="h-auto min-h-9 gap-2 rounded-lg border-(--border) bg-(--field-bg) px-3.5 text-(length:--fs-14) font-medium text-(--text-2) shadow-none hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text-2) dark:border-(--border) dark:bg-(--field-bg) dark:hover:bg-(--surface-2) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) focus-visible:outline-none">Keep them</button>
+      <button hlmBtn type="button" (click)="remove()" class="h-auto min-h-9 gap-2 rounded-lg border-0 px-3.5 text-(length:--fs-14) font-semibold text-(--surface) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) focus-visible:outline-none bg-(--danger) whitespace-nowrap hover:bg-(--danger)">Remove</button>
+    } @else if (isNew()) {
+      <button hlmBtn variant="outline" type="button" (click)="requestClose()" class="h-auto min-h-9 gap-2 rounded-lg border-(--border) bg-(--field-bg) px-3.5 text-(length:--fs-14) font-medium text-(--text-2) shadow-none hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text-2) dark:border-(--border) dark:bg-(--field-bg) dark:hover:bg-(--surface-2) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) focus-visible:outline-none">Cancel</button>
+      <button hlmBtn type="button" (click)="save()" class="h-auto min-h-9 gap-2 rounded-lg border-0 bg-(--primary) px-3.5 text-(length:--fs-14) font-semibold text-(--surface) hover:bg-(--accent) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) focus-visible:outline-none">Send invitation</button>
+    } @else {
+      <button hlmBtn variant="outline" type="button" (click)="confirmRemove.set(true)" class="h-auto min-h-9 gap-2 rounded-lg border-(--border) px-3.5 text-(length:--fs-14) font-medium shadow-none focus-visible:ring-0 focus-visible:shadow-(--focus-ring) focus-visible:outline-none mr-auto bg-(--surface) whitespace-nowrap text-(--danger) hover:border-(--danger) hover:bg-(--danger-bg) hover:text-(--danger) dark:border-(--border) dark:bg-(--surface) dark:hover:bg-(--danger-bg)">Remove from team</button>
+      <button hlmBtn variant="outline" type="button" (click)="open.set(false)" class="h-auto min-h-9 gap-2 rounded-lg border-(--border) bg-(--field-bg) px-3.5 text-(length:--fs-14) font-medium text-(--text-2) shadow-none hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text-2) dark:border-(--border) dark:bg-(--field-bg) dark:hover:bg-(--surface-2) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) focus-visible:outline-none">Cancel</button>
+      <button hlmBtn type="button" (click)="save()" class="h-auto min-h-9 gap-2 rounded-lg border-0 bg-(--primary) px-3.5 text-(length:--fs-14) font-semibold text-(--surface) hover:bg-(--accent) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) focus-visible:outline-none">Save changes</button>
+    }
+  </div>
+</qa-drawer>
