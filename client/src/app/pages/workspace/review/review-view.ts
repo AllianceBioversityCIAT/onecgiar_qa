@@ -95,6 +95,7 @@ export class ReviewView {
   private readonly destroyRef = inject(DestroyRef);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly scroller = viewChild<ElementRef<HTMLElement>>('scroller');
+  private readonly titleRow = viewChild<ElementRef<HTMLElement>>('titleRow');
 
   private readonly routeCode = toSignal(inject(ActivatedRoute).paramMap.pipe(map((p) => p.get('code'))), {
     initialValue: null,
@@ -329,6 +330,13 @@ export class ReviewView {
   protected goSection(i: number): void {
     this.sectionIdx.set(i);
     this.finishStep.set('none');
+    if (this.narrow()) {
+      // Narrow: the page scrolls in the shell's <main>; bring the new section's title row into view if it is above.
+      const row = this.titleRow()?.nativeElement;
+      const viewTop = row?.closest('main')?.getBoundingClientRect().top ?? 0;
+      if (row && row.getBoundingClientRect().top < viewTop) row.scrollIntoView({ block: 'start' });
+      return;
+    }
     const el = this.scroller()?.nativeElement;
     if (el) el.scrollTop = 0;
   }

@@ -45,7 +45,24 @@
     </button>
   }
 
-  <div class="flex flex-col gap-1.5 pl-2.5" [class]="narrow() ? 'pr-2.5' : 'pr-8'">
+  @if (narrow()) {
+    <!-- Compact result header: code, info, status on one wrapping row; cycle meta below -->
+    <div class="flex flex-col gap-1">
+      <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span class="sr-only">Result code</span>
+        <span class="font-(family-name:--qa-mono) text-(length:--fs-16) font-bold whitespace-nowrap text-(--text) tabular-nums">{{ r.code }}</span>
+        <qa-review-code-info [details]="r.details" />
+        <span class="inline-flex items-center gap-[5px] rounded-full px-2.5 py-[3px] text-(length:--fs-11) font-semibold whitespace-nowrap" [class]="r.statusClass">
+          @if (r.isAuto) {
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" /></svg>
+          }
+          {{ r.status }}
+        </span>
+      </div>
+      <div class="text-(length:--fs-12) leading-[1.45] font-normal text-pretty text-(--text-4)">{{ cycle.phase }}@if (r.showAssessedBy) { · Assessed by {{ r.assessor }}}</div>
+    </div>
+  } @else {
+  <div class="flex flex-col gap-1.5 pr-8 pl-2.5">
     <div class="text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--text-muted) uppercase">Result code</div>
     <div class="flex items-center gap-1.5">
       <span class="font-(family-name:--qa-mono) text-(length:--fs-20) font-bold whitespace-nowrap text-(--text) tabular-nums">{{ r.code }}</span>
@@ -63,17 +80,30 @@
       <div class="text-(length:--fs-12) font-normal text-(--text-4)">Assessed by {{ r.assessor }}</div>
     }
   </div>
+  }
 
   <div class="border-b border-(--surface-4)" [class]="narrow() ? 'my-3' : 'my-4'"></div>
-  <div class="px-2.5 pb-2 text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--text-muted) uppercase" id="review-sections-label">Sections</div>
+  <div class="pb-2 text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--text-muted) uppercase" [class]="narrow() ? 'px-0' : 'px-2.5'" id="review-sections-label">Sections</div>
 
-  <nav class="flex min-w-0 gap-0.5" [class]="narrow() ? 'flex-row overflow-x-auto' : 'flex-col'" aria-labelledby="review-sections-label">
+  @if (narrow()) {
+    <!-- Narrow container under 42rem: a select instead of a row of section buttons -->
+    <div class="relative @2xl:hidden">
+      <select #sectionSelect aria-labelledby="review-sections-label" class="box-border min-h-11 w-full cursor-pointer appearance-none rounded-[8px] border border-(--border) bg-(--field-bg) py-2 pr-10 pl-3 text-(length:--fs-14) font-semibold text-(--text) hover:border-(--border-strong) focus-visible:shadow-(--focus-ring) focus-visible:outline-none" (change)="go.emit(+sectionSelect.value)">
+        @for (s of sections(); track s.n; let i = $index) {
+          <option [value]="i" [selected]="s.active">{{ s.n }}. {{ s.name }} · {{ s.open > 0 ? s.open + ' pending' : 'complete' }}</option>
+        }
+      </select>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-4)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
+    </div>
+  }
+
+  <nav class="min-w-0" [class]="narrow() ? 'hidden flex-row flex-wrap gap-2 @2xl:flex' : 'flex flex-col gap-0.5'" aria-labelledby="review-sections-label">
     @for (s of sections(); track s.n; let i = $index) {
       <button
         type="button"
         [attr.aria-current]="s.active ? 'step' : null"
         class="flex min-h-11 flex-none items-center gap-2.5 rounded-[8px] px-2.5 text-left text-(length:--fs-14) focus-visible:shadow-(--focus-ring) focus-visible:outline-none"
-        [class]="(narrow() ? 'whitespace-nowrap ' : 'whitespace-normal ') + (s.active ? 'bg-(--tint-2) font-semibold text-(--accent) hover:bg-(--tint-2)' : 'font-medium text-(--text-2) hover:bg-(--surface-3)')"
+        [class]="(narrow() ? 'border whitespace-nowrap ' + (s.active ? 'border-(--tint-3) ' : 'border-(--border) ') : 'whitespace-normal ') + (s.active ? 'bg-(--tint-2) font-semibold text-(--accent) hover:bg-(--tint-2)' : 'font-medium text-(--text-2) hover:bg-(--surface-3)')"
         (click)="go.emit(i)"
       >
         <span class="min-w-0 leading-[1.3]">{{ s.name }}</span>
@@ -86,11 +116,11 @@
     }
   </nav>
 
-  <div class="flex flex-col gap-3" [class]="narrow() ? 'mt-2 pt-2' : 'mt-4 pt-4'">
+  <div class="flex gap-3" [class]="narrow() ? 'mt-3 flex-row flex-wrap items-center gap-x-4 gap-y-2' : 'mt-4 flex-col pt-4'">
     <div class="text-(length:--fs-13) font-normal text-(--text-3)" aria-live="polite"><span class="font-(family-name:--qa-mono) font-semibold text-(--text-2) tabular-nums">{{ resolved() }}</span> of <span class="font-(family-name:--qa-mono) font-semibold text-(--text-2) tabular-nums">{{ total() }}</span> fields resolved</div>
 
     @if (aiCount() > 0) {
-      <button type="button" class="flex items-center gap-2 rounded-[8px] bg-(--ai-tint) px-2.5 py-2 text-left hover:bg-(--ai-tint-2) focus-visible:shadow-(--focus-ring) focus-visible:outline-none" (click)="aiGo.emit()">
+      <button type="button" class="flex items-center gap-2 rounded-[8px] bg-(--ai-tint) px-2.5 py-2 text-left hover:bg-(--ai-tint-2) focus-visible:shadow-(--focus-ring) focus-visible:outline-none" [class.min-h-10]="narrow()" (click)="aiGo.emit()">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--ai)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z" /></svg>
         <span class="text-(length:--fs-12) font-medium text-(--ai)"><span class="font-(family-name:--qa-mono) font-bold tabular-nums">{{ aiCount() }}</span> {{ aiCount() === 1 ? 'field flagged by AI' : 'fields flagged by AI' }}</span>
       </button>
@@ -106,7 +136,7 @@
     }
 
     @if (r.locked) {
-      <div class="flex items-start gap-1.5 text-(length:--fs-12) leading-[1.45] font-normal text-(--text-4)">
+      <div class="flex items-start gap-1.5 text-(length:--fs-12) leading-[1.45] font-normal text-(--text-4)" [class.basis-full]="narrow()">
         <span class="mt-0.5 inline-flex"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M5 11h14v10H5zM8 11V7a4 4 0 0 1 8 0v4" /></svg></span>
         <span>Your comments are not visible to the program yet.</span>
       </div>

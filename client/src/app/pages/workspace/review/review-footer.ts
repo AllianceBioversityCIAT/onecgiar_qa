@@ -10,7 +10,7 @@ export type FooterMode = 'normal' | 'warn' | 'confirm';
   templateUrl: './review-footer.html',
   host: {
     class:
-      'flex min-h-[72px] flex-none flex-wrap items-center gap-y-2.5 border-t border-(--border) bg-(--surface) px-6 py-3 max-sm:px-4',
+      '@container flex min-h-[72px] flex-none flex-wrap items-center gap-y-2.5 border-t border-(--border) bg-(--surface) px-6 py-3 max-sm:px-4',
   },
 })
 export class ReviewFooter {

@@ -34,7 +34,7 @@ export class ReviewAside {
   protected readonly railOn = computed(() => this.rail() && !this.narrow());
 
   protected readonly layoutClass = computed(() => {
-    if (this.narrow()) return 'w-auto items-stretch gap-0.5 border-b border-(--border) px-5 py-4 max-sm:px-4 overflow-y-visible';
+    if (this.narrow()) return '@container w-auto items-stretch gap-0.5 border-b border-(--border) px-6 py-4 max-sm:px-4 overflow-y-visible';
     if (this.railOn()) return 'w-14 items-center gap-1 overflow-y-auto border-r border-(--border) px-0 py-4';
     return 'w-[240px] items-stretch gap-0.5 overflow-y-auto border-r border-(--border) px-5 py-6';
   });
