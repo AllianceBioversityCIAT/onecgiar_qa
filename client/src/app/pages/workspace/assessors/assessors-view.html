@@ -1,11 +1,11 @@
 <!-- Assessors view: the assessment team, filters, coverage banner and the shared person drawer. -->
 <div class="flex flex-wrap items-start gap-4 px-4 pt-6 md:px-8 md:pt-8">
-  <div class="flex min-w-0 flex-1 basis-[260px] flex-col gap-1">
-    <h1 class="m-0 text-(length:--fs-26) leading-[1.2] font-bold tracking-[-0.02em] text-(--text)">Assessment team</h1>
-    <p class="m-0 text-(length:--fs-14) font-normal text-(--text-3)">Eleven people. Click a row to change what they assess.</p>
+  <div class="flex min-w-[min(100%,260px)] flex-1 basis-[260px] flex-col gap-1">
+    <h1 class="m-0 text-(length:--fs-26) leading-[1.2] font-bold tracking-[-0.02em] text-balance text-(--text)">Assessment team</h1>
+    <p class="m-0 text-(length:--fs-14) font-normal text-pretty text-(--text-3)">Eleven people. Click a row to change what they assess.</p>
   </div>
-  <div class="flex w-auto flex-none items-center gap-2">
-    <button hlmBtn type="button" (click)="openInvite()" class="h-auto min-h-9 gap-2 rounded-lg border-0 bg-(--primary) px-3.5 text-(length:--fs-14) font-semibold text-(--surface) hover:bg-(--accent) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) focus-visible:outline-none whitespace-nowrap">
+  <div class="flex w-auto flex-none items-center gap-2 max-sm:w-full">
+    <button hlmBtn type="button" (click)="openInvite()" class="h-auto min-h-9 gap-2 max-sm:min-h-10 max-sm:w-full max-sm:justify-center rounded-lg border-0 bg-(--primary) px-3.5 text-(length:--fs-14) font-semibold text-(--surface) hover:bg-(--accent) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) focus-visible:outline-none whitespace-nowrap">
       <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"></path></svg>
       Invite assessor
     </button>
@@ -17,15 +17,15 @@
   @if (gaps().length) {
     <div role="status" class="flex min-h-11 flex-wrap items-center gap-2.5 rounded-[10px] bg-(--st-rejected-bg) px-4 py-1.5 sm:flex-nowrap sm:py-0">
       <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--st-rejected-fg)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01"></path></svg>
-      <span class="min-w-0 flex-1 text-(length:--fs-13) leading-normal font-normal text-(--st-rejected-fg)"><span class="font-(family-name:--qa-mono) tabular-nums font-semibold">{{ gaps().length }}</span> {{ gaps().length === 1 ? 'result type has no active assessor.' : 'result types have no active assessor.' }} <span class="font-(family-name:--qa-mono) tabular-nums font-semibold">{{ gapResults() }}</span> results will not be reviewed.</span>
-      <button hlmBtn variant="ghost" type="button" (click)="showGaps()" class="ml-auto h-auto min-h-8 flex-none rounded-lg border-0 bg-transparent px-2.5 text-(length:--fs-13) font-semibold whitespace-nowrap text-(--st-rejected-fg) hover:bg-black/5 hover:text-(--st-rejected-fg) dark:hover:bg-black/5 focus-visible:ring-0 focus-visible:shadow-(--focus-ring) focus-visible:outline-none">Show them</button>
+      <span class="min-w-0 flex-1 basis-[220px] text-(length:--fs-13) leading-normal font-normal text-pretty text-(--st-rejected-fg)"><span class="font-(family-name:--qa-mono) tabular-nums font-semibold">{{ gaps().length }}</span> {{ gaps().length === 1 ? 'result type has no active assessor.' : 'result types have no active assessor.' }} <span class="font-(family-name:--qa-mono) tabular-nums font-semibold">{{ gapResults() }}</span> results will not be reviewed.</span>
+      <button hlmBtn variant="ghost" type="button" (click)="showGaps()" class="ml-auto h-auto min-h-8 max-sm:-mr-2 max-sm:min-h-10 flex-none rounded-lg border-0 bg-transparent px-2.5 text-(length:--fs-13) font-semibold whitespace-nowrap text-(--st-rejected-fg) hover:bg-black/5 hover:text-(--st-rejected-fg) dark:hover:bg-black/5 focus-visible:ring-0 focus-visible:shadow-(--focus-ring) focus-visible:outline-none">Show them</button>
     </div>
   }
 
   <!-- Toolbar: search, filters, download -->
   <div class="flex flex-col gap-3">
-    <div class="flex flex-wrap items-center gap-3">
-      <label class="box-border flex h-9 w-[320px] max-w-full flex-none cursor-text items-center gap-2 rounded-lg border border-(--border) bg-(--surface) px-3 focus-within:border-(--primary) max-sm:w-full">
+    <div class="flex flex-wrap items-center gap-2 xl:gap-3">
+      <label class="box-border flex h-9 w-[320px] max-w-full flex-none cursor-text max-sm:h-10 items-center gap-2 rounded-lg border border-(--border) bg-(--surface) px-3 focus-within:border-(--primary) max-sm:w-full">
         <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none"><path d="M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.35-4.35"></path></svg>
         <span class="sr-only">Search by name or email</span>
         <input hlmInput type="text" placeholder="Search by name or email..." [value]="search()" (input)="onSearch($event)" class="h-auto min-w-0 flex-1 rounded-none border-0 bg-transparent p-0 text-(length:--fs-14) text-(--text) shadow-none outline-none placeholder:text-(--text-muted) focus-visible:ring-0 md:text-(length:--fs-14) dark:bg-transparent" />
@@ -43,7 +43,7 @@
         />
       }
 
-      <button hlmBtn variant="outline" type="button" (click)="download()" class="h-auto min-h-9 gap-2 rounded-lg border-(--border) bg-(--field-bg) px-3.5 text-(length:--fs-14) font-medium text-(--text-2) shadow-none hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text-2) dark:border-(--border) dark:bg-(--field-bg) dark:hover:bg-(--surface-2) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) focus-visible:outline-none ml-auto flex-none">
+      <button hlmBtn variant="outline" type="button" (click)="download()" class="h-auto min-h-9 gap-2 rounded-lg border-(--border) bg-(--field-bg) px-3.5 text-(length:--fs-14) font-medium text-(--text-2) shadow-none hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text-2) dark:border-(--border) dark:bg-(--field-bg) dark:hover:bg-(--surface-2) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) focus-visible:outline-none ml-auto flex-none max-sm:min-h-10 max-sm:w-full max-sm:justify-center">
         <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"></path></svg>
         Download team list
       </button>
@@ -64,36 +64,39 @@
   </div>
 
   @if (rows().length) {
-    <!-- Team table. A row opens the person drawer; role, result types and ⋯ have their own popovers. -->
-    <div class="overflow-x-auto rounded-xl border border-(--border) bg-(--surface)">
-      <table class="block w-full min-w-[1000px]">
+    <!--
+      Team table. A row opens the person drawer; role, result types and ⋯ have their own popovers.
+      No own overflow: the sticky header sticks to the shell's scrolling <main>. Layout per container width: see CELL in the .ts.
+    -->
+    <div class="@container relative rounded-xl border border-(--border) bg-(--surface)">
+      <span #stickSentinel aria-hidden="true" class="pointer-events-none absolute top-0 left-0 h-px w-px"></span>
+      <table class="block w-full">
         <caption class="sr-only">Assessment team</caption>
-        <thead class="block">
-          <tr class="grid h-10 min-w-0 grid-cols-[minmax(240px,1fr)_160px_220px_260px_32px] items-center gap-3 rounded-t-[11px] border-b border-(--border) bg-(--surface-3) px-5">
+        <thead class="sticky top-0 z-10 hidden @min-[640px]:block">
+          <tr
+            class="grid h-10 min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,200px)_minmax(0,210px)_32px] items-center gap-3 border-b border-(--border) bg-(--surface-3) px-5 @min-[950px]:grid-cols-[minmax(0,1fr)_160px_220px_260px_32px]"
+            [class]="headerStuck() ? 'rounded-none shadow-[0_1px_0_var(--border)]' : 'rounded-t-[11px]'"
+          >
             @for (h of heads; track h.key) {
-              <th scope="col" [attr.aria-sort]="ariaSort(h.key)" class="min-w-0 p-0 text-left font-normal">
-                <button type="button" (click)="sortBy(h.key)" class="flex h-10 w-full min-w-0 cursor-pointer items-center justify-start gap-1 border-0 bg-transparent p-0 text-(length:--fs-11) font-semibold tracking-[0.06em] whitespace-nowrap uppercase hover:text-(--text-2) focus-visible:shadow-(--focus-ring) focus-visible:outline-none" [class]="sortKey() === h.key ? 'text-(--text-2)' : 'text-(--text-muted)'">
-                  <span>{{ h.label }}</span>
-                  @if (sortKey() === h.key) {
-                    @if (sortDir() === 'asc') {
-                      <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"></path></svg>
-                    } @else {
-                      <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M19 12l-7 7-7-7"></path></svg>
-                    }
-                  }
-                </button>
+              <th scope="col" [attr.aria-sort]="ariaSort(h.key)" class="min-w-0 items-center gap-1.5 p-0 text-left font-normal" [class]="h.key === 'role' ? 'hidden @min-[950px]:flex' : 'flex'">
+                <ng-container [ngTemplateOutlet]="sortBtn" [ngTemplateOutletContext]="{ $implicit: h }" />
+                @if (h.key === 'person') {
+                  <!-- Mid widths: the role column sits under the person, so its sort lives here. -->
+                  <span aria-hidden="true" class="text-(length:--fs-11) text-(--text-muted) @min-[950px]:hidden">/</span>
+                  <span class="contents @min-[950px]:hidden"><ng-container [ngTemplateOutlet]="sortBtn" [ngTemplateOutletContext]="{ $implicit: heads[1] }" /></span>
+                }
               </th>
             }
             <th scope="col" class="p-0"><span class="sr-only">Actions</span></th>
           </tr>
         </thead>
         <tbody class="block">
-          @for (r of rows(); track r.member.id; let last = $last) {
-            <tr class="relative grid min-h-24 min-w-0 grid-cols-[minmax(240px,1fr)_160px_220px_260px_32px] items-center gap-3 bg-(--surface) px-5 py-2 hover:bg-(--surface-2)" [class]="last ? 'rounded-b-[11px]' : 'border-b border-(--surface-4)'">
-              <td class="flex min-w-0 items-center gap-2.5 self-stretch p-0">
+          @for (r of rows(); track r.member.id; let first = $first; let last = $last) {
+            <tr [class]="cell.row + (last ? ' rounded-b-[11px]' : ' border-b border-(--surface-4)') + (first ? ' @max-[640px]:rounded-t-[11px]' : '')">
+              <td class="flex min-w-0 items-center gap-2.5 p-0" [class]="cell.person">
                 <span aria-hidden="true" class="flex size-7 flex-none items-center justify-center rounded-full bg-(--tint-2) font-(family-name:--qa-mono) tabular-nums text-(length:--fs-11) font-semibold text-(--accent)">{{ r.initials }}</span>
                 <div class="flex min-w-0 flex-col gap-px">
-                  <div [title]="r.title" class="flex min-w-0 flex-wrap items-center gap-[7px]">
+                  <div [title]="r.title" class="flex min-w-0 flex-wrap items-center gap-x-[7px]">
                     <button type="button" (click)="openPerson(r.member)" [attr.aria-label]="'Edit assignment of ' + (r.member.nick || r.member.name)" class="max-w-full min-w-0 cursor-pointer truncate rounded-sm border-0 bg-transparent p-0 text-left text-(length:--fs-14) font-semibold text-(--text) no-underline outline-none after:absolute after:inset-0 after:content-[''] focus-visible:after:shadow-(--focus-ring)">{{ r.member.nick || r.member.name }}</button>
                     @if (r.member.nick) {
                       <span class="max-w-full min-w-0 truncate text-(length:--fs-13) font-normal text-(--text-3)">{{ r.member.name }}</span>
@@ -106,32 +109,32 @@
                   <span [title]="r.meta" class="min-w-0 truncate text-(length:--fs-12) font-normal text-(--text-4)">{{ r.meta }}</span>
                 </div>
               </td>
-              <td class="relative z-[1] min-w-0 p-0">
+              <td class="relative z-[1] min-w-0 p-0" [class]="cell.role">
                 <qa-assessor-role-cell [member]="r.member" (roleChange)="setRole(r.member.id, $event)" />
               </td>
               @if (r.member.role === 'Assessor') {
-                <td class="relative z-[1] min-w-0 p-0">
+                <td class="relative z-[1] min-w-0 p-0" [class]="cell.types">
                   <qa-assessor-types-cell [member]="r.member" (addType)="addType(r.member.id, $event)" (removeType)="removeType(r.member.id, $event)" />
                 </td>
               } @else {
-                <td class="min-w-0 p-0 pl-[9px] text-(length:--fs-13) font-normal text-(--text-muted)">All types</td>
+                <td class="min-w-0 p-0 pl-[9px] text-(length:--fs-13) font-normal text-(--text-muted)" [class]="cell.types">All types</td>
               }
-              <td class="flex min-w-0 flex-col gap-[5px] px-0 py-1">
+              <td class="flex min-w-0 flex-col gap-[5px] px-0 py-1" [class]="cell.progress">
                 @for (pr of r.progRows; track pr.label) {
                   <div class="grid grid-cols-[minmax(0,1fr)_68px] items-center gap-2.5">
                     <div class="flex min-w-0 flex-col">
                       <span [title]="pr.label" class="truncate text-(length:--fs-12) font-normal text-(--text-3)">{{ pr.label }}</span>
                       <div class="mt-[3px] h-1 overflow-hidden rounded-full bg-(--surface-4)"><div class="h-full rounded-full bg-(--primary)" [style.width.%]="pr.pct"></div></div>
                     </div>
-                    <span class="text-right font-(family-name:--qa-mono) tabular-nums text-(length:--fs-12)"><span class="font-semibold text-(--text)">{{ pr.done }}</span><span class="text-(--text-4)"> / {{ pr.of }}</span></span>
+                    <span class="text-right font-(family-name:--qa-mono) tabular-nums whitespace-nowrap text-(length:--fs-12)"><span class="font-semibold text-(--text)">{{ pr.done }}</span><span class="text-(--text-4)"> / {{ pr.of }}</span></span>
                   </div>
                 }
                 @if (r.progExtra) {
                   <span class="text-(length:--fs-11) font-medium text-(--text-4)">{{ r.progExtra }}</span>
                 }
               </td>
-              <td class="relative z-[1] min-w-0 justify-self-end p-0">
-                <button type="button" [qaMenuTrigger]="rowMenu" [qaMenuTriggerData]="{ $implicit: r.member }" qaMenuAlign="end" [attr.aria-label]="'More actions for ' + (r.member.nick || r.member.name)" class="flex size-6 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent p-0 text-(--text-3) hover:text-(--primary) focus-visible:shadow-(--focus-ring) focus-visible:outline-none"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M5 10.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm7 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm7 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z"></path></svg></button>
+              <td class="z-[1] min-w-0 p-0" [class]="cell.menu">
+                <button type="button" [qaMenuTrigger]="rowMenu" [qaMenuTriggerData]="{ $implicit: r.member }" qaMenuAlign="end" [attr.aria-label]="'More actions for ' + (r.member.nick || r.member.name)" class="flex size-10 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent p-0 text-(--text-3) hover:text-(--primary) focus-visible:shadow-(--focus-ring) focus-visible:outline-none @min-[640px]:size-6"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M5 10.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm7 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm7 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z"></path></svg></button>
               </td>
             </tr>
           }
@@ -151,6 +154,19 @@
     </div>
   }
 </div>
+
+<ng-template #sortBtn let-h>
+  <button type="button" (click)="sortBy(h.key)" class="flex h-10 max-w-full min-w-0 cursor-pointer items-center justify-start gap-1 border-0 bg-transparent p-0 text-(length:--fs-11) font-semibold tracking-[0.06em] whitespace-nowrap uppercase hover:text-(--text-2) focus-visible:shadow-(--focus-ring) focus-visible:outline-none" [class]="sortKey() === h.key ? 'text-(--text-2)' : 'text-(--text-muted)'">
+    <span>{{ h.label }}</span>
+    @if (sortKey() === h.key) {
+      @if (sortDir() === 'asc') {
+        <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"></path></svg>
+      } @else {
+        <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M19 12l-7 7-7-7"></path></svg>
+      }
+    }
+  </button>
+</ng-template>
 
 <ng-template #rowMenu let-member>
   <qa-menu-panel width="220px">

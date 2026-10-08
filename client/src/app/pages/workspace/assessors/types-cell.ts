@@ -21,7 +21,7 @@ import { TYPE_COUNTS, TYPE_NAMES, TeamMember, fmt } from './assessors.mock';
         brnPopoverTrigger
         type="button"
         [attr.aria-label]="'Change result types of ' + member().nick + ': ' + (member().types.join(', ') || 'none')"
-        class="box-border flex min-h-8 w-full min-w-0 cursor-pointer flex-wrap items-center gap-1.5 rounded-lg border border-transparent bg-transparent px-2 py-1 text-left hover:border-(--border) hover:bg-(--surface) focus-visible:shadow-(--focus-ring) focus-visible:outline-none aria-expanded:border-(--border-accent) aria-expanded:bg-(--surface)"
+        class="box-border flex min-h-8 w-full min-w-0 cursor-pointer flex-wrap @max-[640px]:min-h-10 items-center gap-1.5 rounded-lg border border-transparent bg-transparent px-2 py-1 text-left hover:border-(--border) hover:bg-(--surface) focus-visible:shadow-(--focus-ring) focus-visible:outline-none aria-expanded:border-(--border-accent) aria-expanded:bg-(--surface)"
       >
         @for (t of chips(); track t) {
           <span [title]="t" class="max-w-full truncate rounded-full bg-(--surface-3) px-2 py-0.5 text-(length:--fs-11) font-medium text-(--text-3)">{{ t }}</span>
@@ -37,7 +37,7 @@ import { TYPE_COUNTS, TYPE_NAMES, TeamMember, fmt } from './assessors.mock';
         <div
           role="dialog"
           [attr.aria-label]="'Result types of ' + member().nick"
-          class="qa-tokens box-border flex max-h-[340px] w-[300px] max-w-[calc(100vw-32px)] flex-col rounded-xl border border-(--border-raised) bg-(--surface-raised) p-3 shadow-(--shadow-pop) animate-in fade-in-0 zoom-in-95 duration-100"
+          class="qa-tokens box-border flex max-h-[min(340px,70vh)] w-[300px] max-w-[calc(100vw-32px)] flex-col rounded-xl border border-(--border-raised) bg-(--surface-raised) p-3 shadow-(--shadow-pop) animate-in fade-in-0 zoom-in-95 duration-100"
         >
           <input
             hlmInput
@@ -46,7 +46,7 @@ import { TYPE_COUNTS, TYPE_NAMES, TeamMember, fmt } from './assessors.mock';
             aria-label="Search result types"
             [value]="query()"
             (input)="query.set($any($event.target).value)"
-            class="h-8 w-full flex-none rounded-md border-(--border) bg-(--field-bg) px-2.5 py-0 text-(length:--fs-13) text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 md:text-(length:--fs-13) dark:bg-(--field-bg)"
+            class="h-8 w-full flex-none rounded-md pointer-coarse:h-10 border-(--border) bg-(--field-bg) px-2.5 py-0 text-(length:--fs-13) text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 md:text-(length:--fs-13) dark:bg-(--field-bg)"
           />
           <div role="group" aria-label="Result types" class="mt-2 flex min-h-0 flex-1 flex-col gap-px overflow-y-auto">
             @for (o of options(); track o.label) {
@@ -55,7 +55,7 @@ import { TYPE_COUNTS, TYPE_NAMES, TeamMember, fmt } from './assessors.mock';
                 role="checkbox"
                 [attr.aria-checked]="o.on"
                 (click)="toggle(o.label, o.on)"
-                class="flex min-h-[34px] flex-none cursor-pointer items-center gap-2.5 rounded-lg border-0 bg-transparent px-2 text-left outline-none hover:bg-(--surface-3) focus-visible:shadow-(--focus-ring)"
+                class="flex min-h-[34px] flex-none pointer-coarse:min-h-10 cursor-pointer items-center gap-2.5 rounded-lg border-0 bg-transparent px-2 text-left outline-none hover:bg-(--surface-3) focus-visible:shadow-(--focus-ring)"
               >
                 <span
                   aria-hidden="true"
@@ -77,8 +77,8 @@ import { TYPE_COUNTS, TYPE_NAMES, TeamMember, fmt } from './assessors.mock';
             <div role="alertdialog" aria-label="Remove result type" class="mt-2 flex flex-none items-center gap-2 border-t border-(--surface-4) pt-2.5">
               <span class="min-w-0 flex-1 text-(length:--fs-12) leading-[1.45] font-normal text-(--text-2)"><span class="font-(family-name:--qa-mono) font-semibold tabular-nums">{{ unreviewed(type) }}</span> unreviewed results go back to the pool.</span>
               <div class="flex flex-none items-center gap-2">
-                <button type="button" (click)="confirmType.set(null)" class="min-h-7 cursor-pointer rounded-md border-0 bg-transparent px-2 text-(length:--fs-12) font-medium text-(--text-3) hover:bg-(--surface-3) focus-visible:shadow-(--focus-ring) focus-visible:outline-none">Cancel</button>
-                <button type="button" (click)="confirmRemove(type)" class="min-h-7 cursor-pointer rounded-md border-0 bg-transparent px-2 text-(length:--fs-12) font-semibold text-(--accent) hover:bg-(--tint) focus-visible:shadow-(--focus-ring) focus-visible:outline-none">Remove</button>
+                <button type="button" (click)="confirmType.set(null)" class="min-h-7 pointer-coarse:min-h-10 cursor-pointer rounded-md border-0 bg-transparent px-2 text-(length:--fs-12) font-medium text-(--text-3) hover:bg-(--surface-3) focus-visible:shadow-(--focus-ring) focus-visible:outline-none">Cancel</button>
+                <button type="button" (click)="confirmRemove(type)" class="min-h-7 pointer-coarse:min-h-10 cursor-pointer rounded-md border-0 bg-transparent px-2 text-(length:--fs-12) font-semibold text-(--accent) hover:bg-(--tint) focus-visible:shadow-(--focus-ring) focus-visible:outline-none">Remove</button>
               </div>
             </div>
           }

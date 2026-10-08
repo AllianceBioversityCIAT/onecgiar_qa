@@ -1,5 +1,5 @@
-import { DOCUMENT } from '@angular/common';
-import { Component, computed, inject, signal } from '@angular/core';
+import { DOCUMENT, NgTemplateOutlet } from '@angular/common';
+import { Component, ElementRef, computed, effect, inject, signal, viewChild } from '@angular/core';
 import { HlmButtonImports } from '@spartan/button';
 import { HlmInputImports } from '@spartan/input';
 import { QaMenuImports, QaMultiSelect, QaMultiSelectOption } from '../../../ui';
@@ -58,6 +58,32 @@ const HEADS: readonly { key: SortKey; label: string }[] = [
   { key: 'progress', label: 'Progress' },
 ];
 
+/**
+ * Responsive team table, driven by the width of the table container (`@container`):
+ * - < 640px: stacked person cards (no header row; ⋯ pinned top-right, role + result types on one line, progress below).
+ * - 640–949px: four columns; the role sits under the person.
+ * - >= 950px: the five mockup columns.
+ */
+const CELL = {
+  row:
+    'relative grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-2 bg-(--surface) px-4 py-3 hover:bg-(--surface-2) ' +
+    '@min-[640px]:min-h-24 @min-[640px]:grid-cols-[minmax(0,1fr)_minmax(0,200px)_minmax(0,210px)_32px] @min-[640px]:gap-y-0.5 @min-[640px]:px-5 @min-[640px]:py-2 ' +
+    '@min-[950px]:grid-cols-[minmax(0,1fr)_160px_220px_260px_32px] @min-[950px]:gap-y-0',
+  person: 'col-span-2 row-start-1 pr-10 @min-[640px]:col-span-1 @min-[640px]:col-start-1 @min-[640px]:self-end @min-[640px]:pr-0 @min-[950px]:self-stretch',
+  role:
+    'col-start-1 row-start-2 ml-[30px] justify-self-start @min-[640px]:self-start ' +
+    '@min-[950px]:col-start-2 @min-[950px]:row-start-1 @min-[950px]:ml-0 @min-[950px]:self-center @min-[950px]:justify-self-stretch',
+  types:
+    'col-start-2 row-start-2 @min-[640px]:col-start-2 @min-[640px]:row-span-2 @min-[640px]:row-start-1 ' +
+    '@min-[950px]:col-start-3 @min-[950px]:row-span-1',
+  progress:
+    'col-span-2 row-start-3 ml-[38px] max-w-[360px] @min-[640px]:col-span-1 @min-[640px]:col-start-3 @min-[640px]:row-span-2 @min-[640px]:row-start-1 @min-[640px]:ml-0 @min-[640px]:max-w-none ' +
+    '@min-[950px]:col-start-4 @min-[950px]:row-span-1',
+  menu:
+    'absolute top-2 right-2 @min-[640px]:relative @min-[640px]:col-start-4 @min-[640px]:row-span-2 @min-[640px]:row-start-1 @min-[640px]:justify-self-end ' +
+    '@min-[950px]:col-start-5 @min-[950px]:row-span-1',
+} as const;
+
 const withProg = (p: TeamMember, prog: readonly TypeProgress[]): TeamMember => ({ ...p, prog });
 const assignedOf = (p: TeamMember) => p.prog.reduce((a, e) => a + e.assigned, 0);
 const reviewedOf = (p: TeamMember) => p.prog.reduce((a, e) => a + e.reviewed, 0);
@@ -66,7 +92,7 @@ const reviewedOf = (p: TeamMember) => p.prog.reduce((a, e) => a + e.reviewed, 0)
 @Component({
   selector: 'qa-assessors-view',
   templateUrl: './assessors-view.html',
-  imports: [HlmButtonImports, HlmInputImports, QaMenuImports, QaMultiSelect, AssessorDrawer, AssessorRoleCell, AssessorTypesCell],
+  imports: [NgTemplateOutlet, HlmButtonImports, HlmInputImports, QaMenuImports, QaMultiSelect, AssessorDrawer, AssessorRoleCell, AssessorTypesCell],
 })
 export class AssessorsView {
   private readonly document = inject(DOCUMENT);
@@ -91,6 +117,32 @@ export class AssessorsView {
   protected readonly drawerOpen = signal(false);
   protected readonly drawerSession = signal<DrawerSession | null>(null);
   private seq = 0;
+
+  // Table layout classes per container width (see CELL).
+  protected readonly cell = CELL;
+
+  // Square the sticky header corners while it is stuck to the top of the scrolling <main>.
+  protected readonly headerStuck = signal(false);
+  private readonly stickSentinel = viewChild<ElementRef<HTMLElement>>('stickSentinel');
+
+  constructor() {
+    effect((onCleanup) => {
+      const sentinel = this.stickSentinel()?.nativeElement;
+      if (!sentinel || typeof IntersectionObserver === 'undefined') {
+        this.headerStuck.set(false);
+        return;
+      }
+      const observer = new IntersectionObserver(
+        ([entry]) => {
+          const top = entry.rootBounds?.top ?? 0;
+          this.headerStuck.set(!entry.isIntersecting && entry.boundingClientRect.top < top);
+        },
+        { root: sentinel.closest('main'), threshold: 0 },
+      );
+      observer.observe(sentinel);
+      onCleanup(() => observer.disconnect());
+    });
+  }
 
   /** Result types with no active assessor (the demo keeps its two seeded gaps until their assessors change). */
   protected readonly gaps = computed(() => {
