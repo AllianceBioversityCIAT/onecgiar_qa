@@ -37,7 +37,27 @@ y busca ese correo en la tabla. El rol que salga define qué se permite (§ 2 y 
 - Trabajo de desarrollo = rama propia desde `staging`, nombre `tipo/modulo-tema` (`feat/results-list`, `fix/login-focus`).
 - Terminado → `git merge --no-ff <rama>` a `staging-center`. `staging-center → staging` y `staging → main` solo con OK de Yeck.
 - Nunca borrar ramas (locales ni remotas) ni hacer `push --force`, `reset --hard` o merge de `dev` hacia otra rama.
-- Commits en inglés, convencionales: `feat(login): …`, `fix(shell): …`.
+- Commits semánticos, igual que en PRMS (§ 2.2).
+
+### 2.1 Todo en inglés (estricto, desde 2026-10-08)
+Todo lo que queda guardado en el proyecto va en **inglés**, para todos (Yeck, Juanda, Santi, Juanpa y sus Claude):
+- Código: nombres de archivos, componentes, variables, funciones, clases CSS propias, comentarios.
+- **Textos que ve el usuario en la app**: títulos, botones, menús, mensajes, placeholders, datos de prueba.
+- Git: nombres de ramas, mensajes de commit, títulos y descripciones de PR.
+- Documentos nuevos del repo (`docs/**`, `README`). Un documento viejo en español se traduce cuando se edita.
+- Excepciones: la conversación con cada persona va en su idioma (con Juanpa, en español, § 3.9) y este `CLAUDE.md`.
+- Juanpa puede pedir en español (*"pon un botón que diga Guardar"*): Claude lo escribe en inglés (`Save`) y se lo cuenta en una línea: *"En la app quedó en inglés: Save."*
+
+### 2.2 Commits semánticos (formato PRMS)
+```
+<emoji> <tipo>(<módulo>) [ticket opcional]: <qué cambió, en inglés, en presente>
+```
+- `✨ feat` funcionalidad o pantalla nueva · `🔧 fix` / `🐛 fix` arreglo · `🎨 style` solo diseño · `♻️ refactor` reorganizar sin cambiar lo que hace · `📝 docs` documentación · `🔀 merge` unión de ramas · `⏪ revert` deshacer.
+- `<módulo>` = la pantalla o parte que se tocó, en minúsculas con guiones: `results`, `review-page`, `shell`, `auth`.
+- Ticket de Jira si existe: `✨ feat(results) NOST-451: add the results table with filters`.
+- Un commit = un cambio con sentido. No mezclar diseño de dos pantallas distintas en el mismo commit.
+- Ejemplos: `✨ feat(cycle): add the cycle view from the mockup` · `🎨 style(shell): match sidebar spacing to the mockup` · `🔧 fix(results): open the results view from a direct link`.
+- Con Juanpa, Claude le traduce cada commit en una línea, para que aprenda: *"Guardé: ✨ feat(cycle) = pantalla nueva de Cycle."*
 
 ----------
 
@@ -111,7 +131,7 @@ Juanpa **sí puede construir**: pantallas nuevas, rutas para esas pantallas, com
    - Archivo de los devs con lógica cambiada o borrada **sin** confirmación explícita → 🛑 no se sube. Se le muestra el aviso de § 3.9 y se le propone deshacer solo esa parte.
 2. **Prueba de que la app sigue funcionando**: `cd client && npx ng build`. Si falla → no se sube. Claude corrige lo que sea de Juanpa; si el error está en código de los devs, se le dice que le pregunte a Yeck por Slack.
 3. **Confirmar la rama con él**: *"Voy a subir tus cambios a la rama `jp-design/<tema>`. No afecta la app de nadie; queda listo para que Yeck lo revise. ¿Confirmas?"* Aquí basta con un "sí".
-4. Subir: `git add <solo sus archivos>` → commit en inglés, convencional (`feat(results): …`, `style(login): …`) → `git push -u origin jp-design/<tema>`. Nunca `git add -A` ni `git add .`.
+4. Subir: `git add <solo sus archivos>` → commit semántico en inglés (§ 2.2, p. ej. `✨ feat(results): …`, `🎨 style(login): …`) → `git push -u origin jp-design/<tema>`. Nunca `git add -A` ni `git add .`.
 5. Al terminar, le deja listo el mensaje para Yeck: *"Subí mi trabajo en la rama `jp-design/<tema>`: <qué cambió, en 1 línea>."*
 
 ### 3.6 Ver su diseño en el navegador
