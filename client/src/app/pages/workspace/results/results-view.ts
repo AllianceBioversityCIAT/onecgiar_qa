@@ -4,7 +4,6 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { HlmButtonImports } from '@spartan/button';
 import { HlmInput } from '@spartan/input';
 import { QaMultiSelect, QaSelectImports, QaSelectOption } from '../../../ui';
-import { ResultsDownloadDrawer } from './results-download-drawer';
 import { ResultRowVm, ResultsTable, SortDir, SortKey } from './results-table';
 import {
   ASSESSOR_NAMES,
@@ -60,7 +59,6 @@ function listParam(value: string | null, allowed: readonly string[]): readonly s
     QaMultiSelect,
     QaSelectImports,
     ResultsTable,
-    ResultsDownloadDrawer,
   ],
 })
 export class ResultsView {
@@ -92,7 +90,6 @@ export class ResultsView {
   protected readonly showAuto = signal(false);
   protected readonly sortKey = signal<SortKey | null>(null);
   protected readonly sortDir = signal<SortDir>('asc');
-  protected readonly downloadOpen = signal(false);
 
   protected readonly resultTypes = RESULT_TYPES;
 

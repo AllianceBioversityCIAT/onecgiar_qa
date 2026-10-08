@@ -1,6 +1,6 @@
 // Mock data for the "Results in QA" view, reproduced from the QA Platform mockup
 // (`QA Platform.dc.html`: RESULTS, PROGRAMS, STATUS, TYPES, TL_TYPES_SUB, RQ_STATUS, ASSESSORS,
-// DL_PROGS, DL_INCLUDE, PUB_INIT, timelines).
+// DL_PROGS, PUB_INIT, timelines).
 // The mockup lists 14 literal rows but its counts (chips, timelines, overview) describe 1,330
 // results + 84 automatic ones. The other rows are generated here with a seeded generator so
 // every count on the page comes from real rows and matches the mockup exactly.
@@ -146,10 +146,6 @@ export const DL_PROGRAMS: readonly DownloadProgram[] = [
   { code: 'SP01', name: 'Breeding for Tomorrow', results: 108, comments: 0 },
   { code: 'SP12', name: 'Scaling for Impact', results: 108, comments: 0 },
 ];
-
-export const DL_INCLUDE: readonly string[] = ['Assessor comments', 'Reporting tool updates', 'Highlighted fields'];
-/** Share of comments each "Include" option represents (mockup dlFactor). */
-export const DL_INCLUDE_WEIGHTS: readonly number[] = [0.6, 0.3, 0.1];
 
 /** Non-automatic results per type in the official timeline (mockup TYPES). */
 export const ANNUAL_TYPE_COUNTS: Readonly<Record<ResultType, number>> = {
