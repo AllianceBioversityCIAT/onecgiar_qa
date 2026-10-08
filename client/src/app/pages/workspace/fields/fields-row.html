@@ -1,0 +1,110 @@
+@let r = row();
+
+<!-- Name, required mark, default / exception line -->
+<ng-template #nameBlock>
+  <div class="flex min-w-0 flex-col gap-0.5" [class.py-2]="!compact()" [class.opacity-55]="r.dim">
+    <div class="flex min-w-0 items-baseline">
+      <span [title]="r.name" class="min-w-0 overflow-hidden text-(length:--fs-14) font-medium text-ellipsis whitespace-nowrap text-(--text)">{{ r.name }}</span>
+      @if (r.required) {
+        <span aria-hidden="true" class="ml-0.5 flex-none font-semibold text-(--danger-strong)">*</span><span class="sr-only">(required)</span>
+      }
+      @if (r.requiredHidden) {
+        <button
+          type="button"
+          [qaTooltip]="requiredHiddenHelp"
+          aria-label="Required but hidden in QA"
+          class="ml-1 flex size-[14px] flex-none cursor-pointer items-center justify-center self-center rounded-full border-none bg-transparent p-0 text-(--text-muted) hover:text-(--primary) focus-visible:shadow-(--focus-ring) focus-visible:outline-none"
+        >
+          <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01"></path></svg>
+        </button>
+      }
+    </div>
+    @if (r.isDefault) {
+      <span class="text-(length:--fs-12) font-normal text-(--text-muted)">Default for all result types</span>
+    }
+    @if (r.isException) {
+      <span class="flex flex-wrap items-center gap-1.5 text-(length:--fs-12) font-normal text-(--accent)">
+        <span>Exception for this result type</span>
+        <button
+          type="button"
+          (click)="reset.emit()"
+          [attr.aria-label]="'Reset ' + r.name + ' to default'"
+          class="min-h-5 cursor-pointer rounded-md border-none bg-transparent px-1.5 text-(length:--fs-12) font-medium text-(--accent) hover:bg-(--tint) focus-visible:shadow-(--focus-ring) focus-visible:outline-none"
+        >
+          Reset to default
+        </button>
+      </span>
+    }
+  </div>
+</ng-template>
+
+<ng-template #docTip>
+  <qa-tooltip-content [title]="r.name">{{ r.doc }}</qa-tooltip-content>
+</ng-template>
+
+<ng-template #docButton>
+  <button
+    type="button"
+    [qaTooltip]="docTip"
+    qaTooltipPosition="left"
+    [attr.aria-label]="'Field documentation: ' + r.name"
+    class="flex size-5 flex-none cursor-pointer items-center justify-center rounded-full border-none bg-transparent p-0 text-(--text-muted) hover:text-(--primary) focus-visible:shadow-(--focus-ring) focus-visible:outline-none"
+    [class.ml-auto]="compact()"
+    [class.opacity-55]="r.dim"
+  >
+    <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01"></path></svg>
+  </button>
+</ng-template>
+
+<ng-template #segmented>
+  <qa-segmented
+    size="compact"
+    class="justify-self-start"
+    [options]="states"
+    [value]="r.config.state"
+    (valueChange)="onState($event)"
+    [aria-label]="'In QA: ' + r.name"
+  />
+</ng-template>
+
+@if (compact()) {
+  <!-- Compact: name + ⓘ on the first line, controls on the second -->
+  <div class="relative flex flex-col items-stretch gap-2.5 border-b border-(--surface-4) bg-(--surface) px-5 py-[14px]">
+    @if (r.changed) {
+      <span aria-hidden="true" class="absolute top-0 bottom-0 left-0 w-[3px] bg-(--primary)"></span>
+    }
+    <div class="flex min-w-0 items-start gap-3">
+      <ng-container [ngTemplateOutlet]="nameBlock" />
+      <ng-container [ngTemplateOutlet]="docButton" />
+    </div>
+    <div class="flex flex-wrap items-center gap-4">
+      <ng-container [ngTemplateOutlet]="segmented" />
+      <div class="flex items-center gap-2" [class.opacity-55]="r.dim">
+        <span aria-hidden="true" class="text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase">Core</span>
+        <qa-switch [checked]="r.effective.core" (checkedChange)="coreChange.emit($event)" [disabled]="!r.active" [aria-label]="'Core: ' + r.name" />
+      </div>
+      <div class="flex items-center gap-2" [class.opacity-55]="r.dim">
+        <span aria-hidden="true" class="text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase">AI</span>
+        <qa-switch [checked]="r.effective.ai" (checkedChange)="aiChange.emit($event)" [disabled]="!r.active" [aria-label]="'AI helper: ' + r.name" />
+      </div>
+    </div>
+  </div>
+} @else {
+  <!-- Wide: one grid row, same columns as the sticky header -->
+  <div class="relative grid min-h-[52px] grid-cols-[minmax(0,1fr)_352px_64px_64px_28px] items-center gap-4 border-b border-(--surface-4) bg-(--surface) px-5 hover:bg-(--surface-2)">
+    @if (r.changed) {
+      <span aria-hidden="true" class="absolute top-0 bottom-0 left-0 w-[3px] bg-(--primary)"></span>
+    }
+    <ng-container [ngTemplateOutlet]="nameBlock" />
+    <ng-container [ngTemplateOutlet]="segmented" />
+    <div class="flex justify-center" [class.opacity-55]="r.dim">
+      <qa-switch [checked]="r.effective.core" (checkedChange)="coreChange.emit($event)" [disabled]="!r.active" [aria-label]="'Core: ' + r.name" />
+    </div>
+    <div class="flex justify-center" [class.opacity-55]="r.dim">
+      <qa-switch [checked]="r.effective.ai" (checkedChange)="aiChange.emit($event)" [disabled]="!r.active" [aria-label]="'AI helper: ' + r.name" />
+    </div>
+    <div class="flex">
+      <ng-container [ngTemplateOutlet]="docButton" />
+    </div>
+  </div>
+}
