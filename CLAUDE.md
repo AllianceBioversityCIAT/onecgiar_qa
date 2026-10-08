@@ -90,7 +90,7 @@ Juanpa cambia **cómo se ve** la app, nunca **cómo funciona**.
   - En las plantillas HTML: condiciones y bucles (`@if`, `@for`, `@switch`), eventos (`(click)`, `(submit)`…), bindings que cambian datos (`[(ngModel)]`, `[formControl]`…). **Mover** un bloque que contiene uno de estos está bien; **cambiar** la condición o el evento no.
   - Carpetas y archivos: `server/**`, `client/src/app/auth/**`, `client/src/app/spartan/**` (componentes compartidos), `app.routes.ts`, `app.config*.ts`, `package.json` / `package-lock.json` (instalar librerías), `angular.json`, `tsconfig*`, `.env`, CI, tests (`*.spec.ts`).
   - Borrar archivos o pantallas.
-- Si pide algo prohibido → Claude no lo hace y le explica con cariño: *"Eso cambia cómo funciona la app, no solo cómo se ve, y podría romper algo que usan los demás. Lo dejo anotado como idea para que Yeck lo revise."* → lo anota en `docs/ideas.md` (§ 4).
+- Si pide algo prohibido → Claude no lo hace y le explica con cariño: *"Eso cambia cómo funciona la app, no solo cómo se ve, y podría romper algo que usan los demás. Lo dejo anotado como idea para que Yeck lo revise. Si lo necesitas ya, pregúntale por Slack; aquí tienes el mensaje listo."* → lo anota en `docs/ideas.md` (§ 4) y le da el mensaje de § 3.8.
 - Si para lograr un diseño **hace falta** tocar lógica (p. ej. un botón nuevo que haga algo) → hace solo la parte visual (el botón se ve, pero no hace nada nuevo) y deja la parte de lógica anotada como idea.
 
 ### 3.5 Antes de subir sus cambios (siempre, en este orden)
@@ -106,8 +106,31 @@ Juanpa cambia **cómo se ve** la app, nunca **cómo funciona**.
 - Si es la primera vez y faltan dependencias (`node_modules`), Claude corre `npm ci` en `client/` y le explica que es *"descargar las piezas que la app necesita para arrancar, solo se hace una vez"*. Eso **no** es instalar librerías nuevas.
 
 ### 3.7 Si algo sale mal
-- Error rojo, conflicto o algo raro de Git → Claude **no improvisa arreglos**. Se detiene, le explica en 1–2 frases qué pasó y que su trabajo está a salvo (si lo está), y le dice que avise a Yeck con el nombre de su rama.
+- Error rojo, conflicto o algo raro de Git → Claude **no improvisa arreglos**. Se detiene, le explica en 1–2 frases qué pasó y que su trabajo está a salvo (si lo está), y le dice que avise a Yeck por Slack con el nombre de su rama (§ 3.8, mensaje listo).
 - Nunca se le hace sentir culpable: *"Esto le pasa a todo el mundo; Yeck lo resuelve en un momento."*
+
+### 3.8 Buenas prácticas automáticas — Juanpa solo piensa en diseño (estricto)
+Juanpa se preocupa **solo por cómo se ve**. Toda la parte técnica la pone Claude **sin que él la pida**: nunca tiene que decir "usa Angular", "usa Tailwind" ni "usa spartan".
+
+- 🛑 **Siempre, en todo lo que haga para Juanpa**, Claude aplica el stack y las buenas prácticas del proyecto:
+  - **Angular** según `client/CLAUDE.md`: componentes standalone, signals, control de flujo nativo (`@if`/`@for`), sin `ngClass`/`ngStyle`, `NgOptimizedImage` para imágenes.
+  - **Tailwind 4**: solo clases utilitarias y los colores de la paleta (`client/src/app/theme/palettes.ts`). Sin CSS suelto, sin `style="…"` y sin colores hex inventados si ya existe un token.
+  - **spartan/ui**: antes de dibujar un botón, input, diálogo, tabla, menú, etc., usar el componente de `@spartan` que ya existe y darle el estilo con Tailwind. Nunca un componente hecho a mano si spartan ya lo tiene. Nunca editar `client/src/app/spartan/**` (§ 3.4).
+  - **Reusar antes de crear**: buscar primero en `client/src/app/ui/**` y `client/src/app/shell/**` si la pieza ya existe.
+  - **Accesibilidad AA y responsive**: contraste suficiente, foco visible, `alt` en imágenes, y que se vea bien en celular, tablet y escritorio.
+  - Skills disponibles: `angular-developer`, `tailwind-design-system` y `spartan`. Úsalas cuando apliquen.
+- **Claude no le hace preguntas técnicas a Juanpa** (qué componente, qué librería, cómo estructurarlo): decide por la convención del proyecto. Solo le pregunta cosas de diseño (color, tamaño, orden, cuál de dos opciones visuales prefiere).
+- Juanpa puede pedir en sus palabras (*"que se vea como el mockup"*, *"más moderno"*, una captura): Claude lo traduce a lo de arriba.
+- **Antes de decirle "listo"**: `cd client && npx ng build` en verde y una revisión en el navegador (escritorio y celular) comparando con el mockup. Si algo no quedó igual, le dice qué y por qué.
+- 🛑 **Si algo es complejo → no lo intenta: Juanpa le pregunta a Yeck por Slack.** Es complejo:
+  - Todo lo prohibido en § 3.4 (lógica, rutas, datos, servicios, librerías nuevas).
+  - Lo que el semáforo de § 4 marca 🟡 o 🔴 (pantalla nueva, navegación entre pantallas, datos reales, permisos…).
+  - Un `ng build` que falla por algo que no es su parte visual, conflictos de Git o cualquier error que Claude no entienda.
+  - Cuando no sabe si algo es diseño o lógica.
+- En esos casos Claude hace solo la parte visual segura (si la hay) y le deja el **mensaje listo para Slack**:
+  > *"Yeck, estoy en la rama `jp-design/<tema>`. Quiero <qué quiere lograr, en 1 línea>. Claude dice que necesita <lo técnico, en palabras simples>. ¿Me ayudas?"*
+
+  Además lo anota en `docs/ideas.md` (§ 4). Claude no le escribe a Yeck por su cuenta: el mensaje lo envía Juanpa.
 
 ## 4) Cuando Juanpa (o cualquiera) trae una IDEA — evaluación automática
 
