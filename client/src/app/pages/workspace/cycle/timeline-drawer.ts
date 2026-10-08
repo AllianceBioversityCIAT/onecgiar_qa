@@ -94,48 +94,50 @@ interface TimelineDraft {
           </div>
         }
 
-        <div class="flex flex-col items-stretch gap-[6px]">
+        <div class="flex flex-col items-stretch gap-[6px] @container">
           <span id="cycle-tl-steps" class="text-(length:--fs-13) font-semibold text-(--text-2)">Steps</span>
-          <div class="overflow-x-auto rounded-[8px] border border-(--border)">
-            <div class="min-w-[600px]">
-              <div class="grid min-h-9 grid-cols-[24px_minmax(0,1fr)_124px_124px_44px_22px] items-center gap-3 border-b border-(--surface-4) bg-(--surface-3) px-[14px] text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase">
-                <span></span><span>Step name</span><span>Opens</span><span>Closes</span><span class="text-center">Load</span><span></span>
-              </div>
-              @for (rf of tlForm.steps; track $index; let i = $index, last = $last) {
-                @let row = rf().value();
-                <div [class]="last ? '' : 'border-b border-(--surface-4)'">
-                  @if (confirmRow() === i) {
-                    <div class="flex min-h-[52px] items-center gap-2 px-[14px]">
-                      <span class="mr-auto text-(length:--fs-13) text-(--text-2)">Remove step {{ i + 1 }}?</span>
-                      <button type="button" (click)="confirmRow.set(null)" class="min-h-8 cursor-pointer rounded-[8px] border-0 bg-transparent px-[10px] text-(length:--fs-13) font-medium text-(--accent) outline-none hover:bg-(--tint) focus-visible:shadow-(--focus-ring)">Keep it</button>
-                      <button type="button" (click)="removeRow(i)" class="min-h-8 cursor-pointer rounded-[8px] border-0 bg-transparent px-[10px] text-(length:--fs-12) font-semibold text-(--danger) outline-none hover:bg-(--danger-bg) focus-visible:shadow-(--focus-ring)">Remove</button>
-                    </div>
-                  } @else {
-                    <div class="grid min-h-[52px] grid-cols-[24px_minmax(0,1fr)_124px_124px_44px_22px] items-center gap-3 px-[14px]">
-                      <span class="font-(family-name:--qa-mono) text-(length:--fs-12) font-semibold text-(--text-muted)">{{ i + 1 }}</span>
-                      <span class="min-w-0">
-                        <input hlmInput type="text" [formField]="rf.name" [attr.aria-label]="'Step ' + (i + 1) + ' name'" [title]="row.name" placeholder="QA platform open for assessors" [attr.data-invalid]="tried() && !row.name.trim()" class="h-8 min-w-0 rounded-[8px] border-(--border) bg-(--field-bg) px-[10px] py-0 text-(length:--fs-13) text-ellipsis text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[invalid=true]:border-(--danger) md:text-(length:--fs-13) dark:bg-(--field-bg)" />
-                      </span>
-                      <span class="min-w-0">
-                        <input hlmInput type="text" [formField]="rf.start" [attr.aria-label]="'Step ' + (i + 1) + ' opens'" placeholder="06 Jul 2026" [attr.data-invalid]="rowErrorShown(i)" [attr.aria-invalid]="rowErrorShown(i) || null" class="h-8 min-w-0 rounded-[8px] border-(--border) bg-(--field-bg) px-[10px] py-0 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[invalid=true]:border-(--danger) md:text-(length:--fs-13) dark:bg-(--field-bg)" />
-                      </span>
-                      <span class="min-w-0">
-                        <input hlmInput type="text" [formField]="rf.end" [attr.aria-label]="'Step ' + (i + 1) + ' closes'" [placeholder]="last ? 'Optional' : '11 Jul 2026'" class="h-8 min-w-0 rounded-[8px] border-(--border) bg-(--field-bg) px-[10px] py-0 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 md:text-(length:--fs-13) dark:bg-(--field-bg)" />
-                      </span>
-                      <span class="flex justify-center">
-                        <qa-switch [checked]="row.batch" (checkedChange)="patchRow(i, { batch: $event })" [aria-label]="'Step ' + (i + 1) + ' loads results'" />
-                      </span>
-                      <span>
-                        <button type="button" (click)="confirmRow.set(i)" [attr.aria-label]="'Remove step ' + (i + 1)" class="flex size-[22px] cursor-pointer items-center justify-center rounded-[6px] border-0 bg-transparent p-0 text-(--text-3) outline-none hover:text-(--danger) focus-visible:shadow-(--focus-ring)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12" /></svg></button>
-                      </span>
-                    </div>
-                  }
-                </div>
-              }
+          <!-- Wide drawer: table-like grid with a sticky header. Narrow (< 36rem): each step stacks as a card row with inline labels. -->
+          <div class="rounded-[8px] border border-(--border)">
+            <div aria-hidden="true" class="sticky top-0 z-10 hidden min-h-9 grid-cols-[24px_minmax(0,1fr)_124px_124px_44px_22px] items-center gap-3 rounded-t-[8px] border-b border-(--surface-4) bg-(--surface-3) px-[14px] text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase @xl:grid">
+              <span></span><span>Step name</span><span>Opens</span><span>Closes</span><span class="text-center">Load</span><span></span>
             </div>
-            <div class="flex min-h-11 min-w-[600px] items-center gap-4 border-t border-(--surface-4) px-[6px]">
-              <button type="button" (click)="addRow()" class="min-h-8 cursor-pointer rounded-[8px] border-0 bg-transparent px-2 text-(length:--fs-13) font-medium text-(--accent) outline-none hover:bg-(--tint) focus-visible:shadow-(--focus-ring)">Add step</button>
-              <button type="button" (click)="resetRows()" class="min-h-8 cursor-pointer rounded-[8px] border-0 bg-transparent px-2 text-(length:--fs-13) font-medium text-(--accent) outline-none hover:bg-(--tint) focus-visible:shadow-(--focus-ring)">Reset to official timeline</button>
+            @for (rf of tlForm.steps; track $index; let i = $index, last = $last) {
+              @let row = rf().value();
+              <div [class]="last ? '' : 'border-b border-(--surface-4)'">
+                @if (confirmRow() === i) {
+                  <div class="flex min-h-[52px] flex-wrap items-center gap-2 px-[14px] py-2 @xl:py-0">
+                    <span class="mr-auto text-(length:--fs-13) text-(--text-2)">Remove step {{ i + 1 }}?</span>
+                    <button type="button" (click)="confirmRow.set(null)" class="min-h-10 cursor-pointer rounded-[8px] border-0 bg-transparent px-[10px] text-(length:--fs-13) font-medium text-(--accent) outline-none hover:bg-(--tint) focus-visible:shadow-(--focus-ring) @xl:min-h-8">Keep it</button>
+                    <button type="button" (click)="removeRow(i)" class="min-h-10 cursor-pointer rounded-[8px] border-0 bg-transparent px-[10px] text-(length:--fs-12) font-semibold text-(--danger) outline-none hover:bg-(--danger-bg) focus-visible:shadow-(--focus-ring) @xl:min-h-8">Remove</button>
+                  </div>
+                } @else {
+                  <div class="grid grid-cols-[24px_minmax(0,1fr)_minmax(0,1fr)_40px] items-center gap-x-3 gap-y-2 px-[14px] py-3 @xl:min-h-[52px] @xl:grid-cols-[24px_minmax(0,1fr)_124px_124px_44px_22px] @xl:gap-y-0 @xl:py-0">
+                    <span class="font-(family-name:--qa-mono) text-(length:--fs-12) font-semibold text-(--text-muted)">{{ i + 1 }}</span>
+                    <span class="col-span-2 min-w-0 @xl:col-span-1">
+                      <input hlmInput type="text" [formField]="rf.name" [attr.aria-label]="'Step ' + (i + 1) + ' name'" [title]="row.name" placeholder="QA platform open for assessors" [attr.data-invalid]="tried() && !row.name.trim()" class="h-10 min-w-0 rounded-[8px] border-(--border) bg-(--field-bg) px-[10px] py-0 text-(length:--fs-13) text-ellipsis text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[invalid=true]:border-(--danger) md:text-(length:--fs-13) @xl:h-8 dark:bg-(--field-bg)" />
+                    </span>
+                    <span class="col-start-2 flex min-w-0 flex-col gap-1 @xl:col-start-auto">
+                      <span aria-hidden="true" class="text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase @xl:hidden">Opens</span>
+                      <input hlmInput type="text" [formField]="rf.start" [attr.aria-label]="'Step ' + (i + 1) + ' opens'" placeholder="06 Jul 2026" [attr.data-invalid]="rowErrorShown(i)" [attr.aria-invalid]="rowErrorShown(i) || null" class="h-10 min-w-0 rounded-[8px] border-(--border) bg-(--field-bg) px-[10px] py-0 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[invalid=true]:border-(--danger) md:text-(length:--fs-13) @xl:h-8 dark:bg-(--field-bg)" />
+                    </span>
+                    <span class="flex min-w-0 flex-col gap-1">
+                      <span aria-hidden="true" class="text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase @xl:hidden">Closes</span>
+                      <input hlmInput type="text" [formField]="rf.end" [attr.aria-label]="'Step ' + (i + 1) + ' closes'" [placeholder]="last ? 'Optional' : '11 Jul 2026'" class="h-10 min-w-0 rounded-[8px] border-(--border) bg-(--field-bg) px-[10px] py-0 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 md:text-(length:--fs-13) @xl:h-8 dark:bg-(--field-bg)" />
+                    </span>
+                    <span class="col-span-3 col-start-2 flex min-h-10 items-center justify-between gap-3 @xl:col-span-1 @xl:col-start-auto @xl:min-h-0 @xl:justify-center">
+                      <span aria-hidden="true" class="text-(length:--fs-13) font-medium text-(--text-2) @xl:hidden">Loads results</span>
+                      <qa-switch [checked]="row.batch" (checkedChange)="patchRow(i, { batch: $event })" [aria-label]="'Step ' + (i + 1) + ' loads results'" />
+                    </span>
+                    <span class="col-start-4 row-start-1 flex justify-end @xl:col-start-auto @xl:row-start-auto @xl:block">
+                      <button type="button" (click)="confirmRow.set(i)" [attr.aria-label]="'Remove step ' + (i + 1)" class="flex size-10 cursor-pointer items-center justify-center rounded-[6px] border-0 bg-transparent p-0 text-(--text-3) outline-none hover:text-(--danger) focus-visible:shadow-(--focus-ring) @xl:size-[22px]"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12" /></svg></button>
+                    </span>
+                  </div>
+                }
+              </div>
+            }
+            <div class="flex min-h-11 flex-wrap items-center gap-x-4 gap-y-1 border-t border-(--surface-4) px-[6px] py-1 @xl:py-0">
+              <button type="button" (click)="addRow()" class="min-h-10 cursor-pointer rounded-[8px] border-0 bg-transparent px-2 text-(length:--fs-13) font-medium text-(--accent) outline-none hover:bg-(--tint) focus-visible:shadow-(--focus-ring) @xl:min-h-8">Add step</button>
+              <button type="button" (click)="resetRows()" class="min-h-10 cursor-pointer rounded-[8px] border-0 bg-transparent px-2 text-(length:--fs-13) font-medium text-(--accent) outline-none hover:bg-(--tint) focus-visible:shadow-(--focus-ring) @xl:min-h-8">Reset to official timeline</button>
             </div>
           </div>
           @if (orderError()) {
