@@ -196,6 +196,15 @@ export class ResultsView {
     }
     return counts;
   });
+  /** Phone picker that replaces the type chips: same options and counts as the chips. */
+  protected readonly typeOptions = computed<readonly QaSelectOption[]>(() => {
+    const counts = this.typeCounts();
+    const label = (name: string, key: ResultType | 'All') => `${name} (${(counts.get(key) ?? 0).toLocaleString('en-US')})`;
+    return [
+      { value: 'All', label: label('All result types', 'All') },
+      ...RESULT_TYPES.map((t) => ({ value: t, label: label(t, t) })),
+    ];
+  });
   protected readonly autoCount = computed(() => {
     const match = this.baseMatch();
     return this.inTimeline().filter((r) => r.status === 'Automatic' && match(r)).length;
@@ -221,6 +230,10 @@ export class ResultsView {
     this.search.set((event.target as HTMLInputElement).value);
   }
 
+  protected selectType(value: string | null): void {
+    this.typeChip.set((RESULT_TYPES as readonly string[]).includes(value ?? '') ? (value as ResultType) : 'All');
+  }
+
   protected toggleAuto(): void {
     this.showAuto.update((v) => !v);
   }
@@ -229,6 +242,12 @@ export class ResultsView {
     const active = this.sortKey() === key;
     this.sortDir.set(active && this.sortDir() === 'asc' ? 'desc' : 'asc');
     this.sortKey.set(key);
+  }
+
+  /** Card-mode "Sort by" picker: explicit field + direction, or back to the default order. */
+  protected setSort(sort: { key: SortKey; dir: SortDir } | null): void {
+    this.sortKey.set(sort?.key ?? null);
+    this.sortDir.set(sort?.dir ?? 'asc');
   }
 
   protected showMore(): void {
