@@ -20,21 +20,21 @@ export interface StepCardVm {
 @Component({
   selector: 'qa-ov-step-card',
   imports: [HlmButton, RouterLink],
-  host: { class: 'block' },
+  host: { class: 'block @container' },
   template: `
     <section aria-label="Current step" class="flex flex-col gap-[14px] rounded-[12px] border border-(--border) bg-(--surface) p-5">
       <div class="flex flex-wrap items-center gap-6">
-        <div class="flex min-w-[240px] flex-1 flex-col gap-[6px] max-sm:min-w-0">
+        <div class="flex min-w-[240px] flex-1 flex-col gap-[6px] @max-xl:min-w-0 @max-xl:basis-full">
           <div class="text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--text-muted) uppercase">{{ card().eyebrow }}</div>
-          <div class="text-(length:--fs-18) font-bold tracking-[-0.01em] text-(--text)">{{ card().audience }}</div>
+          <div class="text-(length:--fs-18) font-bold tracking-[-0.01em] text-balance text-(--text)">{{ card().audience }}</div>
           <div class="text-(length:--fs-13) font-normal text-(--text-3)">
-            <span class="font-(family-name:--qa-mono) font-semibold tabular-nums text-(--text-2)">{{ card().dates }}</span> · {{ card().tailPre
-            }}<span class="font-(family-name:--qa-mono) font-semibold tabular-nums text-(--text-2)">{{ card().tailNum }}</span>{{ card().tailPost }}
+            <span class="font-(family-name:--qa-mono) font-semibold whitespace-nowrap tabular-nums text-(--text-2)">{{ card().dates }}</span> · {{ card().tailPre
+            }}<span class="font-(family-name:--qa-mono) font-semibold whitespace-nowrap tabular-nums text-(--text-2)">{{ card().tailNum }}</span>{{ card().tailPost }}
           </div>
         </div>
-        <div class="flex min-w-[280px] flex-none flex-col items-stretch gap-2 max-sm:min-w-0 max-sm:flex-1">
-          <div class="flex items-baseline gap-2">
-            <span class="text-(length:--fs-20) font-bold tracking-[-0.01em] tabular-nums text-(--text)">{{ card().big }}</span>
+        <div class="flex min-w-[280px] flex-none flex-col items-stretch gap-2 @max-xl:min-w-0 @max-xl:basis-full">
+          <div class="flex flex-wrap items-baseline gap-x-2">
+            <span class="text-(length:--fs-20) font-bold tracking-[-0.01em] whitespace-nowrap tabular-nums text-(--text)">{{ card().big }}</span>
             <span class="text-(length:--fs-13) font-normal text-(--text-3)">reviewed</span>
           </div>
           <div class="h-2 overflow-hidden rounded-full bg-(--surface-4)" role="progressbar" aria-label="Reviewed in this step" [attr.aria-valuenow]="card().pct" aria-valuemin="0" aria-valuemax="100">
@@ -46,7 +46,7 @@ export interface StepCardVm {
             type="button"
             [disabled]="!card().canOpen"
             (click)="viewProgress.emit()"
-            class="h-auto min-h-8 self-start rounded-[8px] border-(--border) bg-(--field-bg) px-3 text-(length:--fs-13) font-medium text-(--text-2) shadow-none hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text-2) focus-visible:shadow-(--focus-ring) focus-visible:ring-0"
+            class="h-auto min-h-8 self-start rounded-[8px] @max-xl:min-h-10 border-(--border) bg-(--field-bg) px-3 text-(length:--fs-13) font-medium text-(--text-2) shadow-none hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text-2) focus-visible:shadow-(--focus-ring) focus-visible:ring-0"
           >View progress</button>
         </div>
       </div>

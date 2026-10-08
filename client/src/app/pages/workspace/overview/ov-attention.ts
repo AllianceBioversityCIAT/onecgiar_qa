@@ -23,11 +23,11 @@ const VISIBLE = 5;
 @Component({
   selector: 'qa-ov-attention',
   imports: [HlmButton, RouterLink],
-  host: { class: 'block' },
+  host: { class: 'block @container' },
   template: `
     <section aria-labelledby="overview-attn-title" class="flex flex-col gap-4 rounded-[12px] border border-(--border) bg-(--surface) p-5">
       <div class="flex flex-wrap items-start gap-4">
-        <div class="flex min-w-[200px] flex-1 flex-col gap-1 max-sm:min-w-0">
+        <div class="flex min-w-[200px] flex-1 flex-col gap-1 @max-md:min-w-0 @max-md:basis-full">
           <div class="flex items-center gap-2">
             <h3 id="overview-attn-title" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">Needs attention</h3>
             @if (count()) {
@@ -45,7 +45,7 @@ const VISIBLE = 5;
           variant="outline"
           type="button"
           (click)="export.emit()"
-          class="h-auto min-h-9 flex-none gap-2 rounded-[8px] border-(--border) bg-(--field-bg) px-[14px] text-(length:--fs-14) font-medium whitespace-nowrap text-(--text-2) shadow-none hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text-2) focus-visible:shadow-(--focus-ring) focus-visible:ring-0"
+          class="h-auto min-h-9 flex-none gap-2 @max-md:min-h-10 @max-md:w-full rounded-[8px] border-(--border) bg-(--field-bg) px-[14px] text-(length:--fs-14) font-medium whitespace-nowrap text-(--text-2) shadow-none hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text-2) focus-visible:shadow-(--focus-ring) focus-visible:ring-0"
         >
           <svg class="flex-none" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"></path></svg>Export list
         </button>
@@ -64,19 +64,23 @@ const VISIBLE = 5;
               </h4>
               <ul class="m-0 list-none p-0">
                 @for (r of shown; track r.text; let last = $last) {
-                  <li class="grid min-h-12 grid-cols-[minmax(0,1fr)_auto] items-center gap-4 border-(--surface-4) px-[2px] hover:bg-(--surface-2) sm:grid-cols-[minmax(0,1fr)_150px]" [class.border-b]="!last || more">
-                    <span [title]="r.text" class="min-w-0 truncate text-(length:--fs-13) leading-[1.5] font-normal text-(--text-2) max-sm:whitespace-normal"
-                      >@for (seg of r.segs; track $index) {<span [class]="seg[1] ? 'font-(family-name:--qa-mono) font-semibold text-(--text)' : ''">{{ seg[0] }}</span>}</span
+                  <!-- >= @2xl: text and action on one line. Narrower: text wraps, the action sits under it, left aligned. -->
+                  <li
+                    class="grid min-h-12 grid-cols-1 items-center gap-1 border-(--surface-4) px-[2px] py-2 hover:bg-(--surface-2) @2xl:grid-cols-[minmax(0,1fr)_150px] @2xl:gap-4 @2xl:py-0"
+                    [class.border-b]="!last || more"
+                  >
+                    <span [title]="r.text" class="min-w-0 text-(length:--fs-13) leading-[1.5] font-normal text-pretty text-(--text-2) @2xl:truncate"
+                      >@for (seg of r.segs; track $index) {<span [class]="seg[1] ? 'font-(family-name:--qa-mono) font-semibold whitespace-nowrap text-(--text)' : ''">{{ seg[0] }}</span>}</span
                     >
                     @switch (r.to.kind) {
                       @case ('route') {
-                        <a hlmBtn variant="ghost" [routerLink]="routePath(r)" class="h-auto min-h-[30px] justify-self-end rounded-[8px] border-0 px-[10px] text-(length:--fs-13) font-semibold whitespace-nowrap text-(--accent) no-underline hover:bg-(--surface-3) hover:text-(--accent) focus-visible:shadow-(--focus-ring) focus-visible:ring-0">{{ r.label }}</a>
+                        <a hlmBtn variant="ghost" [routerLink]="routePath(r)" class="h-auto min-h-[30px] -ml-[10px] justify-self-start rounded-[8px] @max-2xl:min-h-10 @2xl:ml-0 @2xl:justify-self-end border-0 px-[10px] text-(length:--fs-13) font-semibold whitespace-nowrap text-(--accent) no-underline hover:bg-(--surface-3) hover:text-(--accent) focus-visible:shadow-(--focus-ring) focus-visible:ring-0">{{ r.label }}</a>
                       }
                       @case ('status') {
-                        <a hlmBtn variant="ghost" routerLink="/results" [queryParams]="{ status: statuses(r) }" class="h-auto min-h-[30px] justify-self-end rounded-[8px] border-0 px-[10px] text-(length:--fs-13) font-semibold whitespace-nowrap text-(--accent) no-underline hover:bg-(--surface-3) hover:text-(--accent) focus-visible:shadow-(--focus-ring) focus-visible:ring-0">{{ r.label }}</a>
+                        <a hlmBtn variant="ghost" routerLink="/results" [queryParams]="{ status: statuses(r) }" class="h-auto min-h-[30px] -ml-[10px] justify-self-start rounded-[8px] @max-2xl:min-h-10 @2xl:ml-0 @2xl:justify-self-end border-0 px-[10px] text-(length:--fs-13) font-semibold whitespace-nowrap text-(--accent) no-underline hover:bg-(--surface-3) hover:text-(--accent) focus-visible:shadow-(--focus-ring) focus-visible:ring-0">{{ r.label }}</a>
                       }
                       @case ('risk') {
-                        <button hlmBtn variant="ghost" type="button" (click)="risk.emit(riskKey(r))" class="h-auto min-h-[30px] justify-self-end rounded-[8px] border-0 px-[10px] text-(length:--fs-13) font-semibold whitespace-nowrap text-(--accent) no-underline hover:bg-(--surface-3) hover:text-(--accent) focus-visible:shadow-(--focus-ring) focus-visible:ring-0">{{ r.label }}</button>
+                        <button hlmBtn variant="ghost" type="button" (click)="risk.emit(riskKey(r))" class="h-auto min-h-[30px] -ml-[10px] justify-self-start rounded-[8px] @max-2xl:min-h-10 @2xl:ml-0 @2xl:justify-self-end border-0 px-[10px] text-(length:--fs-13) font-semibold whitespace-nowrap text-(--accent) no-underline hover:bg-(--surface-3) hover:text-(--accent) focus-visible:shadow-(--focus-ring) focus-visible:ring-0">{{ r.label }}</button>
                       }
                     }
                   </li>

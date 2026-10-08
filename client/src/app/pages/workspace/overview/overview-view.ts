@@ -152,7 +152,7 @@ export class OverviewView {
       const status = s.closed ? 'Closed' : done === 0 ? 'Not started' : pct < (s.elapsed ?? 0) ? 'Behind' : 'In progress';
       return {
         n: i + 1, name: s.name, criterion: s.criterion, round: i < 2 ? 'QA round 1' : 'QA round 2',
-        pct, detail: ` · ${fmt(done)} of ${fmt(of)} ${s.word}`, left: of - done, leftText: fmt(of - done),
+        pct, detail: ` · ${fmt(done)}\u00a0of\u00a0${fmt(of)} ${s.word}`, left: of - done, leftText: fmt(of - done),
         status, closed: s.closed, statuses: s.statuses,
       };
     });
@@ -190,7 +190,7 @@ export class OverviewView {
       person: m === 'assessor' ? (r.person ?? '') : null,
       chip: null,
       title: m === 'program' ? r.key + ' ' + programName : m === 'assessor' ? r.key + ' · ' + r.person : r.key,
-      pct: r.pct, detail: ` · ${fmt(done)} of ${fmt(done + pending)} reviewed`, pending: fmt(pending), pace: r.pace,
+      pct: r.pct, detail: ` · ${fmt(done)}\u00a0of\u00a0${fmt(done + pending)} reviewed`, pending: fmt(pending), pace: r.pace,
       highlighted: this.highlight() === key,
       queryParams: m === 'type' ? { type: r.key } : m === 'program' ? { program: r.key } : { assessor: r.person ?? r.key },
       timelineId: null,
@@ -208,7 +208,7 @@ export class OverviewView {
         const done = t.pct >= 100 ? t.pending : Math.round((t.pending * t.pct) / (100 - t.pct));
         return {
           id: 'timeline:' + t.id, angle: null, code: null, name: t.name, person: null, chip: t.chip, title: t.name,
-          pct: t.pct, detail: ` · ${fmt(done)} of ${fmt(done + t.pending)} reviewed`, pending: fmt(t.pending), pace: t.pace,
+          pct: t.pct, detail: ` · ${fmt(done)}\u00a0of\u00a0${fmt(done + t.pending)} reviewed`, pending: fmt(t.pending), pace: t.pace,
           highlighted: false, queryParams: null, timelineId: t.id,
         };
       });

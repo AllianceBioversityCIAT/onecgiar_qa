@@ -45,17 +45,20 @@ const TABS: readonly { value: WorkTab; label: string }[] = [
 ];
 
 const NAME_LINK =
-  'block truncate text-(length:--fs-14) font-normal text-(--text) no-underline after:absolute after:inset-0 focus-visible:outline-none focus-visible:after:rounded-[6px] focus-visible:after:shadow-(--focus-ring)';
+  'block truncate text-(length:--fs-14) @max-2xl:whitespace-normal font-normal text-(--text) no-underline after:absolute after:inset-0 focus-visible:outline-none focus-visible:after:rounded-[6px] focus-visible:after:shadow-(--focus-ring)';
+
+/** Narrow cards: the segmented tabs wrap and grow to 40px touch targets instead of scrolling sideways. */
+const TAB = '@max-2xl:h-10 @max-2xl:flex-auto @max-2xl:justify-center';
 
 /** "Where the work is": completion by result type, program, assessor, risk or timeline. */
 @Component({
   selector: 'qa-ov-work',
   imports: [HlmButton, RouterLink, QaTabsImports, NgTemplateOutlet, LowerCasePipe],
-  host: { class: 'block' },
+  host: { class: 'block @container' },
   template: `
     <section aria-labelledby="overview-ww-title" class="flex flex-col gap-4 rounded-[12px] border border-(--border) bg-(--surface) p-5">
       <div class="flex flex-wrap items-start gap-4">
-        <div class="flex min-w-[200px] flex-1 flex-col gap-1 max-sm:min-w-0">
+        <div class="flex min-w-[200px] flex-1 flex-col gap-1 @max-md:min-w-0 @max-md:basis-full">
           <h3 id="overview-ww-title" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">Where the work is</h3>
           <p class="m-0 text-(length:--fs-13) font-normal text-(--text-3)">Least advanced first.</p>
         </div>
@@ -64,52 +67,54 @@ const NAME_LINK =
           variant="outline"
           type="button"
           (click)="download.emit()"
-          class="ml-auto h-auto min-h-9 flex-none gap-2 rounded-[8px] border-(--border) bg-(--field-bg) px-[14px] text-(length:--fs-14) font-medium whitespace-nowrap text-(--text-2) shadow-none hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text-2) focus-visible:shadow-(--focus-ring) focus-visible:ring-0"
+          class="ml-auto h-auto min-h-9 flex-none gap-2 @max-md:min-h-10 @max-md:w-full rounded-[8px] border-(--border) bg-(--field-bg) px-[14px] text-(length:--fs-14) font-medium whitespace-nowrap text-(--text-2) shadow-none hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text-2) focus-visible:shadow-(--focus-ring) focus-visible:ring-0"
         >
           <svg class="flex-none" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"></path></svg>Download comments
         </button>
       </div>
 
       <div qaTabs variant="segmented" [(value)]="tab" class="gap-4">
-        <div qaTabList aria-label="Group the work">
-          <button qaTab="type">By result type</button>
-          <button qaTab="program">By science program</button>
-          <button qaTab="assessor">By assessor</button>
-          <span aria-hidden="true" class="mx-1 h-[18px] w-px flex-none self-center bg-(--border)"></span>
-          <button qaTab="risk" class="gap-[6px] text-(--warning)! hover:text-(--warning)!">
+        <div qaTabList aria-label="Group the work" class="@max-2xl:h-auto @max-2xl:w-full @max-2xl:flex-wrap @max-2xl:gap-1 @max-2xl:p-1">
+          <button qaTab="type" class="${TAB}">By result type</button>
+          <button qaTab="program" class="${TAB}">By science program</button>
+          <button qaTab="assessor" class="${TAB}">By assessor</button>
+          <span aria-hidden="true" class="mx-1 h-[18px] w-px flex-none self-center bg-(--border) @max-2xl:hidden"></span>
+          <button qaTab="risk" class="gap-[6px] text-(--warning)! hover:text-(--warning)! ${TAB}">
             At risk<span class="font-(family-name:--qa-mono) text-(length:--fs-12) font-semibold tabular-nums">{{ riskCount() }}</span>
           </button>
-          <button qaTab="timeline">By timeline</button>
+          <button qaTab="timeline" class="${TAB}">By timeline</button>
         </div>
 
         @for (t of tabs; track t.value) {
           <div [qaTabPanel]="t.value">
             @if (tab() === t.value) {
-              <div class="overflow-x-auto">
-                <table class="w-full min-w-[700px] table-fixed border-collapse">
+              <!-- >= @4xl: the mockup table. @2xl-@4xl: narrower number columns. < @2xl: rows stack, no header row.
+                   Sticky header: no overflow ancestor up to <main>, so the column titles stay under the top bar. -->
+              <div>
+                <table class="w-full table-fixed border-collapse @max-2xl:block">
                   <caption class="sr-only">Where the work is, {{ t.label | lowercase }}</caption>
-                  <colgroup>
+                  <colgroup class="@max-2xl:hidden">
                     <col />
-                    <col class="w-[236px]" />
-                    <col class="w-[126px]" />
-                    <col class="w-[134px]" />
+                    <col class="w-[236px] @max-4xl:w-[200px]" />
+                    <col class="w-[126px] @max-4xl:w-[96px]" />
+                    <col class="w-[134px] @max-4xl:w-[112px]" />
                   </colgroup>
-                  <thead>
-                    <tr class="h-9 border-b border-(--surface-4)">
-                      <th scope="col" class="pr-4 pl-1 text-left text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase">Name</th>
-                      <th scope="col" class="pr-4 text-left text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase">Completion</th>
-                      <th scope="col" class="pr-4 text-right text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase">Pending</th>
-                      <th scope="col" class="pr-1 text-right text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase">Pace</th>
+                  <thead class="@max-2xl:hidden">
+                    <tr>
+                      <th scope="col" class="sticky top-0 z-10 h-9 bg-(--surface) shadow-[inset_0_-1px_0_var(--surface-4)] pr-4 pl-1 text-left text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase">Name</th>
+                      <th scope="col" class="sticky top-0 z-10 h-9 bg-(--surface) shadow-[inset_0_-1px_0_var(--surface-4)] pr-4 text-left text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase">Completion</th>
+                      <th scope="col" class="sticky top-0 z-10 h-9 bg-(--surface) shadow-[inset_0_-1px_0_var(--surface-4)] pr-4 text-right text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase">Pending</th>
+                      <th scope="col" class="sticky top-0 z-10 h-9 bg-(--surface) shadow-[inset_0_-1px_0_var(--surface-4)] pr-1 text-right text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase">Pace</th>
                     </tr>
                   </thead>
-                  <tbody>
+                  <tbody class="@max-2xl:block">
                     @for (w of rows(); track w.id; let last = $last) {
                       <tr
-                        class="relative h-14 cursor-pointer border-(--surface-4) transition-[background] duration-300"
+                        class="relative h-14 cursor-pointer border-(--surface-4) transition-[background] duration-300 @max-2xl:grid @max-2xl:h-auto @max-2xl:grid-cols-[minmax(0,1fr)_auto] @max-2xl:gap-x-4 @max-2xl:gap-y-2 @max-2xl:px-1 @max-2xl:py-3"
                         [class]="w.highlighted ? 'bg-(--tint) hover:bg-(--tint)' : 'bg-transparent hover:bg-(--surface-2)'"
                         [class.border-b]="!last"
                       >
-                        <td class="py-2 pr-4 pl-1 align-middle">
+                        <td class="py-2 pr-4 pl-1 align-middle @max-2xl:col-start-1 @max-2xl:row-start-1 @max-2xl:p-0">
                           <div class="flex min-w-0 flex-col gap-[2px]">
                             @if (w.angle) {
                               <span class="text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase">{{ w.angle }}</span>
@@ -125,19 +130,21 @@ const NAME_LINK =
                             }
                           </div>
                         </td>
-                        <td class="pr-4 align-middle">
-                          <div class="flex min-w-0 flex-col gap-[5px]">
-                            <div class="h-[6px] overflow-hidden rounded-full bg-(--surface-4)">
+                        <td class="pr-4 align-middle @max-2xl:contents">
+                          <div class="flex min-w-0 flex-col gap-[5px] @max-2xl:contents">
+                            <div class="h-[6px] overflow-hidden rounded-full bg-(--surface-4) @max-2xl:col-span-full @max-2xl:row-start-2">
                               <div class="h-full rounded-full bg-(--primary) transition-[width] duration-200" [style.width.%]="w.pct"></div>
                             </div>
-                            <span class="truncate text-(length:--fs-12) font-normal text-(--text-3)"
-                              ><span class="font-(family-name:--qa-mono) font-bold tabular-nums text-(--text)">{{ w.pct }}%</span
+                            <span class="truncate text-(length:--fs-12) font-normal text-(--text-3) @max-2xl:col-start-1 @max-2xl:row-start-3 @max-2xl:self-center @max-2xl:whitespace-normal"
+                              ><span class="font-(family-name:--qa-mono) font-bold whitespace-nowrap tabular-nums text-(--text)">{{ w.pct }}%</span
                               ><span class="text-(--text-4)">{{ w.detail }}</span></span
                             >
                           </div>
                         </td>
-                        <td class="pr-4 text-right align-middle font-(family-name:--qa-mono) text-(length:--fs-13) font-semibold tabular-nums text-(--text)">{{ w.pending }}</td>
-                        <td class="pr-1 text-right align-middle">
+                        <td class="pr-4 text-right align-middle font-(family-name:--qa-mono) text-(length:--fs-13) font-semibold whitespace-nowrap tabular-nums text-(--text) @max-2xl:col-start-2 @max-2xl:row-start-3 @max-2xl:self-center @max-2xl:p-0">
+                          {{ w.pending }}<span class="hidden font-sans text-(length:--fs-12) font-normal text-(--text-4) @max-2xl:inline"> pending</span>
+                        </td>
+                        <td class="pr-1 text-right align-middle @max-2xl:col-start-2 @max-2xl:row-start-1 @max-2xl:block @max-2xl:self-start @max-2xl:p-0">
                           <span class="inline-flex items-center gap-[6px] text-(length:--fs-12) font-medium whitespace-nowrap" [class]="pace[w.pace].color">
                             <svg class="flex-none" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path [attr.d]="pace[w.pace].icon"></path></svg>{{ w.pace }}
                           </span>

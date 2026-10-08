@@ -1,7 +1,7 @@
 <!-- Overview (QA lead). Data comes from overview.mock.ts; every number follows the timeline picker. -->
 
 <!-- Page header -->
-<div #pageTop class="flex scroll-mt-6 flex-wrap items-start gap-4 px-4 pt-8 md:px-8">
+<div #pageTop class="flex scroll-mt-6 flex-wrap items-start gap-4 px-4 pt-8 sm:px-6 lg:px-8">
   <div class="flex min-w-0 flex-1 flex-col gap-1">
     <h1 class="m-0 text-(length:--fs-26) font-bold leading-[1.2] tracking-[-0.02em] text-(--text)">Overview</h1>
     <p class="m-0 text-(length:--fs-14) font-normal text-(--text-3)">Where the 2026 cycle stands today.</p>
@@ -25,7 +25,7 @@
         hlmBtn
         type="button"
         (click)="loadOpen.set(true)"
-        class="h-auto min-h-9 flex-none justify-center gap-2 rounded-[8px] border-0 bg-(--primary) px-[14px] text-(length:--fs-14) font-semibold text-(--surface) hover:bg-(--accent) focus-visible:shadow-(--focus-ring) focus-visible:ring-0 max-sm:w-full"
+        class="h-auto min-h-9 flex-none justify-center gap-2 rounded-[8px] border-0 bg-(--primary) px-[14px] text-(length:--fs-14) font-semibold text-(--surface) hover:bg-(--accent) focus-visible:shadow-(--focus-ring) focus-visible:ring-0 max-sm:min-h-10 max-sm:w-full"
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36L21 8M21 3v5h-5"></path></svg>
         Load results into QA
@@ -35,7 +35,7 @@
 </div>
 
 <!-- Body -->
-<div class="flex flex-col items-stretch gap-6 px-4 pt-6 pb-8 md:px-8">
+<div class="flex flex-col items-stretch gap-6 px-4 pt-6 pb-8 sm:px-6 lg:px-8">
   @if (resultsInQa(); as rq) {
     <qa-ov-results-in-qa [data]="rq" (officialClick)="pickOfficial()" (subsClick)="openSubs()" />
   }

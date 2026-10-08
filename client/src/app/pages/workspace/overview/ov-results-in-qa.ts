@@ -22,14 +22,14 @@ const STATUS_CHIP: Record<ResultStatus, string> = {
 @Component({
   selector: 'qa-ov-results-in-qa',
   imports: [RouterLink],
-  host: { class: 'block' },
+  host: { class: 'block @container' },
   template: `
     <section aria-labelledby="overview-rq-title" class="flex flex-col gap-4 rounded-[12px] border border-(--border) bg-(--surface) p-5">
       <div class="flex flex-col gap-1">
         <h3 id="overview-rq-title" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">Results in QA</h3>
         <p class="m-0 text-(length:--fs-13) font-normal text-(--text-3)">Where the results came in from.</p>
       </div>
-      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div class="grid grid-cols-1 gap-4 @lg:grid-cols-2">
         <button type="button" (click)="officialClick.emit()" class="flex cursor-pointer flex-col gap-[6px] rounded-[10px] border border-(--border) bg-(--surface-2) px-4 py-[14px] text-left hover:border-(--border-strong) focus-visible:shadow-(--focus-ring) focus-visible:outline-none">
           <span class="text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--text-muted) uppercase">Official timeline</span>
           <span class="font-(family-name:--qa-mono) text-(length:--fs-26) font-bold tabular-nums text-(--text)">{{ data().officialCount }}</span>
@@ -41,15 +41,16 @@ const STATUS_CHIP: Record<ResultStatus, string> = {
           <span class="text-(length:--fs-12) font-normal text-(--text-4)">{{ data().subsLine }}</span>
         </button>
       </div>
-      <div class="grid grid-cols-2 gap-3 border-t border-(--surface-4) pt-[14px] sm:grid-cols-3 lg:grid-cols-5">
+      <!-- Narrow cards: one status per line (chip left, count right) instead of a ragged 2/3-column grid. -->
+      <div class="grid grid-cols-1 gap-1 border-t border-(--surface-4) pt-[14px] @2xl:grid-cols-5 @2xl:gap-3">
         @for (s of data().statuses; track s.status) {
           <a
             routerLink="/results"
             [queryParams]="{ status: s.status }"
             [attr.aria-label]="s.status + ': ' + s.count + ' results'"
-            class="-m-[6px] flex min-w-0 cursor-pointer flex-col gap-[3px] rounded-[8px] p-[6px] no-underline hover:bg-(--surface-2) focus-visible:shadow-(--focus-ring) focus-visible:outline-none"
+            class="-m-[6px] flex min-w-0 cursor-pointer flex-col gap-[3px] rounded-[8px] p-[6px] @max-2xl:my-0 @max-2xl:min-h-10 @max-2xl:flex-row @max-2xl:items-center @max-2xl:justify-between no-underline hover:bg-(--surface-2) focus-visible:shadow-(--focus-ring) focus-visible:outline-none"
           >
-            <span class="self-start rounded-full px-[10px] py-[3px] text-(length:--fs-11) font-semibold whitespace-nowrap" [class]="chip[s.status]">{{ s.status }}</span>
+            <span class="self-start rounded-full @max-2xl:self-center px-[10px] py-[3px] text-(length:--fs-11) font-semibold whitespace-nowrap" [class]="chip[s.status]">{{ s.status }}</span>
             <span class="font-(family-name:--qa-mono) text-(length:--fs-20) font-bold tabular-nums text-(--text)">{{ s.count }}</span>
           </a>
         }
