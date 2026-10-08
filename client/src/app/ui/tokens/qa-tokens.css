@@ -184,3 +184,11 @@
   --focus-ring:0 0 0 3px rgba(92,194,184,.34);
   --nav-active-shadow:0 2px 8px rgba(15,118,110,.38);
 }
+
+/*
+ * The temporary palette switcher (app-palette-switcher, owned by the login work) is only meant for
+ * the login page: hide it while the QA workspace shell is on screen.
+ */
+body:has(qa-shell) app-palette-switcher {
+  display: none;
+}
