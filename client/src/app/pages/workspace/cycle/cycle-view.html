@@ -1,0 +1,177 @@
+<!-- Cycle view. Data comes from cycle.mock.ts; TODO(api) marks what needs the backend. -->
+
+@if (readOnly()) {
+  <div class="px-4 pt-6 sm:px-8">
+    <div role="status" class="flex flex-wrap items-center gap-3 rounded-[8px] bg-(--st-editing-bg) px-4 py-[10px] text-(length:--fs-13) text-(--st-editing-fg)">
+      <span class="min-w-0 flex-1">You are viewing a closed cycle. Nothing here can be changed.</span>
+      <button type="button" (click)="backToActive()" class="ml-auto min-h-7 cursor-pointer rounded-[6px] border-0 bg-transparent px-[10px] text-(length:--fs-13) font-semibold whitespace-nowrap text-(--st-editing-fg) outline-none hover:underline focus-visible:shadow-(--focus-ring)">Back to 2026 cycle</button>
+    </div>
+  </div>
+}
+
+<!-- Page header -->
+<div class="flex flex-wrap items-start gap-4 px-4 pt-8 sm:px-8">
+  <div class="flex min-w-0 flex-1 flex-col gap-1">
+    <h1 class="m-0 text-(length:--fs-26) leading-[1.2] font-bold tracking-[-0.02em] text-(--text)">{{ pageTitle() }}</h1>
+    <p class="m-0 text-(length:--fs-14) font-normal text-(--text-3)">Only results submitted by a science program can enter QA.</p>
+  </div>
+  @if (!readOnly()) {
+    <div class="flex flex-none items-center gap-2">
+      @if (running(); as r) {
+        <div role="status" aria-live="polite" class="flex h-9 items-center gap-2 rounded-[8px] border border-(--tint-border-2) bg-(--tint-2) px-[14px] whitespace-nowrap">
+          <span aria-hidden="true" class="size-[7px] rounded-full bg-(--primary)"></span>
+          <span class="text-(length:--fs-14) font-semibold text-(--accent)">Loading results</span>
+          <span class="font-(family-name:--qa-mono) text-(length:--fs-13) font-semibold text-(--accent) tabular-nums">{{ fmt(r.done) }} of {{ fmt(r.total) }}</span>
+        </div>
+      } @else {
+        <button hlmBtn type="button" (click)="openLoad()" class="h-9 gap-2 rounded-[8px] bg-(--primary) px-[14px] text-(length:--fs-14) font-semibold text-(--surface) hover:bg-(--accent) focus-visible:border-transparent focus-visible:ring-0 focus-visible:shadow-(--focus-ring)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36L21 8M21 3v5h-5" /></svg>
+          Load results into QA
+        </button>
+      }
+    </div>
+  }
+</div>
+
+<div data-screen-label="Cycle" class="flex flex-col items-stretch gap-6 px-4 pt-6 pb-8 sm:px-8">
+
+  <!-- Active cycle strip + "View all cycles" -->
+  <section class="flex min-h-14 flex-wrap items-center gap-3 rounded-[12px] border border-(--border) bg-(--surface) px-5" aria-label="Active cycle">
+    <div class="flex min-h-14 flex-[1_0_100%] flex-wrap items-center gap-3">
+      <span class="text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--text-muted) uppercase">Active cycle</span>
+      <span class="text-(length:--fs-14) font-semibold text-(--text)">{{ activeCycle.name }}</span>
+      <span class="font-(family-name:--qa-mono) text-(length:--fs-12) font-medium whitespace-nowrap text-(--text-4) tabular-nums">{{ activeCycle.range }}</span>
+      <span class="whitespace-nowrap"><span class="font-(family-name:--qa-mono) text-(length:--fs-13) font-semibold text-(--text-2) tabular-nums">{{ fmt(activeCycle.results) }}</span> <span class="text-(length:--fs-12) font-normal text-(--text-4)">results</span></span>
+      <button
+        type="button"
+        (click)="cyclesOpen.set(!cyclesOpen())"
+        [attr.aria-expanded]="cyclesOpen()"
+        aria-controls="cycle-all-cycles"
+        class="-mr-[10px] ml-auto flex min-h-8 cursor-pointer items-center gap-1.5 rounded-[8px] border-0 bg-transparent px-[10px] text-(length:--fs-13) font-medium whitespace-nowrap text-(--accent) outline-none hover:bg-(--tint) focus-visible:shadow-(--focus-ring)"
+      >
+        View all cycles
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flex-none transition-transform duration-[160ms]" [class.rotate-180]="cyclesOpen()" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
+      </button>
+    </div>
+    @if (cyclesOpen()) {
+      <div id="cycle-all-cycles" class="flex-[1_0_100%] border-t border-(--surface-4)">
+        <div class="overflow-x-auto">
+          @for (c of cycles(); track c.name; let last = $last) {
+            <div class="grid min-h-[52px] min-w-[560px] grid-cols-[minmax(0,1fr)_190px_110px_130px] items-center gap-4 px-1" [class]="last ? '' : 'border-b border-(--surface-4)'">
+              <div class="flex min-w-0 items-center gap-2">
+                <span class="text-(length:--fs-14) font-medium text-(--text)">{{ c.name }}</span>
+                @if (c.active) {
+                  <span class="rounded-full bg-(--tint-2) px-2 py-[2px] text-(length:--fs-11) font-semibold whitespace-nowrap text-(--accent)">Active</span>
+                }
+              </div>
+              <span class="font-(family-name:--qa-mono) text-(length:--fs-12) font-medium whitespace-nowrap text-(--text-4) tabular-nums">{{ c.range }}</span>
+              <span class="text-right whitespace-nowrap"><span class="font-(family-name:--qa-mono) text-(length:--fs-13) font-semibold text-(--text-2) tabular-nums">{{ c.results }}</span> <span class="text-(length:--fs-12) font-normal text-(--text-4)">results</span></span>
+              <div class="justify-self-end">
+                @if (c.canOpen) {
+                  <button type="button" (click)="openCycle(c.name)" [attr.aria-label]="'Open ' + c.name" class="flex min-h-8 cursor-pointer items-center rounded-[8px] border-0 bg-transparent px-[10px] text-(length:--fs-13) font-medium text-(--accent) outline-none hover:bg-(--tint) focus-visible:shadow-(--focus-ring)">Open</button>
+                }
+              </div>
+            </div>
+          }
+        </div>
+        <div class="flex border-t border-(--surface-4) py-[14px]">
+          <button hlmBtn variant="ghost" type="button" (click)="newCycle()" class="h-9 gap-2 rounded-[8px] border border-(--border) bg-(--field-bg) px-[14px] text-(length:--fs-14) font-medium text-(--text-2) hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text-2) focus-visible:border-(--border) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) dark:hover:bg-(--surface-2)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+            New cycle
+          </button>
+        </div>
+      </div>
+    }
+  </section>
+
+  @if (!readOnly()) {
+    <!-- Official timeline -->
+    @let ot = officialVM();
+    <section class="rounded-[12px] border border-(--border) bg-(--surface)" aria-labelledby="cycle-ot-title">
+      <div class="flex min-h-16 flex-wrap items-center gap-3 border-b border-(--surface-4) px-5 py-4">
+        <div class="flex min-w-0 flex-1 flex-col gap-[3px]">
+          <h2 id="cycle-ot-title" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">Official timeline</h2>
+          <div class="text-(length:--fs-13) leading-[1.5] font-normal text-(--text-3)"><span class="font-(family-name:--qa-mono) font-medium text-(--text-2) tabular-nums">{{ ot.range }}</span> · <span class="font-(family-name:--qa-mono) font-medium text-(--text-2) tabular-nums">{{ ot.stepCount }}</span> steps · all programs</div>
+        </div>
+        @if (ot.canEdit) {
+          <div class="flex flex-none flex-wrap items-center gap-2">
+            <button hlmBtn variant="ghost" type="button" (click)="editTimeline('official')" class="h-9 gap-[7px] rounded-[8px] border border-(--border) bg-(--field-bg) px-[14px] text-(length:--fs-14) font-medium text-(--text-2) hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text-2) focus-visible:border-(--border) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) dark:hover:bg-(--surface-2)">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4z" /></svg>Edit timeline
+            </button>
+            <button hlmBtn variant="ghost" type="button" (click)="openStep('official', null)" class="h-9 gap-[7px] rounded-[8px] border border-(--border) bg-(--field-bg) px-[14px] text-(length:--fs-14) font-medium text-(--text-2) hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text-2) focus-visible:border-(--border) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) dark:hover:bg-(--surface-2)">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>Add step
+            </button>
+          </div>
+        }
+      </div>
+      <qa-cycle-timeline-steps [timeline]="ot" (openStep)="openStep('official', $event)" (viewProgress)="openProgress('official', $event)" />
+    </section>
+
+    <!-- Timelines -->
+    <div class="flex flex-col">
+      <div class="mb-4 flex flex-wrap items-end gap-4">
+        <div class="flex min-w-[240px] flex-1 flex-col gap-1">
+          <h2 class="m-0 text-(length:--fs-20) font-bold tracking-[-0.01em] text-(--text)">Timelines</h2>
+          <p class="m-0 text-(length:--fs-13) font-normal text-(--text-3)">Each timeline runs its own calendar. Sub-timelines are for programs that submit late.</p>
+        </div>
+        <div class="flex flex-none items-center gap-2">
+          <button hlmBtn variant="ghost" type="button" (click)="newSubTimeline()" class="h-9 gap-[7px] rounded-[8px] border border-(--border) bg-(--field-bg) px-[14px] text-(length:--fs-14) font-medium text-(--text-2) hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text-2) focus-visible:border-(--border) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) dark:hover:bg-(--surface-2)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>New sub-timeline
+          </button>
+        </div>
+      </div>
+
+      <div qaTabs [(value)]="tab">
+        <div qaTabList aria-label="Timelines" class="mb-4">
+          <button qaTab="live">Live <span qaTabCount>{{ liveVMs().length }}</span></button>
+          <button qaTab="closed">Closed <span qaTabCount>{{ closedTotal() }}</span></button>
+        </div>
+
+        <div qaTabPanel="live">
+          @if (tab() === 'live') {
+            <div class="flex flex-col gap-5">
+              @for (t of liveVMs(); track t.id) {
+                <qa-cycle-timeline-card
+                  [timeline]="t"
+                  [confirmClose]="closeConfirmId() === t.id"
+                  (addStep)="openStep(t.id, null)"
+                  (menuAction)="onMenu(t.id, $event)"
+                  (keepOpen)="closeConfirmId.set(null)"
+                  (closeTimeline)="closeTimeline(t.id)"
+                  (openStep)="openStep(t.id, $event)"
+                  (viewProgress)="openProgress(t.id, $event)"
+                />
+              } @empty {
+                <p class="m-0 text-(length:--fs-14) text-(--text-3)">No live timelines.</p>
+              }
+            </div>
+          }
+        </div>
+
+        <div qaTabPanel="closed">
+          @if (tab() === 'closed') {
+            <div class="flex flex-col gap-5">
+              @for (t of closedVMs(); track t.id) {
+                <qa-cycle-timeline-card [timeline]="t" (openStep)="openStep(t.id, $event)" (viewProgress)="openProgress(t.id, $event)" />
+              }
+            </div>
+            @if (closedVMs().length) {
+              <div class="mt-4 flex flex-wrap items-center gap-3">
+                <span class="text-(length:--fs-13) text-(--text-3)">Showing <span class="font-(family-name:--qa-mono) font-semibold text-(--text-2) tabular-nums">{{ closedVMs().length }}</span> of <span class="font-(family-name:--qa-mono) font-semibold text-(--text-2) tabular-nums">{{ closedTotal() }}</span> closed timelines</span>
+                <button type="button" (click)="loadMoreClosed()" class="min-h-8 cursor-pointer rounded-[8px] border-0 bg-transparent px-[10px] text-(length:--fs-13) font-medium text-(--accent) outline-none hover:bg-(--tint) focus-visible:shadow-(--focus-ring)">Load more</button>
+              </div>
+            } @else {
+              <p class="m-0 max-w-40 text-(length:--fs-14) text-(--text-3)">No timelines have closed yet.</p>
+            }
+          }
+        </div>
+      </div>
+    </div>
+  }
+</div>
+
+<!-- Drawers (720px, right side) -->
+<qa-cycle-load-drawer [(open)]="loadOpen" [request]="loadRequest()" [timelines]="timelines()" [official]="official()" (load)="startRun($event)" />
+<qa-cycle-timeline-drawer [(open)]="timelineOpen" [request]="timelineRequest()" [official]="official()" (saveTimeline)="saveTimeline($event)" />
+<qa-cycle-step-drawer [(open)]="stepOpen" [request]="stepRequest()" (saveStep)="saveStep($event)" (removeStep)="removeStep()" (loadIntoStep)="loadIntoStep()" />
+<qa-cycle-progress-drawer [(open)]="progressOpen" [progress]="progress()" />
