@@ -100,7 +100,7 @@ export class QaSelectFooter {}
         <button
           brnSelectTrigger
           [attr.aria-label]="hasValue() ? label() + ', ' + display() : label()"
-          class="flex h-9 cursor-pointer items-center gap-[7px] rounded-lg border bg-(--field-bg) px-3 text-(length:--fs-14) font-medium whitespace-nowrap text-(--text-2) outline-none hover:border-(--border-strong) focus-visible:shadow-(--focus-ring) disabled:cursor-not-allowed disabled:opacity-50"
+          class="flex h-9 max-sm:h-10 cursor-pointer items-center gap-[7px] rounded-lg border bg-(--field-bg) px-3 text-(length:--fs-14) font-medium whitespace-nowrap text-(--text-2) outline-none hover:border-(--border-strong) focus-visible:shadow-(--focus-ring) disabled:cursor-not-allowed disabled:opacity-50"
           [class]="hasValue() ? 'border-(--border-accent)' : 'border-(--border)'"
         >
           <span>{{ label() }}</span>
@@ -114,7 +114,7 @@ export class QaSelectFooter {}
           brnSelectTrigger
           [id]="triggerId() ?? autoTriggerId"
           [attr.aria-label]="label() + ': ' + display()"
-          class="flex h-auto min-h-9 w-full min-w-0 cursor-pointer items-center gap-2 rounded-lg border border-(--border) bg-(--field-bg) px-3 text-left text-(length:--fs-14) text-(--text) outline-none hover:border-(--border-strong) focus-visible:shadow-(--focus-ring) disabled:cursor-not-allowed disabled:opacity-50 data-[placeholder]:text-(--text-muted)"
+          class="flex h-auto min-h-9 max-sm:min-h-10 w-full min-w-0 cursor-pointer items-center gap-2 rounded-lg border border-(--border) bg-(--field-bg) px-3 text-left text-(length:--fs-14) text-(--text) outline-none hover:border-(--border-strong) focus-visible:shadow-(--focus-ring) disabled:cursor-not-allowed disabled:opacity-50 data-[placeholder]:text-(--text-muted)"
           [class]="triggerClass()"
         >
           <span class="min-w-0 truncate">{{ display() }}</span>

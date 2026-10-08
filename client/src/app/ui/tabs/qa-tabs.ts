@@ -42,7 +42,7 @@ export class QaTabList {
   protected readonly listClass = computed(() =>
     this.tabs.variant() === 'segmented'
       ? 'box-border flex h-8 max-w-full gap-[2px] self-start overflow-x-auto rounded-[8px] bg-(--seg-track) p-[3px]'
-      : 'flex h-10 items-center gap-6 overflow-x-auto border-b border-(--border)',
+      : 'flex min-h-10 items-center gap-6 overflow-x-auto overflow-y-hidden border-b border-(--border)',
   );
 }
 

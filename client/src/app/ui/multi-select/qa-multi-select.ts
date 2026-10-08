@@ -42,7 +42,7 @@ export type QaMultiSelectAppearance = 'filter' | 'field';
           [attr.aria-label]="label() + ': ' + summary()"
           [attr.aria-invalid]="invalid() || null"
           [disabled]="disabled()"
-          class="flex h-9 w-full max-w-full min-w-[280px] cursor-pointer items-center gap-2 rounded-lg border bg-(--field-bg) px-3 text-left text-(length:--fs-14) font-medium outline-none hover:border-(--border-strong) focus-visible:shadow-(--focus-ring) disabled:cursor-not-allowed disabled:opacity-50 max-sm:min-w-0"
+          class="flex h-9 max-sm:h-10 w-full max-w-full min-w-[280px] cursor-pointer items-center gap-2 rounded-lg border bg-(--field-bg) px-3 text-left text-(length:--fs-14) font-medium outline-none hover:border-(--border-strong) focus-visible:shadow-(--focus-ring) disabled:cursor-not-allowed disabled:opacity-50 max-sm:min-w-0"
           [class]="(invalid() ? 'border-(--danger) ' : 'border-(--border) ') + (!count() && mutedPlaceholder() ? 'text-(--text-muted)' : 'text-(--text)')"
         >
           <span class="min-w-0 flex-1 truncate">{{ summary() }}</span>
@@ -55,7 +55,7 @@ export type QaMultiSelectAppearance = 'filter' | 'field';
           [attr.id]="triggerId()"
           [attr.aria-label]="triggerLabel()"
           [disabled]="disabled()"
-          class="flex h-9 cursor-pointer items-center gap-[7px] rounded-lg border bg-(--field-bg) px-3 text-(length:--fs-14) font-medium whitespace-nowrap text-(--text-2) outline-none hover:border-(--border-strong) focus-visible:shadow-(--focus-ring) disabled:cursor-not-allowed disabled:opacity-50"
+          class="flex h-9 max-sm:h-10 cursor-pointer items-center gap-[7px] rounded-lg border bg-(--field-bg) px-3 text-(length:--fs-14) font-medium whitespace-nowrap text-(--text-2) outline-none hover:border-(--border-strong) focus-visible:shadow-(--focus-ring) disabled:cursor-not-allowed disabled:opacity-50"
           [class]="count() ? 'border-(--border-accent)' : 'border-(--border)'"
         >
           <span>{{ label() }}</span>
