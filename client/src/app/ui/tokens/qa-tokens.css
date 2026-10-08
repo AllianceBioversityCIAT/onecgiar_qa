@@ -1,7 +1,7 @@
 /*
- * QA Platform design tokens for elements that render OUTSIDE the app shell (CDK overlays:
- * drawers, menus, selects, tooltips) and for standalone pages such as the UI gallery.
- * Values are copied 1:1 from shell/qa-shell.css (:host and :host-context(.dark)); keep in sync.
+ * QA Platform design tokens from the Claude Design mockup (light + .dark): the single source of
+ * colors, font sizes and font for the app shell (host class qa-tokens) and for elements that render
+ * outside it (CDK overlays: drawers, menus, selects, tooltips; standalone pages like the UI gallery).
  * Loaded globally (ViewEncapsulation.None) by QaTokensLoader; apply with class="qa-tokens".
  */
 .qa-tokens {
