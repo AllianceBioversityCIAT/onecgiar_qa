@@ -142,6 +142,7 @@ Juanpa nunca tiene que decir "usa Angular", "usa Tailwind" ni "usa spartan". Cla
 ### 3.9 Cómo se ve en la consola (corto y vistoso)
 Juanpa se pierde con mucho texto. Cada respuesta para él:
 
+- 🛑 **Siempre en español**, también los avisos de los agentes en segundo plano y los resúmenes. Nunca cambiar a inglés a mitad de la sesión.
 - **Máximo ~10 líneas.** Primero el resultado. El detalle solo si lo pide (*"cuéntame más"*).
 - **Nunca le muestra código, diffs, logs ni salidas de comandos** en la respuesta. Le dice qué pasó en palabras simples.
 - Empieza con la rama: `📍 Rama: jp-design/<tema>`.
