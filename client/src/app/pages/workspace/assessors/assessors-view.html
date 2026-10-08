@@ -4,7 +4,11 @@
     <h1 class="m-0 text-(length:--fs-26) leading-[1.2] font-bold tracking-[-0.02em] text-balance text-(--text)">Assessment team</h1>
     <p class="m-0 text-(length:--fs-14) font-normal text-pretty text-(--text-3)">Eleven people. Click a row to change what they assess.</p>
   </div>
-  <div class="flex w-auto flex-none items-center gap-2 max-sm:w-full">
+  <div class="flex w-auto flex-none items-center gap-2 max-sm:w-full max-sm:flex-col-reverse max-sm:items-stretch">
+    <button hlmBtn variant="outline" type="button" (click)="download()" class="h-auto min-h-9 gap-2 rounded-lg border-(--border) bg-(--field-bg) px-3.5 text-(length:--fs-14) font-medium text-(--text-2) shadow-none hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text-2) dark:border-(--border) dark:bg-(--field-bg) dark:hover:bg-(--surface-2) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) focus-visible:outline-none flex-none whitespace-nowrap max-sm:min-h-10 max-sm:w-full max-sm:justify-center">
+      <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"></path></svg>
+      Download team list
+    </button>
     <button hlmBtn type="button" (click)="openInvite()" class="h-auto min-h-9 gap-2 max-sm:min-h-10 max-sm:w-full max-sm:justify-center rounded-lg border-0 bg-(--primary) px-3.5 text-(length:--fs-14) font-semibold text-(--surface) hover:bg-(--accent) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) focus-visible:outline-none whitespace-nowrap">
       <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"></path></svg>
       Invite assessor
@@ -22,7 +26,7 @@
     </div>
   }
 
-  <!-- Toolbar: search, filters, download -->
+  <!-- Toolbar: search and filters -->
   <div class="flex flex-col gap-3">
     <div class="flex flex-wrap items-center gap-2 xl:gap-3">
       <label class="box-border flex h-9 w-[320px] max-w-full flex-none cursor-text max-sm:h-10 items-center gap-2 rounded-lg border border-(--border) bg-(--surface) px-3 focus-within:border-(--primary) max-sm:w-full">
@@ -42,11 +46,6 @@
           emptyText="Nothing matches that search."
         />
       }
-
-      <button hlmBtn variant="outline" type="button" (click)="download()" class="h-auto min-h-9 gap-2 rounded-lg border-(--border) bg-(--field-bg) px-3.5 text-(length:--fs-14) font-medium text-(--text-2) shadow-none hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text-2) dark:border-(--border) dark:bg-(--field-bg) dark:hover:bg-(--surface-2) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) focus-visible:outline-none ml-auto flex-none max-sm:min-h-10 max-sm:w-full max-sm:justify-center">
-        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"></path></svg>
-        Download team list
-      </button>
     </div>
 
     @if (applied().length) {
