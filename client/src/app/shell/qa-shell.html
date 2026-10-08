@@ -1,0 +1,140 @@
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400..800&family=JetBrains+Mono:wght@400..700&display=swap" />
+
+<ng-template #navLinks let-items>
+  @for (item of items; track item.link) {
+    <a
+      [routerLink]="item.link"
+      routerLinkActive="qa-nav-active"
+      [routerLinkActiveOptions]="{ exact: item.exact }"
+      [attr.title]="item.label"
+      [attr.aria-label]="collapsed() ? item.label : null"
+      (click)="mobileNavOpen.set(false)"
+      class="relative flex min-h-10 w-full items-center gap-2.5 rounded-lg px-3 text-(length:--fs-14) font-medium text-(--nav-fg-2) no-underline hover:bg-(--nav-2) focus-visible:shadow-(--focus-ring)"
+      [class.lg:justify-center]="collapsed()"
+      [class.lg:px-0]="collapsed()"
+    >
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path [attr.d]="item.icon" /></svg>
+      <span [class.lg:sr-only]="collapsed()">{{ item.label }}</span>
+    </a>
+  }
+</ng-template>
+
+@if (mobileNavOpen()) {
+  <button
+    type="button"
+    aria-label="Close menu"
+    class="fixed inset-0 z-40 bg-(--overlay) lg:hidden"
+    (click)="mobileNavOpen.set(false)"
+  ></button>
+}
+
+<aside
+  id="qa-sidebar"
+  aria-label="Main navigation"
+  class="fixed inset-y-0 left-0 z-50 flex h-dvh w-[260px] flex-none flex-col border-r border-(--border) bg-(--nav-bg) transition-[width,translate] duration-200 lg:static lg:translate-x-0"
+  [class.-translate-x-full]="!mobileNavOpen()"
+  [class.lg:w-16]="collapsed()"
+>
+  <div class="flex min-h-[57px] items-center gap-2.5 px-3 py-4">
+    <span class="flex h-5 min-w-0 flex-1 items-center overflow-hidden px-1" [class.lg:hidden]="collapsed()">
+      <img ngSrc="logo-prms-qa.png" width="174" height="20" priority alt="PRMS quality assurance" class="block h-5 w-auto max-w-none" />
+    </span>
+    <button
+      type="button"
+      class="mx-auto hidden size-7 flex-none items-center justify-center rounded-md text-(--nav-fg-3) hover:bg-(--nav-2) lg:flex"
+      [attr.aria-label]="collapsed() ? 'Expand sidebar' : 'Collapse sidebar'"
+      [attr.title]="collapsed() ? 'Expand sidebar' : 'Collapse sidebar'"
+      [attr.aria-expanded]="!collapsed()"
+      (click)="collapsed.set(!collapsed())"
+    >
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3" /><path d="M9 3v18" /></svg>
+    </button>
+    <button
+      type="button"
+      aria-label="Close menu"
+      class="flex size-7 flex-none items-center justify-center rounded-md text-(--nav-fg-3) hover:bg-(--nav-2) lg:hidden"
+      (click)="mobileNavOpen.set(false)"
+    >
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
+    </button>
+  </div>
+
+  <nav class="flex-1 overflow-y-auto px-3 pt-1 pb-4 [scrollbar-color:var(--border-strong)_transparent] [scrollbar-width:thin]">
+    <div class="mb-2 flex flex-col gap-0.5 border-b border-(--nav-divider) px-3 py-3.5" [class.lg:hidden]="collapsed()">
+      <span class="text-(length:--fs-10) font-semibold tracking-[0.08em] text-(--nav-eyebrow) uppercase">Active cycle</span>
+      <span class="text-(length:--fs-14) font-semibold text-(--nav-fg)">2026 cycle</span>
+      <span class="text-(length:--fs-11) text-(--nav-fg-3)">QA round 2 · step 5 closes 19 Jul</span>
+    </div>
+
+    <div class="px-1 py-2 text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--nav-eyebrow) uppercase" [class.lg:sr-only]="collapsed()">Assessment</div>
+    <div class="flex flex-col gap-0.5">
+      <ng-container *ngTemplateOutlet="navLinks; context: { $implicit: assessment }" />
+    </div>
+
+    <div class="mx-1 mt-5 h-px bg-(--nav-divider)"></div>
+    <div class="px-1 pt-4 pb-2 text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--nav-eyebrow) uppercase" [class.lg:sr-only]="collapsed()">Administration</div>
+    <div class="flex flex-col gap-0.5">
+      <ng-container *ngTemplateOutlet="navLinks; context: { $implicit: administration }" />
+    </div>
+  </nav>
+</aside>
+
+<div class="flex h-dvh min-w-0 flex-1 flex-col">
+  <header class="flex h-14 flex-none items-center gap-2 border-b border-(--border) bg-(--surface) px-3 sm:gap-3 sm:px-5">
+    <div class="flex items-center gap-1 sm:flex-[1_0_auto]">
+      <button
+        type="button"
+        aria-label="Open menu"
+        aria-controls="qa-sidebar"
+        [attr.aria-expanded]="mobileNavOpen()"
+        class="flex size-8 flex-none items-center justify-center rounded-lg text-(--text-3) hover:bg-(--surface-4) lg:hidden"
+        (click)="mobileNavOpen.set(true)"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
+      </button>
+      <button type="button" aria-label="Back" class="hidden size-8 flex-none items-center justify-center rounded-lg text-(--text-3) hover:bg-(--surface-4) sm:flex" (click)="back()">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
+      </button>
+      <button type="button" aria-label="Forward" class="hidden size-8 flex-none items-center justify-center rounded-lg text-(--text-3) hover:bg-(--surface-4) sm:flex" (click)="forward()">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
+      </button>
+    </div>
+
+    <label class="flex h-9 min-w-0 flex-[1_1_520px] cursor-text items-center gap-2 rounded-lg border border-(--border) bg-(--surface) px-3 focus-within:shadow-(--focus-ring) sm:flex-[0_1_520px]">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.35-4.35" /></svg>
+      <input type="search" placeholder="Search" aria-label="Search by code or title" class="min-w-0 flex-1 border-none bg-transparent p-0 text-(length:--fs-14) text-(--text) outline-none placeholder:text-(--text-muted)" />
+    </label>
+
+    <div class="flex items-center justify-end sm:flex-[1_0_auto]">
+      <div class="relative">
+        <button
+          type="button"
+          aria-haspopup="menu"
+          [attr.aria-expanded]="userMenuOpen()"
+          class="flex h-9 items-center gap-2 rounded-lg pr-2 pl-1 text-(length:--fs-14) font-medium whitespace-nowrap text-(--text) hover:bg-(--surface-4)"
+          (click)="userMenuOpen.set(!userMenuOpen())"
+        >
+          <span class="flex size-7 flex-none items-center justify-center rounded-full bg-(--tint-2) text-(length:--fs-11) font-semibold text-(--accent)" aria-hidden="true">{{ initials() }}</span>
+          <span class="hidden md:inline" data-testid="user-email">{{ email() }}</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
+        </button>
+        @if (userMenuOpen()) {
+          <button type="button" aria-label="Close user menu" class="fixed inset-0 z-40 cursor-default" (click)="userMenuOpen.set(false)"></button>
+          <div role="menu" class="absolute top-[calc(100%+6px)] right-0 z-50 w-60 rounded-[10px] border border-(--border-raised) bg-(--surface-raised) p-1.5 shadow-(--shadow-pop)">
+            <p class="truncate px-2.5 py-2 text-(length:--fs-12) text-(--text-4)">{{ email() }}</p>
+            <div class="my-1 h-px bg-(--border-soft)"></div>
+            <button type="button" role="menuitem" class="flex h-9 w-full items-center gap-2 rounded-md px-2.5 text-left text-(length:--fs-13) font-medium text-(--text-2) hover:bg-(--surface-4)" (click)="signOut()">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" /></svg>
+              Sign out
+            </button>
+          </div>
+        }
+      </div>
+    </div>
+  </header>
+
+  <main class="relative min-h-0 flex-1 overflow-y-auto">
+    <ng-content />
+    <router-outlet />
+  </main>
+</div>
