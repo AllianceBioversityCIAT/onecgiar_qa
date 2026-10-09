@@ -2,7 +2,7 @@ import { Component, computed, input, linkedSignal, model, output } from '@angula
 import { FormField, form, required, validate } from '@angular/forms/signals';
 import { HlmButton } from '@spartan/button';
 import { HlmInput } from '@spartan/input';
-import { QaDrawerImports, QaSegmented, QaSelect, QaSwitch, QaTooltipImports } from '../../../ui';
+import { QaDatePicker, QaDrawerImports, QaSegmented, QaSelect, QaSwitch, QaTooltipImports } from '../../../ui';
 import { AUDIENCES, CORRECTION_AUDIENCE, CycleStep, DEMO_ACCESS, PROGRAMS, ReopenMode, Timeline } from './cycle.mock';
 import { parseDate, stepState } from './cycle.logic';
 
@@ -39,7 +39,7 @@ interface StepDraft {
 /** "Edit step" / "New step" drawer (every step card and every "Add step" button). */
 @Component({
   selector: 'qa-cycle-step-drawer',
-  imports: [FormField, HlmButton, HlmInput, QaDrawerImports, QaSegmented, QaSelect, QaSwitch, QaTooltipImports],
+  imports: [FormField, HlmButton, HlmInput, QaDatePicker, QaDrawerImports, QaSegmented, QaSelect, QaSwitch, QaTooltipImports],
   template: `
     <qa-drawer [(open)]="open" [title]="title()" [subtitle]="request().timeline.name" width="720px">
       @if (open()) {
@@ -83,20 +83,26 @@ interface StepDraft {
           <div class="flex flex-wrap gap-3">
             <label class="flex flex-col gap-[6px]">
               <span class="text-(length:--fs-13) font-semibold text-(--text-2)">Opens</span>
-              <input
-                hlmInput
-                type="text"
-                [formField]="stepForm.opens"
-                placeholder="06 Jul 2026"
-                [attr.aria-invalid]="opensError() ? true : null"
-                [attr.aria-describedby]="opensError() ? 'cycle-step-opens-err' : null"
-                [attr.data-invalid]="!!opensError()"
-                class="h-9 w-[180px] rounded-[8px] border-(--border) bg-(--field-bg) px-3 py-0 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[invalid=true]:border-(--danger) md:text-(length:--fs-13) dark:bg-(--field-bg)"
-              />
+              <span class="relative flex">
+                <input
+                  hlmInput
+                  type="text"
+                  [formField]="stepForm.opens"
+                  placeholder="06 Jul 2026"
+                  [attr.aria-invalid]="opensError() ? true : null"
+                  [attr.aria-describedby]="opensError() ? 'cycle-step-opens-err' : null"
+                  [attr.data-invalid]="!!opensError()"
+                  class="h-9 w-[180px] rounded-[8px] border-(--border) bg-(--field-bg) py-0 pr-10 pl-3 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[invalid=true]:border-(--danger) md:text-(length:--fs-13) dark:bg-(--field-bg)"
+                />
+                <qa-date-picker [value]="stepForm.opens().value()" (valueChange)="stepForm.opens().value.set($event)" label="Pick the opening date" class="absolute top-1/2 right-1 -translate-y-1/2" />
+              </span>
             </label>
             <label class="flex flex-col gap-[6px]">
               <span class="text-(length:--fs-13) font-semibold text-(--text-2)">Closes</span>
-              <input hlmInput type="text" [formField]="stepForm.closes" placeholder="11 Jul 2026" class="h-9 w-[180px] rounded-[8px] border-(--border) bg-(--field-bg) px-3 py-0 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 md:text-(length:--fs-13) dark:bg-(--field-bg)" />
+              <span class="relative flex">
+                <input hlmInput type="text" [formField]="stepForm.closes" placeholder="11 Jul 2026" class="h-9 w-[180px] rounded-[8px] border-(--border) bg-(--field-bg) py-0 pr-10 pl-3 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 md:text-(length:--fs-13) dark:bg-(--field-bg)" />
+                <qa-date-picker [value]="stepForm.closes().value()" (valueChange)="stepForm.closes().value.set($event)" label="Pick the closing date" class="absolute top-1/2 right-1 -translate-y-1/2" />
+              </span>
             </label>
           </div>
           @if (opensError()) {
@@ -134,11 +140,14 @@ interface StepDraft {
           </div>
           <div class="flex flex-col rounded-[8px] border border-(--border)">
             @for (a of d.access; track $index) {
-              <div class="flex min-h-12 items-center gap-3 border-b border-(--surface-4) px-[14px]">
+              <div class="flex min-h-12 flex-wrap items-center gap-3 border-b border-(--surface-4) px-[14px] max-sm:py-2">
                 @if (a.isNew) {
                   <input hlmInput type="text" aria-label="Program code" [value]="a.code" (input)="patchAccess($index, { code: value($event) })" placeholder="SP01" class="h-8 w-20 flex-none rounded-[8px] border-(--border) bg-(--field-bg) px-[10px] py-0 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 md:text-(length:--fs-13) dark:bg-(--field-bg)" />
                   <span class="min-w-0 flex-1 truncate text-(length:--fs-14) text-(--text)">{{ programName(a.code) }}</span>
-                  <input hlmInput type="text" aria-label="Access dates" [value]="a.range" (input)="patchAccess($index, { range: value($event) })" placeholder="20 Jul – 24 Jul 2026" class="h-8 w-[200px] min-w-0 flex-none rounded-[8px] border-(--border) bg-(--field-bg) px-[10px] py-0 font-(family-name:--qa-mono) text-(length:--fs-12) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 md:text-(length:--fs-12) dark:bg-(--field-bg)" />
+                  <span class="relative flex flex-none max-sm:order-last max-sm:basis-full">
+                    <input hlmInput type="text" aria-label="Access dates" [value]="a.range" (input)="patchAccess($index, { range: value($event) })" placeholder="20 Jul – 24 Jul 2026" class="h-8 w-[220px] min-w-0 flex-none max-sm:w-full rounded-[8px] border-(--border) bg-(--field-bg) py-0 pr-9 pl-[10px] font-(family-name:--qa-mono) text-(length:--fs-12) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 md:text-(length:--fs-12) dark:bg-(--field-bg)" />
+                    <qa-date-picker mode="range" [value]="a.range" (valueChange)="patchAccess($index, { range: $event })" label="Pick the access dates" class="absolute top-1/2 right-0.5 -translate-y-1/2" />
+                  </span>
                 } @else {
                   <span class="flex-none font-(family-name:--qa-mono) text-(length:--fs-13) font-semibold text-(--text-2)">{{ a.code }}</span>
                   <span class="min-w-0 truncate text-(length:--fs-14) text-(--text)">{{ programName(a.code) }}</span>
@@ -170,7 +179,7 @@ interface StepDraft {
           @if (loadedNote()) {
             <span class="flex items-center gap-1.5 text-(length:--fs-13) font-normal text-(--text-4)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M20 6L9 17l-5-5" /></svg>{{ loadedNote() }}</span>
           } @else if (canLoad()) {
-            <button hlmBtn variant="ghost" type="button" (click)="loadIntoStep.emit()" class="h-9 gap-[7px] rounded-[8px] border border-(--border) bg-(--field-bg) px-[14px] text-(length:--fs-14) font-medium whitespace-nowrap text-(--text-2) hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text-2) focus-visible:border-(--border) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) dark:hover:bg-(--surface-2)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36L21 8M21 3v5h-5" /></svg>Load results into this step</button>
+            <button hlmBtn variant="ghost" type="button" (click)="loadIntoStep.emit()" class="h-9 gap-[7px] rounded-[8px] border border-(--border) bg-(--field-bg) px-[14px] text-(length:--fs-14) font-medium whitespace-nowrap text-(--text-2) hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text-2) focus-visible:border-(--border) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) dark:hover:bg-(--surface-2)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M12 3v12M8 11l4 4 4-4M8 5H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-4" /></svg>Load results into this step</button>
           }
           <button hlmBtn variant="ghost" type="button" (click)="open.set(false)" class="h-9 rounded-[8px] border border-(--border) bg-(--field-bg) px-[14px] text-(length:--fs-14) font-medium text-(--text-2) hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text-2) focus-visible:border-(--border) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) dark:hover:bg-(--surface-2)">Cancel</button>
           <button hlmBtn type="button" (click)="save()" class="h-9 rounded-[8px] bg-(--primary) px-[14px] text-(length:--fs-14) font-semibold text-(--surface) hover:bg-(--accent) focus-visible:border-transparent focus-visible:ring-0 focus-visible:shadow-(--focus-ring)">{{ isEdit() ? 'Save step' : 'Add step' }}</button>

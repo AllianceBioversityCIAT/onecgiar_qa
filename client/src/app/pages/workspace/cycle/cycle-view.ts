@@ -187,6 +187,9 @@ export class CycleView {
     this.timelineOpen.set(true);
   }
 
+  /** Help tooltip of "New sub-timeline" (hover or keyboard focus on the ⓘ; Esc hides it). */
+  protected readonly subHelp = signal(false);
+
   protected newSubTimeline(): void {
     this.timelineRequest.set({ timeline: null });
     this.timelineOpen.set(true);

@@ -2,7 +2,7 @@ import { Component, computed, input, linkedSignal, model, output } from '@angula
 import { FormField, applyEach, form, required, validate } from '@angular/forms/signals';
 import { HlmButton } from '@spartan/button';
 import { HlmInput } from '@spartan/input';
-import { QaDrawerImports, QaMultiSelect, QaSwitch, QaTooltipImports } from '../../../ui';
+import { QaDatePicker, QaDrawerImports, QaMultiSelect, QaSwitch, QaTooltipImports } from '../../../ui';
 import { DEFAULT_STEP_DATES, STEP_NAMES, Timeline } from './cycle.mock';
 import { StepDraftRow, officialRelative, stepOrderErrors } from './cycle.logic';
 import { PROGRAM_OPTIONS, TYPE_OPTIONS } from './load-drawer';
@@ -35,7 +35,7 @@ interface TimelineDraft {
 /** "Edit official timeline", "Edit timeline" and "New sub-timeline" drawers (steps table, validation). */
 @Component({
   selector: 'qa-cycle-timeline-drawer',
-  imports: [FormField, HlmButton, HlmInput, QaDrawerImports, QaSwitch, QaTooltipImports, QaMultiSelect],
+  imports: [FormField, HlmButton, HlmInput, QaDatePicker, QaDrawerImports, QaSwitch, QaTooltipImports, QaMultiSelect],
   template: `
     <qa-drawer [(open)]="open" [title]="title()" [subtitle]="subtitle()" width="720px">
       @if (open()) {
@@ -98,7 +98,7 @@ interface TimelineDraft {
           <span id="cycle-tl-steps" class="text-(length:--fs-13) font-semibold text-(--text-2)">Steps</span>
           <!-- Wide drawer: table-like grid with a sticky header. Narrow (< 36rem): each step stacks as a card row with inline labels. -->
           <div class="rounded-[8px] border border-(--border)">
-            <div aria-hidden="true" class="sticky top-0 z-10 hidden min-h-9 grid-cols-[24px_minmax(0,1fr)_124px_124px_44px_22px] items-center gap-3 rounded-t-[8px] border-b border-(--surface-4) bg-(--surface-3) px-[14px] text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase @xl:grid">
+            <div aria-hidden="true" class="sticky top-0 z-10 hidden min-h-9 grid-cols-[24px_minmax(0,1fr)_148px_148px_44px_22px] items-center gap-3 rounded-t-[8px] border-b border-(--surface-4) bg-(--surface-3) px-[14px] text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase @xl:grid">
               <span></span><span>Step name</span><span>Opens</span><span>Closes</span><span class="text-center">Load</span><span></span>
             </div>
             @for (rf of tlForm.steps; track $index; let i = $index, last = $last) {
@@ -111,18 +111,24 @@ interface TimelineDraft {
                     <button type="button" (click)="removeRow(i)" class="min-h-10 cursor-pointer rounded-[8px] border-0 bg-transparent px-[10px] text-(length:--fs-12) font-semibold text-(--danger) outline-none hover:bg-(--danger-bg) focus-visible:shadow-(--focus-ring) @xl:min-h-8">Remove</button>
                   </div>
                 } @else {
-                  <div class="grid grid-cols-[24px_minmax(0,1fr)_minmax(0,1fr)_40px] items-center gap-x-3 gap-y-2 px-[14px] py-3 @xl:min-h-[52px] @xl:grid-cols-[24px_minmax(0,1fr)_124px_124px_44px_22px] @xl:gap-y-0 @xl:py-0">
+                  <div class="grid grid-cols-[24px_minmax(0,1fr)_minmax(0,1fr)_40px] items-center gap-x-3 gap-y-2 px-[14px] py-3 @xl:min-h-[52px] @xl:grid-cols-[24px_minmax(0,1fr)_148px_148px_44px_22px] @xl:gap-y-0 @xl:py-0">
                     <span class="font-(family-name:--qa-mono) text-(length:--fs-12) font-semibold text-(--text-muted)">{{ i + 1 }}</span>
                     <span class="col-span-2 min-w-0 @xl:col-span-1">
                       <input hlmInput type="text" [formField]="rf.name" [attr.aria-label]="'Step ' + (i + 1) + ' name'" [title]="row.name" placeholder="QA platform open for assessors" [attr.data-invalid]="tried() && !row.name.trim()" class="h-10 min-w-0 rounded-[8px] border-(--border) bg-(--field-bg) px-[10px] py-0 text-(length:--fs-13) text-ellipsis text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[invalid=true]:border-(--danger) md:text-(length:--fs-13) @xl:h-8 dark:bg-(--field-bg)" />
                     </span>
-                    <span class="col-start-2 flex min-w-0 flex-col gap-1 @xl:col-start-auto">
+                    <span class="col-span-2 col-start-2 flex min-w-0 flex-col gap-1 @xl:col-span-1 @xl:col-start-auto">
                       <span aria-hidden="true" class="text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase @xl:hidden">Opens</span>
-                      <input hlmInput type="text" [formField]="rf.start" [attr.aria-label]="'Step ' + (i + 1) + ' opens'" placeholder="06 Jul 2026" [attr.data-invalid]="rowErrorShown(i)" [attr.aria-invalid]="rowErrorShown(i) || null" class="h-10 min-w-0 rounded-[8px] border-(--border) bg-(--field-bg) px-[10px] py-0 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[invalid=true]:border-(--danger) md:text-(length:--fs-13) @xl:h-8 dark:bg-(--field-bg)" />
+                      <span class="relative flex">
+                        <input hlmInput type="text" [formField]="rf.start" [attr.aria-label]="'Step ' + (i + 1) + ' opens'" placeholder="06 Jul 2026" [attr.data-invalid]="rowErrorShown(i)" [attr.aria-invalid]="rowErrorShown(i) || null" class="h-10 min-w-0 rounded-[8px] border-(--border) bg-(--field-bg) py-0 pr-9 pl-[10px] font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[invalid=true]:border-(--danger) md:text-(length:--fs-13) @xl:h-8 dark:bg-(--field-bg)" />
+                        <qa-date-picker [value]="rf.start().value()" (valueChange)="rf.start().value.set($event)" [label]="'Pick step ' + (i + 1) + ' opening date'" class="absolute top-1/2 right-1 -translate-y-1/2" />
+                      </span>
                     </span>
-                    <span class="flex min-w-0 flex-col gap-1">
+                    <span class="col-span-2 col-start-2 flex min-w-0 flex-col gap-1 @xl:col-span-1 @xl:col-start-auto">
                       <span aria-hidden="true" class="text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase @xl:hidden">Closes</span>
-                      <input hlmInput type="text" [formField]="rf.end" [attr.aria-label]="'Step ' + (i + 1) + ' closes'" [placeholder]="last ? 'Optional' : '11 Jul 2026'" class="h-10 min-w-0 rounded-[8px] border-(--border) bg-(--field-bg) px-[10px] py-0 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 md:text-(length:--fs-13) @xl:h-8 dark:bg-(--field-bg)" />
+                      <span class="relative flex">
+                        <input hlmInput type="text" [formField]="rf.end" [attr.aria-label]="'Step ' + (i + 1) + ' closes'" [placeholder]="last ? 'Optional' : '11 Jul 2026'" class="h-10 min-w-0 rounded-[8px] border-(--border) bg-(--field-bg) py-0 pr-9 pl-[10px] font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 md:text-(length:--fs-13) @xl:h-8 dark:bg-(--field-bg)" />
+                        <qa-date-picker [value]="rf.end().value()" (valueChange)="rf.end().value.set($event)" [label]="'Pick step ' + (i + 1) + ' closing date'" class="absolute top-1/2 right-1 -translate-y-1/2" />
+                      </span>
                     </span>
                     <span class="col-span-3 col-start-2 flex min-h-10 items-center justify-between gap-3 @xl:col-span-1 @xl:col-start-auto @xl:min-h-0 @xl:justify-center">
                       <span aria-hidden="true" class="text-(length:--fs-13) font-medium text-(--text-2) @xl:hidden">Loads results</span>
