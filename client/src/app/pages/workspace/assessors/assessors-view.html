@@ -1,14 +1,10 @@
-<!-- Assessors view: the assessment team, filters, coverage banner and the shared person drawer. -->
+<!-- Assessors view: the assessment team, filters and the shared person drawer. -->
 <div class="flex flex-wrap items-start gap-4 px-4 pt-6 md:px-8 md:pt-8">
   <div class="flex min-w-[min(100%,260px)] flex-1 basis-[260px] flex-col gap-1">
     <h1 class="m-0 text-(length:--fs-26) leading-[1.2] font-bold tracking-[-0.02em] text-balance text-(--text)">Assessment team</h1>
     <p class="m-0 text-(length:--fs-14) font-normal text-pretty text-(--text-3)">Eleven people. Click a row to change what they assess.</p>
   </div>
   <div class="flex w-auto flex-none items-center gap-2 max-sm:w-full max-sm:flex-col-reverse max-sm:items-stretch">
-    <button hlmBtn variant="outline" type="button" (click)="download()" class="h-auto min-h-9 gap-2 rounded-lg border-(--border) bg-(--field-bg) px-3.5 text-(length:--fs-14) font-medium text-(--text-2) shadow-none hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text-2) dark:border-(--border) dark:bg-(--field-bg) dark:hover:bg-(--surface-2) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) focus-visible:outline-none flex-none whitespace-nowrap max-sm:min-h-10 max-sm:w-full max-sm:justify-center">
-      <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"></path></svg>
-      Download team list
-    </button>
     <button hlmBtn type="button" (click)="openInvite()" class="h-auto min-h-9 gap-2 max-sm:min-h-10 max-sm:w-full max-sm:justify-center rounded-lg border-0 bg-(--primary) px-3.5 text-(length:--fs-14) font-semibold text-(--surface) hover:bg-(--accent) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) focus-visible:outline-none whitespace-nowrap">
       <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"></path></svg>
       Invite assessor
@@ -17,15 +13,6 @@
 </div>
 
 <div data-screen-label="Assessors" class="flex flex-col items-stretch gap-5 px-4 pt-6 pb-8 md:px-8">
-  <!-- Coverage gap banner -->
-  @if (gaps().length) {
-    <div role="status" class="flex min-h-11 flex-wrap items-center gap-2.5 rounded-[10px] bg-(--st-rejected-bg) px-4 py-1.5 sm:flex-nowrap sm:py-0">
-      <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--st-rejected-fg)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01"></path></svg>
-      <span class="min-w-0 flex-1 basis-[220px] text-(length:--fs-13) leading-normal font-normal text-pretty text-(--st-rejected-fg)"><span class="font-(family-name:--qa-mono) tabular-nums font-semibold">{{ gaps().length }}</span> {{ gaps().length === 1 ? 'result type has no active assessor.' : 'result types have no active assessor.' }} <span class="font-(family-name:--qa-mono) tabular-nums font-semibold">{{ gapResults() }}</span> results will not be reviewed.</span>
-      <button hlmBtn variant="ghost" type="button" (click)="showGaps()" class="ml-auto h-auto min-h-8 max-sm:-mr-2 max-sm:min-h-10 flex-none rounded-lg border-0 bg-transparent px-2.5 text-(length:--fs-13) font-semibold whitespace-nowrap text-(--st-rejected-fg) hover:bg-black/5 hover:text-(--st-rejected-fg) dark:hover:bg-black/5 focus-visible:ring-0 focus-visible:shadow-(--focus-ring) focus-visible:outline-none">Show them</button>
-    </div>
-  }
-
   <!-- Toolbar: search and filters -->
   <div class="flex flex-col gap-3">
     <div class="flex flex-wrap items-center gap-2 xl:gap-3">

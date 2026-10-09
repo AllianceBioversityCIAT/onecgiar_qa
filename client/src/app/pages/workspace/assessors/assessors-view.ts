@@ -1,5 +1,5 @@
-import { DOCUMENT, NgTemplateOutlet } from '@angular/common';
-import { Component, ElementRef, computed, effect, inject, signal, viewChild } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
+import { Component, ElementRef, computed, effect, signal, viewChild } from '@angular/core';
 import { HlmButtonImports } from '@spartan/button';
 import { HlmInputImports } from '@spartan/input';
 import { QaMenuImports, QaMultiSelect, QaMultiSelectOption } from '../../../ui';
@@ -95,7 +95,6 @@ const reviewedOf = (p: TeamMember) => p.prog.reduce((a, e) => a + e.reviewed, 0)
   imports: [NgTemplateOutlet, HlmButtonImports, HlmInputImports, QaMenuImports, QaMultiSelect, AssessorDrawer, AssessorRoleCell, AssessorTypesCell],
 })
 export class AssessorsView {
-  private readonly document = inject(DOCUMENT);
 
   protected readonly team = signal<readonly TeamMember[]>(TEAM);
 
@@ -261,34 +260,6 @@ export class AssessorsView {
   protected ariaSort(key: SortKey): 'ascending' | 'descending' | 'none' {
     if (this.sortKey() !== key) return 'none';
     return this.sortDir() === 'asc' ? 'ascending' : 'descending';
-  }
-
-  /** CSV of the whole team, as the mockup builds it. */
-  protected download(): void {
-    // TODO(api): replace with the server export of the assessment team.
-    const lines = [['Nickname', 'Name', 'Email', 'Role', 'Result types', 'Assigned', 'Reviewed', 'Last active']].concat(
-      this.team().map((p) => [
-        p.nick,
-        p.name,
-        p.email,
-        p.role,
-        p.role === 'Assessor' ? p.types.join('; ') : 'All types',
-        String(assignedOf(p)),
-        String(reviewedOf(p)),
-        p.last,
-      ]),
-    );
-    const csv = lines.map((l) => l.map((x) => '"' + x.replace(/"/g, '""') + '"').join(',')).join('\n');
-    const win = this.document.defaultView;
-    if (!win) return;
-    const url = win.URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-    const a = this.document.createElement('a');
-    a.href = url;
-    a.download = 'qa-assessment-team.csv';
-    this.document.body.appendChild(a);
-    a.click();
-    a.remove();
-    win.URL.revokeObjectURL(url);
   }
 
   // Inline cell edits
