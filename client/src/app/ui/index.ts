@@ -10,3 +10,5 @@ export * from './multi-select/qa-multi-select';
 export * from './tooltip/qa-tooltip';
 export * from './badge/qa-badge';
 export * from './progress/qa-progress';
+export * from './date-picker/qa-date-picker';
+export * from './dialog/qa-dialog';
