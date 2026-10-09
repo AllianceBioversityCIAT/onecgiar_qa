@@ -1,12 +1,11 @@
 import { Component, DestroyRef, ElementRef, computed, inject, signal, viewChild } from '@angular/core';
-import { HlmButton } from '@spartan/button';
 import { OvAttention, AttentionGroupVm } from './ov-attention';
 import { OvLoadDrawer } from './ov-load-drawer';
 import { OvOutcomes, OutcomesVm } from './ov-outcomes';
 import { OvResultsInQa, ResultsInQaVm } from './ov-results-in-qa';
 import { OvStages, StageVm } from './ov-stages';
 import { OvStepCard, StepCardVm } from './ov-step-card';
-import { OvTimelineMenu } from './ov-timeline-menu';
+import { OvTimelineCards } from './ov-timeline-cards';
 import { OvWork, WorkRowVm, WorkTab } from './ov-work';
 import { daysFromToday, fmt, shortDate, timelineInfo } from './overview-calc';
 import {
@@ -33,8 +32,7 @@ const ANGLE: Record<'type' | 'program' | 'assessor', string> = { type: 'Result t
 @Component({
   selector: 'qa-overview-view',
   imports: [
-    HlmButton,
-    OvTimelineMenu,
+    OvTimelineCards,
     OvResultsInQa,
     OvStepCard,
     OvStages,
@@ -57,7 +55,6 @@ export class OverviewView {
   /** Load in progress (header shows "Loading results N of M"). */
   protected readonly running = signal<{ done: number; total: number } | null>(null);
 
-  private readonly timelineMenu = viewChild.required(OvTimelineMenu);
   private readonly pageTop = viewChild.required<ElementRef<HTMLElement>>('pageTop');
   private readonly workCard = viewChild.required(OvWork, { read: ElementRef });
 
@@ -91,14 +88,7 @@ export class OverviewView {
   // ---------- Results in QA (only for "All timelines") ----------
   protected readonly resultsInQa = computed<ResultsInQaVm | null>(() => {
     if (this.selected()) return null;
-    const off = this.officials[0];
-    const offInfo = off ? timelineInfo(off) : null;
-    const sched = this.subs.filter((b) => b.status === 'Scheduled').length;
     return {
-      officialCount: fmt(this.officials.reduce((a, b) => a + b.results, 0)),
-      officialLine: offInfo ? `Step ${offInfo.step} of ${offInfo.steps} · ${offInfo.when} ${offInfo.date}` : '',
-      subsCount: fmt(this.subs.reduce((a, b) => a + b.results, 0)),
-      subsLine: [this.liveSubs ? this.liveSubs + ' live' : '', sched ? sched + ' scheduled' : ''].filter(Boolean).join(' · ') || 'None yet',
       statuses: STATUS_COUNTS.map(([status, n]) => ({ status, count: fmt(n) })),
     };
   });
@@ -226,14 +216,11 @@ export class OverviewView {
   });
 
   // ---------- Actions ----------
-  protected pickOfficial(): void {
-    const off = this.officials[0];
-    if (off) this.timelineId.set(off.id);
-  }
-
+  /** "1 sub-timeline is also live": select it; with several, scroll up to the timeline cards. */
   protected openSubs(): void {
+    const live = this.subs.filter((b) => b.status === 'Live');
+    if (live.length === 1) this.timelineId.set(live[0].id);
     this.pageTop().nativeElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    this.timelineMenu().openAtSubs();
   }
 
   protected pickTimeline(id: string): void {

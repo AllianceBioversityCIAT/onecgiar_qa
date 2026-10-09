@@ -1,16 +1,10 @@
-<!-- Overview (QA lead). Data comes from overview.mock.ts; every number follows the timeline picker. -->
+<!-- Overview (QA lead). Data comes from overview.mock.ts; every number follows the selected timeline card. -->
 
 <!-- Page header -->
 <div #pageTop class="flex scroll-mt-6 flex-wrap items-start gap-4 px-4 pt-8 sm:px-6 lg:px-8">
   <div class="flex min-w-0 flex-1 flex-col gap-1">
     <h1 class="m-0 text-(length:--fs-26) font-bold leading-[1.2] tracking-[-0.02em] text-(--text)">Overview</h1>
     <p class="m-0 text-(length:--fs-14) font-normal text-(--text-3)">Where the 2026 cycle stands today.</p>
-
-    <div class="mt-3 mb-1 flex flex-wrap items-center gap-[10px]">
-      <span id="overview-timeline-label" class="text-(length:--fs-13) font-medium text-(--text-3)">Timeline</span>
-      <qa-ov-timeline-menu [(value)]="timelineId" [timelines]="timelines" [allCount]="allCount" labelledBy="overview-timeline-label" />
-      <span class="text-(length:--fs-13) font-normal text-(--text-4)"><span class="font-(family-name:--qa-mono) font-semibold tabular-nums text-(--text-3)">{{ totalText() }}</span> results</span>
-    </div>
   </div>
 
   <div class="flex flex-none items-center gap-2 max-sm:w-full">
@@ -20,24 +14,16 @@
         <span class="text-(length:--fs-14) font-semibold text-(--accent)">Loading results</span>
         <span class="font-(family-name:--qa-mono) text-(length:--fs-13) font-semibold tabular-nums text-(--accent)">{{ runningText() }}</span>
       </div>
-    } @else {
-      <button
-        hlmBtn
-        type="button"
-        (click)="loadOpen.set(true)"
-        class="h-auto min-h-9 flex-none justify-center gap-2 rounded-[8px] border-0 bg-(--primary) px-[14px] text-(length:--fs-14) font-semibold text-(--surface) hover:bg-(--accent) focus-visible:shadow-(--focus-ring) focus-visible:ring-0 max-sm:min-h-10 max-sm:w-full"
-      >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36L21 8M21 3v5h-5"></path></svg>
-        Load results into QA
-      </button>
     }
   </div>
 </div>
 
 <!-- Body -->
 <div class="flex flex-col items-stretch gap-6 px-4 pt-6 pb-8 sm:px-6 lg:px-8">
+  <qa-ov-timeline-cards [(value)]="timelineId" [timelines]="timelines" [allCount]="allCount" />
+
   @if (resultsInQa(); as rq) {
-    <qa-ov-results-in-qa [data]="rq" (officialClick)="pickOfficial()" (subsClick)="openSubs()" />
+    <qa-ov-results-in-qa [data]="rq" />
   }
 
   @if (stepCard(); as card) {

@@ -1,12 +1,8 @@
-import { Component, input, output } from '@angular/core';
+import { Component, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { ResultStatus } from './overview.mock';
 
 export interface ResultsInQaVm {
-  readonly officialCount: string;
-  readonly officialLine: string;
-  readonly subsCount: string;
-  readonly subsLine: string;
   readonly statuses: readonly { readonly status: ResultStatus; readonly count: string }[];
 }
 
@@ -18,7 +14,7 @@ const STATUS_CHIP: Record<ResultStatus, string> = {
   'Quality assessed': 'bg-(--st-approved-bg) text-(--st-approved-fg)',
 };
 
-/** "Results in QA": official vs sub-timeline totals and the count per status (links to Results). */
+/** "Results in QA": the count per status (links to Results). Timeline totals live in the timeline cards. */
 @Component({
   selector: 'qa-ov-results-in-qa',
   imports: [RouterLink],
@@ -27,22 +23,10 @@ const STATUS_CHIP: Record<ResultStatus, string> = {
     <section aria-labelledby="overview-rq-title" class="flex flex-col gap-4 rounded-[12px] border border-(--border) bg-(--surface) p-5">
       <div class="flex flex-col gap-1">
         <h3 id="overview-rq-title" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">Results in QA</h3>
-        <p class="m-0 text-(length:--fs-13) font-normal text-(--text-3)">Where the results came in from.</p>
-      </div>
-      <div class="grid grid-cols-1 gap-4 @lg:grid-cols-2">
-        <button type="button" (click)="officialClick.emit()" class="flex cursor-pointer flex-col gap-[6px] rounded-[10px] border border-(--border) bg-(--surface-2) px-4 py-[14px] text-left hover:border-(--border-strong) focus-visible:shadow-(--focus-ring) focus-visible:outline-none">
-          <span class="text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--text-muted) uppercase">Official timeline</span>
-          <span class="font-(family-name:--qa-mono) text-(length:--fs-26) font-bold tabular-nums text-(--text)">{{ data().officialCount }}</span>
-          <span class="text-(length:--fs-12) font-normal text-(--text-4)">{{ data().officialLine }}</span>
-        </button>
-        <button type="button" (click)="subsClick.emit()" class="flex cursor-pointer flex-col gap-[6px] rounded-[10px] border border-(--border) bg-(--surface-2) px-4 py-[14px] text-left hover:border-(--border-strong) focus-visible:shadow-(--focus-ring) focus-visible:outline-none">
-          <span class="text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--text-muted) uppercase">Sub-timelines</span>
-          <span class="font-(family-name:--qa-mono) text-(length:--fs-26) font-bold tabular-nums text-(--text)">{{ data().subsCount }}</span>
-          <span class="text-(length:--fs-12) font-normal text-(--text-4)">{{ data().subsLine }}</span>
-        </button>
+        <p class="m-0 text-(length:--fs-13) font-normal text-(--text-3)">How many results are at each status.</p>
       </div>
       <!-- Narrow cards: one status per line (chip left, count right) instead of a ragged 2/3-column grid. -->
-      <div class="grid grid-cols-1 gap-1 border-t border-(--surface-4) pt-[14px] @2xl:grid-cols-5 @2xl:gap-3">
+      <div class="grid grid-cols-1 gap-1 @2xl:grid-cols-5 @2xl:gap-3">
         @for (s of data().statuses; track s.status) {
           <a
             routerLink="/results"
@@ -60,8 +44,6 @@ const STATUS_CHIP: Record<ResultStatus, string> = {
 })
 export class OvResultsInQa {
   readonly data = input.required<ResultsInQaVm>();
-  readonly officialClick = output();
-  readonly subsClick = output();
 
   protected readonly chip = STATUS_CHIP;
 }
