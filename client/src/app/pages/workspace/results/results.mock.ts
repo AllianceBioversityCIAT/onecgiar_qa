@@ -122,15 +122,17 @@ export const QA_ROUNDS: readonly QaRound[] = ['QA round 1', 'QA round 2'];
 export const ANNUAL = 'Annual report 2026';
 export const JULY = 'July 2026 sub-timeline';
 
-/** Timeline names of the "Timeline" filter (mockup BATCHES). */
-export const BATCHES: readonly string[] = [JULY, ANNUAL];
-
 /** Open timelines of the page-level picker (closed ones are not listed). */
 export const TIMELINES: readonly QaTimeline[] = [
   { id: 'annual', name: ANNUAL, kind: 'Official timeline', status: 'Live', step: 5, steps: 5, when: 'closes', date: '19 Jul' },
   { id: 'jul', name: JULY, kind: 'Sub-timeline', status: 'Live', step: 5, steps: 5, when: 'closes', date: '19 Jul' },
   { id: 'sep', name: 'September pilot', kind: 'Sub-timeline', status: 'Scheduled', step: 1, steps: 5, when: 'opens', date: '01 Sep' },
 ];
+
+/** Timeline names of the "Timeline" filter: the open timelines, official first. */
+export const BATCHES: readonly string[] = [...TIMELINES]
+  .sort((a, b) => Number(a.kind !== 'Official timeline') - Number(b.kind !== 'Official timeline'))
+  .map((t) => t.name);
 
 /** Programs whose comments are already published to them (mockup PUB_INIT). */
 export const PUBLISHED_PROGRAMS: readonly string[] = ['SP02', 'SP05', 'SP04'];
