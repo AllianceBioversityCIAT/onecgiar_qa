@@ -5,13 +5,11 @@ import {
   FIELD_PUBLISHED_OVERRIDES,
   FIELD_SECTIONS,
   FIELD_STATES,
-  FIELD_SUMMARY_TARGETS,
   FieldConfig,
   FieldConfigMap,
   FieldDef,
   FieldState,
   INNOVATION_DEVELOPMENT,
-  RESULT_TYPES,
 } from './fields.mock';
 
 export interface FieldCounts {
@@ -82,23 +80,6 @@ export function countFields(type: string, cfg: FieldConfigMap): FieldCounts {
   return c;
 }
 
-const INITIAL_ID_COUNTS = countFields(INNOVATION_DEVELOPMENT, initialDraft(INNOVATION_DEVELOPMENT));
-
-/** The mock lists a subset of the form; these offsets bring the figures up to the full 47-field form. */
-export const SUMMARY_OFFSETS = {
-  total: FIELD_SUMMARY_TARGETS.total - INITIAL_ID_COUNTS.total,
-  hidden: FIELD_SUMMARY_TARGETS.hidden - INITIAL_ID_COUNTS.hidden,
-  view: FIELD_SUMMARY_TARGETS.view - INITIAL_ID_COUNTS.view,
-  assessedOnly: FIELD_SUMMARY_TARGETS.assessedOnly - INITIAL_ID_COUNTS.assessedOnly,
-  third: FIELD_SUMMARY_TARGETS.third - INITIAL_ID_COUNTS.third,
-  core: FIELD_SUMMARY_TARGETS.core - INITIAL_ID_COUNTS.core,
-} as const;
-
-/** Per type: assessed fields of the full form that are not in the mock list. */
-export const ASSESSED_OFFSETS: Readonly<Record<string, number>> = Object.fromEntries(
-  RESULT_TYPES.map((t) => [t.name, t.assessedCount - countFields(t.name, initialDraft(t.name)).assessed]),
-);
-
 const STATE_LABEL: Readonly<Record<FieldState, string>> = Object.fromEntries(
   FIELD_STATES.map((s) => [s.value, s.label]),
 ) as Record<FieldState, string>;
@@ -149,4 +130,10 @@ export interface FieldChangeVm {
   readonly id: string;
   readonly name: string;
   readonly description: string;
+}
+
+/** Unpublished changes of one result type (a group in the review pop-up). */
+export interface FieldChangeGroupVm {
+  readonly type: string;
+  readonly changes: readonly FieldChangeVm[];
 }

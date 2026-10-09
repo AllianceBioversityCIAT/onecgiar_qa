@@ -140,8 +140,6 @@ export const FIELD_PUBLISHED_OVERRIDES: Readonly<Record<string, Partial<FieldCon
 };
 
 /** Figures of the full 47-field form for Innovation development as it starts (the list above is a subset). */
-export const FIELD_SUMMARY_TARGETS = { total: 47, hidden: 26, view: 4, assessedOnly: 16, third: 1, core: 14 } as const;
-
 export const FIELD_HEAD_HELP: readonly FieldHeadHelp[] = [
   {
     label: 'In QA',
@@ -164,6 +162,3 @@ export const FIELD_HEAD_HELP: readonly FieldHeadHelp[] = [
 
 export const REQUIRED_HIDDEN_HELP =
   'This field is required in the reporting tool but hidden in QA, so no assessor will check it.';
-
-export const ACTIVE_STEP_NOTICE =
-  'Step 5 is open until 19 Jul 2026. Anything you publish now applies to results loaded from now on.';

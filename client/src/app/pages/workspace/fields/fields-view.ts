@@ -2,11 +2,10 @@ import { Component, DestroyRef, ElementRef, afterNextRender, computed, effect, i
 import { HlmButton } from '@spartan/button';
 import { QaSelect, QaSelectOption } from '../../../ui';
 import {
-  ASSESSED_OFFSETS,
+  FieldChangeGroupVm,
   FieldChangeVm,
   FieldRowVm,
   FieldSectionVm,
-  SUMMARY_OFFSETS,
   countFields,
   defaultOf,
   describeChange,
@@ -21,7 +20,6 @@ import { FieldsColumnHeader } from './fields-column-header';
 import { FieldsPublishConfirm } from './fields-publish-confirm';
 import { FieldRowEvent, FieldsSection } from './fields-section';
 import {
-  ACTIVE_STEP_NOTICE,
   FIELD_DEFS,
   FIELD_SECTIONS,
   FieldConfig,
@@ -45,7 +43,6 @@ const COMPACT_BELOW = 900;
 })
 export class FieldsView {
 
-  protected readonly notice = ACTIVE_STEP_NOTICE;
 
   // ── State ──────────────────────────────────────────────────────────────
   protected readonly resultType = signal(INNOVATION_DEVELOPMENT);
@@ -55,60 +52,78 @@ export class FieldsView {
   private readonly published = signal<ConfigByType>({});
   private readonly collapsed = signal<Readonly<Record<string, boolean>>>({});
   private readonly confirmRequested = signal(false);
+  /** Table filters: the state chip and the "Core only" toggle. */
+  protected readonly stateFilter = signal<FieldState | 'all'>('all');
+  protected readonly coreOnly = signal(false);
+  /** Rows edited while a filter is on stay visible until the filter or the type changes. */
+  private readonly kept = signal<ReadonlySet<string>>(new Set());
   /** Width of the matrix column (measured on the summary grid, which has the same width). */
   private readonly contentWidth = signal(0);
   protected readonly headerStuck = signal(false);
 
   // ── Derived ────────────────────────────────────────────────────────────
   private readonly draft = computed(() => this.draftOf(this.resultType()));
-  private readonly base = computed(() => this.published()[this.resultType()] ?? initialPublished(this.resultType()));
+  private readonly base = computed(() => this.publishedOf(this.resultType()));
   private readonly defs = computed(() => fieldsFor(this.resultType()));
   private readonly counts = computed(() => countFields(this.resultType(), this.draft()));
 
-  protected readonly changes = computed<readonly FieldChangeVm[]>(() => {
-    const draft = this.draft();
-    const base = this.base();
-    return this.defs()
-      .filter((f) => !sameConfig(effective(draft[f.id]), effective(base[f.id])))
-      .map((f) => ({ id: f.id, name: f.name, description: describeChange(effective(base[f.id]), effective(draft[f.id])) }));
+  /** Unpublished changes of every result type (publishing is page-wide), in selector order. */
+  protected readonly changeGroups = computed<readonly FieldChangeGroupVm[]>(() =>
+    RESULT_TYPES.map((t) => ({ type: t.name, changes: this.changesOf(t.name) })).filter((g) => g.changes.length > 0),
+  );
+  protected readonly changeCount = computed(() => this.changeGroups().reduce((n, g) => n + g.changes.length, 0));
+  /** "in Innovation development" or "in 2 result types". */
+  protected readonly changeScope = computed(() => {
+    const groups = this.changeGroups();
+    return groups.length === 1 ? 'in ' + groups[0].type : `in ${groups.length} result types`;
   });
-  protected readonly showConfirm = computed(() => this.confirmRequested() && this.changes().length > 0);
+  protected readonly showConfirm = computed(() => this.confirmRequested() && this.changeCount() > 0);
+  /** What the last bulk action did, for the header status once nothing is pending. Cleared by any edit. */
+  protected readonly lastAction = signal<'published' | 'discarded' | null>(null);
 
   protected readonly typeOptions = computed<readonly QaSelectOption[]>(() =>
     RESULT_TYPES.map((t) => {
-      const assessed = countFields(t.name, this.draftOf(t.name)).assessed + ASSESSED_OFFSETS[t.name];
-      return { value: t.name, label: t.name, description: `${assessed} fields assessed` };
+      const assessed = countFields(t.name, this.draftOf(t.name)).assessed;
+      const pending = this.changesOf(t.name).length;
+      const unpublished = pending ? ` · ${pending} unpublished` : '';
+      return { value: t.name, label: t.name, description: `${assessed} fields assessed${unpublished}` };
     }),
   );
 
-  protected readonly summary = computed(() => {
+  /** State chips above the table; each count is the number of rows that chip shows. */
+  protected readonly stateFilters = computed(() => {
     const c = this.counts();
     return [
-      { value: c.total + SUMMARY_OFFSETS.total, label: 'Fields in the form' },
-      { value: c.hidden + SUMMARY_OFFSETS.hidden, label: 'Hidden in QA' },
-      { value: c.view + SUMMARY_OFFSETS.view, label: 'View only' },
-      { value: c.assessedOnly + SUMMARY_OFFSETS.assessedOnly, label: 'Assessed' },
-      { value: c.third + SUMMARY_OFFSETS.third, label: 'Third-party' },
-      { value: c.core + SUMMARY_OFFSETS.core, label: 'Core' },
+      { value: 'all' as const, label: 'All fields', count: c.total },
+      { value: 'hidden' as const, label: 'Hidden', count: c.hidden },
+      { value: 'view' as const, label: 'View only', count: c.view },
+      { value: 'assessed' as const, label: 'Assessed', count: c.assessedOnly },
+      { value: 'third' as const, label: 'Third-party', count: c.third },
     ];
   });
+  protected readonly coreCount = computed(() => this.counts().core);
+  protected readonly filtering = computed(() => this.stateFilter() !== 'all' || this.coreOnly());
 
   protected readonly hasAssessed = computed(() => this.counts().assessed > 0);
 
   protected readonly compact = computed(() => this.contentWidth() > 0 && this.contentWidth() < COMPACT_BELOW);
-  protected readonly summaryCols = computed(() => {
-    const w = this.contentWidth();
-    if (w > 0 && w < 560) return 'grid-cols-2';
-    if (w > 0 && w < COMPACT_BELOW) return 'grid-cols-3';
-    return 'grid-cols-6';
-  });
+
+  /** Rows that pass the chips, plus rows edited while filtering (so a row does not vanish under the pointer). */
+  private matches(f: FieldDef, cfg: FieldConfig): boolean {
+    if (this.kept().has(f.id)) return true;
+    const e = effective(cfg);
+    const state = this.stateFilter();
+    return (state === 'all' || e.state === state) && (!this.coreOnly() || e.core);
+  }
 
   protected readonly sections = computed<readonly FieldSectionVm[]>(() => {
-    const defs = this.defs();
     const draft = this.draft();
+    const defs = this.defs();
+    const shown = defs.filter((f) => this.matches(f, draft[f.id]));
     const base = this.base();
     const collapsed = this.collapsed();
-    return FIELD_SECTIONS.filter((s) => defs.some((f) => f.section === s.id)).map((s) => {
+    // Sections with no matching row are left out; their "N of M assessed" still counts the whole section.
+    return FIELD_SECTIONS.filter((s) => shown.some((f) => f.section === s.id)).map((s) => {
       const fields = defs.filter((f) => f.section === s.id);
       const open = !collapsed[s.id];
       return {
@@ -117,7 +132,7 @@ export class FieldsView {
         open,
         total: fields.length,
         assessed: fields.filter((f) => isActive(draft[f.id].state)).length,
-        rows: open ? fields.map((f) => rowVm(f, draft[f.id], base[f.id])) : [],
+        rows: open ? shown.filter((f) => f.section === s.id).map((f) => rowVm(f, draft[f.id], base[f.id])) : [],
       };
     });
   });
@@ -160,6 +175,24 @@ export class FieldsView {
     if (!type || type === this.resultType()) return;
     this.resultType.set(type);
     this.confirmRequested.set(false);
+    this.lastAction.set(null);
+    this.kept.set(new Set());
+  }
+
+  protected setStateFilter(value: FieldState | 'all'): void {
+    this.stateFilter.set(value);
+    this.kept.set(new Set());
+  }
+
+  protected toggleCoreOnly(): void {
+    this.coreOnly.update((on) => !on);
+    this.kept.set(new Set());
+  }
+
+  protected clearFilters(): void {
+    this.stateFilter.set('all');
+    this.coreOnly.set(false);
+    this.kept.set(new Set());
   }
 
   protected toggleSection(id: string): void {
@@ -191,17 +224,28 @@ export class FieldsView {
     this.confirmRequested.set(false);
   }
 
+  /** Publishes the draft of every result type that has changes. */
   protected publish(): void {
-    const type = this.resultType();
-    // TODO(api): publish the draft configuration of this result type; on success keep the local copy as published.
-    this.published.update((all) => ({ ...all, [type]: this.draft() }));
+    const types = this.changeGroups().map((g) => g.type);
+    // TODO(api): publish the draft configuration of each of these result types (the API may take one type per call);
+    // on success keep the local copies as published.
+    this.published.update((all) => ({ ...all, ...Object.fromEntries(types.map((t) => [t, this.draftOf(t)])) }));
     this.confirmRequested.set(false);
+    this.lastAction.set('published');
   }
 
+  /** Undo one change from the review: the field goes back to its published configuration. */
+  protected undoChange(e: { type: string; id: string }): void {
+    const published = this.publishedOf(e.type)[e.id];
+    if (published) this.patch(e.id, published, e.type);
+  }
+
+  /** Discards the unpublished changes of every result type. */
   protected discard(): void {
-    const type = this.resultType();
-    this.drafts.update((all) => ({ ...all, [type]: this.base() }));
+    const types = this.changeGroups().map((g) => g.type);
+    this.drafts.update((all) => ({ ...all, ...Object.fromEntries(types.map((t) => [t, this.publishedOf(t)])) }));
     this.confirmRequested.set(false);
+    this.lastAction.set('discarded');
   }
 
   /** Empty state: copy the setup of another type (Innovation development, or Knowledge product from it). */
@@ -220,8 +264,22 @@ export class FieldsView {
     return this.drafts()[type] ?? initialDraft(type);
   }
 
-  private patch(id: string, patch: Partial<FieldConfig>): void {
-    const type = this.resultType();
+  /** Fields of a result type whose draft differs from what is published. */
+  private publishedOf(type: string): FieldConfigMap {
+    return this.published()[type] ?? initialPublished(type);
+  }
+
+  private changesOf(type: string): readonly FieldChangeVm[] {
+    const draft = this.draftOf(type);
+    const base = this.publishedOf(type);
+    return fieldsFor(type)
+      .filter((f) => !sameConfig(effective(draft[f.id]), effective(base[f.id])))
+      .map((f) => ({ id: f.id, name: f.name, description: describeChange(effective(base[f.id]), effective(draft[f.id])) }));
+  }
+
+  private patch(id: string, patch: Partial<FieldConfig>, type = this.resultType()): void {
+    this.lastAction.set(null);
+    if (this.filtering() && type === this.resultType()) this.kept.update((ids) => new Set(ids).add(id));
     this.drafts.update((all) => {
       const draft = all[type] ?? initialDraft(type);
       return { ...all, [type]: { ...draft, [id]: { ...draft[id], ...patch } } };
