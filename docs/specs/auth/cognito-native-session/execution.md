@@ -758,3 +758,66 @@ The user's answers, verbatim:
 **Re-run accounting**
 - T-7's earlier PASS stands for the approved scope. The amendment runs as a new loop on T-7, "amendment loop, attempt 1 of 3". The attempt counter restarts because this is approved new scope, not a FAIL.
 - Every amended section is a named conformance check in this loop's Reviewer brief.
+
+### T-7 amendment loop (FR-8 email_verified + conditional link) — Reviewer PASS; build re-run pending
+
+- **Date:** 2026-10-13
+- **Attempt 1** (effort `xhigh`; skills nestjs-expert, tdd).
+  - **Files changed:**
+    - `server/src/auth/admission.service.ts` and its spec
+    - `server/src/auth/auth.errors.ts` (`EmailNotVerifiedError`, 403)
+    - `server/src/users/users.repository.ts` (`linkCognitoSub`: `UPDATE … WHERE id = ? AND cognito_sub IS NULL`, plus a `FOR UPDATE` re-read on 0 rows) and its spec
+    - `server/test/support/in-memory-stores.ts` (`InMemoryUsersStore(rows)`)
+  - **Red run (HEAD, new tests):** 4 failed / 32 passed, all on assertions.
+    - `expected 'sub-ana' to be null`, 3 times
+    - `expected 'sub-second' to be 'sub-first'`
+  - **Mutations** (all reverted and diff-verified):
+    - (a) accept an unverified custom token: 3 red, the first failing assertion being "nothing linked"
+    - (b1) unconditional `update`: red
+    - (b2) the fake drops the null check: red
+    - (b3) drop `isNull` from the real Drizzle SQL: red
+    - (c) require `email_verified` for SSO: 9 red
+    - existing falsifiers for steps 2/3, create, and plain read-back: red
+    - extra mutations g through k: red
+  - **Implementer verification:**
+    - lint 0
+    - unit 297/297
+    - e2e 55/55 (`--maxWorkers=2`, after the resource-guard blocked the plain run)
+    - `pnpm build` blocked by the resource-guard; stand-in `tsc --noEmit -p tsconfig.build.json` exited 0
+  - **Implementer Not Done / Assumptions:** the full text is in the session scratchpad, `t7-amend-review-context.md`.
+    - The `FOR UPDATE` re-read on the loser path is not a new lock decision, because the UPDATE already holds that row's X-lock. This is unverified on real MySQL.
+    - `affectedRows === 1` is exact.
+    - The Consumers field is stale: `UsersStore.linkCognitoSub` was added.
+    - Files beyond the T-7 list: `auth.errors.ts`, `users.repository.spec.ts`.
+    - The match is an exact `true` / `"true"`.
+    - A 409 takes precedence over a 403.
+    - The rule also applies in refresh mode.
+    - `changes()` no longer writes `cognitoSub`.
+    - Race (1) is untouched.
+  - **Evidence re-run (Leader-inline, non-author):** PARTIAL.
+    - lint 0 · unit 297/297 (`--maxWorkers=2`) · e2e 55/55 (`--maxWorkers=2`)
+    - `nest build` was **blocked twice by the resource-guard**: 3606 MB, then 3076 MB, against 4500 MB required. The build re-run is owed before `[x]`.
+  - **Reviewer verdict, Risk lens: PASS.**
+    - The `email_verified` check fails closed: only exact `true` / `"true"` passes, and it is shared by login and refresh through `locate`.
+    - The order is right: a sub match, then 409, then 403.
+    - No `sub` is overwritten, and no refusal links or creates anything.
+    - All four named checks conform.
+  - **Reviewer verdict, Reliability lens: PASS** (conditional on a clean build).
+    - The concurrent links resolve under REPEATABLE READ: the loser's UPDATE waits on the X-lock, then matches 0 rows, then the `FOR UPDATE` re-read sees the winner.
+    - The re-read takes a lock the transaction already holds, so there is no new lock ordering and the user's "sin locks" is respected.
+    - mysql2 reports matched rows, so `affectedRows === 1` is correct.
+    - The fake is faithful, the tests are not vacuous, and the contract changes are safe.
+    - All four named checks conform.
+  - **ADVISORY (labeled advisory, not gating):**
+    - **Risk:** a non-array or other non-null `identities` value is classified as `sso`, which now also skips `email_verified`. This conforms to FR-8 step 1 as written. Suggestion: treat only a non-empty array as `sso`, optionally only when `providerName === 'CGIAR-AzureAD'`. Settle at T-11.
+    - **Risk:** step 7 copies the token's email without checking `email_verified`. An unverified email change by a linked custom user could cause a 409 denial of service for the real owner. It is spec-compliant, so the lead decides.
+    - **Risk:** T-11 should check whether any app client in the shared pool can write `email_verified`.
+    - **Risk:** no refresh-mode test covers an unverified custom token. It is covered today only because both modes share `locate`.
+    - **Reliability:** a `DuplicateUserError` from `linkCognitoSub` (the `sub` already on another row) surfaces as a 500. This predates the amendment and is practically unreachable.
+    - **Resilience:** the "no new lock" argument depends on REPEATABLE READ. Pin the isolation level or note it in DD-10.
+    - **Reliability:** T-11 should run two concurrent links of one email against real MySQL.
+- **spawns:**
+  - implementer: 85 calls, 176423 tokens, ended partial (owed build)
+  - reviewer (risk): 10 calls, 48150 tokens, ended complete
+  - reviewer (reliability): 15 calls, 49388 tokens, ended complete
+- **runtime events:** none
