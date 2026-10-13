@@ -1,12 +1,11 @@
 import { Controller, Get } from '@nestjs/common';
-import { AppService } from './app.service.js';
 
 @Controller()
 export class AppController {
-  constructor(private readonly appService: AppService) {}
-
-  @Get()
-  getHello(): string {
-    return this.appService.getHello();
+  // Public by design (FR-10): the host's health check carries no token. The
+  // `@Public()` marker arrives with the auth guard in the auth module.
+  @Get('health')
+  getHealth(): { status: 'ok' } {
+    return { status: 'ok' };
   }
 }
