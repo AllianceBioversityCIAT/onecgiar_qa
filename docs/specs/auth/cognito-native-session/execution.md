@@ -463,3 +463,18 @@
   - NFR-5: measurement belongs to T-10.
 - **Budget (re-baselined):** about 5,300 of about 5,500 LOC, which is near the tripwire because T-5 added about 1,770 diff lines. Reviewer passes: 9 of about 22. Tasks: 5 of 11.
 - **Final verification:** server command plus e2e, green (lint 0, build 0, unit 242/242, e2e 55/55).
+
+## Gate after T-5: user decisions (AskUserQuestion, 2026-10-13)
+
+- **Spec tension resolved: "Sí, enmendar T-7".** `tasks.md` T-7 is amended as follows:
+  - Requirements: + FR-11 (writer side).
+  - Scope: + `CurrentUserCache.invalidate(user.id)` after the transaction commits.
+  - Tests: + a test that invalidate was called and the change is visible without advancing the clock.
+  - Coverage table: the FR-11 row now reads `T-5 (mechanism), T-7 (writer invalidation)`.
+  - Consistency sweep: design DD-6 ("invalidated on QA writes") and § 7.1 already state this, so no design edit was needed.
+  - Grep sweep for `invalidate` over the spec folder: T-5 is the mechanism and T-7 is the writer.
+  - The meaning of FR-11 is unchanged. The amendment makes T-7 own the writer side.
+- **Budget: "Re-estimar a ~10,000 LOC".**
+  - Measured pace: about 1,000 LOC per task, roughly 1/3 production and 2/3 tests.
+  - New tripwire baseline: 11 tasks, about 10,000 LOC, about 25 Reviewer passes.
+  - Current position after T-5: about 4,990 LOC, 9 Reviewer passes.

@@ -129,10 +129,10 @@ Serial boundaries: T-1 (config, `main.ts`), T-2 (schema). T-4 and T-6 are parall
 - **Status:** [ ]
 - **Size:** M
 - **Depends on:** T-3, T-4
-- **Requirements:** FR-8 (all five scenarios + table steps 1–7; BUT custom not created; AND IT MUST set auth_source from token), FR-13 (Admission re-checked — reads DB, never creates)
+- **Requirements:** FR-8 (all five scenarios + table steps 1–7; BUT custom not created; AND IT MUST set auth_source from token), FR-13 (Admission re-checked — reads DB, never creates), FR-11 (AND IT MUST reflect changes immediately within the same process — writer side)
 - **Design refs:** § 7.2 AdmissionService, DD-10
-- **Scope:** `auth/admission.service.ts` (transactional resolve; `mode: 'login' | 'refresh'`; stores `cognito_username`).
-- **Tests:** unit with fakes for repositories and verifier — one test per FR-8 row: SSO new → created GUEST; pre-registered by email → sub linked + auth_source corrected; collision → 409; custom unknown → 403 and repository `create` never called; inactive → 403; custom without roles → 403; names/email updated; refresh mode never creates and bypasses cache; concurrent first-login unique violation → re-read, single user.
+- **Scope:** `auth/admission.service.ts` (transactional resolve; `mode: 'login' | 'refresh'`; stores `cognito_username`; calls `CurrentUserCache.invalidate(user.id)` after the transaction commits — FR-11 same-process freshness, amended 2026-10-13 at the T-5 gate).
+- **Tests:** unit with fakes for repositories and verifier — one test per FR-8 row: SSO new → created GUEST; pre-registered by email → sub linked + auth_source corrected; collision → 409; custom unknown → 403 and repository `create` never called; inactive → 403; custom without roles → 403; names/email updated; refresh mode never creates and bypasses cache; concurrent first-login unique violation → re-read, single user. After a resolve that changes the user (link `sub`, names/email), `invalidate(user.id)` was called after commit and a subsequent cache read reflects the change without advancing the clock.
 - **Verification:** server command
 - **Falsifier:** swap the order of steps 2 and 3 (check collision before email-link) → the pre-registered test goes red; let custom fall through to create → the "create never called" assertion goes red.
 - **Red run:** tests fail before the service exists (assertion level).
@@ -230,7 +230,7 @@ Serial boundaries: T-1 (config, `main.ts`), T-2 (schema). T-4 and T-6 are parall
 | FR-9 | Cookie attributes · companion cookie · BUT never in body/logs · no cookie on refusal | T-8 |
 | FR-10 | Valid · rejections · BUT handler not run | T-4, T-5 |
 | FR-10 | AND IT MUST public list only | T-1 (health), T-5, T-10 |
-| FR-11 | Not admitted → 401 · AND IT MUST ≤ 60 s / immediate same process | T-5 |
+| FR-11 | Not admitted → 401 · AND IT MUST ≤ 60 s / immediate same process | T-5 (mechanism), T-7 (writer invalidation) |
 | FR-12 | Missing permission (BUT handler not run) · GUEST · undeclared → 403 | T-5 |
 | FR-13 | After reload/expiry + rotation · admission re-checked (AND IT MUST DB) · Origin (microservice not called) · missing/invalid | T-9 (T-6, T-7 parts) |
 | FR-14 | Allowed → 204 cleared · disallowed → 403 untouched | T-9 |
