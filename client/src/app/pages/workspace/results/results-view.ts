@@ -1,9 +1,8 @@
 import { DecimalPipe } from '@angular/common';
 import { Component, computed, inject, linkedSignal, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
-import { HlmButtonImports } from '@spartan/button';
 import { HlmInput } from '@spartan/input';
-import { QaMultiSelect, QaSelectImports, QaSelectOption } from '../../../ui';
+import { QaButtonImports, QaMultiSelect, QaSelectImports, QaSelectOption } from '../../../ui';
 import { ResultRowVm, ResultsTable, SortDir, SortKey } from './results-table';
 import {
   ASSESSOR_NAMES,
@@ -52,7 +51,7 @@ function listParam(value: string | null, allowed: readonly string[]): readonly s
   selector: 'qa-results-view',
   templateUrl: './results-view.html',
   imports: [
-    HlmButtonImports,
+    QaButtonImports,
     HlmInput,
     DecimalPipe,
     RouterLink,

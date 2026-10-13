@@ -1,6 +1,5 @@
 import { Component, DestroyRef, ElementRef, afterNextRender, computed, effect, inject, signal, viewChild } from '@angular/core';
-import { HlmButton } from '@spartan/button';
-import { QaSelect, QaSelectOption } from '../../../ui';
+import { QaButtonImports, QaSelect, QaSelectOption } from '../../../ui';
 import {
   FieldChangeGroupVm,
   FieldChangeVm,
@@ -39,7 +38,7 @@ const COMPACT_BELOW = 900;
 @Component({
   selector: 'qa-fields-view',
   templateUrl: './fields-view.html',
-  imports: [HlmButton, QaSelect, FieldsColumnHeader, FieldsSection, FieldsPublishConfirm],
+  imports: [QaButtonImports, QaSelect, FieldsColumnHeader, FieldsSection, FieldsPublishConfirm],
 })
 export class FieldsView {
 

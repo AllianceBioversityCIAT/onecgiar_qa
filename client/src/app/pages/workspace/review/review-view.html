@@ -30,10 +30,10 @@
               } @else {
                 <span class="text-(length:--fs-13) font-normal text-(--text-4)">That was the last one in your queue.</span>
               }
-              <div class="-ml-2.5 flex items-center gap-4">
-                <button hlmBtn variant="ghost" type="button" class="h-auto min-h-8 rounded-[8px] px-2.5 text-(length:--fs-13) font-medium text-(color:--accent) hover:bg-(color:--tint) hover:text-(color:--accent) focus-visible:shadow-(--focus-ring) focus-visible:ring-0 active:translate-y-0 dark:hover:bg-(color:--tint)" (click)="backToResults()">Back to results</button>
+              <div class="flex items-center gap-4">
+                <button hlmBtn qaBtn tone="link" size="sm" flush="start" type="button" (click)="backToResults()">Back to results</button>
                 @if (cl.next) {
-                  <button hlmBtn variant="ghost" type="button" class="h-auto min-h-8 rounded-[8px] px-2.5 text-(length:--fs-13) font-medium text-(color:--accent) hover:bg-(color:--tint) hover:text-(color:--accent) focus-visible:shadow-(--focus-ring) focus-visible:ring-0 active:translate-y-0 dark:hover:bg-(color:--tint)" (click)="undoClose()">Undo</button>
+                  <button hlmBtn qaBtn tone="link" size="sm" type="button" (click)="undoClose()">Undo</button>
                 }
               </div>
             </div>
@@ -53,12 +53,12 @@
               </div>
             </div>
             <div class="flex flex-none flex-wrap items-center gap-2">
-              <button hlmBtn variant="ghost" type="button" [attr.aria-pressed]="showAll()" class="h-auto min-h-9 gap-[7px] max-sm:min-h-10 rounded-[8px] px-3 text-(length:--fs-14) font-medium whitespace-nowrap focus-visible:shadow-(--focus-ring) focus-visible:ring-0 active:translate-y-0" [class]="showAll() ? 'border-(color:--tint-3) bg-(color:--tint) text-(color:--accent) hover:bg-(color:--tint) hover:text-(color:--accent) focus-visible:border-(color:--tint-3) dark:hover:bg-(color:--tint)' : 'border-(color:--border) bg-(color:--surface) text-(color:--text-2) hover:border-(color:--border-strong) hover:bg-(color:--surface-2) hover:text-(color:--text-2) focus-visible:border-(color:--border) dark:hover:bg-(color:--surface-2)'" (click)="showAll.set(!showAll())">
+              <button hlmBtn qaBtn tone="secondary" type="button" [attr.aria-pressed]="showAll()" (click)="showAll.set(!showAll())">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" /></svg>
                 Show all fields
               </button>
               <!-- TODO(api): PDF export of the review (no behaviour in the mockup yet). -->
-              <button hlmBtn variant="ghost" type="button" class="h-auto min-h-9 gap-1.5 rounded-[8px] border-(color:--border) max-sm:min-h-10 bg-(color:--field-bg) px-[14px] text-(length:--fs-14) font-medium text-(color:--text-2) hover:border-(color:--border-strong) hover:bg-(color:--surface-2) hover:text-(color:--text-2) focus-visible:border-(color:--border) focus-visible:shadow-(--focus-ring) focus-visible:ring-0 active:translate-y-0 dark:hover:bg-(color:--surface-2)">
+              <button hlmBtn qaBtn tone="secondary" type="button">
                 PDF
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-4)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
               </button>
@@ -83,7 +83,7 @@
                 <h2 id="review-section-title" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">{{ current().name }}</h2>
                 @let b = bulkHere();
                 @if (!b && bulkCount() > 0) {
-                  <button hlmBtn variant="ghost" type="button" class="ml-auto h-auto min-h-8 gap-[7px] rounded-[8px] border-(color:--border) bg-(color:--surface) px-3 text-(length:--fs-13) font-medium whitespace-nowrap text-(color:--text-2) hover:border-(color:--border-strong) hover:bg-(color:--surface-2) hover:text-(color:--text-2) focus-visible:border-(color:--border) focus-visible:shadow-(--focus-ring) focus-visible:ring-0 active:translate-y-0 dark:hover:bg-(color:--surface-2)" (click)="askBulk()">
+                  <button hlmBtn qaBtn tone="secondary" size="sm" type="button" class="ml-auto" (click)="askBulk()">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M18 6L7 17l-5-5M22 10l-7.5 7.5L13 16" /></svg>
                     Approve remaining<span class="font-(family-name:--qa-mono) text-(length:--fs-12) font-bold text-(--text-3) tabular-nums">{{ bulkCount() }}</span>
                   </button>
@@ -91,15 +91,15 @@
                 @if (b?.phase === 'confirm' && bulkCount() > 0) {
                   <div role="alertdialog" aria-labelledby="review-bulk-text" class="ml-auto flex flex-wrap items-center gap-2.5">
                     <span id="review-bulk-text" class="text-(length:--fs-13) font-normal text-(--text-2)">Approve <span class="font-(family-name:--qa-mono) font-semibold text-(--text) tabular-nums">{{ bulkCount() }}</span> fields?@if (bulkFlagged() > 0) { <span class="font-(family-name:--qa-mono) font-semibold text-(--text) tabular-nums">{{ bulkFlagged() }}</span> flagged by AI are left out.}</span>
-                    <button hlmBtn variant="ghost" type="button" class="h-auto min-h-[30px] rounded-[8px] px-2.5 text-(length:--fs-13) font-medium text-(color:--text-4) hover:bg-(color:--surface-3) hover:text-(color:--text-4) focus-visible:shadow-(--focus-ring) focus-visible:ring-0 active:translate-y-0 dark:hover:bg-(color:--surface-3)" (click)="bulk.set(null)">Cancel</button>
-                    <button hlmBtn variant="ghost" type="button" class="h-auto min-h-[30px] rounded-[8px] px-2.5 text-(length:--fs-13) font-semibold text-(color:--accent) hover:bg-(color:--tint) hover:text-(color:--accent) focus-visible:shadow-(--focus-ring) focus-visible:ring-0 active:translate-y-0 dark:hover:bg-(color:--tint)" (click)="confirmBulk()">Approve</button>
+                    <button hlmBtn qaBtn tone="secondary" size="sm" type="button" (click)="bulk.set(null)">Cancel</button>
+                    <button hlmBtn qaBtn tone="primary" size="sm" type="button" (click)="confirmBulk()">Approve</button>
                   </div>
                 }
                 @if (b?.phase === 'done') {
                   <div role="status" class="ml-auto flex items-center gap-2 text-(length:--fs-13) font-medium text-(--st-approved-fg)">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M20 6L9 17l-5-5" /></svg>
                     <span><span class="font-(family-name:--qa-mono) font-semibold tabular-nums">{{ b!.ids.length }}</span> {{ b!.ids.length === 1 ? 'field approved' : 'fields approved' }}</span>
-                    <button hlmBtn variant="ghost" type="button" class="h-auto min-h-[30px] rounded-[8px] px-2.5 text-(length:--fs-13) font-semibold text-(color:--accent) hover:bg-(color:--tint) hover:text-(color:--accent) focus-visible:shadow-(--focus-ring) focus-visible:ring-0 active:translate-y-0 dark:hover:bg-(color:--tint)" (click)="undoBulk()">Undo all</button>
+                    <button hlmBtn qaBtn tone="link" size="sm" type="button" (click)="undoBulk()">Undo all</button>
                   </div>
                 }
               </div>
@@ -122,7 +122,7 @@
           @if (narrow()) {
             <div class="mt-4 flex flex-col gap-3">
               <div class="rounded-[8px] border border-(--border) bg-(--surface) px-[14px] py-3 text-(length:--fs-13) leading-[1.55] font-normal text-pretty text-(--text-2)">{{ h.instructions }}</div>
-              <a [href]="cycle.guidanceUrl" target="_blank" rel="noopener" class="flex min-h-9 items-center justify-center gap-[7px] rounded-[8px] border border-(--border) bg-(--field-bg) px-3 text-(length:--fs-13) font-medium text-(--text-2) no-underline hover:border-(--border-strong) hover:bg-(--surface-2) focus-visible:shadow-(--focus-ring) focus-visible:outline-none">
+              <a hlmBtn qaBtn tone="secondary" size="sm" [href]="cycle.guidanceUrl" target="_blank" rel="noopener">
                 <span>{{ cycle.guidanceLabel }}</span>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-4)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3" /></svg>
                 <span class="sr-only">(opens in a new tab)</span>

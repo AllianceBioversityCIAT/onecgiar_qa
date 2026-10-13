@@ -1,6 +1,6 @@
 import { NgTemplateOutlet } from '@angular/common';
 import { Component, input, output } from '@angular/core';
-import { QaSegmented, QaSwitch, QaTooltipImports } from '../../../ui';
+import { QaButtonImports, QaSegmented, QaSwitch, QaTooltipImports } from '../../../ui';
 import { FieldRowVm } from './fields-config';
 import { FIELD_STATES, FieldState, REQUIRED_HIDDEN_HELP } from './fields.mock';
 
@@ -11,7 +11,7 @@ import { FIELD_STATES, FieldState, REQUIRED_HIDDEN_HELP } from './fields.mock';
 @Component({
   selector: 'qa-fields-row',
   templateUrl: './fields-row.html',
-  imports: [NgTemplateOutlet, QaSegmented, QaSwitch, QaTooltipImports],
+  imports: [NgTemplateOutlet, QaButtonImports, QaSegmented, QaSwitch, QaTooltipImports],
   host: { class: 'contents' },
 })
 export class FieldsRow {

@@ -5,7 +5,7 @@
     <p class="m-0 text-(length:--fs-14) font-normal text-pretty text-(--text-3)">Eleven people. Click a row to change what they assess.</p>
   </div>
   <div class="flex w-auto flex-none items-center gap-2 max-sm:w-full max-sm:flex-col-reverse max-sm:items-stretch">
-    <button hlmBtn type="button" (click)="openInvite()" class="h-auto min-h-9 gap-2 max-sm:min-h-10 max-sm:w-full max-sm:justify-center rounded-lg border-0 bg-(--primary) px-3.5 text-(length:--fs-14) font-semibold text-(--surface) hover:bg-(--accent) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) focus-visible:outline-none whitespace-nowrap">
+    <button hlmBtn qaBtn tone="primary" type="button" (click)="openInvite()" class="max-sm:w-full max-sm:justify-center">
       <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"></path></svg>
       Invite assessor
     </button>
@@ -44,7 +44,7 @@
             <button type="button" (click)="clearFilter(c.key)" [attr.aria-label]="'Remove ' + c.label + ' filter'" class="flex size-[18px] flex-none cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-0 text-(--accent) hover:bg-(--tint-3) focus-visible:shadow-(--focus-ring) focus-visible:outline-none"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"></path></svg></button>
           </span>
         }
-        <button hlmBtn variant="ghost" type="button" (click)="clearAll()" class="h-auto min-h-8 rounded-lg border-0 px-2.5 text-(length:--fs-13) font-medium text-(--accent) hover:bg-(--tint) hover:text-(--accent) dark:hover:bg-(--tint) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) focus-visible:outline-none">Clear all</button>
+        <button hlmBtn qaBtn tone="link" size="sm" type="button" (click)="clearAll()">Clear all</button>
       </div>
     }
   </div>
@@ -131,12 +131,12 @@
   } @else if (team().length) {
     <div class="flex max-w-[160px] flex-col items-start gap-2">
       <p class="m-0 text-(length:--fs-14) text-(--text-3)">No one matches your filters.</p>
-      <button hlmBtn variant="ghost" type="button" (click)="clearAll()" class="-ml-2.5 h-auto min-h-8 rounded-lg border-0 px-2.5 text-(length:--fs-13) font-medium whitespace-nowrap text-(--accent) hover:bg-(--tint) hover:text-(--accent) dark:hover:bg-(--tint) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) focus-visible:outline-none">Clear all</button>
+      <button hlmBtn qaBtn tone="link" size="sm" flush="start" type="button" (click)="clearAll()">Clear all</button>
     </div>
   } @else {
     <div class="flex max-w-[160px] flex-col items-start gap-2">
       <p class="m-0 text-(length:--fs-14) text-(--text-3)">No one has been added to the team yet.</p>
-      <button hlmBtn variant="ghost" type="button" (click)="openInvite()" class="-ml-2.5 h-auto min-h-8 rounded-lg border-0 px-2.5 text-(length:--fs-13) font-medium whitespace-nowrap text-(--accent) hover:bg-(--tint) hover:text-(--accent) dark:hover:bg-(--tint) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) focus-visible:outline-none">Invite assessor</button>
+      <button hlmBtn qaBtn tone="link" size="sm" flush="start" type="button" (click)="openInvite()">Invite assessor</button>
     </div>
   }
 </div>

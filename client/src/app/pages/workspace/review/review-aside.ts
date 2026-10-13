@@ -1,4 +1,5 @@
 import { Component, computed, input, model, output } from '@angular/core';
+import { QaButtonImports } from '../../../ui';
 import { ReviewCodeInfo } from './review-code-info';
 import { ResultHeaderVm, SectionNavVm } from './review-model';
 import { CYCLE } from './review.mock';
@@ -6,7 +7,7 @@ import { CYCLE } from './review.mock';
 /** Left column: result code card, section navigation, progress, AI flags, guidance. Collapses to a rail. */
 @Component({
   selector: 'qa-review-aside',
-  imports: [ReviewCodeInfo],
+  imports: [QaButtonImports, ReviewCodeInfo],
   templateUrl: './review-aside.html',
   host: {
     class:

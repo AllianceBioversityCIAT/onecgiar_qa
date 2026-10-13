@@ -1,7 +1,6 @@
 import { Component, ElementRef, computed, effect, input, model, output, signal, untracked, viewChild } from '@angular/core';
 import { FieldTree, FormField } from '@angular/forms/signals';
-import { HlmButton } from '@spartan/button';
-import { QaDrawerCloseGuard, QaDrawerImports, QaMenuImports } from '../../../ui';
+import { QaButtonImports, QaDrawerCloseGuard, QaDrawerImports, QaMenuImports } from '../../../ui';
 import { FieldComment, QUICK_COMMENTS } from './review.mock';
 
 export interface CommentsDrawerVm {
@@ -15,7 +14,7 @@ export interface CommentsDrawerVm {
 /** 480px drawer with the comment thread of one field, quick comments and the comment form. */
 @Component({
   selector: 'qa-review-comments-drawer',
-  imports: [FormField, HlmButton, QaDrawerImports, QaMenuImports],
+  imports: [FormField, QaButtonImports, QaDrawerImports, QaMenuImports],
   templateUrl: './review-comments-drawer.html',
   host: { class: 'contents' },
 })

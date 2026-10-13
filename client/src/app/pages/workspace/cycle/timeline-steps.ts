@@ -1,6 +1,6 @@
 import { NgTemplateOutlet } from '@angular/common';
 import { Component, computed, input, output } from '@angular/core';
-import { QaProgress } from '../../../ui';
+import { QaButtonImports, QaProgress } from '../../../ui';
 import { TimelineVM } from './cycle.logic';
 
 /**
@@ -10,7 +10,7 @@ import { TimelineVM } from './cycle.logic';
  */
 @Component({
   selector: 'qa-cycle-timeline-steps',
-  imports: [NgTemplateOutlet, QaProgress],
+  imports: [NgTemplateOutlet, QaButtonImports, QaProgress],
   host: { class: 'block' },
   template: `
     @let t = timeline();
@@ -125,9 +125,14 @@ import { TimelineVM } from './cycle.logic';
                     <ng-container [ngTemplateOutlet]="sync" [ngTemplateOutletContext]="{ $implicit: s.syncText }" />
                   }
                   <button
+                    hlmBtn
+                    qaBtn
+                    tone="link"
+                    size="sm"
+                    flush="start"
                     type="button"
                     (click)="viewProgress.emit($index)"
-                    class="relative z-10 -mt-[2px] flex min-h-6 cursor-pointer items-center rounded-[6px] border-0 bg-transparent p-0 text-left text-(length:--fs-12) font-semibold text-(--accent) outline-none hover:text-(--accent-strong) focus-visible:shadow-(--focus-ring)"
+                    class="relative z-10"
                   >View progress</button>
                 }
                 @default {

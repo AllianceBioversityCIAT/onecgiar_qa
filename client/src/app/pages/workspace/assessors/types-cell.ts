@@ -1,6 +1,7 @@
 import { Component, computed, input, output, signal } from '@angular/core';
 import { HlmInput } from '@spartan/input';
 import { BrnPopoverImports, provideBrnPopoverConfig, provideBrnPopoverDefaultOptions } from '@spartan-ng/brain/popover';
+import { QaButtonImports } from '../../../ui';
 import { TYPE_COUNTS, TYPE_NAMES, TeamMember, fmt } from './assessors.mock';
 
 /**
@@ -9,7 +10,7 @@ import { TYPE_COUNTS, TYPE_NAMES, TeamMember, fmt } from './assessors.mock';
  */
 @Component({
   selector: 'qa-assessor-types-cell',
-  imports: [BrnPopoverImports, HlmInput],
+  imports: [BrnPopoverImports, HlmInput, QaButtonImports],
   providers: [
     provideBrnPopoverConfig({ align: 'start', sideOffset: 4 }),
     provideBrnPopoverDefaultOptions({ role: null }),
@@ -77,8 +78,8 @@ import { TYPE_COUNTS, TYPE_NAMES, TeamMember, fmt } from './assessors.mock';
             <div role="alertdialog" aria-label="Remove result type" class="mt-2 flex flex-none items-center gap-2 border-t border-(--surface-4) pt-2.5">
               <span class="min-w-0 flex-1 text-(length:--fs-12) leading-[1.45] font-normal text-(--text-2)"><span class="font-(family-name:--qa-mono) font-semibold tabular-nums">{{ unreviewed(type) }}</span> unreviewed results go back to the pool.</span>
               <div class="flex flex-none items-center gap-2">
-                <button type="button" (click)="confirmType.set(null)" class="min-h-7 pointer-coarse:min-h-10 cursor-pointer rounded-md border-0 bg-transparent px-2 text-(length:--fs-12) font-medium text-(--text-3) hover:bg-(--surface-3) focus-visible:shadow-(--focus-ring) focus-visible:outline-none">Cancel</button>
-                <button type="button" (click)="confirmRemove(type)" class="min-h-7 pointer-coarse:min-h-10 cursor-pointer rounded-md border-0 bg-transparent px-2 text-(length:--fs-12) font-semibold text-(--accent) hover:bg-(--tint) focus-visible:shadow-(--focus-ring) focus-visible:outline-none">Remove</button>
+                <button hlmBtn qaBtn tone="secondary" size="sm" type="button" (click)="confirmType.set(null)">Cancel</button>
+                <button hlmBtn qaBtn tone="danger" size="sm" type="button" (click)="confirmRemove(type)">Remove</button>
               </div>
             </div>
           }

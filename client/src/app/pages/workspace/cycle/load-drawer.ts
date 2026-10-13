@@ -1,6 +1,5 @@
 import { Component, computed, input, linkedSignal, model, output } from '@angular/core';
-import { HlmButton } from '@spartan/button';
-import { QaDrawerImports, QaMultiSelect, QaSelect, QaSelectOption, QaTooltipImports } from '../../../ui';
+import { QaButtonImports, QaDrawerImports, QaMultiSelect, QaSelect, QaSelectOption, QaTooltipImports } from '../../../ui';
 import { PROGRAMS, RESULT_TYPES, Timeline } from './cycle.mock';
 import { formatNumber, loadSummary, runTargets } from './cycle.logic';
 
@@ -21,7 +20,7 @@ export const TYPE_OPTIONS = RESULT_TYPES.map(([t]) => ({ value: t, label: t }));
 /** "Load results into QA" / "Add results to <timeline>" drawer with the live estimate. */
 @Component({
   selector: 'qa-cycle-load-drawer',
-  imports: [HlmButton, QaDrawerImports, QaSelect, QaTooltipImports, QaMultiSelect],
+  imports: [QaButtonImports, QaDrawerImports, QaSelect, QaTooltipImports, QaMultiSelect],
   template: `
     <qa-drawer [(open)]="open" [title]="title()" [subtitle]="subtitle()" width="720px">
       @if (open()) {
@@ -62,8 +61,8 @@ export const TYPE_OPTIONS = RESULT_TYPES.map(([t]) => ({ value: t, label: t }));
         </div>
       }
       <div qaDrawerFooter class="contents">
-        <button hlmBtn variant="ghost" type="button" (click)="open.set(false)" class="h-9 rounded-[8px] border border-(--border) bg-(--field-bg) px-[14px] text-(length:--fs-14) font-medium text-(--text-2) hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text-2) focus-visible:border-(--border) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) dark:hover:bg-(--surface-2)">Cancel</button>
-        <button hlmBtn type="button" [disabled]="!target()" (click)="submit()" class="h-9 rounded-[8px] bg-(--primary) px-[14px] text-(length:--fs-14) font-semibold text-(--surface) hover:bg-(--accent) focus-visible:border-transparent focus-visible:ring-0 focus-visible:shadow-(--focus-ring)">Load results</button>
+        <button hlmBtn qaBtn tone="secondary" type="button" (click)="open.set(false)">Cancel</button>
+        <button hlmBtn qaBtn tone="primary" type="button" [disabled]="!target()" (click)="submit()">Load results</button>
       </div>
     </qa-drawer>
   `,

@@ -12,9 +12,8 @@ import {
 import { toSignal } from '@angular/core/rxjs-interop';
 import { form, requiredError, submit, validate } from '@angular/forms/signals';
 import { ActivatedRoute, Router } from '@angular/router';
-import { HlmButton } from '@spartan/button';
 import { map } from 'rxjs';
-import { QaTooltipImports } from '../../../ui';
+import { QaButtonImports, QaTooltipImports } from '../../../ui';
 import { ReviewAside } from './review-aside';
 import { ReviewCodeInfo } from './review-code-info';
 import { CommentsDrawerVm, ReviewCommentsDrawer } from './review-comments-drawer';
@@ -80,7 +79,7 @@ const NARROW_PX = 900;
   selector: 'qa-review-view',
   templateUrl: './review-view.html',
   imports: [
-    HlmButton,
+    QaButtonImports,
     QaTooltipImports,
     ReviewAside,
     ReviewCodeInfo,

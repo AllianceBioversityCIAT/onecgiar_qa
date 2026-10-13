@@ -1,12 +1,12 @@
 import { Component, input, output } from '@angular/core';
-import { HlmButton } from '@spartan/button';
+import { QaButtonImports } from '../../../ui';
 
 export type FooterMode = 'normal' | 'warn' | 'confirm';
 
 /** Sticky footer: Back / Next section, attention counter, Finish assessment (+ warn / confirm steps). */
 @Component({
   selector: 'qa-review-footer',
-  imports: [HlmButton],
+  imports: [QaButtonImports],
   templateUrl: './review-footer.html',
   host: {
     class:

@@ -1,8 +1,7 @@
 import { Component, computed, input, linkedSignal, model, output } from '@angular/core';
 import { FormField, applyEach, form, required, validate } from '@angular/forms/signals';
-import { HlmButton } from '@spartan/button';
 import { HlmInput } from '@spartan/input';
-import { QaDatePicker, QaDrawerImports, QaMultiSelect, QaSwitch, QaTooltipImports } from '../../../ui';
+import { QaButtonImports, QaDatePicker, QaDrawerImports, QaMultiSelect, QaSwitch, QaTooltipImports } from '../../../ui';
 import { DEFAULT_STEP_DATES, STEP_NAMES, Timeline } from './cycle.mock';
 import { StepDraftRow, officialRelative, stepOrderErrors } from './cycle.logic';
 import { PROGRAM_OPTIONS, TYPE_OPTIONS } from './load-drawer';
@@ -35,7 +34,7 @@ interface TimelineDraft {
 /** "Edit official timeline", "Edit timeline" and "New sub-timeline" drawers (steps table, validation). */
 @Component({
   selector: 'qa-cycle-timeline-drawer',
-  imports: [FormField, HlmButton, HlmInput, QaDatePicker, QaDrawerImports, QaSwitch, QaTooltipImports, QaMultiSelect],
+  imports: [FormField, QaButtonImports, HlmInput, QaDatePicker, QaDrawerImports, QaSwitch, QaTooltipImports, QaMultiSelect],
   template: `
     <qa-drawer [(open)]="open" [title]="title()" [subtitle]="subtitle()" width="720px">
       @if (open()) {
@@ -107,8 +106,8 @@ interface TimelineDraft {
                 @if (confirmRow() === i) {
                   <div class="flex min-h-[52px] flex-wrap items-center gap-2 px-[14px] py-2 @xl:py-0">
                     <span class="mr-auto text-(length:--fs-13) text-(--text-2)">Remove step {{ i + 1 }}?</span>
-                    <button type="button" (click)="confirmRow.set(null)" class="min-h-10 cursor-pointer rounded-[8px] border-0 bg-transparent px-[10px] text-(length:--fs-13) font-medium text-(--accent) outline-none hover:bg-(--tint) focus-visible:shadow-(--focus-ring) @xl:min-h-8">Keep it</button>
-                    <button type="button" (click)="removeRow(i)" class="min-h-10 cursor-pointer rounded-[8px] border-0 bg-transparent px-[10px] text-(length:--fs-12) font-semibold text-(--danger) outline-none hover:bg-(--danger-bg) focus-visible:shadow-(--focus-ring) @xl:min-h-8">Remove</button>
+                    <button hlmBtn qaBtn tone="link" size="sm" type="button" (click)="confirmRow.set(null)">Keep it</button>
+                    <button hlmBtn qaBtn tone="danger" size="sm" type="button" (click)="removeRow(i)">Remove</button>
                   </div>
                 } @else {
                   <div class="grid grid-cols-[24px_minmax(0,1fr)_minmax(0,1fr)_40px] items-center gap-x-3 gap-y-2 px-[14px] py-3 @xl:min-h-[52px] @xl:grid-cols-[24px_minmax(0,1fr)_148px_148px_44px_22px] @xl:gap-y-0 @xl:py-0">
@@ -142,8 +141,8 @@ interface TimelineDraft {
               </div>
             }
             <div class="flex min-h-11 flex-wrap items-center gap-x-4 gap-y-1 border-t border-(--surface-4) px-[6px] py-1 @xl:py-0">
-              <button type="button" (click)="addRow()" class="min-h-10 cursor-pointer rounded-[8px] border-0 bg-transparent px-2 text-(length:--fs-13) font-medium text-(--accent) outline-none hover:bg-(--tint) focus-visible:shadow-(--focus-ring) @xl:min-h-8">Add step</button>
-              <button type="button" (click)="resetRows()" class="min-h-10 cursor-pointer rounded-[8px] border-0 bg-transparent px-2 text-(length:--fs-13) font-medium text-(--accent) outline-none hover:bg-(--tint) focus-visible:shadow-(--focus-ring) @xl:min-h-8">Reset to official timeline</button>
+              <button hlmBtn qaBtn tone="link" size="sm" type="button" (click)="addRow()">Add step</button>
+              <button hlmBtn qaBtn tone="link" size="sm" type="button" (click)="resetRows()">Reset to official timeline</button>
             </div>
           </div>
           @if (orderError()) {
@@ -175,8 +174,8 @@ interface TimelineDraft {
         }
       }
       <div qaDrawerFooter class="contents">
-        <button hlmBtn variant="ghost" type="button" (click)="open.set(false)" class="h-9 rounded-[8px] border border-(--border) bg-(--field-bg) px-[14px] text-(length:--fs-14) font-medium text-(--text-2) hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text-2) focus-visible:border-(--border) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) dark:hover:bg-(--surface-2)">Cancel</button>
-        <button hlmBtn type="button" (click)="save()" class="h-9 rounded-[8px] bg-(--primary) px-[14px] text-(length:--fs-14) font-semibold text-(--surface) hover:bg-(--accent) focus-visible:border-transparent focus-visible:ring-0 focus-visible:shadow-(--focus-ring)">{{ isNew() ? 'Create sub-timeline' : 'Save changes' }}</button>
+        <button hlmBtn qaBtn tone="secondary" type="button" (click)="open.set(false)">Cancel</button>
+        <button hlmBtn qaBtn tone="primary" type="button" (click)="save()">{{ isNew() ? 'Create sub-timeline' : 'Save changes' }}</button>
       </div>
     </qa-drawer>
   `,

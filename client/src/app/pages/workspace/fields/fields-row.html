@@ -26,10 +26,13 @@
       <span class="flex flex-wrap items-center gap-1.5 text-(length:--fs-12) font-normal text-(--accent)">
         <span>Exception for this result type</span>
         <button
+          hlmBtn
+          qaBtn
+          tone="link"
+          size="sm"
           type="button"
           (click)="reset.emit()"
           [attr.aria-label]="'Reset ' + r.name + ' to default'"
-          class="min-h-5 cursor-pointer rounded-md border-none bg-transparent px-1.5 text-(length:--fs-12) font-medium text-(--accent) hover:bg-(--tint) focus-visible:shadow-(--focus-ring) focus-visible:outline-none"
         >
           Reset to default
         </button>

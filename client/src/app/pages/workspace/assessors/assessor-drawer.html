@@ -161,8 +161,8 @@
             @if (blockConfirm() === i) {
               <div role="alertdialog" aria-label="Remove block" class="box-border flex min-h-14 flex-wrap items-center gap-2 px-3.5 py-2">
                 <span class="flex-[1_1_220px] text-(length:--fs-13) text-(--text-2)">Remove this block? This program becomes assignable again.</span>
-                <button hlmBtn variant="ghost" type="button" (click)="blockConfirm.set(null)" class="h-auto min-h-8 rounded-lg border-0 px-2.5 text-(length:--fs-13) font-medium text-(--accent) hover:bg-(--tint) hover:text-(--accent) dark:hover:bg-(--tint) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) focus-visible:outline-none">Keep it</button>
-                <button hlmBtn variant="ghost" type="button" (click)="removeBlock(i)" class="h-auto min-h-8 rounded-lg border-0 px-2.5 text-(length:--fs-13) font-semibold text-(--danger) hover:bg-(--danger-bg) hover:text-(--danger) dark:hover:bg-(--danger-bg) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) focus-visible:outline-none">Remove</button>
+                <button hlmBtn qaBtn tone="secondary" size="sm" type="button" (click)="blockConfirm.set(null)">Keep it</button>
+                <button hlmBtn qaBtn tone="danger" size="sm" type="button" (click)="removeBlock(i)">Remove</button>
               </div>
             } @else {
               <div class="grid min-h-14 grid-cols-[minmax(0,1fr)_150px_32px] items-center gap-3 px-3.5 max-sm:grid-cols-[minmax(0,1fr)_32px]">
@@ -204,7 +204,7 @@
         } @empty {
           <div class="px-3.5 pt-3.5 text-(length:--fs-13) text-(--text-3)">No conflicts recorded.</div>
         }
-        <div class="flex min-h-12 items-center px-3.5"><button hlmBtn variant="ghost" type="button" (click)="addBlock()" class="h-auto min-h-8 rounded-lg border-0 px-2.5 text-(length:--fs-13) font-medium text-(--accent) hover:bg-(--tint) hover:text-(--accent) dark:hover:bg-(--tint) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) focus-visible:outline-none -ml-2.5">Add a blocked program</button></div>
+        <div class="flex min-h-12 items-center px-3.5"><button hlmBtn qaBtn tone="link" size="sm" flush="start" type="button" (click)="addBlock()">Add a blocked program</button></div>
       </div>
     </div>
 
@@ -237,8 +237,8 @@
       <div role="alertdialog" aria-label="Discard invitation" class="mr-auto flex min-w-0 flex-[1_1_280px] flex-col gap-1">
         <span class="text-(length:--fs-13) leading-[1.55] font-normal text-(--text-2)">Discard what you wrote?</span>
       </div>
-      <button hlmBtn variant="outline" type="button" (click)="confirmDiscard.set(false)" class="h-auto min-h-9 gap-2 rounded-lg border-(--border) bg-(--field-bg) px-3.5 text-(length:--fs-14) font-medium text-(--text-2) shadow-none hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text-2) dark:border-(--border) dark:bg-(--field-bg) dark:hover:bg-(--surface-2) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) focus-visible:outline-none">Keep writing</button>
-      <button hlmBtn type="button" (click)="open.set(false)" class="h-auto min-h-9 gap-2 rounded-lg border-0 px-3.5 text-(length:--fs-14) font-semibold text-(--surface) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) focus-visible:outline-none bg-(--danger) whitespace-nowrap hover:bg-(--danger)">Discard and close</button>
+      <button hlmBtn qaBtn tone="secondary" type="button" (click)="confirmDiscard.set(false)">Keep writing</button>
+      <button hlmBtn qaBtn tone="danger" type="button" (click)="open.set(false)">Discard and close</button>
     } @else if (confirmRemove() && removeCopy(); as rc) {
       <div role="alertdialog" aria-label="Remove from team" class="mr-auto flex min-w-0 flex-[1_1_280px] flex-col gap-1">
         <span class="text-(length:--fs-13) leading-[1.55] font-normal text-(--text-2)">{{ rc.lead }}<span class="font-(family-name:--qa-mono) tabular-nums font-semibold text-(--text)">{{ rc.n }}</span>{{ rc.tail }}</span>
@@ -249,15 +249,15 @@
           <span class="text-(length:--fs-13) leading-[1.55] font-medium text-(--warning)">{{ rc.warn2 }}</span>
         }
       </div>
-      <button hlmBtn variant="outline" type="button" (click)="confirmRemove.set(false)" class="h-auto min-h-9 gap-2 rounded-lg border-(--border) bg-(--field-bg) px-3.5 text-(length:--fs-14) font-medium text-(--text-2) shadow-none hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text-2) dark:border-(--border) dark:bg-(--field-bg) dark:hover:bg-(--surface-2) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) focus-visible:outline-none">Keep them</button>
-      <button hlmBtn type="button" (click)="remove()" class="h-auto min-h-9 gap-2 rounded-lg border-0 px-3.5 text-(length:--fs-14) font-semibold text-(--surface) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) focus-visible:outline-none bg-(--danger) whitespace-nowrap hover:bg-(--danger)">Remove</button>
+      <button hlmBtn qaBtn tone="secondary" type="button" (click)="confirmRemove.set(false)">Keep them</button>
+      <button hlmBtn qaBtn tone="danger" type="button" (click)="remove()">Remove</button>
     } @else if (isNew()) {
-      <button hlmBtn variant="outline" type="button" (click)="requestClose()" class="h-auto min-h-9 gap-2 rounded-lg border-(--border) bg-(--field-bg) px-3.5 text-(length:--fs-14) font-medium text-(--text-2) shadow-none hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text-2) dark:border-(--border) dark:bg-(--field-bg) dark:hover:bg-(--surface-2) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) focus-visible:outline-none">Cancel</button>
-      <button hlmBtn type="button" (click)="save()" class="h-auto min-h-9 gap-2 rounded-lg border-0 bg-(--primary) px-3.5 text-(length:--fs-14) font-semibold text-(--surface) hover:bg-(--accent) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) focus-visible:outline-none">Send invitation</button>
+      <button hlmBtn qaBtn tone="secondary" type="button" (click)="requestClose()">Cancel</button>
+      <button hlmBtn qaBtn tone="primary" type="button" (click)="save()">Send invitation</button>
     } @else {
-      <button hlmBtn variant="outline" type="button" (click)="confirmRemove.set(true)" class="h-auto min-h-9 gap-2 rounded-lg border-(--border) px-3.5 text-(length:--fs-14) font-medium shadow-none focus-visible:ring-0 focus-visible:shadow-(--focus-ring) focus-visible:outline-none mr-auto bg-(--surface) whitespace-nowrap text-(--danger) hover:border-(--danger) hover:bg-(--danger-bg) hover:text-(--danger) dark:border-(--border) dark:bg-(--surface) dark:hover:bg-(--danger-bg)">Remove from team</button>
-      <button hlmBtn variant="outline" type="button" (click)="open.set(false)" class="h-auto min-h-9 gap-2 rounded-lg border-(--border) bg-(--field-bg) px-3.5 text-(length:--fs-14) font-medium text-(--text-2) shadow-none hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text-2) dark:border-(--border) dark:bg-(--field-bg) dark:hover:bg-(--surface-2) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) focus-visible:outline-none">Cancel</button>
-      <button hlmBtn type="button" (click)="save()" class="h-auto min-h-9 gap-2 rounded-lg border-0 bg-(--primary) px-3.5 text-(length:--fs-14) font-semibold text-(--surface) hover:bg-(--accent) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) focus-visible:outline-none">Save changes</button>
+      <button hlmBtn qaBtn tone="danger-quiet" type="button" (click)="confirmRemove.set(true)" class="mr-auto">Remove from team</button>
+      <button hlmBtn qaBtn tone="secondary" type="button" (click)="open.set(false)">Cancel</button>
+      <button hlmBtn qaBtn tone="primary" type="button" (click)="save()">Save changes</button>
     }
   </div>
 </qa-drawer>

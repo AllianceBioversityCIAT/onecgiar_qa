@@ -1,11 +1,11 @@
 import { Component, input, output } from '@angular/core';
-import { HlmButton } from '@spartan/button';
+import { QaButtonImports } from '../../../ui';
 import { AiVm } from './review-model';
 
 /** "AI match" note under a field: verdict, reasoning, Use as comment / Not relevant. */
 @Component({
   selector: 'qa-review-ai-note',
-  imports: [HlmButton],
+  imports: [QaButtonImports],
   host: { class: 'flex flex-col gap-2 rounded-[8px] border border-(--ai-tint-3) bg-(--ai-tint) px-[14px] py-3' },
   template: `
     <div class="flex flex-wrap items-center gap-2">
@@ -38,8 +38,8 @@ import { AiVm } from './review-model';
     }
     @if (ai().mismatch) {
       <div class="flex items-center gap-2 pt-0.5">
-        <button hlmBtn variant="ghost" type="button" class="h-auto min-h-7 gap-1.5 rounded-[8px] border-(color:--ai-tint-3) bg-(color:--surface) px-2.5 text-(length:--fs-12) font-semibold text-(color:--ai) hover:bg-(color:--ai-tint-2) hover:text-(color:--ai) focus-visible:border-(color:--ai-tint-3) focus-visible:shadow-(--focus-ring) focus-visible:ring-0 active:translate-y-0 dark:hover:bg-(color:--ai-tint-2)" (click)="useAsComment.emit()">Use as comment</button>
-        <button hlmBtn variant="ghost" type="button" class="h-auto min-h-7 rounded-[8px] px-2 text-(length:--fs-12) font-medium text-(color:--text-4) hover:bg-(color:--surface-3) hover:text-(color:--text-4) focus-visible:shadow-(--focus-ring) focus-visible:ring-0 active:translate-y-0 dark:hover:bg-(color:--surface-3)" (click)="dismiss.emit()">Not relevant</button>
+        <button hlmBtn qaBtn tone="ai" size="sm" type="button" (click)="useAsComment.emit()">Use as comment</button>
+        <button hlmBtn qaBtn tone="secondary" size="sm" type="button" (click)="dismiss.emit()">Not relevant</button>
       </div>
     }
   `,

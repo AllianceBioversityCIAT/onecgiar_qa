@@ -1,6 +1,5 @@
 import { Component, input, model } from '@angular/core';
-import { HlmButton } from '@spartan/button';
-import { QaDrawerImports, QaProgress } from '../../../ui';
+import { QaButtonImports, QaDrawerImports, QaProgress } from '../../../ui';
 import { PROGRAMS, PROGRAM_PROGRESS } from './cycle.mock';
 import { formatNumber } from './cycle.logic';
 
@@ -15,7 +14,7 @@ export interface StepProgress {
 /** "View progress" drawer of the running step: overall count and the per-program breakdown. */
 @Component({
   selector: 'qa-cycle-progress-drawer',
-  imports: [HlmButton, QaDrawerImports, QaProgress],
+  imports: [QaButtonImports, QaDrawerImports, QaProgress],
   template: `
     @let p = progress();
     <qa-drawer [(open)]="open" [title]="p.title" [subtitle]="p.subtitle" width="720px">
@@ -41,7 +40,7 @@ export interface StepProgress {
       }
       <div qaDrawerFooter class="contents">
         <!-- TODO(api): export the comments of this step (.xlsx). -->
-        <button hlmBtn variant="ghost" type="button" class="h-9 rounded-[8px] border border-(--border) bg-(--field-bg) px-[14px] text-(length:--fs-14) font-medium text-(--text-2) hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text-2) focus-visible:border-(--border) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) dark:hover:bg-(--surface-2)">Export comments</button>
+        <button hlmBtn qaBtn tone="secondary" type="button">Export comments</button>
       </div>
     </qa-drawer>
   `,

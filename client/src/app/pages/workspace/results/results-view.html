@@ -40,7 +40,7 @@
               </button>
             </span>
           }
-          <button type="button" (click)="clearAll()" class="min-h-8 rounded-lg px-2.5 text-(length:--fs-13) font-medium text-(--accent) hover:bg-(--tint) outline-none focus-visible:shadow-(--focus-ring)">Clear all</button>
+          <button hlmBtn qaBtn tone="link" size="sm" type="button" (click)="clearAll()">Clear all</button>
         </div>
       }
 
@@ -81,19 +81,19 @@
       <div class="flex flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-3 sm:gap-y-1">
         <p class="m-0 text-(length:--fs-13) text-(--text-3) max-sm:text-center" aria-live="polite">Showing <span class="whitespace-nowrap"><span class="font-(family-name:--qa-mono) tabular-nums font-semibold text-(--text-2)">{{ visibleRows().length | number }}</span> of <span class="font-(family-name:--qa-mono) tabular-nums font-semibold text-(--text-2)">{{ matchCount() | number }}</span></span> results{{ timelineSuffix() }}</p>
         @if (remaining() > 0) {
-          <button type="button" (click)="showMore()" class="max-sm:min-h-10 max-sm:border max-sm:border-(--border) max-sm:bg-(--surface) min-h-8 rounded-lg px-2.5 text-(length:--fs-13) font-medium text-(--accent) hover:bg-(--tint) outline-none focus-visible:shadow-(--focus-ring)">Show {{ (remaining() < 50 ? remaining() : 50) | number }} more</button>
+          <button hlmBtn qaBtn tone="link" size="sm" type="button" (click)="showMore()">Show {{ (remaining() < 50 ? remaining() : 50) | number }} more</button>
         }
       </div>
     } @else {
       <div class="flex max-w-[160px] flex-col items-start gap-2">
         <p class="m-0 text-(length:--fs-14) text-(--text-3)">No results match your filters.</p>
-        <button type="button" (click)="clearAll()" class="-ml-2.5 min-h-8 rounded-lg px-2.5 text-(length:--fs-13) font-medium whitespace-nowrap text-(--accent) hover:bg-(--tint) outline-none focus-visible:shadow-(--focus-ring)">Clear all</button>
+        <button hlmBtn qaBtn tone="link" size="sm" flush="start" type="button" (click)="clearAll()">Clear all</button>
       </div>
     }
   } @else {
     <div class="flex max-w-[160px] flex-col items-start gap-2">
       <p class="m-0 text-(length:--fs-14) text-(--text-3)">No results have entered QA yet.</p>
-      <a routerLink="/cycle" class="-ml-2.5 inline-flex min-h-8 items-center rounded-lg px-2.5 text-(length:--fs-13) font-medium whitespace-nowrap text-(--accent) hover:bg-(--tint) outline-none focus-visible:shadow-(--focus-ring)">Go to Cycle</a>
+      <a hlmBtn qaBtn tone="link" size="sm" flush="start" routerLink="/cycle">Go to Cycle</a>
     </div>
   }
 </div>

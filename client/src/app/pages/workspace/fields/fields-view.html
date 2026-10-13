@@ -14,10 +14,12 @@
       </span>
       <button
         hlmBtn
+        qaBtn
+        tone="primary"
         type="button"
         (click)="openConfirm()"
         aria-haspopup="dialog"
-        class="flex h-auto min-h-9 flex-none items-center justify-center gap-2 rounded-lg max-md:min-h-10 border-0 bg-(--primary) px-[14px] text-(length:--fs-14) font-semibold text-(--surface) hover:bg-(--accent) focus-visible:shadow-(--focus-ring) focus-visible:ring-0 max-md:w-full"
+        class="flex-none max-md:w-full"
       >
         Review &amp; publish
         <span class="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-white/22 px-[5px] font-(family-name:--qa-mono) text-(length:--fs-11) font-semibold text-(--surface) tabular-nums">{{ changeCount() }}</span>
@@ -99,9 +101,12 @@
         <div class="flex flex-wrap items-center gap-2 px-5 py-6">
           <p class="m-0 text-(length:--fs-14) text-(--text-3)">No fields match this filter.</p>
           <button
+            hlmBtn
+            qaBtn
+            tone="link"
+            size="sm"
             type="button"
             (click)="clearFilters()"
-            class="min-h-8 cursor-pointer rounded-lg border-none bg-transparent px-2.5 text-(length:--fs-13) font-medium text-(--accent) hover:bg-(--tint) focus-visible:shadow-(--focus-ring) focus-visible:outline-none"
           >
             Show all fields
           </button>
@@ -112,9 +117,13 @@
     <div class="flex max-w-[160px] flex-col items-start gap-2">
       <p class="m-0 text-(length:--fs-14) text-(--text-3)">No fields are assessed for this result type.</p>
       <button
+        hlmBtn
+        qaBtn
+        tone="link"
+        size="sm"
+        flush="start"
         type="button"
         (click)="copyFromAnotherType()"
-        class="-ml-2.5 min-h-8 cursor-pointer rounded-lg border-none bg-transparent px-2.5 text-(length:--fs-13) font-medium whitespace-nowrap text-(--accent) hover:bg-(--tint) focus-visible:shadow-(--focus-ring) focus-visible:outline-none"
       >
         Copy from another type
       </button>

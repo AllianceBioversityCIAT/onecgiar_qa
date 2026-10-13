@@ -1,8 +1,7 @@
 import { NgTemplateOutlet } from '@angular/common';
 import { Component, ElementRef, computed, effect, signal, viewChild } from '@angular/core';
-import { HlmButtonImports } from '@spartan/button';
 import { HlmInputImports } from '@spartan/input';
-import { QaMenuImports, QaMultiSelect, QaMultiSelectOption } from '../../../ui';
+import { QaButtonImports, QaMenuImports, QaMultiSelect, QaMultiSelectOption } from '../../../ui';
 import { AssessorDrawer, DrawerSession, PersonSave } from './assessor-drawer';
 import {
   ACTIVITY_LABELS,
@@ -92,7 +91,7 @@ const reviewedOf = (p: TeamMember) => p.prog.reduce((a, e) => a + e.reviewed, 0)
 @Component({
   selector: 'qa-assessors-view',
   templateUrl: './assessors-view.html',
-  imports: [NgTemplateOutlet, HlmButtonImports, HlmInputImports, QaMenuImports, QaMultiSelect, AssessorDrawer, AssessorRoleCell, AssessorTypesCell],
+  imports: [NgTemplateOutlet, QaButtonImports, HlmInputImports, QaMenuImports, QaMultiSelect, AssessorDrawer, AssessorRoleCell, AssessorTypesCell],
 })
 export class AssessorsView {
 

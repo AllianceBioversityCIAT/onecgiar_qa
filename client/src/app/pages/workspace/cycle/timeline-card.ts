@@ -1,13 +1,12 @@
 import { Component, ElementRef, afterRenderEffect, input, output, viewChild } from '@angular/core';
-import { HlmButton } from '@spartan/button';
-import { QaMenuImports } from '../../../ui';
+import { QaButtonImports, QaMenuImports } from '../../../ui';
 import { MenuAction, TimelineVM } from './cycle.logic';
 import { TimelineSteps } from './timeline-steps';
 
 /** A timeline in the "Timelines" list: header with badges, actions menu, close confirmation and steps. */
 @Component({
   selector: 'qa-cycle-timeline-card',
-  imports: [HlmButton, QaMenuImports, TimelineSteps],
+  imports: [QaButtonImports, QaMenuImports, TimelineSteps],
   host: { class: 'block' },
   template: `
     @let t = timeline();
@@ -26,7 +25,7 @@ import { TimelineSteps } from './timeline-steps';
         </div>
         @if (t.canEdit) {
           <div class="flex flex-none items-center gap-2 max-sm:w-full">
-            <button hlmBtn variant="ghost" type="button" (click)="addStep.emit()" class="h-9 max-sm:h-10 max-sm:flex-1 gap-[7px] rounded-[8px] border border-(--border) bg-(--field-bg) px-[14px] text-(length:--fs-14) font-medium text-(--text-2) hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text-2) focus-visible:border-(--border) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) dark:hover:bg-(--surface-2)">
+            <button hlmBtn qaBtn tone="secondary" type="button" (click)="addStep.emit()" class="gap-[7px] max-sm:flex-1">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>Add step
             </button>
             <button
@@ -51,8 +50,8 @@ import { TimelineSteps } from './timeline-steps';
       @if (confirmClose()) {
         <div role="alertdialog" [attr.aria-label]="'Close ' + t.name" class="flex flex-wrap items-center gap-[10px] border-b border-(--surface-4) bg-(--surface-2) px-5 py-3">
           <span class="mr-auto text-(length:--fs-13) text-(--text-2)">Close this timeline? Open steps end today and no new results come in.</span>
-          <button #keepBtn hlmBtn variant="ghost" type="button" (click)="keepOpen.emit()" class="h-8 rounded-[8px] border border-(--border) bg-(--field-bg) px-3 max-sm:h-10 text-(length:--fs-13) font-medium text-(--text-2) hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text-2) focus-visible:border-(--border) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) dark:hover:bg-(--surface-2)">Keep open</button>
-          <button hlmBtn type="button" (click)="closeTimeline.emit()" class="h-8 rounded-[8px] bg-(--danger) px-3 max-sm:h-10 text-(length:--fs-13) font-semibold text-(--surface) hover:bg-(--danger) focus-visible:border-transparent focus-visible:ring-0 focus-visible:shadow-(--focus-ring)">Close timeline</button>
+          <button #keepBtn hlmBtn qaBtn tone="secondary" size="sm" type="button" (click)="keepOpen.emit()">Keep open</button>
+          <button hlmBtn qaBtn tone="danger" size="sm" type="button" (click)="closeTimeline.emit()">Close timeline</button>
         </div>
       }
       <qa-cycle-timeline-steps [timeline]="t" (openStep)="openStep.emit($event)" (viewProgress)="viewProgress.emit($event)" />

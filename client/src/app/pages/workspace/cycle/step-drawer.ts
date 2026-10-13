@@ -1,8 +1,7 @@
 import { Component, computed, input, linkedSignal, model, output } from '@angular/core';
 import { FormField, form, required, validate } from '@angular/forms/signals';
-import { HlmButton } from '@spartan/button';
 import { HlmInput } from '@spartan/input';
-import { QaDatePicker, QaDrawerImports, QaSegmented, QaSelect, QaSwitch, QaTooltipImports } from '../../../ui';
+import { QaButtonImports, QaDatePicker, QaDrawerImports, QaSegmented, QaSelect, QaSwitch, QaTooltipImports } from '../../../ui';
 import { AUDIENCES, CORRECTION_AUDIENCE, CycleStep, DEMO_ACCESS, PROGRAMS, ReopenMode, Timeline } from './cycle.mock';
 import { parseDate, stepState } from './cycle.logic';
 
@@ -39,7 +38,7 @@ interface StepDraft {
 /** "Edit step" / "New step" drawer (every step card and every "Add step" button). */
 @Component({
   selector: 'qa-cycle-step-drawer',
-  imports: [FormField, HlmButton, HlmInput, QaDatePicker, QaDrawerImports, QaSegmented, QaSelect, QaSwitch, QaTooltipImports],
+  imports: [FormField, QaButtonImports, HlmInput, QaDatePicker, QaDrawerImports, QaSegmented, QaSelect, QaSwitch, QaTooltipImports],
   template: `
     <qa-drawer [(open)]="open" [title]="title()" [subtitle]="request().timeline.name" width="720px">
       @if (open()) {
@@ -157,7 +156,7 @@ interface StepDraft {
               </div>
             }
             <div class="px-[10px] py-2">
-              <button type="button" (click)="addAccess()" class="min-h-8 cursor-pointer rounded-[8px] border-0 bg-transparent px-[10px] text-(length:--fs-13) font-medium text-(--accent) outline-none hover:bg-(--tint) focus-visible:shadow-(--focus-ring)">Give a program extra time</button>
+              <button hlmBtn qaBtn tone="link" size="sm" type="button" (click)="addAccess()">Give a program extra time</button>
             </div>
           </div>
         </div>
@@ -169,20 +168,20 @@ interface StepDraft {
             <div class="mr-auto flex min-w-0 flex-[1_1_280px] flex-col gap-1">
               <span class="text-(length:--fs-13) leading-[1.55] font-normal text-(--text-2)">Remove this step? Results in it go back to the previous step.</span>
             </div>
-            <button hlmBtn variant="ghost" type="button" (click)="confirmRemove.set(false)" class="h-9 rounded-[8px] border border-(--border) bg-(--field-bg) px-[14px] text-(length:--fs-14) font-medium text-(--text-2) hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text-2) focus-visible:border-(--border) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) dark:hover:bg-(--surface-2)">Keep it</button>
-            <button hlmBtn type="button" (click)="doRemove()" class="h-9 rounded-[8px] bg-(--danger) px-[14px] text-(length:--fs-14) font-semibold whitespace-nowrap text-(--surface) hover:bg-(--danger) focus-visible:border-transparent focus-visible:ring-0 focus-visible:shadow-(--focus-ring)">Remove</button>
+            <button hlmBtn qaBtn tone="secondary" type="button" (click)="confirmRemove.set(false)">Keep it</button>
+            <button hlmBtn qaBtn tone="danger" type="button" (click)="doRemove()">Remove</button>
           </div>
         } @else {
           @if (isEdit()) {
-            <button hlmBtn variant="ghost" type="button" (click)="confirmRemove.set(true)" class="mr-auto h-9 rounded-[8px] border border-(--border) bg-(--surface) px-[14px] text-(length:--fs-14) font-medium whitespace-nowrap text-(--danger) hover:border-(--danger) hover:bg-(--danger-bg) hover:text-(--danger) focus-visible:border-(--border) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) dark:hover:bg-(--danger-bg)">Remove step</button>
+            <button hlmBtn qaBtn tone="danger-quiet" type="button" (click)="confirmRemove.set(true)" class="mr-auto">Remove step</button>
           }
           @if (loadedNote()) {
             <span class="flex items-center gap-1.5 text-(length:--fs-13) font-normal text-(--text-4)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M20 6L9 17l-5-5" /></svg>{{ loadedNote() }}</span>
           } @else if (canLoad()) {
-            <button hlmBtn variant="ghost" type="button" (click)="loadIntoStep.emit()" class="h-9 gap-[7px] rounded-[8px] border border-(--border) bg-(--field-bg) px-[14px] text-(length:--fs-14) font-medium whitespace-nowrap text-(--text-2) hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text-2) focus-visible:border-(--border) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) dark:hover:bg-(--surface-2)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M12 3v12M8 11l4 4 4-4M8 5H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-4" /></svg>Load results into this step</button>
+            <button hlmBtn qaBtn tone="secondary" type="button" (click)="loadIntoStep.emit()" class="gap-[7px]"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M12 3v12M8 11l4 4 4-4M8 5H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-4" /></svg>Load results into this step</button>
           }
-          <button hlmBtn variant="ghost" type="button" (click)="open.set(false)" class="h-9 rounded-[8px] border border-(--border) bg-(--field-bg) px-[14px] text-(length:--fs-14) font-medium text-(--text-2) hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text-2) focus-visible:border-(--border) focus-visible:ring-0 focus-visible:shadow-(--focus-ring) dark:hover:bg-(--surface-2)">Cancel</button>
-          <button hlmBtn type="button" (click)="save()" class="h-9 rounded-[8px] bg-(--primary) px-[14px] text-(length:--fs-14) font-semibold text-(--surface) hover:bg-(--accent) focus-visible:border-transparent focus-visible:ring-0 focus-visible:shadow-(--focus-ring)">{{ isEdit() ? 'Save step' : 'Add step' }}</button>
+          <button hlmBtn qaBtn tone="secondary" type="button" (click)="open.set(false)">Cancel</button>
+          <button hlmBtn qaBtn tone="primary" type="button" (click)="save()">{{ isEdit() ? 'Save step' : 'Add step' }}</button>
         }
       </div>
     </qa-drawer>

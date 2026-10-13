@@ -1,6 +1,5 @@
 import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
-import { HlmButton } from '@spartan/button';
-import { QaTabsImports } from '../../../ui';
+import { QaButtonImports, QaTabsImports } from '../../../ui';
 import {
   ACTIVE_CYCLE,
   AUDIENCES,
@@ -30,7 +29,7 @@ function mergeSteps(old: readonly CycleStep[], rows: readonly StepDraftRow[]): C
 /** "Cycle" view: active cycle, official timeline, live / closed timelines and their drawers. */
 @Component({
   selector: 'qa-cycle-view',
-  imports: [HlmButton, QaTabsImports, TimelineSteps, TimelineCard, LoadDrawer, TimelineDrawer, StepDrawer, ProgressDrawer],
+  imports: [QaButtonImports, QaTabsImports, TimelineSteps, TimelineCard, LoadDrawer, TimelineDrawer, StepDrawer, ProgressDrawer],
   templateUrl: './cycle-view.html',
 })
 export class CycleView {

@@ -1,8 +1,7 @@
 import { Component, computed, effect, input, linkedSignal, model, output, untracked } from '@angular/core';
 import { FieldTree, FormField, email, form, required, submit } from '@angular/forms/signals';
-import { HlmButtonImports } from '@spartan/button';
 import { HlmInputImports } from '@spartan/input';
-import { QaDrawerCloseGuard, QaDrawerImports, QaMultiSelect, QaMultiSelectOption, QaSelect, QaSelectOption, QaSwitch, QaTooltipImports } from '../../../ui';
+import { QaButtonImports, QaDrawerCloseGuard, QaDrawerImports, QaMultiSelect, QaMultiSelectOption, QaSelect, QaSelectOption, QaSwitch, QaTooltipImports } from '../../../ui';
 import {
   CURRENT_SUBTIMELINE,
   PROGRAMS,
@@ -81,7 +80,7 @@ function draftOf(p: TeamMember): PersonDraft {
  */
 @Component({
   selector: 'qa-assessor-drawer',
-  imports: [FormField, HlmButtonImports, HlmInputImports, QaDrawerImports, QaSelect, QaSwitch, QaTooltipImports, QaMultiSelect],
+  imports: [FormField, QaButtonImports, HlmInputImports, QaDrawerImports, QaSelect, QaSwitch, QaTooltipImports, QaMultiSelect],
   templateUrl: './assessor-drawer.html',
 })
 export class AssessorDrawer {
