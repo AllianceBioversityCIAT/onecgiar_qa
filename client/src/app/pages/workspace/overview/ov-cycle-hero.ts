@@ -34,28 +34,29 @@ const STATUS_BAR: Record<ResultStatus, string> = {
   template: `
     <section
       aria-labelledby="overview-hero-title"
-      class="relative flex flex-col gap-6 overflow-hidden rounded-[16px] border border-(--tint-border-2) bg-(--tint) p-5 @2xl:p-7"
+      class="relative flex flex-col gap-6 overflow-hidden rounded-[16px] bg-(--surface-3) p-5 @2xl:p-7"
     >
-      <!-- Top row: total on the left, current step on the right -->
-      <div class="flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
-        <div class="flex min-w-0 flex-col gap-1">
-          <span class="text-(length:--fs-13) font-medium text-(--accent)">{{ data().eyebrow }}</span>
-          <h2 id="overview-hero-title" class="m-0 flex flex-wrap items-baseline gap-x-3">
-            <span class="text-[2rem] leading-[1.05] font-bold tracking-[-0.02em] tabular-nums text-(--text) @2xl:text-[2.75rem]">{{ data().total }}</span>
-            <span class="text-(length:--fs-16) font-semibold text-(--text-2)">results in QA</span>
-          </h2>
-        </div>
-
-        <div class="flex min-w-0 flex-col items-start gap-1 @2xl:items-end @2xl:text-right">
-          <span class="flex items-baseline gap-2">
-            <span class="text-(length:--fs-26) leading-[1.1] font-bold tabular-nums text-(--st-approved-fg)">{{ data().assessedPct }}%</span>
-            <span class="text-(length:--fs-13) font-medium text-(--text-3)">quality assessed ({{ data().assessed }} results)</span>
-          </span>
-          <span class="text-(length:--fs-13) text-pretty text-(--text-3)">
-            <span class="font-medium text-(--text-2)">{{ data().step }}</span>, {{ data().stepWhen }}
-          </span>
+      <!-- Two rows that share the same left and right edges:
+           1. context: cycle on the left, current step + link on the right (same small text, same line);
+           2. figures: the total and the assessed share sit on one baseline. -->
+      <div class="flex flex-wrap items-center justify-between gap-x-8 gap-y-1">
+        <span class="text-(length:--fs-13) font-medium text-(--text-3)">{{ data().eyebrow }}</span>
+        <span class="flex min-w-0 flex-wrap items-center gap-x-3 text-(length:--fs-13) text-pretty text-(--text-3)">
+          <span><span class="font-medium text-(--text-2)">{{ data().step }}</span>, {{ data().stepWhen }}</span>
           <a hlmBtn qaBtn tone="link" size="sm" routerLink="/cycle" class="-ml-2.5 @2xl:-mr-2.5 @2xl:ml-0">See the full cycle</a>
-        </div>
+        </span>
+      </div>
+
+      <div class="-mt-3 flex flex-wrap items-baseline justify-between gap-x-8 gap-y-2">
+        <h2 id="overview-hero-title" class="m-0 flex flex-wrap items-baseline gap-x-3">
+          <span class="text-[2rem] leading-[1.05] font-bold tracking-[-0.02em] tabular-nums text-(--text) @2xl:text-[2.75rem]">{{ data().total }}</span>
+          <span class="text-(length:--fs-16) font-semibold text-(--text-2)">results in QA</span>
+        </h2>
+        <span class="flex items-baseline gap-2">
+          <span class="text-[2rem] leading-[1.05] font-bold tracking-[-0.02em] tabular-nums text-(--st-approved-fg) @2xl:text-[2.75rem]">{{ data().assessedPct }}%</span>
+          <span class="text-(length:--fs-16) font-semibold text-(--text-2)">quality assessed</span>
+          <span class="text-(length:--fs-13) text-(--text-4)">({{ data().assessed }} results)</span>
+        </span>
       </div>
 
       <!-- Status bar: every result in QA, split by status -->

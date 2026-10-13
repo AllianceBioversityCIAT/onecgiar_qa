@@ -50,3 +50,11 @@ Pending: Juanpa's OK before applying the same polish to Timelines, Stage complet
 - Overview, Cycle, Results, Review, Assessors and Fields at 390 and 768 px: no horizontal scroll; every `qaBtn` is at least 40px tall on phones.
 - Dark mode at 1440 px on the same 6 screens: filled buttons pass AA contrast (Approve and Finish 7.8:1, Use as comment 4.6:1).
 - `npx ng build`: passes. The initial bundle warning (551 kB vs 500 kB) predates today (553 kB on 2026-10-09); its cause and fix are in `docs/ideas.md` for Yeck.
+
+## Top block: alignment and calmer surface (same day, after review)
+
+Juanpa said "1,330" and "27%" were not aligned, and the card color could be calmer and without an outline.
+
+- Two rows now share the same left and right edges: a context row (cycle, current step and "See the full cycle") and a figures row where "1,330 results in QA" and "27% quality assessed" sit on one baseline at the same size.
+- Background is the neutral `--surface-3`, with no border.
+- Checked at 1440 px (bottom edges of both figures match) and at 390 px.
