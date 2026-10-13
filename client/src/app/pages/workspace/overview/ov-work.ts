@@ -1,8 +1,7 @@
 import { LowerCasePipe, NgTemplateOutlet } from '@angular/common';
 import { Component, input, model, output } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { HlmButton } from '@spartan/button';
-import { QaTabsImports } from '../../../ui';
+import { QaButtonImports, QaTabsImports } from '../../../ui';
 import { Pace } from './overview.mock';
 
 export type WorkTab = 'type' | 'program' | 'assessor' | 'risk' | 'timeline';
@@ -53,7 +52,7 @@ const TAB = '@max-2xl:h-10 @max-2xl:flex-auto @max-2xl:justify-center';
 /** "Where the work is": completion by result type, program, assessor, risk or timeline. */
 @Component({
   selector: 'qa-ov-work',
-  imports: [HlmButton, RouterLink, QaTabsImports, NgTemplateOutlet, LowerCasePipe],
+  imports: [QaButtonImports, RouterLink, QaTabsImports, NgTemplateOutlet, LowerCasePipe],
   host: { class: 'block @container' },
   template: `
     <section aria-labelledby="overview-ww-title" class="flex flex-col gap-4 rounded-[12px] border border-(--border) bg-(--surface) p-5">
@@ -69,7 +68,7 @@ const TAB = '@max-2xl:h-10 @max-2xl:flex-auto @max-2xl:justify-center';
           <button qaTab="assessor" class="${TAB}">By assessor</button>
           <span aria-hidden="true" class="mx-1 h-[18px] w-px flex-none self-center bg-(--border) @max-2xl:hidden"></span>
           <button qaTab="risk" class="gap-[6px] text-(--warning)! hover:text-(--warning)! ${TAB}">
-            At risk<span class="font-(family-name:--qa-mono) text-(length:--fs-12) font-semibold tabular-nums">{{ riskCount() }}</span>
+            At risk<span class="text-(length:--fs-12) font-semibold tabular-nums">{{ riskCount() }}</span>
           </button>
           <button qaTab="timeline" class="${TAB}">By timeline</button>
         </div>
@@ -90,10 +89,10 @@ const TAB = '@max-2xl:h-10 @max-2xl:flex-auto @max-2xl:justify-center';
                   </colgroup>
                   <thead class="@max-2xl:hidden">
                     <tr>
-                      <th scope="col" class="sticky top-0 z-10 h-9 bg-(--surface) shadow-[inset_0_-1px_0_var(--surface-4)] pr-4 pl-1 text-left text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase">Name</th>
-                      <th scope="col" class="sticky top-0 z-10 h-9 bg-(--surface) shadow-[inset_0_-1px_0_var(--surface-4)] pr-4 text-left text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase">Completion</th>
-                      <th scope="col" class="sticky top-0 z-10 h-9 bg-(--surface) shadow-[inset_0_-1px_0_var(--surface-4)] pr-4 text-right text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase">Pending</th>
-                      <th scope="col" class="sticky top-0 z-10 h-9 bg-(--surface) shadow-[inset_0_-1px_0_var(--surface-4)] pr-1 text-right text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase">Pace</th>
+                      <th scope="col" class="sticky top-0 z-10 h-9 bg-(--surface) shadow-[inset_0_-1px_0_var(--surface-4)] pr-4 pl-1 text-left text-(length:--fs-12) font-medium text-(--text-4)">Name</th>
+                      <th scope="col" class="sticky top-0 z-10 h-9 bg-(--surface) shadow-[inset_0_-1px_0_var(--surface-4)] pr-4 text-left text-(length:--fs-12) font-medium text-(--text-4)">Completion</th>
+                      <th scope="col" class="sticky top-0 z-10 h-9 bg-(--surface) shadow-[inset_0_-1px_0_var(--surface-4)] pr-4 text-right text-(length:--fs-12) font-medium text-(--text-4)">Pending</th>
+                      <th scope="col" class="sticky top-0 z-10 h-9 bg-(--surface) shadow-[inset_0_-1px_0_var(--surface-4)] pr-1 text-right text-(length:--fs-12) font-medium text-(--text-4)">Pace</th>
                     </tr>
                   </thead>
                   <tbody class="@max-2xl:block">
@@ -106,7 +105,7 @@ const TAB = '@max-2xl:h-10 @max-2xl:flex-auto @max-2xl:justify-center';
                         <td class="py-2 pr-4 pl-1 align-middle @max-2xl:col-start-1 @max-2xl:row-start-1 @max-2xl:p-0">
                           <div class="flex min-w-0 flex-col gap-[2px]">
                             @if (w.angle) {
-                              <span class="text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase">{{ w.angle }}</span>
+                              <span class="text-(length:--fs-12) font-medium text-(--text-4)">{{ w.angle }}</span>
                             }
                             @if (w.queryParams) {
                               <a routerLink="/results" [queryParams]="w.queryParams" [title]="w.title" class="${NAME_LINK}">
@@ -125,12 +124,12 @@ const TAB = '@max-2xl:h-10 @max-2xl:flex-auto @max-2xl:justify-center';
                               <div class="h-full rounded-full bg-(--primary) transition-[width] duration-200" [style.width.%]="w.pct"></div>
                             </div>
                             <span class="truncate text-(length:--fs-12) font-normal text-(--text-3) @max-2xl:col-start-1 @max-2xl:row-start-3 @max-2xl:self-center @max-2xl:whitespace-normal"
-                              ><span class="font-(family-name:--qa-mono) font-bold whitespace-nowrap tabular-nums text-(--text)">{{ w.pct }}%</span
+                              ><span class="font-bold whitespace-nowrap tabular-nums text-(--text)">{{ w.pct }}%</span
                               ><span class="text-(--text-4)">{{ w.detail }}</span></span
                             >
                           </div>
                         </td>
-                        <td class="pr-4 text-right align-middle font-(family-name:--qa-mono) text-(length:--fs-13) font-semibold whitespace-nowrap tabular-nums text-(--text) @max-2xl:col-start-2 @max-2xl:row-start-3 @max-2xl:self-center @max-2xl:p-0">
+                        <td class="pr-4 text-right align-middle text-(length:--fs-13) font-semibold whitespace-nowrap tabular-nums text-(--text) @max-2xl:col-start-2 @max-2xl:row-start-3 @max-2xl:self-center @max-2xl:p-0">
                           {{ w.pending }}<span class="hidden font-sans text-(length:--fs-12) font-normal text-(--text-4) @max-2xl:inline"> pending</span>
                         </td>
                         <td class="pr-1 text-right align-middle @max-2xl:col-start-2 @max-2xl:row-start-1 @max-2xl:block @max-2xl:self-start @max-2xl:p-0">
@@ -149,13 +148,13 @@ const TAB = '@max-2xl:h-10 @max-2xl:flex-auto @max-2xl:justify-center';
       </div>
 
       <div class="flex">
-        <a hlmBtn variant="ghost" routerLink="/results" class="-ml-[6px] h-auto min-h-8 rounded-[8px] border-0 px-[10px] text-(length:--fs-13) font-medium text-(--accent) no-underline hover:bg-(--tint) hover:text-(--accent) focus-visible:shadow-(--focus-ring) focus-visible:ring-0">View all in Results</a>
+        <a hlmBtn qaBtn tone="link" size="sm" flush="start" routerLink="/results">View all in Results</a>
       </div>
     </section>
 
     <ng-template #name let-w>
       @if (w.code) {
-        <span class="font-(family-name:--qa-mono) text-(length:--fs-13) font-semibold tabular-nums text-(--text-2)">{{ w.code }} </span>
+        <span class="text-(length:--fs-13) font-semibold tabular-nums text-(--text-2)">{{ w.code }} </span>
       }
       @if (w.person !== null) {
         <span class="text-(length:--fs-14) font-semibold text-(--text)">{{ w.name }}</span>

@@ -1,6 +1,6 @@
 import { Component, computed, input, output, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { HlmButton } from '@spartan/button';
+import { QaButtonImports } from '../../../ui';
 import { AttentionGroupKey, AttentionRow } from './overview.mock';
 
 export interface AttentionGroupVm {
@@ -22,7 +22,7 @@ const VISIBLE = 5;
 /** "Needs attention": coverage, pace and waiting alerts, each with a way to act on it. */
 @Component({
   selector: 'qa-ov-attention',
-  imports: [HlmButton, RouterLink],
+  imports: [QaButtonImports, RouterLink],
   host: { class: 'block @container' },
   template: `
     <section aria-labelledby="overview-attn-title" class="flex flex-col gap-4 rounded-[12px] border border-(--border) bg-(--surface) p-5">
@@ -31,7 +31,7 @@ const VISIBLE = 5;
           <h3 id="overview-attn-title" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">Needs attention</h3>
           @if (count()) {
             <span
-              class="box-border flex h-5 min-w-5 items-center justify-center rounded-full px-[7px] font-(family-name:--qa-mono) text-(length:--fs-12) font-bold tabular-nums"
+              class="box-border flex h-5 min-w-5 items-center justify-center rounded-full px-[7px] text-(length:--fs-12) font-bold tabular-nums"
               [class]="critical() ? 'bg-(--st-rejected-bg) text-(--st-rejected-fg)' : 'bg-(--st-editing-bg) text-(--st-editing-fg)'"
               [attr.aria-label]="count() + ' items'"
             >{{ count() }}</span>
@@ -48,8 +48,8 @@ const VISIBLE = 5;
             <div class="flex flex-col">
               <h4 class="m-0 flex min-h-8 items-center gap-2 border-b border-(--surface-4) px-[2px] pb-2" [class]="style[g.key].color">
                 <svg class="flex-none" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path [attr.d]="style[g.key].icon"></path></svg>
-                <span class="text-(length:--fs-12) font-semibold tracking-[0.06em] uppercase">{{ g.name }}</span>
-                <span class="ml-auto font-(family-name:--qa-mono) text-(length:--fs-12) font-semibold tabular-nums text-(--text-muted)">{{ g.rows.length }}</span>
+                <span class="text-(length:--fs-13) font-semibold">{{ g.name }}</span>
+                <span class="ml-auto text-(length:--fs-12) font-semibold tabular-nums text-(--text-muted)">{{ g.rows.length }}</span>
               </h4>
               <ul class="m-0 list-none p-0">
                 @for (r of shown; track r.text; let last = $last) {
@@ -59,17 +59,17 @@ const VISIBLE = 5;
                     [class.border-b]="!last || more"
                   >
                     <span [title]="r.text" class="min-w-0 text-(length:--fs-13) leading-[1.5] font-normal text-pretty text-(--text-2) @2xl:truncate"
-                      >@for (seg of r.segs; track $index) {<span [class]="seg[1] ? 'font-(family-name:--qa-mono) font-semibold whitespace-nowrap text-(--text)' : ''">{{ seg[0] }}</span>}</span
+                      >@for (seg of r.segs; track $index) {<span [class]="seg[1] ? 'font-semibold whitespace-nowrap text-(--text)' : ''">{{ seg[0] }}</span>}</span
                     >
                     @switch (r.to.kind) {
                       @case ('route') {
-                        <a hlmBtn variant="ghost" [routerLink]="routePath(r)" class="h-auto min-h-[30px] -ml-[10px] justify-self-start rounded-[8px] @max-2xl:min-h-10 @2xl:ml-0 @2xl:justify-self-end border-0 px-[10px] text-(length:--fs-13) font-semibold whitespace-nowrap text-(--accent) no-underline hover:bg-(--surface-3) hover:text-(--accent) focus-visible:shadow-(--focus-ring) focus-visible:ring-0">{{ r.label }}</a>
+                        <a hlmBtn qaBtn tone="link" size="sm" [routerLink]="routePath(r)" class="-ml-2.5 justify-self-start @2xl:-mr-2.5 @2xl:ml-0 @2xl:justify-self-end">{{ r.label }}</a>
                       }
                       @case ('status') {
-                        <a hlmBtn variant="ghost" routerLink="/results" [queryParams]="{ status: statuses(r) }" class="h-auto min-h-[30px] -ml-[10px] justify-self-start rounded-[8px] @max-2xl:min-h-10 @2xl:ml-0 @2xl:justify-self-end border-0 px-[10px] text-(length:--fs-13) font-semibold whitespace-nowrap text-(--accent) no-underline hover:bg-(--surface-3) hover:text-(--accent) focus-visible:shadow-(--focus-ring) focus-visible:ring-0">{{ r.label }}</a>
+                        <a hlmBtn qaBtn tone="link" size="sm" routerLink="/results" [queryParams]="{ status: statuses(r) }" class="-ml-2.5 justify-self-start @2xl:-mr-2.5 @2xl:ml-0 @2xl:justify-self-end">{{ r.label }}</a>
                       }
                       @case ('risk') {
-                        <button hlmBtn variant="ghost" type="button" (click)="risk.emit(riskKey(r))" class="h-auto min-h-[30px] -ml-[10px] justify-self-start rounded-[8px] @max-2xl:min-h-10 @2xl:ml-0 @2xl:justify-self-end border-0 px-[10px] text-(length:--fs-13) font-semibold whitespace-nowrap text-(--accent) no-underline hover:bg-(--surface-3) hover:text-(--accent) focus-visible:shadow-(--focus-ring) focus-visible:ring-0">{{ r.label }}</button>
+                        <button hlmBtn qaBtn tone="link" size="sm" type="button" (click)="risk.emit(riskKey(r))" class="-ml-2.5 justify-self-start @2xl:-mr-2.5 @2xl:ml-0 @2xl:justify-self-end">{{ r.label }}</button>
                       }
                     }
                   </li>
@@ -77,12 +77,7 @@ const VISIBLE = 5;
               </ul>
               @if (more) {
                 <div class="flex min-h-10 items-center px-[2px]">
-                  <button
-                    type="button"
-                    (click)="toggle(g.key)"
-                    [attr.aria-expanded]="isOpen(g.key)"
-                    class="-ml-[10px] min-h-[30px] cursor-pointer rounded-[8px] border-0 bg-transparent px-[10px] text-(length:--fs-13) font-medium text-(--accent) hover:bg-(--tint) focus-visible:shadow-(--focus-ring) focus-visible:outline-none"
-                  >{{ isOpen(g.key) ? 'Show less' : '+' + (g.rows.length - visible) + ' more' }}</button>
+                  <button hlmBtn qaBtn tone="link" size="sm" flush="start" type="button" (click)="toggle(g.key)" [attr.aria-expanded]="isOpen(g.key)">{{ isOpen(g.key) ? 'Show less' : '+' + (g.rows.length - visible) + ' more' }}</button>
                 </div>
               }
             </div>

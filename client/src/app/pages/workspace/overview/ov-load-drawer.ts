@@ -1,13 +1,12 @@
 import { Component, computed, effect, model, output, signal, untracked } from '@angular/core';
-import { HlmButton } from '@spartan/button';
-import { QaDrawerImports, QaMultiSelect, QaSelect, QaSelectOption, QaTooltipImports } from '../../../ui';
+import { QaButtonImports, QaDrawerImports, QaMultiSelect, QaSelect, QaSelectOption, QaTooltipImports } from '../../../ui';
 import { fmt, loadEstimate } from './overview-calc';
 import { LOAD_TARGETS, PROGRAMS, RESULT_TYPES } from './overview.mock';
 
 /** "Load results into QA": target step, filters and a live estimate of what will be pulled in. */
 @Component({
   selector: 'qa-ov-load-drawer',
-  imports: [HlmButton, QaDrawerImports, QaSelect, QaTooltipImports, QaMultiSelect],
+  imports: [QaButtonImports, QaDrawerImports, QaSelect, QaTooltipImports, QaMultiSelect],
   host: { class: 'contents' },
   template: `
     <qa-drawer
@@ -89,20 +88,8 @@ import { LOAD_TARGETS, PROGRAMS, RESULT_TYPES } from './overview.mock';
       }
 
       <div qaDrawerFooter class="contents">
-        <button
-          hlmBtn
-          variant="outline"
-          type="button"
-          (click)="open.set(false)"
-          class="h-auto min-h-9 rounded-[8px] border-(--border) bg-(--field-bg) px-[14px] text-(length:--fs-14) font-medium text-(--text-2) shadow-none hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text-2) focus-visible:shadow-(--focus-ring) focus-visible:ring-0"
-        >Cancel</button>
-        <button
-          hlmBtn
-          type="button"
-          [disabled]="!target()"
-          (click)="submit()"
-          class="h-auto min-h-9 rounded-[8px] border-0 bg-(--primary) px-[14px] text-(length:--fs-14) font-semibold text-(--surface) hover:bg-(--accent) focus-visible:shadow-(--focus-ring) focus-visible:ring-0"
-        >Load results</button>
+        <button hlmBtn qaBtn tone="secondary" type="button" (click)="open.set(false)">Cancel</button>
+        <button hlmBtn qaBtn tone="primary" type="button" [disabled]="!target()" (click)="submit()">Load results</button>
       </div>
     </qa-drawer>
   `,

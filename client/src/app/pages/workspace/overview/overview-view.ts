@@ -2,12 +2,11 @@ import { Component, DestroyRef, ElementRef, computed, inject, signal, viewChild 
 import { OvAttention, AttentionGroupVm } from './ov-attention';
 import { OvLoadDrawer } from './ov-load-drawer';
 import { OvOutcomes, OutcomesVm } from './ov-outcomes';
-import { OvResultsInQa, ResultsInQaVm } from './ov-results-in-qa';
+import { CycleHeroVm, OvCycleHero } from './ov-cycle-hero';
 import { OvStages, StageVm } from './ov-stages';
-import { OvStepCard, StepCardVm } from './ov-step-card';
-import { OvTimelineCards } from './ov-timeline-cards';
+import { OvTimelineLanes, TimelineLaneVm } from './ov-timeline-lanes';
 import { OvWork, WorkRowVm, WorkTab } from './ov-work';
-import { daysFromToday, fmt, shortDate, timelineInfo } from './overview-calc';
+import { TimelineInfo, daysFromToday, fmt, phaseState, timelineInfo } from './overview-calc';
 import {
   ATTENTION,
   OUTCOMES,
@@ -28,13 +27,21 @@ import {
 const isOfficial = (b: Timeline) => b.kind === 'Official timeline';
 const ANGLE: Record<'type' | 'program' | 'assessor', string> = { type: 'Result type', program: 'Science program', assessor: 'Assessor' };
 
-/** "Overview" view of the QA Platform (QA lead): where the cycle stands, filtered by timeline. */
+/** "closes in 3 days" / "closes today" / "opens 01 Sep" for a timeline's current step. */
+function whenText(info: TimelineInfo): string {
+  if (info.when === 'closes') {
+    const days = daysFromToday(info.phase.end || info.phase.start);
+    return days > 0 ? `closes in ${days} ${days === 1 ? 'day' : 'days'}` : 'closes today';
+  }
+  return `${info.when} ${info.date}`;
+}
+
+/** "Overview" view of the QA Platform (QA lead): where the whole cycle stands, and each timeline in it. */
 @Component({
   selector: 'qa-overview-view',
   imports: [
-    OvTimelineCards,
-    OvResultsInQa,
-    OvStepCard,
+    OvCycleHero,
+    OvTimelineLanes,
     OvStages,
     OvAttention,
     OvWork,
@@ -46,16 +53,14 @@ const ANGLE: Record<'type' | 'program' | 'assessor', string> = { type: 'Result t
 })
 export class OverviewView {
   // ---------- State ----------
-  /** Selected timeline id, or 'all'. */
-  protected readonly timelineId = signal('all');
   protected readonly workTab = signal<WorkTab>('type');
-  /** Row of "Where the work is" briefly highlighted after a Needs attention link ("type:…"). */
+  /** Row briefly highlighted: a "Where the work is" row ("type:…") or a timeline lane ("lane:…"). */
   protected readonly highlight = signal<string | null>(null);
   protected readonly loadOpen = signal(false);
   /** Load in progress (header shows "Loading results N of M"). */
   protected readonly running = signal<{ done: number; total: number } | null>(null);
 
-  private readonly pageTop = viewChild.required<ElementRef<HTMLElement>>('pageTop');
+  private readonly lanesEl = viewChild.required(OvTimelineLanes, { read: ElementRef });
   private readonly workCard = viewChild.required(OvWork, { read: ElementRef });
 
   private runTimer: ReturnType<typeof setInterval> | undefined;
@@ -69,61 +74,54 @@ export class OverviewView {
   }
 
   // ---------- Timelines ----------
-  /** Timelines that are not closed (the ones the picker offers). */
-  protected readonly timelines = TIMELINES.filter((b) => b.status !== 'Closed');
+  /** Timelines that are not closed: one lane each, official first. */
+  protected readonly timelines = TIMELINES.filter((b) => b.status !== 'Closed').sort((a, b) => Number(!isOfficial(a)) - Number(!isOfficial(b)));
   private readonly officials = this.timelines.filter(isOfficial);
-  private readonly subs = this.timelines.filter((b) => !isOfficial(b));
-  protected readonly allCount = this.timelines.reduce((a, b) => a + b.results, 0);
+  /** Results across every open timeline. Every number on the page is for the whole cycle. */
+  protected readonly total = this.timelines.reduce((a, b) => a + b.results, 0);
+  protected readonly totalText = fmt(this.total);
 
-  protected readonly selected = computed(() => this.timelines.find((b) => b.id === this.timelineId()) ?? null);
-  /** Results in the selected timeline (or in all of them). Every number on the page scales with it. */
-  protected readonly total = computed(() => this.selected()?.results ?? this.allCount);
-  protected readonly totalText = computed(() => fmt(this.total()));
-
-  private readonly liveSubs = this.subs.filter((b) => b.status === 'Live').length;
-  protected readonly subsLiveText = computed(() =>
-    this.selected() || !this.liveSubs ? null : this.liveSubs === 1 ? '1 sub-timeline is also live' : this.liveSubs + ' sub-timelines are also live',
-  );
-
-  // ---------- Results in QA (only for "All timelines") ----------
-  protected readonly resultsInQa = computed<ResultsInQaVm | null>(() => {
-    if (this.selected()) return null;
+  // ---------- Hero: the whole cycle at a glance ----------
+  protected readonly hero = computed<CycleHeroVm>(() => {
+    const sum = STATUS_COUNTS.reduce((a, [, n]) => a + n, 0) || 1;
+    const assessed = STATUS_COUNTS.find(([s]) => s === 'Quality assessed')?.[1] ?? 0;
+    const official = this.officials[0];
+    const info = official ? timelineInfo(official) : null;
+    const live = this.timelines.filter((b) => b.status === 'Live').length;
     return {
-      statuses: STATUS_COUNTS.map(([status, n]) => ({ status, count: fmt(n) })),
+      eyebrow: `2026 cycle, ${live} live ${live === 1 ? 'timeline' : 'timelines'}`,
+      total: this.totalText,
+      assessedPct: Math.round((assessed / sum) * 100),
+      assessed: fmt(assessed),
+      step: info ? `Step ${info.step} of ${info.steps}: ${info.phase.name}` : '',
+      stepWhen: info ? whenText(info) : '',
+      statuses: STATUS_COUNTS.map(([status, n]) => ({ status, count: fmt(n), pct: Math.round((n / sum) * 100) })),
     };
   });
 
-  // ---------- Current step ----------
-  protected readonly stepCard = computed<StepCardVm | null>(() => {
-    const eff = this.selected();
-    const b = eff ?? this.officials[0];
-    if (!b) return null;
-    const info = timelineInfo(b);
-    const p = info.phase;
-    const eyebrow = `Step ${info.step} of ${info.steps} · ${eff ? b.name : 'Official timeline'}`;
-    const dates = p.end ? shortDate(p.start) + ' – ' + p.end : p.start;
-    if (info.state.kind === 'active') {
+  // ---------- Timeline lanes ----------
+  protected readonly lanes = computed<TimelineLaneVm[]>(() =>
+    this.timelines.map((b) => {
+      const info = timelineInfo(b);
       const st = info.state;
-      const days = daysFromToday(p.end || p.start);
-      const card: StepCardVm = {
-        eyebrow, audience: p.name, dates,
-        tailPre: days > 0 ? 'closes in ' : 'closes today', tailNum: days > 0 ? String(days) : '', tailPost: days > 0 ? (days === 1 ? ' day' : ' days') : '',
-        big: fmt(st.done) + ' of ' + fmt(st.of || b.results), pct: st.pct,
+      return {
+        id: b.id,
+        name: b.name,
+        kind: b.kind,
+        status: b.status,
+        results: fmt(b.results),
+        steps: b.phases.map((p) => ({ name: p.name, state: phaseState(p, b).kind })),
+        stepText: `Step ${info.step} of ${info.steps}: ${info.phase.name}`,
+        whenText: whenText(info),
+        progress: st.kind === 'active' && b.results > 0 ? { done: fmt(st.done), of: fmt(st.of || b.results), pct: st.pct } : null,
+        highlighted: this.highlight() === 'lane:' + b.id,
       };
-      return card;
-    }
-    const opens = info.when === 'opens';
-    const card: StepCardVm = {
-      eyebrow, audience: p.name, dates,
-      tailPre: opens ? 'opens in ' : 'closed', tailNum: opens ? String(Math.max(0, daysFromToday(p.start))) : '', tailPost: opens ? ' days' : '',
-      big: '0 of ' + fmt(b.results), pct: 0,
-    };
-    return card;
-  });
+    }),
+  );
 
   // ---------- Stage completion ----------
   protected readonly stages = computed<StageVm[]>(() => {
-    const f = this.total() / STAGE_BASE;
+    const f = this.total / STAGE_BASE;
     return STAGES.map((s, i) => {
       const done = Math.round(s.done * f);
       const of = Math.round(s.of * f);
@@ -131,7 +129,7 @@ export class OverviewView {
       const status = s.closed ? 'Closed' : done === 0 ? 'Not started' : pct < (s.elapsed ?? 0) ? 'Behind' : 'In progress';
       return {
         n: i + 1, name: s.name, criterion: s.criterion, round: i < 2 ? 'QA round 1' : 'QA round 2',
-        pct, detail: ` · ${fmt(done)}\u00a0of\u00a0${fmt(of)} ${s.word}`, left: of - done, leftText: fmt(of - done),
+        pct, detail: ` (${fmt(done)}\u00a0of\u00a0${fmt(of)} ${s.word})`, left: of - done, leftText: fmt(of - done),
         status, closed: s.closed, statuses: s.statuses,
       };
     });
@@ -143,7 +141,7 @@ export class OverviewView {
 
   // ---------- Needs attention ----------
   protected readonly attention = computed<AttentionGroupVm[]>(() => {
-    if (this.total() <= 0) return [];
+    if (this.total <= 0) return [];
     return ATTENTION.map((g) => {
       const rows = (g.key === 'pace'
         ? g.rows.filter((r) => (r.pct ?? 0) < PHASE_ELAPSED - 30).map((r) => ({ ...r, sev: PHASE_ELAPSED - (r.pct ?? 0) }))
@@ -168,8 +166,8 @@ export class OverviewView {
       name: m === 'program' ? programName : r.key,
       person: m === 'assessor' ? (r.person ?? '') : null,
       chip: null,
-      title: m === 'program' ? r.key + ' ' + programName : m === 'assessor' ? r.key + ' · ' + r.person : r.key,
-      pct: r.pct, detail: ` · ${fmt(done)}\u00a0of\u00a0${fmt(done + pending)} reviewed`, pending: fmt(pending), pace: r.pace,
+      title: m === 'program' ? r.key + ' ' + programName : m === 'assessor' ? r.key + ' (' + r.person + ')' : r.key,
+      pct: r.pct, detail: ` (${fmt(done)}\u00a0of\u00a0${fmt(done + pending)} reviewed)`, pending: fmt(pending), pace: r.pace,
       highlighted: this.highlight() === key,
       queryParams: m === 'type' ? { type: r.key } : m === 'program' ? { program: r.key } : { assessor: r.person ?? r.key },
       timelineId: null,
@@ -181,13 +179,13 @@ export class OverviewView {
 
   protected readonly workRows = computed<WorkRowVm[]>(() => {
     const tab = this.workTab();
-    const f = this.total() / WORK_BASE;
+    const f = this.total / WORK_BASE;
     if (tab === 'timeline') {
       return WORK_BY_TIMELINE.map((t) => {
         const done = t.pct >= 100 ? t.pending : Math.round((t.pending * t.pct) / (100 - t.pct));
         return {
           id: 'timeline:' + t.id, angle: null, code: null, name: t.name, person: null, chip: t.chip, title: t.name,
-          pct: t.pct, detail: ` · ${fmt(done)}\u00a0of\u00a0${fmt(done + t.pending)} reviewed`, pending: fmt(t.pending), pace: t.pace,
+          pct: t.pct, detail: ` (${fmt(done)}\u00a0of\u00a0${fmt(done + t.pending)} reviewed)`, pending: fmt(t.pending), pace: t.pace,
           highlighted: false, queryParams: null, timelineId: t.id,
         };
       });
@@ -203,10 +201,10 @@ export class OverviewView {
 
   // ---------- Assessment outcomes ----------
   protected readonly outcomes = computed<OutcomesVm>(() => {
-    const f = this.total() / OFFICIAL_RESULTS;
+    const f = this.total / OFFICIAL_RESULTS;
     const sc = (n: number) => Math.round(n * f);
     return {
-      total: this.totalText(),
+      total: this.totalText,
       approvedFirstPass: sc(OUTCOMES.approvedFirstPass),
       returnedResolved: sc(OUTCOMES.returnedResolved),
       returnedOpen: sc(OUTCOMES.returnedOpen),
@@ -216,16 +214,12 @@ export class OverviewView {
   });
 
   // ---------- Actions ----------
-  /** "1 sub-timeline is also live": select it; with several, scroll up to the timeline cards. */
-  protected openSubs(): void {
-    const live = this.subs.filter((b) => b.status === 'Live');
-    if (live.length === 1) this.timelineId.set(live[0].id);
-    this.pageTop().nativeElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }
-
+  /** A timeline row in "Where the work is": scroll to its lane and flash it. */
   protected pickTimeline(id: string): void {
-    this.timelineId.set(id);
-    this.pageTop().nativeElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    clearTimeout(this.highlightTimer);
+    this.highlight.set('lane:' + id);
+    this.lanesEl().nativeElement.querySelector('#lane-' + id)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    this.highlightTimer = setTimeout(() => this.highlight.set(null), 2000);
   }
 
   /** "See SP09" & co.: switch "Where the work is" to At risk and flash the matching row. */

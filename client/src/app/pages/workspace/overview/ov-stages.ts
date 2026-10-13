@@ -10,7 +10,7 @@ export interface StageVm {
   readonly criterion: string;
   readonly round: string;
   readonly pct: number;
-  /** " · 191 of 234 corrected". */
+  /** " (191 of 234 corrected)". */
   readonly detail: string;
   readonly left: number;
   readonly leftText: string;
@@ -53,10 +53,10 @@ const STAGE_CHIP: Record<StageStatus, string> = {
           <thead class="@max-2xl:hidden">
             <tr class="h-10 border-b border-(--surface-4)">
               <th scope="col" class="pr-4 pl-1"><span class="sr-only">Step</span></th>
-              <th scope="col" class="pr-4 text-left text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase">Stage</th>
-              <th scope="col" class="pr-4 text-left text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase">Completion</th>
-              <th scope="col" class="pr-4 text-right @max-4xl:pr-1 text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase">Remaining</th>
-              <th scope="col" class="pr-1 text-right @max-4xl:hidden text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase">Status</th>
+              <th scope="col" class="pr-4 text-left text-(length:--fs-12) font-medium text-(--text-4)">Stage</th>
+              <th scope="col" class="pr-4 text-left text-(length:--fs-12) font-medium text-(--text-4)">Completion</th>
+              <th scope="col" class="pr-4 text-right @max-4xl:pr-1 text-(length:--fs-12) font-medium text-(--text-4)">Remaining</th>
+              <th scope="col" class="pr-1 text-right @max-4xl:hidden text-(length:--fs-12) font-medium text-(--text-4)">Status</th>
             </tr>
           </thead>
           <tbody class="@max-2xl:block">
@@ -65,7 +65,7 @@ const STAGE_CHIP: Record<StageStatus, string> = {
                 class="relative h-[68px] cursor-pointer border-(--surface-4) hover:bg-(--surface-2) @max-2xl:grid @max-2xl:h-auto @max-2xl:grid-cols-[20px_minmax(0,1fr)_auto] @max-2xl:gap-x-3 @max-2xl:gap-y-2 @max-2xl:py-3"
                 [class.border-b]="!last"
               >
-                <td class="pt-3 pr-4 pb-[10px] pl-1 align-top @max-2xl:col-start-1 @max-2xl:row-start-1 @max-2xl:p-0 @max-2xl:pt-px font-(family-name:--qa-mono) text-(length:--fs-13) font-semibold tabular-nums text-(--text-muted)">{{ s.n }}</td>
+                <td class="pt-3 pr-4 pb-[10px] pl-1 align-top @max-2xl:col-start-1 @max-2xl:row-start-1 @max-2xl:p-0 @max-2xl:pt-px text-(length:--fs-13) font-semibold tabular-nums text-(--text-muted)">{{ s.n }}</td>
                 <td class="py-[10px] pr-4 align-middle @max-2xl:col-start-2 @max-2xl:row-start-1 @max-2xl:p-0">
                   <div class="flex min-w-0 flex-col gap-[3px]">
                     <a
@@ -87,13 +87,13 @@ const STAGE_CHIP: Record<StageStatus, string> = {
                       <div class="h-full rounded-full transition-[width] duration-200" [class]="s.closed ? 'bg-(--border-strong)' : 'bg-(--primary)'" [style.width.%]="s.pct"></div>
                     </div>
                     <span class="truncate text-(length:--fs-12) font-normal text-(--text-3) @max-2xl:col-start-2 @max-2xl:row-start-3 @max-2xl:self-center @max-2xl:whitespace-normal"
-                      ><span class="font-(family-name:--qa-mono) font-bold whitespace-nowrap tabular-nums text-(--text)">{{ s.pct }}%</span
+                      ><span class="font-bold whitespace-nowrap tabular-nums text-(--text)">{{ s.pct }}%</span
                       ><span class="text-(--text-4)">{{ s.detail }}</span></span
                     >
                   </div>
                 </td>
                 <td
-                  class="py-[10px] pr-4 text-right align-middle font-(family-name:--qa-mono) text-(length:--fs-14) font-bold whitespace-nowrap tabular-nums @max-4xl:pr-1 @max-2xl:col-start-3 @max-2xl:row-start-3 @max-2xl:self-center @max-2xl:p-0 @max-2xl:text-(length:--fs-13)"
+                  class="py-[10px] pr-4 text-right align-middle text-(length:--fs-14) font-bold whitespace-nowrap tabular-nums @max-4xl:pr-1 @max-2xl:col-start-3 @max-2xl:row-start-3 @max-2xl:self-center @max-2xl:p-0 @max-2xl:text-(length:--fs-13)"
                   [class]="s.left ? 'text-(--text)' : 'text-(--text-muted)'"
                 >{{ s.leftText }}<span class="hidden font-sans text-(length:--fs-12) font-normal text-(--text-4) @max-2xl:inline"> left</span></td>
                 <td class="py-[10px] pr-1 text-right align-middle @max-4xl:hidden @max-2xl:col-start-3 @max-2xl:row-start-1 @max-2xl:block @max-2xl:self-start @max-2xl:p-0">

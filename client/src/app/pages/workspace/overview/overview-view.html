@@ -1,7 +1,7 @@
-<!-- Overview (QA lead). Data comes from overview.mock.ts; every number follows the selected timeline card. -->
+<!-- Overview (QA lead). Data comes from overview.mock.ts; every number is for the whole cycle. -->
 
 <!-- Page header -->
-<div #pageTop class="flex scroll-mt-6 flex-wrap items-start gap-4 px-4 pt-8 sm:px-6 lg:px-8">
+<div class="flex scroll-mt-6 flex-wrap items-start gap-4 px-4 pt-8 sm:px-6 lg:px-8">
   <div class="flex min-w-0 flex-1 flex-col gap-1">
     <h1 class="m-0 text-(length:--fs-26) font-bold leading-[1.2] tracking-[-0.02em] text-(--text)">Overview</h1>
     <p class="m-0 text-(length:--fs-14) font-normal text-(--text-3)">Where the 2026 cycle stands today.</p>
@@ -12,7 +12,7 @@
       <div role="status" aria-live="polite" class="flex h-9 items-center gap-2 rounded-[8px] border border-(--tint-border-2) bg-(--tint-2) px-[14px] whitespace-nowrap max-sm:w-full max-sm:justify-center">
         <span aria-hidden="true" class="size-[7px] flex-none rounded-full bg-(--primary)"></span>
         <span class="text-(length:--fs-14) font-semibold text-(--accent)">Loading results</span>
-        <span class="font-(family-name:--qa-mono) text-(length:--fs-13) font-semibold tabular-nums text-(--accent)">{{ runningText() }}</span>
+        <span class="text-(length:--fs-13) font-semibold tabular-nums text-(--accent)">{{ runningText() }}</span>
       </div>
     }
   </div>
@@ -20,15 +20,9 @@
 
 <!-- Body -->
 <div class="flex flex-col items-stretch gap-6 px-4 pt-6 pb-8 sm:px-6 lg:px-8">
-  <qa-ov-timeline-cards [(value)]="timelineId" [timelines]="timelines" [allCount]="allCount" />
+  <qa-ov-cycle-hero [data]="hero()" />
 
-  @if (resultsInQa(); as rq) {
-    <qa-ov-results-in-qa [data]="rq" />
-  }
-
-  @if (stepCard(); as card) {
-    <qa-ov-step-card [card]="card" [subsLiveText]="subsLiveText()" (openSubs)="openSubs()" />
-  }
+  <qa-ov-timeline-lanes [lanes]="lanes()" />
 
   <qa-ov-stages [stages]="stages()" [shortNote]="shortNote()" />
 
