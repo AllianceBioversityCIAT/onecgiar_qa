@@ -1027,3 +1027,86 @@ The user's three decisions, verbatim:
   - T-8 issues the session, so it keeps the parallel Risk and Reliability lenses.
   - T-10 and T-11 get a single Reviewer each.
 - **Position at this gate:** about 7,650 LOC · 27 Reviewer passes · 7 of 11 tasks.
+
+### T-8: Login controller, cookies and throttling — IN PROGRESS
+
+- **Date:** 2026-10-13
+
+#### Attempt 1
+
+**Setup**
+- Effort `xhigh`.
+- Skills: nestjs-expert, api-design-principles, nestjs-best-practices (as listed).
+- Carried pointers: T-1 requestId middleware and `forbidNonWhitelisted`, T-3 DTO email, T-6 reason codes, T-7 `qa_ru` fail-closed (`[advisory-grade]`), T-7 admission error mapping.
+
+**Files changed**
+- New in `server/src/auth/`: `auth.controller.ts`, `auth-decision.ts`, `auth-throttle.ts`, `session-cookies.ts`, `redirect-uri.ts` (+ spec), and `dto/{auth-fields,login.dto,complete-new-password.dto,callback.dto,provider-url.query}.ts`.
+- New elsewhere: `server/src/common/request-id.ts` (+ spec) and `server/test/auth-login.e2e-spec.ts`.
+- Modified: `auth.module.ts`, `auth.errors.ts`, `common/configure-app.ts`, `common/http-exception.filter.ts`.
+
+**Implementer verification:** lint 0 · build green · unit 390/390 · e2e 147/147.
+
+**Red run** (controller removed): 91 failed / 1 passed, all assertion-level (`expected 404 to be 400` ×49, …).
+
+**Falsifiers**
+- `httpOnly` removed: 18 red.
+- `path: '/'`: 18 red.
+- `refreshToken` in the body: 4 red (`response body: expected '{"accessToken":"eyJ…' not to contain 'refresh-token-SECRET.part2.part3'`).
+- 29 extra mutations: all red.
+- One equivalent survivor: `MaxLength(255)` vs `IsEmail`.
+
+**Implementer Not Done / Assumptions** (verbatim; the full text is in the scratchpad `t8-review-context.md`):
+- **P-16 still UNVERIFIED.** `trust proxy = 1` is kept. **Recorded here as an assumption, as the task requires:** with zero proxies a client could spoof `X-Forwarded-For` and bypass the throttle; with two or more, every client lands in one bucket. The throttle store is also in-memory per process, so a PM2 cluster or N containers gives an effective limit of N × 10 (NFR-4 does not foresee this). Carried to T-11 / infrastructure HITL.
+- P-14 (30 days) is a constant, unverified until T-11.
+- No QA-side misconfiguration reason code: the client folds every upstream 4xx and exposes no status.
+- A further challenge on complete-new-password returns 503.
+- `expiresIn` comes from the access token's `exp`, via an extra `verifyAccess`.
+- The controller does not call `verifyId` separately (admission verifies the id token).
+- Missing `cognito:username` returns 401 **after admission commits**.
+- provider-url maps a microservice refusal to 503.
+- The redirect check is stricter than `startsWith`.
+- Login-route refusals expire the cookies of an open session (front-spec note).
+- Pre-existing filter noise is left alone.
+- `Cache-Control: no-store` is not added.
+
+**Evidence re-run (Leader-inline, non-author):** VERIFIED. lint 0 · build 0 · unit 390/390 · e2e 147/147.
+
+**Review mode:** parallel lens reviewers (session issuance), Risk and Reliability, both on `opus`. The Implementer ran on `sonnet` (T2).
+
+**Reviewer verdict, Reliability lens: PASS.**
+- Per-attribute cookie assertions; the falsifiers trace.
+- The throttle test is deterministic (fresh module per test); only the three routes are throttled; 429 comes back in the envelope.
+- The request-id middleware runs first; the T-1 envelope tests still pass.
+- Error mapping matches the per-route lists in design § 6.
+- `verifyAccess`/`expiresIn` stay within the spec.
+
+**Reviewer verdict, Risk lens: FAIL** (verbatim):
+> 1. **Discovered Issue:** On login, complete-new-password and callback, the Cognito username (plus email and `sub`) can be written to a log line.
+>    - drizzle-orm 0.45.3 wraps every MySQL failure in `DrizzleQueryError`, whose message is `Failed query: …\nparams: ${params}` (`server/node_modules/drizzle-orm/errors.js:12`, thrown from `mysql-core/session.js`).
+>    - Admission writes `cognitoUsername` in the SSO insert and the step-7 patch (`server/src/auth/admission.service.ts:199,273,295`). `DrizzleUsersStore.update/insert` re-throw anything that is not a duplicate-key error (`server/src/users/users.repository.ts:250-263`).
+>    - That error is not an `HttpException`, so `HttpExceptionFilter` logs it as `unhandled_error` together with `exception.stack` (`server/src/common/http-exception.filter.ts:57-66`). The stack contains the message, and so the params.
+>    - The trigger is realistic: a lock-wait timeout or deadlock under DD-10's `FOR UPDATE` / `FOR SHARE` locks, or a dropped connection.
+>    - T-8 is what makes this reachable over HTTP. The log-leak e2e (`server/test/auth-login.e2e-spec.ts:1131-1149`) covers only refusals and success, never a 5xx from the DB. The Implementer filed the 5xx stack logging under "pre-existing noise", but FR-9 is in T-8's own requirement list.
+>    - **Violated Rule:** `docs/specs/auth/cognito-native-session/requirements.md` FR-9 › Cookie attributes: "the refresh token, the id token and the username must NOT appear in any response body or log line". Also design.md § 7.2 › Error filter: "logs one structured line per auth decision without secrets (NFR-7)", and `docs/trd/trd.md` § 10 (QAS-OBS-1).
+>    - **Remediation Suggestion:** For anything that is not an `HttpException`, the filter should stop logging the raw stack. Log only fixed fields: the error `name`, the driver `code`/`errno` from `cause`, and stack frames without the message line. Alternatively, redact `DrizzleQueryError` messages and params before logging. Then add an e2e test: make admission throw a `DrizzleQueryError` whose params include `USERNAME` and the email on `POST /auth/login`. It should assert a 500 with no live cookie, and that no log output contains `USERNAME`.
+
+**ADVISORY** (both lenses; labeled advisory, not gating)
+- **Risk — login CSRF and forced logout.** Nest parses urlencoded bodies and the login routes have no OriginGuard. A cross-site top-level form POST could plant the attacker's session cookies, or clear the victim's. Fix: JSON-only auth routes, or OriginGuard on them. The design scopes OriginGuard to the session routes only, so this is **raised to the user at the gate as a spec decision**.
+- **Risk:** `verifyAccess` does not compare the access token's `sub` with the admitted user's `cognitoSub`.
+- **Risk / Resilience:** missing `cognito:username` returns 401 after admission commits. Read the claim before `resolve`.
+- **Risk:** no `Cache-Control: no-store` on responses that carry an access token.
+- **Resilience:** provider-url is unthrottled but calls the microservice.
+- **Resilience:** in-memory per-process throttling multiplies the limit by the number of processes (recorded with P-16).
+- **Reliability:** design § 7.2 says the error filter logs the auth decision, but the diff logs from an interceptor, the throttler guard and the controller. A body-parser rejection gets no `auth_decision` line. Record this as a design deviation.
+- **Reliability:** design § 7.3 lists `verifyId` as a controller step, but admission does it. Record this as a design deviation.
+- **Reliability:** the title of the "does not reveal whether the email exists" test overstates what it proves.
+- **Reliability:** the 503 path logs two lines.
+
+**Leader adjudication**
+- The Risk FAIL is in scope: FR-9 is in T-8's requirement list, and T-8 makes the path reachable over HTTP.
+- The two design deviations (logging site, `verifyId` site) are recorded here as decisions: same behavior, different location. No spec edit.
+
+#### Attempt 2
+
+- The retry bump from `xhigh` would reach `max`, which is not allowed on the T2 tier, so **the Implementer is escalated to T1 `opus` at `xhigh`**.
+- The Reviewer model for this attempt goes to the user at the gate, because author ≠ auditor.
