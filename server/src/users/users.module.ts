@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { DrizzleModule } from '../database/drizzle/drizzle.module.js';
 import { AuthorizationService } from './authorization.service.js';
+import { CURRENT_USER_CLOCK, CurrentUserCache } from './current-user.cache.js';
 import {
   DrizzleRoleAssignmentsStore,
   ROLE_ASSIGNMENTS_STORE,
@@ -24,7 +25,14 @@ import {
     UsersRepository,
     RoleAssignmentsRepository,
     AuthorizationService,
+    { provide: CURRENT_USER_CLOCK, useValue: () => Date.now() },
+    CurrentUserCache,
   ],
-  exports: [UsersRepository, RoleAssignmentsRepository, AuthorizationService],
+  exports: [
+    UsersRepository,
+    RoleAssignmentsRepository,
+    AuthorizationService,
+    CurrentUserCache,
+  ],
 })
 export class UsersModule {}

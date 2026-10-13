@@ -351,3 +351,115 @@
 - **Pending shared-doc sync (on `staging`):** ADR-003 and TRD § 9 JWKS row: note that both Cognito issuer formats are accepted for the same pool, so two JWKS URIs are fetched.
 - **Budget (re-baselined):** about 3,500 of about 5,500 LOC · 7 of about 22 Reviewer passes · 4 of 11 tasks.
 - **Final verification:** server command green (lint 0 · build 0 · unit 218/218).
+
+### T-5: Global guards, decorators, current-user cache and `/auth/me` — PASS (attempt 1)
+
+- **Date:** 2026-10-13
+- **Attempt 1:** effort `xhigh`. These are the global access-control guards, and a fail-open bug here would expose every route. Skills: nestjs-expert, nestjs-best-practices, as the task lists. The brief carried the T-1/T-3/T-4 forward pointers.
+
+**Files changed**
+- New:
+  - `server/src/auth/{auth.module,authenticated-request,me.controller}.ts`
+  - `server/src/auth/guards/{auth,permission}.guard.ts`
+  - `server/src/auth/decorators/{public,read-access,require-permission,current-user}.decorator.ts`
+  - `server/src/users/current-user.cache.ts` and its spec
+  - `server/test/auth-guards.e2e-spec.ts`
+  - `server/test/support/jwt-test-keys.ts`, extracted from the T-4 spec byte-identical, plus `localJwksCache()`
+- Modified:
+  - `server/src/app.module.ts`
+  - `server/src/app.controller.ts` (`@Public` on `/health`)
+  - `server/src/users/users.module.ts` and its spec
+  - `server/src/auth/token-verifier.service.spec.ts` (helper import only)
+  - `server/test/app.e2e-spec.ts` (JWKS override only)
+
+**Implementer verification**
+- lint 0, build 0, unit 242/242 (10 files), e2e 55/55 (2 files). Consumer suites green.
+- `@Controller` grep: at start, only `app.controller.ts` (P-7 holds). After: `AppController` (`/health`, `@Public`) and `MeController` (`/auth/me`, `@ReadAccess`). Probe controllers exist only in the test.
+
+**Red run (HEAD, new modules stubbed, tree untouched):** 36 failed / 9 passed of 45, all on status assertions. The full log is in the session scratchpad (`red-run.keep.txt`). Examples:
+- `expected 401 "Unauthorized", got 200 "OK"` for no-token and the 10 rejection variants
+- `expected 403, got 200` for GUEST on admin and on undeclared routes
+- `/auth/me` gives `expected 200, got 404`
+
+**Falsifiers** (all reverted and diff-verified)
+- **Falsifier 1** (PermissionGuard allows undeclared routes): 2 red, `denies a route that declares neither a permission nor the read marker` and `denies an undeclared route even to an ADMIN (no bypass)`. Both: `expected 403 "Forbidden", got 200 "OK"`.
+- **Falsifier 2** (AuthGuard ignores `@Public`): 5 red, including `GET /api/v1/health returns 200 { status: "ok" }` with `expected 200 "OK", got 401 "Unauthorized"`.
+- **Extra falsifier** (stale-load guard removed): `current-user.cache.spec.ts > invalidate > is not undone by a load that was already in flight` went red.
+
+**Implementer Not Done / Assumptions** (verbatim, assumptions only)
+1. **No writer calls `invalidate` yet.**
+   - FR-11's "immediately in the same process" rests on `CurrentUserCache.invalidate(userId)`, which is exported and tested.
+   - `RoleAssignmentsRepository.create` and `revoke` don't call it, because that would make the repository depend on the cache, which already depends on the repository.
+   - T-9 (AdmissionService) and the future admin writers must call it after commit. **[Leader: admission is T-7]**
+2. **The JWKS fetch needed a local fetcher.**
+   - The verifier's startup warm-up fetches the JWKS even from a pre-loaded `SimpleJwksCache`. My first e2e run took 28 s because every `app.init()` went to the network.
+   - I added `localJwksCache()` to `test/support/jwt-test-keys.ts`, which serves the JWKS from memory. Both e2e suites use it, and the suite now runs in about 1 s.
+   - `AuthModule` registers `JWKS_CACHE` as a provider (`new SimpleJwksCache()`) so `overrideProvider` works. Production behavior is unchanged.
+3. **What counts as a live assignment.**
+   - A live assignment is one that is active, not revoked, on an active role, and on a role the permission catalog knows.
+   - It decides custom-user admission and which assignments `/auth/me` lists, which is stricter than FR-11's literal wording.
+   - The same checks exist inside T-3's `grantingRole`, which I did not edit, so the two could drift.
+4. **Decorator precedence.**
+   - A declared `@RequirePermission` always wins over `@ReadAccess`, at handler or class level.
+   - Handler metadata overrides class metadata within the same decorator.
+   - `@Public` at class level makes all of its handlers public.
+5. **Edits outside the Scope list.** The edits listed under Files changed (wiring, `auth.module.ts`, `authenticated-request.ts`, the extracted test helper, one `users.module.spec.ts` assertion, the JWKS override in `app.e2e-spec.ts`).
+6. **Gaps.**
+   - There is no route-inventory test, because the task text doesn't list one.
+   - NFR-5 is unmeasured; it belongs to T-10.
+   - Prettier flags `server/src/common/http-exception.filter.ts`. That is pre-existing and I left it alone.
+   - Not-admitted refusals raise a typed `UserNotAdmittedError` (a 401) so T-8 can use it for reason codes.
+
+**Evidence re-run (Leader-inline, non-author):** VERIFIED. lint 0, build 0, unit 242/242, e2e 55/55.
+
+**Review mode:** parallel lens reviewers, because effort was `xhigh` and the task is an authentication surface. Two lenses were run: Risk (security) and Reliability. Each also checked baseline spec conformance.
+
+**Reviewer verdict, Risk lens: PASS.** No fail-open path was found.
+- Bearer extraction is strict, and every verify error maps to 401.
+- `@Public` counts only on a strict `=== true`, and each guard checks it on its own.
+- `@RequirePermission` takes precedence over `@ReadAccess`. An undeclared route returns 403 even for ADMIN.
+- GUEST gets 403 on every action route.
+- Cache: the 60 s bound counts from before the reads, users that don't exist are not cached, and an epoch counter blocks stale in-flight loads.
+- `/auth/me` copies explicit fields only, and a test pins the key set.
+- Guard order is AuthGuard first.
+
+**Reviewer verdict, Reliability lens: PASS.**
+- Every FR-10/11/12/15 scenario is genuinely exercised, with handler spies asserting the handler did not run.
+- The fake clock tests both the 59 s and 61 s cases. The invalidate e2e test does not pass vacuously.
+- Guard order is proven by the GUEST/ADMIN 403 tests.
+- The cache TTL boundaries are unit-tested.
+- The production `JWKS_CACHE` behaves the same as the verifier's fallback.
+- The T-4 helper extraction is byte-identical, and no assertion hunk changed.
+
+**ADVISORY (both lenses; labeled advisory, not gating)**
+- Risk/Resilience (both lenses): nothing calls `CurrentUserCache.invalidate`, and no task in `tasks.md` says to. T-7's admission writes (link `sub`, update email and names) would show up only after up to 60 s, which breaks FR-11's "immediately within the same process". **This is a spec tension, raised at the gate. See the Spec tension entry below.**
+- Risk/Reliability (both lenses): nothing enforces FR-10's public-route "only" list. Suggested fix: a route-inventory test in T-10, which that task's scope already covers.
+- Risk: class metadata is inherited through the prototype chain, so a subclass of a `@Public` controller inherits it. Add a note on `Public`.
+- Risk: a handler-level `@RequirePermission` overrides the class-level one, so a class-level permission is a default, not a minimum.
+- Risk/Reliability (both lenses): the live-assignment logic is duplicated in `isLiveAssignment` (cache) and `grantingRole` (T-3). Unify them later.
+- Reliability: concurrent misses are not merged, and a single `invalidate` drops every in-flight store. Revisit if T-10 shows contention.
+
+**Spec tension (Pivot evidence, lightest grade), for the gate**
+- FR-11's "immediately within the same process when the change happens through QA" is mapped only to T-5 in the coverage table. But it can only hold if every QA writer calls `invalidate`.
+- In this spec, the writer is T-7 (admission: link `sub`, update email, names and `auth_source`). T-7's text does not mention invalidation.
+- Amendment proposed to the user: add to T-7's Scope and Tests "call `CurrentUserCache.invalidate(user.id)` after the admission transaction commits; test that a second resolve or `/auth/me` reflects the change without advancing the clock".
+
+**Forward pointers**
+- T-7: `invalidate` after commit, pending the user's answer on the amendment. Also the T-3 locking re-read pointer.
+- T-8: carries `UserNotAdmittedError` for reason codes (NFR-7).
+- T-10: the route-inventory test covers the FR-10 "only" list.
+
+**Records**
+- **spawns:**
+  - implementer: 56 calls, 187363 tokens, ended partial (assumptions only)
+  - reviewer (risk): 15 calls, 74402 tokens, ended complete
+  - reviewer (reliability): 15 calls, 70995 tokens, ended complete
+- **runtime events:** none
+- **Requirements covered:**
+  - FR-10: handler does not run; public list currently `/health`.
+  - FR-11: not admitted gives 401; the 60 s freshness bound holds. Same-process invalidation holds at the mechanism level; the writer side is pending T-7.
+  - FR-12: all three scenarios.
+  - FR-15.
+  - NFR-5: measurement belongs to T-10.
+- **Budget (re-baselined):** about 5,300 of about 5,500 LOC, which is near the tripwire because T-5 added about 1,770 diff lines. Reviewer passes: 9 of about 22. Tasks: 5 of 11.
+- **Final verification:** server command plus e2e, green (lint 0, build 0, unit 242/242, e2e 55/55).

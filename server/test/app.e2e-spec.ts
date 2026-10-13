@@ -2,7 +2,9 @@ import { Test, TestingModule } from '@nestjs/testing';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import request from 'supertest';
 import { AppModule } from './../src/app.module.js';
+import { JWKS_CACHE } from './../src/auth/token-verifier.service.js';
 import { configureApp } from './../src/common/configure-app.js';
+import { localJwksCache, newKeyPair } from './support/jwt-test-keys.js';
 
 const ALLOWED = 'https://qa.example.org';
 const DISALLOWED = 'https://evil.example.com';
@@ -11,9 +13,13 @@ describe('HTTP surface (e2e)', () => {
   let app: NestExpressApplication;
 
   beforeEach(async () => {
+    // The verifier warms its JWKS at start-up: serve it locally, no network.
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideProvider(JWKS_CACHE)
+      .useValue(localJwksCache(newKeyPair('app-e2e-kid')))
+      .compile();
 
     app = moduleFixture.createNestApplication<NestExpressApplication>();
     configureApp(app);

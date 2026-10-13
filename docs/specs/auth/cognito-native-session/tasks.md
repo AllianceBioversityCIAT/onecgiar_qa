@@ -92,7 +92,7 @@ Serial boundaries: T-1 (config, `main.ts`), T-2 (schema). T-4 and T-6 are parall
 - **Skills:** nestjs-expert, aws-serverless
 
 ## T-5: Global guards, decorators, current-user cache and `/auth/me`
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-3, T-4
 - **Requirements:** FR-10 (handler must NOT run; public list), FR-11 (Not admitted → 401; Freshness ≤ 60 s and same-process invalidation), FR-12 (Missing permission; GUEST; Undeclared route → 403), FR-15, NFR-5

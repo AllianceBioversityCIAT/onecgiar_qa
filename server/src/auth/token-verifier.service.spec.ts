@@ -1,8 +1,14 @@
-import { generateKeyPairSync, sign, type KeyObject } from 'node:crypto';
 import { Logger } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import { SimpleJwksCache, type Fetcher } from 'aws-jwt-verify/jwk';
+import {
+  b64url,
+  jwksOf,
+  newKeyPair,
+  signJwt,
+  type KeyPair,
+} from '../../test/support/jwt-test-keys.js';
 import { authConfig } from '../config/auth.config.js';
 import {
   InvalidTokenError,
@@ -21,37 +27,6 @@ const OTHER_CLIENT_ID = 'some-other-client';
 const ISSUER = `https://cognito-idp.${REGION}.amazonaws.com/${POOL_ID}`;
 const JWKS_URI = `${ISSUER}/.well-known/jwks.json`;
 const KID = 'kid-1';
-
-interface KeyPair {
-  kid: string;
-  privateKey: KeyObject;
-  publicKey: KeyObject;
-}
-
-function newKeyPair(kid: string): KeyPair {
-  const { privateKey, publicKey } = generateKeyPairSync('rsa', {
-    modulusLength: 2048,
-  });
-  return { kid, privateKey, publicKey };
-}
-
-function jwksOf(...pairs: KeyPair[]) {
-  return {
-    keys: pairs.map((pair) => ({
-      ...pair.publicKey.export({ format: 'jwk' }),
-      kid: pair.kid,
-      alg: 'RS256',
-      use: 'sig',
-    })),
-  };
-}
-
-function b64url(value: object | Buffer): string {
-  const buffer = Buffer.isBuffer(value)
-    ? value
-    : Buffer.from(JSON.stringify(value));
-  return buffer.toString('base64url');
-}
 
 const nowSeconds = () => Math.floor(Date.now() / 1000);
 
@@ -84,20 +59,6 @@ function idClaims(overrides: Record<string, unknown> = {}) {
     exp: nowSeconds() + 3600,
     ...overrides,
   };
-}
-
-function signJwt(
-  claims: Record<string, unknown>,
-  key: KeyPair,
-  kid: string = key.kid,
-): string {
-  const signingInput = `${b64url({ alg: 'RS256', typ: 'JWT', kid })}.${b64url(claims)}`;
-  const signature = sign(
-    'RSA-SHA256',
-    Buffer.from(signingInput),
-    key.privateKey,
-  );
-  return `${signingInput}.${b64url(signature)}`;
 }
 
 function authConfigValue(): ConfigType<typeof authConfig> {

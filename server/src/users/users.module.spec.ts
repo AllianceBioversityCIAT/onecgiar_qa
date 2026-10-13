@@ -3,6 +3,7 @@ import { Test } from '@nestjs/testing';
 import { DRIZZLE } from '../database/drizzle/drizzle.constants.js';
 import { DrizzleModule } from '../database/drizzle/drizzle.module.js';
 import { AuthorizationService } from './authorization.service.js';
+import { CurrentUserCache } from './current-user.cache.js';
 import { RoleAssignmentsRepository } from './role-assignments.repository.js';
 import { UsersModule } from './users.module.js';
 import { UsersRepository } from './users.repository.js';
@@ -15,7 +16,7 @@ import { UsersRepository } from './users.repository.js';
 class FakeDrizzleModule {}
 
 describe('UsersModule wiring', () => {
-  it('resolves and exports the repositories and the authorization service', async () => {
+  it('resolves and exports the repositories, the authorization service and the current-user cache', async () => {
     const moduleRef = await Test.createTestingModule({ imports: [UsersModule] })
       .overrideModule(DrizzleModule)
       .useModule(FakeDrizzleModule)
@@ -28,6 +29,7 @@ describe('UsersModule wiring', () => {
     expect(moduleRef.get(AuthorizationService)).toBeInstanceOf(
       AuthorizationService,
     );
+    expect(moduleRef.get(CurrentUserCache)).toBeInstanceOf(CurrentUserCache);
     await moduleRef.close();
   });
 });
