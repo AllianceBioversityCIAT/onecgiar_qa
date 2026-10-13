@@ -867,3 +867,48 @@ The user's three decisions, verbatim:
 - `git diff`: the only removed lines are the replaced rows.
 
 **Accounting:** this is a second amendment loop on T-7, starting at attempt 1. These are approved scope changes, not FAILs.
+
+### T-7 second amendment loop (strict SSO, verified email sync, locking-read decisions) — IN PROGRESS
+
+- **Date:** 2026-10-13
+- **Attempt 1** (effort `xhigh`; skills nestjs-expert, tdd)
+  - **Files changed:**
+    - `server/src/auth/admission.service.ts` + spec
+    - `server/src/users/users.repository.ts` + spec
+    - `server/src/users/role-assignments.repository.ts` + spec (`lockActiveViewsByUserId`)
+    - `server/test/support/in-memory-stores.ts`
+  - **Decision sources (Implementer):**
+    - Steps 2–3: `SELECT … users WHERE id = ? FOR UPDATE`, then `judge`.
+    - Link: conditional UPDATE.
+    - Step 5: the locked row.
+    - Step 6: `role_assignments … FOR UPDATE`, plus `roles` read with a **plain** SELECT.
+    - Lock order: `users` PK, then the `role_assignments (user_id, is_active)` range.
+  - **Red run at HEAD:** 19 failed / 50 passed, all on assertions.
+  - **Falsifiers (a)–(d):** all red. Every prior T-7 mutation is still red, and the extra mutations are red too. All were reverted and checked byte-identical.
+  - **Implementer verification:** lint 0, build 0, unit 334/334, e2e 55/55.
+  - **Implementer Not Done / Assumptions (verbatim):** the full text is in the scratchpad (`t7-amend2-review-context.md`). Key items:
+    - "`roles.is_active` is read plainly. A role deactivated after the snapshot is not seen at step 6. This follows your 'lock only the user row and that user's assignment rows'. Locking `roles` would serialize every admin login."
+    - "No such user" (step 4) stays on plain reads.
+    - Email re-check in `judge` (an Implementer addition).
+    - SSO assignments are also read with FOR UPDATE.
+  - **Evidence re-run (Leader-inline, non-author):** VERIFIED. lint 0, build 0, unit 334/334, e2e 55/55.
+  - **Reviewer verdict, Risk lens: FAIL** (verbatim issue):
+    > In step 6, `roles.is_active` comes from a plain SELECT (role-assignments.repository.ts:839-842). The `roles` read uses the transaction's read view, which is created by the first plain `findByCognitoSub`. Suppose an admin deactivates a role after that read and before the decision. The stale `roleIsActive = true` still passes `isLiveAssignment`, so a custom user whose only role was just deactivated is **admitted**. This error lets someone in, not just refuses them. … **Violated Rule:** design.md §10, DD-10 row: "the active/assignments re-check come only from … `SELECT … FOR UPDATE` — never from a plain `SELECT`". Also the user's rule 3. **Remediation:** this is not an Implementer defect. The Leader's brief forbade the literal fix, so the user must choose: (a) read the roles with `FOR SHARE` by primary key (no gap locks, logins not serialized; needs the user's sign-off, since it is not literally FOR UPDATE); (b) `FOR UPDATE` by primary key (serializes logins of users who share a role); (c) accept the residual risk and record it in DD-10. Whichever is chosen, fix the class doc, and if (a) or (b), add a role-deactivated-after-snapshot test.
+    - "No such user" on plain reads is acceptable: rule 3 and DD-10 do not list it, and a stale view can only refuse.
+    - Named checks 1, 2 and 4 conform. Check 3 (DD-10) fails on this one point.
+  - **Reviewer verdict, Reliability lens: FAIL** (same item, verbatim remediation):
+    > Add `.for('share')` (or `'update'`) to the `roles` read in `lockActiveViewsByUserId`, and add a test where a role is deactivated after the snapshot and the login is refused. If you keep this as your brief's "lock only … that user's assignment rows", record it as a deviation and get the user's approval to amend DD-10 instead.
+    - FOR SHARE on existing role rows by PK takes record locks only, which are compatible with each other, so logins are not serialized. The order users → role_assignments → roles has no cycle.
+    - Lock order is sound, the tests are not vacuous, and the shared `ReadView` fake models REPEATABLE READ faithfully.
+  - **ADVISORY (both lenses; labeled advisory, not gating):**
+    - **Gap locks on empty `role_assignments` ranges** (GUEST, new SSO, refused custom). These go against the letter of the Leader brief. They cannot deadlock between logins, and a grant serializes with the login through the FK S-lock on `users[u]`. But for the newest users the gap runs to the end of the index, so a grant to any recent user waits on concurrent GUEST logins (short waits).
+    - **SSO assignments are read with FOR UPDATE although no DD-10 decision uses them.** A plain read for SSO would remove most of the gap-lock footprint.
+    - **Future revoke spec:** the current `revoke` (`UPDATE … WHERE id = ?`) locks PK then secondary, while admission locks secondary then PK. That is an opposite-order deadlock (1213), including an admin revoking their own assignment while logging in. The future revoke must lock `users[user_id]` FOR UPDATE first. Nothing calls `revoke` in production today.
+    - **Pre-existing lost-insert retry:** `findByCognitoSub FOR UPDATE` on a possibly absent sub takes a gap lock on `uq_users_cognito_sub`, and two such retries can deadlock. Very rare. Record it in the deadlock note.
+    - **Class doc overclaims:** it says every decision uses the latest committed state.
+    - The step-7 email tests run only in login mode; add refresh.
+    - `judge` returns undefined when the sub moved, and `locate` does not fall back. This is safe; document it.
+  - **Leader adjudication:**
+    - Both FAILs are the same item, and it was **caused by the Leader's brief constraint** ("lock only the user row and that user's assignment rows"), not by an Implementer defect.
+    - It is a spec/brief tension, so it goes to the user before any rework.
+    - The attempt counter stands at 1 (a Reviewer FAIL consumed it). The next attempt carries the user's decision.
