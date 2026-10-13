@@ -109,7 +109,7 @@ Serial boundaries: T-1 (config, `main.ts`), T-2 (schema). T-4 and T-6 are parall
 - **Skills:** nestjs-expert, nestjs-best-practices
 
 ## T-6: Auth microservice client
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** S
 - **Depends on:** T-1
 - **Requirements:** NFR-6 (503 within 10 s), FR-13 (empty refresh response → 401 — client part), FR-4 (Invalid credentials → 401 without revealing existence — client part)

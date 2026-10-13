@@ -478,3 +478,79 @@
   - Measured pace: about 1,000 LOC per task, roughly 1/3 production and 2/3 tests.
   - New tripwire baseline: 11 tasks, about 10,000 LOC, about 25 Reviewer passes.
   - Current position after T-5: about 4,990 LOC, 9 Reviewer passes.
+
+### T-6: Auth microservice client — PASS (attempt 2)
+
+- **Date:** 2026-10-13
+- **Attempt 1** (effort `medium`; skills nestjs-expert and error-handling-patterns, as listed). The microservice source of truth was the local checkout `one-cgiar-microservices/auth-microservice` at `bf29541f`, read-only.
+  - **Files changed:**
+    - `server/src/auth/auth-microservice.client.ts` (new)
+    - `server/src/auth/auth-microservice.client.spec.ts` (new)
+    - `server/src/auth/auth.module.ts` (provider added)
+  - **Implementer verification:** lint 0, build clean, unit 255/255 (11 files, 13 new).
+    - Red run against a stub: 13 of 13 failed. Twelve failed on assertions. One failed with `TypeError: Cannot read properties of undefined (reading '1')` (the timeout test).
+    - Falsifier 1 (5xx mapped to `InvalidCredentialsError`): `maps a 5xx to UpstreamUnavailableError` went red.
+    - Falsifier 2 (response body logged): `never logs bodies, tokens or passwords` went red (`… not to contain 'SECRET-BODY-MARK'`).
+    - Both falsifiers were reverted.
+  - **Fixture citations:** every route and body cites file:line in `auth-microservice/src` at `bf29541f`. The refresh body `{refreshToken, username}` is marked "per DD-2, pending microservice change".
+  - **Implementer Not Done / Assumptions (verbatim, assumptions only):**
+    > "**DD-2 refresh:** the real microservice does not accept `username` yet. Until it ships, the client's `refresh` response has not been exercised against a live microservice (T-9 is blocked on it)."
+    >
+    > "**Refresh token optional:** I made `refreshToken` optional in `RefreshResult`. Today the microservice always returns it, but the DD-2 change is unshipped."
+    >
+    > "**Challenge scope:** only `NEW_PASSWORD_REQUIRED` is recognised. Any other challenge name is treated as an invalid body (401)."
+  - **Evidence re-run (Leader-inline, non-author):** VERIFIED. lint 0, build 0, unit 255/255, e2e 55/55.
+  - **Reviewer verdict (attempt 1): FAIL** (verbatim):
+    > 1. **Discovered Issue:** The 10 s timeout test does not prove the abort with an assertion.
+    >    - In the red run it failed with `TypeError: Cannot read properties of undefined (reading '1')`. That is a setup crash, not an assertion. The test never checks that `fetch` was called before it indexes `mock.calls[0][1]`.
+    >    - Mutation trace: delete the `setTimeout(() => controller.abort(), …)` line or raise the timeout above 10 s. The `9_999` check still passes, and `await assertion` never settles under fake timers. The test then goes red only on Vitest's own test timeout.
+    >    - So the main NFR-6 mutation, "no timeout", is caught by a timeout and not by a behavioral assertion.
+    >    - **Violated Rule:**
+    >      - Task T-6 *Red run*: "fixtures-based tests fail before the client exists (assertion level)".
+    >      - The reviewer contract § Red Run & Mutation Trace: "not on setup, an intercept, a timeout".
+    >      - NFR-6 (requirements.md § 7): "answer 503 within 10 s".
+    >    - **Remediation Suggestion:** In `server/src/auth/auth-microservice.client.spec.ts`, timeout test:
+    >      - Assert `expect(fetchMock).toHaveBeenCalledTimes(1)` before reading `mock.calls[0][1]`.
+    >      - After `advanceTimersByTimeAsync(1)`, assert `signal?.aborted` is `true` before `await assertion`.
+    >      - Re-run two mutations and record that each fails on an assertion: (a) remove the abort timer; (b) set `MS_AUTH_TIMEOUT_MS = 20_000`.
+  - **Reviewer fixture check:** the fixtures were spot-checked against `bf29541f`. All routes and shapes match, and the Disqualifier is not triggered.
+  - **ADVISORY (attempt 1 Reviewer; labeled advisory, not gating):**
+    - Risk: a QA-side misconfiguration surfaces as 401 "Invalid credentials" with only `upstream_refused status=401` in the log. This covers wrong `MS_AUTH_*` (CLARISA 401) and a missing `mis_auth` (400). Consider a distinct reason code. No 400 path is needed for redirect URIs, because FR-6 checks them QA-side in T-8.
+    - Reliability: every completeNewPassword failure is a 400 upstream, including a password-policy rejection, so the user sees "Invalid credentials". This is a gap outside FR-5 and is noted for the front spec.
+    - Reliability (Leader Q1): mapping an unknown challenge to 401 is consistent with § 7.2. The microservice only forwards `NEW_PASSWORD_REQUIRED`.
+    - Resilience: a further challenge on new-password (MFA) arrives as a 500 and is mapped to 503. Note this for T-7/T-8.
+    - Readability (spec): design § 7.2 cites "(P-7)" for the empty or malformed body, but the right reference is P-6. This is a pending spec fix and was not edited now.
+    - Readability: a Nest `@Post` returning `undefined` likely answers 201, not 200. Prefer a 201 fixture.
+- **Attempt 2** (effort `high`, bumped after the FAIL): rework of the timeout test and the two mutations only, with the FAIL report passed verbatim.
+  - **Files changed:** only the timeout test in `server/src/auth/auth-microservice.client.spec.ts`. Production code is unchanged (diff-verified).
+  - **Implementer verification:** lint 0, build 0, unit 255/255.
+    - The test no longer awaits the client promise. It records the outcome through `.then` into `{settled, error}`, so a mutated client cannot hang it.
+    - Assertion order: `toHaveBeenCalledTimes(1)` first, then `AbortSignal`, then at 9_999 ms not aborted and not settled, then at 10_000 ms aborted, settled and `UpstreamUnavailableError`.
+  - **Mutations** (each reverted, diff clean):
+    - (a) Abort timer removed: 1 failed. `AssertionError: expected false to be true` at spec `:237` (`expect(signal?.aborted).toBe(true)`), 167 ms, no Vitest timeout.
+    - (b) `MS_AUTH_TIMEOUT_MS = 20_000`: 1 failed, same assertion at `:237`.
+    - (c) Client never calls fetch (the red run): 10 failed / 3 passed, all on assertions. The timeout test failed with `expected "vi.fn()" to be called 1 times, but got 0 times` at `:228`.
+  - **Implementer Not Done / Assumptions (verbatim, a note only):**
+    > "My first attempt at mutation (a) used `timeout`, which doesn't exist on this macOS shell, so that run never executed. I re-ran it without `timeout` and the result above is from that re-run. The file was restored in between."
+  - **Evidence re-run (Leader-inline, non-author):** VERIFIED. lint 0, build 0, unit 255/255.
+  - **Reviewer verdict (attempt 2): PASS.**
+    - The attempt-1 FAIL is resolved. Every failure mode is a behavioral assertion: no setup crash and no hang.
+    - The 9_999 ms and 10_000 ms checks pin NFR-6 from both sides.
+    - The red run meets the task's assertion-level requirement.
+    - The attempt-1 conformance verdict carries over: FR-4 and FR-13 client parts, NFR-6/7, design § 7.2, fixtures matching `bf29541f`.
+  - **ADVISORY (attempt 2):** Reliability: add `vi.clearAllTimers()` in `afterEach` to make the cleanup explicit.
+- **Final status:** PASS (attempt 2 of 3)
+- **spawns:**
+  - implementer: 16 calls, 87212 tokens, ended partial (assumptions only)
+  - reviewer: 11 calls, 49179 tokens, ended fail
+  - implementer: 12 calls, 61451 tokens, ended complete
+  - reviewer: 4 calls, 29436 tokens, ended complete
+- **runtime events:** none
+- **Requirements covered:** NFR-6 at the client level (503 within 10 s); FR-13 client part (an empty refresh body gives 401); FR-4 client part (4xx gives 401 with a generic message); NFR-7 at the client level (no bodies, tokens or passwords logged).
+- **Forward pointers:**
+  - T-8: consider a distinct log reason code for QA-side misconfiguration (CLARISA 401 or `mis_auth` 400), so it is not logged as user "invalid credentials" (T-6 advisory). FR-6's redirect-URI allow-list is checked QA-side before the call.
+  - T-8: a further challenge on complete-new-password (MFA) arrives as 503. Note it in the T-8 flow tests.
+  - T-9: the refresh body `{refreshToken, username}` is pending the DD-2 microservice change.
+- **Pending spec fix (not edited now):** design § 7.2 cites "(P-7)" for "empty or malformed body → 401"; it should be P-6.
+- **Budget (re-baselined to about 10,000 LOC):** about 5,500 LOC · 12 of about 25 Reviewer passes · 6 of 11 tasks.
+- **Final verification:** server command green (lint 0, build 0, unit 255/255).

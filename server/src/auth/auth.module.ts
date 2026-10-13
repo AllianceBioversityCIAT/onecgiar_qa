@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { SimpleJwksCache } from 'aws-jwt-verify/jwk';
 import { authConfig } from '../config/auth.config.js';
 import { UsersModule } from '../users/users.module.js';
+import { AuthMicroserviceClient } from './auth-microservice.client.js';
 import { MeController } from './me.controller.js';
 import { JWKS_CACHE, TokenVerifier } from './token-verifier.service.js';
 
@@ -17,6 +18,7 @@ import { JWKS_CACHE, TokenVerifier } from './token-verifier.service.js';
     // Bound so tests can swap in a pre-loaded cache; production uses the default.
     { provide: JWKS_CACHE, useFactory: () => new SimpleJwksCache() },
     TokenVerifier,
+    AuthMicroserviceClient,
   ],
   exports: [TokenVerifier],
 })
