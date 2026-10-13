@@ -839,3 +839,31 @@ The user's answers, verbatim:
   - Step 7 email sync without `email_verified` (409 denial of service).
   - Non-array `identities` treated as `sso`.
   - Isolation level pinned for the "no new lock" argument.
+
+## Second gate after T-7: user decisions (2026-10-13, pasted message)
+
+The user's three decisions, verbatim:
+1. "Corregirlo. Es una condición en el paso 7, sin costo: Paso 7: actualizar el email solo si es SSO, o si es custom con email_verified verdadero. Si no, conservar el email actual. Prueba: un custom vinculado con email nuevo sin verificar → el email no cambia."
+2. "Corregirlo ya, sin esperar a T-11. … SSO solo si Array.isArray(identities) && identities.length > 0. Cualquier otra forma cuenta como custom, que exige email_verified y roles. Prueba con identities como objeto, como string vacío y ausente. T-11 solo confirma el formato real."
+3. "No fijar el nivel de aislamiento. … Verificar que la decisión de vincular, el 409 y el re-chequeo de activo y roles salgan del UPDATE condicional o de un SELECT ... FOR UPDATE, nunca de un SELECT plano. Documentarlo en DD-10."
+
+**Spec amendments applied**
+
+- **`requirements.md`**
+  - FR-8 step 1: SSO only when `identities` is a non-empty array; any other shape is custom.
+  - FR-8 step 7: the email is updated only for SSO, or for custom with `email_verified` true.
+  - New scenarios: "Malformed identities claim" and "Unverified email change of a linked custom user". The FR-8 index count goes from 7 to 9.
+  - Glossary entries "SSO user" and "Custom user" are aligned with step 1 (backward sweep).
+- **`design.md`**
+  - § 7.2: SSO classification plus the step-7 email rule.
+  - DD-10: the locking-read rule. The link decision, the 409, and the active/assignments re-check come only from the conditional UPDATE or from `SELECT … FOR UPDATE`, never from a plain SELECT. The isolation level is not pinned.
+  - This **supersedes the earlier accepted risk (1)** (a deactivation or revoke during login), because decision 3 requires the active/roles re-check to be a locking read.
+- **`tasks.md`**
+  - T-7 is reopened (`[x]` → `[~]`). Its Scope and Tests carry the "Amended again" sentences.
+
+**Correction-closure sweep**
+
+- Forward: grepped `identities` and `accepted risk` across the folder. The remaining `identities` mentions are P-10 (T-11 premise), T-11's falsifier, and the requirements § 7 defect table. All are compatible with the new rule.
+- `git diff`: the only removed lines are the replaced rows.
+
+**Accounting:** this is a second amendment loop on T-7, starting at attempt 1. These are approved scope changes, not FAILs.

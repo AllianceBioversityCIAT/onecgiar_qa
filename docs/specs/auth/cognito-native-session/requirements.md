@@ -26,8 +26,8 @@ QA stops trusting anything but Cognito for identity and starts owning authorizat
 | Access token | Cognito access token (JWT). Sent as `Authorization: Bearer`. Lives only in front memory |
 | Id token | Cognito id token; read at login/refresh to learn identity attributes (`sub`, `email`, names, `identities`). Never returned to the client by QA |
 | Refresh token | Cognito refresh token. Only ever in the refresh cookie |
-| SSO user | User whose id token carries the `identities` claim (federated with `CGIAR-AzureAD`) |
-| Custom user | User without `identities` (Cognito user/password) |
+| SSO user | User whose id token carries `identities` as a non-empty array (federated with `CGIAR-AzureAD`) |
+| Custom user | Any other id token: `identities` absent, empty, or not an array (Cognito user/password) |
 | Registered user | A row in QA's `users` |
 | Pre-registered user | Registered by an admin by email, `sub` still empty |
 | Assignment | A user's role, with its scope (global, a result type key, or a program id), active or revoked |
@@ -190,13 +190,13 @@ On every token acquisition (FR-4, FR-5, FR-7) and on refresh (FR-13), the system
 
 | Step | Rule | Outcome on failure |
 |---|---|---|
-| 1 | Verify the id token (signature, issuer, audience = QA client, expiry). `auth_source = sso` if it has `identities`, else `custom` | 401 |
+| 1 | Verify the id token (signature, issuer, audience = QA client, expiry). `auth_source = sso` only if `identities` is a non-empty array; any other shape (absent, object, string, empty) is `custom` (amended 2026-10-13) | 401 |
 | 2 | Find user by `sub`; else find by email with empty `sub` and link the `sub`. A **custom** token links by email only when `email_verified` is true (boolean `true` or string `"true"`); an **SSO** token (with `identities`) links without it, since the email comes from the CGIAR directory. The link is conditional (`cognito_sub IS NULL`); if another `sub` won it concurrently → step 3 | 403 (custom, email not verified — nothing linked or created) |
 | 3 | A user with that email but another `sub` exists | 409 |
 | 4 | No user: SSO → create (`auth_source = sso`, no assignments, `created_by` empty); custom → refuse, create nothing | 403 (custom) |
 | 5 | User inactive | 403 |
 | 6 | Custom user without active assignments | 403 |
-| 7 | Update `last_login_at`; update email and names when they changed | — |
+| 7 | Update `last_login_at`; update names when they changed; update the email only for SSO, or for custom with `email_verified` true — otherwise keep the stored email (amended 2026-10-13) | — |
 
 #### Scenario: SSO first login
 - GIVEN no QA user for this `sub` or email
@@ -228,6 +228,15 @@ On every token acquisition (FR-4, FR-5, FR-7) and on refresh (FR-13), the system
 - WHEN two logins with that email and different `sub`s link at the same time
 - THEN exactly one links and is admitted
 - AND the other receives 409 and links nothing
+
+#### Scenario: Malformed identities claim
+- WHEN the id token's `identities` is an object, an empty string, or absent
+- THEN the user is treated as custom (requires `email_verified` to link, and active assignments)
+
+#### Scenario: Unverified email change of a linked custom user
+- GIVEN a custom user linked by `sub`
+- WHEN they log in with a new email and `email_verified` is not true
+- THEN the stored email does not change
 
 #### Scenario: Auth source of a pre-registered user
 - AND IT MUST set `auth_source` from the id token on first login, overriding what the admin entered
@@ -384,7 +393,7 @@ The API SHALL refuse to start when `COGNITO_REGION`, `COGNITO_USER_POOL_ID`, `CO
 | FR-5 | Complete new password | 2 |
 | FR-6 | SSO provider URL | 1 |
 | FR-7 | SSO callback | 1 |
-| FR-8 | User resolution and admission | 7 |
+| FR-8 | User resolution and admission | 9 |
 | FR-9 | Login response and refresh cookie | 2 |
 | FR-10 | Access-token verification | 3 |
 | FR-11 | Current user per request | 2 |
