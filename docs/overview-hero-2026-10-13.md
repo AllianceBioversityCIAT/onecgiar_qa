@@ -58,3 +58,4 @@ Juanpa said "1,330" and "27%" were not aligned, and the card color could be calm
 - Two rows now share the same left and right edges: a context row (cycle, current step and "See the full cycle") and a figures row where "1,330 results in QA" and "27% quality assessed" sit on one baseline at the same size.
 - Background is the neutral `--surface-3`, with no border.
 - Checked at 1440 px (bottom edges of both figures match) and at 390 px.
+- Later the same day Juanpa removed the "27% quality assessed" figure from the top block. The share still shows in the status legend ("Quality assessed 357, 27%").

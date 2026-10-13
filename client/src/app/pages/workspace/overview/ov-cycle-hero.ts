@@ -7,9 +7,6 @@ export interface CycleHeroVm {
   /** "2026 cycle, 2 live timelines". */
   readonly eyebrow: string;
   readonly total: string;
-  /** Share of results already quality assessed (0–100). */
-  readonly assessedPct: number;
-  readonly assessed: string;
   /** Current step of the official timeline, e.g. "Step 5 of 5: QA platform open for PPU". */
   readonly step: string;
   /** "closes today" / "closes in 3 days". */
@@ -36,9 +33,7 @@ const STATUS_BAR: Record<ResultStatus, string> = {
       aria-labelledby="overview-hero-title"
       class="relative flex flex-col gap-6 overflow-hidden rounded-[16px] bg-(--surface-3) p-5 @2xl:p-7"
     >
-      <!-- Two rows that share the same left and right edges:
-           1. context: cycle on the left, current step + link on the right (same small text, same line);
-           2. figures: the total and the assessed share sit on one baseline. -->
+      <!-- Context row: cycle on the left, current step + link on the right (same small text, same line). Then the total. -->
       <div class="flex flex-wrap items-center justify-between gap-x-8 gap-y-1">
         <span class="text-(length:--fs-13) font-medium text-(--text-3)">{{ data().eyebrow }}</span>
         <span class="flex min-w-0 flex-wrap items-center gap-x-3 text-(length:--fs-13) text-pretty text-(--text-3)">
@@ -47,17 +42,10 @@ const STATUS_BAR: Record<ResultStatus, string> = {
         </span>
       </div>
 
-      <div class="-mt-3 flex flex-wrap items-baseline justify-between gap-x-8 gap-y-2">
-        <h2 id="overview-hero-title" class="m-0 flex flex-wrap items-baseline gap-x-3">
-          <span class="text-[2rem] leading-[1.05] font-bold tracking-[-0.02em] tabular-nums text-(--text) @2xl:text-[2.75rem]">{{ data().total }}</span>
-          <span class="text-(length:--fs-16) font-semibold text-(--text-2)">results in QA</span>
-        </h2>
-        <span class="flex items-baseline gap-2">
-          <span class="text-[2rem] leading-[1.05] font-bold tracking-[-0.02em] tabular-nums text-(--st-approved-fg) @2xl:text-[2.75rem]">{{ data().assessedPct }}%</span>
-          <span class="text-(length:--fs-16) font-semibold text-(--text-2)">quality assessed</span>
-          <span class="text-(length:--fs-13) text-(--text-4)">({{ data().assessed }} results)</span>
-        </span>
-      </div>
+      <h2 id="overview-hero-title" class="m-0 -mt-3 flex flex-wrap items-baseline gap-x-3">
+        <span class="text-[2rem] leading-[1.05] font-bold tracking-[-0.02em] tabular-nums text-(--text) @2xl:text-[2.75rem]">{{ data().total }}</span>
+        <span class="text-(length:--fs-16) font-semibold text-(--text-2)">results in QA</span>
+      </h2>
 
       <!-- Status bar: every result in QA, split by status -->
       <div class="flex flex-col gap-3">

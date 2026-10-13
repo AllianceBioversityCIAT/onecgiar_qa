@@ -84,15 +84,12 @@ export class OverviewView {
   // ---------- Hero: the whole cycle at a glance ----------
   protected readonly hero = computed<CycleHeroVm>(() => {
     const sum = STATUS_COUNTS.reduce((a, [, n]) => a + n, 0) || 1;
-    const assessed = STATUS_COUNTS.find(([s]) => s === 'Quality assessed')?.[1] ?? 0;
     const official = this.officials[0];
     const info = official ? timelineInfo(official) : null;
     const live = this.timelines.filter((b) => b.status === 'Live').length;
     return {
       eyebrow: `2026 cycle, ${live} live ${live === 1 ? 'timeline' : 'timelines'}`,
       total: this.totalText,
-      assessedPct: Math.round((assessed / sum) * 100),
-      assessed: fmt(assessed),
       step: info ? `Step ${info.step} of ${info.steps}: ${info.phase.name}` : '',
       stepWhen: info ? whenText(info) : '',
       statuses: STATUS_COUNTS.map(([status, n]) => ({ status, count: fmt(n), pct: Math.round((n / sum) * 100) })),
