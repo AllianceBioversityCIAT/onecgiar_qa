@@ -22,7 +22,8 @@
     "test:e2e": "vitest run --config ./vitest.config.e2e.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "db:seed": "nest build && node dist/database/seeds/seed.js"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.1146.0",

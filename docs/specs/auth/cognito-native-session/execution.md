@@ -217,3 +217,84 @@
   - The `qadb` default charset is `utf8mb3`, so the new tables inherit it, which means no 4-byte characters (for example emoji in names).
   - The design does not set a charset. Noted as an advisory for a later spec, with no change in this task.
 - **Final verification:** server command green (lint 0 · build 0 · unit 41/41) plus the HITL probes above.
+
+### T-3: Users module — repositories, seeds and authorization — PASS (attempt 1)
+
+- **Date:** 2026-10-13
+- **Attempt 1:** effort `high`, chosen because this is the authorization core and scope leaks are security defects. Skills were nestjs-expert and tdd, as the task lists. The two T-2 forward pointers were carried in the brief.
+  - **Files changed:**
+    - Production: `server/src/users/{permissions,authorization.service,users.errors,users.repository,role-assignments.repository,users.module}.ts` and `server/src/database/seeds/seed.ts`.
+    - `server/package.json`: `db:seed` = `nest build && node dist/database/seeds/seed.js`.
+    - Test support: `server/test/support/in-memory-stores.ts`.
+    - Specs: `authorization.service.spec.ts`, `role-assignments.repository.spec.ts`, `users.repository.spec.ts`, `users.module.spec.ts`, `database/seeds/seed.spec.ts`.
+  - **Implementer verification:**
+    - lint 0, build clean, unit 195/195 across 8 files.
+    - The compiled seed with `DATABASE_URL` unset printed `DATABASE_URL is required` and exited 1.
+  - **Red runs:**
+    - `can`/`canAny` against a stub returning false: 24/76 failed with `expected false to be true`.
+    - Against a stub returning true: 53/76 failed, including `LEAD(ID) no lead on KP`, `PROGRAM(12) denied program 13` and `PROGRAM(12) denied without a program (fail closed)`.
+    - Repository stubs: 58/141 failed on assertions, e.g. `expected '' to be null` and `expected 'Jane.Doe@CGIAR.org' to be 'jane.doe@cgiar.org'`.
+    - Seed: no red run, because it was written code-first. Mutations stood in for it.
+  - **Falsifier 1** (LEAD expansion ignores the result type key): 6 failed, including `LEAD(ID) no lead on KP` and `union: no lead on KP`, each with `expected true to be false`.
+  - **Falsifier 2** (missing context returns true): 9 failed, including `ASSESSOR(KP) denied assessor without a result type (fail closed)` and `PROGRAM(12) denied without a program (fail closed)`.
+  - **Seed mutations:**
+    - A (insert roles on every run): 3 failed, including `changes nothing when run again`.
+    - B (stop swallowing the duplicate-assignment error): 1 failed.
+    - Both were reverted.
+  - **Implementer Not Done / Assumptions** (verbatim, assumptions only; the owed item is the Leader's HITL seed run):
+    > "**Seed idempotency is shown only on in-memory fakes.** The Drizzle adapters were not exercised against MySQL. That covers duplicate-key detection (`ER_DUP_ENTRY` / errno 1062, direct or as a `cause`), `insertId` read-back and `affectedRows` on revoke. The HITL seed run on `qadb` settles them."
+    >
+    > "**Permission names were my call.** § 7.1 names no concrete permissions, so I added one per group (`ADMIN_ACCESS`, `TPB_ACCESS`, `PPU_ACCESS`, `ASSESSOR_ACCESS`, `LEAD_ACCESS`, `PROGRAM_ACCESS`) plus `READ`. `can(READ)` and `canAny(READ)` are true for any subject; the route guard handles `@ReadAccess()` anyway. LEAD_ASSESSOR lists `ASSESSOR_ACCESS` in its grants, so the expansion always shares the lead's own key."
+    >
+    > "**Files outside the scope list:** `users.errors.ts` (typed errors on Nest HTTP exceptions, so the existing filter maps them; also `isDuplicateKeyError`) and `test/support/in-memory-stores.ts` (the fake DB ports)."
+    >
+    > "**`UsersModule` is not imported by `AppModule`.** That belongs to a later task; a DI spec with a faked `DrizzleModule` proves it resolves."
+    >
+    > "**Seed behavior:** roles are inserted only when missing, and an administrator-deactivated role is never reactivated. An existing role stored with a different `scope_type` aborts the run. An empty or whitespace `SEED_ADMIN_EMAIL` counts as absent. An existing admin user is left as it is; only a missing active ADMIN assignment is added. The whole seed runs in one transaction."
+    >
+    > "**Revocation also checks `revokedAt`.** `can` and `canAny` deny an assignment when `isActive` is false or `revokedAt` is non-null, as defense in depth."
+  - **Evidence re-run (Leader-inline, non-author):** VERIFIED. lint 0, build 0, unit 195/195.
+  - **Reviewer verdict: PASS.**
+    - FR-1 (service part), FR-2 and FR-3 are met, and both T-2 pointers are handled.
+    - `can`/`canAny` fail closed on every path traced. The LEAD → ASSESSOR expansion is bound to the assignment's own key, and no scope leak was found.
+    - The table includes the disqualifier's negative rows.
+    - The named check (design § 5 email amendment) holds: `normalizeEmail` runs on write and on lookup.
+  - **ADVISORY (labeled advisory, not gating):**
+    - Reliability: `findOrCreateByEmail` re-reads after losing a race inside REPEATABLE READ, so it may not see the winning row. Use `FOR UPDATE` or READ COMMITTED. This is a forward pointer to T-7 (DD-10).
+    - Spec drift: design § 5 says "upsert" roles, but the seed inserts only the missing ones and aborts on a `scope_type` mismatch. This is recorded as an interpretation below.
+    - Reliability: JS `toLowerCase` and MySQL `LOWER` differ on some non-ASCII characters, and email validation is minimal. Tighten it at the DTO edge in T-8.
+    - Risk: the seed grants ADMIN to an inactive existing user without a warning.
+    - Proportionality: about 100 LOC of forward surface has no consumer yet (`findByCognitoSub`, `findById`, `cognitoUsername` and name inputs, `findActiveViewsByUserId`, the seed scope abort, `formatReport`, upper bounds). All of it is tested.
+    - Error design: HTTP-status-bearing domain errors are acceptable under TRD § 11. There is a trade-off with § 2.3's hexagonal edges.
+    - Readability: move `AssignmentView` out of `authorization.service.ts`.
+    - The Drizzle adapters have not run against MySQL. The HITL seed run covers the role and user paths, but not revoke or re-grant.
+- **Decisions made:**
+  - Design § 5 says "upsert the six roles by `code`". This is interpreted as insert-if-missing plus an abort on a `scope_type` mismatch, never an overwrite. It keeps FR-2's "running it again changes nothing" literal and never reactivates an admin-deactivated role. No spec edit.
+- **Forward pointers:**
+  - T-7: the admission concurrent-first-login re-read must use a locking read or READ COMMITTED (T-3 advisory).
+  - T-8: tighten email validation at the DTO edge (T-3 advisory).
+- **Budget tripwire (design § 2: 11 tasks · ~1,600 LOC · ~17 Reviewer passes):**
+  - After T-3, the server diff is about 3,000 LOC: 786 committed for T-1 and T-2, plus about 2,240 for T-3, of which about 770 is production and about 1,370 is tests.
+  - Reviewer passes so far: 4 of about 17.
+  - Cause: the table-driven `can()` suite the task requires (629 lines), the repository ports with in-memory fakes, the defensive seed, and about 100 LOC of forward surface.
+  - Escalated to the user before closing T-3.
+- **User decisions (AskUserQuestion gate, 2026-10-13):**
+  - Budget: "Re-estimar y seguir".
+  - Seed: "Solo roles".
+- **Re-baselined budget, replacing design § 2 for the tripwire:**
+  - 11 tasks · about 5,500 LOC (about 2,000 production and 3,500 tests) · about 22 Reviewer passes.
+  - The next tripwire fires against these numbers.
+- **HITL seed on `qadb` (roles only, `SEED_ADMIN_EMAIL` unset and absent from `.env`):**
+  - Run 1, `pnpm db:seed`: `roles: 6 created, 0 already present` and `admin: skipped (SEED_ADMIN_EMAIL is not set; the first ADMIN was not seeded)`.
+  - Run 2, `node dist/database/seeds/seed.js`: `roles: 0 created, 6 already present` and the same admin skip. FR-2 idempotency is **confirmed on MySQL**.
+  - `roles` now holds ADMIN (global), LEAD_ASSESSOR (result_type), ASSESSOR (result_type), TPB (global), PPU (global) and PROGRAM (program), all active.
+  - `users` = 0 and `role_assignments` = 0.
+  - Role ids start at 2 because the rolled-back T-2 probe advanced the auto-increment. This is harmless.
+  - The first-ADMIN seed path and the revoke and re-grant adapter paths are not yet exercised on MySQL. They are carried to T-11.
+- **Final status:** PASS (attempt 1 of 3)
+- **spawns:**
+  - implementer: 30 calls, 145531 tokens, ended partial (assumptions plus the Leader's owed HITL step)
+  - reviewer: 16 calls, 70249 tokens, ended complete
+- **runtime events:** none
+- **Requirements covered:** FR-1 (service part: scoped acceptance, rejection of program id or missing key, rejection of a scoped global role, duplicate, revocation), FR-2 (both scenarios; roles idempotency confirmed on MySQL), FR-3 (all four scenarios)
+- **Final verification:** server command green (lint 0 · build 0 · unit 195/195) plus the HITL seed runs above.

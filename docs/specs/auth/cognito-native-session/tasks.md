@@ -58,7 +58,7 @@ Serial boundaries: T-1 (config, `main.ts`), T-2 (schema). T-4 and T-6 are parall
 - **Skills:** nestjs-expert, nestjs-best-practices
 
 ## T-3: Users module — repositories, seeds and authorization
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-2
 - **Requirements:** FR-1 (Scoped assignment accepted; BUT program id/no key rejected; AND IT MUST global role with scope rejected; Duplicate — service part; Revocation), FR-2 (both scenarios incl. idempotency and BUT absent env), FR-3 (all four scenarios)
