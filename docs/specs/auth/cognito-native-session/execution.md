@@ -1018,3 +1018,12 @@ The user's three decisions, verbatim:
   - About 27 Reviewer passes, which **exceeds the re-baselined ~25**. This trips the tripwire; it is escalated at the gate.
   - 7 of 11 tasks.
 - **Final verification:** lint 0, build 0, unit 351/351, e2e 55/55.
+
+## Gate after T-7 (budget tripwire): user decision (AskUserQuestion, 2026-10-13)
+
+- **Decision:** "Re-estimar a ~35 revisiones (Recomendado)".
+- **New tripwire baseline:** 11 tasks · about 11,000 LOC · about 35 Reviewer passes.
+- **Review mode for the remaining tasks:**
+  - T-8 issues the session, so it keeps the parallel Risk and Reliability lenses.
+  - T-10 and T-11 get a single Reviewer each.
+- **Position at this gate:** about 7,650 LOC · 27 Reviewer passes · 7 of 11 tasks.
