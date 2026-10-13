@@ -144,6 +144,7 @@ describe('UsersRepository.findOrCreateByEmail', () => {
       findById: (id) => store.findById(id),
       findByCognitoSub: (sub) => store.findByCognitoSub(sub),
       insert: (values) => store.insert(values),
+      update: (id, values) => store.update(id, values),
       findByEmail: (email) =>
         lookups++ === 0 ? Promise.resolve(undefined) : store.findByEmail(email),
     };

@@ -554,3 +554,177 @@
 - **Pending spec fix (not edited now):** design § 7.2 cites "(P-7)" for "empty or malformed body → 401"; it should be P-6.
 - **Budget (re-baselined to about 10,000 LOC):** about 5,500 LOC · 12 of about 25 Reviewer passes · 6 of 11 tasks.
 - **Final verification:** server command green (lint 0, build 0, unit 255/255).
+
+### T-7: Admission service — PASS (attempt 2)
+
+- **Date:** 2026-10-13
+- **Attempt 1** (effort `high`; skills nestjs-expert, tdd). Carried pointers: T-3 locking re-read, T-5 invalidate-after-commit, T-5 `isLiveAssignment` reuse.
+
+**Files changed**
+- New in `server/src/auth/`: `admission.service.ts`, `admission.service.spec.ts` (24 tests), `admission.unit-of-work.ts`, `auth.errors.ts`.
+- Modified:
+  - `server/src/auth/auth.module.ts`
+  - `server/src/users/users.repository.ts` (`forUpdate`, `update`, `lastLoginAt`)
+  - `server/src/users/current-user.cache.ts` (`toAuthenticatedUser` extracted)
+  - `server/test/support/in-memory-stores.ts`
+  - `server/src/users/users.repository.spec.ts`
+
+**Implementer verification**
+- Lint clean, unit 279/279, e2e 55/55.
+- `pnpm build` was blocked 3 times by the resource-guard (RAM). As a stand-in, `tsc --noEmit -p tsconfig.build.json` exited 0.
+
+**Red run.** Against the service stub, all 24 tests failed on assertions. Examples:
+- `expected [] to have a length of 1 but got +0`
+- `expected null to be 'sub-ana'`
+- `expected 'sso' to be 'custom'`
+- `expected [] to deeply equal [ 'commit', 'invalidate:0' ]`
+
+**Falsifiers**
+- **Falsifier 1** (collision check before the email link): 8 tests went red, including the pre-registered test (`EmailCollisionError` thrown out of `resolve`).
+- **Falsifier 2** (custom user falls through to create): `expected "create" to not be called at all, but actually been called 1 times`.
+- **Extra mutations**, all red:
+  - removing `invalidate`
+  - a plain re-read instead of `forUpdate`
+  - updating `last_login_at` on refresh
+
+**Implementer Not Done / Assumptions** (verbatim; the context file is in the session scratchpad `t7-review-context.md`):
+- "Build: the `pnpm build` blocker above is the only unfinished verification" → closed by the Leader's re-run.
+- "Untested against MySQL: `DrizzleAdmissionUnitOfWork` and the `FOR UPDATE` and `update` paths … covered only by type-check … T-11 should exercise them at the HITL step."
+- "Test seam: the fake transaction does not emulate rollback …"
+- "Locking read: the first lookups are plain reads … Only the re-read after a lost insert uses `forUpdate` …"
+- "Refresh mode: It does not update `last_login_at`. It can still link a `sub`, sync email and names, and correct `auth_source`. A refresh with no change writes nothing and invalidates nothing."
+- "Step 6 auth source: step 6 uses the token-derived `auth_source` …"
+- "Missing claims: … A token with no `cognito:username` is not refused: it yields `cognitoUsername: null` … T-8 or T-11 should decide whether that must be a hard error …"
+- "Email change collision: … surfaces as `DuplicateUserError`, a 409 …"
+- "Names: … trimmed and cut to 100 characters …"
+- "Unrelated type errors: `tsc -p tsconfig.json` still shows 5 type errors in `token-verifier.service.spec.ts` …"
+
+**Evidence re-run** (Leader-inline, non-author): VERIFIED.
+- lint 0, `nest build` exit 0, unit 279/279, e2e 55/55.
+- The build owed item is closed.
+
+**Review mode:** parallel lens reviewers (admission is an authentication surface), Risk and Reliability, each with baseline conformance.
+
+**Reviewer verdict, Reliability lens: FAIL** (verbatim):
+> 1. **Discovered Issue:** On real MySQL, the concurrent first-login path will most likely fail with a 500, which is the exact case DD-10 exists to prevent. The sequence:
+>    - The loser's REPEATABLE READ snapshot predates the winner's commit.
+>    - After its insert loses, the loser re-reads the winner with `FOR UPDATE`, which works. `changes()` then patches only `lastLoginAt`, plus `updated_at` through `$onUpdate`.
+>    - Both columns are `datetime` with no fractional seconds, so in a concurrent login the new values round to the same second the winner just wrote. InnoDB sees an identical row (`HA_ERR_RECORD_IS_THE_SAME`) and creates no new row version.
+>    - `DrizzleUsersStore.update` then reads the row back with a plain `findById`. Under the loser's snapshot that row does not exist, so the call returns `undefined`. The code throws `Error('Updated user could not be read back')`, the transaction rolls back, and the client gets a 500.
+>    - Even when the update does change the row, the read-back only works because of the InnoDB rule that a transaction always sees its own changes.
+>
+>    The test does not catch this because `SnapshotUsersStore` does not override `findById`, and `InMemoryUsersStore.update` never reads back. So the fake does not faithfully model the step it claims to prove.
+>    * **Violated Rule:** `design.md` § 10 DD-10: "Unique violations inside the transaction are re-read and resolved, not surfaced". `docs/trd/trd.md` § 11 (error mapping: no 500 for a resolvable conflict).
+>    * **Remediation Suggestion:** Pick one fix:
+>      - Make the read-back in `DrizzleUsersStore.update` a locking read (`findById` with `ReadOptions`, `.for('update')`).
+>      - Have the repository return the in-hand row merged with the patch instead of reading back.
+>
+>      Then make `SnapshotUsersStore` snapshot `findById` too, and give it an `update` that reads back through `view()`. That way the DD-10 test goes red under the current code.
+> 2. **Discovered Issue:** Refresh mode deliberately skips `last_login_at`, and a test asserts it stays `0`. FR-8 says the resolution table applies "On every token acquisition … and on refresh (FR-13)", and step 7 reads "Update `last_login_at`". Design § 7.2 lists no exemption for refresh: it only says refresh "reads fresh from the DB and never creates users".
+>    * **Violated Rule:** `requirements.md` FR-8 (lead paragraph + table step 7). `design.md` § 7.2 AdmissionService.
+>    * **Remediation Suggestion:** Either update `last_login_at` on refresh and flip the assertion in "is not a login…", or have the Leader amend FR-8 step 7 to "on login only" before PASS. The Implementer's "a refresh is not a login" is a spec decision; it cannot be recorded as an assumption.
+
+**Reviewer verdict, Risk lens: FAIL.** Same as Reliability issue 2: refresh skips `last_login_at`, which violates the FR-8 intro and step 7. Remediation: (a) set it in both modes, or (b) a Leader spec amendment.
+- Otherwise the admission paths fail closed:
+  - a never-registered custom user is refused and `create` is never called;
+  - inactive users, custom users without roles, and tokens that fail verification are all refused before any write;
+  - a collision gives 409 and links nothing;
+  - `FOR UPDATE` is used on the re-read;
+  - `invalidate` runs after commit and only on a write.
+- The amended T-7 is met.
+
+**ADVISORY** (both lenses; labeled advisory, not gating):
+- **Risk (high), raised to the user at the gate:**
+  - Email linking (step 2) and the email sync trust the token's `email` without `email_verified`.
+  - In the shared CLARISA pool, a native user with an unverified arbitrary email could custom-login, be linked to a pre-registered row with a null `sub`, and inherit its assignments (including ADMIN).
+  - A reverse takeover is also possible via an email change.
+  - This is spec-compliant today. A possible amendment: link by email only when `email_verified === true` (or only for SSO).
+- **Risk:** a non-array `identities` claim is classified as `sso`, the permissive outcome. It should be treated as invalid or as `custom`.
+- **Risk:** a missing `cognito:username` still admits the user. T-8 should fail closed rather than set a null `qa_ru`.
+- **Risk:** refresh mode can still link a `sub` by email, which widens the email-trust issue.
+- **Resilience (both lenses):** a 3+ way first-login race can deadlock (1213) and surface as a 500. Consider one retry, or note it for T-11.
+- **Reliability:** the "cache read right after linking the sub" test passes without `invalidate`, because misses are not cached. Rename it; the real proof is the name-change test.
+- **Risk:** check that T-8's filter maps `DuplicateUserError` to 409.
+
+**Leader adjudication:** both FAILs are in scope for T-7.
+- Issue 2 is resolved by following the spec text: update `last_login_at` on refresh too. No spec amendment.
+- The `email_verified` advisory is spec-compliant and goes to the user as a proposed amendment at the T-7 gate. It is not added to this rework (narrow-never-widen).
+
+**Attempt 2** (effort `xhigh`, bumped after the FAIL): both FAIL reports passed verbatim.
+  - **Files changed (attempt 2):** `server/src/auth/admission.service.ts`, `server/src/auth/admission.service.spec.ts`, `server/src/users/users.repository.ts`, `server/test/support/in-memory-stores.ts`.
+  - **What attempt 2 changed:**
+    - The read-back is now `findById(id, { forUpdate: true })`, inside `UsersRepository.update`.
+    - `UsersStore.update` now returns `{kind:'updated'}|{kind:'duplicate'}`, and `findById(id, options?)` accepts `ReadOptions`. **This is a shared port change.** Consumers are recorded below.
+    - `last_login_at` is now updated in both modes.
+    - Every successful resolve invalidates the cache after commit.
+  - **Test changes:**
+    - The snapshot fake now models InnoDB REPEATABLE READ: it sees its own writes, and an identical UPDATE creates no new row version.
+    - The DD-10 suite freezes only `Date`.
+  - **Implementer verification:** lint 0, `nest build` 0, unit 280/280, e2e 55/55. Generated SQL (offline): `select … limit ? for update`.
+  - **Red run before the fixes:** `expected 0 to be greater than 0` (refresh stamp) and `promise rejected "Error: Updated user could not be read back" instead of resolving` (DD-10).
+  - **Mutations and falsifiers:**
+    - Plain read-back: the DD-10 test goes red.
+    - Refresh skipping the stamp: red.
+    - Falsifier 1 (steps 2/3 swapped): 8 red.
+    - Falsifier 2 (custom user falls through to create): `"create" … called 1 times`.
+    - Removing `invalidate`: 2 red.
+    - Plain re-read after a lost insert: 3 red.
+    - All reverted and diff-verified.
+  - **Implementer Not Done / Assumptions (verbatim, assumptions only):**
+    > "**Still untested against MySQL:** `DrizzleAdmissionUnitOfWork` and the Drizzle `update` and `FOR UPDATE` paths are checked only by the type-check and the SQL string above. T-11 should exercise them at the HITL step. `qadb` was not touched."
+    >
+    > "**Contract change you did not ask for:** moving the read-back to the repository changes the `UsersStore.update` contract from attempt 1. It was needed so the unit test can reach the read-back."
+    >
+    > "**Every admission now invalidates the cache:** … safe. I did not narrow it, to avoid a new decision."
+    >
+    > "**Redundant write on first login:** a first SSO login does INSERT and then an UPDATE of `last_login_at`. … I left it."
+    >
+    > "**Advisories not touched:** the `email_verified`, non-array `identities`, missing `cognito:username` and 1213-retry items."
+    >
+    > "**Unrelated type errors:** the 5 type errors in `token-verifier.service.spec.ts` are still there, outside the build config."
+  - **Evidence re-run (Leader-inline, non-author):** VERIFIED. lint 0, build 0, unit 280/280, e2e 55/55.
+  - **Reviewer verdict (attempt 2), Risk lens: PASS.**
+    - The `last_login_at` fix holds.
+    - Refresh never creates and bypasses the cache.
+    - No refusal writes, invalidates, links or admits: every refusal throws before the first write, and `invalidate` runs only after `run` resolves.
+    - The `FOR UPDATE` read-back never admits a missing row.
+    - Baseline conformance holds, including the amended T-7.
+  - **Reviewer verdict (attempt 2), Reliability lens: PASS.** Both attempt-1 FAILs are fixed and were traced through the fakes.
+    - The `FOR UPDATE` read-back holds the row lock and never blocks.
+    - The snapshot fake is faithful: the snapshot is taken at the first plain read, it sees its own writes, `sameRow` uses whole seconds, and `updated_at` is included.
+    - The plain read-back mutation goes red on an assertion.
+    - The `UsersStore.update` contract change does not affect other callers (seed, cache, guards e2e).
+    - Baseline conformance holds.
+  - **ADVISORY (attempt 2; labeled advisory, not gating):**
+    - **Risk, TOCTOU.** Steps 5 and 6 decide on snapshot reads. An admin deactivation or revoke that lands between the snapshot and the UPDATE still admits the user.
+      - The returned user can carry `isActive: false`, but the next request gets a 401, so the window is bounded.
+      - Cheap fix: re-check `isActive` on the read-back row. **Raised to the user at the gate.**
+    - **Reliability, lost link.** Two concurrent first logins for the same email with different `sub`s can each see `cognito_sub IS NULL`, and the second overwrites the first link.
+      - This is not a unique violation, so DD-10 does not cover it, and it is very unlikely.
+      - Fix: lock the email-found row (`FOR UPDATE`) before deciding, or link with `WHERE cognito_sub IS NULL` and treat 0 affected rows as a collision. **Raised to the user at the gate.**
+    - **Risk:** refresh can still link a `sub` to a pre-registered row by email. This is spec-allowed.
+    - **Risk:** T-7's `Consumers: none` is stale, since the `UsersStore` port changed. Recorded below.
+    - **Reliability:** the commit-then-invalidate order is asserted only on the create path. All paths go through the one `invalidate` line, so this is acceptable.
+    - **Risk/Reliability:** the Drizzle unit of work, `update` and the `FOR UPDATE` paths are verified only by type-check and the SQL string. T-11 should run a real concurrent first login, with both an identical and a changed row.
+    - **Carried from attempt 1** (Risk): `email_verified` is not checked before email linking (high, raised to the user at the gate); a non-array `identities` classifies the token as `sso`; a missing `cognito:username` still admits the user (T-8 should fail closed before setting a null `qa_ru`); a 3-way race can hit deadlock 1213 (T-11 should note it).
+- **Final status:** PASS (attempt 2 of 3).
+- **spawns:**
+  - implementer: 41 calls, 141873 tokens, ended partial (owed build, closed by the re-run)
+  - reviewer (reliability): 13 calls, 61560 tokens, ended fail
+  - reviewer (risk): 14 calls, 68829 tokens, ended fail
+  - implementer: 38 calls, 126224 tokens, ended partial (assumptions only)
+  - reviewer (risk): 9 calls, 58508 tokens, ended complete
+  - reviewer (reliability): 10 calls, 60507 tokens, ended complete
+- **runtime events:** none.
+- **Requirements covered:** FR-8 (steps 1–7, all five scenarios), FR-13 (admission re-checked: reads the DB, never creates; `last_login_at` stamped), FR-11 (writer side: invalidate after commit, per the amended T-7).
+- **Shared port change (consumers for T-8, T-9 and T-11):**
+  - `UsersStore.update` returns `{kind}`.
+  - `UsersStore.findById(id, { forUpdate? })`.
+  - `CurrentUserCache` exports `toAuthenticatedUser`.
+  - `AuthModule` exports `AdmissionService` (`resolve(idToken, { mode })`).
+- **Forward pointers:**
+  - **T-8:** fail closed when `cognito:username` is missing, before setting `qa_ru`.
+  - **T-8:** map `DuplicateUserError` to 409 (check the filter).
+  - **T-11:** run a real concurrent first login on MySQL, the identical and changed UPDATE cases, deadlock 1213, and the `FOR UPDATE` SQL.
+- **Budget:** about 6,800 of about 10,000 LOC; 16 of about 25 Reviewer passes; 7 of 11 tasks.
+- **Final verification:** server command plus e2e green (lint 0, build 0, unit 280/280, e2e 55/55).

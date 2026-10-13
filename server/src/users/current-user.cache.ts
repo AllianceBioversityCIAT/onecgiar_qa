@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type { AuthSource } from '../database/drizzle/schema/users.js';
+import type { AuthSource, User } from '../database/drizzle/schema/users.js';
 import type {
   AssignmentView,
   AuthorizationSubject,
@@ -56,6 +56,22 @@ export function isAdmitted(user: AuthenticatedUser): boolean {
   );
 }
 
+/** Builds the frozen request view of a stored user and its active assignments. */
+export function toAuthenticatedUser(
+  row: User,
+  views: readonly AssignmentView[],
+): AuthenticatedUser {
+  return Object.freeze({
+    id: row.id,
+    email: row.email,
+    firstName: row.firstName,
+    lastName: row.lastName,
+    authSource: row.authSource,
+    isActive: row.isActive,
+    assignments: Object.freeze(views.map((view) => Object.freeze({ ...view }))),
+  });
+}
+
 interface CacheEntry {
   readonly user: AuthenticatedUser;
   readonly expiresAt: number;
@@ -97,17 +113,7 @@ export class CurrentUserCache {
     if (!row) return undefined;
     const views = await this.assignments.findActiveViewsByUserId(row.id);
 
-    const user: AuthenticatedUser = Object.freeze({
-      id: row.id,
-      email: row.email,
-      firstName: row.firstName,
-      lastName: row.lastName,
-      authSource: row.authSource,
-      isActive: row.isActive,
-      assignments: Object.freeze(
-        views.map((view) => Object.freeze({ ...view })),
-      ),
-    });
+    const user = toAuthenticatedUser(row, views);
     // The bound counts from before the reads, so the data is never older than it.
     if (epoch === this.epoch) {
       this.entries.set(sub, {

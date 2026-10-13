@@ -126,7 +126,7 @@ Serial boundaries: T-1 (config, `main.ts`), T-2 (schema). T-4 and T-6 are parall
 - **Skills:** nestjs-expert, error-handling-patterns
 
 ## T-7: Admission service
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-3, T-4
 - **Requirements:** FR-8 (all five scenarios + table steps 1–7; BUT custom not created; AND IT MUST set auth_source from token), FR-13 (Admission re-checked — reads DB, never creates), FR-11 (AND IT MUST reflect changes immediately within the same process — writer side)

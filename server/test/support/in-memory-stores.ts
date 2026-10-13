@@ -7,7 +7,10 @@ import type { NewRoleAssignment } from '../../src/database/drizzle/schema/role-a
 import type { NewUser } from '../../src/database/drizzle/schema/users.js';
 import type { AssignmentView } from '../../src/users/authorization.service.js';
 import type { RoleAssignmentsStore } from '../../src/users/role-assignments.repository.js';
-import type { UsersStore } from '../../src/users/users.repository.js';
+import type {
+  UserPatch,
+  UsersStore,
+} from '../../src/users/users.repository.js';
 
 // Fake DB ports. They emulate what the database guarantees (unique keys, the
 // generated `active_key`) so repository and seed behavior can be exercised
@@ -48,13 +51,28 @@ export class InMemoryUsersStore implements UsersStore {
       lastName: values.lastName ?? null,
       authSource: values.authSource ?? 'sso',
       isActive: values.isActive ?? true,
-      lastLoginAt: null,
+      lastLoginAt: values.lastLoginAt ?? null,
       createdAt: new Date(),
       updatedAt: new Date(),
       createdBy: values.createdBy ?? null,
     };
     this.rows.push(user);
     return { kind: 'created' as const, user };
+  }
+
+  async update(id: number, values: UserPatch) {
+    const row = this.rows.find((u) => u.id === id);
+    if (!row) throw new Error(`No user ${id}`);
+    const clash = this.rows.some(
+      (u) =>
+        u.id !== id &&
+        ((values.email !== undefined && u.email === values.email) ||
+          (values.cognitoSub != null && u.cognitoSub === values.cognitoSub)),
+    );
+    if (clash) return { kind: 'duplicate' as const };
+    this.writes++;
+    Object.assign(row, values, { updatedAt: new Date() });
+    return { kind: 'updated' as const };
   }
 }
 

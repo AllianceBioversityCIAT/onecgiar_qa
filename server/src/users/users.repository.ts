@@ -15,14 +15,48 @@ import {
 
 export const USERS_STORE = Symbol('USERS_STORE');
 
+/**
+ * `forUpdate` makes the read a locking read (`SELECT ... FOR UPDATE`): inside a
+ * REPEATABLE READ transaction a plain read keeps serving the snapshot of the
+ * first read and would miss a row another writer committed since.
+ */
+export interface ReadOptions {
+  forUpdate?: boolean;
+}
+
+/** Columns a writer may change after the row exists. */
+export type UserPatch = Partial<
+  Pick<
+    NewUser,
+    | 'email'
+    | 'cognitoSub'
+    | 'cognitoUsername'
+    | 'firstName'
+    | 'lastName'
+    | 'authSource'
+    | 'lastLoginAt'
+  >
+>;
+
 /** The persistence port of `UsersRepository` (TRD section 4, Repository). */
 export interface UsersStore {
-  findById(id: number): Promise<User | undefined>;
-  findByEmail(email: string): Promise<User | undefined>;
-  findByCognitoSub(sub: string): Promise<User | undefined>;
+  findById(id: number, options?: ReadOptions): Promise<User | undefined>;
+  findByEmail(email: string, options?: ReadOptions): Promise<User | undefined>;
+  findByCognitoSub(
+    sub: string,
+    options?: ReadOptions,
+  ): Promise<User | undefined>;
   insert(
     values: NewUser,
   ): Promise<{ kind: 'created'; user: User } | { kind: 'duplicate' }>;
+  /**
+   * Writes the columns of the row; reading it back is the repository's job.
+   * `duplicate` = the new email or sub belongs to another user.
+   */
+  update(
+    id: number,
+    values: UserPatch,
+  ): Promise<{ kind: 'updated' } | { kind: 'duplicate' }>;
 }
 
 export interface CreateUserInput {
@@ -32,6 +66,7 @@ export interface CreateUserInput {
   firstName?: string | null;
   lastName?: string | null;
   authSource?: User['authSource'];
+  lastLoginAt?: Date | null;
   createdBy?: number | null;
 }
 
@@ -70,15 +105,18 @@ export class UsersRepository {
     return this.store.findById(id);
   }
 
-  findByEmail(email: string): Promise<User | undefined> {
-    return this.store.findByEmail(normalizeEmail(email));
+  findByEmail(email: string, options?: ReadOptions): Promise<User | undefined> {
+    return this.store.findByEmail(normalizeEmail(email), options);
   }
 
-  async findByCognitoSub(sub: string): Promise<User | undefined> {
+  async findByCognitoSub(
+    sub: string,
+    options?: ReadOptions,
+  ): Promise<User | undefined> {
     const normalized = normalizeCognitoSub(sub);
     return normalized === null
       ? undefined
-      : this.store.findByCognitoSub(normalized);
+      : this.store.findByCognitoSub(normalized, options);
   }
 
   async create(input: CreateUserInput): Promise<User> {
@@ -89,10 +127,30 @@ export class UsersRepository {
       firstName: input.firstName ?? null,
       lastName: input.lastName ?? null,
       authSource: input.authSource ?? 'sso',
+      lastLoginAt: input.lastLoginAt ?? null,
       createdBy: input.createdBy ?? null,
     });
     if (result.kind === 'duplicate') throw new DuplicateUserError();
     return result.user;
+  }
+
+  /** Changes the given columns; an email or sub owned by someone else is a `DuplicateUserError`. */
+  async update(id: number, patch: UserPatch): Promise<User> {
+    const values: UserPatch = { ...patch };
+    if (patch.email !== undefined) values.email = normalizeEmail(patch.email);
+    if (patch.cognitoSub !== undefined) {
+      values.cognitoSub = normalizeCognitoSub(patch.cognitoSub);
+    }
+    const result = await this.store.update(id, values);
+    if (result.kind === 'duplicate') throw new DuplicateUserError();
+    // A locking read: it returns the current row whatever this transaction's
+    // snapshot holds. A plain read could find nothing when the UPDATE left the
+    // row identical (`datetime` has whole seconds, so a login in the same second
+    // as the last write changes nothing) and the row was committed by another
+    // transaction after the snapshot was taken.
+    const user = await this.store.findById(id, { forUpdate: true });
+    if (!user) throw new Error('Updated user could not be read back');
+    return user;
   }
 
   /**
@@ -117,37 +175,36 @@ export class UsersRepository {
   }
 }
 
-type UsersDb = Pick<DrizzleDB, 'select' | 'insert'>;
+type UsersDb = Pick<DrizzleDB, 'select' | 'insert' | 'update'>;
 
 /** Drizzle adapter of `UsersStore`. */
 @Injectable()
 export class DrizzleUsersStore implements UsersStore {
   constructor(@Inject(DRIZZLE) private readonly db: UsersDb) {}
 
-  async findById(id: number) {
-    const [row] = await this.db
-      .select()
-      .from(users)
-      .where(eq(users.id, id))
-      .limit(1);
+  async findById(id: number, options: ReadOptions = {}) {
+    const query = this.db.select().from(users).where(eq(users.id, id)).limit(1);
+    const [row] = await (options.forUpdate ? query.for('update') : query);
     return row;
   }
 
-  async findByEmail(email: string) {
-    const [row] = await this.db
+  async findByEmail(email: string, options: ReadOptions = {}) {
+    const query = this.db
       .select()
       .from(users)
       .where(eq(users.email, email))
       .limit(1);
+    const [row] = await (options.forUpdate ? query.for('update') : query);
     return row;
   }
 
-  async findByCognitoSub(sub: string) {
-    const [row] = await this.db
+  async findByCognitoSub(sub: string, options: ReadOptions = {}) {
+    const query = this.db
       .select()
       .from(users)
       .where(eq(users.cognitoSub, sub))
       .limit(1);
+    const [row] = await (options.forUpdate ? query.for('update') : query);
     return row;
   }
 
@@ -157,6 +214,16 @@ export class DrizzleUsersStore implements UsersStore {
       const user = await this.findById(header.insertId);
       if (!user) throw new Error('Inserted user could not be read back');
       return { kind: 'created' as const, user };
+    } catch (error) {
+      if (isDuplicateKeyError(error)) return { kind: 'duplicate' as const };
+      throw error;
+    }
+  }
+
+  async update(id: number, values: UserPatch) {
+    try {
+      await this.db.update(users).set(values).where(eq(users.id, id));
+      return { kind: 'updated' as const };
     } catch (error) {
       if (isDuplicateKeyError(error)) return { kind: 'duplicate' as const };
       throw error;
