@@ -191,7 +191,7 @@ On every token acquisition (FR-4, FR-5, FR-7) and on refresh (FR-13), the system
 | Step | Rule | Outcome on failure |
 |---|---|---|
 | 1 | Verify the id token (signature, issuer, audience = QA client, expiry). `auth_source = sso` if it has `identities`, else `custom` | 401 |
-| 2 | Find user by `sub`; else find by email with empty `sub` and link the `sub` | — |
+| 2 | Find user by `sub`; else find by email with empty `sub` and link the `sub`. A **custom** token links by email only when `email_verified` is true (boolean `true` or string `"true"`); an **SSO** token (with `identities`) links without it, since the email comes from the CGIAR directory. The link is conditional (`cognito_sub IS NULL`); if another `sub` won it concurrently → step 3 | 403 (custom, email not verified — nothing linked or created) |
 | 3 | A user with that email but another `sub` exists | 409 |
 | 4 | No user: SSO → create (`auth_source = sso`, no assignments, `created_by` empty); custom → refuse, create nothing | 403 (custom) |
 | 5 | User inactive | 403 |
@@ -215,6 +215,19 @@ On every token acquisition (FR-4, FR-5, FR-7) and on refresh (FR-13), the system
 #### Scenario: Email collision
 - GIVEN a user with that email has another `sub`
 - THEN 409 and nothing is linked or created
+
+#### Scenario: Unverified email on a custom token
+- GIVEN a pre-registered user with empty `sub`
+- WHEN a custom user logs in with that email and `email_verified` is absent or false
+- THEN 403
+- BUT nothing is linked or created
+- AND an SSO token with the same email links without `email_verified`
+
+#### Scenario: Concurrent link of the same email
+- GIVEN a pre-registered user with empty `sub`
+- WHEN two logins with that email and different `sub`s link at the same time
+- THEN exactly one links and is admitted
+- AND the other receives 409 and links nothing
 
 #### Scenario: Auth source of a pre-registered user
 - AND IT MUST set `auth_source` from the id token on first login, overriding what the admin entered
@@ -371,7 +384,7 @@ The API SHALL refuse to start when `COGNITO_REGION`, `COGNITO_USER_POOL_ID`, `CO
 | FR-5 | Complete new password | 2 |
 | FR-6 | SSO provider URL | 1 |
 | FR-7 | SSO callback | 1 |
-| FR-8 | User resolution and admission | 5 |
+| FR-8 | User resolution and admission | 7 |
 | FR-9 | Login response and refresh cookie | 2 |
 | FR-10 | Access-token verification | 3 |
 | FR-11 | Current user per request | 2 |

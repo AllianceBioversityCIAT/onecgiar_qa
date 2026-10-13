@@ -728,3 +728,33 @@
   - **T-11:** run a real concurrent first login on MySQL, the identical and changed UPDATE cases, deadlock 1213, and the `FOR UPDATE` SQL.
 - **Budget:** about 6,800 of about 10,000 LOC; 16 of about 25 Reviewer passes; 7 of 11 tasks.
 - **Final verification:** server command plus e2e green (lint 0, build 0, unit 280/280, e2e 55/55).
+
+## Gate after T-7: user decisions (AskUserQuestion, 2026-10-13)
+
+The user's answers, verbatim:
+
+> **email_verified:** "Opción 1 con ajuste. Enmienda FR-8 paso 2:- Custom (sin claim `identities`): vincular por email solo si email_verified es verdadero (aceptar boolean true o string "true"); si no, 403 sin vincular ni crear.- SSO (con `identities`): vincular por email sin exigir email_verified; el email viene del directorio activo de CGIAR. Retrabajo en T-7 con pruebas para ambos casos. T-11 registra si los tokens SSO traen email_verified, solo como dato; no bloquea."
+>
+> **Races:** "Corregir solo (2), sin locks. Vincular el sub con un UPDATE condicional: UPDATE users SET cognito_sub = ? WHERE id = ? AND cognito_sub IS NULL Si affected rows = 0, releer la fila: si el sub coincide, continuar; si es otro, 409. Prueba: dos vinculaciones concurrentes del mismo email con sub distinto → una gana y la otra recibe 409. (1) se registra como riesgo aceptado: el guard recarga usuario y asignaciones en cada petición (con caché corta) y el refresh vuelve a aplicar las reglas, así que el acceso admitido no sobrevive más allá de ese TTL. Sin cambios en DD-10 para (1)."
+
+**Spec amendments applied** (Pivot-lightest grade: the user approved them at the gate, so this is a scope change, not a design reversal):
+
+- **`requirements.md`**
+  - FR-8 table, step 2: custom tokens link by email only when `email_verified` is true (boolean or `"true"`), otherwise 403 with nothing linked or created. SSO tokens link without the claim. The link is conditional.
+  - Two new scenarios: "Unverified email on a custom token" and "Concurrent link of the same email".
+  - The index count for FR-8 goes from 5 to 7.
+- **`design.md`**
+  - § 7.2 AdmissionService: email-link rule plus the conditional `UPDATE … WHERE cognito_sub IS NULL`. If 0 rows are affected, re-read: the same `sub` continues, another `sub` gets 409.
+  - DD-10 consequence: conditional link, never an overwrite. Records accepted risk (1): a deactivation or revoke during a login's transaction can admit that one login, bounded by the guard's 60 s cache TTL and by refresh re-applying the rules. Risk (1) needs no DD-10 mechanism change.
+- **`tasks.md`**
+  - T-7 is reopened (`[x]` → `[~]`), with Scope and Tests amended.
+  - T-11 Scope now records whether SSO id tokens carry `email_verified`. This is informational and does not block.
+  - The FR-8 coverage row is updated.
+- **Correction-closure sweep**
+  - Forward: `grep email_verified` over the spec folder hits only the amended sites.
+  - Backward: the FR-8 references in `tasks.md` (T-7, coverage) are updated, T-8 and T-9 cite FR-8 only through T-7, and no stale text remains.
+  - `git diff` removed lines: only the replaced lines. No heading or clause was destroyed.
+
+**Re-run accounting**
+- T-7's earlier PASS stands for the approved scope. The amendment runs as a new loop on T-7, "amendment loop, attempt 1 of 3". The attempt counter restarts because this is approved new scope, not a FAIL.
+- Every amended section is a named conformance check in this loop's Reviewer brief.

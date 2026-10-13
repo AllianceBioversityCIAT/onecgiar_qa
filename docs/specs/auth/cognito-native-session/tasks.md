@@ -126,13 +126,13 @@ Serial boundaries: T-1 (config, `main.ts`), T-2 (schema). T-4 and T-6 are parall
 - **Skills:** nestjs-expert, error-handling-patterns
 
 ## T-7: Admission service
-- **Status:** [x]
+- **Status:** [~]
 - **Size:** M
 - **Depends on:** T-3, T-4
 - **Requirements:** FR-8 (all five scenarios + table steps 1–7; BUT custom not created; AND IT MUST set auth_source from token), FR-13 (Admission re-checked — reads DB, never creates), FR-11 (AND IT MUST reflect changes immediately within the same process — writer side)
 - **Design refs:** § 7.2 AdmissionService, DD-10
-- **Scope:** `auth/admission.service.ts` (transactional resolve; `mode: 'login' | 'refresh'`; stores `cognito_username`; calls `CurrentUserCache.invalidate(user.id)` after the transaction commits — FR-11 same-process freshness, amended 2026-10-13 at the T-5 gate).
-- **Tests:** unit with fakes for repositories and verifier — one test per FR-8 row: SSO new → created GUEST; pre-registered by email → sub linked + auth_source corrected; collision → 409; custom unknown → 403 and repository `create` never called; inactive → 403; custom without roles → 403; names/email updated; refresh mode never creates and bypasses cache; concurrent first-login unique violation → re-read, single user. After a resolve that changes the user (link `sub`, names/email), `invalidate(user.id)` was called after commit and a subsequent cache read reflects the change without advancing the clock.
+- **Scope:** `auth/admission.service.ts` (transactional resolve; `mode: 'login' | 'refresh'`; stores `cognito_username`; calls `CurrentUserCache.invalidate(user.id)` after the transaction commits — FR-11 same-process freshness, amended 2026-10-13 at the T-5 gate). Amended 2026-10-13 at the T-7 gate: custom-token email linking requires `email_verified` true (boolean or `"true"`) else 403, SSO links without it; the `sub` link is a conditional UPDATE (`WHERE cognito_sub IS NULL`), 0 rows → re-read: same `sub` continue, other `sub` 409. No locks added for this.
+- **Tests:** unit with fakes for repositories and verifier — one test per FR-8 row: SSO new → created GUEST; pre-registered by email → sub linked + auth_source corrected; collision → 409; custom unknown → 403 and repository `create` never called; inactive → 403; custom without roles → 403; names/email updated; refresh mode never creates and bypasses cache; concurrent first-login unique violation → re-read, single user. After a resolve that changes the user (link `sub`, names/email), `invalidate(user.id)` was called after commit and a subsequent cache read reflects the change without advancing the clock. Amended: custom pre-registered + `email_verified` absent/false/`"false"` → 403 and nothing linked or created; `true` and `"true"` → linked; SSO without `email_verified` → linked; two concurrent links of the same email with different `sub`s → one admitted, the other 409 and the first link not overwritten.
 - **Verification:** server command
 - **Falsifier:** swap the order of steps 2 and 3 (check collision before email-link) → the pre-registered test goes red; let custom fall through to create → the "create never called" assertion goes red.
 - **Red run:** tests fail before the service exists (assertion level).
@@ -199,7 +199,7 @@ Serial boundaries: T-1 (config, `main.ts`), T-2 (schema). T-4 and T-6 are parall
 - **Depends on:** T-10 and a deployment of the branch to TEST (done by the repo owners, not by agents)
 - **Requirements:** FR-8 step 1 (SSO detection in the real pool), FR-4/FR-5 (real custom user with challenge), FR-13 (real refresh after reload)
 - **Design refs:** Premise P-10, P-11, P-12, P-14, (P-15 if not settled in T-2)
-- **Scope:** with the user: log in once with SSO and once with a custom user; decode the id and access tokens (no tokens pasted into the repo or chat); record claim names present (`identities`, `cognito:username`, `client_id`, `token_use`) and token lifetimes; reload the page and confirm refresh. Record outcomes in `execution.md`.
+- **Scope:** with the user: log in once with SSO and once with a custom user; decode the id and access tokens (no tokens pasted into the repo or chat); record claim names present (`identities`, `cognito:username`, `client_id`, `token_use`, and whether SSO id tokens carry `email_verified` — informational only, not blocking) and token lifetimes; reload the page and confirm refresh. Record outcomes in `execution.md`.
 - **Tests:** manual checklist above.
 - **Verification:** each premise row gets "confirmed" or "refuted"; any refuted premise goes to the Pivot Protocol.
 - **Falsifier:** a custom user's id token showing `identities` (or SSO without it) refutes P-10.
@@ -226,7 +226,7 @@ Serial boundaries: T-1 (config, `main.ts`), T-2 (schema). T-4 and T-6 are parall
 | FR-5 | Completed + admitted · completed not admitted (403, no cookie) | T-8 |
 | FR-6 | Redirect allow-list · AND IT MUST NOT call microservice | T-8 |
 | FR-7 | Invalid code → 401, no cookie | T-8 |
-| FR-8 | Steps 1–7 · SSO first login · pre-registered · BUT custom not created · collision · AND IT MUST auth_source from token | T-7 |
+| FR-8 | Steps 1–7 · SSO first login · pre-registered · BUT custom not created · collision · AND IT MUST auth_source from token · unverified custom email → 403 · concurrent link → 409 | T-7 |
 | FR-9 | Cookie attributes · companion cookie · BUT never in body/logs · no cookie on refusal | T-8 |
 | FR-10 | Valid · rejections · BUT handler not run | T-4, T-5 |
 | FR-10 | AND IT MUST public list only | T-1 (health), T-5, T-10 |
