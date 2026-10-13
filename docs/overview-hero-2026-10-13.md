@@ -22,7 +22,7 @@ The four timeline cards at the top of Overview worked as a filter, but nothing s
 
 ## Pending
 
-- `ov-timeline-cards.ts`, `ov-step-card.ts` and `ov-results-in-qa.ts` are no longer used. Delete them only after Juanpa confirms.
+- `ov-timeline-cards.ts`, `ov-step-card.ts` and `ov-results-in-qa.ts` were deleted (unused, confirmed by Juanpa).
 - The "See the full cycle" link (to `/cycle`) was in the removed step card. It may need a new home.
 - Dark mode not checked.
 - Angular CLI MCP was not loaded in this session (opened from `C:\brain`); used the official `angular-developer` skill instead.
