@@ -148,10 +148,19 @@ export class InMemoryRoleAssignmentsStore implements RoleAssignmentsStore {
   }
 
   async findActiveViewsByUserId(userId: number): Promise<AssignmentView[]> {
-    return this.rows
+    return this.viewsOf(this.rows, userId);
+  }
+
+  /** The active assignments of a user among `rows`, with their `roles`; a snapshot fake may pass its own of either in place of the current ones. */
+  protected viewsOf(
+    rows: readonly RoleAssignment[],
+    userId: number,
+    roles: readonly Role[] = this.roles,
+  ): AssignmentView[] {
+    return rows
       .filter((a) => a.userId === userId && a.isActive)
       .map((a) => {
-        const role = this.roles.find((r) => r.id === a.roleId)!;
+        const role = roles.find((r) => r.id === a.roleId)!;
         return {
           roleCode: role.code,
           roleIsActive: role.isActive,

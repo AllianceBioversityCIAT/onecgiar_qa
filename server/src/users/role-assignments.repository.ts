@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { DRIZZLE } from '../database/drizzle/drizzle.constants.js';
 import type { DrizzleDB } from '../database/drizzle/drizzle.module.js';
 import {
@@ -19,6 +19,18 @@ import {
 
 export const ROLE_ASSIGNMENTS_STORE = Symbol('ROLE_ASSIGNMENTS_STORE');
 
+/**
+ * `forShare` makes the read a locking read in share mode (DD-10): the user's
+ * active assignment rows `FOR SHARE`, then their roles `FOR SHARE` by primary
+ * key, in that order. It returns the latest committed version of those rows,
+ * where a plain read inside the transaction keeps serving its snapshot, and
+ * holds shared locks until the transaction ends: other readers do not wait, a
+ * revoke or a role deactivation does.
+ */
+export interface AssignmentReadOptions {
+  forShare?: boolean;
+}
+
 /** The persistence port of `RoleAssignmentsRepository` (TRD section 4, Repository). */
 export interface RoleAssignmentsStore {
   findRoleByCode(code: string): Promise<Role | undefined>;
@@ -30,7 +42,10 @@ export interface RoleAssignmentsStore {
   >;
   /** True when an active assignment was revoked; false when none matched. */
   revoke(id: number, revokedBy: number, at: Date): Promise<boolean>;
-  findActiveViewsByUserId(userId: number): Promise<AssignmentView[]>;
+  findActiveViewsByUserId(
+    userId: number,
+    options?: AssignmentReadOptions,
+  ): Promise<AssignmentView[]>;
 }
 
 export interface CreateAssignmentInput {
@@ -81,8 +96,11 @@ export class RoleAssignmentsRepository {
     if (!revoked) throw new AssignmentNotFoundError(id);
   }
 
-  findActiveViewsByUserId(userId: number): Promise<AssignmentView[]> {
-    return this.store.findActiveViewsByUserId(userId);
+  findActiveViewsByUserId(
+    userId: number,
+    options?: AssignmentReadOptions,
+  ): Promise<AssignmentView[]> {
+    return this.store.findActiveViewsByUserId(userId, options);
   }
 }
 
@@ -181,7 +199,11 @@ export class DrizzleRoleAssignmentsStore implements RoleAssignmentsStore {
     return header.affectedRows > 0;
   }
 
-  async findActiveViewsByUserId(userId: number): Promise<AssignmentView[]> {
+  async findActiveViewsByUserId(
+    userId: number,
+    options: AssignmentReadOptions = {},
+  ): Promise<AssignmentView[]> {
+    if (options.forShare) return this.lockActiveViewsByUserId(userId);
     const rows = await this.db
       .select({
         roleCode: roles.code,
@@ -200,5 +222,48 @@ export class DrizzleRoleAssignmentsStore implements RoleAssignmentsStore {
         ),
       );
     return rows;
+  }
+
+  /**
+   * The same views, read with shared locks: this user's active assignment rows
+   * `FOR SHARE`, then their roles `FOR SHARE` by primary key (existing rows, so
+   * record locks only). Two statements, not a join, so the lock order is
+   * always `role_assignments` → `roles`, whatever plan a join would get.
+   */
+  private async lockActiveViewsByUserId(
+    userId: number,
+  ): Promise<AssignmentView[]> {
+    const held = await this.db
+      .select()
+      .from(roleAssignments)
+      .where(
+        and(
+          eq(roleAssignments.userId, userId),
+          eq(roleAssignments.isActive, true),
+        ),
+      )
+      .for('share');
+    if (held.length === 0) return [];
+    const roleRows = await this.db
+      .select()
+      .from(roles)
+      .where(inArray(roles.id, [...new Set(held.map((a) => a.roleId))]))
+      .for('share');
+    const roleById = new Map(roleRows.map((role) => [role.id, role]));
+    return held.flatMap((assignment) => {
+      const role = roleById.get(assignment.roleId);
+      return role
+        ? [
+            {
+              roleCode: role.code,
+              roleIsActive: role.isActive,
+              isActive: assignment.isActive,
+              revokedAt: assignment.revokedAt,
+              resultTypeKey: assignment.resultTypeKey,
+              programId: assignment.programId,
+            },
+          ]
+        : [];
+    });
   }
 }

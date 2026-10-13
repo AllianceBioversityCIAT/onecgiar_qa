@@ -253,3 +253,29 @@ describe('DrizzleUsersStore.linkCognitoSub (the real adapter over a stub driver)
     });
   });
 });
+
+describe('DrizzleUsersStore reads (the real adapter over a stub driver)', () => {
+  function adapter() {
+    const statements: string[] = [];
+    const client = {
+      query: (query: { sql: string }) => {
+        statements.push(query.sql);
+        return Promise.resolve([[], []]);
+      },
+    };
+    const db = drizzle({ client: client as never, schema, mode: 'default' });
+    return { store: new DrizzleUsersStore(db), statements };
+  }
+
+  it('a locking read by id is SELECT ... FOR UPDATE on the primary key, and a plain read takes no lock', async () => {
+    const { store, statements } = adapter();
+
+    await store.findById(7, { forUpdate: true });
+    await store.findById(7);
+
+    expect(statements[0]).toMatch(
+      /where `users`\.`id` = \? limit \? for update$/,
+    );
+    expect(statements[1]).not.toMatch(/for update|for share/);
+  });
+});

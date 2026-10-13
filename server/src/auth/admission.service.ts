@@ -89,11 +89,10 @@ export function readClaims(payload: object): IdentityClaims {
     username: text('cognito:username'),
     firstName: name('given_name'),
     lastName: name('family_name'),
-    authSource: (
-      Array.isArray(identities) ? identities.length > 0 : identities != null
-    )
-      ? 'sso'
-      : 'custom',
+    // SSO only for a non-empty array; every other shape is custom, which is
+    // the stricter side: it needs a verified email and live assignments.
+    authSource:
+      Array.isArray(identities) && identities.length > 0 ? 'sso' : 'custom',
     emailVerified:
       claims['email_verified'] === true || claims['email_verified'] === 'true',
   };
@@ -103,6 +102,31 @@ export function readClaims(payload: object): IdentityClaims {
  * FR-8: resolves the QA user of a verified id token and decides whether it is
  * admitted (design 7.2, DD-10). Everything runs in one transaction and nothing
  * is written before the decision to admit, so a refusal leaves no trace.
+ *
+ * Where each decision comes from (DD-10: the latest committed state, never a
+ * plain SELECT, which serves the transaction's snapshot):
+ * - Link, 409, unverified email (steps 2 and 3): the candidate's row read
+ *   `FOR UPDATE` by id; the link itself is the conditional
+ *   `UPDATE ... WHERE cognito_sub IS NULL`, and when it changes no row, the
+ *   row read `FOR UPDATE` again.
+ * - Active (step 5): that locked row, or the row this transaction inserted.
+ * - A custom user's live assignment (step 6): its active `role_assignments`
+ *   rows `FOR SHARE`, then their `roles` `FOR SHARE` by primary key. Shared
+ *   locks: logins do not wait for each other, while a revoke or a role
+ *   deactivation committed first is read, and one that comes later waits for
+ *   this transaction. No decision depends on an SSO user's assignments: they
+ *   are read plainly, for the response only, which may lag by one transaction.
+ * The lock order is `users` → `role_assignments` → `roles`, as in every flow.
+ *
+ * Plain reads name the candidate (by `sub`, else by email), so that a first
+ * login takes no gap lock before its insert. Two outcomes rest on them, and
+ * neither can admit on stale data:
+ * - "No such user" (step 4): it refuses a custom token or a refresh; an SSO
+ *   login inserts, and an insert that collides with a row committed since the
+ *   snapshot is resolved with locking reads.
+ * - A locked candidate that no longer matches (its email moved since the
+ *   snapshot) is no one's to link and no collision; no other candidate is
+ *   searched, so it ends as "no such user" too.
  */
 @Injectable()
 export class AdmissionService {
@@ -148,11 +172,15 @@ export class AdmissionService {
       user = await this.createSsoUser(users, claims);
     }
 
-    // Step 5.
+    // Step 5: `user` is the locked row (or the row this transaction inserted).
     if (!user.isActive) throw new UserInactiveError();
 
-    // Step 6: the same notion of live assignment as FR-11.
-    const views = await assignments.findActiveViewsByUserId(user.id);
+    // Step 6: the same notion of live assignment as FR-11. A custom user's
+    // assignments and their roles are read FOR SHARE, after the user row; an
+    // SSO user's only feed the response and are read plainly.
+    const views = await assignments.findActiveViewsByUserId(user.id, {
+      forShare: claims.authSource === 'custom',
+    });
     if (claims.authSource === 'custom' && !views.some(isLiveAssignment)) {
       throw new NoActiveRolesError();
     }
@@ -173,24 +201,42 @@ export class AdmissionService {
   }
 
   /**
-   * Step 2: the user of this `sub`, else the pre-registered user of this email
-   * (empty `sub`, linked later by `linkSub`). Step 3: an email held by another
-   * `sub` is a collision. A custom token links by email only when its email is
-   * verified; an SSO email comes from the CGIAR directory, so it needs no flag.
+   * Steps 2 and 3. Plain reads find a candidate: the user of this `sub`, else
+   * the one of this email (the lookups of a login that may find nothing are
+   * plain, so they take no gap lock). The decision is then taken on that row
+   * read `FOR UPDATE` by id, as it stands now. `options` makes the candidate
+   * lookups locking reads too, for the caller that knows its snapshot predates
+   * the row (the retry after a lost insert race).
    */
   private async locate(
     users: UsersRepository,
     claims: IdentityClaims,
     options?: ReadOptions,
   ): Promise<User | undefined> {
-    const bySub = await users.findByCognitoSub(claims.sub, options);
-    if (bySub) return bySub;
-    const byEmail = await users.findByEmail(claims.email, options);
-    if (byEmail && byEmail.cognitoSub !== null) throw new EmailCollisionError();
-    if (byEmail && claims.authSource === 'custom' && !claims.emailVerified) {
+    const candidate =
+      (await users.findByCognitoSub(claims.sub, options)) ??
+      (await users.findByEmail(claims.email, options));
+    if (!candidate) return undefined;
+    const row = await users.findById(candidate.id, { forUpdate: true });
+    return row && this.judge(row, claims);
+  }
+
+  /**
+   * The rules of steps 2 and 3 on a locked row. The user of this `sub` is
+   * found whatever its email. Any other row concerns this login only through
+   * its email, so a row whose email has moved on since the snapshot is no one's
+   * to link and no collision. An email held by another `sub` is a collision. A
+   * custom token links by email only when its email is verified; an SSO email
+   * comes from the CGIAR directory, so it needs no flag.
+   */
+  private judge(row: User, claims: IdentityClaims): User | undefined {
+    if (row.cognitoSub === claims.sub) return row;
+    if (row.email !== claims.email) return undefined;
+    if (row.cognitoSub !== null) throw new EmailCollisionError();
+    if (claims.authSource === 'custom' && !claims.emailVerified) {
       throw new EmailNotVerifiedError();
     }
-    return byEmail;
+    return row;
   }
 
   /**
@@ -248,7 +294,14 @@ export class AdmissionService {
     if (claims.username !== null && user.cognitoUsername !== claims.username) {
       patch.cognitoUsername = claims.username;
     }
-    if (user.email !== claims.email) patch.email = claims.email;
+    // An email the token does not vouch for is not stored: the CGIAR directory
+    // vouches for an SSO email, `email_verified` for a custom one.
+    if (
+      user.email !== claims.email &&
+      (claims.authSource === 'sso' || claims.emailVerified)
+    ) {
+      patch.email = claims.email;
+    }
     if (claims.firstName !== null && user.firstName !== claims.firstName) {
       patch.firstName = claims.firstName;
     }

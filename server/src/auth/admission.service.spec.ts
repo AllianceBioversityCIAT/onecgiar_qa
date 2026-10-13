@@ -1,11 +1,18 @@
 import { ConflictException, ForbiddenException } from '@nestjs/common';
+import { drizzle } from 'drizzle-orm/mysql2';
 import {
   InMemoryRoleAssignmentsStore,
   InMemoryUsersStore,
 } from '../../test/support/in-memory-stores.js';
+import * as schema from '../database/drizzle/schema/index.js';
+import type { RoleAssignment } from '../database/drizzle/schema/role-assignments.js';
+import type { Role } from '../database/drizzle/schema/roles.js';
 import type { User } from '../database/drizzle/schema/users.js';
 import { CurrentUserCache } from '../users/current-user.cache.js';
-import { RoleAssignmentsRepository } from '../users/role-assignments.repository.js';
+import {
+  RoleAssignmentsRepository,
+  type AssignmentReadOptions,
+} from '../users/role-assignments.repository.js';
 import {
   UsersRepository,
   type ReadOptions,
@@ -15,6 +22,7 @@ import {
   type AdmissionMode,
   type AdmissionUnitOfWork,
 } from './admission.service.js';
+import { DrizzleAdmissionUnitOfWork } from './admission.unit-of-work.js';
 import {
   EmailCollisionError,
   EmailNotVerifiedError,
@@ -37,6 +45,8 @@ interface Claims {
   email?: string;
   username?: string;
   sso?: boolean;
+  /** The `identities` claim as the token carries it, whatever its shape; overrides `sso`. */
+  identities?: unknown;
   givenName?: string;
   familyName?: string;
   /** The `email_verified` claim as the token carries it; absent when undefined. */
@@ -56,6 +66,7 @@ function payload(claims: Claims) {
     ...(claims.sso && {
       identities: [{ providerName: 'CGIAR-AzureAD', userId: 'x' }],
     }),
+    ...(claims.identities !== undefined && { identities: claims.identities }),
     ...(claims.givenName !== undefined && { given_name: claims.givenName }),
     ...(claims.familyName !== undefined && { family_name: claims.familyName }),
   };
@@ -72,15 +83,34 @@ function sameRow(a: User, b: User): boolean {
 }
 
 /**
+ * The read view of one REPEATABLE READ transaction: created by its first plain
+ * read, whichever table that read is on, and shared by every table after it.
+ */
+class ReadView {
+  private taken = false;
+  private readonly takers: (() => void)[] = [];
+
+  enrol(take: () => void): void {
+    this.takers.push(take);
+  }
+
+  ensure(): void {
+    if (this.taken) return;
+    this.taken = true;
+    for (const take of this.takers) take();
+  }
+}
+
+/**
  * The users table as one REPEATABLE READ transaction sees it. Plain reads (by
- * id, email or sub) are served from a snapshot taken at the first plain read,
- * so a row another transaction commits afterwards is invisible to them; a
- * locking read (`forUpdate`) sees what is committed now. The transaction sees
- * its own writes, except an UPDATE that leaves the row identical: that creates
- * no new row version, so the snapshot stays as it was (InnoDB reports
- * HA_ERR_RECORD_IS_THE_SAME). An UPDATE is a current read: it matches against
- * the latest committed row, whatever the snapshot holds. Two stores over the
- * same `rows` are two transactions over one table.
+ * id, email or sub) are served from a snapshot taken at the first plain read
+ * of the transaction, so a row another transaction commits afterwards is
+ * invisible to them; a locking read (`forUpdate`) sees what is committed now.
+ * The transaction sees its own writes, except an UPDATE that leaves the row
+ * identical: that creates no new row version, so the snapshot stays as it was
+ * (InnoDB reports HA_ERR_RECORD_IS_THE_SAME). An UPDATE is a current read: it
+ * matches against the latest committed row, whatever the snapshot holds. Two
+ * stores over the same `rows` are two transactions over one table.
  */
 class SnapshotUsersStore extends InMemoryUsersStore {
   private snapshot: Map<number, User> | null = null;
@@ -92,6 +122,22 @@ class SnapshotUsersStore extends InMemoryUsersStore {
    * commit, then see its row).
    */
   beforeSubWrite: (() => Promise<unknown>) | null = null;
+  /**
+   * Runs once, just before the first locking read: "another transaction"
+   * commits after this one's snapshot and before its decision (the real
+   * `SELECT ... FOR UPDATE` waits for that commit, then reads its row).
+   */
+  beforeLock: (() => Promise<unknown> | void) | null = null;
+
+  constructor(
+    rows: User[] = [],
+    private readonly readView = new ReadView(),
+  ) {
+    super(rows);
+    readView.enrol(() => {
+      this.snapshot = new Map(this.rows.map((u) => [u.id, { ...u }]));
+    });
+  }
 
   private async commitRacingLink() {
     const racing = this.beforeSubWrite;
@@ -99,22 +145,27 @@ class SnapshotUsersStore extends InMemoryUsersStore {
     await racing?.();
   }
 
-  private view(options?: ReadOptions): User[] {
-    if (options?.forUpdate) return this.rows;
-    this.snapshot ??= new Map(this.rows.map((u) => [u.id, { ...u }]));
-    return [...this.snapshot.values()];
+  private async visible(options?: ReadOptions): Promise<User[]> {
+    if (options?.forUpdate) {
+      const racing = this.beforeLock;
+      this.beforeLock = null;
+      await racing?.();
+      return this.rows;
+    }
+    this.readView.ensure();
+    return [...this.snapshot!.values()];
   }
 
   override async findById(id: number, options?: ReadOptions) {
-    return this.view(options).find((u) => u.id === id);
+    return (await this.visible(options)).find((u) => u.id === id);
   }
 
   override async findByEmail(email: string, options?: ReadOptions) {
-    return this.view(options).find((u) => u.email === email);
+    return (await this.visible(options)).find((u) => u.email === email);
   }
 
   override async findByCognitoSub(sub: string, options?: ReadOptions) {
-    return this.view(options).find((u) => u.cognitoSub === sub);
+    return (await this.visible(options)).find((u) => u.cognitoSub === sub);
   }
 
   override async insert(values: Parameters<InMemoryUsersStore['insert']>[0]) {
@@ -149,8 +200,58 @@ class SnapshotUsersStore extends InMemoryUsersStore {
   }
 }
 
-function setup(usersStore: InMemoryUsersStore = new InMemoryUsersStore()) {
-  const assignmentsStore = new InMemoryRoleAssignmentsStore();
+/**
+ * The role assignments and the roles as the same transaction sees them: a
+ * plain read of either table is served from the transaction's read view, a
+ * locking read (`forShare`, which locks both tables) sees what is committed
+ * now.
+ */
+class SnapshotAssignmentsStore extends InMemoryRoleAssignmentsStore {
+  private snapshot: { assignments: RoleAssignment[]; roles: Role[] } = {
+    assignments: [],
+    roles: [],
+  };
+  /** Runs once, just before the first locking read, to commit "another transaction's" change. */
+  beforeLock: (() => Promise<unknown> | void) | null = null;
+
+  constructor(private readonly readView: ReadView) {
+    super();
+    readView.enrol(() => {
+      this.snapshot = {
+        assignments: this.rows.map((a) => ({ ...a })),
+        roles: this.roles.map((r) => ({ ...r })),
+      };
+    });
+  }
+
+  override async findActiveViewsByUserId(
+    userId: number,
+    options?: AssignmentReadOptions,
+  ) {
+    if (options?.forShare) {
+      const racing = this.beforeLock;
+      this.beforeLock = null;
+      await racing?.();
+      return this.viewsOf(this.rows, userId);
+    }
+    this.readView.ensure();
+    return this.viewsOf(this.snapshot.assignments, userId, this.snapshot.roles);
+  }
+}
+
+/** A users table and an assignments table in one REPEATABLE READ transaction. */
+function snapshotStores() {
+  const readView = new ReadView();
+  return {
+    usersStore: new SnapshotUsersStore([], readView),
+    assignmentsStore: new SnapshotAssignmentsStore(readView),
+  };
+}
+
+function setup(
+  usersStore: InMemoryUsersStore = new InMemoryUsersStore(),
+  assignmentsStore: InMemoryRoleAssignmentsStore = new InMemoryRoleAssignmentsStore(),
+) {
   assignmentsStore.addRole({
     code: 'ADMIN',
     name: 'Admin',
@@ -555,6 +656,138 @@ describe('AdmissionService email linking needs a verified email on a custom toke
   });
 });
 
+describe.each(['login', 'refresh'] as const)(
+  'AdmissionService step 7 email sync on %s (FR-8)',
+  (mode) => {
+    it.each([
+      ['absent', undefined],
+      ['false', false],
+      ['"false"', 'false'],
+    ])(
+      'a linked custom user whose new email is not verified (%s) keeps the stored email, while names and last login still update',
+      async (_label, emailVerified) => {
+        const ctx = setup();
+        await preRegister(ctx, {
+          authSource: 'custom',
+          withAdminRole: true,
+          sub: ana.sub,
+          firstName: 'Ana',
+        });
+        const row = ctx.usersStore.rows[0];
+        row.lastLoginAt = new Date(0);
+
+        const result = await ctx.resolve(
+          {
+            ...ana,
+            email: 'Ana.New@CGIAR.org',
+            emailVerified,
+            givenName: 'Anita',
+          },
+          mode,
+        );
+
+        expect(row.email).toBe('ana@cgiar.org');
+        expect(result.user.email).toBe('ana@cgiar.org');
+        expect(row.firstName).toBe('Anita');
+        expect(row.lastLoginAt!.getTime()).toBeGreaterThan(0);
+      },
+    );
+
+    it.each([
+      ['custom, email_verified true', { emailVerified: true }],
+      ['custom, email_verified "true"', { emailVerified: 'true' }],
+      ['SSO, email_verified absent', { sso: true }],
+      ['SSO, email_verified false', { sso: true, emailVerified: false }],
+    ] as [string, Partial<Claims>][])(
+      '%s: the new email is stored, lowercased',
+      async (_label, flags) => {
+        const ctx = setup();
+        await preRegister(ctx, {
+          authSource: flags.sso ? 'sso' : 'custom',
+          withAdminRole: true,
+          sub: ana.sub,
+        });
+
+        const result = await ctx.resolve(
+          { ...ana, ...flags, email: 'Ana.New@CGIAR.org' },
+          mode,
+        );
+
+        expect(ctx.usersStore.rows[0].email).toBe('ana.new@cgiar.org');
+        expect(result.user.email).toBe('ana.new@cgiar.org');
+      },
+    );
+  },
+);
+
+describe('AdmissionService SSO classification (FR-8 step 1)', () => {
+  // `auth_source = sso` only for a non-empty array of identities.
+  const notSso: [string, unknown][] = [
+    ['an object', { providerName: 'CGIAR-AzureAD' }],
+    ['an empty string', ''],
+    ['a non-empty string', 'CGIAR-AzureAD'],
+    ['null', null],
+    ['an empty array', []],
+    ['absent', undefined],
+  ];
+
+  it.each(notSso)(
+    'identities as %s is custom: a pre-registered user is not linked without email_verified',
+    async (_label, identities) => {
+      const ctx = setup();
+      await preRegister(ctx, { authSource: 'sso', withAdminRole: true });
+      const writes = ctx.usersStore.writes;
+
+      const outcome = await ctx.resolve({ ...ana, identities }).then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+
+      expect(ctx.usersStore.rows[0].cognitoSub).toBeNull();
+      expect(ctx.usersStore.writes).toBe(writes);
+      expect(outcome).toBeInstanceOf(EmailNotVerifiedError);
+    },
+  );
+
+  it.each(notSso)(
+    'identities as %s is custom: a verified user without active assignments is refused',
+    async (_label, identities) => {
+      const ctx = setup();
+      await preRegister(ctx, { authSource: 'sso' });
+      const writes = ctx.usersStore.writes;
+
+      const outcome = await ctx
+        .resolve({ ...ana, identities, emailVerified: true })
+        .then(
+          () => undefined,
+          (error: unknown) => error,
+        );
+
+      expect(ctx.usersStore.rows[0].cognitoSub).toBeNull();
+      expect(ctx.usersStore.writes).toBe(writes);
+      expect(outcome).toBeInstanceOf(NoActiveRolesError);
+    },
+  );
+
+  it.each(notSso)(
+    'identities as %s is custom: an unknown user is refused and no row is created',
+    async (_label, identities) => {
+      const ctx = setup();
+
+      const outcome = await ctx
+        .resolve({ ...ana, identities, emailVerified: true })
+        .then(
+          () => undefined,
+          (error: unknown) => error,
+        );
+
+      expect(ctx.create).not.toHaveBeenCalled();
+      expect(ctx.usersStore.rows).toHaveLength(0);
+      expect(outcome).toBeInstanceOf(UserNotRegisteredError);
+    },
+  );
+});
+
 describe('AdmissionService mode refresh (FR-13)', () => {
   it('never creates: an SSO token with no QA user is refused', async () => {
     const ctx = setup();
@@ -690,68 +923,362 @@ describe('AdmissionService concurrent first login (DD-10)', () => {
   });
 });
 
-describe('AdmissionService concurrent link of the same email (FR-8 step 2, DD-10)', () => {
-  beforeEach(() => {
-    // Both logins fall in the same second (the clock is frozen), as when two
-    // requests race.
-    vi.useFakeTimers({ toFake: ['Date'] });
-    vi.setSystemTime(new Date('2026-10-13T12:00:00.000Z'));
-  });
+describe.each([
+  [
+    'before the loser locks the row (the lock waits, then reads the winner)',
+    'before-lock',
+  ],
+  [
+    "between the loser's lock and its link (only the conditional UPDATE guards it)",
+    'before-link',
+  ],
+] as const)(
+  'AdmissionService concurrent link of the same email, winner commits %s (FR-8 step 2, DD-10)',
+  (_label, interleaving) => {
+    beforeEach(() => {
+      // Both logins fall in the same second (the clock is frozen), as when two
+      // requests race.
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-10-13T12:00:00.000Z'));
+    });
 
-  afterEach(() => {
-    vi.useRealTimers();
-  });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
 
-  /**
-   * One pre-registered user (empty `sub`) and two transactions over its row.
-   * Both read it first; the winner then commits its whole login before the
-   * loser's UPDATE of the `sub` runs. Returns how each login ended.
-   */
-  async function race(winnerClaims: Claims, loserClaims: Claims) {
-    const loserStore = new SnapshotUsersStore();
-    const loser = setup(loserStore);
-    const winner = setup(new SnapshotUsersStore(loserStore.rows));
-    const pre = await preRegister(loser, { authSource: 'sso' });
-    let winnerResult: Awaited<ReturnType<Ctx['resolve']>> | undefined;
-    loserStore.beforeSubWrite = async () => {
-      winnerResult = await winner.resolve(winnerClaims);
-    };
+    /**
+     * One pre-registered user (empty `sub`) and two transactions over its row.
+     * Both snapshot it first; the winner then commits its whole login at the
+     * given point of the loser's. Returns how each login ended.
+     */
+    async function race(winnerClaims: Claims, loserClaims: Claims) {
+      const loserStore = new SnapshotUsersStore();
+      const loser = setup(loserStore);
+      const winner = setup(new SnapshotUsersStore(loserStore.rows));
+      const pre = await preRegister(loser, { authSource: 'sso' });
+      let winnerResult: Awaited<ReturnType<Ctx['resolve']>> | undefined;
+      const commitWinner = async () => {
+        winnerResult = await winner.resolve(winnerClaims);
+      };
+      if (interleaving === 'before-lock') loserStore.beforeLock = commitWinner;
+      else loserStore.beforeSubWrite = commitWinner;
 
-    const loserOutcome = await loser.resolve(loserClaims).then(
-      (result) => result,
-      (error: unknown) => error,
-    );
-    return { pre, rows: loserStore.rows, loser, winnerResult, loserOutcome };
-  }
+      const loserOutcome = await loser.resolve(loserClaims).then(
+        (result) => result,
+        (error: unknown) => error,
+      );
+      return { pre, rows: loserStore.rows, loser, winnerResult, loserOutcome };
+    }
 
-  it('two different subs: the first link is admitted and kept, the other login is a 409 that links nothing', async () => {
-    const { pre, rows, loser, winnerResult, loserOutcome } = await race(
-      { ...ana, sub: 'sub-first', sso: true },
-      { ...ana, sub: 'sub-second', sso: true },
-    );
+    it('two different subs: the first link is admitted and kept, the other login is a 409 that links nothing', async () => {
+      const { pre, rows, loser, winnerResult, loserOutcome } = await race(
+        { ...ana, sub: 'sub-first', sso: true },
+        { ...ana, sub: 'sub-second', sso: true },
+      );
 
-    // State first, so a status alone cannot pass: the first link is intact.
-    expect(rows).toHaveLength(1);
-    expect(rows[0].cognitoSub).toBe('sub-first');
-    expect(winnerResult?.user.id).toBe(pre.id);
-    expect(loser.events).toEqual([]);
-    expect(loserOutcome).toBeInstanceOf(EmailCollisionError);
-    expect(loserOutcome).toBeInstanceOf(ConflictException);
-  });
+      // State first, so a status alone cannot pass: the first link is intact.
+      expect(rows).toHaveLength(1);
+      expect(rows[0].cognitoSub).toBe('sub-first');
+      expect(winnerResult?.user.id).toBe(pre.id);
+      expect(loser.events).toEqual([]);
+      expect(loserOutcome).toBeInstanceOf(EmailCollisionError);
+      expect(loserOutcome).toBeInstanceOf(ConflictException);
+    });
 
-  it('the same sub twice (a double login): the loser finds its own sub linked and is admitted too', async () => {
-    const { pre, rows, loser, winnerResult, loserOutcome } = await race(
-      { ...ana, sso: true },
-      { ...ana, sso: true },
-    );
+    it('the same sub twice (a double login): the loser finds its own sub linked and is admitted too', async () => {
+      const { pre, rows, loser, winnerResult, loserOutcome } = await race(
+        { ...ana, sso: true },
+        { ...ana, sso: true },
+      );
 
-    expect(rows).toHaveLength(1);
-    expect(rows[0].cognitoSub).toBe('sub-ana');
-    expect(winnerResult?.user.id).toBe(pre.id);
-    expect(loserOutcome).toMatchObject({ user: { id: pre.id } });
-    expect(loser.events).toEqual(['commit', `invalidate:${pre.id}`]);
-  });
+      expect(rows).toHaveLength(1);
+      expect(rows[0].cognitoSub).toBe('sub-ana');
+      expect(winnerResult?.user.id).toBe(pre.id);
+      expect(loserOutcome).toMatchObject({ user: { id: pre.id } });
+      expect(loser.events).toEqual(['commit', `invalidate:${pre.id}`]);
+    });
+  },
+);
+
+describe('AdmissionService decisions come from locking reads (DD-10)', () => {
+  // Another transaction commits after this one's snapshot and before its
+  // decision: a plain read would keep serving the old state.
+
+  it.each(['login', 'refresh'] as const)(
+    'a deactivation committed after the snapshot is refused on %s, and nothing is written',
+    async (mode) => {
+      const { usersStore, assignmentsStore } = snapshotStores();
+      const ctx = setup(usersStore, assignmentsStore);
+      await preRegister(ctx, { sub: ana.sub });
+      usersStore.beforeLock = () => {
+        usersStore.rows[0].isActive = false;
+      };
+      const writes = usersStore.writes;
+
+      const outcome = await ctx.resolve({ ...ana, sso: true }, mode).then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+
+      expect(usersStore.rows[0].lastLoginAt).toBeNull();
+      expect(usersStore.writes).toBe(writes);
+      expect(ctx.events).toEqual([]);
+      expect(outcome).toBeInstanceOf(UserInactiveError);
+    },
+  );
+
+  it.each(['login', 'refresh'] as const)(
+    'the last assignment revoked after the snapshot refuses a custom user on %s, and nothing is written',
+    async (mode) => {
+      const { usersStore, assignmentsStore } = snapshotStores();
+      const ctx = setup(usersStore, assignmentsStore);
+      const pre = await preRegister(ctx, {
+        authSource: 'custom',
+        sub: ana.sub,
+      });
+      const assignment = await ctx.assignments.create({
+        userId: pre.id,
+        roleCode: 'ADMIN',
+      });
+      assignmentsStore.beforeLock = () =>
+        assignmentsStore.revoke(assignment.id, pre.id, new Date());
+      const writes = usersStore.writes;
+
+      const outcome = await ctx.resolve({ ...ana }, mode).then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+
+      expect(usersStore.rows[0].lastLoginAt).toBeNull();
+      expect(usersStore.writes).toBe(writes);
+      expect(ctx.events).toEqual([]);
+      expect(outcome).toBeInstanceOf(NoActiveRolesError);
+    },
+  );
+
+  it.each(['login', 'refresh'] as const)(
+    'the only role of a custom user deactivated after the snapshot refuses it on %s, and nothing is written',
+    async (mode) => {
+      const { usersStore, assignmentsStore } = snapshotStores();
+      const ctx = setup(usersStore, assignmentsStore);
+      await preRegister(ctx, {
+        authSource: 'custom',
+        sub: ana.sub,
+        withAdminRole: true,
+      });
+      assignmentsStore.beforeLock = () => {
+        assignmentsStore.roles.find((r) => r.code === 'ADMIN')!.isActive =
+          false;
+      };
+      const writes = usersStore.writes;
+
+      const outcome = await ctx.resolve({ ...ana }, mode).then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+
+      expect(usersStore.rows[0].lastLoginAt).toBeNull();
+      expect(usersStore.writes).toBe(writes);
+      expect(ctx.events).toEqual([]);
+      expect(outcome).toBeInstanceOf(NoActiveRolesError);
+    },
+  );
+
+  it.each([
+    ['an empty-sub pre-registered user', undefined],
+    ['a user holding another sub', 'sub-someone-else'],
+  ])(
+    '%s whose email moved after the snapshot is neither linked nor a collision',
+    async (_label, holderSub) => {
+      const { usersStore, assignmentsStore } = snapshotStores();
+      const ctx = setup(usersStore, assignmentsStore);
+      await preRegister(ctx, { sub: holderSub });
+      usersStore.beforeLock = () => {
+        usersStore.rows[0].email = 'moved@cgiar.org';
+      };
+
+      const outcome = await ctx.resolve({ ...ana, sso: true }).then(
+        (result) => result,
+        (error: unknown) => error,
+      );
+
+      expect(usersStore.rows).toHaveLength(2);
+      expect(usersStore.rows[0].cognitoSub).toBe(holderSub ?? null);
+      expect(usersStore.rows[1].email).toBe('ana@cgiar.org');
+      expect(usersStore.rows[1].cognitoSub).toBe('sub-ana');
+      expect(outcome).toMatchObject({ user: { id: usersStore.rows[1].id } });
+    },
+  );
 });
+
+describe.each(['login', 'refresh'] as const)(
+  'AdmissionService over the real unit of work and adapters on %s (stub MySQL driver, DD-10)',
+  (mode) => {
+    // Rows as the driver returns them: arrays in each table's column order.
+    const at = '2026-01-01 00:00:00';
+    const userRow = (authSource: 'sso' | 'custom') => [
+      1,
+      ana.sub,
+      ana.username,
+      ana.email,
+      null,
+      null,
+      authSource,
+      1,
+      null,
+      at,
+      at,
+      null,
+    ];
+    const assignmentRow = [
+      10,
+      1,
+      3,
+      null,
+      null,
+      1,
+      at,
+      null,
+      null,
+      null,
+      '1:3::',
+    ];
+    const roleRow = (isActive: 0 | 1) => [
+      3,
+      'ADMIN',
+      'Admin',
+      'global',
+      isActive,
+    ];
+    /** A row of the plain read's join: role code, role active, active, revoked at, result type key, program id. */
+    const viewRow = ['ADMIN', 1, 1, null, null, null];
+
+    interface Tables {
+      users: unknown[][];
+      assignments: unknown[][];
+      roles: unknown[][];
+      views: unknown[][];
+    }
+
+    const LOCK = /for (update|share)$/;
+
+    /** The locking reads of a transaction, in order, as `<table> for update|share`. */
+    const locks = (statements: string[]) =>
+      statements.flatMap((sql) => {
+        const lock = LOCK.exec(sql);
+        const table = /from `(\w+)`/.exec(sql);
+        return lock && table ? [`${table[1]} ${lock[0]}`] : [];
+      });
+
+    /**
+     * Admission of the user `ana` (linked, active, holding ADMIN) in one
+     * transaction over a stub driver that serves a plain SELECT from the
+     * snapshot and a locking one (FOR UPDATE / FOR SHARE) from what is
+     * committed now, which differs from the snapshot by `committedSince`.
+     */
+    async function admit(
+      authSource: 'sso' | 'custom',
+      committedSince: Partial<Tables> = {},
+    ) {
+      const snapshot: Tables = {
+        users: [userRow(authSource)],
+        assignments: [assignmentRow],
+        roles: [roleRow(1)],
+        views: [viewRow],
+      };
+      const committed = { ...snapshot, ...committedSince };
+      const statements: string[] = [];
+      const client = {
+        query: ({ sql }: { sql: string }) => {
+          statements.push(sql);
+          if (!sql.startsWith('select')) {
+            return Promise.resolve([{ affectedRows: 1 }, []]);
+          }
+          const tables = LOCK.test(sql) ? committed : snapshot;
+          const table = /from `(\w+)`/.exec(sql)?.[1];
+          const rows = sql.includes(' join ')
+            ? tables.views
+            : table === 'role_assignments'
+              ? tables.assignments
+              : table === 'roles'
+                ? tables.roles
+                : tables.users;
+          return Promise.resolve([rows, []]);
+        },
+      };
+      const db = drizzle({ client: client as never, schema, mode: 'default' });
+      const claims: Claims =
+        authSource === 'sso' ? { ...ana, sso: true } : { ...ana };
+      const verifier = {
+        verifyId: () => Promise.resolve(payload(claims)),
+      } as unknown as TokenVerifier;
+      const cache = { invalidate: () => {} } as unknown as CurrentUserCache;
+      const service = new AdmissionService(
+        verifier,
+        new DrizzleAdmissionUnitOfWork(db),
+        cache,
+      );
+      const outcome = await service.resolve('id-token', { mode }).then(
+        (result) => result,
+        (error: unknown) => error,
+      );
+      return { outcome, statements };
+    }
+
+    it.each([
+      ['its only role is deactivated', { roles: [roleRow(0)] }],
+      ['its last assignment is revoked', { assignments: [] }],
+    ] as [string, Partial<Tables>][])(
+      'a custom user is refused when, after the snapshot, %s; nothing is written',
+      async (_label, committedSince) => {
+        const { outcome, statements } = await admit('custom', committedSince);
+
+        expect(statements.filter((sql) => sql.startsWith('update'))).toEqual(
+          [],
+        );
+        expect(statements.at(-1)).toBe('rollback');
+        expect(outcome).toBeInstanceOf(NoActiveRolesError);
+      },
+    );
+
+    it('a custom token locks the user row, then its assignments, then their roles by primary key, the last two in share mode', async () => {
+      const { outcome, statements } = await admit('custom');
+
+      expect(locks(statements)).toEqual([
+        'users for update',
+        'role_assignments for share',
+        'roles for share',
+        'users for update', // step 7's read-back
+      ]);
+      expect(statements).toContainEqual(
+        expect.stringMatching(
+          /^select .* from `roles` where `roles`\.`id` in \(\?\) for share$/,
+        ),
+      );
+      expect(statements.at(-1)).toBe('commit');
+      expect(outcome).toMatchObject({ user: { id: 1 } });
+    });
+
+    it('an SSO token reads its assignments plainly: no lock on role_assignments or roles', async () => {
+      const { outcome, statements } = await admit('sso');
+
+      expect(locks(statements)).toEqual([
+        'users for update',
+        'users for update', // step 7's read-back
+      ]);
+      const assignmentReads = statements.filter((sql) =>
+        sql.includes('from `role_assignments`'),
+      );
+      expect(assignmentReads).toHaveLength(1);
+      expect(assignmentReads[0]).toMatch(/inner join `roles`/);
+      expect(assignmentReads[0]).not.toMatch(/for update|for share/);
+      expect(statements.at(-1)).toBe('commit');
+      expect(outcome).toMatchObject({
+        user: { id: 1, assignments: [{ roleCode: 'ADMIN' }] },
+      });
+    });
+  },
+);
 
 describe('AdmissionService cache invalidation (FR-11, same process)', () => {
   it('invalidates the user once, after the transaction commits', async () => {

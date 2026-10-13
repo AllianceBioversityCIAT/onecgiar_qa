@@ -16,9 +16,11 @@ import {
 export const USERS_STORE = Symbol('USERS_STORE');
 
 /**
- * `forUpdate` makes the read a locking read (`SELECT ... FOR UPDATE`): inside a
- * REPEATABLE READ transaction a plain read keeps serving the snapshot of the
- * first read and would miss a row another writer committed since.
+ * `forUpdate` makes the read a locking read (`SELECT ... FOR UPDATE`): it
+ * returns the latest committed version of the rows and locks them until the
+ * transaction ends, whereas inside a REPEATABLE READ transaction a plain read
+ * keeps serving the snapshot of the first read and would miss a change another
+ * writer committed since.
  */
 export interface ReadOptions {
   forUpdate?: boolean;
@@ -112,8 +114,8 @@ export function normalizeCognitoSub(
 export class UsersRepository {
   constructor(@Inject(USERS_STORE) private readonly store: UsersStore) {}
 
-  findById(id: number): Promise<User | undefined> {
-    return this.store.findById(id);
+  findById(id: number, options?: ReadOptions): Promise<User | undefined> {
+    return this.store.findById(id, options);
   }
 
   findByEmail(email: string, options?: ReadOptions): Promise<User | undefined> {

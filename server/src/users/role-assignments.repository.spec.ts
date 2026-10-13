@@ -1,6 +1,11 @@
+import { drizzle } from 'drizzle-orm/mysql2';
 import { InMemoryRoleAssignmentsStore } from '../../test/support/in-memory-stores.js';
+import * as schema from '../database/drizzle/schema/index.js';
 import { ROLE_DEFINITIONS, RoleCode } from './permissions.js';
-import { RoleAssignmentsRepository } from './role-assignments.repository.js';
+import {
+  DrizzleRoleAssignmentsStore,
+  RoleAssignmentsRepository,
+} from './role-assignments.repository.js';
 import {
   AssignmentNotFoundError,
   DuplicateActiveAssignmentError,
@@ -268,5 +273,79 @@ describe('RoleAssignmentsRepository.revoke (FR-1)', () => {
     await expect(repo.revoke(999, ACTOR)).rejects.toBeInstanceOf(
       AssignmentNotFoundError,
     );
+  });
+});
+
+describe('DrizzleRoleAssignmentsStore.findActiveViewsByUserId (the real adapter over a stub driver)', () => {
+  // Rows come back as arrays, in the column order of the table.
+  const assignmentRow = [
+    1,
+    7,
+    3,
+    null,
+    null,
+    1,
+    '2026-01-01 00:00:00',
+    null,
+    null,
+    null,
+    '7:3::',
+  ];
+  const roleRow = [3, 'ADMIN', 'Admin', 'global', 1];
+
+  function adapter(replies: unknown[][]) {
+    const statements: string[] = [];
+    const client = {
+      query: (query: { sql: string }) => {
+        statements.push(query.sql);
+        return Promise.resolve([replies[statements.length - 1] ?? [], []]);
+      },
+    };
+    const db = drizzle({ client: client as never, schema, mode: 'default' });
+    return { store: new DrizzleRoleAssignmentsStore(db), statements };
+  }
+
+  it('a locking read is SELECT ... FOR SHARE on the assignment rows, then on their roles by primary key (DD-10 lock order)', async () => {
+    const { store, statements } = adapter([[assignmentRow], [roleRow]]);
+
+    const views = await store.findActiveViewsByUserId(7, { forShare: true });
+
+    expect(statements).toHaveLength(2);
+    expect(statements[0]).toMatch(
+      /^select .* from `role_assignments` where .* for share$/,
+    );
+    expect(statements[0]).not.toMatch(/join|`roles`/);
+    expect(statements[1]).toMatch(
+      /^select .* from `roles` where `roles`\.`id` in \(\?\) for share$/,
+    );
+    expect(views).toEqual([
+      {
+        roleCode: 'ADMIN',
+        roleIsActive: true,
+        isActive: true,
+        revokedAt: null,
+        resultTypeKey: null,
+        programId: null,
+      },
+    ]);
+  });
+
+  it('a user without active assignments reads the roles of no one', async () => {
+    const { store, statements } = adapter([[]]);
+
+    await expect(
+      store.findActiveViewsByUserId(7, { forShare: true }),
+    ).resolves.toEqual([]);
+    expect(statements).toHaveLength(1);
+  });
+
+  it('a plain read is one joined SELECT with no lock', async () => {
+    const { store, statements } = adapter([[]]);
+
+    await store.findActiveViewsByUserId(7);
+
+    expect(statements).toHaveLength(1);
+    expect(statements[0]).toMatch(/inner join `roles`/);
+    expect(statements[0]).not.toMatch(/for update|for share/);
   });
 });

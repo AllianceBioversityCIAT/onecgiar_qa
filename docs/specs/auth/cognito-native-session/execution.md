@@ -868,7 +868,7 @@ The user's three decisions, verbatim:
 
 **Accounting:** this is a second amendment loop on T-7, starting at attempt 1. These are approved scope changes, not FAILs.
 
-### T-7 second amendment loop (strict SSO, verified email sync, locking-read decisions) — IN PROGRESS
+### T-7 second amendment loop (strict SSO, verified email sync, locking-read decisions) — PASS (attempt 2, degraded-pair)
 
 - **Date:** 2026-10-13
 - **Attempt 1** (effort `xhigh`; skills nestjs-expert, tdd)
@@ -924,3 +924,97 @@ The user's three decisions, verbatim:
     - one lock order in every flow, future admin writers included: `users` → `role_assignments` → `roles`
   - T-7 Scope and Tests carry the "Amended a third time" sentence and a role-deactivated-after-snapshot test.
 - **Attempt 2:** effort stays `xhigh`. The retry bump would reach `max`, which is not allowed on a cheaper tier, so **the Implementer is escalated to T1 `opus` at `xhigh`**. The FAIL reports and the user's decisions are passed through verbatim.
+  - **Implementation (attempt 2):** the lock modes follow the amended DD-10.
+    - The user row uses FOR UPDATE.
+    - Custom: `role_assignments` FOR SHARE, then `roles` FOR SHARE by PK, in two statements.
+    - SSO: assignments are read plainly.
+    - The class doc records each decision's source, the lock modes and order, the residual plain read of "no such user", and that `judge` has no fallback.
+    - Port: `AssignmentReadOptions { forShare }`.
+  - **Files changed:** `server/src/auth/admission.service.ts` and its spec, `server/src/users/role-assignments.repository.ts` and its spec, `server/test/support/in-memory-stores.ts`. `users.repository.ts` and its spec still carry the attempt-1 changes.
+  - **Red run against the attempt-1 code:** 9 failed / 121 passed, all on assertions.
+    - Role deactivated after the snapshot: the user was admitted.
+    - Lock sequence `role_assignments for update` instead of `for share`.
+    - An extra SSO lock.
+    - Adapter SQL mismatch.
+  - **Mutations, red count per mutation:**
+
+    | Mutation | Red |
+    |---|---|
+    | (e) | 5 |
+    | (f1) | 10 |
+    | (f2) | 5 |
+    | (g) | 2 |
+    | (h) | 3 |
+    | (a) | 6 |
+    | (b1) | 12 |
+    | (b2) | 9 |
+    | (c) | 4 |
+    | Prior: steps 2/3 | 39 |
+    | Prior: create | 7 |
+    | Prior: read-backs | 5 / 1 |
+    | Prior: unconditional link | 1 / 2 / 1 |
+    | Prior: unverified link | 9 |
+    | Prior: no lock by id | 9 |
+    | Prior: email re-check | 2 |
+    | Prior: `findById` FOR UPDATE | 5 |
+
+    All were reverted, and the checksums are identical.
+  - **Implementer verification:** lint 0, build 0, unit 351/351, e2e 55/55.
+  - **Implementer Not Done / Assumptions (verbatim, assumptions only):** the full text is in the scratchpad, `t7-amend2-review-context.md` § ATTEMPT 2.
+    - The port option was renamed.
+    - The fake contract changed between the red run and the green run.
+    - Stub-driver harness added.
+    - A residual shared gap lock remains for custom users with no assignments.
+    - Out-of-scope items were left untouched.
+  - **Evidence re-run (Leader-inline, non-author):** VERIFIED. lint 0, build 0, unit 351/351, e2e 55/55.
+  - **Reviewer verdict (attempt 2), Risk lens (sonnet): PASS.** Every admit or refuse decision comes from a locking read or the conditional UPDATE.
+    - A role deactivated after the snapshot is refused, in login and in refresh.
+    - SSO plain reads feed no decision.
+    - No refusal writes anything.
+    - Named checks 1–5 conform.
+  - **Reviewer verdict (attempt 2), Reliability lens (sonnet): PASS.**
+    - The lock order is consistent in every flow.
+    - The harnesses are faithful: the `ReadView` fakes now snapshot `roles`, and the stub driver runs the real adapters.
+    - The tests are non-vacuous, and the port rename broke no caller.
+    - Named checks 1–5 conform.
+  - **ADVISORY (attempt 2; labeled advisory, not gating):**
+    - Risk: sort the role ids ascending before the `inArray`. The future revoke spec should lock role rows in ascending id.
+    - Risk/Resilience: the lost-insert retry gap lock is still open (recorded). Deadlock 1213 surfaces as a 500; consider a bounded retry.
+    - Reliability: the FOR SHARE gap on `(user_id, is_active)` can make a grant to a neighbouring user wait briefly.
+    - Reliability: future admin writers must lock `users` first. A role-deactivation writer that locks `roles` and then cascades into `role_assignments` would deadlock with a login. This is a rule for the admin spec.
+    - Reliability: the adapter tests do not assert the WHERE parameters, so a mutation that drops `user_id` would stay green. Assert the values `[7, true]` or the predicate text.
+    - Reliability: step 4's plain reads can only refuse.
+
+## REVIEW_WAIVED: T-7 (second amendment loop, attempt 2)
+
+| Field | Content |
+|---|---|
+| flag | `degraded-pair` |
+| cause | The attempt-1 Reviewer FAIL consumed one attempt. The retry effort bump would reach `max`, which is not allowed on the cheaper T2 tier, so the Implementer was escalated to T1 `opus`. The registry's T3 Reviewer is also `opus`, which would break author ≠ auditor. |
+| approved by | the user, via AskUserQuestion on 2026-10-13: "Reviewer en sonnet (Recomendado)" |
+| verification that stood in | The Leader re-ran `pnpm lint && pnpm build && vitest run && vitest e2e`: all exit 0, 351/351 and 55/55. The Implementer executed the red run and mutations (e)–(h) and (a)–(c). |
+| models | Implementer `opus` / Reviewers `sonnet` (both lenses). The PASS stands: `PASS (degraded-pair: opus/sonnet)` |
+
+- **Final status:** T-7 PASS: original scope (attempt 2), amendment loop 1 (attempt 1), amendment loop 2 (attempt 2, degraded-pair). `[~]` → `[x]`.
+- **spawns:**
+  - implementer: 68 calls, 224011 tokens, ended partial (assumptions)
+  - reviewer (risk): 13 calls, 56012 tokens, ended fail
+  - reviewer (reliability): 20 calls, 73678 tokens, ended fail
+  - implementer (opus): 65 calls, 186322 tokens, ended partial (assumptions)
+  - reviewer (risk, sonnet): 16 calls, 56538 tokens, ended complete
+  - reviewer (reliability, sonnet): 15 calls, 63120 tokens, ended complete
+- **runtime events:** none.
+- **Leader incident:** while recording the escalation, `git commit -a` swept the uncommitted attempt-1 code into a log-only commit. It was undone immediately with `git reset --soft HEAD~1` (local, not pushed), and the log was re-committed alone. No code was reviewed or committed through that commit.
+- **Forward pointers:**
+  - Future admin/revoke spec:
+    - Lock order is `users` → `role_assignments` → `roles`, with role ids in ascending order.
+    - Revoke must lock `users[user_id]` FOR UPDATE first.
+    - Role deactivation must not lock `roles` and then cascade into `role_assignments`.
+    - The lost-insert retry gap lock is still open.
+    - Deadlock 1213 needs a bounded retry.
+  - T-11: run real-MySQL concurrent logins, link, and deactivation/revoke during login.
+- **Budget:**
+  - About 8,000 of about 10,000 LOC (counting committed plus this diff).
+  - About 27 Reviewer passes, which **exceeds the re-baselined ~25**. This trips the tripwire; it is escalated at the gate.
+  - 7 of 11 tasks.
+- **Final verification:** lint 0, build 0, unit 351/351, e2e 55/55.
