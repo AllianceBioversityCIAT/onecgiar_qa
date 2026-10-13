@@ -140,3 +140,80 @@
   - The same row's `/api/health` note → `/api/v1/health`.
   - New required env vars: `COGNITO_*`, `MS_AUTH_*`, `ALLOWED_ORIGINS`.
 - **CodeGraph re-index:** n/a (not initialized).
+
+### T-2: Users, roles and role-assignments schema + migration — PASS (attempt 1)
+
+- **Date:** 2026-10-13
+- **Attempt 1** (effort `high`, set because the schema is a shared, hard-to-undo boundary; skills nestjs-expert, nestjs-best-practices, as the task lists). It ran serially after T-1. T-4 was not run in parallel: they share `dist/`, and the RAM guard had already blocked builds once.
+  - **Files changed:**
+    - `server/src/database/drizzle/schema/{users,roles,role-assignments,schema.spec}.ts` (new), `schema/index.ts` (modified)
+    - `server/drizzle/0000_silent_risque.sql`, `server/drizzle/meta/{_journal.json,0000_snapshot.json}` (generated)
+    - `docs/specs/auth/cognito-native-session/design.md` § 5 (execute-time spec edit, below)
+  - **Implementer verification:**
+    - lint 0 · build clean · unit 41/41 (3 files)
+    - `pnpm db:generate` ran offline and produced exactly one migration
+    - Falsifier 1 (`active_key` unique index removed, migration regenerated) went red: `expected [] to deep equally contain [ 'active_key' ]` plus the `UNIQUE` regex.
+    - Falsifier 2 (email CHECK removed) went red: `expected [] to include 'chk_users_email_lowercase'`.
+    - Both were reverted. `drizzle/` is byte-identical afterwards (`diff -r` clean).
+  - **Implementer Not Done / Assumptions (verbatim):**
+    > "`pnpm db:migrate` and the DB behavior checks (P-15) are not run. If the user declines the `qadb` migration, P-15 carries to T-11."
+    >
+    > "I wrote column references in the generated column and the CHECKs as unqualified `sql.identifier(...)`. drizzle's `${t.col}` form emits `` `table`.`col` `` inside constraints, and I could not confirm MySQL accepts that. There is no local MySQL, so this is untested against a server. If `db:migrate` errors on the CHECKs or the generated column, report it as a spec gap; do not hand-edit the SQL."
+    >
+    > "`updated_at` uses `.$onUpdate(() => new Date())`, which only applies to writes made through drizzle. This is not DB-level, because drizzle's mysql `datetime` has no `onUpdateNow()`. Writers go through repositories, so I left it."
+    >
+    > "`uniqueIndex('uq_role_assignments_active_key')` is emitted by drizzle-kit as `CONSTRAINT … UNIQUE(active_key)`. It is still a unique index in MySQL."
+    >
+    > "Lookup note: TRD § 5.1 and § 13 and the UX/UI design were not read. The brief only reminded me that the design supersedes `role_grants`, and I did not edit the TRD."
+    - The owed item (the HITL migrate and probe) belongs to the Leader's HITL gate by the task's own Scope. It is not an Implementer continuation.
+  - **Evidence re-run (Leader-inline, non-author):** VERIFIED. lint 0 · build 0 · unit 41/41 · one migration file.
+  - **Reviewer verdict: PASS.**
+    - All three tables conform to design § 5, DD-7 and DD-8, and to TRD § 13 (generated, not hand-edited).
+    - The red-run trace holds.
+    - Named check: the § 5 email CHECK amendment holds. The default `utf8mb4_0900_ai_ci` makes `email = LOWER(email)` always true. The binary-cast form is byte-wise and deterministic, and the meaning of FR-1 is unchanged.
+    - The HITL script would prove all three behaviors once the migration is applied.
+  - **ADVISORY (labeled advisory, not gating):**
+    - Risk (HITL): add a probe that ties the results to the applied migration. Query `information_schema.TABLE_CONSTRAINTS` and `__drizzle_migrations`, and record the `email` column collation.
+    - Risk (HITL): before migrating, check that `qadb` has no `users`, `roles` or `role_assignments` tables. A name collision must never be fixed with a drop (P-17).
+    - Risk (migrate): MySQL forbids FK referential actions on CHECK and generated-column base columns. The emitted `no action` should be allowed; if it is rejected, it is a spec gap.
+    - Reliability: the T-3 repository should normalize `cognito_sub` `''` to NULL and reject `result_type_key` `''`.
+    - Reliability: `updated_at` is only bumped by drizzle writes. Consider DB-level `ON UPDATE`.
+    - Readability: the test name "unique index on active_key only" doesn't assert "only".
+    - Risk (pending): the TRD § 5.1 `role_grants` update stays pending on `staging`.
+- **Decisions made:**
+  - **Execute-time spec edit:** `design.md` § 5, `users.email` row. The CHECK `email = LOWER(email)` becomes `CAST(email AS BINARY) = CAST(LOWER(email) AS BINARY)`. Reason: under the default case-insensitive collation the literal form enforces nothing. The meaning (FR-1 "stored lowercase") is unchanged. This check is carried into the next Reviewer brief.
+- **Forward pointers:**
+  - T-3: normalize `cognito_sub` `''` → NULL, and reject `''` scope values in repository scope validation (T-2 advisory).
+- **HITL step (approved by the user via the AskUserQuestion gate, 2026-10-13, "Sí, aplicar y probar"):**
+  - **Read-only pre-check:** `qadb` is MySQL `8.0.45-0ubuntu0.22.04.1`, database collation `utf8mb3_general_ci`. There were **no tables** before the migration, so there was no collision risk.
+  - **`pnpm db:migrate`:** `migrations applied successfully!`. `__drizzle_migrations` holds 1 row (hash `71a74269…f21a8`).
+  - **Applied constraints** (`information_schema.TABLE_CONSTRAINTS`):
+    - `users`: `chk_users_email_lowercase`, `uq_users_email`, `uq_users_cognito_sub`, `users_created_by_users_id_fk`
+    - `roles`: `uq_roles_code`
+    - `role_assignments`: `chk_role_assignments_one_scope`, `chk_role_assignments_revocation`, `uq_role_assignments_active_key`, and 4 FKs
+  - **`users.email` column:** charset `utf8mb3`, collation `utf8mb3_general_ci` (case-insensitive). This confirms the § 5 amendment was necessary.
+  - **Probe script** (`t2-hitl.sql`, one transaction + ROLLBACK, run statement by statement through mysql2) — observed results:
+    - 1a: insert KP, `active_key = '2:1:KP:'` → OK
+    - 1b: duplicate active → **ERR 1062** Duplicate entry `'2:1:KP:'` for key `uq_role_assignments_active_key` ✅
+    - 1c: different scope (IPI) → OK
+    - 2a: revoke → OK, `active_key` = NULL
+    - 2b: re-grant KP → **OK**, and `kp_rows = 2` (the revoked row is kept) ✅
+    - 3a: `T2Probe-Upper@…` → **ERR 3819** `chk_users_email_lowercase` ✅
+    - 3b: lowercase → OK
+    - 3c: duplicate email → ERR 1062 `uq_users_email`
+    - 4a: both scope columns set → ERR 3819 `chk_role_assignments_one_scope`
+    - 4b: inactive without revocation data → ERR 3819 `chk_role_assignments_revocation`
+    - 4c: active with revocation data → ERR 3819 `chk_role_assignments_revocation`
+    - after ROLLBACK, leftovers: users 0, roles 0, assignments 0
+  - **P-15: CONFIRMED.** MySQL 8.0.45 enforces the CHECK constraints and the unique index on the stored generated column.
+  - **DB-level falsifier:** not executed. It would require altering the shared `qadb` schema (P-17). The test-level falsifiers (attempt 1) and the enforcement probe above stand in for it.
+- **Final status:** PASS (attempt 1 of 3)
+- **spawns:**
+  - implementer: 24 calls, 86654 tokens, ended partial (the owed item is the Leader's HITL step)
+  - reviewer: 10 calls, 41849 tokens, ended complete
+- **runtime events:** none
+- **Requirements covered:** FR-1 (Unique identity; duplicate active assignment, DB part; revocation keeps history, CHECK part)
+- **Issues encountered:**
+  - The `qadb` default charset is `utf8mb3`, so the new tables inherit it, which means no 4-byte characters (for example emoji in names).
+  - The design does not set a charset. Noted as an advisory for a later spec, with no change in this task.
+- **Final verification:** server command green (lint 0 · build 0 · unit 41/41) plus the HITL probes above.

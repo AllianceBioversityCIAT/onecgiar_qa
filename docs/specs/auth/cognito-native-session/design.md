@@ -102,7 +102,7 @@ MySQL 8.0 via Drizzle (`server/src/database/drizzle/schema/`), one migration gen
 | `id` | int unsigned PK auto | |
 | `cognito_sub` | varchar(64) null | unique |
 | `cognito_username` | varchar(128) null | set at login; needed for refresh (DD-2) |
-| `email` | varchar(255) not null | unique; stored lowercase (CHECK `email = LOWER(email)`) |
+| `email` | varchar(255) not null | unique; stored lowercase (CHECK `CAST(email AS BINARY) = CAST(LOWER(email) AS BINARY)` — a plain `email = LOWER(email)` is always true under the default case-insensitive collation; amended 2026-10-13 during T-2) |
 | `first_name`, `last_name` | varchar(100) null | |
 | `auth_source` | enum('sso','custom') not null | default `sso`; corrected at first login (FR-8 step 1) |
 | `is_active` | boolean not null default true | |

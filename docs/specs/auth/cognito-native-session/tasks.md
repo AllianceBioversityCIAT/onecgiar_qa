@@ -41,7 +41,7 @@ Serial boundaries: T-1 (config, `main.ts`), T-2 (schema). T-4 and T-6 are parall
 - **Skills:** nestjs-expert, nestjs-best-practices, error-handling-patterns
 
 ## T-2: Users, roles and role-assignments schema + migration
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-1
 - **Requirements:** FR-1 (Unique identity; Duplicate active assignment — DB part; Revocation keeps history — CHECK part)
