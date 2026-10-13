@@ -298,3 +298,56 @@
 - **runtime events:** none
 - **Requirements covered:** FR-1 (service part: scoped acceptance, rejection of program id or missing key, rejection of a scoped global role, duplicate, revocation), FR-2 (both scenarios; roles idempotency confirmed on MySQL), FR-3 (all four scenarios)
 - **Final verification:** server command green (lint 0 · build 0 · unit 195/195) plus the HITL seed runs above.
+
+### T-4: Token verifier — PASS (attempt 1)
+
+- **Date:** 2026-10-13
+- **Attempt 1:** effort `high` (security boundary). Skills nestjs-expert and aws-serverless, as listed.
+  - **Files changed:** `server/src/auth/token-verifier.service.ts` and `server/src/auth/token-verifier.service.spec.ts` (both new).
+  - **What the service does:**
+    - Exports `TokenVerifier`, `InvalidTokenError` (401, generic message) and the `JWKS_CACHE` DI token.
+    - Builds two `CognitoJwtVerifier`s, access and id, each with `clientId` and `tokenUse`, sharing one JWKS cache.
+    - Warms the JWKS at `onApplicationBootstrap`. A warm-up failure is logged and retried on first use.
+    - Logs a rejection by its error class name only.
+  - **Implementer verification:** lint clean · build 0 · unit 218/218 (9 files).
+    - The resource-guard blocked the combined command twice, so the three commands were run separately. `RG_FORCE` was not used.
+  - **P-13: VERIFIED (YES).** aws-jwt-verify 5.2.1 supports it:
+    - `CognitoJwtVerifier.create(props, { jwksCache })` and `cacheJwks(jwks)`, in `cognito-verifier.d.ts`.
+    - `SimpleJwksCache` with `addJwks` and a custom `fetcher`, in `jwk.d.ts` and `https.d.ts`.
+    - The tests inject a pre-loaded `SimpleJwksCache`, and the warm-up tests use a fake `Fetcher`. There is no network access and no local HTTP stub.
+  - **Red run** (stub resolving `{}`, exports kept): 22 of 23 failed.
+    - Examples: `expected undefined to be 'user-sub-1'`; `promise resolved "{}" instead of rejecting`, once per rejection case; `expected +0 to be 2` (warm-up); `TypeError: error.getStatus is not a function`.
+    - The no-token-logging test passed vacuously, because it checks a negative property.
+  - **Falsifier 1:**
+    - Dropping `clientId` literally is impossible: the library requires the option to be set or `null`, and dropping it turned 4 tests red but not the target test.
+    - With `clientId: null`, 2 tests went red: `rejects a token from another app client with InvalidTokenError` (`promise resolved "{ sub: 'user-sub-1', …(9) }" instead of rejecting`) and `maps rejections to a 401 without revealing the reason`.
+  - **Falsifier 2** (`tokenUse: null`): 1 test went red, `rejects an id token with InvalidTokenError`.
+  - Both falsifiers were reverted, and the file is byte-identical afterwards.
+  - **Implementer Not Done / Assumptions (verbatim, assumptions only):**
+    > "**Two warm-up fetches:** `hydrate()` fetches two JWKS URIs, because the library accepts both Cognito issuer formats (`cognito-idp.<region>` and `issuer-cognito-idp.<region>`). The warm-up test asserts 2 fetches and no further fetches during verification. Also covered: a refetch on an unknown `kid` (TRD § 9) and a retry on first use after a failed warm-up."
+    >
+    > "**Exception class in this file:** I put `InvalidTokenError` here rather than a separate errors file, to stay inside the scoped file list. T-5's guard can import it from here."
+    >
+    > "**P-12 unchanged:** the id-token claim names `cognito:username`, `aud` and `token_use` are still UNVERIFIED until T-11. My test tokens use the claim names from the library's typings."
+    >
+    > "**Resource-guard:** it blocked the combined lint, build and test command twice. I ran the three commands separately, as noted at the top. `RG_FORCE` was not used."
+  - **Evidence re-run (Leader-inline, non-author):** VERIFIED. lint 0 · build 0 · unit 218/218.
+  - **Reviewer verdict: PASS.**
+    - The service conforms to FR-10, design § 7.2 and ADR-003. All rejection cases are tested with real RS256 tokens: expired, other client, id-as-access, same-kid other key, other issuer, `alg none`, garbage, empty, `..`, and undefined.
+    - The red run and both falsifiers check out. `clientId: null` is the correct form of the falsifier.
+    - On the Leader's question: the issuer is not widened. `cognito-verifier.js:48-75,84-110` builds exactly two issuer configs from QA's `userPoolId`, `cognito-idp` and `issuer-cognito-idp`. Each has its own JWKS URI on the same pool.
+  - **ADVISORY (labeled advisory, not gating):**
+    - Risk: add tests for an `issuer-cognito-idp` token from another pool, and for a global-format `iss` whose keys sit only in the regional JWKS (keys bound to their issuer).
+    - Risk: record a pending TRD note (on `staging`) that the library accepts both issuer formats and fetches two JWKS URIs.
+    - Reliability: record P-13 as VERIFIED. Done above.
+    - Readability: T-5 must import `JWKS_CACHE` and `InvalidTokenError` from this file, not redefine them.
+    - Resilience: the library's default `SimplePenaltyBox` throttles refetches on an unknown kid. Add a comment so nobody swaps in an unthrottled cache.
+- **spawns:**
+  - implementer: 38 calls, 99515 tokens, ended partial (assumptions only)
+  - reviewer: 10 calls, 40263 tokens, ended complete
+- **runtime events:** none (the resource-guard blocks were absorbed inside the worker's own loop, with no checkpoint)
+- **Requirements covered:** FR-10 (Valid token; Rejections, at the verifier level). The "handler must NOT run" part is owed by T-5.
+- **Forward pointers:** T-5 imports `TokenVerifier`, `InvalidTokenError` and `JWKS_CACHE` from `auth/token-verifier.service.ts`, and overrides the verifier in e2e with this local key-set technique (an injected `SimpleJwksCache`).
+- **Pending shared-doc sync (on `staging`):** ADR-003 and TRD § 9 JWKS row: note that both Cognito issuer formats are accepted for the same pool, so two JWKS URIs are fetched.
+- **Budget (re-baselined):** about 3,500 of about 5,500 LOC · 7 of about 22 Reviewer passes · 4 of 11 tasks.
+- **Final verification:** server command green (lint 0 · build 0 · unit 218/218).

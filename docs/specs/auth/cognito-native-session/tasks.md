@@ -75,7 +75,7 @@ Serial boundaries: T-1 (config, `main.ts`), T-2 (schema). T-4 and T-6 are parall
 - **Skills:** nestjs-expert, tdd
 
 ## T-4: Token verifier
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** S
 - **Depends on:** T-1
 - **Requirements:** FR-10 (Valid token; Rejections — missing, malformed, expired, bad signature, id token, other client)
