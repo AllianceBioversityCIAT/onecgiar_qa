@@ -23,8 +23,8 @@ The four timeline cards at the top of Overview worked as a filter, but nothing s
 ## Pending
 
 - `ov-timeline-cards.ts`, `ov-step-card.ts` and `ov-results-in-qa.ts` were deleted (unused, confirmed by Juanpa).
-- The "See the full cycle" link (to `/cycle`) was in the removed step card. It may need a new home.
-- Dark mode not checked.
+- "See the full cycle" (to `/cycle`) now lives in the top block, under the current step (link button).
+- Dark mode and mobile checked at the end of the day (see below).
 - Angular CLI MCP was not loaded in this session (opened from `C:\brain`); used the official `angular-developer` skill instead.
 
 ## Second pass, reverted (same day)
@@ -44,3 +44,9 @@ New approach: keep the cards and the standard header, and polish details inside 
 
 Tested: `npx ng build` passes; browser at 1440 and 390 px.
 Pending: Juanpa's OK before applying the same polish to Timelines, Stage completion, Needs attention, Where the work is and Assessment outcomes.
+
+## Final checks (end of day)
+
+- Overview, Cycle, Results, Review, Assessors and Fields at 390 and 768 px: no horizontal scroll; every `qaBtn` is at least 40px tall on phones.
+- Dark mode at 1440 px on the same 6 screens: filled buttons pass AA contrast (Approve and Finish 7.8:1, Use as comment 4.6:1).
+- `npx ng build`: passes. The initial bundle warning (551 kB vs 500 kB) predates today (553 kB on 2026-10-09); its cause and fix are in `docs/ideas.md` for Yeck.

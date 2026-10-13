@@ -1,5 +1,6 @@
 import { Component, computed, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { QaButtonImports } from '../../../ui';
 import { ResultStatus } from './overview.mock';
 
 export interface CycleHeroVm {
@@ -28,7 +29,7 @@ const STATUS_BAR: Record<ResultStatus, string> = {
 /** Top of the Overview: the whole cycle at a glance, with every result split by status. */
 @Component({
   selector: 'qa-ov-cycle-hero',
-  imports: [RouterLink],
+  imports: [QaButtonImports, RouterLink],
   host: { class: 'block @container' },
   template: `
     <section
@@ -53,6 +54,7 @@ const STATUS_BAR: Record<ResultStatus, string> = {
           <span class="text-(length:--fs-13) text-pretty text-(--text-3)">
             <span class="font-medium text-(--text-2)">{{ data().step }}</span>, {{ data().stepWhen }}
           </span>
+          <a hlmBtn qaBtn tone="link" size="sm" routerLink="/cycle" class="-ml-2.5 @2xl:-mr-2.5 @2xl:ml-0">See the full cycle</a>
         </div>
       </div>
 
