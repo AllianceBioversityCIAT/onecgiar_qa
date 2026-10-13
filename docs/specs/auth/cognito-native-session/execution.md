@@ -912,3 +912,15 @@ The user's three decisions, verbatim:
     - Both FAILs are the same item, and it was **caused by the Leader's brief constraint** ("lock only the user row and that user's assignment rows"), not by an Implementer defect.
     - It is a spec/brief tension, so it goes to the user before any rework.
     - The attempt counter stands at 1 (a Reviewer FAIL consumed it). The next attempt carries the user's decision.
+- **User decisions (AskUserQuestion, 2026-10-13), verbatim:**
+  > Roles lock: "Opción 1. Leer roles con FOR SHARE por PK dentro de la misma transacción de admisión, después de bloquear la fila del usuario (mismo orden de bloqueo en todos los flujos: users → role_assignments → roles) para evitar deadlocks. Enmienda DD-10 + prueba."
+  >
+  > SSO lock: "Opción 1. Y para custom, FOR SHARE en vez de FOR UPDATE sobre role_assignments: basta para que un revoke concurrente espere, y no serializa logins entre sí. Mantener el orden users → role_assignments → roles."
+- **Spec amendments:**
+  - DD-10 lock modes:
+    - user row: FOR UPDATE
+    - custom: `role_assignments` FOR SHARE, then `roles` FOR SHARE by PK
+    - SSO: assignments read plainly
+    - one lock order in every flow, future admin writers included: `users` → `role_assignments` → `roles`
+  - T-7 Scope and Tests carry the "Amended a third time" sentence and a role-deactivated-after-snapshot test.
+- **Attempt 2** (effort bumped to `max`; the cap is on the tier, so no tier change). The FAIL reports and the user's decisions are passed through verbatim.
