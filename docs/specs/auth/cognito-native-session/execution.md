@@ -923,4 +923,4 @@ The user's three decisions, verbatim:
     - SSO: assignments read plainly
     - one lock order in every flow, future admin writers included: `users` → `role_assignments` → `roles`
   - T-7 Scope and Tests carry the "Amended a third time" sentence and a role-deactivated-after-snapshot test.
-- **Attempt 2** (effort bumped to `max`; the cap is on the tier, so no tier change). The FAIL reports and the user's decisions are passed through verbatim.
+- **Attempt 2:** effort stays `xhigh`. The retry bump would reach `max`, which is not allowed on a cheaper tier, so **the Implementer is escalated to T1 `opus` at `xhigh`**. The FAIL reports and the user's decisions are passed through verbatim.
