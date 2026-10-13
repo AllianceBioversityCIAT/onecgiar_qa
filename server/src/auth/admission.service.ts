@@ -16,6 +16,7 @@ import {
 } from '../users/users.repository.js';
 import {
   EmailCollisionError,
+  EmailNotVerifiedError,
   NoActiveRolesError,
   UserInactiveError,
   UserNotRegisteredError,
@@ -52,6 +53,8 @@ interface IdentityClaims {
   firstName: string | null;
   lastName: string | null;
   authSource: AuthSource;
+  /** `email_verified` is boolean `true` or the string `"true"`; anything else, or absent, is not verified. */
+  emailVerified: boolean;
 }
 
 const NAME_MAX_LENGTH = 100;
@@ -59,8 +62,8 @@ const NAME_MAX_LENGTH = 100;
 /**
  * The one place the id token's claim names are known (premises P-10, P-12 are
  * UNVERIFIED until T-11 decodes real tokens): SSO users carry `identities`,
- * the username is `cognito:username`, names are `given_name` / `family_name`.
- * Anything unusable is a 401.
+ * the username is `cognito:username`, names are `given_name` / `family_name`,
+ * the verification flag is `email_verified`. Anything unusable is a 401.
  */
 export function readClaims(payload: object): IdentityClaims {
   const claims = payload as Record<string, unknown>;
@@ -91,6 +94,8 @@ export function readClaims(payload: object): IdentityClaims {
     )
       ? 'sso'
       : 'custom',
+    emailVerified:
+      claims['email_verified'] === true || claims['email_verified'] === 'true',
   };
 }
 
@@ -152,8 +157,13 @@ export class AdmissionService {
       throw new NoActiveRolesError();
     }
 
-    // Step 7 (plus linking the sub and the auth source from the token), on a
-    // refresh as well as on a login.
+    // Step 2, the write half: nothing is linked before the decision to admit.
+    if (user.cognitoSub === null) {
+      user = await this.linkSub(users, user, claims.sub);
+    }
+
+    // Step 7 (plus the auth source from the token), on a refresh as well as on
+    // a login.
     user = await users.update(user.id, this.changes(user, claims));
 
     return {
@@ -164,8 +174,9 @@ export class AdmissionService {
 
   /**
    * Step 2: the user of this `sub`, else the pre-registered user of this email
-   * (empty `sub`, linked by `changes`). Step 3: an email held by another `sub`
-   * is a collision.
+   * (empty `sub`, linked later by `linkSub`). Step 3: an email held by another
+   * `sub` is a collision. A custom token links by email only when its email is
+   * verified; an SSO email comes from the CGIAR directory, so it needs no flag.
    */
   private async locate(
     users: UsersRepository,
@@ -176,7 +187,27 @@ export class AdmissionService {
     if (bySub) return bySub;
     const byEmail = await users.findByEmail(claims.email, options);
     if (byEmail && byEmail.cognitoSub !== null) throw new EmailCollisionError();
+    if (byEmail && claims.authSource === 'custom' && !claims.emailVerified) {
+      throw new EmailNotVerifiedError();
+    }
     return byEmail;
+  }
+
+  /**
+   * Step 2, the link: conditional on the `sub` still being empty, so another
+   * login's link is never overwritten. When it lost, the row as it stands now
+   * decides: the same `sub` (a double login) continues with that row, another
+   * `sub` is a collision (step 3).
+   */
+  private async linkSub(
+    users: UsersRepository,
+    user: User,
+    sub: string,
+  ): Promise<User> {
+    const link = await users.linkCognitoSub(user.id, sub);
+    if (link.linked) return user;
+    if (link.user.cognitoSub !== sub) throw new EmailCollisionError();
+    return link.user;
   }
 
   /**
@@ -211,7 +242,6 @@ export class AdmissionService {
   /** What the token changes in the stored user, plus the login date (step 7), which every admission stamps. */
   private changes(user: User, claims: IdentityClaims): UserPatch {
     const patch: UserPatch = {};
-    if (user.cognitoSub !== claims.sub) patch.cognitoSub = claims.sub;
     if (user.authSource !== claims.authSource) {
       patch.authSource = claims.authSource;
     }

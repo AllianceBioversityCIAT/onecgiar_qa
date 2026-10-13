@@ -17,6 +17,7 @@ import {
 } from './admission.service.js';
 import {
   EmailCollisionError,
+  EmailNotVerifiedError,
   NoActiveRolesError,
   UserInactiveError,
   UserNotRegisteredError,
@@ -38,12 +39,17 @@ interface Claims {
   sso?: boolean;
   givenName?: string;
   familyName?: string;
+  /** The `email_verified` claim as the token carries it; absent when undefined. */
+  emailVerified?: boolean | string;
 }
 
 function payload(claims: Claims) {
   return {
     sub: claims.sub,
     ...(claims.email !== undefined && { email: claims.email }),
+    ...(claims.emailVerified !== undefined && {
+      email_verified: claims.emailVerified,
+    }),
     ...(claims.username !== undefined && {
       'cognito:username': claims.username,
     }),
@@ -72,12 +78,26 @@ function sameRow(a: User, b: User): boolean {
  * locking read (`forUpdate`) sees what is committed now. The transaction sees
  * its own writes, except an UPDATE that leaves the row identical: that creates
  * no new row version, so the snapshot stays as it was (InnoDB reports
- * HA_ERR_RECORD_IS_THE_SAME).
+ * HA_ERR_RECORD_IS_THE_SAME). An UPDATE is a current read: it matches against
+ * the latest committed row, whatever the snapshot holds. Two stores over the
+ * same `rows` are two transactions over one table.
  */
 class SnapshotUsersStore extends InMemoryUsersStore {
   private snapshot: Map<number, User> | null = null;
   /** Runs just before an insert, to commit "another transaction's" row. */
   beforeInsert: (() => void) | null = null;
+  /**
+   * Runs once, just before an UPDATE that writes the `sub` of an existing row,
+   * to commit "another transaction's" link (the real UPDATE would wait for that
+   * commit, then see its row).
+   */
+  beforeSubWrite: (() => Promise<unknown>) | null = null;
+
+  private async commitRacingLink() {
+    const racing = this.beforeSubWrite;
+    this.beforeSubWrite = null;
+    await racing?.();
+  }
 
   private view(options?: ReadOptions): User[] {
     if (options?.forUpdate) return this.rows;
@@ -110,12 +130,21 @@ class SnapshotUsersStore extends InMemoryUsersStore {
     id: number,
     values: Parameters<InMemoryUsersStore['update']>[1],
   ) {
+    if (values.cognitoSub != null) await this.commitRacingLink();
     const row = this.rows.find((u) => u.id === id);
     const before = row && { ...row };
     const result = await super.update(id, values);
     if (result.kind === 'updated' && row && before && !sameRow(before, row)) {
       this.snapshot?.set(id, { ...row });
     }
+    return result;
+  }
+
+  override async linkCognitoSub(id: number, sub: string) {
+    await this.commitRacingLink();
+    const result = await super.linkCognitoSub(id, sub);
+    const row = this.rows.find((u) => u.id === id);
+    if (result.kind === 'linked' && row) this.snapshot?.set(id, { ...row });
     return result;
   }
 }
@@ -276,7 +305,7 @@ describe('AdmissionService FR-8 table', () => {
     const ctx = setup();
     await preRegister(ctx, { authSource: 'sso', withAdminRole: true });
 
-    await ctx.resolve({ ...ana }); // no `identities`
+    await ctx.resolve({ ...ana, emailVerified: true }); // no `identities`
 
     expect(ctx.usersStore.rows[0].authSource).toBe('custom');
     expect(ctx.usersStore.rows[0].cognitoSub).toBe('sub-ana');
@@ -342,9 +371,9 @@ describe('AdmissionService FR-8 table', () => {
     await preRegister(ctx, { authSource: 'custom' });
     const writes = ctx.usersStore.writes;
 
-    await expect(ctx.resolve({ ...ana })).rejects.toBeInstanceOf(
-      NoActiveRolesError,
-    );
+    await expect(
+      ctx.resolve({ ...ana, emailVerified: true }),
+    ).rejects.toBeInstanceOf(NoActiveRolesError);
 
     expect(ctx.usersStore.rows[0].cognitoSub).toBeNull();
     expect(ctx.usersStore.writes).toBe(writes);
@@ -365,9 +394,9 @@ describe('AdmissionService FR-8 table', () => {
       resultTypeKey: 'k',
     });
 
-    await expect(ctx.resolve({ ...ana })).rejects.toBeInstanceOf(
-      NoActiveRolesError,
-    );
+    await expect(
+      ctx.resolve({ ...ana, emailVerified: true }),
+    ).rejects.toBeInstanceOf(NoActiveRolesError);
   });
 
   it('an SSO user without assignments is admitted (GUEST)', async () => {
@@ -426,6 +455,103 @@ describe('AdmissionService FR-8 table', () => {
       ctx.resolve({ ...ana, email: 'taken@cgiar.org', sso: true }),
     ).rejects.toBeInstanceOf(ConflictException);
     expect(ctx.usersStore.rows[0].email).toBe('ana@cgiar.org');
+  });
+});
+
+describe('AdmissionService email linking needs a verified email on a custom token (FR-8 step 2)', () => {
+  it.each([
+    ['absent', undefined],
+    ['false', false],
+    ['"false"', 'false'],
+  ])(
+    'a custom token whose email_verified is %s: 403, and nothing is linked or created',
+    async (_label, emailVerified) => {
+      const ctx = setup();
+      const pre = await preRegister(ctx, {
+        authSource: 'custom',
+        withAdminRole: true,
+      });
+      const writes = ctx.usersStore.writes;
+
+      // The outcome is captured so that "nothing was linked or created" is
+      // asserted first, whatever status came back.
+      const outcome = await ctx.resolve({ ...ana, emailVerified }).then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+
+      expect(ctx.usersStore.rows).toHaveLength(1);
+      expect(ctx.usersStore.rows[0].id).toBe(pre.id);
+      expect(ctx.usersStore.rows[0].cognitoSub).toBeNull();
+      expect(ctx.usersStore.rows[0].lastLoginAt).toBeNull();
+      expect(ctx.usersStore.writes).toBe(writes);
+      expect(ctx.events).toEqual([]);
+      expect(outcome).toBeInstanceOf(EmailNotVerifiedError);
+      expect(outcome).toBeInstanceOf(ForbiddenException);
+    },
+  );
+
+  it.each([
+    ['true', true],
+    ['"true"', 'true'],
+  ])(
+    'a custom token whose email_verified is %s links the pre-registered user',
+    async (_label, emailVerified) => {
+      const ctx = setup();
+      const pre = await preRegister(ctx, {
+        authSource: 'custom',
+        withAdminRole: true,
+      });
+
+      const result = await ctx.resolve({ ...ana, emailVerified });
+
+      expect(result.user.id).toBe(pre.id);
+      expect(ctx.usersStore.rows).toHaveLength(1);
+      expect(ctx.usersStore.rows[0].cognitoSub).toBe('sub-ana');
+    },
+  );
+
+  it.each([
+    ['absent', undefined],
+    ['false', false],
+  ])(
+    'an SSO token links the pre-registered user whose email_verified is %s',
+    async (_label, emailVerified) => {
+      const ctx = setup();
+      const pre = await preRegister(ctx, { authSource: 'sso' });
+
+      const result = await ctx.resolve({ ...ana, sso: true, emailVerified });
+
+      expect(result.user.id).toBe(pre.id);
+      expect(ctx.usersStore.rows).toHaveLength(1);
+      expect(ctx.usersStore.rows[0].cognitoSub).toBe('sub-ana');
+    },
+  );
+
+  it('a custom user already linked by sub does not need email_verified', async () => {
+    const ctx = setup();
+    const pre = await preRegister(ctx, {
+      authSource: 'custom',
+      withAdminRole: true,
+      sub: 'sub-ana',
+    });
+
+    const result = await ctx.resolve({ ...ana });
+
+    expect(result.user.id).toBe(pre.id);
+  });
+
+  it('an email held by another sub is still a 409 on an unverified custom token', async () => {
+    const ctx = setup();
+    await ctx.users.create({
+      email: ana.email,
+      cognitoSub: 'sub-someone-else',
+    });
+
+    await expect(ctx.resolve({ ...ana })).rejects.toBeInstanceOf(
+      EmailCollisionError,
+    );
+    expect(ctx.usersStore.rows[0].cognitoSub).toBe('sub-someone-else');
   });
 });
 
@@ -561,6 +687,69 @@ describe('AdmissionService concurrent first login (DD-10)', () => {
     );
     expect(store.rows).toHaveLength(1);
     expect(store.rows[0].cognitoSub).toBe('sub-other');
+  });
+});
+
+describe('AdmissionService concurrent link of the same email (FR-8 step 2, DD-10)', () => {
+  beforeEach(() => {
+    // Both logins fall in the same second (the clock is frozen), as when two
+    // requests race.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-13T12:00:00.000Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /**
+   * One pre-registered user (empty `sub`) and two transactions over its row.
+   * Both read it first; the winner then commits its whole login before the
+   * loser's UPDATE of the `sub` runs. Returns how each login ended.
+   */
+  async function race(winnerClaims: Claims, loserClaims: Claims) {
+    const loserStore = new SnapshotUsersStore();
+    const loser = setup(loserStore);
+    const winner = setup(new SnapshotUsersStore(loserStore.rows));
+    const pre = await preRegister(loser, { authSource: 'sso' });
+    let winnerResult: Awaited<ReturnType<Ctx['resolve']>> | undefined;
+    loserStore.beforeSubWrite = async () => {
+      winnerResult = await winner.resolve(winnerClaims);
+    };
+
+    const loserOutcome = await loser.resolve(loserClaims).then(
+      (result) => result,
+      (error: unknown) => error,
+    );
+    return { pre, rows: loserStore.rows, loser, winnerResult, loserOutcome };
+  }
+
+  it('two different subs: the first link is admitted and kept, the other login is a 409 that links nothing', async () => {
+    const { pre, rows, loser, winnerResult, loserOutcome } = await race(
+      { ...ana, sub: 'sub-first', sso: true },
+      { ...ana, sub: 'sub-second', sso: true },
+    );
+
+    // State first, so a status alone cannot pass: the first link is intact.
+    expect(rows).toHaveLength(1);
+    expect(rows[0].cognitoSub).toBe('sub-first');
+    expect(winnerResult?.user.id).toBe(pre.id);
+    expect(loser.events).toEqual([]);
+    expect(loserOutcome).toBeInstanceOf(EmailCollisionError);
+    expect(loserOutcome).toBeInstanceOf(ConflictException);
+  });
+
+  it('the same sub twice (a double login): the loser finds its own sub linked and is admitted too', async () => {
+    const { pre, rows, loser, winnerResult, loserOutcome } = await race(
+      { ...ana, sso: true },
+      { ...ana, sso: true },
+    );
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].cognitoSub).toBe('sub-ana');
+    expect(winnerResult?.user.id).toBe(pre.id);
+    expect(loserOutcome).toMatchObject({ user: { id: pre.id } });
+    expect(loser.events).toEqual(['commit', `invalidate:${pre.id}`]);
   });
 });
 

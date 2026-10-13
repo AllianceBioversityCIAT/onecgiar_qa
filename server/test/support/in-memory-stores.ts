@@ -17,8 +17,10 @@ import type {
 // without MySQL. `writes` counts every mutation, for "changes nothing" checks.
 
 export class InMemoryUsersStore implements UsersStore {
-  readonly rows: User[] = [];
   writes = 0;
+
+  /** Pass another store's `rows` to model two transactions over one table. */
+  constructor(readonly rows: User[] = []) {}
 
   async findById(id: number) {
     return this.rows.find((u) => u.id === id);
@@ -73,6 +75,20 @@ export class InMemoryUsersStore implements UsersStore {
     this.writes++;
     Object.assign(row, values, { updatedAt: new Date() });
     return { kind: 'updated' as const };
+  }
+
+  /** `UPDATE users SET cognito_sub = ? WHERE id = ? AND cognito_sub IS NULL`, on the current row. */
+  async linkCognitoSub(id: number, sub: string) {
+    const row = this.rows.find((u) => u.id === id);
+    if (!row || row.cognitoSub !== null) {
+      return { kind: 'already-linked' as const };
+    }
+    if (this.rows.some((u) => u.id !== id && u.cognitoSub === sub)) {
+      return { kind: 'duplicate' as const };
+    }
+    this.writes++;
+    Object.assign(row, { cognitoSub: sub, updatedAt: new Date() });
+    return { kind: 'linked' as const };
   }
 }
 

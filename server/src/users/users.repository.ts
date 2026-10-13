@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { DRIZZLE } from '../database/drizzle/drizzle.constants.js';
 import type { DrizzleDB } from '../database/drizzle/drizzle.module.js';
 import {
@@ -57,6 +57,17 @@ export interface UsersStore {
     id: number,
     values: UserPatch,
   ): Promise<{ kind: 'updated' } | { kind: 'duplicate' }>;
+  /**
+   * `UPDATE users SET cognito_sub = ? WHERE id = ? AND cognito_sub IS NULL`.
+   * `already-linked` = no row matched (the `sub` is no longer empty); `duplicate`
+   * = the `sub` belongs to another user.
+   */
+  linkCognitoSub(
+    id: number,
+    sub: string,
+  ): Promise<
+    { kind: 'linked' } | { kind: 'already-linked' } | { kind: 'duplicate' }
+  >;
 }
 
 export interface CreateUserInput {
@@ -154,6 +165,26 @@ export class UsersRepository {
   }
 
   /**
+   * Links `sub` (never empty) to a user, only while the user has none, so a
+   * link another writer committed first is never overwritten. When nothing was
+   * linked the row is returned as it stands now, for the caller to compare its
+   * `sub`: a locking read, because this transaction's snapshot predates the
+   * other writer's commit and a plain read would still show the empty `sub`.
+   * A `sub` owned by another user is a `DuplicateUserError`.
+   */
+  async linkCognitoSub(
+    id: number,
+    sub: string,
+  ): Promise<{ linked: true } | { linked: false; user: User }> {
+    const result = await this.store.linkCognitoSub(id, sub);
+    if (result.kind === 'duplicate') throw new DuplicateUserError();
+    if (result.kind === 'linked') return { linked: true };
+    const user = await this.store.findById(id, { forUpdate: true });
+    if (!user) throw new Error('User to link could not be read back');
+    return { linked: false, user };
+  }
+
+  /**
    * Returns the user with this email, creating it when absent. A lost insert
    * race (another writer created it between the lookup and the insert) is
    * resolved by re-reading the winner.
@@ -224,6 +255,23 @@ export class DrizzleUsersStore implements UsersStore {
     try {
       await this.db.update(users).set(values).where(eq(users.id, id));
       return { kind: 'updated' as const };
+    } catch (error) {
+      if (isDuplicateKeyError(error)) return { kind: 'duplicate' as const };
+      throw error;
+    }
+  }
+
+  async linkCognitoSub(id: number, sub: string) {
+    try {
+      const [header] = await this.db
+        .update(users)
+        .set({ cognitoSub: sub })
+        .where(and(eq(users.id, id), isNull(users.cognitoSub)));
+      // A matching row always changes (NULL to a value), so the count is the
+      // same whether the driver reports matched or changed rows.
+      return header.affectedRows === 1
+        ? { kind: 'linked' as const }
+        : { kind: 'already-linked' as const };
     } catch (error) {
       if (isDuplicateKeyError(error)) return { kind: 'duplicate' as const };
       throw error;

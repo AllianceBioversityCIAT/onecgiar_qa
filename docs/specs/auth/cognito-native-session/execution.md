@@ -759,7 +759,7 @@ The user's answers, verbatim:
 - T-7's earlier PASS stands for the approved scope. The amendment runs as a new loop on T-7, "amendment loop, attempt 1 of 3". The attempt counter restarts because this is approved new scope, not a FAIL.
 - Every amended section is a named conformance check in this loop's Reviewer brief.
 
-### T-7 amendment loop (FR-8 email_verified + conditional link) — Reviewer PASS; build re-run pending
+### T-7 amendment loop (FR-8 email_verified + conditional link) — PASS (attempt 1)
 
 - **Date:** 2026-10-13
 - **Attempt 1** (effort `xhigh`; skills nestjs-expert, tdd).
@@ -821,3 +821,21 @@ The user's answers, verbatim:
   - reviewer (risk): 10 calls, 48150 tokens, ended complete
   - reviewer (reliability): 15 calls, 49388 tokens, ended complete
 - **runtime events:** none
+- **Build re-run:** the user freed RAM ("Libero RAM y reintentas"). The Leader re-ran `pnpm build` and `nest build` exited 0. Evidence re-run: **VERIFIED** (lint 0, build 0, unit 297/297, e2e 55/55).
+- **Final status:** T-7 PASS, both the original scope (attempt 2) and the amendment loop (attempt 1). `[~]` → `[x]`.
+- **Requirements covered (amendment):**
+  - FR-8 step 2, amended: custom tokens require `email_verified`, SSO tokens do not.
+  - New scenarios "Unverified email on a custom token" and "Concurrent link of the same email".
+  - DD-10, amended: conditional link, plus accepted risk (1).
+- **Shared port change:** `UsersStore.linkCognitoSub` added; `InMemoryUsersStore(rows)`.
+- **Forward pointers:**
+  - **T-8:** fail closed when `cognito:username` is missing. Map `DuplicateUserError`, `EmailCollisionError` and `EmailNotVerifiedError` through the filter (409/409/403). Log the reason codes (NFR-7).
+  - **T-11:**
+    - Decode whether SSO id tokens carry `email_verified` (informational).
+    - Check `identities` shape and `providerName`.
+    - Check whether any app client in the pool can write `email_verified`.
+    - Run concurrent first logins and links against real MySQL.
+- **Open items for the user/lead (recorded, not tasks):**
+  - Step 7 email sync without `email_verified` (409 denial of service).
+  - Non-array `identities` treated as `sso`.
+  - Isolation level pinned for the "no new lock" argument.

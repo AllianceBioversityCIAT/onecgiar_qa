@@ -11,6 +11,13 @@ export class EmailCollisionError extends ConflictException {
   }
 }
 
+/** FR-8 step 2: a custom token may link a pre-registered user by email only when that email is verified. */
+export class EmailNotVerifiedError extends ForbiddenException {
+  constructor() {
+    super('This email has not been verified');
+  }
+}
+
 /** FR-8 step 4: no QA user, and this login may not create one. */
 export class UserNotRegisteredError extends ForbiddenException {
   constructor() {

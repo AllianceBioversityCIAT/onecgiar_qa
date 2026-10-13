@@ -1,6 +1,9 @@
+import { drizzle } from 'drizzle-orm/mysql2';
 import { InMemoryUsersStore } from '../../test/support/in-memory-stores.js';
+import * as schema from '../database/drizzle/schema/index.js';
 import { DuplicateUserError, InvalidEmailError } from './users.errors.js';
 import {
+  DrizzleUsersStore,
   normalizeCognitoSub,
   normalizeEmail,
   UsersRepository,
@@ -145,6 +148,7 @@ describe('UsersRepository.findOrCreateByEmail', () => {
       findByCognitoSub: (sub) => store.findByCognitoSub(sub),
       insert: (values) => store.insert(values),
       update: (id, values) => store.update(id, values),
+      linkCognitoSub: (id, sub) => store.linkCognitoSub(id, sub),
       findByEmail: (email) =>
         lookups++ === 0 ? Promise.resolve(undefined) : store.findByEmail(email),
     };
@@ -154,5 +158,98 @@ describe('UsersRepository.findOrCreateByEmail', () => {
     expect(result.created).toBe(false);
     expect(result.user.id).toBe(winner.id);
     expect(store.rows).toHaveLength(1);
+  });
+});
+
+describe('UsersRepository.linkCognitoSub', () => {
+  it('links the sub of a user that has none', async () => {
+    const { store, repo } = setup();
+    const user = await repo.create({ email: 'ana@cgiar.org' });
+
+    await expect(repo.linkCognitoSub(user.id, 'sub-ana')).resolves.toEqual({
+      linked: true,
+    });
+    expect(store.rows[0].cognitoSub).toBe('sub-ana');
+  });
+
+  it('never overwrites a sub: it returns the row as it stands, unchanged', async () => {
+    const { store, repo } = setup();
+    const user = await repo.create({
+      email: 'ana@cgiar.org',
+      cognitoSub: 'sub-first',
+    });
+    const writes = store.writes;
+
+    const result = await repo.linkCognitoSub(user.id, 'sub-second');
+
+    expect(store.rows[0].cognitoSub).toBe('sub-first');
+    expect(store.writes).toBe(writes);
+    expect(result).toMatchObject({
+      linked: false,
+      user: { id: user.id, cognitoSub: 'sub-first' },
+    });
+  });
+
+  it('a sub owned by another user is a DuplicateUserError', async () => {
+    const { store, repo } = setup();
+    await repo.create({ email: 'bob@cgiar.org', cognitoSub: 'sub-bob' });
+    const ana = await repo.create({ email: 'ana@cgiar.org' });
+
+    await expect(repo.linkCognitoSub(ana.id, 'sub-bob')).rejects.toBeInstanceOf(
+      DuplicateUserError,
+    );
+    expect(store.rows[1].cognitoSub).toBeNull();
+  });
+});
+
+describe('DrizzleUsersStore.linkCognitoSub (the real adapter over a stub driver)', () => {
+  function adapter(reply: () => unknown) {
+    const statements: { sql: string; params: unknown[] }[] = [];
+    const client = {
+      query: (query: { sql: string }, params: unknown[]) => {
+        statements.push({ sql: query.sql, params });
+        return Promise.resolve(reply());
+      },
+    };
+    const db = drizzle({ client: client as never, schema, mode: 'default' });
+    return { store: new DrizzleUsersStore(db), statements };
+  }
+
+  it('sends UPDATE ... WHERE id = ? AND cognito_sub IS NULL, so a link already committed is never overwritten', async () => {
+    const { store, statements } = adapter(() => [{ affectedRows: 1 }, []]);
+
+    await store.linkCognitoSub(7, 'sub-ana');
+
+    expect(statements).toHaveLength(1);
+    expect(statements[0].sql).toMatch(
+      /^update `users` set `cognito_sub` = \?.* where \(`users`\.`id` = \? and `users`\.`cognito_sub` is null\)$/,
+    );
+    expect(statements[0].params).toContain('sub-ana');
+    expect(statements[0].params).toContain(7);
+  });
+
+  it('reports one affected row as linked and none as already-linked', async () => {
+    const hit = adapter(() => [{ affectedRows: 1 }, []]);
+    const miss = adapter(() => [{ affectedRows: 0 }, []]);
+
+    await expect(hit.store.linkCognitoSub(7, 'sub-ana')).resolves.toEqual({
+      kind: 'linked',
+    });
+    await expect(miss.store.linkCognitoSub(7, 'sub-ana')).resolves.toEqual({
+      kind: 'already-linked',
+    });
+  });
+
+  it('reports a duplicate key as duplicate', async () => {
+    const clash = adapter(() => {
+      throw Object.assign(new Error('Duplicate entry'), {
+        code: 'ER_DUP_ENTRY',
+        errno: 1062,
+      });
+    });
+
+    await expect(clash.store.linkCognitoSub(7, 'sub-ana')).resolves.toEqual({
+      kind: 'duplicate',
+    });
   });
 });
