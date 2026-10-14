@@ -1360,3 +1360,18 @@ Free RAM was ≥ 3.8 GB. A cold cache that hits MySQL is not covered, because th
 - **T-11:** HITL in TEST. It depends on T-10 and a deployment of the branch to TEST by the repo owners, not by agents. Its FR-13 refresh check also needs T-9.
 
 **No task is eligible for an agent.** The run stops here until the DD-2 microservice change ships (unblocks T-9, then the T-10 re-run) and the branch is deployed to TEST (T-11).
+
+## DD-2 microservice change (2026-10-14, at the user's request: "Ajústalo tú", then "haz push y merge en dev")
+
+- **Repo:** `AllianceBioversityCIAT/one-cgiar-microservices`, `auth-microservice`.
+- **Change:** `POST /auth/refresh` accepts an optional `username`.
+  - When present, it is used for `SECRET_HASH` and the `getUserInfo(accessToken)` pre-call is skipped.
+  - When absent, the endpoint behaves as before.
+  - Files changed: `auth.controller.ts` (body type and Swagger), `auth.service.ts`.
+- **Tests:** 4 new unit tests. The first two fail against the old logic on assertions. Full suite 384/384 on the merged tree; `nest build` exit 0.
+- **Branches and PR:**
+  - `feat/auth-refresh-username` (`46a6837c`, based on `main-auth`) is pushed, for a later `main-auth` PR.
+  - `feat/auth-refresh-username-dev-auth` (`73f1cd79`) is the feature branch merged with `dev-auth`. The conflict in `auth.service.spec.ts` was two appended describe blocks; both were kept.
+  - The repo has no `dev` branch; `dev-auth` is the auth microservice's dev branch.
+  - **PR #45 → `dev-auth`, merged 2026-10-14T13:44Z (merge commit `ca4dfa35`).** The "Trigger Jenkins Job AUTH Microservice" check passed on the PR and on the push.
+- **T-9 status:** the code dependency now exists on `dev-auth`. T-9's first step, "confirm the microservice change is deployed in the env the tests target", is still owed. Whether the Jenkins job deployed it to a reachable environment is UNVERIFIED — confirm at source before relying on it.
