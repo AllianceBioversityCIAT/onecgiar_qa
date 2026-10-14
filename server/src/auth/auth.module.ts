@@ -9,10 +9,12 @@ import {
   AdmissionService,
 } from './admission.service.js';
 import { DrizzleAdmissionUnitOfWork } from './admission.unit-of-work.js';
-import { AuthMicroserviceClient } from './auth-microservice.client.js';
+import { CognitoAuthClient } from './cognito-auth.client.js';
 import { AuthThrottlerModule } from './auth-throttle.js';
 import { AuthController } from './auth.controller.js';
+import { OriginGuard } from './guards/origin.guard.js';
 import { MeController } from './me.controller.js';
+import { SessionController } from './session.controller.js';
 import { JWKS_CACHE, TokenVerifier } from './token-verifier.service.js';
 
 /**
@@ -26,12 +28,13 @@ import { JWKS_CACHE, TokenVerifier } from './token-verifier.service.js';
     ConfigModule.forFeature(authConfig),
     AuthThrottlerModule,
   ],
-  controllers: [AuthController, MeController],
+  controllers: [AuthController, SessionController, MeController],
   providers: [
     // Bound so tests can swap in a pre-loaded cache; production uses the default.
     { provide: JWKS_CACHE, useFactory: () => new SimpleJwksCache() },
     TokenVerifier,
-    AuthMicroserviceClient,
+    CognitoAuthClient,
+    OriginGuard,
     { provide: ADMISSION_UNIT_OF_WORK, useClass: DrizzleAdmissionUnitOfWork },
     AdmissionService,
   ],

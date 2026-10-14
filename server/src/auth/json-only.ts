@@ -67,7 +67,7 @@ function respellUtf8Charset(request: IncomingMessage): void {
 /**
  * Mounted on /api/v1/auth ahead of the body parsers: a POST that fails the
  * JSON-only rule is answered 415 (error envelope, decision line, no cookie)
- * before its body is read and before any guard, handler or microservice call.
+ * before its body is read and before any guard, handler or Cognito call.
  * Other methods pass; no urlencoded or text parser runs there anyway.
  */
 export function requireJsonPost(

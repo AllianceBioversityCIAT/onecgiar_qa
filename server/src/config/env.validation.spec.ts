@@ -7,9 +7,8 @@ const VALID = {
   COGNITO_REGION: 'us-east-1',
   COGNITO_USER_POOL_ID: 'us-east-1_abc',
   COGNITO_CLIENT_ID: 'client',
-  MS_AUTH_URL: 'https://auth.example.org',
-  MS_AUTH_USER: 'user',
-  MS_AUTH_PASSWORD: 'pass',
+  COGNITO_CLIENT_SECRET: 'secret',
+  COGNITO_URL: 'https://example.auth.us-east-1.amazoncognito.com',
   ALLOWED_ORIGINS: 'https://qa.example.org',
 };
 
@@ -32,7 +31,7 @@ describe('validateEnv', () => {
 
   it('names every missing auth variable at once', () => {
     expect(() => validateEnv({})).toThrow(
-      /COGNITO_REGION.*COGNITO_USER_POOL_ID.*COGNITO_CLIENT_ID.*MS_AUTH_URL.*MS_AUTH_USER.*MS_AUTH_PASSWORD.*ALLOWED_ORIGINS/,
+      /COGNITO_REGION.*COGNITO_USER_POOL_ID.*COGNITO_CLIENT_ID.*COGNITO_CLIENT_SECRET.*COGNITO_URL.*ALLOWED_ORIGINS/,
     );
   });
 

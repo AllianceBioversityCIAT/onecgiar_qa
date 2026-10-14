@@ -63,8 +63,14 @@ function idClaims(overrides: Record<string, unknown> = {}) {
 
 function authConfigValue(): ConfigType<typeof authConfig> {
   return {
-    cognito: { region: REGION, userPoolId: POOL_ID, clientId: CLIENT_ID },
-    msAuth: { url: 'http://ms.invalid', user: 'u', password: 'p' },
+    cognito: {
+      region: REGION,
+      userPoolId: POOL_ID,
+      clientId: CLIENT_ID,
+      clientSecret: 'test-secret',
+      hostedUiUrl: 'https://qa-test.auth.us-east-1.amazoncognito.com',
+      userPoolUrl: 'https://cognito-idp.test.invalid/',
+    },
     allowedOrigins: ['http://localhost:4200'],
   };
 }

@@ -13,12 +13,14 @@ import { DuplicateUserError } from '../users/users.errors.js';
 import {
   InvalidCredentialsError,
   UpstreamUnavailableError,
-} from './auth-microservice.client.js';
+} from './cognito-auth.client.js';
 import {
   EmailCollisionError,
   EmailNotVerifiedError,
   NoActiveRolesError,
+  OriginNotAllowedError,
   RedirectUriNotAllowedError,
+  SessionMissingError,
   UnsupportedMediaTypeError,
   UserInactiveError,
   UserNotRegisteredError,
@@ -68,14 +70,16 @@ export function logAuthDecision(
 type ErrorClass = abstract new (...args: never[]) => Error;
 
 // Most specific first: `RedirectUriNotAllowedError` is a `BadRequestException`.
-// A QA-side misconfiguration (CLARISA refusing the `auth` header, or no auth
-// config for QA's client) is not told apart: the client folds every upstream
-// 4xx into `InvalidCredentialsError` and logs only its status.
+// A QA-side misconfiguration (a wrong client secret, a callback URL the app
+// client does not list) is not told apart: the client folds every upstream 4xx
+// into `InvalidCredentialsError` and logs only its status and Cognito error type.
 const REASONS: ReadonlyArray<readonly [ErrorClass, string]> = [
   [InvalidCredentialsError, 'invalid_credentials'],
   [UpstreamUnavailableError, 'upstream_unavailable'],
   [InvalidTokenError, 'invalid_token'],
   [UsernameClaimMissingError, 'username_claim_missing'],
+  [SessionMissingError, 'session_missing'],
+  [OriginNotAllowedError, 'origin_not_allowed'],
   [EmailCollisionError, 'email_collision'],
   [DuplicateUserError, 'duplicate_user'],
   [EmailNotVerifiedError, 'email_not_verified'],

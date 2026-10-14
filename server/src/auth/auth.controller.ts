@@ -17,11 +17,9 @@ import { authConfig } from '../config/auth.config.js';
 import { AdmissionService } from './admission.service.js';
 import { AuthDecisionInterceptor, logAuthDecision } from './auth-decision.js';
 import {
-  AuthMicroserviceClient,
-  InvalidCredentialsError,
-  type MsTokens,
-  UpstreamUnavailableError,
-} from './auth-microservice.client.js';
+  CognitoAuthClient,
+  type CognitoTokens,
+} from './cognito-auth.client.js';
 import { AuthThrottle } from './auth-throttle.js';
 import { UsernameClaimMissingError } from './auth.errors.js';
 import { Public } from './decorators/public.decorator.js';
@@ -50,7 +48,7 @@ export interface ChallengeResponse {
 
 /**
  * Login, complete-new-password, provider-url and callback (design 7.2, 7.3).
- * Thin: validate, call the microservice, admit, set the cookies. Every route
+ * Thin: validate, call Cognito (DD-11), admit, set the cookies. Every route
  * is public (FR-10); the three that take credentials or a code are throttled
  * (NFR-4). The interceptor records every failure; only a successful login
  * sends `Set-Cookie` (FR-9). Bodies are JSON only: `requireJsonPost` refuses
@@ -63,8 +61,8 @@ export class AuthController {
   private readonly allowedOrigins: readonly string[];
 
   constructor(
-    @Inject(AuthMicroserviceClient)
-    private readonly client: AuthMicroserviceClient,
+    @Inject(CognitoAuthClient)
+    private readonly client: CognitoAuthClient,
     @Inject(TokenVerifier) private readonly verifier: TokenVerifier,
     @Inject(AdmissionService) private readonly admission: AdmissionService,
     @Inject(authConfig.KEY) config: ConfigType<typeof authConfig>,
@@ -115,17 +113,8 @@ export class AuthController {
     @Req() request: RequestWithId,
   ): Promise<{ url: string }> {
     assertAllowedRedirectUri(query.redirectUri, this.allowedOrigins);
-    let url: string;
-    try {
-      url = await this.client.providerUrl(query.redirectUri);
-    } catch (error) {
-      // No credentials are involved here (design 6 lists 400 and 503 only):
-      // when the microservice refuses to build the URL, QA's own call is at
-      // fault, which the caller sees as an unavailable service.
-      throw error instanceof InvalidCredentialsError
-        ? new UpstreamUnavailableError()
-        : error;
-    }
+    // Built locally from the Hosted UI domain (DD-11): nothing upstream can fail.
+    const url = await this.client.providerUrl(query.redirectUri);
     logAuthDecision(request, {
       outcome: 'ok',
       status: 200,
@@ -148,13 +137,13 @@ export class AuthController {
   }
 
   /**
-   * FR-8 and FR-9 for tokens the microservice just issued. Nothing reaches the
+   * FR-8 and FR-9 for tokens Cognito just issued. Nothing reaches the
    * response before every check has passed, and the cookies are set last.
    */
   private async issueSession(
     request: RequestWithId,
     response: Response,
-    tokens: MsTokens,
+    tokens: CognitoTokens,
   ): Promise<SessionResponse> {
     // The access token is what the caller will present next: it must be one
     // this API accepts. Its expiry is the source of `expiresIn`.

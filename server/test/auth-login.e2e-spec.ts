@@ -19,10 +19,10 @@ import {
   type AdmissionUnitOfWork,
 } from '../src/auth/admission.service.js';
 import {
-  AuthMicroserviceClient,
+  CognitoAuthClient,
   InvalidCredentialsError,
   UpstreamUnavailableError,
-} from '../src/auth/auth-microservice.client.js';
+} from '../src/auth/cognito-auth.client.js';
 import { Public } from '../src/auth/decorators/public.decorator.js';
 import { JWKS_CACHE } from '../src/auth/token-verifier.service.js';
 import { configureApp } from '../src/common/configure-app.js';
@@ -47,7 +47,7 @@ import {
 
 // Login, complete-new-password, provider-url and callback (FR-4 to FR-9, NFR-3,
 // NFR-4, NFR-7) over the real app. Only the edges are replaced: the
-// microservice client is a fake (so "never called" is observable), the
+// Cognito client is a fake (so "never called" is observable), the
 // verifier is the real one over a locally generated key set (real RS256
 // tokens, no network) and the database ports are the in-memory fakes. The
 // cookie names, Path and Max-Age below are written out on purpose: a test that
@@ -255,7 +255,7 @@ async function buildWorld(): Promise<World> {
   const moduleRef = await Test.createTestingModule({
     imports: [AppModule, BodyProbeModule],
   })
-    .overrideProvider(AuthMicroserviceClient)
+    .overrideProvider(CognitoAuthClient)
     .useValue(client)
     .overrideProvider(USERS_STORE)
     .useValue(usersStore)
@@ -563,7 +563,7 @@ describe('Login, session issuance and throttling (e2e)', () => {
       client.loginCustom.mockResolvedValue({ kind: 'tokens', tokens });
     });
 
-    it('answers 200 with { accessToken, expiresIn, user } and calls the microservice once', async () => {
+    it('answers 200 with { accessToken, expiresIn, user } and calls Cognito once', async () => {
       const res = await world.post('/auth/login', loginBody).expect(200);
 
       expect(Object.keys(res.body).sort()).toEqual([
@@ -653,7 +653,7 @@ describe('Login, session issuance and throttling (e2e)', () => {
   });
 
   describe('POST /auth/login: refusals (FR-4, FR-8, FR-9)', () => {
-    it('answers 401 with the envelope when the microservice rejects the credentials', async () => {
+    it('answers 401 with the envelope when Cognito rejects the credentials', async () => {
       client.loginCustom.mockRejectedValue(new InvalidCredentialsError());
       const res = await world.post('/auth/login', loginBody);
       expectRefusal(res, 401);
@@ -675,7 +675,7 @@ describe('Login, session issuance and throttling (e2e)', () => {
       expect(strip(unknown.body)).toEqual(strip(known.body));
     });
 
-    it('answers 503 with the envelope and no cookie when the microservice is unavailable', async () => {
+    it('answers 503 with the envelope and no cookie when Cognito is unavailable', async () => {
       client.loginCustom.mockRejectedValue(new UpstreamUnavailableError());
       const res = await world.post('/auth/login', loginBody);
       expectEnvelope(res, 503);
@@ -791,7 +791,7 @@ describe('Login, session issuance and throttling (e2e)', () => {
     ];
 
     it.each(invalid)(
-      '400 before the microservice is called: %s',
+      '400 before Cognito is called: %s',
       async (_name, body) => {
         const res = await world.post('/auth/login', body);
         expectEnvelope(res, 400);
@@ -802,13 +802,13 @@ describe('Login, session issuance and throttling (e2e)', () => {
       },
     );
 
-    it('400 before the microservice is called: no body at all', async () => {
+    it('400 before Cognito is called: no body at all', async () => {
       const res = await world.post('/auth/login');
       expectEnvelope(res, 400);
       expect(client.loginCustom).not.toHaveBeenCalled();
     });
 
-    it('400 before the microservice is called: malformed JSON', async () => {
+    it('400 before Cognito is called: malformed JSON', async () => {
       const res = await world
         .post('/auth/login')
         .set('content-type', 'application/json')
@@ -865,7 +865,7 @@ describe('Login, session issuance and throttling (e2e)', () => {
       );
     });
 
-    it('401 when the microservice refuses the completion', async () => {
+    it('401 when Cognito refuses the completion', async () => {
       client.completeNewPassword.mockRejectedValue(
         new InvalidCredentialsError(),
       );
@@ -875,9 +875,8 @@ describe('Login, session issuance and throttling (e2e)', () => {
       );
     });
 
-    it('503 when a further challenge (MFA) is answered by the microservice as a 5xx', async () => {
-      // The microservice only forwards NEW_PASSWORD_REQUIRED: any further
-      // challenge is a 500 there, which the client maps to a 503 (T-6).
+    it('503 when Cognito is unavailable during the completion', async () => {
+      // A further challenge (MFA) is a 401 in the client itself (T-6 unit tests).
       client.completeNewPassword.mockRejectedValue(
         new UpstreamUnavailableError(),
       );
@@ -908,7 +907,7 @@ describe('Login, session issuance and throttling (e2e)', () => {
     ];
 
     it.each(invalid)(
-      '400 before the microservice is called: %s',
+      '400 before Cognito is called: %s',
       async (_name, body) => {
         const res = await world.post('/auth/complete-new-password', body);
         expectEnvelope(res, 400);
@@ -919,7 +918,7 @@ describe('Login, session issuance and throttling (e2e)', () => {
   });
 
   describe('GET /auth/provider-url (FR-6)', () => {
-    it('answers 200 { url } for an allowed redirect URI and passes it to the microservice', async () => {
+    it('answers 200 { url } for an allowed redirect URI and passes it to Cognito', async () => {
       client.providerUrl.mockResolvedValue('https://idp.example/authorize?x=1');
       const res = await world
         .get('/auth/provider-url')
@@ -941,7 +940,7 @@ describe('Login, session issuance and throttling (e2e)', () => {
     });
 
     it.each(BAD_REDIRECT_URIS)(
-      '400 and no microservice call for %s',
+      '400 and no Cognito call for %s',
       async (_name, redirectUri) => {
         const res = await world
           .get('/auth/provider-url')
@@ -951,12 +950,12 @@ describe('Login, session issuance and throttling (e2e)', () => {
       },
     );
 
-    it('400 and no microservice call without a redirect URI', async () => {
+    it('400 and no Cognito call without a redirect URI', async () => {
       expectEnvelope(await world.get('/auth/provider-url'), 400);
       expect(client.providerUrl).not.toHaveBeenCalled();
     });
 
-    it('400 and no microservice call for an empty redirect URI', async () => {
+    it('400 and no Cognito call for an empty redirect URI', async () => {
       const res = await world
         .get('/auth/provider-url')
         .query({ redirectUri: '' });
@@ -964,28 +963,12 @@ describe('Login, session issuance and throttling (e2e)', () => {
       expect(client.providerUrl).not.toHaveBeenCalled();
     });
 
-    it('400 and no microservice call for an unknown query parameter', async () => {
+    it('400 and no Cognito call for an unknown query parameter', async () => {
       const res = await world
         .get('/auth/provider-url')
         .query({ redirectUri: REDIRECT_URI, provider: 'other' });
       expectEnvelope(res, 400);
       expect(client.providerUrl).not.toHaveBeenCalled();
-    });
-
-    it('503, not 401, when the microservice refuses to build the URL: no credentials are involved', async () => {
-      client.providerUrl.mockRejectedValue(new InvalidCredentialsError());
-      const res = await world
-        .get('/auth/provider-url')
-        .query({ redirectUri: REDIRECT_URI });
-      expectEnvelope(res, 503);
-    });
-
-    it('503 when the microservice is unavailable', async () => {
-      client.providerUrl.mockRejectedValue(new UpstreamUnavailableError());
-      const res = await world
-        .get('/auth/provider-url')
-        .query({ redirectUri: REDIRECT_URI });
-      expectEnvelope(res, 503);
     });
   });
 
@@ -1039,7 +1022,7 @@ describe('Login, session issuance and throttling (e2e)', () => {
     });
 
     it.each(BAD_REDIRECT_URIS)(
-      '400 and no microservice call for the redirect URI %s',
+      '400 and no Cognito call for the redirect URI %s',
       async (_name, redirectUri) => {
         const res = await world.post('/auth/callback', {
           code: CODE,
@@ -1060,7 +1043,7 @@ describe('Login, session issuance and throttling (e2e)', () => {
     ];
 
     it.each(invalid)(
-      '400 before the microservice is called: %s',
+      '400 before Cognito is called: %s',
       async (_name, body) => {
         const res = await world.post('/auth/callback', body);
         expectEnvelope(res, 400);
@@ -1139,7 +1122,7 @@ describe('Login, session issuance and throttling (e2e)', () => {
       },
     ])('POST $route', ({ route, body, spy }) => {
       it.each(refused)(
-        '415 for %s: envelope, decision line, no Set-Cookie, no microservice call',
+        '415 for %s: envelope, decision line, no Set-Cookie, no Cognito call',
         async (_name, contentType, encode) => {
           spy().mockRejectedValue(new InvalidCredentialsError());
 
@@ -1465,7 +1448,7 @@ describe('Login, session issuance and throttling (e2e)', () => {
     ];
 
     it.each(throttled)(
-      '%s: the 11th request in a minute answers 429 with the envelope and never reaches the microservice',
+      '%s: the 11th request in a minute answers 429 with the envelope and never reaches Cognito',
       async (_name, send, spy) => {
         spy().mockRejectedValue(new InvalidCredentialsError());
 

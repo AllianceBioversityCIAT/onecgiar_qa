@@ -2,8 +2,11 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// FR-17, "Static guarantee": `server/` contains no token signing and no
-// Cognito client secret. Tokens are the pool's: this API only verifies them.
+// FR-17, "Static guarantee": `server/` contains no token signing, and the
+// Cognito client secret is read only from `COGNITO_CLIENT_SECRET` — never a
+// literal in code or `.env.example`, never logged (amended 2026-10-14, DD-11).
+// Tokens are the pool's: this API only verifies them. The one HMAC allowed is
+// Cognito's `SECRET_HASH` in the Cognito client, which signs no token.
 //
 // What is scanned, and why. The production surface: every `.ts` file under
 // `server/src` except the specs (`*.spec.ts`), plus the files that configure
@@ -25,7 +28,18 @@ const SIGNING = [
   /['"](?:jsonwebtoken|jose|jws|jwa|njwt|fast-jwt|@nestjs\/jwt)['"]/,
 ];
 
-const CLIENT_SECRET = /client[_-]?secret/i;
+/** Files allowed to use a signing primitive, and which one (DD-11: SECRET_HASH). */
+const SIGNING_ALLOWED: Record<string, RegExp> = {
+  'auth/cognito-auth.client.ts': /\bcreateHmac\b/,
+};
+
+/** A client secret written as a literal value (`key: 'x'`, `key = "x"`, `KEY=x`). */
+const SECRET_LITERAL =
+  /client[_-]?secret['"]?[ \t]*(?:[:=][ \t]*['"`]|=[ \t]*[^\s'"`])/i;
+/** A log call that mentions the secret. */
+const SECRET_LOGGED = /(?:logger|console)\.\w+\([^\n]*client[_-]?secret/i;
+/** The only accepted way in: `process.env.COGNITO_CLIENT_SECRET`. */
+const SECRET_FROM_ENV = /process\.env\.COGNITO_CLIENT_SECRET\b/;
 
 /** Source lines with the lines that only hold a comment left out. */
 function codeOf(text: string): string {
@@ -35,16 +49,21 @@ function codeOf(text: string): string {
     .join('\n');
 }
 
-const findSigning = (text: string): string[] => {
+const findSigning = (text: string, allowed?: RegExp): string[] => {
   const code = codeOf(text);
-  return SIGNING.flatMap((pattern) => {
+  // An allowed primitive is matched by its pattern source, e.g. createHmac.
+  return SIGNING.filter(
+    (pattern) => String(pattern) !== String(allowed),
+  ).flatMap((pattern) => {
     const match = pattern.exec(code);
     return match === null ? [] : [match[0]];
   });
 };
 
-const hasClientSecret = (text: string): boolean =>
-  CLIENT_SECRET.test(codeOf(text));
+const hasClientSecret = (text: string): boolean => {
+  const code = codeOf(text);
+  return SECRET_LITERAL.test(code) || SECRET_LOGGED.test(code);
+};
 
 const isSpec = (path: string) => path.endsWith('.spec.ts');
 
@@ -68,7 +87,7 @@ const CONFIG_FILES = [
 const read = (path: string) => readFileSync(path, 'utf8');
 const shown = (path: string) => relative(SERVER_ROOT, path);
 
-describe('FR-17: no QA-issued tokens, no client secret (static)', () => {
+describe('FR-17: no QA-issued tokens, client secret from env only (static)', () => {
   describe('the detectors', () => {
     it.each([
       'const token = sign(payload, key);',
@@ -97,15 +116,30 @@ describe('FR-17: no QA-issued tokens, no client secret (static)', () => {
 
     it.each([
       'COGNITO_CLIENT_SECRET=abc',
-      'clientSecret: process.env.X',
+      "clientSecret: 'abc',",
       'const client_secret = "x";',
       '"cognito-client-secret": "x"',
+      'this.logger.warn(`secret ${this.config.cognito.clientSecret}`);',
     ])('flags a client secret in %j', (line) => {
       expect(hasClientSecret(line)).toBe(true);
     });
 
-    it('does not flag a client secret that a comment only mentions', () => {
-      expect(hasClientSecret('// there is no client secret')).toBe(false);
+    it.each([
+      '// there is no client secret',
+      'COGNITO_CLIENT_SECRET=',
+      'clientSecret: process.env.COGNITO_CLIENT_SECRET!,',
+      'const { clientId, clientSecret } = this.config.cognito;',
+      'ClientSecret: clientSecret,',
+    ])('does not flag %j (no literal, no log)', (line) => {
+      expect(hasClientSecret(line)).toBe(false);
+    });
+
+    it('allows createHmac only in the Cognito client (SECRET_HASH)', () => {
+      const line = 'createHmac("sha256", secret)';
+      expect(
+        findSigning(line, SIGNING_ALLOWED['auth/cognito-auth.client.ts']),
+      ).toEqual([]);
+      expect(findSigning(line)).not.toEqual([]);
     });
   });
 
@@ -125,16 +159,32 @@ describe('FR-17: no QA-issued tokens, no client secret (static)', () => {
 
     it('signs no token in server/src', () => {
       const found = sourceFiles().flatMap((path) =>
-        findSigning(read(path)).map((match) => `${shown(path)}: ${match}`),
+        findSigning(read(path), SIGNING_ALLOWED[relative(SRC_ROOT, path)]).map(
+          (match) => `${shown(path)}: ${match}`,
+        ),
       );
       expect(found).toEqual([]);
     });
 
-    it('holds no Cognito client secret in server/src or the server configuration', () => {
-      const found = [...sourceFiles(), ...CONFIG_FILES]
+    it('holds no Cognito client secret literal, and logs none, in server/src or the server configuration', () => {
+      // The Vitest configs are left out: they carry dummy test values, like `test/`.
+      const scanned = [...sourceFiles(), ...CONFIG_FILES].filter(
+        (path) => !/vitest\.config/.test(path),
+      );
+      const found = scanned
         .filter((path) => hasClientSecret(read(path)))
         .map(shown);
       expect(found).toEqual([]);
+    });
+
+    it('reads the client secret only from COGNITO_CLIENT_SECRET, in the auth config', () => {
+      const readers = sourceFiles()
+        .filter((path) => /process\.env\.\w*SECRET/i.test(codeOf(read(path))))
+        .map((path) => relative(SRC_ROOT, path));
+      expect(readers).toEqual(['config/auth.config.ts']);
+      expect(read(join(SRC_ROOT, 'config/auth.config.ts'))).toMatch(
+        SECRET_FROM_ENV,
+      );
     });
 
     it('depends on no signing library', () => {

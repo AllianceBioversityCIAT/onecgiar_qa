@@ -3,7 +3,7 @@ import { API_PREFIX } from '../common/configure-app.js';
 
 /** The refresh token (FR-9). */
 export const REFRESH_COOKIE = 'qa_rt';
-/** The Cognito username the refresh needs (FR-13, DD-2). */
+/** The Cognito username the refresh needs for `SECRET_HASH` (FR-13, DD-2, DD-11). */
 export const USERNAME_COOKIE = 'qa_ru';
 
 /**
@@ -41,4 +41,13 @@ export function setSessionCookies(
   };
   response.cookie(REFRESH_COOKIE, refreshToken, options);
   response.cookie(USERNAME_COOKIE, username, options);
+}
+
+/**
+ * Expires both session cookies with the same attributes, Path included, so the
+ * browser drops them (FR-13 refusals, FR-14).
+ */
+export function clearSessionCookies(response: Response): void {
+  response.clearCookie(REFRESH_COOKIE, ATTRIBUTES);
+  response.clearCookie(USERNAME_COOKIE, ATTRIBUTES);
 }

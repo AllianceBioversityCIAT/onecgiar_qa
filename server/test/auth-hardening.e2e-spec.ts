@@ -5,7 +5,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { AppModule } from '../src/app.module.js';
-import { MS_AUTH_TIMEOUT_MS } from '../src/auth/auth-microservice.client.js';
+import { COGNITO_TIMEOUT_MS } from '../src/auth/cognito-auth.client.js';
 import {
   IS_PUBLIC_KEY,
   Public,
@@ -42,7 +42,7 @@ import {
 
 // Hardening checks of the auth spec (T-10): the route inventory (FR-10, the
 // "route reachable without a token" defect class), the guard latency budget
-// (NFR-5) and the microservice-down behavior (NFR-6). All of it runs on the
+// (NFR-5) and Cognito-down behavior (NFR-6). All of it runs on the
 // real app and the real guards; only the edges are replaced (a local key set,
 // in-memory stores, and for NFR-6 the global `fetch` the client calls).
 
@@ -177,18 +177,6 @@ const FR10_PUBLIC_ROUTES: readonly string[] = [
   'GET /api/v1/health',
 ];
 
-/**
- * The part of FR-10's list owned by T-9, which has not landed: the session
- * routes do not exist yet. They stay in `FR10_PUBLIC_ROUTES` and are only
- * left out of the equality while the router does not serve them. When T-9
- * adds them, "T-9 routes are still absent" and the equality both go red:
- * delete this constant and that test, and the equality then expects them.
- */
-const PENDING_T9: readonly string[] = [
-  'POST /api/v1/auth/session/refresh',
-  'POST /api/v1/auth/session/logout',
-];
-
 /** What the Express router serves: one `METHOD /path` per route and method. */
 function servedRoutes(app: NestExpressApplication): string[] {
   const { router } = app.getHttpAdapter().getInstance() as {
@@ -299,20 +287,10 @@ describe('Route inventory (FR-10, e2e)', () => {
     expect(served).toEqual([...declared.keys()].sort());
   });
 
-  it('serves without a token exactly FR-10 list, minus the routes pending T-9', () => {
-    const expected = FR10_PUBLIC_ROUTES.filter(
-      (key) => !PENDING_T9.includes(key),
-    ).sort();
-    expect(inventoryOf(world.app).publicRoutes).toEqual(expected);
-  });
-
-  it('PENDING_T9 names routes of FR-10 list', () => {
-    for (const key of PENDING_T9) expect(FR10_PUBLIC_ROUTES).toContain(key);
-  });
-
-  it('T-9 routes are still absent: once T-9 lands, remove PENDING_T9 and this test', () => {
-    const { served } = inventoryOf(world.app);
-    for (const key of PENDING_T9) expect(served).not.toContain(key);
+  it('serves without a token exactly FR-10 list', () => {
+    expect(inventoryOf(world.app).publicRoutes).toEqual(
+      [...FR10_PUBLIC_ROUTES].sort(),
+    );
   });
 
   it('answers 401 without a token on every other route', async () => {
@@ -348,11 +326,8 @@ describe('Route inventory (FR-10, e2e)', () => {
       const mistaken = await buildWorld([RogueModule]);
       try {
         const { publicRoutes } = inventoryOf(mistaken.app);
-        const expected = FR10_PUBLIC_ROUTES.filter(
-          (key) => !PENDING_T9.includes(key),
-        ).sort();
         expect(publicRoutes).toContain('GET /api/v1/rogue/leak');
-        expect(publicRoutes).not.toEqual(expected);
+        expect(publicRoutes).not.toEqual([...FR10_PUBLIC_ROUTES].sort());
         // And the route really is reachable without a token.
         await mistaken.call('get', '/api/v1/rogue/leak').expect(200);
       } finally {
@@ -451,7 +426,7 @@ describe('NFR-5: what the guards add to an authenticated request (e2e)', () => {
   });
 });
 
-// --- NFR-6: the microservice is down -------------------------------------------
+// --- NFR-6: Cognito is down -------------------------------------------
 
 /**
  * The 10 s deadline of the client, taken by the test instead of waited for:
@@ -475,7 +450,7 @@ function holdAuthDeadlines() {
   return held;
 }
 
-/** A microservice that never answers until the request is aborted. */
+/** A Cognito endpoint that never answers until the request is aborted. */
 const hangUntilAborted = (_url: unknown, init?: RequestInit) =>
   new Promise<Response>((_resolve, reject) => {
     init?.signal?.addEventListener('abort', () =>
@@ -483,7 +458,7 @@ const hangUntilAborted = (_url: unknown, init?: RequestInit) =>
     );
   });
 
-describe('NFR-6: the authentication microservice is down (e2e)', () => {
+describe('NFR-6: Cognito is down (e2e)', () => {
   let world: World;
   let held: ReturnType<typeof holdAuthDeadlines> = [];
   const login = { email: 'ada@cgiar.org', password: 'P@ssw0rd-nfr6-SECRET' };
@@ -515,7 +490,7 @@ describe('NFR-6: the authentication microservice is down (e2e)', () => {
     expect(res.text).not.toContain(login.password);
   };
 
-  /** Users with a valid token keep being served, whatever the microservice does. */
+  /** Users with a valid token keep being served, whatever Cognito does. */
   const expectOtherRoutesServed = async () => {
     const me = await world
       .call('get', '/api/v1/auth/me', bearerOf('sub-nfr6'))
@@ -538,7 +513,7 @@ describe('NFR-6: the authentication microservice is down (e2e)', () => {
       { timeout: 2000 },
     );
     expect(held[0].ms).toBe(10_000);
-    expect(MS_AUTH_TIMEOUT_MS).toBe(10_000);
+    expect(COGNITO_TIMEOUT_MS).toBe(10_000);
 
     // The login is hanging: nobody else is affected.
     await expectOtherRoutesServed();

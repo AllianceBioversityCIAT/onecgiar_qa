@@ -2,12 +2,12 @@ import { applyDecorators } from '@nestjs/common';
 import { IsEmail, IsNotEmpty, IsString, MaxLength } from 'class-validator';
 
 // The shape rules of the auth routes (NFR-3), written once. Every one of them
-// is enforced before the microservice is called.
+// is enforced before Cognito is called.
 
 /** `users.email` is a `varchar(255)`. */
 export const EMAIL_MAX_LENGTH = 255;
 
-/** Generous bounds: they keep oversized input away from the microservice, they are not policy. */
+/** Generous bounds: they keep oversized input away from Cognito, they are not policy. */
 export const PASSWORD_MAX_LENGTH = 256;
 export const CODE_MAX_LENGTH = 2048;
 export const SESSION_MAX_LENGTH = 8192;

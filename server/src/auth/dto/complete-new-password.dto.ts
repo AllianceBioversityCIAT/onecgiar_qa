@@ -13,7 +13,7 @@ export class CompleteNewPasswordDto {
   @TextField(PASSWORD_MAX_LENGTH)
   newPassword!: string;
 
-  /** The challenge session the microservice returned from the login. */
+  /** The challenge session Cognito returned from the login. */
   @TextField(SESSION_MAX_LENGTH)
   session!: string;
 }

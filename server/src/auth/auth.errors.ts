@@ -56,7 +56,7 @@ export class UsernameClaimMissingError extends UnauthorizedException {
   }
 }
 
-/** FR-6, FR-7: a redirect URI outside `ALLOWED_ORIGINS`; the microservice is never called. */
+/** FR-6, FR-7: a redirect URI outside `ALLOWED_ORIGINS`; Cognito is never called. */
 export class RedirectUriNotAllowedError extends BadRequestException {
   constructor() {
     super('The redirect URI is not allowed');
@@ -67,5 +67,19 @@ export class RedirectUriNotAllowedError extends BadRequestException {
 export class UnsupportedMediaTypeError extends UnsupportedMediaTypeException {
   constructor() {
     super('Only application/json is accepted');
+  }
+}
+
+/** FR-13, FR-14: a session call from an origin outside `ALLOWED_ORIGINS` (or none). */
+export class OriginNotAllowedError extends ForbiddenException {
+  constructor() {
+    super('This origin is not allowed');
+  }
+}
+
+/** FR-13: refresh without both session cookies. */
+export class SessionMissingError extends UnauthorizedException {
+  constructor() {
+    super('No session');
   }
 }

@@ -1375,3 +1375,59 @@ Free RAM was ≥ 3.8 GB. A cold cache that hits MySQL is not covered, because th
   - The repo has no `dev` branch; `dev-auth` is the auth microservice's dev branch.
   - **PR #45 → `dev-auth`, merged 2026-10-14T13:44Z (merge commit `ca4dfa35`).** The "Trigger Jenkins Job AUTH Microservice" check passed on the PR and on the push.
 - **T-9 status:** the code dependency now exists on `dev-auth`. T-9's first step, "confirm the microservice change is deployed in the env the tests target", is still owed. Whether the Jenkins job deployed it to a reachable environment is UNVERIFIED — confirm at source before relying on it.
+
+## DD-2 smoke in Test and the DD-11 pivot (2026-10-14)
+
+### Smoke of DD-2 against the Test microservice (`authtest-ibd.prms.cgiar.org`)
+Run by the Leader at the user's request ("Haz las pruebas tú"), with a custom user the user supplied. Only statuses, claim names and booleans were printed; no token was logged.
+- `login/custom` → 201. Id token claims: `aud, auth_time, cognito:username, email, email_verified, event_id, exp, family_name, given_name, iat, iss, jti, origin_jti, sub, token_use`; `identities` absent; `email_verified=true`. Access token `token_use=access` with `client_id`. P-12 confirmed for custom tokens.
+- `refresh {refreshToken, username}` → **401** `Refresh token has expired or is invalid` (Cognito `NotAuthorizedException`). Old path with an access token → 401 `Error retrieving user information`. Wrong username → 401.
+- **Root cause (read at source, `auth-microservice@ca4dfa35`):** `login/custom` authenticates with the microservice's own client (`COGNITO_CLIENT_ID` env, `cognito.service.ts:49-70`), while `refresh` uses the MIS client (`mis_auth.cognito_client_id`, `auth.service.ts:617-621`). A refresh token works only with the client that issued it, so a custom refresh can never succeed; and the post-refresh `getUserInfo` (`/oauth2/userInfo`) fails for custom tokens. Measured: the custom id token `aud` equals QA's `COGNITO_CLIENT_ID`; the SSO authorize URL from the microservice uses another client id, so QA's verifier would also reject every SSO token.
+
+### Direct-to-Cognito smoke (P-18)
+After the user configured `COGNITO_CLIENT_SECRET`, `COGNITO_URL` and `COGNITO_USER_POOL_URL` in `server/.env`:
+- `USER_PASSWORD_AUTH` → 200; `aud` and access `client_id` = `COGNITO_CLIENT_ID`; scope `aws.cognito.signin.user.admin`.
+- `REFRESH_TOKEN_AUTH` with `SECRET_HASH(cognito:username)`, no access token → 200, new access and id tokens, **no rotated refresh token**.
+- Wrong username → 400 `NotAuthorizedException`. `RevokeToken` → 200, then refresh → `NotAuthorizedException`.
+- `/oauth2/authorize` with `http://localhost:4200/auth/callback`: first `redirect_mismatch`; after the pool owner registered it (2026-10-14), `CGIAR-AzureAD` + `openid email` → 302 to `login.microsoftonline.com` (SAML). Scope `profile` → `invalid_scope` (not allowed on the client). The implicit grant (`response_type=token`) is enabled on the client — advisory for the pool owner (QA does not use it).
+
+### Decision (user, 2026-10-14)
+- "Y si usamos la conexión a Cognito directamente?" → the Leader presented the trade-offs (ADR-003 change, QA holds the secret, app client needed, budget). The user: "Ya tengo todo. Ya están los envs y todo", then approved the pivot: "Sí, pero no quiero que lo hagamos con Akili, porque nos tomaría mucho tiempo. ¿Puedes hacerlo tú e ir dejando documentado los docs de Akili?"
+- **Recorded as:** DD-11 (design § 10), with the spec amendments below. Work done by the Leader inline (no Implementer/Reviewer spawns) — the user's explicit waiver of the triad for this pivot. Budget re-baselined to ~13,500 LOC / ~38 passes (no Reviewer pass consumed).
+- A Slack message to the pool owner listed what to check on the app client for local SSO (callback URLs, IdP, code grant, scopes, flows, shared vs dedicated client). The client in `.env` is the one the microservice uses for custom login (shared) — open question with the pool owner; code-neutral.
+
+### Spec amendments (2026-10-14, DD-11)
+- `requirements.md`: Executive Summary, Glossary (Cognito API replaces Microservice), § 4 (historical note; revocation moved in scope), FR-4/5/6/7 (Cognito instead of the microservice; FR-6 URL built from `COGNITO_URL`, scopes `openid email`), FR-13 (dependency removed), FR-14 (revoke, best effort), FR-17 (secret from env only, never a literal or logged), FR-18 (env list), NFR-3, NFR-6, defect-class row, index.
+- `design.md`: § 2, § 3 diagram, § 4 tree, § 6 API table (provider-url no 503; refresh 503 keeps cookies; origin 403 untouched; logout revokes), § 7.2 `CognitoAuthClient`, § 7.3 flows, § 9 env and external dependencies, DD-2 superseded, **DD-11 added**, premises P-1…P-6 historical, P-11 superseded, P-12 confirmed (custom), **P-18 added**.
+- `tasks.md`: pivot note, dependency graph, T-6 rewritten scope/tests, T-9 unblocked and amended, T-10 FR-17 amendment, T-11 SSO checks, coverage FR-14.
+- **Pending for `staging` (not on this branch):** TRD ADR-003 (direct Cognito, QA holds the secret as env) in addition to the earlier items; `infrastructure.md` § 6 env vars (`COGNITO_CLIENT_SECRET`, `COGNITO_URL`, optional `COGNITO_USER_POOL_URL`; `MS_AUTH_*` removed).
+
+### T-6 (rewritten): Cognito client — REVIEW_WAIVED (user)
+- **Files:** `server/src/auth/cognito-auth.client.ts` (new; replaces `auth-microservice.client.ts`, deleted), `cognito-auth.client.spec.ts` (renamed and rewritten), `config/auth.config.ts`, `config/env.validation.ts` (+ spec), `.env.example`, `vitest.config.e2e.ts`, `token-verifier.service.spec.ts` (config shape), `auth.controller.ts` (provider-url no longer maps a refusal to 503: nothing upstream can fail), `auth-decision.ts` (comment), comment/test-name rewording in `json-only.ts`, `auth.errors.ts`, `dto/*`, `test/auth-login.e2e-spec.ts` (two provider-url 503 tests removed; the MFA test renamed to "Cognito unavailable"), `test/auth-hardening.e2e-spec.ts`.
+- **Behavior:** same public methods as before plus `revoke`; `SECRET_HASH` = HMAC-SHA256(secret, username + clientId); errors: 4xx → 401 except throttling → 503; 5xx/timeout/network → 503; any challenge other than NEW_PASSWORD_REQUIRED → 401; only a bare Cognito error name is logged.
+- **Unit tests:** 22 in `cognito-auth.client.spec.ts` (targets, bodies and `SECRET_HASH` per operation; Hosted UI URL and token exchange; error mapping; 10 s timeout; log spy for body, password, secret and refresh token).
+- **Real-pool run of the actual client** (`tsx`, scratchpad script, custom user): wrong password → `InvalidCredentialsError` 401; login → tokens, `aud` ok; refresh → access + id, not rotated; wrong username → 401; revoke → ok; refresh after revoke → 401; bogus code → 401; `providerUrl` → authorize 302 to `login.microsoftonline.com`.
+
+### T-9: Session refresh and logout — REVIEW_WAIVED (user)
+- **Files:** `server/src/auth/session.controller.ts` (new: `SessionController` + `SessionDecisionInterceptor`), `guards/origin.guard.ts` (new), `session-cookies.ts` (`clearSessionCookies`), `auth.errors.ts` (`OriginNotAllowedError` 403, `SessionMissingError` 401), `auth-decision.ts` (reasons), `auth.module.ts`, `test/auth-session.e2e-spec.ts` (new).
+- **Behavior:** OriginGuard (exact match, missing Origin refused) runs first and logs its own decision; cookies untouched on its 403. Refresh: both cookies required (else 401 + cleared) → Cognito refresh → `verifyAccess` → `resolve(mode: 'refresh')` (DB, never the cache) → rotate `qa_rt` only if Cognito returned a new refresh token → session shape. 401/403 clear both cookies; 503 keeps them. Logout: revoke if `qa_rt` present (failure logged as `logged_out_revoke_failed`, still 204) → clear both → 204.
+- **e2e:** 21 tests in `auth-session.e2e-spec.ts` — session shape without Authorization; rotation; revoked last role → 403 + cleared + cache never read (spy); deactivated → 403 + cleared; unknown SSO identity on refresh → 403 + cleared + no row; missing/foreign/trailing-slash Origin → 403, Cognito not called, untouched; missing/partial/empty cookies → 401 + cleared; Cognito refusal → 401 + cleared; Cognito down → 503 + kept; unverifiable token → 401 + cleared; JSON `{}` body accepted; logout revoke + cleared + 204; revoke failure still 204; no cookies → no revoke; logout bad Origin → 403 untouched.
+- **Mutations (each reverted, file diff-verified):** no OriginGuard → 5 red; no clear on refusal → 8 red; clear also on 5xx → 1 red; `mode: 'login'` instead of `refresh` → first survived, then the "never creates a user" test was added → 1 red; no revoke → 1 red.
+
+### T-10 re-run (after T-9)
+- `PENDING_T9` and its "still absent" test removed; the public-route equality and the rogue-route control now use FR-10's full list.
+- FR-17 static check amended: `createHmac` allowed only in `auth/cognito-auth.client.ts` (SECRET_HASH, signs no token); a client-secret **literal** (code or `.env.example` value) or a log call mentioning it is flagged; `process.env.*SECRET` is read only in `config/auth.config.ts`. Vitest configs excluded (dummy test values, like `test/`). New detector cases for both directions.
+
+### Verification (Leader, 2026-10-14)
+- `pnpm lint` → 0 warnings · `pnpm build` (`nest build`) → exit 0 (after one resource-guard block; `tsc --noEmit -p tsconfig.build.json` exit 0 in the meantime).
+- Unit `vitest run --maxWorkers=2` → **457/457** (17 files). e2e `--config ./vitest.config.e2e.ts --maxWorkers=2` → **233/233** (5 files).
+- Diff size (server): 22 files, +1441 / −339.
+
+## REVIEW_WAIVED: T-6 (rewrite), T-9, T-10 (re-run) — DD-11 pivot
+
+- **Waived by:** the user, 2026-10-14 — "no quiero que lo hagamos con Akili, porque nos tomaría mucho tiempo. ¿Puedes hacerlo tú…?"
+- **What stands in for the review:** the Leader's falsifier runs above, the full suites, and the real-pool run of the actual client. Author = auditor for this work; an independent review is recommended before merging to `staging` (security-relevant: session cookies, Origin check, secret handling).
+- **Open items carried to T-11:** SSO end to end through the Hosted UI (names with `openid email`, `identities` format), TEST/PROD callback URLs, P-14 lifetimes, shared vs dedicated app client, implicit grant to be disabled by the pool owner.
+
+## Run status after the DD-11 pivot (2026-10-14)
+- **Done:** T-1 … T-10. **Remaining:** T-11 (HITL in TEST; also runnable locally now that the localhost callback is registered).
