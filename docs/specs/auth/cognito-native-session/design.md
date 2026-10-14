@@ -9,11 +9,11 @@
 | Depth | Full |
 | Status | Draft |
 | Base commit | `607dc0b` (this repo), `bf29541f` (auth microservice), `8c2081d1` (old QA) |
-| Last updated | 2026-10-13 |
+| Last updated | 2026-10-14 (pivot: direct Cognito, DD-11) |
 
 ## 2. Executive Summary
 
-Two NestJS modules under `server/src/`: **`users`** (schema, repositories, permission catalog and `can()`) and **`auth`** (microservice client, token verifiers, admission service, controllers, global guards, cookies). Three Drizzle tables with database-level guarantees for scope and uniqueness. A global guard chain — authenticate → authorize — protects every route under `/api/v1` and fails closed. Refresh uses two httpOnly cookies (refresh token + Cognito username) scoped to `/api/v1/auth/session`, and depends on a small change in the auth microservice (DD-2).
+Two NestJS modules under `server/src/`: **`users`** (schema, repositories, permission catalog and `can()`) and **`auth`** (Cognito client, token verifiers, admission service, controllers, global guards, cookies). Three Drizzle tables with database-level guarantees for scope and uniqueness. A global guard chain — authenticate → authorize — protects every route under `/api/v1` and fails closed. Refresh uses two httpOnly cookies (refresh token + Cognito username) scoped to `/api/v1/auth/session`, and is a direct Cognito `REFRESH_TOKEN_AUTH` call; QA talks to Cognito through its own app client, not through the auth microservice (amended 2026-10-14, DD-11).
 
 **Budget (tripwire for `/akili-execute`):** 11 tasks · ~1,600 LOC (≈ 900 production, ≈ 700 tests) · 1.5 review rounds per task on average (≈ 17 Reviewer passes).
 
@@ -30,13 +30,13 @@ flowchart LR
     MC[MeController /auth/me]
     AS[AdmissionService<br/>FR-8]
     TV[TokenVerifier<br/>access + id]
-    MS[AuthMicroserviceClient]
+    CG[CognitoAuthClient]
     UR[(users · roles · role_assignments<br/>Drizzle / MySQL)]
     CU[CurrentUserCache<br/>TTL 60 s]
   end
-  AC --> MS --> X[auth microservice]
+  AC --> CG --> X[Cognito API + Hosted UI]
   AC --> AS
-  SC --> MS
+  SC --> CG
   SC --> AS
   AS --> TV
   AS --> UR
@@ -84,7 +84,7 @@ server/
         ├── me.controller.ts
         ├── admission.service.ts     # FR-8
         ├── token-verifier.service.ts
-        ├── auth-microservice.client.ts
+        ├── cognito-auth.client.ts    # amended 2026-10-14 (DD-11); was auth-microservice.client.ts
         ├── session-cookies.ts       # set/clear both cookies
         ├── guards/{auth,permission,origin}.guard.ts
         ├── decorators/{public,read-access,require-permission,current-user}.decorator.ts
@@ -146,10 +146,10 @@ All under `/api/v1`. Error envelope `{ statusCode, error, message, details?, req
 |---|---|---|---|---|---|
 | POST | `/auth/login` | Public · throttled | `{ email, password }` | 200 `{ accessToken, expiresIn, user }` + cookies · or 200 `{ challenge: 'NEW_PASSWORD_REQUIRED', session }` (no cookies) | 400, 401, 403, 409, 429, 503 |
 | POST | `/auth/complete-new-password` | Public · throttled | `{ email, newPassword, session }` | 200 session shape + cookies | 400, 401, 403, 409, 429, 503 |
-| GET | `/auth/provider-url?redirectUri=` | Public | query | 200 `{ url }` | 400, 503 |
+| GET | `/auth/provider-url?redirectUri=` | Public | query | 200 `{ url }` | 400 (503 removed 2026-10-14: the URL is built locally, DD-11) |
 | POST | `/auth/callback` | Public · throttled | `{ code, redirectUri }` | 200 session shape + cookies | 400, 401, 403, 409, 429, 503 |
-| POST | `/auth/session/refresh` | Public · Origin-checked | cookies only | 200 session shape (cookies rotated if new) | 401 (cookies cleared), 403 (origin, or not admitted → cookies cleared), 503 |
-| POST | `/auth/session/logout` | Public · Origin-checked | — | 204, cookies cleared | 403 |
+| POST | `/auth/session/refresh` | Public · Origin-checked | cookies only | 200 session shape (cookies rotated if new) | 401 (cookies cleared), 403 (origin → cookies untouched; not admitted → cookies cleared), 503 (cookies kept) |
+| POST | `/auth/session/logout` | Public · Origin-checked | — | 204, refresh token revoked (best effort), cookies cleared | 403 (cookies untouched) |
 | GET | `/auth/me` | Authenticated (GUEST ok) | — | 200 `user` | 401 |
 | GET | `/health` | Public | — | 200 `{ status: 'ok' }` | — |
 
@@ -166,7 +166,7 @@ Cookies (FR-9): `qa_rt` (refresh token) and `qa_ru` (Cognito username), both `Ht
 
 ### 7.2 `auth` module
 - **`TokenVerifier`**: two `aws-jwt-verify` Cognito verifiers (access: `tokenUse=access`, `clientId`; id: `tokenUse=id`, `clientId`). JWKS fetched and cached by the library; warmed at startup (failure logged, retried on first use). Exposes `verifyAccess(token)` and `verifyId(token)`.
-- **`AuthMicroserviceClient`**: Node `fetch`, base `MS_AUTH_URL`, header `auth: {"username":MS_AUTH_USER,"password":MS_AUTH_PASSWORD}` (P-5), timeout 10 s. Maps: 4xx → `InvalidCredentials` (401), challenge → challenge result, timeout/5xx/network → `UpstreamUnavailable` (503), empty or malformed body → 401 (P-7). Sends `username` = email for custom login (P-2), `provider: 'CGIAR-AzureAD'` for SSO (P-3). Never logs bodies.
+- **`CognitoAuthClient`** (amended 2026-10-14, DD-11; replaces `AuthMicroserviceClient`): Node `fetch`, timeout 10 s, no SDK. User-pool API at `COGNITO_USER_POOL_URL` (default `https://cognito-idp.<region>.amazonaws.com/`, `X-Amz-Target: AWSCognitoIdentityProviderService.<Op>`): login `InitiateAuth USER_PASSWORD_AUTH` (`USERNAME` = email), new password `RespondToAuthChallenge NEW_PASSWORD_REQUIRED`, refresh `InitiateAuth REFRESH_TOKEN_AUTH`, logout `RevokeToken`. `SECRET_HASH = base64(HMAC-SHA256(secret, username + clientId))`, with the email for login/challenge and `cognito:username` for refresh. Hosted UI at `COGNITO_URL`: authorize URL built locally (`response_type=code`, `scope=openid email`, `identity_provider=CGIAR-AzureAD`); code exchange `POST /oauth2/token` (`authorization_code`, HTTP Basic client auth). Maps: 4xx → `InvalidCredentials` (401) except `TooManyRequestsException`/`LimitExceededException` → `UpstreamUnavailable` (503); timeout/5xx/network → 503; missing tokens in a 2xx → 401; any other challenge than `NEW_PASSWORD_REQUIRED` → 401. Never logs bodies, tokens, passwords or the secret; logs only the operation, status and Cognito error type.
 - **`AdmissionService.resolve(idToken, { mode })`**: implements FR-8 steps 1–7 in one MySQL transaction (lookup by sub → by email with null sub → collision → create/refuse → active → custom-has-roles → update login data and `cognito_username`). `mode = 'refresh'` reads fresh from the DB and never creates users. SSO classification: `identities` must be a non-empty array, else custom. Step 7 updates the email only for SSO or custom with `email_verified` true. Email linking (step 2): a custom token requires `email_verified` true (boolean or `"true"`), else 403; an SSO token does not. The `sub` is linked with `UPDATE users SET cognito_sub = ? WHERE id = ? AND cognito_sub IS NULL`; 0 affected rows → re-read: same `sub` → continue, another `sub` → 409 (amended 2026-10-13 at the T-7 gate).
 - **Media type (login CSRF, amended 2026-10-14)**: every POST under `/api/v1/auth/*` requires the parsed media type `application/json` (charset parameter allowed), else 415 before any handler (a POST with no body and no `Content-Type` passes; a `charset` other than UTF-8 → 415, amended 2026-10-14); the urlencoded and text parsers are disabled for `/api/v1/auth/*`. A cross-origin JSON POST needs a CORS preflight, which the allow-list blocks.
 - **Controllers**: thin; DTOs validated by the global `ValidationPipe` (`whitelist`, `forbidNonWhitelisted`, `transform`) — added in `main.ts`.
@@ -178,9 +178,9 @@ Cookies (FR-9): `qa_rt` (refresh token) and `qa_ru` (Cognito username), both `Ht
 - **Error filter**: maps domain errors to the envelope; adds `requestId`; logs one structured line per auth decision without secrets (NFR-7).
 
 ### 7.3 Flows
-- **Login / callback / new-password:** validate DTO → microservice → (challenge → return) → `verifyId(idToken)` → `AdmissionService.resolve` → on success set cookies (`qa_rt`, `qa_ru` = `cognito:username` claim) and return session shape; on 401/403/409 or challenge return the error and leave any existing session cookies untouched — only success sends `Set-Cookie` (amended 2026-10-14).
-- **Refresh:** OriginGuard → read cookies (absent → 401 + clear) → microservice refresh with `{ refreshToken, username }` (DD-2) → `verifyId` → `resolve(mode=refresh)` → rotate `qa_rt` if a new refresh token came back → session shape. Any refusal clears both cookies.
-- **Logout:** OriginGuard → clear both cookies → 204.
+- **Login / callback / new-password:** validate DTO → Cognito (DD-11) → (challenge → return) → `verifyId(idToken)` → `AdmissionService.resolve` → on success set cookies (`qa_rt`, `qa_ru` = `cognito:username` claim) and return session shape; on 401/403/409 or challenge return the error and leave any existing session cookies untouched — only success sends `Set-Cookie` (amended 2026-10-14).
+- **Refresh:** OriginGuard → read cookies (absent → 401 + clear) → Cognito `REFRESH_TOKEN_AUTH` with `SECRET_HASH(cognito:username from qa_ru)` (DD-11) → `verifyId` → `resolve(mode=refresh)` → rotate `qa_rt` if a new refresh token came back → session shape. Any refusal clears both cookies.
+- **Logout:** OriginGuard → if `qa_rt` is present, Cognito `RevokeToken` (best effort: a failure is logged, not surfaced) → clear both cookies → 204 (revocation amended 2026-10-14).
 
 ## 8. Frontend / UX Component Architecture
 
@@ -189,16 +189,18 @@ Not in scope. Contract for the later front spec: keep the access token in an in-
 ## 9. Shared Contracts or Package Extensions
 
 - **New dependencies (server):** `aws-jwt-verify`, `cookie-parser` (+ types), `@nestjs/throttler`, `helmet`, `class-validator`, `class-transformer`.
-- **Env (`.env.example`, `env.validation.ts`):** `COGNITO_REGION`, `COGNITO_USER_POOL_ID`, `COGNITO_CLIENT_ID`, `MS_AUTH_URL`, `MS_AUTH_USER`, `MS_AUTH_PASSWORD`, `ALLOWED_ORIGINS` (comma-separated), optional `SEED_ADMIN_EMAIL`.
-- **Auth microservice (external, DD-2):** `POST /auth/refresh` accepts an optional `username`; when present it is used for `SECRET_HASH` and the `getUserInfo(accessToken)` pre-call is skipped. Backward compatible.
-- **TRD pending update (applied on `staging`, not on this branch):** § 5.1 `role_grants` → `roles` + `role_assignments` + `users.cognito_username`; § 6 session routes under `/auth/session/*`.
+- **Env (`.env.example`, `env.validation.ts`):** `COGNITO_REGION`, `COGNITO_USER_POOL_ID`, `COGNITO_CLIENT_ID`, `COGNITO_CLIENT_SECRET`, `COGNITO_URL` (Hosted UI domain), optional `COGNITO_USER_POOL_URL`, `ALLOWED_ORIGINS` (comma-separated) — amended 2026-10-14: `MS_AUTH_*` removed, optional `SEED_ADMIN_EMAIL`.
+- **Auth microservice (external, DD-2 — superseded by DD-11):** `POST /auth/refresh` accepts an optional `username` (merged into `dev-auth`, PR #45). QA no longer calls the microservice; the change stays harmless there.
+- **Cognito app client (external, DD-11):** callback URL `http://localhost:4200/auth/callback` registered (2026-10-14); TEST/PROD callbacks (`https://…/auth/callback`) pending with the pool owner. Scope `profile` is not allowed on the client; `openid email` is used.
+- **TRD pending update (applied on `staging`, not on this branch):** § 5.1 `role_grants` → `roles` + `role_assignments` + `users.cognito_username`; § 6 session routes under `/auth/session/*`; ADR-003 (login and refresh go directly to Cognito with QA's app client; QA holds the client secret as an env var — DD-11).
 
 ## 10. Design Decisions
 
 | ID | Decision | Alternatives rejected | Consequence | Requirements |
 |---|---|---|---|---|
 | DD-1 | Two modules: `users` (data + authorization) and `auth` (identity + session) | One `auth` module — mixes the authorization API every module needs with login concerns | Later modules import only `UsersModule` for `can()` | FR-3, FR-12 |
-| DD-2 | Refresh with `{ refreshToken, username }`; username from the id token's `cognito:username`, kept in `qa_ru` and in `users.cognito_username`; **requires the microservice change in § 9** | Expired access token in a cookie (fails at Cognito userInfo — P-1); token in `sessionStorage` (violates decision, fails after expiry) | FR-13 blocked until the microservice ships the change; task T-9 waits on it | FR-9, FR-13 |
+| DD-2 | Refresh with `{ refreshToken, username }`; username from the id token's `cognito:username`, kept in `qa_ru` and in `users.cognito_username`; **requires the microservice change in § 9** | Expired access token in a cookie (fails at Cognito userInfo — P-1); token in `sessionStorage` (violates decision, fails after expiry) | **Superseded 2026-10-14 by DD-11.** The `cognito:username` source and the `qa_ru` cookie stay; only the call target changes | FR-9, FR-13 |
+| DD-11 | QA calls Cognito directly with its own app client (user-pool API + Hosted UI), holding the client secret as `COGNITO_CLIENT_SECRET` (amended 2026-10-14, user decision) | Keep the auth microservice: its custom login uses a different client than its refresh (the MIS client), so a custom refresh token can never refresh (Cognito `NotAuthorizedException`), and its SSO tokens carry another `aud` than custom tokens; fixing it needs more microservice changes | One `aud` for every token (the verifier keeps one client id); refresh works without an access token; logout can revoke. ADR-003's "microservice holds the secret" no longer holds — TRD update pending on `staging`. FR-17 now forbids only signing and a secret outside env | FR-4…FR-7, FR-13, FR-14, FR-17, FR-18 |
 | DD-3 | Cookie Path `/api/v1/auth/session`; routes `session/refresh`, `session/logout` | Two Paths (impossible with one cookie); Path `/api/v1/auth` (cookie sent to login routes needlessly) | Login routes never receive the refresh cookie | FR-9, FR-13, FR-14 |
 | DD-4 | Route guard checks `canAny`; resource scope checked in services with `can()` after loading the resource | Guard resolves the resource itself (couples guard to every module's data) | Every scoped endpoint MUST call `can()` with context — reviewers check it | FR-3, FR-12 |
 | DD-5 | No decorator on a non-public route → 403 | Default allow for authenticated users (GUEST could act on forgotten routes) | Every new route must declare `@ReadAccess()` or `@RequirePermission()` | FR-12 |
@@ -212,26 +214,26 @@ Not in scope. Contract for the later front spec: keep the access token in an in-
 
 ## 11. Premise Ledger
 
-Count: 10 verified · 7 UNVERIFIED (High: 3 · Low: 4)
+Count: 10 verified · 7 UNVERIFIED (High: 3 · Low: 4) — as of 2026-10-13. Amended 2026-10-14: P-1…P-6 historical (DD-11), P-11 superseded, P-12 confirmed for custom tokens, P-18 added and verified
 Blast-radius triggers: `live-path` (the design names user actions — login, refresh — and an API version), `shared-state` (the global guards apply to every route), `consumer` (the response of `GET /` changes) — all three fired.
 
 | # | Claim | Class | Citation (as run) | Verified at | If false | Settled by |
 |---|---|---|---|---|---|---|
-| P-1 | Microservice refresh needs a valid access token: it calls `getUserInfo(data?.accessToken)` before refreshing and uses `userInfo.username` for `SECRET_HASH` | existence | `auth-microservice/src/api/auth/auth.service.ts:597`, `:242-262`; `src/api/auth/services/cognito/cognito.service.ts:362-376` | `bf29541f` | DD-2 unnecessary; T-9 drops its dependency — **High** | — |
-| P-2 | Custom login body uses `username` (the email) and `password` | data-env | `auth-microservice/src/api/auth/dto/custom-auth.dto.ts:12,20` | `bf29541f` | Client mapping in T-6 — Low | — |
-| P-3 | Provider login is `POST /auth/login/provider` with `{ provider, redirectUri? }` | location | `auth-microservice/src/api/auth/auth.controller.ts:41`; `dto/provider-auth.dto.ts:16,24` | `bf29541f` | Client mapping in T-6 — Low | — |
-| P-4 | Custom login, code validation and new-password completion all return an id token | existence | `auth-microservice/src/api/auth/auth.service.ts:192`, `:142`, `:226` | `bf29541f` | FR-8 step 1 cannot run; would need userinfo instead — **High** | — |
-| P-5 | Callers authenticate with a JSON `auth` header `{ username, password }` checked against CLARISA | data-env | `auth-microservice/src/middleware/jwt-clarisa.middleware.ts:23-46` | `bf29541f` | Client header in T-6 — Low | — |
-| P-6 | Refresh errors without `.response` make the method return `undefined` | existence | `auth-microservice/src/api/auth/auth.service.ts:616-625` | `bf29541f` | Empty-body handling in T-6 unnecessary — Low | — |
+| P-1 | (historical, DD-11) Microservice refresh needs a valid access token: it calls `getUserInfo(data?.accessToken)` before refreshing and uses `userInfo.username` for `SECRET_HASH` | existence | `auth-microservice/src/api/auth/auth.service.ts:597`, `:242-262`; `src/api/auth/services/cognito/cognito.service.ts:362-376` | `bf29541f` | DD-2 unnecessary; T-9 drops its dependency — **High** | — |
+| P-2 | (historical, DD-11) Custom login body uses `username` (the email) and `password` | data-env | `auth-microservice/src/api/auth/dto/custom-auth.dto.ts:12,20` | `bf29541f` | Client mapping in T-6 — Low | — |
+| P-3 | (historical, DD-11) Provider login is `POST /auth/login/provider` with `{ provider, redirectUri? }` | location | `auth-microservice/src/api/auth/auth.controller.ts:41`; `dto/provider-auth.dto.ts:16,24` | `bf29541f` | Client mapping in T-6 — Low | — |
+| P-4 | (historical, DD-11) Custom login, code validation and new-password completion all return an id token | existence | `auth-microservice/src/api/auth/auth.service.ts:192`, `:142`, `:226` | `bf29541f` | FR-8 step 1 cannot run; would need userinfo instead — **High** | — |
+| P-5 | (historical, DD-11) Callers authenticate with a JSON `auth` header `{ username, password }` checked against CLARISA | data-env | `auth-microservice/src/middleware/jwt-clarisa.middleware.ts:23-46` | `bf29541f` | Client header in T-6 — Low | — |
+| P-6 | (historical, DD-11) Refresh errors without `.response` make the method return `undefined` | existence | `auth-microservice/src/api/auth/auth.service.ts:616-625` | `bf29541f` | Empty-body handling in T-6 unnecessary — Low | — |
 | P-7 | The only route today is `GET /` in `AppController` | live-path / shared-state | `grep -rn "@Controller\|@Get\|@Post" server/src` (excluding spec) → `server/src/app.controller.ts:4,8` only | `607dc0b` | More routes would need decorators in T-5 — Low | — |
 | P-8 | Readers of `GET /` and `getHello`: `server/src/app.controller.spec.ts:18-19`, `server/test/app.e2e-spec.ts:23`; no front consumer | consumer | `grep -rn "Hello World\|getHello\|AppController" server/src server/test client/src`; `git grep -nE "api/v1\|/auth/(login\|refresh\|me\|callback)\|withCredentials\|HttpClient" origin/{feat/auth-login,staging-center,jp-design/mockup-completo} -- client/src` → 0 | `607dc0b` | T-1 must update more files — Low | — |
 | P-9 | `@nestjs/throttler` 6.7.1 supports Nest 12 | data-env | `npm view @nestjs/throttler peerDependencies` → `@nestjs/core ^12.0.0` | 2026-10-13 | Use a custom limiter in T-7 — Low | — |
 | P-10 | Federated users' id tokens carry `identities`, provider `CGIAR-AzureAD` | data-env | UNVERIFIED — confirm at source before relying on it | — | SSO/custom classification (FR-8 step 1) wrong — **High** | HITL login in TEST, decode one SSO id token; user-stated (back lead, 2026-10-13); owner T-11 |
-| P-11 | `COGNITO_CLIENT_ID` in `server/.env` is QA's `mis_auth` client in CLARISA | data-env | UNVERIFIED — confirm at source before relying on it | — | Every token fails the `client_id` check — **High** | First real login in T-11; user-stated (back lead, 2026-10-13) |
-| P-12 | Id tokens carry `cognito:username`; access tokens carry `client_id` and `token_use` | data-env | UNVERIFIED — confirm at source before relying on it | — | DD-2 username source changes — **High** | T-11 (decode real tokens) |
+| P-11 | `COGNITO_CLIENT_ID` in `server/.env` is QA's `mis_auth` client in CLARISA | data-env | UNVERIFIED — confirm at source before relying on it | — | Every token fails the `client_id` check — **High** | **Superseded 2026-10-14 (DD-11):** the `.env` client is the pool client QA now calls directly; it is the same client the microservice uses for custom login (custom `aud` matched). Shared vs. dedicated client is an open question with the pool owner; code is unaffected |
+| P-12 | Id tokens carry `cognito:username`; access tokens carry `client_id` and `token_use` | data-env | UNVERIFIED — confirm at source before relying on it | — | DD-2 username source changes — **High** | **Confirmed for custom tokens 2026-10-14** (P-18 smoke: `cognito:username` present, access `client_id` and `token_use=access`); SSO tokens in T-11 |
 | P-13 | `aws-jwt-verify` lets tests inject a JWKS (no network) | existence | UNVERIFIED — confirm at source before relying on it | — | e2e tests need a local JWKS server — Low | T-4 first step (read the package's typings after install) |
 | P-14 | QA's app client: access-token lifetime set to the maximum (1 day), refresh token 30 days | data-env | UNVERIFIED — confirm at source before relying on it | — | Cookie `Max-Age` and cache assumptions adjust — Low | Infrastructure; owner T-11 |
 | P-15 | MySQL 8.0.45 enforces CHECK constraints and unique indexes on stored generated columns | data-env | Version: `SELECT VERSION()` → `8.0.45-0ubuntu0.22.04.1` (2026-10-13, shared `qadb`). Enforcement: UNVERIFIED — confirm at source before relying on it | — | DD-7/DD-8 fall back to service checks — Low | T-2 (migration applied at the HITL step) |
 | P-16 | TEST and PROD put one reverse proxy in front of the API (so `trust proxy = 1` yields the client IP) | data-env | UNVERIFIED — confirm at source before relying on it | — | Throttling keys on the proxy IP; adjust the setting — Low | Infrastructure; owner T-8 |
 | P-17 | The shared dev DB `qadb` must not be reset by agents | other | `docs/infrastructure.md` § 6 (standing rule) | `607dc0b` | — (rule) migrations/seeds stay HITL — Low | — |
-
+| P-18 | Direct Cognito with the `.env` client: `USER_PASSWORD_AUTH` 200 with `aud`/`client_id` = `COGNITO_CLIENT_ID`; `REFRESH_TOKEN_AUTH` with `SECRET_HASH(cognito:username)` and no access token → 200 (new access + id token, **no rotated refresh token**); wrong username → `NotAuthorizedException`; `RevokeToken` 200 then refresh → `NotAuthorizedException`; `/oauth2/authorize` with `http://localhost:4200/auth/callback` + `CGIAR-AzureAD` + `openid email` → 302 to `login.microsoftonline.com` (SAML); scope `profile` → `invalid_scope` | data-env | Smoke scripts run by the Leader against the real pool, 2026-10-14 (`execution.md`, DD-11 entry); custom user `admin@prms.pr` | 2026-10-14 | DD-11 does not hold — **High** | Settled (custom); SSO login end to end in T-11 |

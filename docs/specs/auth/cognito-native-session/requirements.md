@@ -13,11 +13,11 @@
 | PRD | US-3, § 7 Auth criterion, P4, § 8 constraints |
 | TRD | ADR-003, § 6, § 10, QAS-SEC-1/2/3 |
 | Status | Draft |
-| Last updated | 2026-10-13 |
+| Last updated | 2026-10-14 (pivot: direct Cognito, design DD-11) |
 
 ## 2. Executive Summary
 
-QA stops trusting anything but Cognito for identity and starts owning authorization. Users log in through QA's API (custom or CGIAR-AzureAD SSO), which delegates to the CGIAR auth microservice; every request carries a Cognito access token that QA verifies locally; QA decides admission (SSO → GUEST on first login, custom → only if pre-registered with a role) and permissions (roles scoped globally, per result type, or per program). The session survives reloads through an httpOnly refresh cookie. QA signs no tokens and never holds the Cognito client secret.
+QA stops trusting anything but Cognito for identity and starts owning authorization. Users log in through QA's API (custom or CGIAR-AzureAD SSO), which talks to Cognito directly through QA's own app client (amended 2026-10-14, pivot — design DD-11); every request carries a Cognito access token that QA verifies locally; QA decides admission (SSO → GUEST on first login, custom → only if pre-registered with a role) and permissions (roles scoped globally, per result type, or per program). The session survives reloads through an httpOnly refresh cookie. QA signs no tokens; it holds the app client secret only as an environment variable (amended 2026-10-14).
 
 ## 3. Glossary
 
@@ -34,17 +34,17 @@ QA stops trusting anything but Cognito for identity and starts owning authorizat
 | GUEST | A registered user with no active assignments; read-only |
 | Read route | A route explicitly marked as readable by GUEST |
 | Allowed origin | An origin listed in `ALLOWED_ORIGINS` |
-| Microservice | `one-cgiar-microservices/auth-microservice` |
+| Cognito API | The user-pool API (`InitiateAuth`, `RespondToAuthChallenge`, `RevokeToken`) and the Hosted UI endpoints (`/oauth2/authorize`, `/oauth2/token`) of QA's app client (amended 2026-10-14; replaces the auth microservice) |
 
 ## 4. System Context & Scope
 
 **Current behavior (new QA):** `server/` exposes `GET /` with no authentication; `AppModule` imports only Config, Drizzle and DynamoDB modules (`server/src/app.module.ts`, this repo @ `607dc0b`). No users, roles or auth code exist.
 
-**Current behavior (microservice @ `bf29541f`):** refresh requires a valid access token to look up the username for `SECRET_HASH` (`src/api/auth/auth.service.ts:597`, `:242-262`) — see FR-13 dependency.
+**Historical (microservice @ `bf29541f`):** refresh required a valid access token to look up the username for `SECRET_HASH` (`src/api/auth/auth.service.ts:597`, `:242-262`). Superseded on 2026-10-14: QA calls Cognito directly (design DD-11), so it no longer depends on the microservice.
 
 **In scope:** data model and seeds; permission evaluation; login, new-password, SSO URL and SSO callback endpoints; per-request verification and authorization; refresh, logout, `me`; CORS and Origin checks; config validation. All routes under `/api/v1`.
 
-**Out of scope:** password reset; admin module (user/assignment management, `/auth/register`); what GUEST may read; Cognito refresh-token revocation on logout; SSR with session data; front-end screens.
+**Out of scope:** password reset; admin module (user/assignment management, `/auth/register`); what GUEST may read; SSR with session data; front-end screens.
 
 ## 5. Stakeholders / Personas
 
@@ -135,7 +135,7 @@ The system SHALL decide `can(user, permission, { resultType?, programId? })` fro
 
 ### FR-4: Custom login
 
-`POST /api/v1/auth/login` with `{ email, password }` SHALL authenticate through the microservice.
+`POST /api/v1/auth/login` with `{ email, password }` SHALL authenticate through Cognito (`USER_PASSWORD_AUTH`, amended 2026-10-14).
 
 #### Scenario: Valid credentials, admitted user
 - GIVEN a custom user registered with an active assignment
@@ -154,18 +154,18 @@ The system SHALL decide `can(user, permission, { resultType?, programId? })` fro
 - BUT it must NOT reveal whether the email exists
 
 #### Scenario: Validation
-- AND IT MUST reject a missing or malformed email or an empty password with 400 before calling the microservice
+- AND IT MUST reject a missing or malformed email or an empty password with 400 before calling Cognito
 
 #### Scenario: JSON only (login CSRF)
 - WHEN a POST to any `/api/v1/auth/*` route has a parsed media type other than `application/json` (parameters such as `; charset=utf-8` allowed) — e.g. `application/x-www-form-urlencoded` or `text/plain` with a JSON-looking body
-- THEN 415 with the error envelope, no `Set-Cookie`, and the microservice is not called
+- THEN 415 with the error envelope, no `Set-Cookie`, and Cognito is not called
 - AND the urlencoded and text body parsers are not applied to `/api/v1/auth/*` (amended 2026-10-14; applies equally to FR-5 and FR-7)
 - BUT a POST with no body and no `Content-Type` (e.g. the session refresh/logout calls of T-9) is not rejected by this rule
 - AND IT MUST reject an `application/json` POST whose `charset` parameter is present and is not UTF-8 (`utf-8` / `utf8`, case-insensitive) with 415, never 500 (amended 2026-10-14)
 
 ### FR-5: Complete new password
 
-`POST /api/v1/auth/complete-new-password` with `{ email, newPassword, session }` SHALL complete the challenge through the microservice and then apply FR-8 and FR-9.
+`POST /api/v1/auth/complete-new-password` with `{ email, newPassword, session }` SHALL complete the challenge through Cognito (`RespondToAuthChallenge`, amended 2026-10-14) and then apply FR-8 and FR-9.
 
 #### Scenario: Completed and admitted
 - THEN the response is FR-9's success shape with cookie
@@ -177,16 +177,16 @@ The system SHALL decide `can(user, permission, { resultType?, programId? })` fro
 
 ### FR-6: SSO provider URL
 
-`GET /api/v1/auth/provider-url` SHALL return the Cognito authorize URL for the `CGIAR-AzureAD` provider, obtained from the microservice, for the redirect URI the front supplies.
+`GET /api/v1/auth/provider-url` SHALL return the Cognito authorize URL for the `CGIAR-AzureAD` provider, built from the Hosted UI domain (`COGNITO_URL`) with scopes `openid email` (amended 2026-10-14), for the redirect URI the front supplies.
 
 #### Scenario: Redirect URI allow-list
 - WHEN the requested redirect URI does not start with an allowed origin
 - THEN 400
-- AND IT MUST NOT call the microservice
+- AND IT MUST NOT issue a URL
 
 ### FR-7: SSO callback
 
-`POST /api/v1/auth/callback` with `{ code, redirectUri }` SHALL exchange the code through the microservice and then apply FR-8 and FR-9.
+`POST /api/v1/auth/callback` with `{ code, redirectUri }` SHALL exchange the code at the Hosted UI token endpoint (amended 2026-10-14) and then apply FR-8 and FR-9.
 
 #### Scenario: Invalid or reused code
 - THEN 401, no cookie
@@ -322,20 +322,22 @@ Routes SHALL declare the permission they need; scoped permissions are checked wi
 
 #### Scenario: Origin
 - WHEN the `Origin` header is missing or not allowed
-- THEN 403 and the microservice must NOT be called
+- THEN 403 and Cognito must NOT be called
 
 #### Scenario: Missing or invalid refresh
-- WHEN the cookies are absent, or the microservice rejects the refresh (including an empty response)
+- WHEN the cookies are absent, or Cognito rejects the refresh
 - THEN 401 and both cookies are cleared
 
-**Dependency:** depends on the microservice accepting the username on refresh (proposal R1). Until then this requirement is blocked.
+**Dependency:** none since 2026-10-14 (pivot, design DD-11): QA refreshes directly with `REFRESH_TOKEN_AUTH` and `SECRET_HASH` computed from the `cognito:username` kept in `qa_ru`.
 
 ### FR-14: Logout
 
-`POST /api/v1/auth/session/logout` SHALL clear both session cookies.
+`POST /api/v1/auth/session/logout` SHALL revoke the refresh token at Cognito (`RevokeToken`) and clear both session cookies (revocation amended 2026-10-14).
 
 #### Scenario: Allowed origin
 - THEN 204 and both cookies cleared (expired, same Path), with or without an access token
+- AND the refresh token is revoked when the cookie is present, so it can no longer be refreshed
+- BUT a Cognito failure on revocation still answers 204 and clears the cookies (logged, best effort)
 
 #### Scenario: Disallowed origin
 - THEN 403 and cookies untouched
@@ -358,11 +360,12 @@ The API SHALL answer cross-origin requests with credentials only for allowed ori
 ### FR-17: No QA-issued tokens
 
 #### Scenario: Static guarantee
-- THEN `server/` contains no token signing and no Cognito client secret (configuration or code)
+- THEN `server/` contains no token signing
+- AND the Cognito client secret is read only from the `COGNITO_CLIENT_SECRET` environment variable: never a literal in code or in `.env.example`, never logged, never in a response (amended 2026-10-14)
 
 ### FR-18: Configuration
 
-The API SHALL refuse to start when `COGNITO_REGION`, `COGNITO_USER_POOL_ID`, `COGNITO_CLIENT_ID`, `MS_AUTH_URL`, `MS_AUTH_USER`, `MS_AUTH_PASSWORD` or `ALLOWED_ORIGINS` is missing, naming the missing variables.
+The API SHALL refuse to start when `COGNITO_REGION`, `COGNITO_USER_POOL_ID`, `COGNITO_CLIENT_ID`, `COGNITO_CLIENT_SECRET`, `COGNITO_URL` or `ALLOWED_ORIGINS` is missing (amended 2026-10-14; `COGNITO_USER_POOL_URL` is optional and defaults to `https://cognito-idp.<COGNITO_REGION>.amazonaws.com/`), naming the missing variables.
 - AND IT MUST reject an `ALLOWED_ORIGINS` entry that is not an `https://` origin, except `http://localhost:<port>` for local development
 
 ## 7. Non-Functional Requirements
@@ -371,10 +374,10 @@ The API SHALL refuse to start when `COGNITO_REGION`, `COGNITO_USER_POOL_ID`, `CO
 |---|---|---|---|---|
 | NFR-1 | Security | Forged/expired/foreign tokens | 100 % → 401; e2e matrix | QAS-SEC-1 |
 | NFR-2 | Security | Out-of-scope action | 100 % → 403; `can()` table tests cover every role × scope | QAS-SEC-2 |
-| NFR-3 | Security | Malformed input on auth routes | 100 % → 400 before the microservice is called | QAS-SEC-3 |
+| NFR-3 | Security | Malformed input on auth routes | 100 % → 400 before Cognito is called | QAS-SEC-3 |
 | NFR-4 | Security | Brute force on login | Login and callback limited to 10 requests per minute per IP → 429 | TRD § 10 |
 | NFR-5 | Performance | Authenticated request, warm JWKS and cache | Guard + user load add ≤ 20 ms p95 | QAS-PERF-1 |
-| NFR-6 | Availability | Microservice down or 5xx | Auth routes answer 503 within 10 s with the error envelope; other routes unaffected for users with valid tokens | QAS-AVL-1 |
+| NFR-6 | Availability | Cognito down, 5xx or throttling | Auth routes answer 503 within 10 s with the error envelope; other routes unaffected for users with valid tokens | QAS-AVL-1 |
 | NFR-7 | Observability | Every auth decision | One structured log line (route, outcome, reason code, user id when known, request id); never a token, cookie or password | QAS-OBS-1 |
 
 ### Defect classes and their gates
@@ -387,7 +390,7 @@ The API SHALL refuse to start when `COGNITO_REGION`, `COGNITO_USER_POOL_ID`, `CO
 | Admission rule wrong (custom admitted, SSO refused, 409 missed) | Unit tests of the resolution service with fakes for every row of FR-8 | — |
 | Cookie leaks (body, wrong flags, cookie on 403) | e2e assertions on `Set-Cookie` attributes and response bodies | — |
 | DB constraint defects (duplicate active assignment, scope mismatch, email case) | Integration test against a disposable MySQL schema | **No disposable DB exists yet** (shared `qadb` must not be reset) — substitute: migration review at the HITL pause + service-level guards tested with fakes; accepted risk until a test DB is provided |
-| Microservice contract drift | Contract tests against recorded fixtures | Real behavior: HITL run in TEST (identities claim, client id, refresh) |
+| Cognito contract drift | Contract tests against fixtures shaped like the Cognito API responses | Real behavior: smoke run against the real pool (2026-10-14, `execution.md`) and HITL run in TEST (SSO identities claim, names) |
 | Compiler-only defects | `pnpm build` (tsc) in every task | — |
 
 ## 8. Requirement ID Index
@@ -406,7 +409,7 @@ The API SHALL refuse to start when `COGNITO_REGION`, `COGNITO_USER_POOL_ID`, `CO
 | FR-10 | Access-token verification | 3 |
 | FR-11 | Current user per request | 2 |
 | FR-12 | Route authorization | 3 |
-| FR-13 | Session refresh | 4 (blocked by R1) |
+| FR-13 | Session refresh | 4 |
 | FR-14 | Logout | 2 |
 | FR-15 | Current profile | — |
 | FR-16 | CORS | 2 |

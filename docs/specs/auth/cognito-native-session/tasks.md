@@ -5,21 +5,23 @@
 | Spec path | `docs/specs/auth/cognito-native-session` |
 | Branch | `feat/auth-cognito-session` |
 | Jira | P2-3954 (epic P2-3902) — commits use `<emoji> <type>(auth) P2-3954: …` |
-| Budget (design § 2) | 11 tasks · ~1,600 LOC · ~17 Reviewer passes |
+| Budget (design § 2) | 11 tasks · ~1,600 LOC · ~17 Reviewer passes — re-baselined by the user to ~13,000 LOC / ~35 passes, then ~13,500 LOC / ~38 passes for the DD-11 pivot (2026-10-14) |
 | Verification (server) | `cd server && pnpm lint && pnpm build && pnpm test --reporter=dot` (+ `pnpm test:e2e --reporter=dot` where stated) |
 
-Status: `[ ]` pending · `[~]` in progress · `[x]` done (only after a Reviewer PASS in `execution.md`) · `[!]` blocked.
+Status: `[ ]` pending · `[~]` in progress · `[x]` done (only after a Reviewer PASS, or a recorded `REVIEW_WAIVED`, in `execution.md`) · `[!]` blocked.
+
+**Pivot DD-11 (2026-10-14, user decision):** QA calls Cognito directly instead of the auth microservice. T-6 was reopened and rewritten, T-8 rewired, T-9 unblocked, T-10 re-run. By the user's decision ("no quiero que lo hagamos con Akili … hazlo tú e ir dejando documentado"), the pivot work is done by the Leader inline, without the Implementer/Reviewer triad, and closed with `REVIEW_WAIVED (user)` in `execution.md`.
 
 ## Dependency graph
 
 ```
-T-1 ──┬─▶ T-2 ─▶ T-3 ──┬─▶ T-5 ──┬─▶ T-8 ─▶ T-9 [!] ─▶ T-10 ─▶ T-11 (HITL, TEST)
+T-1 ──┬─▶ T-2 ─▶ T-3 ──┬─▶ T-5 ──┬─▶ T-8 ─▶ T-9 ─▶ T-10 ─▶ T-11 (HITL, TEST)
       ├─▶ T-4 ─────────┘         │
       └─▶ T-6 ─▶ T-7 ────────────┘
 T-3 ─▶ T-7
 ```
 
-Serial boundaries: T-1 (config, `main.ts`), T-2 (schema). T-4 and T-6 are parallel-safe with T-2/T-3 (separate files). T-9 is **blocked** until the auth microservice accepts `username` on refresh (design DD-2).
+Serial boundaries: T-1 (config, `main.ts`), T-2 (schema). T-4 and T-6 are parallel-safe with T-2/T-3 (separate files). T-9 was blocked on the microservice (DD-2) until the DD-11 pivot removed the dependency (2026-10-14).
 
 ---
 
@@ -108,14 +110,14 @@ Serial boundaries: T-1 (config, `main.ts`), T-2 (schema). T-4 and T-6 are parall
 - **Done when:** all scenarios green; `/auth/me` returns profile + assignments for GUEST and roles.
 - **Skills:** nestjs-expert, nestjs-best-practices
 
-## T-6: Auth microservice client
+## T-6: Cognito client (was: auth microservice client — rewritten for DD-11, 2026-10-14)
 - **Status:** [x]
 - **Size:** S
 - **Depends on:** T-1
 - **Requirements:** NFR-6 (503 within 10 s), FR-13 (empty refresh response → 401 — client part), FR-4 (Invalid credentials → 401 without revealing existence — client part)
-- **Design refs:** § 7.2 AuthMicroserviceClient; Premise P-2, P-3, P-4, P-5, P-6
-- **Scope:** `auth/auth-microservice.client.ts` with typed results for login, challenge, new-password, provider URL, code validation and refresh (`{ refreshToken, username }`).
-- **Tests:** unit with a stubbed `fetch` and recorded fixture bodies shaped per P-2…P-6: header `auth` JSON sent; custom login sends `username` = email; 4xx → invalid credentials; 5xx, network error and > 10 s → upstream unavailable; empty 2xx body on refresh → invalid; bodies never logged (log spy).
+- **Design refs:** § 7.2 `CognitoAuthClient`; DD-11; Premise P-18 (P-2…P-6 historical)
+- **Scope:** `auth/auth-microservice.client.ts` with typed results for login, challenge, new-password, provider URL, code validation and refresh (`{ refreshToken, username }`). **Amended 2026-10-14 (DD-11):** replaced by `auth/cognito-auth.client.ts` — same public methods plus `revoke(refreshToken)`; user-pool API (`InitiateAuth` USER_PASSWORD_AUTH / REFRESH_TOKEN_AUTH, `RespondToAuthChallenge`, `RevokeToken`) with `SECRET_HASH`; Hosted UI authorize URL built locally and `/oauth2/token` code exchange; config `COGNITO_CLIENT_SECRET`, `COGNITO_URL`, optional `COGNITO_USER_POOL_URL` (`MS_AUTH_*` removed).
+- **Tests:** unit with a stubbed `fetch` and recorded fixture bodies shaped per P-2…P-6: header `auth` JSON sent; custom login sends `username` = email; 4xx → invalid credentials; 5xx, network error and > 10 s → upstream unavailable; empty 2xx body on refresh → invalid; bodies never logged (log spy). **Amended 2026-10-14:** fixtures follow the Cognito API shapes seen in the P-18 smoke; each operation's target/body/`SECRET_HASH` asserted; NEW_PASSWORD_REQUIRED → challenge, any other challenge → 401; `TooManyRequestsException`/`LimitExceededException` → 503; `invalid_grant` → 401; nothing of the body, password or secret logged.
 - **Verification:** server command
 - **Falsifier:** map 5xx to invalid credentials → the 503 test goes red; log the response body → the log-spy test goes red.
 - **Red run:** fixtures-based tests fail before the client exists (assertion level).
@@ -160,12 +162,12 @@ Serial boundaries: T-1 (config, `main.ts`), T-2 (schema). T-4 and T-6 are parall
 - **Skills:** nestjs-expert, api-design-principles, nestjs-best-practices
 
 ## T-9: Session refresh and logout
-- **Status:** [!] blocked — waits for the auth microservice to accept `username` on `/auth/refresh` (DD-2)
+- **Status:** [x]
 - **Size:** M
-- **Depends on:** T-8; external: microservice change
+- **Depends on:** T-8 (external microservice dependency removed by DD-11, 2026-10-14)
 - **Requirements:** FR-13 (all four scenarios: after reload/expiry; admission re-checked reading DB + cookies cleared; Origin → 403 and microservice not called; missing/invalid → 401 + cleared; rotation), FR-14 (both)
 - **Design refs:** § 6, § 7.3, DD-2, DD-3, DD-6
-- **Scope:** `auth/session.controller.ts`, `auth/guards/origin.guard.ts`; client call already exists (T-6). **First step:** confirm the microservice change is deployed in the env the tests target; otherwise stay `[!]`.
+- **Scope:** `auth/session.controller.ts`, `auth/guards/origin.guard.ts`; client call already exists (T-6). ~~First step: confirm the microservice change is deployed~~ — superseded by DD-11: the refresh goes to Cognito directly. **Amended 2026-10-14:** logout revokes the refresh token (`RevokeToken`, best effort) before clearing; a 503 on refresh keeps the cookies (an outage is not a refusal).
 - **Tests:** e2e: valid cookies, no Authorization header → 200 session shape; rotation when client returns a new refresh token, kept otherwise; revoked last role (fake repo) → 403 and both cookies cleared, cache not consulted (spy); bad/missing Origin → 403 and client spy not called; no cookies → 401; client invalid → 401 and cleared; logout allowed → 204 and both cookies expired with the same Path; logout bad Origin → 403 and cookies untouched.
 - **Verification:** server command + `pnpm test:e2e --reporter=dot`
 - **Falsifier:** make refresh use the cached user → the revoked-role test goes red; skip OriginGuard → the bad-Origin test goes red.
@@ -180,7 +182,7 @@ Serial boundaries: T-1 (config, `main.ts`), T-2 (schema). T-4 and T-6 are parall
 - **Status:** [x]
 - **Size:** S
 - **Depends on:** T-9 (or T-8 when T-9 stays blocked; rerun after T-9)
-- **Requirements:** FR-10 (route inventory), FR-4 (JSON only — charset clause, amended 2026-10-14), FR-17, NFR-1, NFR-2 (matrix completeness), NFR-5, NFR-6
+- **Requirements:** FR-10 (route inventory), FR-4 (JSON only — charset clause, amended 2026-10-14), FR-17 (amended 2026-10-14: secret from env only; `createHmac` allowed only for `SECRET_HASH` in the Cognito client), NFR-1, NFR-2 (matrix completeness), NFR-5, NFR-6
 - **Design refs:** § 7.2, DD-5
 - **Scope:** e2e route-inventory test (reads Nest's router and asserts every non-public route → 401 without token, and the public set equals FR-10's list); static check test that `server/src` has no `jwt.sign`/`sign(` of tokens and no client-secret config key; NFR-5 timing check; NFR-6 microservice-timeout e2e. Amended 2026-10-14 (T-8 close): the JSON-only gate (`server/src/auth/json-only.ts`) returns 415 for an `application/json` POST under `/api/v1/auth/*` whose `charset` is present and not UTF-8 (FR-4 "JSON only").
 - **Tests:** as scope; plus `charset=latin1` and `charset=utf-16` → 415 envelope, no `Set-Cookie`, microservice not called; `charset=UTF-8` and `utf8` accepted.
@@ -199,7 +201,7 @@ Serial boundaries: T-1 (config, `main.ts`), T-2 (schema). T-4 and T-6 are parall
 - **Depends on:** T-10 and a deployment of the branch to TEST (done by the repo owners, not by agents)
 - **Requirements:** FR-8 step 1 (SSO detection in the real pool), FR-4/FR-5 (real custom user with challenge), FR-13 (real refresh after reload)
 - **Design refs:** Premise P-10, P-11, P-12, P-14, (P-15 if not settled in T-2)
-- **Scope:** with the user: log in once with SSO and once with a custom user; decode the id and access tokens (no tokens pasted into the repo or chat); record claim names present (`identities`, `cognito:username`, `client_id`, `token_use`, and whether SSO id tokens carry `email_verified` — informational only, not blocking) and token lifetimes; reload the page and confirm refresh. Record outcomes in `execution.md`.
+- **Scope:** with the user: log in once with SSO and once with a custom user; decode the id and access tokens (no tokens pasted into the repo or chat); record claim names present (`identities`, `cognito:username`, `client_id`, `token_use`, and whether SSO id tokens carry `email_verified` — informational only, not blocking) and token lifetimes; reload the page and confirm refresh. Amended 2026-10-14 (DD-11): the SSO login runs through the Hosted UI directly (callback `http://localhost:4200/auth/callback` already registered); confirm `given_name`/`family_name` arrive with the `openid email` scopes, and that logout revokes (refresh after logout → 401). Record outcomes in `execution.md`.
 - **Tests:** manual checklist above.
 - **Verification:** each premise row gets "confirmed" or "refuted"; any refuted premise goes to the Pivot Protocol.
 - **Falsifier:** a custom user's id token showing `identities` (or SSO without it) refutes P-10.
@@ -233,7 +235,7 @@ Serial boundaries: T-1 (config, `main.ts`), T-2 (schema). T-4 and T-6 are parall
 | FR-11 | Not admitted → 401 · AND IT MUST ≤ 60 s / immediate same process | T-5 (mechanism), T-7 (writer invalidation) |
 | FR-12 | Missing permission (BUT handler not run) · GUEST · undeclared → 403 | T-5 |
 | FR-13 | After reload/expiry + rotation · admission re-checked (AND IT MUST DB) · Origin (microservice not called) · missing/invalid | T-9 (T-6, T-7 parts) |
-| FR-14 | Allowed → 204 cleared · disallowed → 403 untouched | T-9 |
+| FR-14 | Allowed → 204 cleared · AND revoked (BUT revoke failure still 204) · disallowed → 403 untouched | T-9 |
 | FR-15 | Profile + assignments | T-5 |
 | FR-16 | Allowed origin echoed · BUT no `*` · other origin no headers | T-1 |
 | FR-17 | Static guarantee | T-10 |
