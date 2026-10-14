@@ -1265,3 +1265,17 @@ The user's three decisions, verbatim:
 **Budget:** about 10,800 LOC (committed plus T-8) against about 11,000. Reviewer passes: 31 of about 35. Tasks: 8 of 11.
 
 **Final verification:** lint 0 · build 0 · unit 404/404 · e2e 188/188.
+
+## T-8 close gate: user decisions (AskUserQuestion, 2026-10-14)
+
+- **Charset:** "Sí, 415 si charset no es utf-8 (Recomendado)".
+  - FR-4 "JSON only" is amended: an `application/json` POST whose `charset` is present and is not UTF-8 (`utf-8` / `utf8`, case-insensitive) gets 415, never 500.
+  - The design § 7.2 Media type bullet is amended to match.
+  - **The work is placed in T-10** (Scope, Tests, Requirements + FR-4 charset clause), per the user's option text ("como continuación de T-10 o mini-tarea"). No new task is created.
+- **Next:** "T-10 ahora, re-estimar a ~13,000 LOC (Recomendado)".
+  - New tripwire: 11 tasks · about 13,000 LOC · about 35 Reviewer passes.
+  - T-10 gets a single Reviewer.
+- **T-9 status:** still `[!]`.
+  - Leader check, 2026-10-14: no local branch of `one-cgiar-microservices/auth-microservice` contains `username` on `/auth/refresh`. Current branch is `main-auth`, latest commit `5a758fd7`.
+  - The DD-2 dependency is unmet.
+  - T-10 runs now per its "or T-8 when T-9 stays blocked" clause, and is re-run after T-9.

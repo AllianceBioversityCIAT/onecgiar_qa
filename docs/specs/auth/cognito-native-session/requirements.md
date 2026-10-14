@@ -161,6 +161,7 @@ The system SHALL decide `can(user, permission, { resultType?, programId? })` fro
 - THEN 415 with the error envelope, no `Set-Cookie`, and the microservice is not called
 - AND the urlencoded and text body parsers are not applied to `/api/v1/auth/*` (amended 2026-10-14; applies equally to FR-5 and FR-7)
 - BUT a POST with no body and no `Content-Type` (e.g. the session refresh/logout calls of T-9) is not rejected by this rule
+- AND IT MUST reject an `application/json` POST whose `charset` parameter is present and is not UTF-8 (`utf-8` / `utf8`, case-insensitive) with 415, never 500 (amended 2026-10-14)
 
 ### FR-5: Complete new password
 

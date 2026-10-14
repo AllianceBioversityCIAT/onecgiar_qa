@@ -180,10 +180,10 @@ Serial boundaries: T-1 (config, `main.ts`), T-2 (schema). T-4 and T-6 are parall
 - **Status:** [ ]
 - **Size:** S
 - **Depends on:** T-9 (or T-8 when T-9 stays blocked; rerun after T-9)
-- **Requirements:** FR-10 (route inventory), FR-17, NFR-1, NFR-2 (matrix completeness), NFR-5, NFR-6
+- **Requirements:** FR-10 (route inventory), FR-4 (JSON only — charset clause, amended 2026-10-14), FR-17, NFR-1, NFR-2 (matrix completeness), NFR-5, NFR-6
 - **Design refs:** § 7.2, DD-5
-- **Scope:** e2e route-inventory test (reads Nest's router and asserts every non-public route → 401 without token, and the public set equals FR-10's list); static check test that `server/src` has no `jwt.sign`/`sign(` of tokens and no client-secret config key; NFR-5 timing check; NFR-6 microservice-timeout e2e.
-- **Tests:** as scope.
+- **Scope:** e2e route-inventory test (reads Nest's router and asserts every non-public route → 401 without token, and the public set equals FR-10's list); static check test that `server/src` has no `jwt.sign`/`sign(` of tokens and no client-secret config key; NFR-5 timing check; NFR-6 microservice-timeout e2e. Amended 2026-10-14 (T-8 close): the JSON-only gate (`server/src/auth/json-only.ts`) returns 415 for an `application/json` POST under `/api/v1/auth/*` whose `charset` is present and not UTF-8 (FR-4 "JSON only").
+- **Tests:** as scope; plus `charset=latin1` and `charset=utf-16` → 415 envelope, no `Set-Cookie`, microservice not called; `charset=UTF-8` and `utf8` accepted.
 - **Verification:** server command + `pnpm test:e2e --reporter=dot`
 - **Falsifier:** add a test controller without `@Public` handling mistakes (e.g. marked `@Public` by accident) → the public-set equality goes red; add a `sign(` helper → static check goes red.
 - **Red run:** n/a (no test gate) for inventory on already-correct code — the falsifier run above is the evidence.
