@@ -1110,3 +1110,38 @@ The user's three decisions, verbatim:
 
 - The retry bump from `xhigh` would reach `max`, which is not allowed on the T2 tier, so **the Implementer is escalated to T1 `opus` at `xhigh`**.
 - The Reviewer model for this attempt goes to the user at the gate, because author ≠ auditor.
+
+## T-8 gate: user decisions (AskUserQuestion, 2026-10-14)
+
+- **Login CSRF, verbatim:**
+  > "Opción 1, con dos precisiones:- Validar el media type parseado (application/json, aceptando ; charset=...), no un startsWith sobre el header. Desactivar el parser urlencoded y text en /auth/* para que un form enctype=text/plain con cuerpo JSON no se procese.- Un login fallido (credenciales malas, 403, 409, challenge) no toca la cookie existente: ni la borra ni la reemplaza. Solo un login exitoso hace Set-Cookie. Prueba: POST urlencoded y text/plain → 415 y sin Set-Cookie; login fallido con cookie previa → la cookie sigue intacta."
+- **Reviewer model for T-8 attempt 2:** "sonnet (Recomendado)". The author is on `opus`, so this is recorded as `degraded-pair`.
+
+### Spec amendments
+
+**`requirements.md`**
+- FR-4, new scenario "JSON only (login CSRF)":
+  - POSTs under `/api/v1/auth/*` require the parsed `application/json` media type; anything else gets 415, no `Set-Cookie`, and no call to the microservice.
+  - The urlencoded and text parsers are disabled there.
+  - This applies to FR-5 and FR-7 as well.
+- FR-9, "No cookie on refusal" changed:
+  - 401, 403, 409 or a challenge sets no cookie and **leaves an existing session cookie untouched**.
+  - Only success sends `Set-Cookie`.
+  - This supersedes the earlier text "must NOT … keep", which T-8 attempt 1 implemented by clearing the cookies.
+  - FR-13 refresh refusals still clear.
+- **Leader clarification (narrow, recorded):** a POST with no body and no `Content-Type` is not rejected by the JSON-only rule. Otherwise the T-9 session refresh and logout calls, which are bodyless, would get 415. A form submission always carries a `Content-Type`, so this opens no CSRF path.
+
+**`design.md`**
+- § 7.2: new "Media type" bullet.
+- § 7.3, login flow: refusals leave cookies untouched.
+
+**`tasks.md`**
+- T-8 Requirements, Scope and Tests carry the "Amended 2026-10-14" sentences.
+
+### Sweep
+- Forward: `clear cookies` and `cookies cleared` now appear only in FR-13/FR-14, T-9 and the design refresh/logout rows, which are unchanged by design.
+- Backward: FR-5 ("403 and no cookie") and FR-7 ("401, no cookie") are consistent with the new rule.
+
+### Accounting
+- T-8 attempt 2 (the FR-9 log-leak fix) has finished: lint 0, build 0, unit 404/404, e2e 151/151 per the Implementer. The Leader's re-run is pending until after the amendment.
+- The amendment runs as a **continuation of attempt 2** (same attempt, approved new scope) **before** review. One review round then covers the log fix and the amendment, with each amended section as a named check.

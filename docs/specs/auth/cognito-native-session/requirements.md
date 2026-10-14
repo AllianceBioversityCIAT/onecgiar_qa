@@ -156,6 +156,12 @@ The system SHALL decide `can(user, permission, { resultType?, programId? })` fro
 #### Scenario: Validation
 - AND IT MUST reject a missing or malformed email or an empty password with 400 before calling the microservice
 
+#### Scenario: JSON only (login CSRF)
+- WHEN a POST to any `/api/v1/auth/*` route has a parsed media type other than `application/json` (parameters such as `; charset=utf-8` allowed) — e.g. `application/x-www-form-urlencoded` or `text/plain` with a JSON-looking body
+- THEN 415 with the error envelope, no `Set-Cookie`, and the microservice is not called
+- AND the urlencoded and text body parsers are not applied to `/api/v1/auth/*` (amended 2026-10-14; applies equally to FR-5 and FR-7)
+- BUT a POST with no body and no `Content-Type` (e.g. the session refresh/logout calls of T-9) is not rejected by this rule
+
 ### FR-5: Complete new password
 
 `POST /api/v1/auth/complete-new-password` with `{ email, newPassword, session }` SHALL complete the challenge through the microservice and then apply FR-8 and FR-9.
@@ -251,7 +257,8 @@ On successful admission the system SHALL respond with `{ accessToken, expiresIn,
 - BUT the refresh token, the id token and the username must NOT appear in any response body or log line
 
 #### Scenario: No cookie on refusal
-- BUT a 401, 403 or 409 response must NOT set or keep a session cookie
+- BUT a 401, 403 or 409 response, or a `NEW_PASSWORD_REQUIRED` challenge, must NOT set a session cookie
+- AND IT MUST leave an existing session cookie untouched (neither cleared nor replaced): only a successful login sends `Set-Cookie` (amended 2026-10-14; refresh refusals keep FR-13's clearing)
 
 ### FR-10: Access-token verification
 
