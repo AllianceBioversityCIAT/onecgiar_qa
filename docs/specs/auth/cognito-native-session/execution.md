@@ -1279,3 +1279,84 @@ The user's three decisions, verbatim:
   - Leader check, 2026-10-14: no local branch of `one-cgiar-microservices/auth-microservice` contains `username` on `/auth/refresh`. Current branch is `main-auth`, latest commit `5a758fd7`.
   - The DD-2 dependency is unmet.
   - T-10 runs now per its "or T-8 when T-9 stays blocked" clause, and is re-run after T-9.
+
+### T-10: Security hardening checks — PASS (attempt 1)
+
+- **Date:** 2026-10-14
+- **Attempt 1:** effort `high`; skill `nestjs-expert` (as listed). The Implementer reported loading nestjs-expert only.
+
+**Files changed**
+- Modified: `server/src/auth/json-only.ts`. This is the only production change: the FR-4 charset rule plus a respelling of `utf8` to `utf-8`.
+- Modified: `server/test/auth-login.e2e-spec.ts` (charset rows), `server/test/auth-guards.e2e-spec.ts` (NFR-1 rows).
+- New: `server/test/auth-hardening.e2e-spec.ts` (inventory, NFR-5, NFR-6), `server/src/auth/no-qa-tokens.spec.ts` (FR-17), `server/src/users/authorization.matrix.spec.ts` (NFR-2).
+
+**Implementer verification:** lint 0 · build 0 · unit 442/442 (17 files) · e2e 216/216 (4 files).
+
+**Red run (charset):** 14 failed against the old gate. `latin1` returned 500, `utf-16` 400, `charset=""` 401, and `utf8` also failed.
+
+**Falsifiers** (each reverted afterwards)
+
+| Falsifier | Result |
+|---|---|
+| (c1) charset check removed | 12 red |
+| (c2) respelling removed | `utf8` and `UTF8` red |
+| `@Public()` on `MeController` | public-set equality and the 401 sweep red |
+| `sign(` + `COGNITO_CLIENT_SECRET` | both static tests red |
+| 12 s timeout | "arms a 10 s deadline" red |
+
+**Inventory and pending T-9:** `FR10_PUBLIC_ROUTES` holds all 7 routes, and `PENDING_T9` names refresh and logout. The test "T-9 routes are still absent: once T-9 lands, remove PENDING_T9 and this test" goes red when T-9 adds them. → **Forward pointer to T-9.**
+
+**NFR-5 spread** (n=500 per run, warm JWKS and cache, real guards):
+
+| Measure | Range across 5 runs |
+|---|---|
+| p50 | 0.022–0.024 ms |
+| p95 | 0.028–0.031 ms |
+| max | 0.05–1.04 ms |
+
+Free RAM was ≥ 3.8 GB. A cold cache that hits MySQL is not covered, because there is no disposable DB; this is an accepted risk in the requirements' "Defect classes" table.
+
+**FR-17 exclusion rule:**
+- Scanned: `server/src/**/*.ts` except `*.spec.ts`, plus `package.json`, `.env.example`, the Nest/Vitest/Drizzle configs and the README. Comment lines are skipped.
+- Not scanned: specs and `server/test/`, because they sign tokens with local keys.
+- The scan is guarded by detector fixtures and a check that it sees more than 20 files.
+
+**Implementer Not Done / Assumptions** (verbatim, assumptions only):
+> "**`utf8` and the spec text.** FR-4 says `utf8` is accepted, but body-parser's JSON path would not take it, so I respell it."
+> "**`utf-16` returned 400, not 500,** against the old gate."
+> "**Combined result-type and program context.** I left out the grid cell with both a result type and a program, because FR-3 does not say what `can()` should do there."
+> "**Malformed `Content-Type` headers.** … They give 400 or 415, never 500 and never a login. I added no tests for them."
+
+**Evidence re-run (Leader-inline, non-author):** VERIFIED. lint 0 · build 0 · unit 442/442 · e2e 216/216.
+
+**Reviewer verdict (opus, checklist): PASS.**
+- FR-4 charset, FR-10 inventory (live router, explicit PENDING_T9), FR-17, NFR-1, NFR-2 (complete grid of FR-3 literals), NFR-5 and NFR-6 all conform.
+- Leader Q1: the `utf8` respelling is safe and conformant. It runs only on gated auth POSTs; downstream, only body-parser and `req.is` read the header; `rawHeaders` keeps the original.
+- Leader Q2: measuring the guards directly satisfies NFR-5's "Guard + user load add ≤ 20 ms p95".
+
+**ADVISORY** (labeled advisory, not gating):
+- Reliability: NFR-5 ignores the result of `permissionGuard.canActivate`. Assert `true` outside the timed span.
+- Risk: the static `\bsign\(` pattern misses camel-case helpers such as `jwtSign(`. Widen it, with exceptions.
+- Resilience: non-auth routes still turn body-parser's own 415/413 into 500. Map body-parser errors in the filter.
+- Reliability: no regression rows pin the malformed `Content-Type` cases.
+- Readability: NFR-6 should key on `MS_AUTH_TIMEOUT_MS`, not on the literal value.
+
+**Records**
+- **Final status:** PASS (attempt 1 of 3). Per the task's dependency clause, **re-run after T-9**.
+- **spawns:**
+  - implementer: 54 calls, 169260 tokens, ended partial (assumptions only)
+  - reviewer: 15 calls, 55512 tokens, ended complete
+- **runtime events:** none
+- **Requirements covered:** FR-10 (inventory; the T-9 subset pending), FR-4 (charset clause), FR-17, NFR-1, NFR-2, NFR-5 (warm path), NFR-6.
+- **Budget:** about 11,600 of about 13,000 LOC · 32 of about 35 Reviewer passes · 9 of 11 tasks.
+- **Final verification:** lint 0 · build 0 · unit 442/442 · e2e 216/216.
+
+## Run status after T-10 (2026-10-14)
+
+**Done:** T-1…T-8 and T-10 `[x]`.
+
+**Blocked**
+- **T-9** `[!]`: waits for the auth microservice to accept `username` on `/auth/refresh` (DD-2). On 2026-10-14 no local branch had it.
+- **T-11:** HITL in TEST. It depends on T-10 and a deployment of the branch to TEST by the repo owners, not by agents. Its FR-13 refresh check also needs T-9.
+
+**No task is eligible for an agent.** The run stops here until the DD-2 microservice change ships (unblocks T-9, then the T-10 re-run) and the branch is deployed to TEST (T-11).

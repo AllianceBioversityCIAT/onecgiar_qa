@@ -347,6 +347,15 @@ describe('Global guards (e2e)', () => {
         ],
         ['an id token', (s) => `Bearer ${signJwt(idClaims(s), signer)}`],
         [
+          'a token of another issuer (another pool)',
+          (s) =>
+            `Bearer ${accessToken(s, { iss: 'https://cognito-idp.us-east-1.amazonaws.com/us-east-1_Other' })}`,
+        ],
+        [
+          'a token whose kid is not in the key set',
+          (s) => `Bearer ${signJwt(accessClaims(s), signer, 'unknown-kid')}`,
+        ],
+        [
           'a token of another app client',
           (s) => `Bearer ${accessToken(s, { client_id: 'some-other-client' })}`,
         ],

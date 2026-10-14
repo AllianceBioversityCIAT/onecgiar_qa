@@ -1106,6 +1106,23 @@ describe('Login, session issuance and throttling (e2e)', () => {
       ],
       ['an empty Content-Type with a JSON body', '', asJson],
       ['no Content-Type with a JSON body', null, asJson],
+      // FR-4 (amended 2026-10-14): JSON in a charset other than UTF-8.
+      [
+        'JSON declared as latin1 (charset=latin1)',
+        'application/json; charset=latin1',
+        asJson,
+      ],
+      [
+        'JSON declared as UTF-16 (charset=utf-16)',
+        'application/json; charset=utf-16',
+        asJson,
+      ],
+      [
+        'a quoted, upper-case charset (Charset="LATIN1")',
+        'application/json; Charset="LATIN1"',
+        asJson,
+      ],
+      ['an empty charset (charset="")', 'application/json; charset=""', asJson],
     ];
 
     describe.each([
@@ -1155,8 +1172,11 @@ describe('Login, session issuance and throttling (e2e)', () => {
     it.each([
       'application/json; charset=utf-8',
       'Application/JSON; Charset=UTF-8',
+      'application/json; charset=utf8',
+      'application/json; charset=UTF8',
+      'application/json; charset="utf-8"',
     ])(
-      'accepts %s: parameters allowed, type compared case-insensitively',
+      'accepts %s: parameters allowed, type and UTF-8 charset compared case-insensitively',
       async (contentType) => {
         await registerCustom(world);
         client.loginCustom.mockResolvedValue({

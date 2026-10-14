@@ -177,7 +177,7 @@ Serial boundaries: T-1 (config, `main.ts`), T-2 (schema). T-4 and T-6 are parall
 - **Skills:** nestjs-expert, nestjs-best-practices
 
 ## T-10: Security hardening checks
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** S
 - **Depends on:** T-9 (or T-8 when T-9 stays blocked; rerun after T-9)
 - **Requirements:** FR-10 (route inventory), FR-4 (JSON only — charset clause, amended 2026-10-14), FR-17, NFR-1, NFR-2 (matrix completeness), NFR-5, NFR-6

@@ -1,5 +1,5 @@
 import type { IncomingMessage } from 'node:http';
-import { parse } from 'content-type';
+import { format, parse } from 'content-type';
 import type { NextFunction, Request, Response } from 'express';
 import type { RequestWithId } from '../common/request-id.js';
 import { decisionOfError, logAuthDecision } from './auth-decision.js';
@@ -13,6 +13,8 @@ import { UnsupportedMediaTypeError } from './auth.errors.js';
 const JSON_MEDIA_TYPE = 'application/json';
 const FORM_MEDIA_TYPE = 'application/x-www-form-urlencoded';
 const ZERO_LENGTH = /^0+$/;
+/** The only charsets of JSON accepted (RFC 8259 mandates UTF-8); compared lower-cased. */
+const UTF8_CHARSETS: ReadonlySet<string> = new Set(['utf-8', 'utf8']);
 
 /** No `Transfer-Encoding`, and no `Content-Length` or a zero one. */
 function announcesNoBody({ headers }: IncomingMessage): boolean {
@@ -28,14 +30,38 @@ function announcesNoBody({ headers }: IncomingMessage): boolean {
  * parsed with `content-type`, the parser the body parsers themselves use: the
  * media type must be exactly `application/json` (lower-cased by the parser, so
  * compared case-insensitively), parameters such as `; charset=utf-8` allowed.
- * Without a `Content-Type`, only a POST with no body passes (the session
- * refresh and logout calls, T-9).
+ * A `charset` parameter, when present, must be UTF-8 (`utf-8` or `utf8`, any
+ * letter case): any other, an empty one included, fails the rule (FR-4,
+ * amended 2026-10-14). Without a `Content-Type`, only a POST with no body
+ * passes (the session refresh and logout calls, T-9).
  */
 export function isJsonOrBodyless(request: IncomingMessage): boolean {
   const header = request.headers['content-type'];
-  return header === undefined
-    ? announcesNoBody(request)
-    : parse(header).type === JSON_MEDIA_TYPE;
+  if (header === undefined) return announcesNoBody(request);
+  const { type, parameters } = parse(header);
+  const { charset } = parameters;
+  return (
+    type === JSON_MEDIA_TYPE &&
+    (charset === undefined || UTF8_CHARSETS.has(charset.toLowerCase()))
+  );
+}
+
+/**
+ * The JSON body parser accepts only a charset spelled `utf-…` and answers
+ * anything else, `utf8` included, with a 415 that is no `HttpException` (so
+ * a 500 to the caller). `utf8` passes the rule above, so it is respelled
+ * `utf-8` before the parser sees it. Only called for a request that passed.
+ */
+function respellUtf8Charset(request: IncomingMessage): void {
+  const header = request.headers['content-type'];
+  if (header === undefined) return;
+  const { type, parameters } = parse(header);
+  if (parameters.charset?.toLowerCase() === 'utf8') {
+    request.headers['content-type'] = format({
+      type,
+      parameters: { ...parameters, charset: 'utf-8' },
+    });
+  }
 }
 
 /**
@@ -49,7 +75,12 @@ export function requireJsonPost(
   _response: Response,
   next: NextFunction,
 ): void {
-  if (request.method !== 'POST' || isJsonOrBodyless(request)) {
+  if (request.method !== 'POST') {
+    next();
+    return;
+  }
+  if (isJsonOrBodyless(request)) {
+    respellUtf8Charset(request);
     next();
     return;
   }
