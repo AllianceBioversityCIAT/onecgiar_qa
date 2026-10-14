@@ -1028,7 +1028,7 @@ The user's three decisions, verbatim:
   - T-10 and T-11 get a single Reviewer each.
 - **Position at this gate:** about 7,650 LOC · 27 Reviewer passes · 7 of 11 tasks.
 
-### T-8: Login controller, cookies and throttling — IN PROGRESS
+### T-8: Login controller, cookies and throttling — PASS (attempt 2, degraded-pair)
 
 - **Date:** 2026-10-13
 
@@ -1145,3 +1145,123 @@ The user's three decisions, verbatim:
 ### Accounting
 - T-8 attempt 2 (the FR-9 log-leak fix) has finished: lint 0, build 0, unit 404/404, e2e 151/151 per the Implementer. The Leader's re-run is pending until after the amendment.
 - The amendment runs as a **continuation of attempt 2** (same attempt, approved new scope) **before** review. One review round then covers the log fix and the amendment, with each amended section as a named check.
+
+### T-8: attempt 2 and the approved amendment (JSON-only; failed login leaves cookies untouched)
+
+**Files changed in attempt 2 and the continuation**
+- `server/src/common/http-exception.filter.ts`: fixed-field 5xx log via `errorFacts()`; message and stack are never logged.
+- `http-exception.filter.spec.ts` (new): 14 unit tests.
+- `server/src/auth/json-only.ts` (new): `requireJsonPost` returns 415, `UnsupportedMediaTypeError`.
+- `common/configure-app.ts`: own parser registration. JSON everywhere; urlencoded everywhere except `/api/v1/auth`; no text parser.
+- `auth-decision.ts`, `auth.errors.ts`.
+- `session-cookies.ts`: `clearSessionCookies` removed.
+- `auth.controller.ts`: doc comment only.
+- `test/auth-login.e2e-spec.ts`.
+- `package.json` / `pnpm-lock.yaml`: `content-type@^2.1.0` as a direct dependency. It is the same copy body-parser uses, so no new lock entry.
+
+**Red runs**
+- Log fix: 4 failed, each `captured log output: … not to contain 'cog-username-SECRET'`.
+- Amendment: 46 failed / 87 passed, all assertion-level:
+  - 24 × `Set-Cookie header: expected [ …(2) ] to be undefined`
+  - 17 × `expected 400 to be 415`
+  - 3 × `expected 401 to be 415`, where a urlencoded login reached the microservice before the change
+
+**Falsifiers** (each reverted; sha256 identical afterwards)
+
+| Mutation | Red |
+|---|---|
+| r4 restore stack logging | 4 |
+| Message added to the log | 4 |
+| Static `Logger.error(stack)` | 4 |
+| m1 `startsWith` | 4 |
+| m2 / m2b urlencoded back on | 1 |
+| m3 clearing restored | 24 |
+| m4 415 bypassed | 21 (client spy not called; the disabled text parser still blocks) |
+| m4b m4 + text-reading JSON parser | 22 (the client is reached) |
+| r1 httpOnly removed | 5 |
+| r2 path changed | 5 |
+| r3 refreshToken in body | 4 |
+
+**Implementer verification:** lint 0 · tsc 0 (build stand-in, because the resource-guard blocked) · unit 404/404 · e2e 188/188 (`--maxWorkers=2`).
+
+**Implementer Not Done / Assumptions** (verbatim, assumptions only; full text in the scratchpad `t8-review-context.md` § ATTEMPT 2):
+- The 415 rule covers POST only, per the spec. On other methods the parser exclusion protects.
+- Chunked bodies with no `Content-Type` get 415 (fail closed).
+- The gate runs before the throttler, so 415 requests do not count toward the rate limit.
+- A non-UTF charset (e.g. `latin1`) passes the gate, body-parser raises its own 415, and the filter answers 500. Confirmed by reading the code, not by running it.
+- Nest's default parsers are skipped by name; the m2b falsifier guards this.
+- Dependency files changed.
+
+**Evidence re-run (Leader-inline, non-author): VERIFIED.** lint 0 · **`nest build` 0** · unit 404/404 · e2e 188/188.
+
+**Reviewer verdict (attempt 2): Risk lens (sonnet), PASS**
+- The FR-9 log leak is closed on every traced channel: filter, microservice client, verifier, decision log, and no Drizzle logger.
+- No non-JSON POST reaches a handler or the microservice. Checked: case variants, trailing slash, `json-foo`, empty `Content-Type`, chunked transfer, and `parse()` never throws.
+- Failed logins never touch cookies; only `issueSession` sets them.
+- Named checks 1–4 conform.
+
+**Reviewer verdict (attempt 2): Reliability lens (sonnet), PASS**
+- FR-4, FR-9, § 7.2/§ 7.3 and the T-8 amendments all hold.
+- The parser replacement is effective: Nest skips its defaults by name (`express-adapter.js` 244-250, 400-406).
+- Parser order relative to T-1 and T-5 is unchanged. Urlencoded still parses outside `/auth`.
+- The filter tests are non-vacuous, and the stdout/stderr capture they use is needed.
+- No stale clearing assertion remains.
+
+**ADVISORY** (both lenses; labeled advisory, not gating)
+- **Non-UTF charset → 500 instead of 415** (both lenses). This is not an FR-4 violation and nothing leaks, but it lets anyone generate 5xx on demand. The same gap affects body-parser's 413 on every route.
+  - Fix options: make the gate require the charset to be absent or utf-8, or have the filter map errors that carry a 4xx `status` and `expose: true`.
+  - **Raised to the user at the T-8 close.**
+- Risk: the 415 decision line logs an attacker-chosen `route`. Log the mount instead, or cap the length.
+- Risk: 415 requests are not rate-limited (cheap; recorded as an assumption).
+- Risk (carried): a body-parser `SyntaxError` echoes a snippet of the request body back to its sender.
+- Risk (carried): P-16 is still unverified.
+- Reliability: no e2e test sends a JSON POST to a non-auth route.
+
+## REVIEW_WAIVED: T-8 (attempt 2 + amendment)
+
+| Field | Content |
+|---|---|
+| flag | `degraded-pair` |
+| cause | The attempt-1 Risk-lens FAIL (FR-9 log leak) consumed an attempt. The retry bump from `xhigh` would reach `max` on T2, which is not allowed, so the Implementer was escalated to T1 `opus`. The registry's T3 Reviewer is also `opus`. |
+| approved by | The user, AskUserQuestion 2026-10-14: "sonnet (Recomendado)" |
+| verification that stood in | Leader re-run: lint 0, `nest build` 0, unit 404/404, e2e 188/188. Red runs and falsifiers executed by the Implementer. |
+| models | Implementer `opus` (attempt 2 and continuation; attempt 1 was `sonnet`). Reviewers `sonnet` on both lenses. The PASS stands as `PASS (degraded-pair: opus/sonnet)`. |
+
+**Final status:** PASS. `[ ]` → `[x]`.
+
+**Spawns**
+- implementer (sonnet): 91 calls, 283697 tokens, ended partial (assumptions)
+- reviewer (risk): 25 calls, 71033 tokens, ended fail
+- reviewer (reliability): 15 calls, 85802 tokens, ended complete
+- implementer (opus): 63 calls, 170477 tokens, ended partial (assumptions)
+- implementer (opus, amendment continuation): 97 calls, 254429 tokens, ended complete
+- reviewer (risk, sonnet): 24 calls, 66118 tokens, ended complete
+- reviewer (reliability, sonnet): 34 calls, 65808 tokens, ended complete
+
+**Runtime events:** none. The resource-guard blocks were absorbed inside the workers.
+
+**Requirements covered**
+- FR-4: all scenarios, including JSON only.
+- FR-5, FR-6, FR-7.
+- FR-9: attributes, companion cookie, never in body or logs, no cookie on refusal and existing cookies left untouched.
+- NFR-3, NFR-4 (assumes P-16), NFR-7.
+
+**Decisions made**
+- The logging site is an interceptor plus the throttler plus the controller, not the filter as design § 7.2 places it. Behavior is equivalent; a body-parser rejection has no `auth_decision` line.
+- `verifyId` runs inside admission, not as a separate controller step (§ 7.3).
+- `expiresIn` is derived from the access token's `exp` via `verifyAccess`.
+- A missing `cognito:username` gives 401 after admission commits. This is `[advisory-grade]`, accepted for now.
+- provider-url maps a microservice refusal to 503.
+
+**Forward pointers**
+- **T-9:** must not clear cookies on a login route (FR-9 amended), but refresh and logout refusals keep clearing (FR-13, FR-14). Session calls are bodyless and pass the JSON gate. `clearSessionCookies` was removed in T-8, so T-9 re-adds clearing for the session routes only.
+- **T-10:** route inventory; NFR-5/NFR-6 measurements; consider an e2e JSON POST on a non-auth route.
+- **T-11:**
+  - P-16 proxy count, plus in-memory per-process throttling (N processes × 10).
+  - P-14 cookie lifetime.
+  - Real `cognito:username` presence.
+- **Front spec:** expect 415 for non-JSON auth calls.
+
+**Budget:** about 10,800 LOC (committed plus T-8) against about 11,000. Reviewer passes: 31 of about 35. Tasks: 8 of 11.
+
+**Final verification:** lint 0 · build 0 · unit 404/404 · e2e 188/188.

@@ -1,4 +1,10 @@
-import { ConflictException, ForbiddenException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  UnauthorizedException,
+  UnsupportedMediaTypeException,
+} from '@nestjs/common';
 
 // Typed domain errors of admission (FR-8, TRD section 11). They extend the Nest
 // HTTP exceptions so the global filter maps them without knowing this module.
@@ -36,5 +42,30 @@ export class UserInactiveError extends ForbiddenException {
 export class NoActiveRolesError extends ForbiddenException {
   constructor() {
     super('This account has no active role');
+  }
+}
+
+/**
+ * The id token of an admitted login has no `cognito:username` (premise P-12,
+ * UNVERIFIED until T-11): without it the refresh cookie cannot be written, so
+ * the login is refused (FR-9, fail closed).
+ */
+export class UsernameClaimMissingError extends UnauthorizedException {
+  constructor() {
+    super('The login could not be completed');
+  }
+}
+
+/** FR-6, FR-7: a redirect URI outside `ALLOWED_ORIGINS`; the microservice is never called. */
+export class RedirectUriNotAllowedError extends BadRequestException {
+  constructor() {
+    super('The redirect URI is not allowed');
+  }
+}
+
+/** FR-4 (login CSRF): a POST under /api/v1/auth whose media type is not JSON. */
+export class UnsupportedMediaTypeError extends UnsupportedMediaTypeException {
+  constructor() {
+    super('Only application/json is accepted');
   }
 }

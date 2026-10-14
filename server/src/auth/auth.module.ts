@@ -10,6 +10,8 @@ import {
 } from './admission.service.js';
 import { DrizzleAdmissionUnitOfWork } from './admission.unit-of-work.js';
 import { AuthMicroserviceClient } from './auth-microservice.client.js';
+import { AuthThrottlerModule } from './auth-throttle.js';
+import { AuthController } from './auth.controller.js';
 import { MeController } from './me.controller.js';
 import { JWKS_CACHE, TokenVerifier } from './token-verifier.service.js';
 
@@ -18,8 +20,13 @@ import { JWKS_CACHE, TokenVerifier } from './token-verifier.service.js';
  * `AppModule`; they use the `TokenVerifier` exported here.
  */
 @Module({
-  imports: [DrizzleModule, UsersModule, ConfigModule.forFeature(authConfig)],
-  controllers: [MeController],
+  imports: [
+    DrizzleModule,
+    UsersModule,
+    ConfigModule.forFeature(authConfig),
+    AuthThrottlerModule,
+  ],
+  controllers: [AuthController, MeController],
   providers: [
     // Bound so tests can swap in a pre-loaded cache; production uses the default.
     { provide: JWKS_CACHE, useFactory: () => new SimpleJwksCache() },

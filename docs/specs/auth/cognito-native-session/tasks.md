@@ -143,7 +143,7 @@ Serial boundaries: T-1 (config, `main.ts`), T-2 (schema). T-4 and T-6 are parall
 - **Skills:** nestjs-expert, tdd
 
 ## T-8: Login controller, cookies and throttling
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-5, T-6, T-7
 - **Requirements:** FR-4 (all scenarios incl. JSON only; AND IT MUST validate before calling microservice), FR-5 (both), FR-6 (redirect allow-list; must NOT call microservice), FR-7, FR-9 (cookie attributes; companion cookie; BUT never in body/logs; no cookie on refusal), NFR-3, NFR-4, NFR-7

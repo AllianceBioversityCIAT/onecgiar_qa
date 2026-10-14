@@ -35,6 +35,9 @@ importers:
       class-validator:
         specifier: ^0.15.1
         version: 0.15.1
+      content-type:
+        specifier: ^2.1.0
+        version: 2.1.0
       cookie-parser:
         specifier: ^1.4.7
         version: 1.4.7
