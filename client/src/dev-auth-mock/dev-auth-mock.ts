@@ -1,16 +1,22 @@
 /**
- * DEV ONLY — local stand-in for the QA auth API (`/api/v1/auth/*`) so the whole front flow can be
- * exercised before the deployed API exists. Mounted by `server.ts` only when the build is the `mock`
- * configuration (`environment.mockAuth`) AND `QA_DEV_AUTH_MOCK=1`. Production builds set
- * `mockAuth: false`, so this router is never mounted there.
+ * DEV / PREVIEW ONLY — stand-in for the QA auth API (`/api/v1/auth/*`) so the whole front flow can be
+ * used before the deployed API exists. Only the `mock` build (with `QA_DEV_AUTH_MOCK=1`) and the
+ * `preview` build contain it (see `dev-auth-mock.entry*.ts`); production builds never do.
  *
- * Mirrors the real contract (`docs/specs/auth/cognito-native-session/design.md` § 6): standard
- * envelope, `qa_rt` / `qa_ru` cookies on `Path=/api/v1/auth/session`, Origin check on refresh and
- * logout, short-lived access tokens (120 s) so the refresh path is exercised.
- * Tokens are fake and unsigned: they mean nothing outside this process.
+ * Two kinds of users (Yeck 15-Oct-2026: "correos específicos para la prueba del token… y otros correos
+ * falsos… para que entre normal"):
+ * - `PERSONAS` (`@mock.qa`): fixed roles and edge cases (new password, inactive, no roles, 429…)
+ *   to test tokens, refresh and permissions. Password: `mock-password`.
+ * - Any other well-formed email with any password: signs in as ADMIN (sees every screen), like the
+ *   old stub login the design preview used.
+ *
+ * Stateless on purpose: the email travels inside codes and tokens, so it works on several Lambda
+ * instances behind CloudFront and across dev-server reloads. Tokens are fake and unsigned.
+ * Mirrors the real contract (design.md § 6): envelope, `qa_rt`/`qa_ru` cookies on
+ * `Path=/api/v1/auth/session`, Origin rule on refresh/logout, 120 s access tokens.
  */
 import express, { Request, Response, Router } from 'express';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 type Role = 'ADMIN' | 'LEAD_ASSESSOR' | 'ASSESSOR' | 'TPB' | 'PPU' | 'PROGRAM';
 interface Assignment {
@@ -30,8 +36,11 @@ interface Persona {
 
 const PASSWORD = 'mock-password';
 const ACCESS_TTL_S = 120;
+const CODE_TTL_MS = 5 * 60_000;
 const COOKIE_PATH = '/api/v1/auth/session';
 const COOKIE_MAX_AGE_MS = 30 * 24 * 3600 * 1000;
+const CALLBACK_PATH = '/auth/callback';
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export const PERSONAS: readonly Persona[] = [
   {
@@ -125,10 +134,36 @@ export const PERSONAS: readonly Persona[] = [
   },
 ];
 
-/** In-memory state of this dev process. */
-const refreshTokens = new Map<string, number>(); // refresh token -> persona id
-const challenges = new Map<string, number>(); // challenge session -> persona id
-const ssoCodes = new Map<string, number>(); // one-time code -> persona id
+/** Any other email: an ADMIN with that address (free sign-in for design reviews). */
+function freePersona(email: string): Persona {
+  const id =
+    100000 + (parseInt(createHash('sha1').update(email).digest('hex').slice(0, 6), 16) % 900000);
+  const local = email.split('@')[0] ?? email;
+  return { id, email, firstName: local, lastName: '', assignments: [{ role: 'ADMIN' }] };
+}
+
+function personaFor(email: string): Persona | null {
+  const normalized = email.trim().toLowerCase();
+  if (!EMAIL.test(normalized)) return null;
+  return PERSONAS.find((p) => p.email === normalized) ?? freePersona(normalized);
+}
+
+const isTestPersona = (email: string) =>
+  PERSONAS.some((p) => p.email === email.trim().toLowerCase());
+
+// ---- stateless tokens: <kind>.<base64url(email)>.<expiry ms> --------------------------------------
+const pack = (kind: string, email: string, ttlMs: number) =>
+  `${kind}.${Buffer.from(email).toString('base64url')}.${Date.now() + ttlMs}`;
+
+function unpack(kind: string, value: string | null | undefined): Persona | null {
+  const parts = (value ?? '').split('.');
+  if (parts.length !== 3 || parts[0] !== kind || !(Number(parts[2]) > Date.now())) return null;
+  try {
+    return personaFor(Buffer.from(parts[1], 'base64url').toString('utf8'));
+  } catch {
+    return null;
+  }
+}
 
 const meta = () => ({ requestId: randomUUID(), timestamp: new Date().toISOString() });
 
@@ -162,29 +197,28 @@ function profile(p: Persona) {
   };
 }
 
-function issueSession(res: Response, p: Persona): void {
-  const refresh = randomUUID();
-  refreshTokens.set(refresh, p.id);
-  const cookie = {
-    httpOnly: true,
-    secure: true,
-    sameSite: 'lax' as const,
-    path: COOKIE_PATH,
-    maxAge: COOKIE_MAX_AGE_MS,
-  };
-  res.cookie('qa_rt', refresh, cookie);
-  res.cookie('qa_ru', p.email, cookie);
-  ok(res, {
-    accessToken: `mock.${p.id}.${Date.now() + ACCESS_TTL_S * 1000}`,
+const cookieOptions = { httpOnly: true, secure: true, sameSite: 'lax' as const, path: COOKIE_PATH };
+
+function sessionBody(p: Persona) {
+  return {
+    accessToken: pack('mock', p.email, ACCESS_TTL_S * 1000),
     expiresIn: ACCESS_TTL_S,
     user: profile(p),
+  };
+}
+
+function issueSession(res: Response, p: Persona): void {
+  res.cookie('qa_rt', pack('mock-rt', p.email, COOKIE_MAX_AGE_MS), {
+    ...cookieOptions,
+    maxAge: COOKIE_MAX_AGE_MS,
   });
+  res.cookie('qa_ru', p.email, { ...cookieOptions, maxAge: COOKIE_MAX_AGE_MS });
+  ok(res, sessionBody(p));
 }
 
 function clearCookies(res: Response): void {
-  const cookie = { httpOnly: true, secure: true, sameSite: 'lax' as const, path: COOKIE_PATH };
-  res.clearCookie('qa_rt', cookie);
-  res.clearCookie('qa_ru', cookie);
+  res.clearCookie('qa_rt', cookieOptions);
+  res.clearCookie('qa_ru', cookieOptions);
 }
 
 function readCookie(req: Request, name: string): string | null {
@@ -201,19 +235,28 @@ function readCookie(req: Request, name: string): string | null {
   return null;
 }
 
-function ownOrigin(req: Request): string {
-  return `${req.protocol}://${req.get('host')}`;
-}
-
-/** Same rule as the real OriginGuard: refresh/logout need an allowed Origin (here: this server). */
+/**
+ * Refresh/logout must come from the app itself (the real OriginGuard). Behind CloudFront the server
+ * sees the Lambda host, not the public one, so the browser's own `Sec-Fetch-Site` decides; locally
+ * the Origin is compared with this server.
+ */
 function originAllowed(req: Request): boolean {
-  return req.get('origin') === ownOrigin(req);
+  const origin = req.get('origin');
+  if (!origin) return false;
+  if (req.get('sec-fetch-site') === 'same-origin') return true;
+  return origin === `${req.protocol}://${req.get('host')}`;
 }
 
-function personaFromBearer(req: Request): Persona | null {
-  const match = /^Bearer mock\.(\d+)\.(\d+)$/.exec(req.get('authorization') ?? '');
-  if (!match || Number(match[2]) < Date.now()) return null;
-  return PERSONAS.find((p) => p.id === Number(match[1])) ?? null;
+/** The callback must be this app's `/auth/callback` (any host: the public one differs from the Lambda one). */
+function callbackOrigin(redirectUri: string): string | null {
+  try {
+    const url = new URL(redirectUri);
+    return ['http:', 'https:'].includes(url.protocol) && url.pathname === CALLBACK_PATH
+      ? url.origin
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 const escapeHtml = (value: string) =>
@@ -222,19 +265,19 @@ const escapeHtml = (value: string) =>
     (c: string) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!,
   );
 
-function mockSsoPage(redirectUri: string): string {
+function mockSsoPage(): string {
   const rows = PERSONAS.filter(
     (p) => !['inactive', 'no-roles', 'rate-limited', 'new-password'].includes(p.behaviour ?? ''),
   )
     .map(
       (p) =>
-        `<li><a href="/__mock-sso/pick?persona=${p.id}&amp;redirectUri=${encodeURIComponent(redirectUri)}">${escapeHtml(p.email)}</a> — ${p.assignments.map((a) => a.role).join(', ') || 'guest (no roles)'}</li>`,
+        `<li><a href="/__mock-sso/pick?persona=${p.id}">${escapeHtml(p.email)}</a> — ${p.assignments.map((a) => a.role).join(', ') || 'guest (no roles)'}</li>`,
     )
     .join('');
   return `<!doctype html><html lang="en"><meta charset="utf-8"><title>Mock CGIAR sign-in</title>
 <body style="font-family:system-ui;max-width:40rem;margin:4rem auto;padding:0 1rem">
-<h1>Mock CGIAR sign-in (dev only)</h1><p>Pick who you are. This page replaces the Cognito Hosted UI locally.</p>
-<ul>${rows}</ul><p><a href="${escapeHtml(redirectUri)}?error=access_denied&amp;error_description=${encodeURIComponent('You cancelled the sign-in.')}">Cancel</a></p></body></html>`;
+<h1>Mock CGIAR sign-in (test only)</h1><p>Pick who you are. This page replaces the Cognito Hosted UI until the QA API is live.</p>
+<ul>${rows}</ul><p><a href="${CALLBACK_PATH}?error=access_denied">Cancel</a></p></body></html>`;
 }
 
 export function devAuthMockRouter(): Router {
@@ -246,6 +289,12 @@ export function devAuthMockRouter(): Router {
     const fields: { field: string; code: string; message: string }[] = [];
     if (typeof email !== 'string' || !email)
       fields.push({ field: 'email', code: 'REQUIRED', message: 'Enter your email.' });
+    else if (!EMAIL.test(email.trim()))
+      fields.push({
+        field: 'email',
+        code: 'INVALID_EMAIL',
+        message: 'Enter a valid email address.',
+      });
     if (typeof password !== 'string' || !password)
       fields.push({ field: 'password', code: 'REQUIRED', message: 'Enter your password.' });
     if (fields.length)
@@ -257,8 +306,10 @@ export function devAuthMockRouter(): Router {
         { fields },
       );
 
-    const p = PERSONAS.find((x) => x.email === String(email).toLowerCase());
-    if (p?.behaviour === 'rate-limited')
+    const p = personaFor(String(email))!;
+    // Free emails sign in with any password; test personas need the shared password.
+    if (!isTestPersona(p.email)) return issueSession(res, p);
+    if (p.behaviour === 'rate-limited')
       return fail(
         res,
         429,
@@ -266,7 +317,7 @@ export function devAuthMockRouter(): Router {
         'Too many attempts. Wait a moment and try again.',
         { retryAfter: 30 },
       );
-    if (!p || p.behaviour === 'sso-only' || password !== PASSWORD)
+    if (p.behaviour === 'sso-only' || password !== PASSWORD)
       return fail(res, 401, 'AUTH_INVALID_CREDENTIALS', 'Incorrect email or password.');
     if (p.behaviour === 'inactive')
       return fail(
@@ -282,19 +333,18 @@ export function devAuthMockRouter(): Router {
         'AUTH_NO_ACTIVE_ROLES',
         'Your account has no active QA role yet. Contact the QA administrator.',
       );
-    if (p.behaviour === 'new-password') {
-      const session = randomUUID();
-      challenges.set(session, p.id);
-      return ok(res, { challenge: 'NEW_PASSWORD_REQUIRED', session });
-    }
+    if (p.behaviour === 'new-password')
+      return ok(res, {
+        challenge: 'NEW_PASSWORD_REQUIRED',
+        session: pack('mock-chal', p.email, CODE_TTL_MS),
+      });
     return issueSession(res, p);
   });
 
   router.post('/api/v1/auth/complete-new-password', (req, res) => {
     const { newPassword, session } = (req.body ?? {}) as { newPassword?: string; session?: string };
-    const id = session ? challenges.get(session) : undefined;
-    if (id === undefined)
-      return fail(res, 401, 'AUTH_CHALLENGE_EXPIRED', 'Your sign-in expired. Sign in again.');
+    const p = unpack('mock-chal', session);
+    if (!p) return fail(res, 401, 'AUTH_CHALLENGE_EXPIRED', 'Your sign-in expired. Sign in again.');
     if (!newPassword || newPassword.length < 8 || !/\d/.test(newPassword)) {
       return fail(
         res,
@@ -303,40 +353,32 @@ export function devAuthMockRouter(): Router {
         'Use at least 8 characters, including a number.',
       );
     }
-    challenges.delete(session!);
-    return issueSession(
-      res,
-      PERSONAS.find((p) => p.id === id)!,
-    );
+    return issueSession(res, p);
   });
 
   router.get('/api/v1/auth/provider-url', (req, res) => {
-    const redirectUri = String(req.query['redirectUri'] ?? '');
-    if (!redirectUri.startsWith(`${ownOrigin(req)}/`))
+    const origin = callbackOrigin(String(req.query['redirectUri'] ?? ''));
+    if (!origin)
       return fail(
         res,
         400,
         'AUTH_REDIRECT_URI_NOT_ALLOWED',
         'This sign-in address is not allowed.',
       );
-    ok(res, { url: `${ownOrigin(req)}/__mock-sso?redirectUri=${encodeURIComponent(redirectUri)}` });
+    ok(res, { url: `${origin}/__mock-sso` });
   });
 
   router.post('/api/v1/auth/callback', (req, res) => {
     const { code } = (req.body ?? {}) as { code?: string };
-    const id = code ? ssoCodes.get(code) : undefined;
-    if (id === undefined)
+    const p = unpack('mock-code', code);
+    if (!p)
       return fail(
         res,
         401,
         'AUTH_SSO_CODE_INVALID',
         'The sign-in link expired or was already used. Start again.',
       );
-    ssoCodes.delete(code!);
-    return issueSession(
-      res,
-      PERSONAS.find((p) => p.id === id)!,
-    );
+    return issueSession(res, p);
   });
 
   router.post('/api/v1/auth/session/refresh', (req, res) => {
@@ -348,20 +390,14 @@ export function devAuthMockRouter(): Router {
         'This request is not allowed from this site.',
       );
     const token = readCookie(req, 'qa_rt');
-    const id = token ? refreshTokens.get(token) : undefined;
     if (!token) return fail(res, 401, 'AUTH_SESSION_MISSING', 'Your session ended. Sign in again.');
-    if (id === undefined) {
+    const p = unpack('mock-rt', token);
+    if (!p) {
       clearCookies(res);
       return fail(res, 401, 'AUTH_SESSION_EXPIRED', 'Your session ended. Sign in again.');
     }
-    // Like the real server today (Cognito does not rotate the refresh token, design P-18):
-    // same cookie, new access token. Two tabs refreshing at once both succeed.
-    const persona = PERSONAS.find((x) => x.id === id)!;
-    return ok(res, {
-      accessToken: `mock.${persona.id}.${Date.now() + ACCESS_TTL_S * 1000}`,
-      expiresIn: ACCESS_TTL_S,
-      user: profile(persona),
-    });
+    // Like the real server today (Cognito does not rotate the refresh token, design P-18).
+    return ok(res, sessionBody(p));
   });
 
   router.post('/api/v1/auth/session/logout', (req, res) => {
@@ -372,38 +408,29 @@ export function devAuthMockRouter(): Router {
         'AUTH_ORIGIN_NOT_ALLOWED',
         'This request is not allowed from this site.',
       );
-    const token = readCookie(req, 'qa_rt');
-    if (token) refreshTokens.delete(token);
     clearCookies(res);
     res.status(204).end();
   });
 
   router.get('/api/v1/auth/me', (req, res) => {
-    const p = personaFromBearer(req);
+    const bearer = /^Bearer (.+)$/.exec(req.get('authorization') ?? '')?.[1];
+    const p = unpack('mock', bearer);
     if (!p) return fail(res, 401, 'AUTH_TOKEN_INVALID', 'Your session expired. Sign in again.');
     ok(res, profile(p));
   });
 
-  // Mock of the Cognito Hosted UI: pick a persona, come back with a one-time code.
-  router.get('/__mock-sso', (req, res) => {
-    const redirectUri = String(req.query['redirectUri'] ?? '');
-    if (!redirectUri.startsWith(`${ownOrigin(req)}/`)) {
-      res.status(400).send('Bad mock SSO request');
-      return;
-    }
-    res.type('html').send(mockSsoPage(redirectUri));
+  // Mock of the Cognito Hosted UI: pick a test persona, come back (relative URL: same public host).
+  router.get('/__mock-sso', (_req, res) => {
+    res.type('html').send(mockSsoPage());
   });
   router.get('/__mock-sso/pick', (req, res) => {
-    const redirectUri = String(req.query['redirectUri'] ?? '');
     const p = PERSONAS.find((x) => x.id === Number(req.query['persona']));
-    if (!p || !redirectUri.startsWith(`${ownOrigin(req)}/`)) {
+    if (!p) {
       res.status(400).send('Bad mock SSO request');
       return;
     }
-    const code = `mock-code-${randomUUID()}`;
-    ssoCodes.set(code, p.id);
     res.redirect(
-      `${redirectUri}${redirectUri.includes('?') ? '&' : '?'}code=${encodeURIComponent(code)}`,
+      `${CALLBACK_PATH}?code=${encodeURIComponent(pack('mock-code', p.email, CODE_TTL_MS))}`,
     );
   });
 
