@@ -12,6 +12,7 @@ import { requestIdOf, type RequestWithId } from '../common/request-id.js';
 import { DuplicateUserError } from '../users/users.errors.js';
 import {
   InvalidCredentialsError,
+  PasswordPolicyError,
   UpstreamUnavailableError,
 } from './cognito-auth.client.js';
 import {
@@ -86,6 +87,7 @@ const REASONS: ReadonlyArray<readonly [ErrorClass, string]> = [
   [UserNotRegisteredError, 'user_not_registered'],
   [UserInactiveError, 'user_inactive'],
   [NoActiveRolesError, 'no_active_roles'],
+  [PasswordPolicyError, 'password_policy'],
   [RedirectUriNotAllowedError, 'redirect_uri_not_allowed'],
   [BadRequestException, 'invalid_request'],
   [UnsupportedMediaTypeError, 'unsupported_media_type'],

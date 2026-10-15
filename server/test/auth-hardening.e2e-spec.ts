@@ -310,9 +310,9 @@ describe('Route inventory (FR-10, e2e)', () => {
       if (res.status !== 401) refused.push([key, res.status]);
       else {
         expect(res.body, key).toMatchObject({
-          statusCode: 401,
-          error: 'Unauthorized',
-          requestId: expect.any(String),
+          success: false,
+          error: { status: 401, code: 'AUTH_TOKEN_INVALID' },
+          meta: { requestId: expect.any(String) },
         });
       }
     }
@@ -481,10 +481,9 @@ describe('NFR-6: Cognito is down (e2e)', () => {
   const expectUnavailable = (res: request.Response) => {
     expect(res.status).toBe(503);
     expect(res.body).toMatchObject({
-      statusCode: 503,
-      error: 'Service Unavailable',
-      message: expect.any(String),
-      requestId: expect.any(String),
+      success: false,
+      error: { status: 503, code: 'AUTH_SERVICE_UNAVAILABLE' },
+      meta: { requestId: expect.any(String) },
     });
     expect(res.headers['set-cookie'], 'Set-Cookie header').toBeUndefined();
     expect(res.text).not.toContain(login.password);
@@ -495,7 +494,7 @@ describe('NFR-6: Cognito is down (e2e)', () => {
     const me = await world
       .call('get', '/api/v1/auth/me', bearerOf('sub-nfr6'))
       .expect(200);
-    expect(me.body).toMatchObject({ email: 'sub-nfr6@cgiar.org' });
+    expect(me.body.data).toMatchObject({ email: 'sub-nfr6@cgiar.org' });
     await world.call('get', '/api/v1/health').expect(200);
   };
 

@@ -5,6 +5,7 @@ import request from 'supertest';
 import { AppModule } from '../src/app.module.js';
 import { JWKS_CACHE } from '../src/auth/token-verifier.service.js';
 import { configureApp } from '../src/common/configure-app.js';
+import { ERROR_CATALOG } from '../src/common/error-codes.js';
 import { buildOpenApiDocument, setupOpenApi } from '../src/common/openapi.js';
 import { localJwksCache, newKeyPair } from './support/jwt-test-keys.js';
 
@@ -183,16 +184,61 @@ describe('OpenAPI document (e2e)', () => {
     expect(schemas.UserProfile.required).toEqual(
       expect.arrayContaining(['id', 'email', 'authSource', 'assignments']),
     );
-    expect(schemas.ErrorEnvelope.required).toEqual(
-      expect.arrayContaining(['statusCode', 'error', 'message', 'requestId']),
+    expect(schemas.ApiErrorResponseModel.required).toEqual(
+      expect.arrayContaining(['success', 'error', 'meta']),
+    );
+    expect(schemas.ApiErrorBodyModel.required).toEqual(
+      expect.arrayContaining(['status', 'code', 'message']),
+    );
+    expect(schemas.ApiMetaModel.required).toEqual(
+      expect.arrayContaining(['requestId', 'timestamp']),
     );
     const login = operationOf(doc, 'POST /api/v1/auth/login');
     expect(JSON.stringify(login.responses['200'])).toContain(
       '#/components/schemas/ChallengeResponse',
     );
     expect(JSON.stringify(login.responses['401'])).toContain(
-      '#/components/schemas/ErrorEnvelope',
+      '#/components/schemas/ApiErrorResponseModel',
     );
+  });
+
+  it('wraps every 2xx with a body in { success, data, meta }', () => {
+    for (const key of documentedRoutes(doc)) {
+      const operation = operationOf(doc, key);
+      for (const [code, response] of Object.entries(operation.responses)) {
+        if (!code.startsWith('2') || code === '204') continue;
+        const schema = (
+          response as { content?: Record<string, { schema?: any }> }
+        ).content?.['application/json']?.schema;
+        expect(schema?.required, `${key} ${code}`).toEqual(
+          expect.arrayContaining(['success', 'data', 'meta']),
+        );
+      }
+    }
+  });
+
+  it('lists, for each error status, codes of the catalog whose status matches', () => {
+    for (const key of documentedRoutes(doc)) {
+      for (const [status, response] of Object.entries(
+        operationOf(doc, key).responses,
+      )) {
+        if (!/^[45]/.test(status)) continue;
+        const codes = [
+          ...String(
+            (response as { description?: string }).description,
+          ).matchAll(/`([A-Z_]+)`/g),
+        ].map((match) => match[1]);
+        expect(codes.length, `${key} ${status}: codes listed`).toBeGreaterThan(
+          0,
+        );
+        for (const code of codes) {
+          expect(
+            ERROR_CATALOG[code as keyof typeof ERROR_CATALOG]?.status,
+            `${key} ${status}: ${code}`,
+          ).toBe(Number(status));
+        }
+      }
+    }
   });
 
   it('carries no secret or token value', () => {

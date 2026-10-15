@@ -22,7 +22,7 @@ export const URI_MAX_LENGTH = 2048;
 export const EmailField = (description = 'Email address') =>
   applyDecorators(
     IsString(),
-    MaxLength(EMAIL_MAX_LENGTH),
+    MaxLength(EMAIL_MAX_LENGTH, { context: { max: EMAIL_MAX_LENGTH } }),
     IsEmail(),
     ApiProperty({
       type: String,
@@ -41,6 +41,6 @@ export const TextField = (
   applyDecorators(
     IsString(),
     IsNotEmpty(),
-    MaxLength(max),
+    MaxLength(max, { context: { max } }),
     ApiProperty({ type: String, ...docs, minLength: 1, maxLength: max }),
   );

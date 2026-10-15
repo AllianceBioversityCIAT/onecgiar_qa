@@ -5,6 +5,7 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
+import { errorBody } from '../../common/error-codes.js';
 import { Reflector } from '@nestjs/core';
 import {
   CurrentUserCache,
@@ -17,7 +18,7 @@ import { InvalidTokenError, TokenVerifier } from '../token-verifier.service.js';
 /** A valid token whose owner may no longer use QA (FR-11). */
 export class UserNotAdmittedError extends UnauthorizedException {
   constructor() {
-    super('User is not admitted');
+    super(errorBody('AUTH_USER_NOT_ADMITTED'));
   }
 }
 

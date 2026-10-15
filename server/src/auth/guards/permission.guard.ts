@@ -6,6 +6,7 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
+import { errorBody } from '../../common/error-codes.js';
 import { Reflector } from '@nestjs/core';
 import type { Permission } from '../../users/permissions.js';
 import { AuthorizationService } from '../../users/authorization.service.js';
@@ -13,6 +14,13 @@ import type { AuthenticatedRequest } from '../authenticated-request.js';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator.js';
 import { READ_ACCESS_KEY } from '../decorators/read-access.decorator.js';
 import { REQUIRE_PERMISSION_KEY } from '../decorators/require-permission.decorator.js';
+
+/** The user is authenticated but no live assignment grants this route (FR-12). */
+export class PermissionDeniedError extends ForbiddenException {
+  constructor() {
+    super(errorBody('AUTH_PERMISSION_DENIED'));
+  }
+}
 
 /**
  * Second global guard (design 7.2). Skips `@Public()` routes. A declared
@@ -52,7 +60,7 @@ export class PermissionGuard implements CanActivate {
     );
     if (permission !== undefined) {
       if (this.authorization.canAny(user, permission)) return true;
-      throw new ForbiddenException('Insufficient permissions');
+      throw new PermissionDeniedError();
     }
 
     const readAccess = this.reflector.getAllAndOverride<boolean | undefined>(
@@ -61,6 +69,6 @@ export class PermissionGuard implements CanActivate {
     );
     if (readAccess === true) return true;
 
-    throw new ForbiddenException('Insufficient permissions');
+    throw new PermissionDeniedError();
   }
 }
