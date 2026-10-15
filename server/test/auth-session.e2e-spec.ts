@@ -226,14 +226,22 @@ function expectUntouched(res: request.Response) {
   expect(res.headers['set-cookie'], 'Set-Cookie header').toBeUndefined();
 }
 
-function expectEnvelope(res: request.Response, status: number) {
+/**
+ * The error envelope of the response standard: `{ success: false, error: {
+ * status, code, message }, meta: { requestId, timestamp } }`, with the
+ * request id echoed in the header. `code`, when given, is asserted too.
+ */
+function expectEnvelope(res: request.Response, status: number, code?: string) {
   expect(res.status).toBe(status);
   expect(res.body).toMatchObject({
-    statusCode: status,
-    message: expect.any(String),
-    requestId: expect.any(String),
+    success: false,
+    error: { status, code: expect.any(String), message: expect.any(String) },
+    meta: { requestId: expect.any(String), timestamp: expect.any(String) },
   });
-  expect(res.body).not.toHaveProperty('accessToken');
+  expect(res.body.meta.requestId).toBe(res.headers['x-request-id']);
+  if (code !== undefined) expect(res.body.error.code).toBe(code);
+
+  expect(JSON.stringify(res.body)).not.toContain('accessToken');
   expect(res.text).not.toContain(REFRESH_TOKEN);
   expect(res.text).not.toContain(USERNAME);
 }
@@ -273,13 +281,13 @@ describe('POST /auth/session/refresh (FR-13)', () => {
     const res = await refresh().expect(200);
 
     expect(client.refresh).toHaveBeenCalledWith(REFRESH_TOKEN, USERNAME);
-    expect(res.body).toEqual({
+    expect(res.body.data).toEqual({
       accessToken: access,
       expiresIn: expect.any(Number),
       user: expect.objectContaining({ id: ada.id, email: ADA.email }),
     });
-    expect(res.body.expiresIn).toBeGreaterThan(ACCESS_TOKEN_TTL_S - 60);
-    expect(res.body.expiresIn).toBeLessThanOrEqual(ACCESS_TOKEN_TTL_S);
+    expect(res.body.data.expiresIn).toBeGreaterThan(ACCESS_TOKEN_TTL_S - 60);
+    expect(res.body.data.expiresIn).toBeLessThanOrEqual(ACCESS_TOKEN_TTL_S);
     expect(res.text).not.toContain(REFRESH_TOKEN);
     // No rotation from Cognito: the cookies are kept as they are.
     expectUntouched(res);

@@ -14,7 +14,7 @@ pnpm exec vitest run --config ./vitest.config.e2e.ts test/auth-session.e2e-spec.
 
 | File | Covers |
 |---|---|
-| `app.e2e-spec.ts` | Health, CORS allow/deny, error envelope on unknown routes |
+| `app.e2e-spec.ts` | Health, CORS allow/deny, the response standard on unknown routes (no Nest text leaks) |
 | `auth-guards.e2e-spec.ts` | Bearer verification, current-user cache, `@ReadAccess`/`@RequirePermission`/undecorated → 403 |
 | `auth-login.e2e-spec.ts` | Login, new password, provider URL, callback: cookies, refusals, validation, JSON-only (415), throttling (429), logs without secrets |
 | `auth-session.e2e-spec.ts` | Session refresh and logout: Origin check, cookie clearing rules, admission re-check from the DB, revocation |
@@ -36,6 +36,7 @@ Then `const app = moduleRef.createNestApplication(); configureApp(app); await ap
 ## Rules
 
 - **Write expected values out**, do not import them from the code under test (cookie names, Path, Max-Age, status texts) — a test that imports the constant cannot catch a wrong constant.
+- **Response standard:** read success data from `res.body.data`; assert errors with `expectEnvelope(res, status, code)` (shape, `meta.requestId` = header, and the catalog `code`).
 - **Assert the negative too:** no `Set-Cookie` on a refusal, the client spy not called before validation, no secret in `res.text`, no row created.
 - **No disqualifiers:** a CORS test must send an `Origin`; a refresh test must not also send a valid Bearer token; asserting only a status cannot catch a missing side effect.
 - Silence or capture logs with `vi.spyOn(Logger.prototype, …)`; restore mocks and close the app in `afterEach`.

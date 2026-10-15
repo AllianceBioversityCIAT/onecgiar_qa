@@ -1,12 +1,11 @@
 import {
   ApiExtraModels,
-  ApiOkResponse,
   ApiOperation,
   ApiProperty,
   ApiTags,
   getSchemaPath,
 } from '@nestjs/swagger';
-import { ApiErrorResponses } from '../common/openapi.js';
+import { ApiErrorResponses, ApiOkEnvelope } from '../common/api-response.js';
 import {
   Body,
   Controller,
@@ -105,16 +104,32 @@ export class AuthController {
     description:
       'Public, throttled. On success returns the session and sets the httpOnly session cookies (`qa_rt`, `qa_ru`). On a first login Cognito asks for a new password: the answer is the challenge, with no tokens and no cookies.',
   })
-  @ApiOkResponse({
-    description: 'A session, or the NEW_PASSWORD_REQUIRED challenge',
-    schema: {
+  @ApiOkEnvelope(
+    {
       oneOf: [
         { $ref: getSchemaPath(SessionResponse) },
         { $ref: getSchemaPath(ChallengeResponse) },
       ],
     },
+    {
+      description:
+        '`data` is a session, or the NEW_PASSWORD_REQUIRED challenge',
+    },
+  )
+  @ApiErrorResponses({
+    400: ['VALIDATION_FAILED', 'MALFORMED_JSON'],
+    401: ['AUTH_INVALID_CREDENTIALS', 'AUTH_LOGIN_INCOMPLETE'],
+    403: [
+      'AUTH_USER_NOT_REGISTERED',
+      'AUTH_USER_INACTIVE',
+      'AUTH_NO_ACTIVE_ROLES',
+      'AUTH_EMAIL_NOT_VERIFIED',
+    ],
+    409: ['AUTH_EMAIL_CONFLICT', 'USERS_DUPLICATE_USER'],
+    415: ['UNSUPPORTED_MEDIA_TYPE'],
+    429: ['TOO_MANY_REQUESTS'],
+    503: ['AUTH_SERVICE_UNAVAILABLE'],
   })
-  @ApiErrorResponses(400, 401, 403, 409, 415, 429, 503)
   @AuthThrottle()
   @HttpCode(200)
   @Post('login')
@@ -140,8 +155,21 @@ export class AuthController {
     summary: 'Complete the first-login NEW_PASSWORD_REQUIRED challenge',
     description: 'Public, throttled. Sets the session cookies on success.',
   })
-  @ApiOkResponse({ type: SessionResponse })
-  @ApiErrorResponses(400, 401, 403, 409, 415, 429, 503)
+  @ApiOkEnvelope(SessionResponse)
+  @ApiErrorResponses({
+    400: ['VALIDATION_FAILED', 'MALFORMED_JSON', 'AUTH_PASSWORD_POLICY'],
+    401: ['AUTH_CHALLENGE_EXPIRED', 'AUTH_LOGIN_INCOMPLETE'],
+    403: [
+      'AUTH_USER_NOT_REGISTERED',
+      'AUTH_USER_INACTIVE',
+      'AUTH_NO_ACTIVE_ROLES',
+      'AUTH_EMAIL_NOT_VERIFIED',
+    ],
+    409: ['AUTH_EMAIL_CONFLICT', 'USERS_DUPLICATE_USER'],
+    415: ['UNSUPPORTED_MEDIA_TYPE'],
+    429: ['TOO_MANY_REQUESTS'],
+    503: ['AUTH_SERVICE_UNAVAILABLE'],
+  })
   @AuthThrottle()
   @HttpCode(200)
   @Post('complete-new-password')
@@ -163,14 +191,14 @@ export class AuthController {
     description:
       'Public. Redirect the browser to `url`; after the Microsoft login the Hosted UI returns to `redirectUri?code=…`, then call `POST /auth/callback`.',
   })
-  @ApiOkResponse({
-    schema: {
-      type: 'object',
-      required: ['url'],
-      properties: { url: { type: 'string', format: 'uri' } },
-    },
+  @ApiOkEnvelope({
+    type: 'object',
+    required: ['url'],
+    properties: { url: { type: 'string', format: 'uri' } },
   })
-  @ApiErrorResponses(400)
+  @ApiErrorResponses({
+    400: ['VALIDATION_FAILED', 'AUTH_REDIRECT_URI_NOT_ALLOWED'],
+  })
   @Get('provider-url')
   async providerUrl(
     @Query() query: ProviderUrlQuery,
@@ -192,8 +220,25 @@ export class AuthController {
     description:
       'Public, throttled. The code is single use and short-lived. Sets the session cookies on success; a first SSO login creates a GUEST user.',
   })
-  @ApiOkResponse({ type: SessionResponse })
-  @ApiErrorResponses(400, 401, 403, 409, 415, 429, 503)
+  @ApiOkEnvelope(SessionResponse)
+  @ApiErrorResponses({
+    400: [
+      'VALIDATION_FAILED',
+      'MALFORMED_JSON',
+      'AUTH_REDIRECT_URI_NOT_ALLOWED',
+    ],
+    401: ['AUTH_SSO_CODE_INVALID', 'AUTH_LOGIN_INCOMPLETE'],
+    403: [
+      'AUTH_USER_NOT_REGISTERED',
+      'AUTH_USER_INACTIVE',
+      'AUTH_NO_ACTIVE_ROLES',
+      'AUTH_EMAIL_NOT_VERIFIED',
+    ],
+    409: ['AUTH_EMAIL_CONFLICT', 'USERS_DUPLICATE_USER'],
+    415: ['UNSUPPORTED_MEDIA_TYPE'],
+    429: ['TOO_MANY_REQUESTS'],
+    503: ['AUTH_SERVICE_UNAVAILABLE'],
+  })
   @AuthThrottle()
   @HttpCode(200)
   @Post('callback')

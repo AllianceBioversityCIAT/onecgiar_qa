@@ -1,11 +1,7 @@
 import { Controller, Get } from '@nestjs/common';
-import {
-  ApiOkResponse,
-  ApiOperation,
-  ApiProperty,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiOperation, ApiProperty, ApiTags } from '@nestjs/swagger';
 import { Public } from './auth/decorators/public.decorator.js';
+import { ApiOkEnvelope } from './common/api-response.js';
 
 export class HealthResponse {
   @ApiProperty({ type: String, enum: ['ok'], example: 'ok' })
@@ -17,7 +13,7 @@ export class HealthResponse {
 export class AppController {
   // Public by design (FR-10): the host's health check carries no token.
   @ApiOperation({ summary: 'Liveness check (public)' })
-  @ApiOkResponse({ type: HealthResponse })
+  @ApiOkEnvelope(HealthResponse)
   @Public()
   @Get('health')
   getHealth(): HealthResponse {

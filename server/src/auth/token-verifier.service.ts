@@ -6,6 +6,7 @@ import {
   UnauthorizedException,
   type OnApplicationBootstrap,
 } from '@nestjs/common';
+import { errorBody } from '../common/error-codes.js';
 import type { ConfigType } from '@nestjs/config';
 import { CognitoJwtVerifier } from 'aws-jwt-verify';
 import { SimpleJwksCache, type JwksCache } from 'aws-jwt-verify/jwk';
@@ -26,7 +27,7 @@ export const JWKS_CACHE = Symbol('JWKS_CACHE');
 /** Every rejection reaches callers as this one error: 401, no detail on why. */
 export class InvalidTokenError extends UnauthorizedException {
   constructor() {
-    super('Invalid or expired token');
+    super(errorBody('AUTH_TOKEN_INVALID'));
   }
 }
 

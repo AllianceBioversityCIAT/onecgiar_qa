@@ -1,12 +1,21 @@
 import {
   type ArgumentsHost,
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  HttpException,
   InternalServerErrorException,
   Logger,
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { DrizzleQueryError } from 'drizzle-orm';
-import { HttpExceptionFilter, errorFacts } from './http-exception.filter.js';
+import { UserNotRegisteredError } from '../auth/auth.errors.js';
+import {
+  HttpExceptionFilter,
+  errorFacts,
+  toErrorBody,
+} from './http-exception.filter.js';
 
 // Values an error may carry in its texts, which no log line may repeat.
 const USERNAME = 'cog-username-SECRET';
@@ -86,10 +95,14 @@ describe('HttpExceptionFilter: what a 5xx log line may say (FR-9, NFR-7)', () =>
 
     expect(response.status).toHaveBeenCalledWith(500);
     expect(response.json).toHaveBeenCalledWith({
-      statusCode: 500,
-      error: 'Internal Server Error',
-      message: 'Internal server error',
-      requestId: 'req-1',
+      success: false,
+      error: {
+        status: 500,
+        code: 'INTERNAL_ERROR',
+        message:
+          'Something went wrong on our side. Try again; if it keeps happening, contact support and share the reference code.',
+      },
+      meta: { requestId: 'req-1', timestamp: expect.any(String) },
     });
     // One line, one argument: no stack passed beside it.
     expect(calls).toHaveLength(1);
@@ -100,6 +113,7 @@ describe('HttpExceptionFilter: what a 5xx log line may say (FR-9, NFR-7)', () =>
       method: 'POST',
       path: '/api/v1/auth/login',
       status: 500,
+      responseCode: 'INTERNAL_ERROR',
       error: 'DrizzleQueryError',
       cause: 'Error',
       code: 'ER_LOCK_WAIT_TIMEOUT',
@@ -203,5 +217,104 @@ describe('errorFacts', () => {
       },
     });
     expect(errorFacts(hostile)).toEqual({ error: 'UnknownError' });
+  });
+});
+
+describe('toErrorBody: only catalog text reaches the client', () => {
+  it('answers a domain error with its code and the catalog message', () => {
+    expect(toErrorBody(new UserNotRegisteredError())).toEqual({
+      status: 403,
+      code: 'AUTH_USER_NOT_REGISTERED',
+      message:
+        'Your account is not registered in QA. Ask an administrator for access.',
+    });
+  });
+
+  it('ignores the message a domain body carries: the catalog wins', () => {
+    const forged = new ForbiddenException({
+      code: 'AUTH_USER_INACTIVE',
+      message: `internal detail ${SUB}`,
+    });
+    expect(toErrorBody(forged)).toEqual({
+      status: 403,
+      code: 'AUTH_USER_INACTIVE',
+      message: 'Your account is deactivated. Contact an administrator.',
+    });
+  });
+
+  it.each([
+    [
+      new NotFoundException('Cannot GET /api/v1/secret-admin'),
+      404,
+      'NOT_FOUND',
+    ],
+    [new BadRequestException(`duplicate entry ${EMAIL}`), 400, 'BAD_REQUEST'],
+    [
+      new ConflictException({ code: 'NOT_A_CODE', message: 'x' }),
+      409,
+      'CONFLICT',
+    ],
+    [new ForbiddenException(), 403, 'FORBIDDEN'],
+  ])(
+    'maps %s to the generic code of its status, without its text',
+    (exception, status, code) => {
+      const body = toErrorBody(exception);
+      expect(body).toEqual({
+        status,
+        code,
+        message: expect.any(String),
+      });
+      expect(JSON.stringify(body)).not.toMatch(
+        /Cannot GET|duplicate|NOT_A_CODE/,
+      );
+      expect(JSON.stringify(body)).not.toContain(EMAIL);
+    },
+  );
+
+  it('keeps fields only for VALIDATION_FAILED', () => {
+    const fields = [
+      { field: 'email', code: 'REQUIRED', message: 'This field is required.' },
+    ];
+    expect(
+      toErrorBody(
+        new BadRequestException({ code: 'VALIDATION_FAILED', fields }),
+      ),
+    ).toMatchObject({ code: 'VALIDATION_FAILED', fields });
+    expect(
+      toErrorBody(new BadRequestException({ code: 'BAD_REQUEST', fields })),
+    ).not.toHaveProperty('fields');
+  });
+
+  it.each([
+    ['entity.parse.failed', 400, 'MALFORMED_JSON'],
+    ['entity.too.large', 413, 'PAYLOAD_TOO_LARGE'],
+  ])('maps a body-parser %s error to %i %s', (type, status, code) => {
+    const parserError = Object.assign(
+      new SyntaxError(`Unexpected token in ${EMAIL}`),
+      {
+        type,
+        status,
+      },
+    );
+    expect(toErrorBody(parserError)).toMatchObject({ status, code });
+  });
+
+  it('adds retryAfter to a 429 from the throttler header', () => {
+    const headers: Record<string, string> = { 'retry-after-default': '42' };
+    const response = {
+      getHeaderNames: () => Object.keys(headers),
+      getHeader: (name: string) => headers[name],
+    };
+    expect(
+      toErrorBody(
+        new HttpException('ThrottlerException: Too Many Requests', 429),
+        response as never,
+      ),
+    ).toEqual({
+      status: 429,
+      code: 'TOO_MANY_REQUESTS',
+      message: 'Too many attempts. Wait a moment and try again.',
+      retryAfter: 42,
+    });
   });
 });

@@ -140,7 +140,7 @@ MySQL 8.0 via Drizzle (`server/src/database/drizzle/schema/`), one migration gen
 
 ## 6. API Design
 
-All under `/api/v1`. Error envelope `{ statusCode, error, message, details?, requestId }`.
+All under `/api/v1`. Error envelope `{ statusCode, error, message, details?, requestId }`. **Amended 2026-10-15 (server response standard, TRD § 6):** every response now uses `{ success, data | error, meta }`; the session shapes below travel in `data`, and errors carry a catalog `code` (e.g. `AUTH_USER_NOT_REGISTERED`, `AUTH_INVALID_CREDENTIALS`, `AUTH_SESSION_EXPIRED`) and a user-facing `message`.
 
 | Method | Path | Auth | Request | Success | Errors |
 |---|---|---|---|---|---|

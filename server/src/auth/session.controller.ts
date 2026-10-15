@@ -1,11 +1,11 @@
 import {
   ApiCookieAuth,
   ApiNoContentResponse,
-  ApiOkResponse,
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
-import { ApiErrorResponses, SESSION_COOKIE_SCHEME } from '../common/openapi.js';
+import { ApiErrorResponses, ApiOkEnvelope } from '../common/api-response.js';
+import { SESSION_COOKIE_SCHEME } from '../common/openapi.js';
 import {
   type CallHandler,
   Controller,
@@ -105,8 +105,24 @@ export class SessionController {
     description:
       'Call it on app start and on the first 401. Needs the `qa_rt`/`qa_ru` cookies and an `Origin` in `ALLOWED_ORIGINS`. Re-checks admission in the database. A 401/403/409 clears both cookies; a 503 keeps them.',
   })
-  @ApiOkResponse({ type: SessionResponse })
-  @ApiErrorResponses(401, 403, 409, 503)
+  @ApiOkEnvelope(SessionResponse)
+  @ApiErrorResponses({
+    401: [
+      'AUTH_SESSION_MISSING',
+      'AUTH_SESSION_EXPIRED',
+      'AUTH_TOKEN_INVALID',
+      'AUTH_LOGIN_INCOMPLETE',
+    ],
+    403: [
+      'AUTH_ORIGIN_NOT_ALLOWED',
+      'AUTH_USER_NOT_REGISTERED',
+      'AUTH_USER_INACTIVE',
+      'AUTH_NO_ACTIVE_ROLES',
+      'AUTH_EMAIL_NOT_VERIFIED',
+    ],
+    409: ['AUTH_EMAIL_CONFLICT', 'USERS_DUPLICATE_USER'],
+    503: ['AUTH_SERVICE_UNAVAILABLE'],
+  })
   @HttpCode(200)
   @Post('refresh')
   async refresh(
@@ -154,7 +170,7 @@ export class SessionController {
       'Needs an `Origin` in `ALLOWED_ORIGINS`. Works with or without an access token; a Cognito failure on revocation still answers 204.',
   })
   @ApiNoContentResponse({ description: 'Session ended, cookies cleared' })
-  @ApiErrorResponses(403)
+  @ApiErrorResponses({ 403: ['AUTH_ORIGIN_NOT_ALLOWED'] })
   @HttpCode(204)
   @Post('logout')
   async logout(

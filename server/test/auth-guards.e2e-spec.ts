@@ -270,7 +270,7 @@ describe('Global guards (e2e)', () => {
   describe('AuthGuard: public routes (FR-10)', () => {
     it('serves a @Public() route without a token', async () => {
       const res = await world.call('get', '/probe/public').expect(200);
-      expect(res.body).toEqual({ route: 'public' });
+      expect(res.body.data).toEqual({ route: 'public' });
       expect(handlerSpy).toHaveBeenCalledTimes(1);
     });
 
@@ -302,10 +302,16 @@ describe('Global guards (e2e)', () => {
       async (method, path) => {
         const res = await world.call(method, path).expect(401);
         expect(res.body).toEqual({
-          statusCode: 401,
-          error: 'Unauthorized',
-          message: expect.any(String),
-          requestId: expect.any(String),
+          success: false,
+          error: {
+            status: 401,
+            code: 'AUTH_TOKEN_INVALID',
+            message: 'Your session is not valid or has expired. Sign in again.',
+          },
+          meta: {
+            requestId: expect.any(String),
+            timestamp: expect.any(String),
+          },
         });
         expect(handlerSpy).not.toHaveBeenCalled();
       },
@@ -461,10 +467,16 @@ describe('Global guards (e2e)', () => {
       ] as Array<[Method, string]>) {
         const res = await world.call(method, path, token).expect(403);
         expect(res.body).toEqual({
-          statusCode: 403,
-          error: 'Forbidden',
-          message: expect.any(String),
-          requestId: expect.any(String),
+          success: false,
+          error: {
+            status: 403,
+            code: 'AUTH_PERMISSION_DENIED',
+            message: 'You do not have permission to do this.',
+          },
+          meta: {
+            requestId: expect.any(String),
+            timestamp: expect.any(String),
+          },
         });
       }
       expect(handlerSpy).not.toHaveBeenCalled();
@@ -493,7 +505,7 @@ describe('Global guards (e2e)', () => {
       const res = await world
         .call('get', '/probe/admin', world.bearer(sub(admin)))
         .expect(200);
-      expect(res.body).toEqual({ route: 'admin' });
+      expect(res.body.data).toEqual({ route: 'admin' });
       expect(handlerSpy).toHaveBeenCalledTimes(1);
     });
 
@@ -609,7 +621,7 @@ describe('Global guards (e2e)', () => {
       const res = await world
         .call('get', '/auth/me', world.bearer(sub(guest)))
         .expect(200);
-      expect(res.body).toEqual({
+      expect(res.body.data).toEqual({
         id: guest.id,
         email: guest.email,
         firstName: 'Ada',
@@ -642,9 +654,9 @@ describe('Global guards (e2e)', () => {
         .call('get', '/auth/me', world.bearer(sub(user)))
         .expect(200);
 
-      expect(res.body.authSource).toBe('custom');
-      expect(res.body.assignments).toHaveLength(3);
-      expect(res.body.assignments).toEqual(
+      expect(res.body.data.authSource).toBe('custom');
+      expect(res.body.data.assignments).toHaveLength(3);
+      expect(res.body.data.assignments).toEqual(
         expect.arrayContaining([
           { role: 'ADMIN' },
           { role: 'LEAD_ASSESSOR', resultTypeKey: 'KP' },
@@ -658,7 +670,7 @@ describe('Global guards (e2e)', () => {
       const res = await world
         .call('get', '/auth/me', world.bearer(sub(user)))
         .expect(200);
-      expect(Object.keys(res.body).sort()).toEqual([
+      expect(Object.keys(res.body.data).sort()).toEqual([
         'assignments',
         'authSource',
         'email',

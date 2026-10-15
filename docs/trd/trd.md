@@ -195,7 +195,8 @@ GSI candidates (decided in the ingestion spec): runs by status; snapshots by bat
 
 - REST, JSON, prefix `/api`, URI versioning `/api/v1/...`.
 - Every route authenticated by default; public routes opt out explicitly (`GET /api/v1/health`, login, complete-new-password, provider-url, callback, session refresh and logout).
-- Errors use one envelope: `{ statusCode, error, message, details?, requestId }`.
+- **Response standard (every endpoint):** success `{ success: true, data, meta }`; error `{ success: false, error: { status, code, message, fields?, retryAfter? }, meta }`; `meta = { requestId, timestamp }` (the request id is also the `x-request-id` header; pagination will add `meta.page`). A 204 has no body.
+- Error `code` comes from one closed catalog (`server/src/common/error-codes.ts`) with its status and a user-facing English message; the front branches on `code` and may show `message` as is. Only catalog text reaches the client: never an exception's own message, a validation or database text, or an upstream body. Validation errors list `fields: [{ field, code, message }]` in our words (`REQUIRED`, `INVALID_TYPE`, `INVALID_EMAIL`, `TOO_LONG`, `UNKNOWN_FIELD`, `INVALID`). A failed login never says whether the email exists.
 - Pagination: cursor-based (`?cursor=&limit=`) for lists that can grow (results, history).
 - Contract types are owned by `server/` DTOs; the front mirrors them until a shared package exists (ADR-007).
 
@@ -264,7 +265,7 @@ Predictions are generated per snapshot and AI-input field (async after ingestion
 
 ## 11. Error Handling & Observability
 
-- Domain errors as typed exceptions mapped by one global exception filter to the error envelope; unknown errors → 500 without internals.
+- Domain errors as typed exceptions that declare a catalog code, mapped by one global exception filter to the response standard (§ 6); any other error → its status's generic code (5xx → `INTERNAL_ERROR`) without internals.
 - Async jobs (ingestion, sync, AI, Reporting notify) never swallow errors: status on the run record + structured log.
 - Structured JSON logs with `requestId`, `userId`, `runId`; health endpoint for the host's checks.
 - Graceful shutdown closes the MySQL pool and DynamoDB client (already wired in `server/`).

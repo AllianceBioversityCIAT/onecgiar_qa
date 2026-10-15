@@ -1,5 +1,6 @@
 import { createHmac } from 'node:crypto';
 import {
+  BadRequestException,
   Inject,
   Injectable,
   Logger,
@@ -7,6 +8,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
+import { errorBody } from '../common/error-codes.js';
 import { authConfig } from '../config/auth.config.js';
 
 /** Timeout for every Cognito call (NFR-6). */
@@ -18,17 +20,35 @@ export const SSO_PROVIDER = 'CGIAR-AzureAD';
 /** Hosted UI scopes. `profile` is not allowed on the app client (P-18). */
 export const SSO_SCOPES = 'openid email';
 
-/** 4xx, a refused challenge or missing tokens: 401 with no detail on why (FR-4, FR-13). */
+/** What a Cognito refusal means, per operation (response standard codes). */
+export type RefusalCode =
+  | 'AUTH_INVALID_CREDENTIALS'
+  | 'AUTH_CHALLENGE_EXPIRED'
+  | 'AUTH_SSO_CODE_INVALID'
+  | 'AUTH_SESSION_EXPIRED';
+
+/**
+ * 4xx, a refused challenge or missing tokens: 401 with no detail on why (FR-4,
+ * FR-13). The code says which step was refused; for a login it never tells
+ * whether the email exists.
+ */
 export class InvalidCredentialsError extends UnauthorizedException {
+  constructor(readonly code: RefusalCode = 'AUTH_INVALID_CREDENTIALS') {
+    super(errorBody(code));
+  }
+}
+
+/** The new password breaks the pool's password policy (`InvalidPasswordException`): 400. */
+export class PasswordPolicyError extends BadRequestException {
   constructor() {
-    super('Invalid credentials');
+    super(errorBody('AUTH_PASSWORD_POLICY'));
   }
 }
 
 /** Timeout, 5xx, throttling or network failure: 503 (NFR-6). */
 export class UpstreamUnavailableError extends ServiceUnavailableException {
   constructor() {
-    super('Authentication service unavailable');
+    super(errorBody('AUTH_SERVICE_UNAVAILABLE'));
   }
 }
 
@@ -99,7 +119,8 @@ export class CognitoAuthClient {
 
   /** `InitiateAuth USER_PASSWORD_AUTH`; the username is the email. */
   async loginCustom(email: string, password: string): Promise<LoginResult> {
-    const body = await this.idp('InitiateAuth', {
+    const refusal = 'AUTH_INVALID_CREDENTIALS';
+    const body = await this.idp(refusal, 'InitiateAuth', {
       AuthFlow: 'USER_PASSWORD_AUTH',
       ClientId: this.config.cognito.clientId,
       AuthParameters: {
@@ -115,7 +136,10 @@ export class CognitoAuthClient {
         session: body.Session,
       };
     }
-    return { kind: 'tokens', tokens: this.tokens(body, 'InitiateAuth') };
+    return {
+      kind: 'tokens',
+      tokens: this.tokens(body, 'InitiateAuth', refusal),
+    };
   }
 
   /** `RespondToAuthChallenge NEW_PASSWORD_REQUIRED`. */
@@ -124,7 +148,8 @@ export class CognitoAuthClient {
     newPassword: string,
     session: string,
   ): Promise<CognitoTokens> {
-    const body = await this.idp('RespondToAuthChallenge', {
+    const refusal = 'AUTH_CHALLENGE_EXPIRED';
+    const body = await this.idp(refusal, 'RespondToAuthChallenge', {
       ChallengeName: 'NEW_PASSWORD_REQUIRED',
       ClientId: this.config.cognito.clientId,
       Session: session,
@@ -134,7 +159,7 @@ export class CognitoAuthClient {
         SECRET_HASH: this.secretHash(username),
       },
     });
-    return this.tokens(body, 'RespondToAuthChallenge');
+    return this.tokens(body, 'RespondToAuthChallenge', refusal);
   }
 
   /** The Hosted UI authorize URL for the SSO provider. Built locally; no call. */
@@ -154,7 +179,9 @@ export class CognitoAuthClient {
     redirectUri: string,
   ): Promise<CognitoTokens> {
     const { clientId, clientSecret } = this.config.cognito;
+    const refusal = 'AUTH_SSO_CODE_INVALID';
     const body = await this.send(
+      refusal,
       'oauth2/token',
       `${this.hostedUi()}/oauth2/token`,
       {
@@ -177,7 +204,7 @@ export class CognitoAuthClient {
       !isStr(body.refresh_token)
     ) {
       this.logger.warn('upstream_bad_body op=oauth2/token');
-      throw new InvalidCredentialsError();
+      throw new InvalidCredentialsError(refusal);
     }
     return {
       accessToken: body.access_token,
@@ -195,7 +222,8 @@ export class CognitoAuthClient {
     refreshToken: string,
     username: string,
   ): Promise<RefreshResult> {
-    const body = await this.idp('InitiateAuth', {
+    const refusal = 'AUTH_SESSION_EXPIRED';
+    const body = await this.idp(refusal, 'InitiateAuth', {
       AuthFlow: 'REFRESH_TOKEN_AUTH',
       ClientId: this.config.cognito.clientId,
       AuthParameters: {
@@ -210,7 +238,7 @@ export class CognitoAuthClient {
       !isStr(result.IdToken)
     ) {
       this.logger.warn('upstream_bad_body op=InitiateAuth');
-      throw new InvalidCredentialsError();
+      throw new InvalidCredentialsError(refusal);
     }
     return {
       accessToken: result.AccessToken,
@@ -224,7 +252,7 @@ export class CognitoAuthClient {
   /** `RevokeToken`: the refresh token (and the tokens it issued) stop working. */
   async revoke(refreshToken: string): Promise<void> {
     const { clientId, clientSecret } = this.config.cognito;
-    await this.idp('RevokeToken', {
+    await this.idp('AUTH_SESSION_EXPIRED', 'RevokeToken', {
       Token: refreshToken,
       ClientId: clientId,
       ClientSecret: clientSecret,
@@ -243,7 +271,7 @@ export class CognitoAuthClient {
   }
 
   /** Tokens from an `AuthenticationResult`; anything else (another challenge) is a 401. */
-  private tokens(body: Json, op: string): CognitoTokens {
+  private tokens(body: Json, op: string, refusal: RefusalCode): CognitoTokens {
     const r = body.AuthenticationResult;
     if (
       isObject(r) &&
@@ -260,11 +288,11 @@ export class CognitoAuthClient {
     this.logger.warn(
       `upstream_refused op=${op} reason=${isStr(body.ChallengeName) ? `challenge_${safeName(body.ChallengeName)}` : 'no_tokens'}`,
     );
-    throw new InvalidCredentialsError();
+    throw new InvalidCredentialsError(refusal);
   }
 
-  private idp(op: string, payload: Json): Promise<Json> {
-    return this.send(op, this.config.cognito.userPoolUrl, {
+  private idp(refusal: RefusalCode, op: string, payload: Json): Promise<Json> {
+    return this.send(refusal, op, this.config.cognito.userPoolUrl, {
       method: 'POST',
       headers: {
         'content-type': 'application/x-amz-json-1.1',
@@ -274,7 +302,9 @@ export class CognitoAuthClient {
     });
   }
 
+  /** One call; a refusal becomes `InvalidCredentialsError(refusal)`. */
   private async send(
+    refusal: RefusalCode,
     op: string,
     url: string,
     init: RequestInit,
@@ -302,16 +332,19 @@ export class CognitoAuthClient {
         this.logger.warn(
           `upstream_refused op=${op} status=${res.status} type=${type}`,
         );
-        throw new InvalidCredentialsError();
+        if (type === 'InvalidPasswordException')
+          throw new PasswordPolicyError();
+        throw new InvalidCredentialsError(refusal);
       }
       if (!isObject(body)) {
         this.logger.warn(`upstream_bad_body op=${op}`);
-        throw new InvalidCredentialsError();
+        throw new InvalidCredentialsError(refusal);
       }
       return body;
     } catch (err) {
       if (
         err instanceof InvalidCredentialsError ||
+        err instanceof PasswordPolicyError ||
         err instanceof UpstreamUnavailableError
       ) {
         throw err;
