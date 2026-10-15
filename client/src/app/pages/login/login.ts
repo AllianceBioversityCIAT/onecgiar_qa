@@ -1,4 +1,4 @@
-import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, afterNextRender, computed, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import {
   FieldTree,
@@ -65,8 +65,14 @@ export class LoginPage {
   protected readonly cooldown = signal(0);
   /** Between a successful sign-in and the end of the navigation the form stays locked. */
   private readonly navigating = signal(false);
+  /**
+   * False until Angular runs in the browser. The login page is prerendered: a click before
+   * hydration would submit the form natively (GET) and put the password in the URL. With the
+   * submit button disabled, neither a click nor Enter can submit it.
+   */
+  protected readonly interactive = signal(false);
   protected readonly locked = computed(
-    () => this.busy() || this.navigating() || this.cooldown() > 0,
+    () => !this.interactive() || this.busy() || this.navigating() || this.cooldown() > 0,
   );
   /** The startup refresh could not reach the service (not "no session"). */
   protected readonly serviceProblem = this.session.startupError;
@@ -98,6 +104,7 @@ export class LoginPage {
   private cooldownTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
+    afterNextRender(() => this.interactive.set(true));
     inject(DestroyRef).onDestroy(() => this.stopCooldown());
   }
 
