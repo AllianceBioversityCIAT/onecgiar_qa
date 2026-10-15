@@ -215,7 +215,13 @@
             </button>
           </form>
         } @else {
-          <form class="mt-7 grid gap-5" novalidate (submit)="onSubmit($event)">
+          <form
+            class="mt-7 grid gap-5"
+            method="post"
+            action="/login"
+            novalidate
+            (submit)="onSubmit($event)"
+          >
             <div hlmField class="data-[matches-spartan-invalid=true]:text-[var(--qa-on-dark)]">
               <label hlmFieldLabel for="email" class="text-[var(--qa-on-dark)]">Email</label>
               <input
