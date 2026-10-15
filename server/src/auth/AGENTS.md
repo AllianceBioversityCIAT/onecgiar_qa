@@ -34,6 +34,7 @@ Identity and session: QA talks to **Cognito directly** with its own app client, 
 - **Cognito errors:** the client maps 4xx → `InvalidCredentialsError` (401, no hint whether the email exists), throttling/5xx/timeout/network → `UpstreamUnavailableError` (503). Keep that mapping in the client, not in controllers.
 - **Admission:** decisions that depend on concurrent writes come only from the conditional `UPDATE … WHERE cognito_sub IS NULL` or `SELECT … FOR UPDATE`, never a plain read (DD-10). Lock order everywhere: `users` → `role_assignments` → `roles`. After commit, call `CurrentUserCache.invalidate(user.id)`.
 - **Secrets:** `COGNITO_CLIENT_SECRET` is read only in `src/config/auth.config.ts`. Do not add another reader, a fallback literal, or a log of it — `no-qa-tokens.spec.ts` fails if you do. QA never signs tokens.
+- **OpenAPI:** public auth routes carry no security scheme; `/auth/session/*` carry `session-cookie`; anything authenticated carries `access-token`. Keep summaries and documented status codes in step with § 6 of the design.
 - **Known gap:** the SSO authorize URL has no `state`/PKCE yet. It must be added (FR-6/FR-7 amendment + front) before SSO goes live.
 
 ## Testing

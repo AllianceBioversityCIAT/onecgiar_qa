@@ -1,3 +1,12 @@
+import {
+  ApiBearerAuth,
+  ApiOkResponse,
+  ApiOperation,
+  ApiProperty,
+  ApiPropertyOptional,
+  ApiTags,
+} from '@nestjs/swagger';
+import { ACCESS_TOKEN_SCHEME, ApiErrorResponses } from '../common/openapi.js';
 import { Controller, Get } from '@nestjs/common';
 import {
   type AuthenticatedUser,
@@ -7,20 +16,47 @@ import type { AuthSource } from '../database/drizzle/schema/users.js';
 import { CurrentUser } from './decorators/current-user.decorator.js';
 import { ReadAccess } from './decorators/read-access.decorator.js';
 
-export interface ProfileAssignment {
-  role: string;
+export class ProfileAssignment {
+  @ApiProperty({ type: String, example: 'ASSESSOR', description: 'Role code' })
+  role!: string;
+
+  @ApiPropertyOptional({
+    type: String,
+    example: 'innovation_development',
+    description: 'Set for result-type-scoped roles',
+  })
   resultTypeKey?: string;
+
+  @ApiPropertyOptional({
+    type: Number,
+    example: 12,
+    description: 'Set for program-scoped roles',
+  })
   programId?: number;
 }
 
 /** The `user` shape of the API (design section 6). */
-export interface UserProfile {
-  id: number;
-  email: string;
-  firstName: string | null;
-  lastName: string | null;
-  authSource: AuthSource;
-  assignments: ProfileAssignment[];
+export class UserProfile {
+  @ApiProperty({ type: Number, example: 1 })
+  id!: number;
+
+  @ApiProperty({ type: String, example: 'ada@cgiar.org' })
+  email!: string;
+
+  @ApiProperty({ type: String, nullable: true, example: 'Ada' })
+  firstName!: string | null;
+
+  @ApiProperty({ type: String, nullable: true, example: 'Lovelace' })
+  lastName!: string | null;
+
+  @ApiProperty({ type: String, enum: ['sso', 'custom'], example: 'sso' })
+  authSource!: AuthSource;
+
+  @ApiProperty({
+    type: [ProfileAssignment],
+    description: 'Active assignments only; empty for a GUEST',
+  })
+  assignments!: ProfileAssignment[];
 }
 
 export function toUserProfile(user: AuthenticatedUser): UserProfile {
@@ -45,8 +81,16 @@ export function toUserProfile(user: AuthenticatedUser): UserProfile {
 }
 
 /** FR-15: the authenticated user's profile and active assignments, GUEST included. */
+@ApiTags('auth')
+@ApiBearerAuth(ACCESS_TOKEN_SCHEME)
 @Controller('auth')
 export class MeController {
+  @ApiOperation({
+    summary: 'The authenticated user and their active role assignments',
+    description: 'Any authenticated user, GUEST included.',
+  })
+  @ApiOkResponse({ type: UserProfile })
+  @ApiErrorResponses(401)
   @ReadAccess()
   @Get('me')
   me(@CurrentUser() user: AuthenticatedUser): UserProfile {

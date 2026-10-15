@@ -19,6 +19,7 @@ pnpm exec vitest run --config ./vitest.config.e2e.ts test/auth-session.e2e-spec.
 | `auth-login.e2e-spec.ts` | Login, new password, provider URL, callback: cookies, refusals, validation, JSON-only (415), throttling (429), logs without secrets |
 | `auth-session.e2e-spec.ts` | Session refresh and logout: Origin check, cookie clearing rules, admission re-check from the DB, revocation |
 | `auth-hardening.e2e-spec.ts` | Route inventory vs FR-10 public list, NFR-5 guard latency, NFR-6 Cognito timeout/5xx → 503 |
+| `openapi.e2e-spec.ts` | The OpenAPI document matches the router route for route; security scheme per route (public / bearer / session cookie); summaries, 2xx/4xx and 401 documented; request and response schemas; Swagger UI served only when set up |
 | `support/in-memory-stores.ts` | Fake `UsersStore` / `RoleAssignmentsStore` that emulate unique keys and `active_key`; `writes` counter |
 | `support/jwt-test-keys.ts` | Local RS256 key pair, `signJwt`, `localJwksCache` — real tokens for the real verifier, no network |
 

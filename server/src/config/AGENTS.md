@@ -9,6 +9,7 @@ Environment validation and typed configuration. This is the **only** place in th
 | `env.validation.ts` | `validateEnv` (wired in `AppModule` via `ConfigModule.forRoot({ validate })`): the app refuses to start naming every missing required variable; `parseAllowedOrigins`; https checks |
 | `auth.config.ts` | `authConfig` namespace: Cognito region, pool id, client id, client secret, Hosted UI URL, user-pool API URL (defaults to `https://cognito-idp.<region>.amazonaws.com/`), parsed `allowedOrigins` |
 | `mysql.config.ts` | `mysqlConfig`: `DATABASE_URL`, `DATABASE_POOL_SIZE` (default 10) |
+| `openapi.config.ts` | `openApiConfig`: `enabled` — `OPENAPI_ENABLED` if set, else on unless `NODE_ENV=production` |
 | `dynamodb.config.ts` | `dynamoDbConfig`: `AWS_REGION`, `DYNAMODB_TABLE_NAME`, optional `DYNAMODB_ENDPOINT` |
 
 ## Variables
@@ -23,6 +24,7 @@ Environment validation and typed configuration. This is the **only** place in th
 | `COGNITO_URL` | yes | Hosted UI domain, `https://` only |
 | `COGNITO_USER_POOL_URL` | no | user-pool API endpoint override, `https://` only |
 | `ALLOWED_ORIGINS` | yes | comma-separated exact origins; `https://` only, except `http://localhost:<port>`; no path or trailing slash |
+| `OPENAPI_ENABLED` | no | `true` / `false`; default on unless `NODE_ENV=production` (Swagger UI at `/api/v1/docs`) |
 | `SEED_ADMIN_EMAIL` | no | first ADMIN for `pnpm db:seed` |
 | `PORT` | no | default 3000 |
 

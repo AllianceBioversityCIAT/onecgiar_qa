@@ -6,6 +6,7 @@ import { AuthGuard } from './auth/guards/auth.guard.js';
 import { AuthModule } from './auth/auth.module.js';
 import { PermissionGuard } from './auth/guards/permission.guard.js';
 import { authConfig } from './config/auth.config.js';
+import { openApiConfig } from './config/openapi.config.js';
 import { validateEnv } from './config/env.validation.js';
 import { DrizzleModule } from './database/drizzle/drizzle.module.js';
 import { DynamoDbModule } from './database/dynamodb/dynamodb.module.js';
@@ -19,6 +20,7 @@ import { UsersModule } from './users/users.module.js';
       validate: validateEnv,
     }),
     ConfigModule.forFeature(authConfig),
+    ConfigModule.forFeature(openApiConfig),
     DrizzleModule,
     DynamoDbModule,
     UsersModule,

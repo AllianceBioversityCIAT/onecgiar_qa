@@ -1,3 +1,4 @@
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   type ArgumentsHost,
   Catch,
@@ -13,12 +14,31 @@ import {
   type RequestWithId,
 } from './request-id.js';
 
-export interface ErrorEnvelope {
-  statusCode: number;
-  error: string;
-  message: string;
+/** The body of every error response (TRD § 6). A class so OpenAPI can describe it. */
+export class ErrorEnvelope {
+  @ApiProperty({ type: Number, example: 401 })
+  statusCode!: number;
+
+  @ApiProperty({ type: String, example: 'Unauthorized' })
+  error!: string;
+
+  @ApiProperty({ type: String, example: 'Invalid credentials' })
+  message!: string;
+
+  @ApiPropertyOptional({
+    type: 'object',
+    additionalProperties: true,
+    description:
+      'Validation detail (e.g. the list of invalid fields), when any',
+  })
   details?: unknown;
-  requestId: string;
+
+  @ApiProperty({
+    type: String,
+    description: 'Request id, also echoed in the `x-request-id` header',
+    example: '3f2c1d1e-6a7b-4c8d-9e0f-1a2b3c4d5e6f',
+  })
+  requestId!: string;
 }
 
 const STATUS_TEXT: Record<number, string> = Object.fromEntries(
@@ -172,7 +192,11 @@ export class HttpExceptionFilter implements ExceptionFilter {
       return { statusCode, error, message: body, requestId };
     }
 
-    const { message, error: bodyError, details } = body as {
+    const {
+      message,
+      error: bodyError,
+      details,
+    } = body as {
       message?: string | string[];
       error?: string;
       details?: unknown;

@@ -6,6 +6,10 @@ import { TextField, URI_MAX_LENGTH } from './auth-fields.js';
  * `ALLOWED_ORIGINS` by the controller.
  */
 export class ProviderUrlQuery {
-  @TextField(URI_MAX_LENGTH)
+  @TextField(URI_MAX_LENGTH, {
+    description:
+      'Where the Hosted UI returns with `?code=`; must start with an allowed origin and be registered on the app client',
+    example: 'http://localhost:4200/auth/callback',
+  })
   redirectUri!: string;
 }
