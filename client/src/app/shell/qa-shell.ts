@@ -3,8 +3,9 @@ import { Component, computed, inject, linkedSignal, signal } from '@angular/core
 import { toSignal } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { filter, map } from 'rxjs';
-import { LOGIN_PATH } from '../auth/auth-guards';
-import { AuthSession } from '../auth/auth-session';
+import { AccessControl } from '../core/access/access-control';
+import { Permission } from '../core/access/role-definitions';
+import { AuthSession } from '../core/auth/auth-session';
 import { QaTokensLoader } from '../ui';
 
 interface NavItem {
@@ -12,17 +13,49 @@ interface NavItem {
   readonly link: string;
   readonly exact: boolean;
   readonly icon: string;
+  /** Same permission as the route guard in `app.routes.ts`: an entry never shows for a refused page. */
+  readonly permission: Permission;
 }
 
 const ASSESSMENT: readonly NavItem[] = [
-  { label: 'Overview', link: '/', exact: true, icon: 'M3 3h7v9H3zM14 3h7v5h-7zM14 12h7v9h-7zM3 16h7v5H3z' },
-  { label: 'Results', link: '/results', exact: false, icon: 'M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6M8 13h8M8 17h5' },
+  {
+    label: 'Overview',
+    link: '/',
+    exact: true,
+    permission: Permission.READ,
+    icon: 'M3 3h7v9H3zM14 3h7v5h-7zM14 12h7v9h-7zM3 16h7v5H3z',
+  },
+  {
+    label: 'Results',
+    link: '/results',
+    exact: false,
+    permission: Permission.READ,
+    icon: 'M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6M8 13h8M8 17h5',
+  },
 ];
 
 const ADMINISTRATION: readonly NavItem[] = [
-  { label: 'Cycle', link: '/cycle', exact: false, icon: 'M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z' },
-  { label: 'Fields', link: '/fields', exact: false, icon: 'M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6' },
-  { label: 'Assessors', link: '/assessors', exact: false, icon: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75' },
+  {
+    label: 'Cycle',
+    link: '/cycle',
+    exact: false,
+    permission: Permission.ADMIN_ACCESS,
+    icon: 'M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z',
+  },
+  {
+    label: 'Fields',
+    link: '/fields',
+    exact: false,
+    permission: Permission.ADMIN_ACCESS,
+    icon: 'M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6',
+  },
+  {
+    label: 'Assessors',
+    link: '/assessors',
+    exact: false,
+    permission: Permission.ADMIN_ACCESS,
+    icon: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75',
+  },
 ];
 
 /**
@@ -44,11 +77,16 @@ export class QaShell {
   /** Registers the global stylesheet behind the host class qa-tokens (colors, font). */
   private readonly tokens = inject(QaTokensLoader);
   private readonly session = inject(AuthSession);
+  private readonly access = inject(AccessControl);
   private readonly router = inject(Router);
   private readonly location = inject(Location);
 
-  protected readonly assessment = ASSESSMENT;
-  protected readonly administration = ADMINISTRATION;
+  protected readonly assessment = computed(() =>
+    ASSESSMENT.filter((i) => this.access.canAny(i.permission)),
+  );
+  protected readonly administration = computed(() =>
+    ADMINISTRATION.filter((i) => this.access.canAny(i.permission)),
+  );
 
   private readonly url = toSignal(
     this.router.events.pipe(
@@ -90,7 +128,7 @@ export class QaShell {
 
   protected signOut(): void {
     this.closeOverlays();
-    this.session.signOut();
-    void this.router.navigateByUrl(LOGIN_PATH);
+    // Server logout + local clear + navigation to login (core/auth/auth-session.ts).
+    void this.session.signOut();
   }
 }

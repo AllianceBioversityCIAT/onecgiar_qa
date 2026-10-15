@@ -68,14 +68,16 @@
 
     <div class="px-1 py-2 text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--nav-eyebrow) uppercase" [class.lg:sr-only]="collapsed()">Assessment</div>
     <div class="flex flex-col gap-0.5">
-      <ng-container *ngTemplateOutlet="navLinks; context: { $implicit: assessment }" />
+      <ng-container *ngTemplateOutlet="navLinks; context: { $implicit: assessment() }" />
     </div>
 
+    @if (administration().length) {
     <div class="mx-1 mt-5 h-px bg-(--nav-divider)"></div>
     <div class="px-1 pt-4 pb-2 text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--nav-eyebrow) uppercase" [class.lg:sr-only]="collapsed()">Administration</div>
     <div class="flex flex-col gap-0.5">
-      <ng-container *ngTemplateOutlet="navLinks; context: { $implicit: administration }" />
+      <ng-container *ngTemplateOutlet="navLinks; context: { $implicit: administration() }" />
     </div>
+    }
   </nav>
 </aside>
 
