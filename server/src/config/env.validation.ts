@@ -77,6 +77,18 @@ export function validateEnv(
   ) {
     throw new Error('Invalid OPENAPI_ENABLED: expected "true" or "false"');
   }
+  // DynamoDB keys: both or neither (local development only).
+  const dynamoKeys = [
+    'DYNAMODB_ACCESS_KEY_ID',
+    'DYNAMODB_SECRET_ACCESS_KEY',
+  ] as const;
+  const present = dynamoKeys.filter((key) => !!config[key]);
+  if (present.length === 1) {
+    const absent = dynamoKeys.find((key) => !config[key]);
+    throw new Error(
+      `Missing ${absent}: DYNAMODB_ACCESS_KEY_ID and DYNAMODB_SECRET_ACCESS_KEY go together`,
+    );
+  }
   // Passwords, SECRET_HASH and the client secret travel to these (FR-18).
   for (const key of ['COGNITO_URL', 'COGNITO_USER_POOL_URL'] as const) {
     const value = config[key];
