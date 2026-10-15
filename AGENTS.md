@@ -73,9 +73,16 @@ A green run should print one summary line; failures always print in full.
 
 ## Module Guides
 
-Root rules always apply; a child guide only adds or narrows.
+Root rules always apply; a child guide only adds or narrows. Guides follow the [AGENTS.md](https://github.com/agentsmd/agents.md) convention: the guide closest to the edited file adds to the ones above it, and an explicit user instruction wins.
 
 - `client/CLAUDE.md` — Angular/TypeScript conventions and accessibility rules for the front.
+- `server/AGENTS.md` — NestJS API: layout, commands, code conventions, security rules.
+  - `server/src/auth/AGENTS.md` — Cognito client, token verification, admission, session cookies, guards and decorators.
+  - `server/src/users/AGENTS.md` — users, roles, role assignments, permission catalog, `can()`, current-user cache.
+  - `server/src/database/AGENTS.md` — Drizzle/MySQL and DynamoDB wiring, schema guarantees, migrations and seeds.
+  - `server/src/config/AGENTS.md` — environment variables, validation, typed config, secrets.
+  - `server/src/common/AGENTS.md` — HTTP bootstrap (`configureApp`), error envelope, request id.
+  - `server/test/AGENTS.md` — e2e suites, test world, fakes and test rules.
 
 ## CodeGraph
 

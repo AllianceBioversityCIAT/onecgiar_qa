@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Status | Draft v0.1 |
-| Last updated | 2026-10-13 |
+| Last updated | 2026-10-15 |
 | Inputs | `docs/prd.md` (business drivers), `docs/ux-ui/design.md`, current repo (`client/`, `server/`) |
 | Tier | **LITE** — modular monolith ([ADR-001](#adr-001--modular-monolith-lite-tier)) with one evidenced escalation: polyglot persistence ([ADR-002](#adr-002--mysql-for-workflow-state-dynamodb-for-snapshots)) |
 
@@ -19,7 +19,7 @@
 | Back | `server/` | NestJS 12 (ESM), TypeScript 6 strict, `@nestjs/config`, Drizzle ORM + `mysql2`, ElectroDB + `@aws-sdk/client-dynamodb`, Vitest + Supertest, oxlint, Prettier — **pnpm** |
 | Relational DB | — | MySQL 8.0 (dev: shared `qadb` on the internal network) |
 | NoSQL | — | DynamoDB, single table `cgiar-qa-{env}`, us-east-1 |
-| Identity | — | AWS Cognito, via the CGIAR auth microservice |
+| Identity | — | AWS Cognito (user pool + Hosted UI), called directly with QA's own app client |
 | Upstream | — | Reporting Tool (PRMS) QA API |
 
 Repository: monorepo, two independent packages (no root workspace). Each package keeps its own package manager.
@@ -35,15 +35,11 @@ flowchart LR
   end
   QA[[OneCGIAR QA]]
   RT[(Reporting Tool PRMS<br/>QA API)]
-  AUTH[CGIAR auth microservice]
-  COG[(AWS Cognito)]
-  CLA[CLARISA]
+  COG[(AWS Cognito<br/>user pool + Hosted UI)]
   AI[(LLM provider<br/>TBD)]
   A -->|HTTPS browser| QA
   QA -->|catalog, results, control lists, QA passed| RT
-  QA -->|login, refresh| AUTH
-  AUTH --> COG
-  AUTH -->|client secret| CLA
+  QA -->|login, SSO code exchange, refresh, revoke| COG
   QA -->|JWKS| COG
   QA -->|suggestions| AI
 ```
@@ -59,7 +55,7 @@ flowchart LR
   API --> MY[(MySQL 8<br/>Drizzle)]
   API --> DY[(DynamoDB cgiar-qa-env<br/>ElectroDB)]
   API --> RT[(Reporting QA API)]
-  API --> AUTH[auth microservice]
+  API --> COG[(Cognito<br/>user pool + Hosted UI)]
   API --> AI[(LLM provider)]
 ```
 
@@ -97,7 +93,9 @@ Legend: rectangles = deployable containers owned by this repo · cylinders = dat
 - **Implications:** no cross-store transactions. MySQL rows reference snapshots by `snapshot_id` (ULID) + hash; a snapshot is written **before** the MySQL row that points to it, so a dangling reference cannot occur (an orphan snapshot is harmless).
 
 #### ADR-003 — Cognito-native auth
-- **Decision:** login and refresh go through the CGIAR auth microservice (it holds the client secret via CLARISA). The API verifies the Cognito **access token** locally against the pool's JWKS on every request (signature, `iss`, `exp`, `token_use=access`, `client_id`). Access token lives in front memory; refresh token in an httpOnly, Secure, `SameSite=Lax` cookie on the API subdomain (front and API are same-site: `qa.cgiar.org` / `api.qa.cgiar.org`, `qatest.ciat.cgiar.org` / `qatest-serv.ciat.cgiar.org`).
+- **Decision:** login, new-password, SSO code exchange, refresh and logout revocation go **directly to Cognito** with QA's own app client (user-pool API + Hosted UI). QA holds the app client secret only as the env var `COGNITO_CLIENT_SECRET` (never in code or logs). The API verifies the Cognito **access token** locally against the pool's JWKS on every request (signature, `iss`, `exp`, `token_use=access`, `client_id`). Access token lives in front memory; the refresh token lives in the httpOnly, Secure, `SameSite=Lax` cookie `qa_rt`, plus `qa_ru` (`cognito:username`, needed for `SECRET_HASH` on refresh), both on `Path=/api/v1/auth/session` of the API subdomain (front and API are same-site: `qa.cgiar.org` / `api.qa.cgiar.org`, `qatest.ciat.cgiar.org` / `qatest-serv.ciat.cgiar.org`).
+- **Supersedes** the earlier decision "login and refresh through the CGIAR auth microservice" (2026-10-14, spec `auth/cognito-native-session` DD-11). Reason: the microservice used different app clients for custom login and for refresh, so a custom refresh token could never refresh; its SSO tokens also carried a different `aud` than custom tokens.
+- **Issuer formats:** two Cognito URLs are in play and must not be mixed. The JWT `iss` is `https://cognito-idp.<region>.amazonaws.com/<poolId>` (what the verifier checks). The Hosted UI domain `https://<domain>.auth.<region>.amazoncognito.com` (`COGNITO_URL`) is used for `/oauth2/authorize` and `/oauth2/token`, never as issuer.
 - **Alternatives:** QA-issued tokens (today's model) — rejected (P4). Calling Cognito per request — rejected for latency.
 - **Implications:** roles are QA data (MySQL), not Cognito groups; the token gives identity only. CORS allow-list per environment with credentials.
 
@@ -146,8 +144,8 @@ One NestJS module per row under `server/src/<module>/`; spec folders under `docs
 
 | Module | Responsibility | Owns (store) | Depends on |
 |---|---|---|---|
-| `auth` | Token verification guard, current user, login/refresh proxy to the auth microservice, cookie handling | — | users |
-| `users` | Users, role grants with scope (result type / program) | MySQL | — |
+| `auth` | Token verification guard, current user, Cognito client (login, new-password, SSO code exchange, refresh, revoke), session cookies, Origin check | — | users |
+| `users` | Users, roles and role assignments with scope (result type / program) | MySQL | — |
 | `admin-config` | Cycles, windows, batches, field configuration per result type and catalog version | MySQL | reporting |
 | `reporting` | Anti-corruption client for the Reporting QA API (catalog, results, control lists, QA passed) | — | — |
 | `ingestion` | Ingestion runs, validation against catalog, snapshot writing, sync | DynamoDB (`Snapshot`, `IngestionRun`), MySQL (`results`) | reporting, admin-config |
@@ -170,8 +168,9 @@ Patterns, each bound to a problem:
 
 | Entity | Key fields |
 |---|---|
-| `users` | id, cognito_sub (unique), email, name, active |
-| `role_grants` | user_id, role (ADMIN, ASSESSOR, LEAD_ASSESSOR, TPB, PPU, PROGRAM), scope_type (GLOBAL, RESULT_TYPE, PROGRAM), scope_id, granted_by, granted_at, revoked_at |
+| `users` | id, cognito_sub (unique, null until first login), cognito_username (set at login; needed for refresh), email (unique, lowercase), first_name, last_name, auth_source (`sso`, `custom`), is_active, last_login_at, created_by |
+| `roles` | id, code (ADMIN, ASSESSOR, LEAD_ASSESSOR, TPB, PPU, PROGRAM; unique), name, scope_type (global, result_type, program), is_active |
+| `role_assignments` | id, user_id, role_id, result_type_key, program_id (at most one set, matching the role's scope_type), is_active, created_at/by, revoked_at/by (active or revoked, history kept; no duplicate active assignment per user, role and scope) |
 | `cycles` | id, phase_year, name, status |
 | `windows` | id, cycle_id, name, opens_at, closes_at |
 | `batches` | id, window_id, name, status (DRAFT, OPEN, CLOSED), opened_at |
@@ -195,12 +194,14 @@ GSI candidates (decided in the ingestion spec): runs by status; snapshots by bat
 ## 6. API Surface & Contracts
 
 - REST, JSON, prefix `/api`, URI versioning `/api/v1/...`.
-- Every route authenticated by default; public routes opt out explicitly (health, login, refresh).
+- Every route authenticated by default; public routes opt out explicitly (`GET /api/v1/health`, login, complete-new-password, provider-url, callback, session refresh and logout).
 - Errors use one envelope: `{ statusCode, error, message, details?, requestId }`.
 - Pagination: cursor-based (`?cursor=&limit=`) for lists that can grow (results, history).
 - Contract types are owned by `server/` DTOs; the front mirrors them until a shared package exists (ADR-007).
 
-Initial resource map: `/auth/*`, `/users`, `/role-grants`, `/cycles`, `/windows`, `/batches`, `/batches/:id/ingestion-runs`, `/field-configs`, `/results`, `/results/:id/fields`, `/field-reviews`, `/comments`, `/comments/:id/events`, `/results/:id/history`, `/dashboards/*`.
+Auth routes (`/api/v1/auth/*`): `POST login`, `POST complete-new-password`, `GET provider-url`, `POST callback` (public, throttled), `POST session/refresh` and `POST session/logout` (public, **Origin-checked**, cookie-only: no body, no bearer token), `GET me` (authenticated). Every POST under `/auth/*` requires `application/json`. `GET /api/v1/health` is public and returns 200 `{ "status": "ok" }`.
+
+Initial resource map: `/auth/*`, `/users`, `/role-assignments`, `/cycles`, `/windows`, `/batches`, `/batches/:id/ingestion-runs`, `/field-configs`, `/results`, `/results/:id/fields`, `/field-reviews`, `/comments`, `/comments/:id/events`, `/results/:id/history`, `/dashboards/*`.
 
 ## 7. Backend Workflows & Business Rules
 
@@ -247,17 +248,17 @@ Predictions are generated per snapshot and AI-input field (async after ingestion
 | Reporting results (list + batched detail) | QA → Reporting | TBD | Values keyed by `field_key` |
 | Reporting control lists | QA → Reporting | TBD | `level`, `parent_id` for hierarchical lists |
 | Reporting "QA passed" | QA → Reporting | TBD | Idempotent, retried |
-| Auth microservice | Front/API → auth | Available | Login (SSO, custom), refresh |
+| Cognito user pool + Hosted UI | API → Cognito | Available (callback `http://localhost:4200/auth/callback` registered 2026-10-14; TEST/PROD https callbacks pending with the pool owner) | Login, new-password, SSO code exchange, refresh, `RevokeToken` (ADR-003) |
 | Cognito JWKS | API → Cognito | Pending pool | Cached keys, refresh on unknown `kid` |
 | LLM provider | API → provider | TBD (ADR-009) | |
 
 ## 10. Security & Authorization Model
 
 - **Authentication:** ADR-003. A global guard verifies the access token; `@Public()` opts out.
-- **Authorization:** policy guard resolves the user's active `role_grants` and checks role + scope against the resource (result type of the result, program of the result). GUEST = authenticated user without grants → read-only routes.
+- **Authorization:** policy guard resolves the user's active `role_assignments` and checks role + scope against the resource (result type of the result, program of the result). GUEST = authenticated user without grants → read-only routes.
 - **Transport & browser:** HTTPS only; CORS allow-list per env with credentials; refresh cookie httpOnly + Secure + SameSite=Lax; Helmet headers; rate limiting on auth routes.
 - **Secrets:** env vars in dev (`server/.env`, git-ignored); a secrets manager in TEST/PROD (see `docs/infrastructure.md`). Never in the repo.
-- **Audit:** `role_grants` keeps granted/revoked history; `comment_events` is append-only.
+- **Audit:** `role_assignments` keeps created/revoked history; `comment_events` is append-only.
 
 ## 11. Error Handling & Observability
 
