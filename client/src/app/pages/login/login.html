@@ -117,6 +117,16 @@
           }}
         </p>
 
+        @if (serviceProblem() && !failure()) {
+          <p
+            class="mt-6 rounded-xl bg-[var(--qa-field)] px-3.5 py-3 text-sm text-[var(--qa-muted-on-dark)]"
+            data-testid="service-problem"
+          >
+            We could not check your session because the QA service did not answer. You can still try
+            to sign in.
+          </p>
+        }
+
         <div role="alert" aria-live="assertive" class="mt-6 empty:hidden" data-testid="failure">
           @if (failure(); as message) {
             <p class="rounded-xl bg-[var(--qa-field)] px-3.5 py-3 text-sm text-[var(--qa-danger)]">

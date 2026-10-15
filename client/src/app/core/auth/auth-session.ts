@@ -23,10 +23,26 @@ import { TokenStore } from './token-store';
 export type SessionStatus = 'unknown' | 'authenticated' | 'anonymous';
 
 /** `renewed`: new token · `ended`: the server closed the session · `unavailable`: network/503, session kept. */
+function isHttpUrl(value: string): boolean {
+  try {
+    return ['https:', 'http:'].includes(new URL(value).protocol);
+  } catch {
+    return false;
+  }
+}
+
 export type RefreshOutcome = 'renewed' | 'ended' | 'unavailable';
 
 /** The app waits this long for the startup refresh before showing login (a hung API must not freeze the app). */
 const STARTUP_REFRESH_TIMEOUT_MS = 8000;
+
+/** sessionStorage flag: a sign-out could not reach the server, so the refresh cookie may still be alive. */
+export const PENDING_LOGOUT_KEY = 'qa.pendingLogout';
+/** Bounds for the proactive refresh timer (bad `expiresIn` must not cause a request loop). */
+const MIN_REFRESH_DELAY_MS = 30_000;
+const MAX_REFRESH_DELAY_MS = 12 * 3600_000;
+/** Retry the proactive refresh this long after a network/503 failure. */
+const REFRESH_RETRY_MS = 30_000;
 
 /** Refresh this many seconds before the access token expires. */
 const PROACTIVE_REFRESH_MARGIN_S = 60;
@@ -56,6 +72,8 @@ export class AuthSession {
   private signInAttempt: Promise<LoginResult> | null = null;
   private refreshAttempt: Promise<RefreshOutcome> | null = null;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Bumped on every local sign-out: a refresh answer from an older epoch is ignored (no resurrection). */
+  private epoch = 0;
 
   readonly status = this.state.asReadonly();
   readonly user = this.profile.asReadonly();
@@ -80,6 +98,13 @@ export class AuthSession {
   /** App start (browser only): one refresh with the cookie recovers the session after a reload. */
   async bootstrap(): Promise<void> {
     if (!this.isBrowser || this.state() !== 'unknown') return;
+    if (this.hasPendingLogout()) {
+      // The last sign-out did not reach the server: finish it instead of reviving the session.
+      await this.retryPendingLogout();
+      this.clearLocal();
+      this.resolveReady();
+      return;
+    }
     try {
       this.apply(
         await firstValueFrom(this.api.refresh().pipe(timeout(STARTUP_REFRESH_TIMEOUT_MS))),
@@ -155,6 +180,13 @@ export class AuthSession {
     this.busy.set(true);
     try {
       const { url } = await firstValueFrom(this.api.providerUrl(this.ssoRedirectUri()));
+      if (!isHttpUrl(url)) {
+        throw new ApiError({
+          status: 200,
+          code: CLIENT_ERROR.UNEXPECTED_RESPONSE,
+          message: 'The sign-in service answered with an invalid address. Please try again later.',
+        });
+      }
       this.document.location.assign(url);
     } finally {
       this.busy.set(false);
@@ -178,15 +210,19 @@ export class AuthSession {
    */
   refresh(): Promise<RefreshOutcome> {
     if (this.refreshAttempt) return this.refreshAttempt;
+    const epoch = this.epoch;
     this.refreshAttempt = firstValueFrom(this.api.refresh())
       .then((session): RefreshOutcome => {
+        // Signed out while the request was in flight: never bring that session back.
+        if (epoch !== this.epoch) return 'ended';
         this.apply(session);
         return 'renewed';
       })
       .catch((error: unknown): RefreshOutcome => {
-        const apiError = toApiError(error);
-        if (apiError.code === CLIENT_ERROR.NETWORK || apiError.status === 503) return 'unavailable';
-        this.clearLocal();
+        // Only a 401 means the session is over. 5xx, 429, a gateway timeout or a 403 on Origin
+        // keep the user signed in: their cookie may still be valid and unsaved work must not be lost.
+        if (toApiError(error).status !== 401) return 'unavailable';
+        if (epoch === this.epoch) this.clearLocal();
         return 'ended';
       })
       .finally(() => (this.refreshAttempt = null));
@@ -204,8 +240,11 @@ export class AuthSession {
   async signOut(): Promise<void> {
     try {
       if (this.isSignedIn()) await firstValueFrom(this.api.logout());
-    } catch {
-      // Offline or already expired: nothing else to revoke from here.
+      this.setPendingLogout(false);
+    } catch (error) {
+      // The server could not revoke the cookie (offline, 5xx): remember it so a reload in this tab
+      // finishes the sign-out instead of reviving the session. A 401 means it was already over.
+      this.setPendingLogout(toApiError(error).status !== 401);
     } finally {
       this.clearLocal();
       await this.router.navigateByUrl(LOGIN_PATH);
@@ -213,6 +252,18 @@ export class AuthSession {
   }
 
   private apply(session: Session): void {
+    if (
+      !session ||
+      typeof session.accessToken !== 'string' ||
+      !session.accessToken ||
+      !session.user
+    ) {
+      throw new ApiError({
+        status: 200,
+        code: CLIENT_ERROR.UNEXPECTED_RESPONSE,
+        message: 'Something went wrong on our side. Please try again in a moment.',
+      });
+    }
     this.tokens.set(session.accessToken, session.expiresIn);
     this.profile.set(session.user);
     this.challengeState.set(null);
@@ -222,6 +273,7 @@ export class AuthSession {
   }
 
   private clearLocal(): void {
+    this.epoch++;
     this.cancelRefreshTimer();
     this.tokens.clear();
     this.profile.set(null);
@@ -230,11 +282,46 @@ export class AuthSession {
   }
 
   private scheduleRefresh(expiresInSeconds: number): void {
+    const ttl = Number.isFinite(expiresInSeconds) && expiresInSeconds > 0 ? expiresInSeconds : 0;
+    const wanted = Math.max(ttl - PROACTIVE_REFRESH_MARGIN_S, ttl / 2) * 1000;
+    this.armTimer(Math.min(Math.max(wanted, MIN_REFRESH_DELAY_MS), MAX_REFRESH_DELAY_MS));
+  }
+
+  private armTimer(delayMs: number): void {
     this.cancelRefreshTimer();
     if (!this.isBrowser) return;
-    const delayMs =
-      Math.max(expiresInSeconds - PROACTIVE_REFRESH_MARGIN_S, expiresInSeconds / 2) * 1000;
-    this.refreshTimer = setTimeout(() => void this.refresh(), delayMs);
+    this.refreshTimer = setTimeout(async () => {
+      const outcome = await this.refresh();
+      if (outcome === 'ended') await this.expire();
+      else if (outcome === 'unavailable') this.armTimer(REFRESH_RETRY_MS);
+    }, delayMs);
+  }
+
+  private hasPendingLogout(): boolean {
+    try {
+      return sessionStorage.getItem(PENDING_LOGOUT_KEY) === '1';
+    } catch {
+      return false;
+    }
+  }
+
+  private setPendingLogout(pending: boolean): void {
+    if (!this.isBrowser) return;
+    try {
+      if (pending) sessionStorage.setItem(PENDING_LOGOUT_KEY, '1');
+      else sessionStorage.removeItem(PENDING_LOGOUT_KEY);
+    } catch {
+      // Storage blocked: nothing else we can do from the browser.
+    }
+  }
+
+  private async retryPendingLogout(): Promise<void> {
+    try {
+      await firstValueFrom(this.api.logout().pipe(timeout(STARTUP_REFRESH_TIMEOUT_MS)));
+      this.setPendingLogout(false);
+    } catch (error) {
+      this.setPendingLogout(toApiError(error).status !== 401);
+    }
   }
 
   private cancelRefreshTimer(): void {

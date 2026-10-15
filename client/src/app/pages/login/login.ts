@@ -63,7 +63,13 @@ export class LoginPage {
   protected readonly failure = signal<string | null>(null);
   /** Seconds left before another attempt is allowed (server 429 `retryAfter`). */
   protected readonly cooldown = signal(0);
-  protected readonly locked = computed(() => this.busy() || this.cooldown() > 0);
+  /** Between a successful sign-in and the end of the navigation the form stays locked. */
+  private readonly navigating = signal(false);
+  protected readonly locked = computed(
+    () => this.busy() || this.navigating() || this.cooldown() > 0,
+  );
+  /** The startup refresh could not reach the service (not "no session"). */
+  protected readonly serviceProblem = this.session.startupError;
   /** First login of a custom user: the server asks for a new password before giving a session. */
   protected readonly settingPassword = computed(() => this.session.pendingChallenge() !== null);
 
@@ -120,7 +126,7 @@ export class LoginPage {
     await submit(this.loginForm, async () => {
       try {
         const result = await this.session.signIn(this.model());
-        if (!isChallenge(result)) await this.router.navigateByUrl(this.deepLink.consume());
+        if (!isChallenge(result)) await this.go();
       } catch (error) {
         this.fail(error);
       }
@@ -135,12 +141,21 @@ export class LoginPage {
     await submit(this.passwordForm, async () => {
       try {
         await this.session.completeNewPassword(this.passwordModel().newPassword);
-        await this.router.navigateByUrl(this.deepLink.consume());
+        await this.go();
       } catch (error) {
         this.fail(error);
       }
       return undefined;
     });
+  }
+
+  private async go(): Promise<void> {
+    this.navigating.set(true);
+    try {
+      await this.router.navigateByUrl(this.deepLink.consume());
+    } finally {
+      this.navigating.set(false);
+    }
   }
 
   protected backToSignIn(): void {

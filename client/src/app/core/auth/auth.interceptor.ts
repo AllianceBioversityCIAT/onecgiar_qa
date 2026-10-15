@@ -31,7 +31,8 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
   const cookies = isAuthUrl(req.url, apiBaseUrl);
   const refreshable = !isSessionFlowUrl(req.url, apiBaseUrl);
 
-  const prepared = withAuth(req, tokens.accessToken(), cookies);
+  const usedToken = tokens.accessToken();
+  const prepared = withAuth(req, usedToken, cookies);
   return next(prepared).pipe(
     catchError((error: unknown) => {
       const retriable =
@@ -41,14 +42,30 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
         !req.context.get(RETRIED_AFTER_REFRESH);
       if (!retriable) return throwError(() => error);
 
+      const retryOnce = () => {
+        const retry = req.clone({
+          context: copyContext(req.context).set(RETRIED_AFTER_REFRESH, true),
+        });
+        return next(withAuth(retry, tokens.accessToken(), cookies)).pipe(
+          catchError((retryError: unknown) => {
+            // A fresh token is still refused (e.g. the user was deactivated): the session is over.
+            if (retryError instanceof HttpErrorResponse && retryError.status === 401) {
+              void session.expire();
+            }
+            return throwError(() => retryError);
+          }),
+        );
+      };
+
+      // Another call already renewed the token while this one was in flight: just retry.
+      const current = tokens.accessToken();
+      if (current && current !== usedToken) return retryOnce();
+
       return from(session.refresh()).pipe(
         switchMap((outcome) => {
           if (outcome === 'ended') void session.expire();
           if (outcome !== 'renewed') return throwError(() => error);
-          const retry = req.clone({
-            context: copyContext(req.context).set(RETRIED_AFTER_REFRESH, true),
-          });
-          return next(withAuth(retry, tokens.accessToken(), cookies));
+          return retryOnce();
         }),
       );
     }),

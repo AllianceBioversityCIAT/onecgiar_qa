@@ -190,7 +190,13 @@ function clearCookies(res: Response): void {
 function readCookie(req: Request, name: string): string | null {
   for (const part of (req.headers.cookie ?? '').split(';')) {
     const [key, ...rest] = part.trim().split('=');
-    if (key === name) return decodeURIComponent(rest.join('='));
+    if (key === name) {
+      try {
+        return decodeURIComponent(rest.join('='));
+      } catch {
+        return null;
+      }
+    }
   }
   return null;
 }
@@ -348,11 +354,14 @@ export function devAuthMockRouter(): Router {
       clearCookies(res);
       return fail(res, 401, 'AUTH_SESSION_EXPIRED', 'Your session ended. Sign in again.');
     }
-    refreshTokens.delete(token);
-    return issueSession(
-      res,
-      PERSONAS.find((p) => p.id === id)!,
-    );
+    // Like the real server today (Cognito does not rotate the refresh token, design P-18):
+    // same cookie, new access token. Two tabs refreshing at once both succeed.
+    const persona = PERSONAS.find((x) => x.id === id)!;
+    return ok(res, {
+      accessToken: `mock.${persona.id}.${Date.now() + ACCESS_TTL_S * 1000}`,
+      expiresIn: ACCESS_TTL_S,
+      user: profile(persona),
+    });
   });
 
   router.post('/api/v1/auth/session/logout', (req, res) => {
@@ -393,7 +402,9 @@ export function devAuthMockRouter(): Router {
     }
     const code = `mock-code-${randomUUID()}`;
     ssoCodes.set(code, p.id);
-    res.redirect(`${redirectUri}?code=${encodeURIComponent(code)}`);
+    res.redirect(
+      `${redirectUri}${redirectUri.includes('?') ? '&' : '?'}code=${encodeURIComponent(code)}`,
+    );
   });
 
   return router;

@@ -109,4 +109,45 @@ describe('authInterceptor', () => {
     await attempt;
     http.expectNone(`${API}/auth/session/refresh`);
   });
+
+  it('a 401 sent with an already-renewed token is retried without a second refresh', async () => {
+    await signedIn('old');
+    const a = firstValueFrom(client.get(`${API}/a`));
+    const b = firstValueFrom(client.get(`${API}/b`));
+    http
+      .expectOne(`${API}/a`)
+      .flush(err(401, 'AUTH_TOKEN_INVALID'), { status: 401, statusText: 'x' });
+    await tick();
+    http.expectOne(`${API}/auth/session/refresh`).flush(ok(session('new')));
+    await tick();
+    http.expectOne(`${API}/a`).flush(ok('A'));
+    // `b` was sent with "old" and fails only now: the token is already "new", so no refresh.
+    http
+      .expectOne(`${API}/b`)
+      .flush(err(401, 'AUTH_TOKEN_INVALID'), { status: 401, statusText: 'x' });
+    await tick();
+    http.expectNone(`${API}/auth/session/refresh`);
+    const retryB = http.expectOne(`${API}/b`);
+    expect(retryB.request.headers.get('Authorization')).toBe('Bearer new');
+    retryB.flush(ok('B'));
+    await expect(a).resolves.toEqual(ok('A'));
+    await expect(b).resolves.toEqual(ok('B'));
+  });
+
+  it('when the fresh token is refused too, the session ends', async () => {
+    await signedIn('old');
+    const call = firstValueFrom(client.get(`${API}/a`)).catch((e: unknown) => e);
+    http
+      .expectOne(`${API}/a`)
+      .flush(err(401, 'AUTH_TOKEN_INVALID'), { status: 401, statusText: 'x' });
+    await tick();
+    http.expectOne(`${API}/auth/session/refresh`).flush(ok(session('new')));
+    await tick();
+    http
+      .expectOne(`${API}/a`)
+      .flush(err(401, 'AUTH_USER_NOT_ADMITTED'), { status: 401, statusText: 'x' });
+    await call;
+    await tick();
+    expect(auth.status()).toBe('anonymous');
+  });
 });

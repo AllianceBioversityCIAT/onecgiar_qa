@@ -31,11 +31,14 @@ async function decide(permission: Permission | undefined, url: string): Promise<
  * Use as BOTH `canMatch` (the lazy chunk is not even downloaded) and `canActivate`
  * (re-checked on every activation). Hiding a menu entry is never enough.
  */
-export const permissionMatch: CanMatchFn = (route: Route, segments: UrlSegment[]) =>
-  decide(
-    (route.data as AccessRouteData | undefined)?.permission,
-    '/' + segments.map((s) => s.path).join('/'),
-  );
+export const permissionMatch: CanMatchFn = (route: Route, segments: UrlSegment[]) => {
+  const router = inject(Router);
+  const navigation = router.currentNavigation();
+  const url = navigation
+    ? router.serializeUrl(navigation.extractedUrl)
+    : '/' + segments.map((s) => s.path).join('/');
+  return decide((route.data as AccessRouteData | undefined)?.permission, url);
+};
 
 export const permissionActivate: CanActivateFn = (route, state) =>
   decide((route.data as AccessRouteData | undefined)?.permission, state.url);

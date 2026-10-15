@@ -147,4 +147,53 @@ describe('AuthSession', () => {
       expect(localStorage.getItem('qa.prefs')).toBe('keep-me');
     });
   });
+
+  describe('review fixes (15-Oct-2026)', () => {
+    const signedIn = async () => {
+      const start = auth.signIn({ email: 'ana@cgiar.org', password: 'x' });
+      http.expectOne(`${API}/auth/login`).flush(ok(session()));
+      await start;
+    };
+
+    it('a 502 on refresh keeps the session (only 401 ends it)', async () => {
+      await signedIn();
+      const p = auth.refresh();
+      http
+        .expectOne(`${API}/auth/session/refresh`)
+        .flush('<html>Bad gateway</html>', { status: 502, statusText: 'x' });
+      expect(await p).toBe('unavailable');
+      expect(auth.isSignedIn()).toBe(true);
+    });
+
+    it('a refresh answer that arrives after sign-out does not revive the session', async () => {
+      await signedIn();
+      const pending = auth.refresh();
+      const out = auth.signOut();
+      http.expectOne(`${API}/auth/session/logout`).flush(null, { status: 204, statusText: 'x' });
+      await out;
+      http.expectOne(`${API}/auth/session/refresh`).flush(ok(session('late')));
+      expect(await pending).toBe('ended');
+      expect(auth.status()).toBe('anonymous');
+      expect(TestBed.inject(TokenStore).accessToken()).toBeNull();
+    });
+
+    it('a sign-out that could not reach the server is finished on the next start, not revived', async () => {
+      await signedIn();
+      const out = auth.signOut();
+      http.expectOne(`${API}/auth/session/logout`).error(new ProgressEvent('error'));
+      await out;
+      expect(sessionStorage.getItem('qa.pendingLogout')).toBe('1');
+
+      TestBed.resetTestingModule();
+      http = setupAuthTesting();
+      sessionStorage.setItem('qa.pendingLogout', '1');
+      auth = TestBed.inject(AuthSession);
+      const boot = auth.bootstrap();
+      http.expectOne(`${API}/auth/session/logout`).flush(null, { status: 204, statusText: 'x' });
+      await boot;
+      http.expectNone(`${API}/auth/session/refresh`);
+      expect(auth.status()).toBe('anonymous');
+      expect(sessionStorage.getItem('qa.pendingLogout')).toBeNull();
+    });
+  });
 });

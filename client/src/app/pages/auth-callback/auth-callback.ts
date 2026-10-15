@@ -47,10 +47,12 @@ export class AuthCallbackPage implements OnInit {
     const params = this.route.snapshot.queryParamMap;
     const code = params.get('code');
     if (!code) {
-      // The provider sends `error` / `error_description` when the user cancels or is refused.
+      // The provider sends `error` when the user cancels or is refused. Its free text is never
+      // shown: anyone can craft that URL, so only fixed messages reach the screen.
       this.failure.set(
-        params.get('error_description') ??
-          'The sign-in was cancelled or did not finish. Please try again.',
+        params.get('error') === 'access_denied'
+          ? 'You cancelled the sign-in. You can try again when you are ready.'
+          : 'The sign-in was cancelled or did not finish. Please try again.',
       );
       return;
     }
