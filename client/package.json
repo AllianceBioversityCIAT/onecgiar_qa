@@ -8,7 +8,7 @@
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
     "serve:ssr:onecgiar-qa": "node dist/onecgiar-qa/server/server.mjs",
-    "start:mock": "QA_DEV_AUTH_MOCK=1 ng serve --configuration mock --port 4300"
+    "start:mock": "ng serve --configuration mock --port 4300"
   },
   "private": true,
   "packageManager": "npm@11.19.0",
