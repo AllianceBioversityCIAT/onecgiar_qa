@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Status | Draft v0.1 |
-| Last updated | 2026-10-13 |
+| Last updated | 2026-10-15 |
 | Derives from | `docs/trd/trd.md` — **LITE tier** (ADR-001) with polyglot persistence (ADR-002) |
 | Source | Infrastructure team answer (2026-10-13), `feature/qa-ssr-lambda` branch |
 
@@ -27,8 +27,8 @@ Cloud region: AWS **us-east-1**. The API stays on its own subdomain; no extra pr
 |---|---|---|
 | MySQL 8.0 | Workflow DB (Drizzle). Dev: shared `qadb` on the internal network (VPN needed) | Dev available; TEST/PROD instances to confirm |
 | DynamoDB | Single table `cgiar-qa-{env}`, on-demand capacity | To create per env |
-| Cognito | User pool + app client, used through the CGIAR auth microservice | Pending infra (pool, domains) |
-| Secrets store | Server secrets in TEST/PROD (DB URL, auth settings, Reporting/AI keys) | To choose (AWS Secrets Manager or SSM Parameter Store proposed) |
+| Cognito | User pool + app client, called directly by the API (ADR-003). Callbacks: `http://localhost:4200/auth/callback` registered (2026-10-14); https callbacks for TEST/PROD pending with the pool owner | Pool available; TEST/PROD callbacks pending |
+| Secrets store | Server secrets in TEST/PROD (DB URL, `COGNITO_CLIENT_SECRET`, Reporting/AI keys) | To choose (AWS Secrets Manager or SSM Parameter Store proposed) |
 | ECR + Lambda + CloudFront | Option for SSR (tested on `feature/qa-ssr-lambda`, SAM templates in `client/infrastructure/`) | Candidate for ADR-008 |
 
 ## 3. Deployment Strategy
@@ -43,7 +43,7 @@ Cloud region: AWS **us-east-1**. The API stays on its own subdomain; no extra pr
 ## 4. Network & Security Architecture
 
 - HTTPS everywhere; front and API on the same site per env → refresh cookie `httpOnly; Secure; SameSite=Lax` on the API domain.
-- CORS allow-list per env: TEST `https://qatest.ciat.cgiar.org`, PROD `https://qa.cgiar.org`, with credentials.
+- CORS allow-list per env (`ALLOWED_ORIGINS`: exact origins, comma-separated; https only, except `http://localhost:<port>`): TEST `https://qatest.ciat.cgiar.org`, PROD `https://qa.cgiar.org`, with credentials. The same list backs the Origin check on session refresh/logout.
 - Angular SSR: `NG_ALLOWED_HOSTS` must list the real hosts (else every SSR route returns 400); `NG_TRUST_PROXY_HEADERS=x-forwarded-for,x-forwarded-proto,x-forwarded-port` behind CloudFront/proxies.
 - MySQL reachable only from the API hosts and the internal network.
 - IAM for the API: DynamoDB access limited to `cgiar-qa-{env}` and its indexes.
@@ -66,5 +66,6 @@ The local stack is **disposable**: agents may start, seed, and reset it to verif
 | Pre-check | `node -v` (22.x) · `pnpm -v` · `server/.env` exists (copy from `server/.env.example`) · VPN/internal network for the shared MySQL. On failure, report which check failed and stop — never guess credentials |
 | Databases | MySQL: shared dev `qadb` via `DATABASE_URL`. DynamoDB: AWS dev table, or DynamoDB Local with `DYNAMODB_ENDPOINT=http://localhost:8000` |
 | Seed / reset data | Schema: `cd server && pnpm db:migrate`. Seed scripts: none yet (to add with the first schema spec). **Never reset the shared `qadb`** — it is shared by the team |
-| Health check | API: `curl -s localhost:3000` returns 200 (a `/api/health` route will replace it). Front: open `http://localhost:4200` |
+| Health check | API: `curl -s localhost:3000/api/v1/health` returns 200 `{ "status": "ok" }`. Front: open `http://localhost:4200` |
 | URLs / ports | Front 4200 · API 3000 · MySQL `192.168.20.210:3306` (shared dev) · DynamoDB Local 8000 (optional) |
+| API env vars (auth) | Defined in `server/.env.example`: `COGNITO_REGION`, `COGNITO_USER_POOL_ID`, `COGNITO_CLIENT_ID`, `COGNITO_CLIENT_SECRET` (**secret**: local `.env` or the secrets store only, never the repo), `COGNITO_URL` (Hosted UI domain, `https://<domain>.auth.<region>.amazoncognito.com`), optional `COGNITO_USER_POOL_URL` (defaults to `https://cognito-idp.<region>.amazonaws.com/`), `ALLOWED_ORIGINS` (default `http://localhost:4200`). The app client must list the callback `http://localhost:4200/auth/callback` (registered 2026-10-14); https callbacks for TEST/PROD are pending with the pool owner |
