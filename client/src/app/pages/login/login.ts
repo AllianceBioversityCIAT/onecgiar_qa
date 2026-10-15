@@ -1,13 +1,23 @@
-import { Component, inject, signal } from '@angular/core';
-import { ActivatedRoute, Router } from '@angular/router';
-import { FieldTree, FormField, email, form, required, submit } from '@angular/forms/signals';
+import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { Router } from '@angular/router';
+import {
+  FieldTree,
+  FormField,
+  email,
+  form,
+  minLength,
+  required,
+  submit,
+  validate,
+} from '@angular/forms/signals';
 import { HlmButton } from '@spartan/button';
 import { HlmFieldImports } from '@spartan/field';
 import { HlmInput } from '@spartan/input';
 import { HlmSpinner } from '@spartan/spinner';
-import { AuthError, AuthProvider } from '../../auth/auth-provider';
-import { AuthSession } from '../../auth/auth-session';
-import { safeReturnUrl } from '../../auth/auth-guards';
+import { AuthSession } from '../../core/auth/auth-session';
+import { AUTH_ERROR, isChallenge } from '../../core/auth/auth.models';
+import { DeepLink } from '../../core/auth/deep-link';
+import { ApiError, toApiError } from '../../core/http/api-envelope';
 import { ResultPreview } from './result-preview';
 
 @Component({
@@ -47,11 +57,15 @@ import { ResultPreview } from './result-preview';
 export class LoginPage {
   private readonly session = inject(AuthSession);
   private readonly router = inject(Router);
-  private readonly route = inject(ActivatedRoute);
+  private readonly deepLink = inject(DeepLink);
 
-  protected readonly isStub = inject(AuthProvider).isStub;
   protected readonly busy = this.session.signingIn;
   protected readonly failure = signal<string | null>(null);
+  /** Seconds left before another attempt is allowed (server 429 `retryAfter`). */
+  protected readonly cooldown = signal(0);
+  protected readonly locked = computed(() => this.busy() || this.cooldown() > 0);
+  /** First login of a custom user: the server asks for a new password before giving a session. */
+  protected readonly settingPassword = computed(() => this.session.pendingChallenge() !== null);
 
   /** Pointer offset (-0.5..0.5) for the slow parallax of the matte background shapes. */
   protected readonly pointer = signal({ x: 0, y: 0 });
@@ -62,6 +76,24 @@ export class LoginPage {
     email(fields.email, { message: 'Enter a valid email address, like name@cgiar.org.' });
     required(fields.password, { message: 'Enter your password.' });
   });
+
+  protected readonly passwordModel = signal({ newPassword: '', confirm: '' });
+  protected readonly passwordForm = form(this.passwordModel, (fields) => {
+    required(fields.newPassword, { message: 'Enter a new password.' });
+    minLength(fields.newPassword, 8, { message: 'Use at least 8 characters.' });
+    required(fields.confirm, { message: 'Repeat the new password.' });
+    validate(fields.confirm, ({ value, valueOf }) =>
+      value() && value() !== valueOf(fields.newPassword)
+        ? { kind: 'mismatch', message: 'The passwords do not match.' }
+        : null,
+    );
+  });
+
+  private cooldownTimer: ReturnType<typeof setInterval> | null = null;
+
+  constructor() {
+    inject(DestroyRef).onDestroy(() => this.stopCooldown());
+  }
 
   protected trackPointer(event: PointerEvent): void {
     this.pointer.set({
@@ -83,27 +115,70 @@ export class LoginPage {
 
   protected async onSubmit(event: Event): Promise<void> {
     event.preventDefault();
-    if (this.busy()) {
-      return;
-    }
+    if (this.locked()) return;
     this.failure.set(null);
     await submit(this.loginForm, async () => {
       try {
-        await this.session.signIn(this.model());
+        const result = await this.session.signIn(this.model());
+        if (!isChallenge(result)) await this.router.navigateByUrl(this.deepLink.consume());
       } catch (error) {
-        this.failure.set(failureMessage(error));
-        return undefined;
+        this.fail(error);
       }
-      const target = safeReturnUrl(this.route.snapshot.queryParamMap.get('returnUrl'));
-      await this.router.navigateByUrl(target);
       return undefined;
     });
   }
-}
 
-function failureMessage(error: unknown): string {
-  if (error instanceof AuthError && error.reason !== 'unavailable') {
-    return error.message;
+  protected async onSetPassword(event: Event): Promise<void> {
+    event.preventDefault();
+    if (this.locked()) return;
+    this.failure.set(null);
+    await submit(this.passwordForm, async () => {
+      try {
+        await this.session.completeNewPassword(this.passwordModel().newPassword);
+        await this.router.navigateByUrl(this.deepLink.consume());
+      } catch (error) {
+        this.fail(error);
+      }
+      return undefined;
+    });
   }
-  return 'We could not reach the sign-in service. Check your connection and try again.';
+
+  protected backToSignIn(): void {
+    this.session.cancelChallenge();
+    this.passwordModel.set({ newPassword: '', confirm: '' });
+    this.failure.set(null);
+  }
+
+  protected async onSso(): Promise<void> {
+    if (this.locked()) return;
+    this.failure.set(null);
+    try {
+      await this.session.startSso();
+    } catch (error) {
+      this.fail(error);
+    }
+  }
+
+  /** Server messages come from a closed catalog written for users: shown as is. */
+  private fail(error: unknown): void {
+    const apiError: ApiError = toApiError(error);
+    if (apiError.code === AUTH_ERROR.TOO_MANY_REQUESTS)
+      this.startCooldown(apiError.retryAfter ?? 60);
+    this.failure.set(apiError.fieldMessage('newPassword') ?? apiError.message);
+  }
+
+  private startCooldown(seconds: number): void {
+    this.stopCooldown();
+    this.cooldown.set(Math.max(1, Math.ceil(seconds)));
+    this.cooldownTimer = setInterval(() => {
+      this.cooldown.update((left) => left - 1);
+      if (this.cooldown() <= 0) this.stopCooldown();
+    }, 1000);
+  }
+
+  private stopCooldown(): void {
+    if (this.cooldownTimer) clearInterval(this.cooldownTimer);
+    this.cooldownTimer = null;
+    this.cooldown.set(0);
+  }
 }
