@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Status | Draft v0.1 — awaiting team approval |
-| Last updated | 2026-10-13 |
+| Last updated | 2026-10-15 |
 | Owners | Product: QA business owner · Tech: front lead, back lead |
 | Related | `docs/trd/trd.md` · `docs/ux-ui/design.md` · `docs/infrastructure.md` · `docs/qa-context.md` (team glossary, on `staging-center`) |
 
@@ -122,8 +122,7 @@ The 27 business rules for comments, escalation and AI (confirmed / proposed / pe
 ### Dependencies
 
 - **Reporting Tool (PRMS) API** — `GET /api/qa/catalog?phase_year=` exists (catalog version 2026.30). Results (list + batched detail), control lists (with `level` / `parent_id`), and "QA passed" notification are **to be defined**.
-- **CGIAR auth microservice** (`one-cgiar-microservices/auth-microservice`) — login and refresh against Cognito; holds the client secret via CLARISA.
-- **AWS Cognito** user pool and domains — pending infrastructure answer.
+- **AWS Cognito** user pool, Hosted UI domain and QA's app client — QA calls Cognito directly for login, SSO, refresh and logout and holds the app client secret as an environment variable (TRD ADR-003; replaced the CGIAR auth microservice on 2026-10-14). Local callback registered; TEST/PROD callbacks pending with the pool owner.
 
 ### Constraints
 
