@@ -1462,3 +1462,9 @@ After the user configured `COGNITO_CLIENT_SECRET`, `COGNITO_URL` and `COGNITO_US
 - `server/.env` (gitignored): added `ALLOWED_ORIGINS=http://localhost:4200`, and `AWS_REGION`/`DYNAMODB_TABLE_NAME` with the `.env.example` defaults (the API refused to start without them; no auth flow touches DynamoDB).
 - `pnpm start:dev` → all 8 routes mapped; `GET /api/v1/health` 200; `/auth/me` without token 401; refresh with a foreign Origin 403; refresh without cookies 401 "No session"; `provider-url` 200 with the Hosted UI authorize URL (localhost callback, `openid email`, `CGIAR-AzureAD`).
 - Startup writes nothing to `qadb` (only the JWKS warm-up). Real logins (custom pre-registration, SSO first login → GUEST row) need the user's OK to write to `qadb`.
+
+## Merged into `staging` (2026-10-15, user decision: "haz commit y puedes hacer el merge directamente en staging")
+- Pushed `feat/auth-cognito-session` (`8e68387`) and `docs/auth-cognito-session-sync` (`87a1cba`).
+- Local `--no-ff` merges into `staging` (not protected), then pushed: `18d6c42` (docs branch) and `1d260ba` (feature branch); `origin/staging` `607dc0b..1d260ba`. The merged tree differs from the feature branch only in `docs/trd/trd.md`, `docs/infrastructure.md` and `docs/prd.md`; no conflicts.
+- **Build:** `nest build` stayed blocked by resource-guard (3.4–3.7 GB free < 4.5 GB, also with the local API stopped). Evidence at merge time: `tsc --noEmit -p tsconfig.build.json` exit 0 and the Nest watch compiler "Found 0 errors" on `8e68387`; lint 0, unit 465/465, e2e 234/234. A full `nest build` on `staging` is still owed.
+- **Still open:** T-11 (SSO end to end with the real Hosted UI; needs the user's OK to write to `qadb`); OAuth `state` (and optional PKCE) for SSO before go-live (FR-6/FR-7 amendment); Cognito app-client items with the pool owner (TEST/PROD callbacks, implicit grant off, shared vs dedicated client).
