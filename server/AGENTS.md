@@ -37,6 +37,8 @@ pnpm start:dev            # logs "API listening on port 3000"; GET /api/v1/healt
 
 API docs: **Swagger UI at `http://localhost:3000/api/v1/docs`** (JSON at `/api/v1/docs/openapi.json`) lists and runs every endpoint; log in there with `POST /auth/login`, then paste `accessToken` into **Authorize**. To use the session routes from Swagger UI, add `http://localhost:3000` to `ALLOWED_ORIGINS` in your local `.env`.
 
+At startup the log shows the port (`API listening on port …`), the docs URL, and one line per dependency: `MySQL connected: host:port/db` and `DynamoDB connected: table=… status=ACTIVE keys=pk,sk`, or a `WARN … unreachable … reason=<code>` (e.g. `ETIMEDOUT` when the VPN is down). The API starts anyway.
+
 The API refuses to start when a required variable is missing and names it (see `src/config/AGENTS.md`). The shared dev MySQL (`qadb`) is **never reset by agents**; migrations and seeds against it are a human step.
 
 ## Verification (failure-only output)

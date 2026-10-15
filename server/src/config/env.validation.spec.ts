@@ -48,6 +48,28 @@ describe('validateEnv', () => {
     expect(() => validateEnv({ ...VALID })).not.toThrow();
   });
 
+  it.each(['DYNAMODB_ACCESS_KEY_ID', 'DYNAMODB_SECRET_ACCESS_KEY'])(
+    'refuses %s alone, naming the missing partner',
+    (key) => {
+      const partner =
+        key === 'DYNAMODB_ACCESS_KEY_ID'
+          ? 'DYNAMODB_SECRET_ACCESS_KEY'
+          : 'DYNAMODB_ACCESS_KEY_ID';
+      expect(() => validateEnv({ ...VALID, [key]: 'x' })).toThrow(partner);
+    },
+  );
+
+  it('accepts both DynamoDB keys together, or neither', () => {
+    expect(() =>
+      validateEnv({
+        ...VALID,
+        DYNAMODB_ACCESS_KEY_ID: 'id',
+        DYNAMODB_SECRET_ACCESS_KEY: 'secret',
+      }),
+    ).not.toThrow();
+    expect(() => validateEnv({ ...VALID })).not.toThrow();
+  });
+
   it('rejects an http origin that is not localhost', () => {
     expect(() =>
       validateEnv({ ...VALID, ALLOWED_ORIGINS: 'http://evil.com' }),

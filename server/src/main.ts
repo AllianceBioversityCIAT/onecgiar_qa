@@ -5,6 +5,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module.js';
 import { API_PREFIX, configureApp } from './common/configure-app.js';
 import { OPENAPI_PATH, setupOpenApi } from './common/openapi.js';
+import { runStartupChecks } from './common/startup-checks.js';
 import { openApiConfig } from './config/openapi.config.js';
 
 async function bootstrap() {
@@ -23,5 +24,7 @@ async function bootstrap() {
     'Bootstrap',
   );
   if (docs) Logger.log(`API docs: ${base}/${OPENAPI_PATH}`, 'OpenAPI');
+  // MySQL and DynamoDB reachability, logged once; never blocks the API.
+  runStartupChecks(app);
 }
 await bootstrap();

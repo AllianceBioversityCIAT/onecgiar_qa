@@ -287,5 +287,5 @@ Commands (failure-only output) are listed in `AGENTS.md` § Verification command
 
 - `field_key`s are permanent; snapshots are immutable; AI never acts on its own; no manual SQL to operate a cycle (PRD § 8).
 - Migrations via drizzle-kit (`pnpm db:generate` / `db:migrate`), committed under `server/drizzle/`; never hand-edited in shared DBs.
-- Env vars (server): `DATABASE_URL`, `DATABASE_POOL_SIZE`, `AWS_REGION`, `DYNAMODB_TABLE_NAME`, `DYNAMODB_ENDPOINT` (local only), plus auth and Reporting settings added by their specs.
+- Env vars (server): `DATABASE_URL`, `DATABASE_POOL_SIZE`, `AWS_REGION`, `DYNAMODB_TABLE_NAME`, `DYNAMODB_ENDPOINT` (local only), `DYNAMODB_ACCESS_KEY_ID` + `DYNAMODB_SECRET_ACCESS_KEY` (local only, both or neither; TEST/PROD use the host's IAM role), plus auth and Reporting settings added by their specs.
 - **Revisit conditions:** ingestion exceeds the M2 target → queue + worker (ADR-005); shared types between client and server → root workspace (ADR-007); back moves to Lambda → revisit pool sizing and in-process jobs.

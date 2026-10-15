@@ -33,19 +33,20 @@ const SIGNING_ALLOWED: Record<string, RegExp> = {
   'auth/cognito-auth.client.ts': /\bcreateHmac\b/,
 };
 
-/** A client secret written as a literal value (`key: 'x'`, `key = "x"`, `KEY=x`). */
+/** A secret written as a literal value: quoted (`key: 'x'`, `key = "x"`) or `.env` style (`KEY=x`, no spaces). */
 const SECRET_LITERAL =
-  /client[_-]?secret['"]?[ \t]*(?:[:=][ \t]*['"`]|=[ \t]*[^\s'"`])/i;
+  /(?:client[_-]?secret|secret[_-]?access[_-]?key)['"]?(?:[ \t]*[:=][ \t]*['"`]|=[^\s'"`])/i;
 /** A literal fallback on a secret read: `?? 'x'`, `|| "x"`. */
 const SECRET_FALLBACK =
-  /(?:client[_-]?secret|CLIENT_SECRET)[^\n]*(?:\?\?|\|\|)[ \t]*['"`]/i;
+  /(?:client[_-]?secret|secret[_-]?access[_-]?key)[^\n]*(?:\?\?|\|\|)[ \t]*['"`]/i;
 /** Dynamic env access, which the reader check below could not see. */
 const DYNAMIC_ENV = /process\.env\s*\[/;
 /** The one line allowed to read the secret (auth config). */
 const SECRET_CONFIG_LINE =
   /^\s*clientSecret: process\.env\.COGNITO_CLIENT_SECRET!,$/m;
 /** A log call that mentions the secret. */
-const SECRET_LOGGED = /(?:logger|console)\.\w+\([^\n]*client[_-]?secret/i;
+const SECRET_LOGGED =
+  /(?:logger|console)\.\w+\([^\n]*(?:client[_-]?secret|secret[_-]?access[_-]?key)/i;
 /** The only accepted way in: `process.env.COGNITO_CLIENT_SECRET`. */
 const SECRET_FROM_ENV = /process\.env\.COGNITO_CLIENT_SECRET\b/;
 
@@ -135,6 +136,10 @@ describe('FR-17: no QA-issued tokens, client secret from env only (static)', () 
       "clientSecret: process.env.COGNITO_CLIENT_SECRET ?? 'abc',",
       'clientSecret: process.env.COGNITO_CLIENT_SECRET || "abc",',
       'const s = env.CLIENT_SECRET || `abc`;',
+      "secretAccessKey: 'abc',",
+      'DYNAMODB_SECRET_ACCESS_KEY=abc',
+      "const secretAccessKey = process.env.DYNAMODB_SECRET_ACCESS_KEY ?? 'abc';",
+      'this.logger.log(`keys ${config.credentials.secretAccessKey}`);',
     ])('flags a client secret in %j', (line) => {
       expect(hasClientSecret(line)).toBe(true);
     });
@@ -192,11 +197,18 @@ describe('FR-17: no QA-issued tokens, client secret from env only (static)', () 
       expect(found).toEqual([]);
     });
 
-    it('reads the client secret only from COGNITO_CLIENT_SECRET, in the auth config', () => {
+    it('reads secrets only in their config file: COGNITO_CLIENT_SECRET (auth), DYNAMODB_SECRET_ACCESS_KEY (dynamodb)', () => {
       const readers = sourceFiles()
         .filter((path) => /process\.env\.\w*SECRET/i.test(codeOf(read(path))))
-        .map((path) => relative(SRC_ROOT, path));
-      expect(readers).toEqual(['config/auth.config.ts']);
+        .map((path) => relative(SRC_ROOT, path))
+        .sort();
+      expect(readers).toEqual([
+        'config/auth.config.ts',
+        'config/dynamodb.config.ts',
+      ]);
+      expect(read(join(SRC_ROOT, 'config/dynamodb.config.ts'))).toMatch(
+        /^\s*const secretAccessKey = process\.env\.DYNAMODB_SECRET_ACCESS_KEY \|\| undefined;$/m,
+      );
       const config = read(join(SRC_ROOT, 'config/auth.config.ts'));
       expect(config).toMatch(SECRET_FROM_ENV);
       // Exactly this line: no fallback, no transformation.

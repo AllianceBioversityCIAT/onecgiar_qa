@@ -16,6 +16,9 @@ import { DYNAMODB_CLIENT, DYNAMODB_TABLE_NAME } from './dynamodb.constants.js';
         new DynamoDBClient({
           region: config.region,
           endpoint: config.endpoint,
+          // Explicit keys only in local development; otherwise the default
+          // provider chain (IAM role in TEST/PROD).
+          ...(config.credentials ? { credentials: config.credentials } : {}),
         }),
     },
     {
