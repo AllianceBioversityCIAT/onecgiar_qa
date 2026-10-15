@@ -68,6 +68,15 @@ export function validateEnv(
     );
   }
   parseAllowedOrigins(config.ALLOWED_ORIGINS as string);
+  const openApi = config.OPENAPI_ENABLED;
+  if (
+    openApi !== undefined &&
+    openApi !== '' &&
+    openApi !== 'true' &&
+    openApi !== 'false'
+  ) {
+    throw new Error('Invalid OPENAPI_ENABLED: expected "true" or "false"');
+  }
   // Passwords, SECRET_HASH and the client secret travel to these (FR-18).
   for (const key of ['COGNITO_URL', 'COGNITO_USER_POOL_URL'] as const) {
     const value = config[key];

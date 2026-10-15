@@ -1,4 +1,13 @@
 import {
+  ApiExtraModels,
+  ApiOkResponse,
+  ApiOperation,
+  ApiProperty,
+  ApiTags,
+  getSchemaPath,
+} from '@nestjs/swagger';
+import { ApiErrorResponses } from '../common/openapi.js';
+import {
   Body,
   Controller,
   Get,
@@ -27,23 +36,42 @@ import { CallbackDto } from './dto/callback.dto.js';
 import { CompleteNewPasswordDto } from './dto/complete-new-password.dto.js';
 import { LoginDto } from './dto/login.dto.js';
 import { ProviderUrlQuery } from './dto/provider-url.query.js';
-import { type UserProfile, toUserProfile } from './me.controller.js';
+import { UserProfile, toUserProfile } from './me.controller.js';
 import { assertAllowedRedirectUri } from './redirect-uri.js';
 import { setSessionCookies } from './session-cookies.js';
 import { TokenVerifier } from './token-verifier.service.js';
 
 /** FR-9: the success shape; the refresh token travels only in the cookie. */
-export interface SessionResponse {
-  accessToken: string;
+export class SessionResponse {
+  @ApiProperty({
+    type: String,
+    description:
+      'Cognito access token: send it as `Authorization: Bearer …`. Keep it in memory only',
+  })
+  accessToken!: string;
+
   /** Seconds the access token is still valid. */
-  expiresIn: number;
-  user: UserProfile;
+  @ApiProperty({
+    type: Number,
+    description: 'Seconds the access token is still valid',
+    example: 3600,
+  })
+  expiresIn!: number;
+
+  @ApiProperty({ type: UserProfile })
+  user!: UserProfile;
 }
 
 /** FR-4: the first-login challenge; no tokens, no cookie. */
-export interface ChallengeResponse {
-  challenge: 'NEW_PASSWORD_REQUIRED';
-  session: string;
+export class ChallengeResponse {
+  @ApiProperty({ type: String, enum: ['NEW_PASSWORD_REQUIRED'] })
+  challenge!: 'NEW_PASSWORD_REQUIRED';
+
+  @ApiProperty({
+    type: String,
+    description: 'Pass it to `POST /auth/complete-new-password`',
+  })
+  session!: string;
 }
 
 /**
@@ -54,6 +82,8 @@ export interface ChallengeResponse {
  * sends `Set-Cookie` (FR-9). Bodies are JSON only: `requireJsonPost` refuses
  * any other POST before it gets here (FR-4).
  */
+@ApiTags('auth')
+@ApiExtraModels(SessionResponse, ChallengeResponse)
 @Public()
 @UseInterceptors(AuthDecisionInterceptor)
 @Controller('auth')
@@ -70,6 +100,21 @@ export class AuthController {
     this.allowedOrigins = config.allowedOrigins;
   }
 
+  @ApiOperation({
+    summary: 'Log in with email and password (custom users)',
+    description:
+      'Public, throttled. On success returns the session and sets the httpOnly session cookies (`qa_rt`, `qa_ru`). On a first login Cognito asks for a new password: the answer is the challenge, with no tokens and no cookies.',
+  })
+  @ApiOkResponse({
+    description: 'A session, or the NEW_PASSWORD_REQUIRED challenge',
+    schema: {
+      oneOf: [
+        { $ref: getSchemaPath(SessionResponse) },
+        { $ref: getSchemaPath(ChallengeResponse) },
+      ],
+    },
+  })
+  @ApiErrorResponses(400, 401, 403, 409, 415, 429, 503)
   @AuthThrottle()
   @HttpCode(200)
   @Post('login')
@@ -91,6 +136,12 @@ export class AuthController {
     return this.issueSession(request, response, result.tokens);
   }
 
+  @ApiOperation({
+    summary: 'Complete the first-login NEW_PASSWORD_REQUIRED challenge',
+    description: 'Public, throttled. Sets the session cookies on success.',
+  })
+  @ApiOkResponse({ type: SessionResponse })
+  @ApiErrorResponses(400, 401, 403, 409, 415, 429, 503)
   @AuthThrottle()
   @HttpCode(200)
   @Post('complete-new-password')
@@ -107,6 +158,19 @@ export class AuthController {
     return this.issueSession(request, response, tokens);
   }
 
+  @ApiOperation({
+    summary: 'SSO step 1: the Cognito Hosted UI URL for CGIAR-AzureAD',
+    description:
+      'Public. Redirect the browser to `url`; after the Microsoft login the Hosted UI returns to `redirectUri?code=…`, then call `POST /auth/callback`.',
+  })
+  @ApiOkResponse({
+    schema: {
+      type: 'object',
+      required: ['url'],
+      properties: { url: { type: 'string', format: 'uri' } },
+    },
+  })
+  @ApiErrorResponses(400)
   @Get('provider-url')
   async providerUrl(
     @Query() query: ProviderUrlQuery,
@@ -123,6 +187,13 @@ export class AuthController {
     return { url };
   }
 
+  @ApiOperation({
+    summary: 'SSO step 2: exchange the Hosted UI code for a session',
+    description:
+      'Public, throttled. The code is single use and short-lived. Sets the session cookies on success; a first SSO login creates a GUEST user.',
+  })
+  @ApiOkResponse({ type: SessionResponse })
+  @ApiErrorResponses(400, 401, 403, 409, 415, 429, 503)
   @AuthThrottle()
   @HttpCode(200)
   @Post('callback')

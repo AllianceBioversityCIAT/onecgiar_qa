@@ -1,4 +1,12 @@
 import {
+  ApiCookieAuth,
+  ApiNoContentResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiTags,
+} from '@nestjs/swagger';
+import { ApiErrorResponses, SESSION_COOKIE_SCHEME } from '../common/openapi.js';
+import {
   type CallHandler,
   Controller,
   type ExecutionContext,
@@ -18,7 +26,7 @@ import { catchError, throwError, type Observable } from 'rxjs';
 import type { RequestWithId } from '../common/request-id.js';
 import { AdmissionService } from './admission.service.js';
 import { decisionOfError, logAuthDecision } from './auth-decision.js';
-import type { SessionResponse } from './auth.controller.js';
+import { SessionResponse } from './auth.controller.js';
 import { SessionMissingError } from './auth.errors.js';
 import { CognitoAuthClient } from './cognito-auth.client.js';
 import { Public } from './decorators/public.decorator.js';
@@ -74,6 +82,8 @@ export class SessionDecisionInterceptor implements NestInterceptor {
  * defense a Bearer token would give. The cookies reach only these routes
  * (Path `/api/v1/auth/session`, DD-3).
  */
+@ApiTags('session')
+@ApiCookieAuth(SESSION_COOKIE_SCHEME)
 @Public()
 @UseGuards(OriginGuard)
 @UseInterceptors(SessionDecisionInterceptor)
@@ -89,6 +99,14 @@ export class SessionController {
    * FR-13: a new access token from the refresh cookies alone. Admission is
    * re-checked against the database (mode `refresh`, never the cache).
    */
+  @ApiOperation({
+    summary:
+      'Refresh the session from the httpOnly cookies (no Authorization header)',
+    description:
+      'Call it on app start and on the first 401. Needs the `qa_rt`/`qa_ru` cookies and an `Origin` in `ALLOWED_ORIGINS`. Re-checks admission in the database. A 401/403/409 clears both cookies; a 503 keeps them.',
+  })
+  @ApiOkResponse({ type: SessionResponse })
+  @ApiErrorResponses(401, 403, 409, 503)
   @HttpCode(200)
   @Post('refresh')
   async refresh(
@@ -129,6 +147,14 @@ export class SessionController {
    * FR-14: revokes the refresh token at Cognito, best effort, and clears both
    * cookies. Works with or without an access token.
    */
+  @ApiOperation({
+    summary:
+      'Log out: revoke the refresh token at Cognito and clear the cookies',
+    description:
+      'Needs an `Origin` in `ALLOWED_ORIGINS`. Works with or without an access token; a Cognito failure on revocation still answers 204.',
+  })
+  @ApiNoContentResponse({ description: 'Session ended, cookies cleared' })
+  @ApiErrorResponses(403)
   @HttpCode(204)
   @Post('logout')
   async logout(

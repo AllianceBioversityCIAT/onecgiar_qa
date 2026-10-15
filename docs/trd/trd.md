@@ -201,6 +201,8 @@ GSI candidates (decided in the ingestion spec): runs by status; snapshots by bat
 
 Auth routes (`/api/v1/auth/*`): `POST login`, `POST complete-new-password`, `GET provider-url`, `POST callback` (public, throttled), `POST session/refresh` and `POST session/logout` (public, **Origin-checked**, cookie-only: no body, no bearer token), `GET me` (authenticated). Every POST under `/auth/*` requires `application/json`. `GET /api/v1/health` is public and returns 200 `{ "status": "ok" }`.
 
+API documentation: an OpenAPI 3 document generated from the controllers (`@nestjs/swagger`) is the single reference for every endpoint. Swagger UI at `/api/v1/docs`, JSON at `/api/v1/docs/openapi.json` (YAML at `/api/v1/docs/openapi.yaml`); served outside the auth guards, on by default outside production and toggled with `OPENAPI_ENABLED` (off in PROD unless enabled on purpose). Every route declares its summary, success and error responses (shared error-envelope schema) and its security scheme (`access-token` bearer, or `session-cookie` for `/auth/session/*`); an e2e test keeps the document in step with the router.
+
 Initial resource map: `/auth/*`, `/users`, `/role-assignments`, `/cycles`, `/windows`, `/batches`, `/batches/:id/ingestion-runs`, `/field-configs`, `/results`, `/results/:id/fields`, `/field-reviews`, `/comments`, `/comments/:id/events`, `/results/:id/history`, `/dashboards/*`.
 
 ## 7. Backend Workflows & Business Rules

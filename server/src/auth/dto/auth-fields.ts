@@ -1,3 +1,4 @@
+import { ApiProperty } from '@nestjs/swagger';
 import { applyDecorators } from '@nestjs/common';
 import { IsEmail, IsNotEmpty, IsString, MaxLength } from 'class-validator';
 
@@ -18,9 +19,28 @@ export const URI_MAX_LENGTH = 2048;
  * refuses anything over 254 characters; the explicit bound keeps the column
  * limit independent of the validator's own policy.
  */
-export const EmailField = () =>
-  applyDecorators(IsString(), MaxLength(EMAIL_MAX_LENGTH), IsEmail());
+export const EmailField = (description = 'Email address') =>
+  applyDecorators(
+    IsString(),
+    MaxLength(EMAIL_MAX_LENGTH),
+    IsEmail(),
+    ApiProperty({
+      type: String,
+      description,
+      format: 'email',
+      maxLength: EMAIL_MAX_LENGTH,
+      example: 'ada@cgiar.org',
+    }),
+  );
 
 /** A non-empty string of at most `max` characters, kept exactly as sent. */
-export const TextField = (max: number) =>
-  applyDecorators(IsString(), IsNotEmpty(), MaxLength(max));
+export const TextField = (
+  max: number,
+  docs: { description: string; example?: string; format?: string },
+) =>
+  applyDecorators(
+    IsString(),
+    IsNotEmpty(),
+    MaxLength(max),
+    ApiProperty({ type: String, ...docs, minLength: 1, maxLength: max }),
+  );
