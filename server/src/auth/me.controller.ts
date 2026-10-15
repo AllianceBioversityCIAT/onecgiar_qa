@@ -1,12 +1,12 @@
 import {
   ApiBearerAuth,
-  ApiOkResponse,
   ApiOperation,
   ApiProperty,
   ApiPropertyOptional,
   ApiTags,
 } from '@nestjs/swagger';
-import { ACCESS_TOKEN_SCHEME, ApiErrorResponses } from '../common/openapi.js';
+import { ApiErrorResponses, ApiOkEnvelope } from '../common/api-response.js';
+import { ACCESS_TOKEN_SCHEME } from '../common/openapi.js';
 import { Controller, Get } from '@nestjs/common';
 import {
   type AuthenticatedUser,
@@ -89,8 +89,10 @@ export class MeController {
     summary: 'The authenticated user and their active role assignments',
     description: 'Any authenticated user, GUEST included.',
   })
-  @ApiOkResponse({ type: UserProfile })
-  @ApiErrorResponses(401)
+  @ApiOkEnvelope(UserProfile)
+  @ApiErrorResponses({
+    401: ['AUTH_TOKEN_INVALID', 'AUTH_USER_NOT_ADMITTED'],
+  })
   @ReadAccess()
   @Get('me')
   me(@CurrentUser() user: AuthenticatedUser): UserProfile {

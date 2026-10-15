@@ -16,7 +16,7 @@ NestJS 12 API of OneCGIAR QA. This guide adds to the root `AGENTS.md`; root rule
 | `src/main.ts` | Bootstrap: `configureApp(app)` + listen on `PORT` (default 3000) | — |
 | `src/app.module.ts` | Root module: global config validation, DB modules, `UsersModule`, `AuthModule`, the two global guards | — |
 | `src/app.controller.ts` | `GET /api/v1/health` (public) | — |
-| `src/common/` | HTTP wiring shared by app and e2e: prefix, helmet, CORS, cookies, body parsing, validation pipe, error envelope, request id, OpenAPI document | `src/common/AGENTS.md` |
+| `src/common/` | HTTP wiring shared by app and e2e: prefix, helmet, CORS, cookies, body parsing, validation pipe, the response standard (envelope, error catalog, field errors), request id, OpenAPI document | `src/common/AGENTS.md` |
 | `src/config/` | Env validation and typed config namespaces | `src/config/AGENTS.md` |
 | `src/database/` | Drizzle (MySQL) and DynamoDB modules, schema, seeds | `src/database/AGENTS.md` |
 | `src/users/` | Users, roles, role assignments, permission catalog, `can()`, current-user cache | `src/users/AGENTS.md` |
@@ -32,7 +32,7 @@ Follow `docs/infrastructure.md` § 6 (Local Environment); do not guess.
 cd server
 pnpm install
 cp .env.example .env      # then fill the values; never commit .env
-pnpm start:dev            # http://localhost:3000/api/v1/health → {"status":"ok"}
+pnpm start:dev            # logs "API listening on port 3000"; GET /api/v1/health → {"success":true,"data":{"status":"ok"},…}
 ```
 
 API docs: **Swagger UI at `http://localhost:3000/api/v1/docs`** (JSON at `/api/v1/docs/openapi.json`) lists and runs every endpoint; log in there with `POST /auth/login`, then paste `accessToken` into **Authorize**. To use the session routes from Swagger UI, add `http://localhost:3000` to `ALLOWED_ORIGINS` in your local `.env`.
@@ -59,9 +59,10 @@ pnpm test:e2e --reporter=dot               # e2e: test/**/*.e2e-spec.ts (no DB, 
 - **Imports:** relative, with the `.js` extension (`import { X } from './x.js'`). `import type` for type-only imports.
 - **Dependency injection:** inject with `@Inject(Token)` explicitly (constructor parameters), including classes. Use `Symbol` tokens for ports (`USERS_STORE`, `DRIZZLE`, `JWKS_CACHE`, …) so tests can override them.
 - **Ports and adapters:** persistence goes through a store interface (port) with a Drizzle adapter; repositories hold the rules. Tests swap the port for an in-memory fake (`test/support/in-memory-stores.ts`).
-- **Errors:** throw typed errors that extend Nest HTTP exceptions (`src/auth/auth.errors.ts`, `src/users/users.errors.ts`). The global filter turns them into the envelope `{ statusCode, error, message, details?, requestId }`. Never send raw driver or upstream errors to a client.
+- **Response standard (TRD § 6).** Handlers return plain data; `ResponseEnvelopeInterceptor` wraps it as `{ success: true, data, meta }` (return nothing for a 204). Errors become `{ success: false, error: { status, code, message, fields?, retryAfter? }, meta }` in `HttpExceptionFilter`.
+- **Errors:** throw a typed error that extends a Nest HTTP exception and passes `errorBody('<CODE>')` (`src/auth/auth.errors.ts`, `src/users/users.errors.ts`). A new failure the user can hit = a new code in `src/common/error-codes.ts` (status + user-facing English message: what happened and what to do; no internals; nothing that reveals whether an account exists). **Never** put free text, a driver/upstream message or an id into a client-facing error — the filter ignores it anyway and falls back to the status's generic code. Keep details for logs as properties on the error (`ScopeMismatchError.detail`).
 - **DTOs:** `class-validator` decorators; the global `ValidationPipe` runs with `whitelist`, `forbidNonWhitelisted` and `transform`, so unknown fields are a 400.
-- **OpenAPI is part of the endpoint.** Every route gets `@ApiTags`, `@ApiOperation({ summary })`, its success response (`@ApiOkResponse({ type })`, a response **class**, not an interface) and `@ApiErrorResponses(...)` from `src/common/openapi.ts`; authenticated controllers add `@ApiBearerAuth(ACCESS_TOKEN_SCHEME)`. Give every `@ApiProperty` an explicit `type` (Vitest does not emit decorator metadata). `test/openapi.e2e-spec.ts` fails when the document and the router disagree.
+- **OpenAPI is part of the endpoint.** Every route gets `@ApiTags`, `@ApiOperation({ summary })`, its success response (`@ApiOkEnvelope(Model)`, a response **class**, not an interface) and `@ApiErrorResponses({ <status>: ['<CODE>', …] })` listing the codes it can return (both from `src/common/api-response.ts`); authenticated controllers add `@ApiBearerAuth(ACCESS_TOKEN_SCHEME)`. Give every `@ApiProperty` an explicit `type` (Vitest does not emit decorator metadata). `test/openapi.e2e-spec.ts` fails when the document and the router disagree.
 - **Comments:** explain *why* and cite the spec (`FR-x`, `DD-x`, `design 7.2`) where a rule comes from. Keep the existing density; do not narrate code.
 - **Language:** code, comments, logs and docs in English.
 

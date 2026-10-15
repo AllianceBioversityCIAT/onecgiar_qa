@@ -3,44 +3,46 @@ import {
   ConflictException,
   NotFoundException,
 } from '@nestjs/common';
+import { errorBody } from '../common/error-codes.js';
 
 // Typed domain errors of the users module (TRD section 11). They extend the
 // Nest HTTP exceptions so the global filter maps them to the error envelope
 // without knowing about this module.
 
 export class ScopeMismatchError extends BadRequestException {
-  constructor(detail: string) {
-    super(`Assignment scope does not match its role: ${detail}`);
+  /** Why the scope is wrong; for logs and tests, never sent to the client. */
+  constructor(readonly detail: string) {
+    super(errorBody('USERS_SCOPE_MISMATCH'));
   }
 }
 
 export class UnknownRoleError extends BadRequestException {
-  constructor(code: string) {
-    super(`Unknown role "${code}"`);
+  constructor(readonly roleCode: string) {
+    super(errorBody('USERS_UNKNOWN_ROLE'));
   }
 }
 
 export class DuplicateActiveAssignmentError extends ConflictException {
   constructor() {
-    super('The user already has this active assignment');
+    super(errorBody('USERS_DUPLICATE_ASSIGNMENT'));
   }
 }
 
 export class AssignmentNotFoundError extends NotFoundException {
-  constructor(id: number) {
-    super(`No active assignment with id ${id}`);
+  constructor(readonly assignmentId: number) {
+    super(errorBody('USERS_ASSIGNMENT_NOT_FOUND'));
   }
 }
 
 export class InvalidEmailError extends BadRequestException {
   constructor() {
-    super('A valid email address is required');
+    super(errorBody('USERS_INVALID_EMAIL'));
   }
 }
 
 export class DuplicateUserError extends ConflictException {
   constructor() {
-    super('A user with this email or Cognito sub already exists');
+    super(errorBody('USERS_DUPLICATE_USER'));
   }
 }
 

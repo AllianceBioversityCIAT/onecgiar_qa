@@ -34,7 +34,11 @@ describe('HTTP surface (e2e)', () => {
     const res = await request(app.getHttpServer())
       .get('/api/v1/health')
       .expect(200);
-    expect(res.body).toEqual({ status: 'ok' });
+    expect(res.body).toEqual({
+      success: true,
+      data: { status: 'ok' },
+      meta: { requestId: expect.any(String), timestamp: expect.any(String) },
+    });
   });
 
   it('GET / is no longer served (DD-9)', async () => {
@@ -97,22 +101,27 @@ describe('HTTP surface (e2e)', () => {
       .get('/api/v1/nope')
       .expect(404);
     expect(res.body).toEqual({
-      statusCode: 404,
-      error: 'Not Found',
-      message: expect.any(String),
-      requestId: expect.any(String),
+      success: false,
+      error: {
+        status: 404,
+        code: 'NOT_FOUND',
+        message: 'We could not find what you are looking for.',
+      },
+      meta: { requestId: expect.any(String), timestamp: expect.any(String) },
     });
+    // Nest's own text ("Cannot GET /api/v1/nope") never reaches the client.
+    expect(res.text).not.toContain('Cannot GET');
   });
 
   it('echoes a client-supplied x-request-id only when well-formed', async () => {
     const ok = await request(app.getHttpServer())
       .get('/api/v1/nope')
       .set('x-request-id', 'abc-123');
-    expect(ok.body.requestId).toBe('abc-123');
+    expect(ok.body.meta.requestId).toBe('abc-123');
     const bad = await request(app.getHttpServer())
       .get('/api/v1/nope')
       .set('x-request-id', 'bad id with spaces');
-    expect(bad.body.requestId).not.toBe('bad id with spaces');
-    expect(bad.body.requestId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(bad.body.meta.requestId).not.toBe('bad id with spaces');
+    expect(bad.body.meta.requestId).toMatch(/^[0-9a-f-]{36}$/);
   });
 });

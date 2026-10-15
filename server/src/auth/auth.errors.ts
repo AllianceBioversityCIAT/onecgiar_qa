@@ -5,6 +5,7 @@ import {
   UnauthorizedException,
   UnsupportedMediaTypeException,
 } from '@nestjs/common';
+import { errorBody } from '../common/error-codes.js';
 
 // Typed domain errors of admission (FR-8, TRD section 11). They extend the Nest
 // HTTP exceptions so the global filter maps them without knowing this module.
@@ -13,35 +14,35 @@ import {
 /** FR-8 step 3: the email belongs to a user with another Cognito `sub`. */
 export class EmailCollisionError extends ConflictException {
   constructor() {
-    super('This email belongs to another account');
+    super(errorBody('AUTH_EMAIL_CONFLICT'));
   }
 }
 
 /** FR-8 step 2: a custom token may link a pre-registered user by email only when that email is verified. */
 export class EmailNotVerifiedError extends ForbiddenException {
   constructor() {
-    super('This email has not been verified');
+    super(errorBody('AUTH_EMAIL_NOT_VERIFIED'));
   }
 }
 
 /** FR-8 step 4: no QA user, and this login may not create one. */
 export class UserNotRegisteredError extends ForbiddenException {
   constructor() {
-    super('This account is not registered');
+    super(errorBody('AUTH_USER_NOT_REGISTERED'));
   }
 }
 
 /** FR-8 step 5. */
 export class UserInactiveError extends ForbiddenException {
   constructor() {
-    super('This account is inactive');
+    super(errorBody('AUTH_USER_INACTIVE'));
   }
 }
 
 /** FR-8 step 6: a custom user with no live role assignment. */
 export class NoActiveRolesError extends ForbiddenException {
   constructor() {
-    super('This account has no active role');
+    super(errorBody('AUTH_NO_ACTIVE_ROLES'));
   }
 }
 
@@ -52,34 +53,34 @@ export class NoActiveRolesError extends ForbiddenException {
  */
 export class UsernameClaimMissingError extends UnauthorizedException {
   constructor() {
-    super('The login could not be completed');
+    super(errorBody('AUTH_LOGIN_INCOMPLETE'));
   }
 }
 
 /** FR-6, FR-7: a redirect URI outside `ALLOWED_ORIGINS`; Cognito is never called. */
 export class RedirectUriNotAllowedError extends BadRequestException {
   constructor() {
-    super('The redirect URI is not allowed');
+    super(errorBody('AUTH_REDIRECT_URI_NOT_ALLOWED'));
   }
 }
 
 /** FR-4 (login CSRF): a POST under /api/v1/auth whose media type is not JSON. */
 export class UnsupportedMediaTypeError extends UnsupportedMediaTypeException {
   constructor() {
-    super('Only application/json is accepted');
+    super(errorBody('UNSUPPORTED_MEDIA_TYPE'));
   }
 }
 
 /** FR-13, FR-14: a session call from an origin outside `ALLOWED_ORIGINS` (or none). */
 export class OriginNotAllowedError extends ForbiddenException {
   constructor() {
-    super('This origin is not allowed');
+    super(errorBody('AUTH_ORIGIN_NOT_ALLOWED'));
   }
 }
 
 /** FR-13: refresh without both session cookies. */
 export class SessionMissingError extends UnauthorizedException {
   constructor() {
-    super('No session');
+    super(errorBody('AUTH_SESSION_MISSING'));
   }
 }

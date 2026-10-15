@@ -175,7 +175,7 @@ describe('TokenVerifier', () => {
         .catch((e: unknown) => e as InvalidTokenError);
 
       expect(error.getStatus()).toBe(401);
-      expect(error.message).toBe('Invalid or expired token');
+      expect(error.getResponse()).toMatchObject({ code: 'AUTH_TOKEN_INVALID' });
     });
   });
 

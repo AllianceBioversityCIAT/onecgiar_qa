@@ -81,7 +81,7 @@ Root rules always apply; a child guide only adds or narrows. Guides follow the [
   - `server/src/users/AGENTS.md` — users, roles, role assignments, permission catalog, `can()`, current-user cache.
   - `server/src/database/AGENTS.md` — Drizzle/MySQL and DynamoDB wiring, schema guarantees, migrations and seeds.
   - `server/src/config/AGENTS.md` — environment variables, validation, typed config, secrets.
-  - `server/src/common/AGENTS.md` — HTTP bootstrap (`configureApp`), error envelope, request id.
+  - `server/src/common/AGENTS.md` — HTTP bootstrap (`configureApp`), the response standard (envelope, error catalog, field errors), request id.
   - `server/test/AGENTS.md` — e2e suites, test world, fakes and test rules.
 
 ## CodeGraph

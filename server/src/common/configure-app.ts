@@ -6,6 +6,8 @@ import { formsOutside, requireJsonPost } from '../auth/json-only.js';
 import { authConfig } from '../config/auth.config.js';
 import { HttpExceptionFilter } from './http-exception.filter.js';
 import { requestIdMiddleware } from './request-id.js';
+import { ResponseEnvelopeInterceptor } from './response-envelope.interceptor.js';
+import { bodyParserErrors, validationExceptionFactory } from './validation.js';
 
 export const API_PREFIX = 'api/v1';
 
@@ -32,8 +34,12 @@ export function configureApp(app: NestExpressApplication): void {
       whitelist: true,
       forbidNonWhitelisted: true,
       transform: true,
+      // Field errors in our words, never class-validator's texts.
+      exceptionFactory: validationExceptionFactory,
     }),
   );
+  // Response standard: success wrapped here, errors built by the filter.
+  app.useGlobalInterceptors(new ResponseEnvelopeInterceptor());
   app.useGlobalFilters(new HttpExceptionFilter());
 
   // Exact-origin allow-list: the callback echoes the matching origin and
@@ -54,6 +60,9 @@ export function configureApp(app: NestExpressApplication): void {
   // urlencoded everywhere but under /api/v1/auth, and no text parser at all.
   app.use(AUTH_PATH, requireJsonPost);
   app.useBodyParser('json');
+  // A broken body gets its own code here; left alone, Nest would turn it into
+  // a bare 400 (and the parser's own text never reaches the client anyway).
+  app.use(bodyParserErrors);
   app.useBodyParser('urlencoded', {
     extended: true,
     type: formsOutside(AUTH_PATH),

@@ -384,26 +384,20 @@ const PREVIOUS_SESSION_COOKIE = 'qa_rt=previous-refresh; qa_ru=previous-user';
 
 // --- Envelope and leak helpers ------------------------------------------------
 
-const STATUS_TEXT: Record<number, string> = {
-  400: 'Bad Request',
-  401: 'Unauthorized',
-  403: 'Forbidden',
-  409: 'Conflict',
-  415: 'Unsupported Media Type',
-  429: 'Too Many Requests',
-  500: 'Internal Server Error',
-  503: 'Service Unavailable',
-};
-
-function expectEnvelope(res: request.Response, status: number) {
+/**
+ * The error envelope of the response standard: `{ success: false, error: {
+ * status, code, message }, meta: { requestId, timestamp } }`, with the
+ * request id echoed in the header. `code`, when given, is asserted too.
+ */
+function expectEnvelope(res: request.Response, status: number, code?: string) {
   expect(res.status).toBe(status);
   expect(res.body).toMatchObject({
-    statusCode: status,
-    error: STATUS_TEXT[status],
-    message: expect.any(String),
-    requestId: expect.any(String),
+    success: false,
+    error: { status, code: expect.any(String), message: expect.any(String) },
+    meta: { requestId: expect.any(String), timestamp: expect.any(String) },
   });
-  expect(res.body.requestId).toBe(res.headers['x-request-id']);
+  expect(res.body.meta.requestId).toBe(res.headers['x-request-id']);
+  if (code !== undefined) expect(res.body.error.code).toBe(code);
 }
 
 /** No secret of the flow appears anywhere in what the caller receives. */
@@ -420,11 +414,15 @@ function expectNoSecrets(res: request.Response, extra: string[] = []) {
 }
 
 /** A refusal by admission or credentials: envelope, no `Set-Cookie`, no tokens. */
-function expectRefusal(res: request.Response, status: 401 | 403 | 409) {
-  expectEnvelope(res, status);
+function expectRefusal(
+  res: request.Response,
+  status: 401 | 403 | 409,
+  code?: string,
+) {
+  expectEnvelope(res, status, code);
   expectNoSetCookie(res);
-  expect(res.body).not.toHaveProperty('accessToken');
-  expect(res.body).not.toHaveProperty('user');
+  expect(res.body).not.toHaveProperty('data');
+  expect(JSON.stringify(res.body)).not.toContain('accessToken');
   expectNoSecrets(res);
 }
 
@@ -566,16 +564,16 @@ describe('Login, session issuance and throttling (e2e)', () => {
     it('answers 200 with { accessToken, expiresIn, user } and calls Cognito once', async () => {
       const res = await world.post('/auth/login', loginBody).expect(200);
 
-      expect(Object.keys(res.body).sort()).toEqual([
+      expect(Object.keys(res.body.data).sort()).toEqual([
         'accessToken',
         'expiresIn',
         'user',
       ]);
-      expect(res.body.accessToken).toBe(tokens.accessToken);
+      expect(res.body.data.accessToken).toBe(tokens.accessToken);
       // The access token's remaining life, not the id token's (3000 s) nor a constant.
-      expect(res.body.expiresIn).toBeGreaterThan(ACCESS_TOKEN_TTL_S - 10);
-      expect(res.body.expiresIn).toBeLessThanOrEqual(ACCESS_TOKEN_TTL_S);
-      expect(res.body.user).toMatchObject({
+      expect(res.body.data.expiresIn).toBeGreaterThan(ACCESS_TOKEN_TTL_S - 10);
+      expect(res.body.data.expiresIn).toBeLessThanOrEqual(ACCESS_TOKEN_TTL_S);
+      expect(res.body.data.user).toMatchObject({
         email: ada.email,
         firstName: 'Ada',
         lastName: 'Lovelace',
@@ -590,9 +588,9 @@ describe('Login, session issuance and throttling (e2e)', () => {
       const login = await world.post('/auth/login', loginBody).expect(200);
       const me = await world
         .get('/auth/me')
-        .set('Authorization', `Bearer ${login.body.accessToken}`)
+        .set('Authorization', `Bearer ${login.body.data.accessToken}`)
         .expect(200);
-      expect(login.body.user).toEqual(me.body);
+      expect(login.body.data.user).toEqual(me.body.data);
     });
 
     it('sets qa_rt with the refresh token and qa_ru with the cognito:username claim', async () => {
@@ -633,7 +631,7 @@ describe('Login, session issuance and throttling (e2e)', () => {
 
     it('answers 200 with the challenge and the session, and no tokens', async () => {
       const res = await world.post('/auth/login', loginBody).expect(200);
-      expect(res.body).toEqual({
+      expect(res.body.data).toEqual({
         challenge: 'NEW_PASSWORD_REQUIRED',
         session: SESSION,
       });
@@ -646,7 +644,7 @@ describe('Login, session issuance and throttling (e2e)', () => {
 
     it('does not evaluate admission: an unregistered user gets the challenge and no row is touched', async () => {
       const res = await world.post('/auth/login', loginBody).expect(200);
-      expect(res.body.challenge).toBe('NEW_PASSWORD_REQUIRED');
+      expect(res.body.data.challenge).toBe('NEW_PASSWORD_REQUIRED');
       expect(world.usersStore.rows).toHaveLength(0);
       expect(world.usersStore.writes).toBe(0);
     });
@@ -667,18 +665,17 @@ describe('Login, session issuance and throttling (e2e)', () => {
         email: 'nobody@cgiar.org',
         password: PASSWORD,
       });
-      const strip = ({
-        requestId: _ignored,
-        ...rest
-      }: Record<string, unknown>) => rest;
       expect(known.status).toBe(401);
-      expect(strip(unknown.body)).toEqual(strip(known.body));
+      expect(unknown.status).toBe(401);
+      // Same code and message for both; only the meta differs.
+      expect(unknown.body.error).toEqual(known.body.error);
+      expect(known.body.error.code).toBe('AUTH_INVALID_CREDENTIALS');
     });
 
     it('answers 503 with the envelope and no cookie when Cognito is unavailable', async () => {
       client.loginCustom.mockRejectedValue(new UpstreamUnavailableError());
       const res = await world.post('/auth/login', loginBody);
-      expectEnvelope(res, 503);
+      expectEnvelope(res, 503, 'AUTH_SERVICE_UNAVAILABLE');
       expect(res.headers['set-cookie']).toBeUndefined();
     });
 
@@ -689,7 +686,11 @@ describe('Login, session issuance and throttling (e2e)', () => {
           tokens: tokensOf(ada),
         });
         const res = await world.post('/auth/login', loginBody);
-        expectRefusal(res, 403);
+        expectRefusal(res, 403, 'AUTH_USER_NOT_REGISTERED');
+        // What the form can show as is.
+        expect(res.body.error.message).toBe(
+          'Your account is not registered in QA. Ask an administrator for access.',
+        );
         expect(world.usersStore.rows).toHaveLength(0);
       });
 
@@ -699,7 +700,11 @@ describe('Login, session issuance and throttling (e2e)', () => {
           kind: 'tokens',
           tokens: tokensOf(ada),
         });
-        expectRefusal(await world.post('/auth/login', loginBody), 403);
+        expectRefusal(
+          await world.post('/auth/login', loginBody),
+          403,
+          'AUTH_USER_INACTIVE',
+        );
       });
 
       it('403: a custom user without an active assignment', async () => {
@@ -708,7 +713,11 @@ describe('Login, session issuance and throttling (e2e)', () => {
           kind: 'tokens',
           tokens: tokensOf(ada),
         });
-        expectRefusal(await world.post('/auth/login', loginBody), 403);
+        expectRefusal(
+          await world.post('/auth/login', loginBody),
+          403,
+          'AUTH_NO_ACTIVE_ROLES',
+        );
       });
 
       it('403: an unverified email must not link a pre-registered user', async () => {
@@ -717,7 +726,11 @@ describe('Login, session issuance and throttling (e2e)', () => {
           kind: 'tokens',
           tokens: tokensOf({ ...ada, emailVerified: false }),
         });
-        expectRefusal(await world.post('/auth/login', loginBody), 403);
+        expectRefusal(
+          await world.post('/auth/login', loginBody),
+          403,
+          'AUTH_EMAIL_NOT_VERIFIED',
+        );
         expect(user.cognitoSub).toBeNull();
       });
 
@@ -728,7 +741,11 @@ describe('Login, session issuance and throttling (e2e)', () => {
           kind: 'tokens',
           tokens: tokensOf(ada),
         });
-        expectRefusal(await world.post('/auth/login', loginBody), 409);
+        expectRefusal(
+          await world.post('/auth/login', loginBody),
+          409,
+          'AUTH_EMAIL_CONFLICT',
+        );
         expect(world.usersStore.rows).toHaveLength(1);
         expect(user.cognitoSub).toBe('sub-someone-else');
       });
@@ -794,8 +811,9 @@ describe('Login, session issuance and throttling (e2e)', () => {
       '400 before Cognito is called: %s',
       async (_name, body) => {
         const res = await world.post('/auth/login', body);
-        expectEnvelope(res, 400);
-        expect(res.body.details).toBeDefined();
+        expectEnvelope(res, 400, 'VALIDATION_FAILED');
+        expect(res.body.error.fields).toEqual(expect.any(Array));
+        expect(res.body.error.fields.length).toBeGreaterThan(0);
         expect(res.headers['set-cookie']).toBeUndefined();
         expectNoSecrets(res);
         expect(client.loginCustom).not.toHaveBeenCalled();
@@ -808,12 +826,43 @@ describe('Login, session issuance and throttling (e2e)', () => {
       expect(client.loginCustom).not.toHaveBeenCalled();
     });
 
+    it('400 VALIDATION_FAILED tells the form, field by field, what to fix', async () => {
+      const res = await world.post('/auth/login', {
+        email: 'not-an-email',
+        isAdmin: true,
+      });
+      expectEnvelope(res, 400, 'VALIDATION_FAILED');
+      expect(res.body.error.fields).toHaveLength(3);
+      expect(res.body.error.fields).toEqual(
+        expect.arrayContaining([
+          {
+            field: 'email',
+            code: 'INVALID_EMAIL',
+            message: 'Enter a valid email address.',
+          },
+          {
+            field: 'password',
+            code: 'REQUIRED',
+            message: 'This field is required.',
+          },
+          {
+            field: 'isAdmin',
+            code: 'UNKNOWN_FIELD',
+            message: 'This field is not allowed.',
+          },
+        ]),
+      );
+      expect(res.text).not.toMatch(/must be|should not exist/);
+      expect(client.loginCustom).not.toHaveBeenCalled();
+    });
+
     it('400 before Cognito is called: malformed JSON', async () => {
       const res = await world
         .post('/auth/login')
         .set('content-type', 'application/json')
         .send('{"email":');
-      expectEnvelope(res, 400);
+      expectEnvelope(res, 400, 'MALFORMED_JSON');
+      expect(res.text).not.toMatch(/Unexpected|JSON\.parse|position/);
       expect(client.loginCustom).not.toHaveBeenCalled();
     });
   });
@@ -833,12 +882,12 @@ describe('Login, session issuance and throttling (e2e)', () => {
         NEW_PASSWORD,
         SESSION,
       );
-      expect(Object.keys(res.body).sort()).toEqual([
+      expect(Object.keys(res.body.data).sort()).toEqual([
         'accessToken',
         'expiresIn',
         'user',
       ]);
-      expect(res.body.user.assignments).toEqual([{ role: 'ADMIN' }]);
+      expect(res.body.data.user.assignments).toEqual([{ role: 'ADMIN' }]);
       const { refresh, username } = expectSessionCookies(res);
       expect(refresh.value).toBe(REFRESH_TOKEN);
       expect(username.value).toBe(USERNAME);
@@ -924,7 +973,9 @@ describe('Login, session issuance and throttling (e2e)', () => {
         .get('/auth/provider-url')
         .query({ redirectUri: REDIRECT_URI })
         .expect(200);
-      expect(res.body).toEqual({ url: 'https://idp.example/authorize?x=1' });
+      expect(res.body.data).toEqual({
+        url: 'https://idp.example/authorize?x=1',
+      });
       expect(client.providerUrl).toHaveBeenCalledWith(REDIRECT_URI);
       expect(res.headers['set-cookie']).toBeUndefined();
     });
@@ -986,12 +1037,12 @@ describe('Login, session issuance and throttling (e2e)', () => {
       const res = await world.post('/auth/callback', callbackBody).expect(200);
 
       expect(client.validateCode).toHaveBeenCalledWith(CODE, REDIRECT_URI);
-      expect(Object.keys(res.body).sort()).toEqual([
+      expect(Object.keys(res.body.data).sort()).toEqual([
         'accessToken',
         'expiresIn',
         'user',
       ]);
-      expect(res.body.user).toMatchObject({
+      expect(res.body.data.user).toMatchObject({
         email: sso.email,
         authSource: 'sso',
         assignments: [],
@@ -1003,8 +1054,14 @@ describe('Login, session issuance and throttling (e2e)', () => {
     });
 
     it('401 and no Set-Cookie for an invalid or reused code', async () => {
-      client.validateCode.mockRejectedValue(new InvalidCredentialsError());
-      expectRefusal(await world.post('/auth/callback', callbackBody), 401);
+      client.validateCode.mockRejectedValue(
+        new InvalidCredentialsError('AUTH_SSO_CODE_INVALID'),
+      );
+      expectRefusal(
+        await world.post('/auth/callback', callbackBody),
+        401,
+        'AUTH_SSO_CODE_INVALID',
+      );
     });
 
     it('409 and no Set-Cookie when the SSO email belongs to another sub', async () => {
@@ -1189,7 +1246,7 @@ describe('Login, session issuance and throttling (e2e)', () => {
       for (const res of [bare, zeroLength]) {
         expect(res.status).toBe(200);
         expect(res.headers['content-type']).toMatch(/^application\/json/);
-        expect(res.body).toEqual({ body: null });
+        expect(res.body.data).toEqual({ body: null });
       }
       // On a route that needs a body, it is the validation that refuses it.
       const login = await world.post('/auth/login');
@@ -1258,7 +1315,7 @@ describe('Login, session issuance and throttling (e2e)', () => {
         ]) {
           const res = await world.raw('put', url, contentType, body);
           expect(res.status, url).toBe(200);
-          expect(res.body, url).toEqual({ body: null });
+          expect(res.body.data, url).toEqual({ body: null });
         }
       },
     );
@@ -1272,7 +1329,7 @@ describe('Login, session issuance and throttling (e2e)', () => {
           JSON.stringify(fields),
         )
         .expect(200);
-      expect(json.body).toEqual({ body: fields });
+      expect(json.body.data).toEqual({ body: fields });
 
       const form = await world
         .raw(
@@ -1282,7 +1339,7 @@ describe('Login, session issuance and throttling (e2e)', () => {
           new URLSearchParams(fields).toString(),
         )
         .expect(200);
-      expect(form.body).toEqual({ body: fields });
+      expect(form.body.data).toEqual({ body: fields });
     });
   });
 
@@ -1458,8 +1515,11 @@ describe('Login, session issuance and throttling (e2e)', () => {
         }
         const res = await send();
 
-        expectEnvelope(res, 429);
+        expectEnvelope(res, 429, 'TOO_MANY_REQUESTS');
         expect(res.headers['retry-after']).toMatch(/^\d+$/);
+        expect(res.body.error.retryAfter).toBe(
+          Number(res.headers['retry-after']),
+        );
         expect(res.headers['set-cookie']).toBeUndefined();
         expect(spy()).toHaveBeenCalledTimes(10);
       },
@@ -1658,10 +1718,17 @@ describe('Login, session issuance and throttling (e2e)', () => {
     function expectBare500(res: request.Response) {
       expectEnvelope(res, 500);
       expect(res.body).toEqual({
-        statusCode: 500,
-        error: 'Internal Server Error',
-        message: 'Internal server error',
-        requestId: res.headers['x-request-id'],
+        success: false,
+        error: {
+          status: 500,
+          code: 'INTERNAL_ERROR',
+          message:
+            'Something went wrong on our side. Try again; if it keeps happening, contact support and share the reference code.',
+        },
+        meta: {
+          requestId: res.headers['x-request-id'],
+          timestamp: expect.any(String),
+        },
       });
       expect(res.headers['set-cookie'], 'session cookie').toBeUndefined();
       expectNoSecrets(res, [
@@ -1752,6 +1819,7 @@ describe('Login, session issuance and throttling (e2e)', () => {
             method: 'POST',
             path: `/api/v1${route}`,
             status: 500,
+            responseCode: 'INTERNAL_ERROR',
             error: 'DrizzleQueryError',
             cause: 'Error',
             code: 'ER_LOCK_WAIT_TIMEOUT',
@@ -1796,6 +1864,7 @@ describe('Login, session issuance and throttling (e2e)', () => {
           method: 'POST',
           path: '/api/v1/auth/login',
           status: 500,
+          responseCode: 'INTERNAL_ERROR',
           error: 'Error',
         },
       ]);
