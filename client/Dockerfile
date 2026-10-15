@@ -10,7 +10,9 @@ COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 
 COPY . .
-RUN npx ng build --configuration production
+# TODO(api): back to `--configuration production` once the QA API is deployed. `preview` = production build
+# + the auth mock, so the design preview can be signed into (any email = ADMIN, no real accounts).
+RUN npx ng build --configuration preview
 
 FROM public.ecr.aws/awsguru/aws-lambda-adapter:0.9.1 AS adapter
 
