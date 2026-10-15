@@ -340,6 +340,26 @@ describe('POST /auth/session/refresh (FR-13)', () => {
     expect(await world.users.findByEmail(ADA.email)).toBeUndefined();
   });
 
+  it('an email collision (409) → both cookies cleared, so the refusal does not repeat forever', async () => {
+    // Another account (another sub) already holds Ada's email.
+    await world.users.create({
+      email: ADA.email,
+      cognitoSub: 'sub-someone-else',
+      authSource: 'custom',
+      firstName: 'Other',
+      lastName: 'Person',
+    });
+    client.refresh.mockResolvedValue({
+      accessToken: accessToken(),
+      idToken: idToken(),
+    });
+
+    const res = await refresh();
+
+    expectEnvelope(res, 409);
+    expectCleared(res);
+  });
+
   it('a deactivated user → 403 and both cookies cleared', async () => {
     const ada = await registerAda(world);
     ada.isActive = false;

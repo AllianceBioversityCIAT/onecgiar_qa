@@ -367,6 +367,7 @@ The API SHALL answer cross-origin requests with credentials only for allowed ori
 
 The API SHALL refuse to start when `COGNITO_REGION`, `COGNITO_USER_POOL_ID`, `COGNITO_CLIENT_ID`, `COGNITO_CLIENT_SECRET`, `COGNITO_URL` or `ALLOWED_ORIGINS` is missing (amended 2026-10-14; `COGNITO_USER_POOL_URL` is optional and defaults to `https://cognito-idp.<COGNITO_REGION>.amazonaws.com/`), naming the missing variables.
 - AND IT MUST reject an `ALLOWED_ORIGINS` entry that is not an `https://` origin, except `http://localhost:<port>` for local development
+- AND IT MUST reject a `COGNITO_URL` or `COGNITO_USER_POOL_URL` that is not `https://` (passwords and the client secret travel to them; amended 2026-10-15, independent review)
 
 ## 7. Non-Functional Requirements
 

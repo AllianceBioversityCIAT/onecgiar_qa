@@ -36,6 +36,14 @@ const SIGNING_ALLOWED: Record<string, RegExp> = {
 /** A client secret written as a literal value (`key: 'x'`, `key = "x"`, `KEY=x`). */
 const SECRET_LITERAL =
   /client[_-]?secret['"]?[ \t]*(?:[:=][ \t]*['"`]|=[ \t]*[^\s'"`])/i;
+/** A literal fallback on a secret read: `?? 'x'`, `|| "x"`. */
+const SECRET_FALLBACK =
+  /(?:client[_-]?secret|CLIENT_SECRET)[^\n]*(?:\?\?|\|\|)[ \t]*['"`]/i;
+/** Dynamic env access, which the reader check below could not see. */
+const DYNAMIC_ENV = /process\.env\s*\[/;
+/** The one line allowed to read the secret (auth config). */
+const SECRET_CONFIG_LINE =
+  /^\s*clientSecret: process\.env\.COGNITO_CLIENT_SECRET!,$/m;
 /** A log call that mentions the secret. */
 const SECRET_LOGGED = /(?:logger|console)\.\w+\([^\n]*client[_-]?secret/i;
 /** The only accepted way in: `process.env.COGNITO_CLIENT_SECRET`. */
@@ -62,7 +70,11 @@ const findSigning = (text: string, allowed?: RegExp): string[] => {
 
 const hasClientSecret = (text: string): boolean => {
   const code = codeOf(text);
-  return SECRET_LITERAL.test(code) || SECRET_LOGGED.test(code);
+  return (
+    SECRET_LITERAL.test(code) ||
+    SECRET_FALLBACK.test(code) ||
+    SECRET_LOGGED.test(code)
+  );
 };
 
 const isSpec = (path: string) => path.endsWith('.spec.ts');
@@ -120,6 +132,9 @@ describe('FR-17: no QA-issued tokens, client secret from env only (static)', () 
       'const client_secret = "x";',
       '"cognito-client-secret": "x"',
       'this.logger.warn(`secret ${this.config.cognito.clientSecret}`);',
+      "clientSecret: process.env.COGNITO_CLIENT_SECRET ?? 'abc',",
+      'clientSecret: process.env.COGNITO_CLIENT_SECRET || "abc",',
+      'const s = env.CLIENT_SECRET || `abc`;',
     ])('flags a client secret in %j', (line) => {
       expect(hasClientSecret(line)).toBe(true);
     });
@@ -182,9 +197,24 @@ describe('FR-17: no QA-issued tokens, client secret from env only (static)', () 
         .filter((path) => /process\.env\.\w*SECRET/i.test(codeOf(read(path))))
         .map((path) => relative(SRC_ROOT, path));
       expect(readers).toEqual(['config/auth.config.ts']);
-      expect(read(join(SRC_ROOT, 'config/auth.config.ts'))).toMatch(
-        SECRET_FROM_ENV,
+      const config = read(join(SRC_ROOT, 'config/auth.config.ts'));
+      expect(config).toMatch(SECRET_FROM_ENV);
+      // Exactly this line: no fallback, no transformation.
+      expect(config).toMatch(SECRET_CONFIG_LINE);
+    });
+
+    it('reads no environment variable dynamically (process.env[...]) in server/src', () => {
+      const found = sourceFiles()
+        .filter((path) => DYNAMIC_ENV.test(codeOf(read(path))))
+        .map(shown);
+      expect(found).toEqual([]);
+    });
+
+    it('detects dynamic env access', () => {
+      expect(DYNAMIC_ENV.test("process.env['COGNITO_CLIENT_SECRET']")).toBe(
+        true,
       );
+      expect(DYNAMIC_ENV.test('process.env.COGNITO_CLIENT_SECRET')).toBe(false);
     });
 
     it('depends on no signing library', () => {

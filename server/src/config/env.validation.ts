@@ -50,6 +50,14 @@ function isAllowedOriginEntry(entry: string): boolean {
   return url.protocol === 'http:' && url.hostname === 'localhost' && !!url.port;
 }
 
+function isHttpsUrl(value: string): boolean {
+  try {
+    return new URL(value).protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 export function validateEnv(
   config: Record<string, unknown>,
 ): Record<string, unknown> {
@@ -60,5 +68,12 @@ export function validateEnv(
     );
   }
   parseAllowedOrigins(config.ALLOWED_ORIGINS as string);
+  // Passwords, SECRET_HASH and the client secret travel to these (FR-18).
+  for (const key of ['COGNITO_URL', 'COGNITO_USER_POOL_URL'] as const) {
+    const value = config[key];
+    if (value !== undefined && value !== '' && !isHttpsUrl(value as string)) {
+      throw new Error(`Invalid ${key}: expected an https:// URL`);
+    }
+  }
   return config;
 }

@@ -35,6 +35,19 @@ describe('validateEnv', () => {
     );
   });
 
+  it.each(['COGNITO_URL', 'COGNITO_USER_POOL_URL'])(
+    'rejects a non-https %s (secrets travel to it)',
+    (key) => {
+      expect(() =>
+        validateEnv({ ...VALID, [key]: 'http://cognito.example.com' }),
+      ).toThrow(key);
+    },
+  );
+
+  it('accepts the optional COGNITO_USER_POOL_URL when absent', () => {
+    expect(() => validateEnv({ ...VALID })).not.toThrow();
+  });
+
   it('rejects an http origin that is not localhost', () => {
     expect(() =>
       validateEnv({ ...VALID, ALLOWED_ORIGINS: 'http://evil.com' }),

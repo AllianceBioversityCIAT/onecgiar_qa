@@ -40,8 +40,8 @@ const cookieOf = (request: Request, name: string): string | undefined => {
 };
 
 /**
- * Logs every failed session call and, on a refusal (401, 403), clears both
- * session cookies (FR-13). A 5xx keeps them: Cognito being down must not end
+ * Logs every failed session call and, on any refusal (4xx: 401, 403, 409),
+ * clears both session cookies (FR-13, design 7.3). A 5xx keeps them: Cognito being down must not end
  * the session (NFR-6). The OriginGuard refuses before this runs, so a foreign
  * origin never clears anything (FR-14).
  */
@@ -56,7 +56,8 @@ export class SessionDecisionInterceptor implements NestInterceptor {
         const decision = decisionOfError(error);
         if (
           error instanceof HttpException &&
-          (decision.status === 401 || decision.status === 403)
+          decision.status >= 400 &&
+          decision.status < 500
         ) {
           clearSessionCookies(response);
         }

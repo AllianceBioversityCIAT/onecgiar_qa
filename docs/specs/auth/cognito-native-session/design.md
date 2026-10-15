@@ -148,7 +148,7 @@ All under `/api/v1`. Error envelope `{ statusCode, error, message, details?, req
 | POST | `/auth/complete-new-password` | Public · throttled | `{ email, newPassword, session }` | 200 session shape + cookies | 400, 401, 403, 409, 429, 503 |
 | GET | `/auth/provider-url?redirectUri=` | Public | query | 200 `{ url }` | 400 (503 removed 2026-10-14: the URL is built locally, DD-11) |
 | POST | `/auth/callback` | Public · throttled | `{ code, redirectUri }` | 200 session shape + cookies | 400, 401, 403, 409, 429, 503 |
-| POST | `/auth/session/refresh` | Public · Origin-checked | cookies only | 200 session shape (cookies rotated if new) | 401 (cookies cleared), 403 (origin → cookies untouched; not admitted → cookies cleared), 503 (cookies kept) |
+| POST | `/auth/session/refresh` | Public · Origin-checked | cookies only | 200 session shape (cookies rotated if new) | 401 (cookies cleared), 403 (origin → cookies untouched; not admitted → cookies cleared), 409 (email collision → cookies cleared; any 4xx refusal clears, amended 2026-10-15), 503 (cookies kept) |
 | POST | `/auth/session/logout` | Public · Origin-checked | — | 204, refresh token revoked (best effort), cookies cleared | 403 (cookies untouched) |
 | GET | `/auth/me` | Authenticated (GUEST ok) | — | 200 `user` | 401 |
 | GET | `/health` | Public | — | 200 `{ status: 'ok' }` | — |

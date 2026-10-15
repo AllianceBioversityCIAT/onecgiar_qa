@@ -66,8 +66,14 @@ const isStr = (v: unknown): v is string => typeof v === 'string' && v !== '';
  */
 function errorTypeOf(body: unknown): string {
   const raw = isObject(body) ? (body.__type ?? body.error) : undefined;
-  const name = typeof raw === 'string' ? raw.split('#').pop() : undefined;
-  return name !== undefined && /^\w{1,64}$/.test(name) ? name : 'unknown';
+  return typeof raw === 'string'
+    ? safeName(raw.split('#').pop() ?? '')
+    : 'unknown';
+}
+
+/** A Cognito-supplied name, only if it is a bare identifier (NFR-7: nothing else reaches a log). */
+function safeName(name: string): string {
+  return /^\w{1,64}$/.test(name) ? name : 'unknown';
 }
 
 /** Cognito errors that mean "try later", not "wrong credentials". */
@@ -252,7 +258,7 @@ export class CognitoAuthClient {
       };
     }
     this.logger.warn(
-      `upstream_refused op=${op} reason=${isStr(body.ChallengeName) ? `challenge_${body.ChallengeName}` : 'no_tokens'}`,
+      `upstream_refused op=${op} reason=${isStr(body.ChallengeName) ? `challenge_${safeName(body.ChallengeName)}` : 'no_tokens'}`,
     );
     throw new InvalidCredentialsError();
   }

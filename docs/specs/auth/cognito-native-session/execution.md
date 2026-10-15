@@ -1431,3 +1431,34 @@ After the user configured `COGNITO_CLIENT_SECRET`, `COGNITO_URL` and `COGNITO_US
 
 ## Run status after the DD-11 pivot (2026-10-14)
 - **Done:** T-1 … T-10. **Remaining:** T-11 (HITL in TEST; also runnable locally now that the localhost callback is registered).
+
+## Independent review of the DD-11 pivot (2026-10-15)
+
+- **Reviewer:** `akili-reviewer` (T3 wrapper, fresh context) over `3ff8e06..4e02099`, at the user's request ("Adelante con los 3"). It read the files at HEAD.
+- **Verdict:** `STATUS: FAIL` with two issues; the security core (secret from env only, SECRET_HASH, Basic auth on `/oauth2/token`, no enumeration leak, OriginGuard exact match and ordering, refresh from DB without creating users, best-effort revoke) held.
+  1. **FR-17 detector gap:** a literal fallback on the env read (`process.env.COGNITO_CLIENT_SECRET ?? 'abc'`, `|| "abc"`) and bracket access (`process.env['…']`) passed the static check.
+  2. **Refresh refusal not clearing on 409:** `SessionDecisionInterceptor` cleared only on 401/403; an `EmailCollisionError` (409) in refresh mode kept the cookies, so every refresh repeated the 409 (design § 7.3 "Any refusal clears both cookies").
+- **Advisories:** no OAuth `state`/PKCE on the authorize URL (login CSRF on SSO; not required by FR-6/FR-7); `COGNITO_URL`/`COGNITO_USER_POOL_URL` not checked for https; `ChallengeName` logged unsanitized; every non-throttling 4xx is 401 (incl. password-policy failure); SECRET_HASH oracle mirrors the code (P-18 real-pool run covers it); no behavioral "secret never in a response" check.
+
+### Fixes (Leader inline, as for the pivot)
+- **Issue 1:** `no-qa-tokens.spec.ts` — new `SECRET_FALLBACK` detector (`?? / ||` followed by a literal on a secret line), `DYNAMIC_ENV` (no `process.env[...]` anywhere in `server/src`), and the auth-config line must be exactly `clientSecret: process.env.COGNITO_CLIENT_SECRET!,`. Detector cases added for `?? 'abc'`, `|| "abc"`, `` || `abc` `` and bracket access.
+  - **Mutation:** `clientSecret: process.env.COGNITO_CLIENT_SECRET ?? 'x'` in `auth.config.ts` → 2 red (literal check and exact-line check). Reverted.
+- **Issue 2:** `session.controller.ts` — the interceptor clears on any `HttpException` 400–499 (the OriginGuard 403 and the JSON-only 415 run before it, so FR-14's "untouched" still holds). New e2e: email collision on refresh → 409 + both cookies cleared.
+  - **Mutation:** back to 401/403 only → the 409 test red. Reverted.
+- **Advisories applied:** `env.validation.ts` rejects a non-https `COGNITO_URL`/`COGNITO_USER_POOL_URL` (FR-18 amended 2026-10-15; 3 new unit tests); `cognito-auth.client.ts` logs a challenge name only if it is a bare identifier (`safeName`, shared with `errorTypeOf`).
+- **Advisories not applied (recorded for the user):** OAuth `state` (and optional PKCE) — needs an FR-6/FR-7 amendment and the front; must land before SSO goes live. Password-policy feedback on complete-new-password — a future FR.
+- **Spec edits:** `requirements.md` FR-18 (https clause); `design.md` § 6 refresh errors (409 clears). The pending "design § 7.2 cites P-7 instead of P-6" item is moot: that citation left with the old microservice client bullet.
+
+### Verification (Leader, 2026-10-15)
+- `pnpm lint` → 0 · `tsc --noEmit -p tsconfig.build.json` → exit 0 · unit **465/465** · e2e **234/234**. `nest build` blocked twice by resource-guard (3.4–3.6 GB free < 4.5 GB); stand-in: tsc exit 0 and the `nest start --watch` compiler "Found 0 errors". The build re-run is owed before the PR.
+
+## Shared docs synced on a `staging` branch (2026-10-15)
+- Branch `docs/auth-cognito-session-sync` from `origin/staging` (worktree `../onecgiar_qa-docs-sync`), local commits only, not pushed:
+  - `3d476ef` — TRD (header/Identity row, C4 diagrams without the microservice and the orphaned CLARISA node, ADR-003 rewritten for DD-11 with the issuer-format note, § 4, § 5.1 `roles`/`role_assignments`/users columns, § 6 auth routes and health, § 9 Cognito row, § 10) and `infrastructure.md` (§ 2, § 4 CORS, § 6 health check `/api/v1/health` and the auth env vars).
+  - `87a1cba` — PRD Dependencies: the auth microservice line replaced by direct Cognito.
+- This clears the pending shared-doc items listed earlier (TRD § 5.1, § 6, ADR-003 / issuer formats, `infrastructure.md` § 6) once merged into `staging`.
+
+## Local environment ready for T-11 (2026-10-15)
+- `server/.env` (gitignored): added `ALLOWED_ORIGINS=http://localhost:4200`, and `AWS_REGION`/`DYNAMODB_TABLE_NAME` with the `.env.example` defaults (the API refused to start without them; no auth flow touches DynamoDB).
+- `pnpm start:dev` → all 8 routes mapped; `GET /api/v1/health` 200; `/auth/me` without token 401; refresh with a foreign Origin 403; refresh without cookies 401 "No session"; `provider-url` 200 with the Hosted UI authorize URL (localhost callback, `openid email`, `CGIAR-AzureAD`).
+- Startup writes nothing to `qadb` (only the JWKS warm-up). Real logins (custom pre-registration, SSO first login → GUEST row) need the user's OK to write to `qadb`.
