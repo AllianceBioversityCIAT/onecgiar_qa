@@ -61,21 +61,6 @@
                 }
               ]
             },
-            "mock": {
-              "optimization": false,
-              "extractLicenses": false,
-              "sourceMap": true,
-              "fileReplacements": [
-                {
-                  "replace": "src/environments/environment.ts",
-                  "with": "src/environments/environment.mock.ts"
-                },
-                {
-                  "replace": "src/dev-auth-mock/dev-auth-mock.entry.ts",
-                  "with": "src/dev-auth-mock/dev-auth-mock.entry.mock.ts"
-                }
-              ]
-            },
             "test": {
               "fileReplacements": [
                 {
@@ -84,31 +69,6 @@
                 }
               ],
               "outputHashing": "all"
-            },
-            "preview": {
-              "budgets": [
-                {
-                  "type": "initial",
-                  "maximumWarning": "500kB",
-                  "maximumError": "1MB"
-                },
-                {
-                  "type": "anyComponentStyle",
-                  "maximumWarning": "4kB",
-                  "maximumError": "8kB"
-                }
-              ],
-              "outputHashing": "all",
-              "fileReplacements": [
-                {
-                  "replace": "src/environments/environment.ts",
-                  "with": "src/environments/environment.preview.ts"
-                },
-                {
-                  "replace": "src/dev-auth-mock/dev-auth-mock.entry.ts",
-                  "with": "src/dev-auth-mock/dev-auth-mock.entry.preview.ts"
-                }
-              ]
             }
           },
           "defaultConfiguration": "production"
@@ -121,12 +81,6 @@
             },
             "development": {
               "buildTarget": "onecgiar-qa:build:development"
-            },
-            "mock": {
-              "buildTarget": "onecgiar-qa:build:mock"
-            },
-            "preview": {
-              "buildTarget": "onecgiar-qa:build:preview"
             }
           },
           "defaultConfiguration": "development"

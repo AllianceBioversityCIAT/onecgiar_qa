@@ -7,8 +7,7 @@
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
-    "serve:ssr:onecgiar-qa": "node dist/onecgiar-qa/server/server.mjs",
-    "start:mock": "ng serve --configuration mock --port 4300"
+    "serve:ssr:onecgiar-qa": "node dist/onecgiar-qa/server/server.mjs"
   },
   "private": true,
   "packageManager": "npm@11.19.0",
