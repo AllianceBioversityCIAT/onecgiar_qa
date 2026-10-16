@@ -6,11 +6,19 @@ import {
 } from '@angular/ssr/node';
 import express from 'express';
 import { join } from 'node:path';
+import { devAuthMock } from './dev-auth-mock/dev-auth-mock.entry';
 
 const browserDistFolder = join(import.meta.dirname, '../browser');
 
 const app = express();
 const angularApp = new AngularNodeAppEngine();
+
+/**
+ * DEV ONLY: local mock of the auth API. Double lock: only the `mock` build configuration contains it
+ * (other builds compile an empty `dev-auth-mock.entry.ts`) AND `QA_DEV_AUTH_MOCK=1` must be set.
+ */
+const mock = devAuthMock();
+if (mock) app.use(mock);
 
 /**
  * Serve static files from /browser

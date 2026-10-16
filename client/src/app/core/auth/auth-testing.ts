@@ -31,6 +31,7 @@ export function setupAuthTesting(): HttpTestingController {
           name: 'test',
           apiBaseUrl: API,
           ssoCallbackPath: '/auth/callback',
+          mockAuth: false,
         },
       },
     ],

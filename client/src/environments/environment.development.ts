@@ -5,4 +5,5 @@ export const environment: Environment = {
   name: 'development',
   apiBaseUrl: 'http://localhost:3000/api/v1',
   ssoCallbackPath: '/auth/callback',
+  mockAuth: false,
 };
