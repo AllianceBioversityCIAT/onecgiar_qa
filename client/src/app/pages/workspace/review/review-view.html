@@ -1,0 +1,171 @@
+<!-- Result review (mockup "Result review" screen). Fills the area below the 56px top bar. -->
+<!-- Narrow (< 900px): one natural page scroll inside the shell's <main> — no inner scrollers; the footer sticks to the bottom. -->
+<div class="bg-(--surface-3)" [class]="narrow() ? 'flex min-h-[calc(100dvh-56px)] flex-col' : 'h-[calc(100dvh-56px)] min-h-0'">
+  <div class="flex items-stretch" [class]="narrow() ? 'flex-1 flex-col' : 'h-full min-h-0 flex-row'">
+    <!-- ===== Sections aside ===== -->
+    <qa-review-aside
+      [result]="header()"
+      [sections]="sectionNav()"
+      [resolved]="resolvedCount()"
+      [total]="totalCount()"
+      [aiCount]="aiCount()"
+      [narrow]="narrow()"
+      [(rail)]="rail"
+      (go)="goSection($event)"
+      (aiGo)="goFlagged()"
+    />
+
+    <!-- ===== Main column ===== -->
+    <div class="flex min-w-0 flex-1 flex-col" [class.min-h-0]="!narrow()">
+      <div #scroller class="flex-1 bg-(--surface-3) py-8 max-[1100px]:px-6 max-sm:px-4 max-sm:py-5" [class]="narrow() ? 'px-10' : 'min-h-0 overflow-x-hidden overflow-y-auto ' + (rail() ? 'px-12' : 'px-10')">
+        @if (closing(); as cl) {
+          <!-- Finished: result moved to Awaiting response -->
+          <div role="status" aria-live="polite" class="flex items-center" [class]="narrow() ? 'min-h-[50dvh]' : 'min-h-full'">
+            <div class="flex max-w-[420px] flex-col items-start gap-2.5">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--st-approved-fg)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14M22 4L12 14.01l-3-3" /></svg>
+              <span class="font-(family-name:--qa-mono) text-(length:--fs-16) font-bold text-(--text) tabular-nums">{{ cl.code }}</span>
+              <span class="text-(length:--fs-14) font-normal text-(--text-3)">Moved to Awaiting response.</span>
+              @if (cl.next) {
+                <span class="text-(length:--fs-13) font-normal text-(--text-4)">Opening <span class="font-(family-name:--qa-mono) font-semibold tabular-nums">{{ cl.next }}</span> · <span class="font-(family-name:--qa-mono) font-semibold tabular-nums">{{ cl.left }}</span> left in your queue</span>
+              } @else {
+                <span class="text-(length:--fs-13) font-normal text-(--text-4)">That was the last one in your queue.</span>
+              }
+              <div class="flex items-center gap-4">
+                <button hlmBtn qaBtn tone="link" size="sm" flush="start" type="button" (click)="backToResults()">Back to results</button>
+                @if (cl.next) {
+                  <button hlmBtn qaBtn tone="link" size="sm" type="button" (click)="undoClose()">Undo</button>
+                }
+              </div>
+            </div>
+          </div>
+        } @else {
+          @let h = header();
+          <!-- Title row -->
+          <div #titleRow class="mb-5 flex flex-wrap items-start gap-x-4 gap-y-3 max-sm:mb-4">
+            <div class="flex min-w-[min(100%,320px)] flex-[1_1_320px] flex-col">
+              <h1 class="m-0 text-(length:--fs-20) max-sm:text-(length:--fs-18) leading-[1.3] font-bold tracking-[-0.01em] text-pretty text-(--text)">{{ h.title }}</h1>
+              <div class="mt-1 flex flex-wrap items-center gap-2">
+                <span class="font-(family-name:--qa-mono) text-(length:--fs-13) font-semibold text-(--accent) tabular-nums">{{ h.code }}</span>
+                <span class="text-(--text-muted)" aria-hidden="true">·</span>
+                <span class="text-(length:--fs-13) font-normal text-(--text-3)">{{ h.type }}</span>
+                <span class="inline-flex items-center gap-[5px] rounded-full px-2.5 py-[3px] text-(length:--fs-11) font-semibold whitespace-nowrap" [class]="h.statusClass">{{ h.status }}</span>
+                <qa-review-code-info [details]="h.details" />
+              </div>
+            </div>
+            <div class="flex flex-none flex-wrap items-center gap-2">
+              <button hlmBtn qaBtn tone="secondary" type="button" [attr.aria-pressed]="showAll()" (click)="showAll.set(!showAll())">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" /></svg>
+                Show all fields
+              </button>
+              <!-- TODO(api): PDF export of the review (no behaviour in the mockup yet). -->
+              <button hlmBtn qaBtn tone="secondary" type="button">
+                PDF
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-4)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
+              </button>
+              <button type="button" aria-label="More actions" class="flex size-9 items-center justify-center rounded-[8px] border border-(--border) max-sm:size-10 bg-(--surface) hover:border-(--border-strong) focus-visible:shadow-(--focus-ring) focus-visible:outline-none">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="var(--text-3)" aria-hidden="true"><path d="M5 10.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm7 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm7 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z" /></svg>
+              </button>
+            </div>
+          </div>
+
+          <!-- Section card -->
+          <section class="flex flex-col items-stretch gap-2.5 rounded-[12px] border border-(--border) bg-(--surface) p-6 max-sm:rounded-none max-sm:border-0 max-sm:bg-transparent max-sm:p-0" aria-labelledby="review-section-title">
+            @if (isToc()) {
+              <qa-review-toc-section
+                [groups]="tocGroups()"
+                [count]="tocCount()"
+                [programs]="tocPrograms()"
+                [reviewed]="tocReviewed()"
+                (act)="onTocCard($event)"
+              />
+            } @else {
+              <div class="mb-2 flex min-h-8 flex-wrap items-center gap-3">
+                <h2 id="review-section-title" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">{{ current().name }}</h2>
+                @let b = bulkHere();
+                @if (!b && bulkCount() > 0) {
+                  <button hlmBtn qaBtn tone="secondary" size="sm" type="button" class="ml-auto" (click)="askBulk()">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M18 6L7 17l-5-5M22 10l-7.5 7.5L13 16" /></svg>
+                    Approve remaining<span class="font-(family-name:--qa-mono) text-(length:--fs-12) font-bold text-(--text-3) tabular-nums">{{ bulkCount() }}</span>
+                  </button>
+                }
+                @if (b?.phase === 'confirm' && bulkCount() > 0) {
+                  <div role="alertdialog" aria-labelledby="review-bulk-text" class="ml-auto flex flex-wrap items-center gap-2.5">
+                    <span id="review-bulk-text" class="text-(length:--fs-13) font-normal text-(--text-2)">Approve <span class="font-(family-name:--qa-mono) font-semibold text-(--text) tabular-nums">{{ bulkCount() }}</span> fields?@if (bulkFlagged() > 0) { <span class="font-(family-name:--qa-mono) font-semibold text-(--text) tabular-nums">{{ bulkFlagged() }}</span> flagged by AI are left out.}</span>
+                    <button hlmBtn qaBtn tone="secondary" size="sm" type="button" (click)="bulk.set(null)">Cancel</button>
+                    <button hlmBtn qaBtn tone="primary" size="sm" type="button" (click)="confirmBulk()">Approve</button>
+                  </div>
+                }
+                @if (b?.phase === 'done') {
+                  <div role="status" class="ml-auto flex items-center gap-2 text-(length:--fs-13) font-medium text-(--st-approved-fg)">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M20 6L9 17l-5-5" /></svg>
+                    <span><span class="font-(family-name:--qa-mono) font-semibold tabular-nums">{{ b!.ids.length }}</span> {{ b!.ids.length === 1 ? 'field approved' : 'fields approved' }}</span>
+                    <button hlmBtn qaBtn tone="link" size="sm" type="button" (click)="undoBulk()">Undo all</button>
+                  </div>
+                }
+              </div>
+
+              @for (f of fields(); track f.id) {
+                @if (f.iaGroupStart) {
+                  <div class="mt-[14px] mb-2.5 flex flex-wrap items-center gap-2 border-t border-(--surface-4) pt-4">
+                    <span class="inline-flex items-center gap-[3px]">
+                      <span class="text-(length:--fs-13) font-semibold tracking-[0.06em] text-(--text-3) uppercase">Impact area scores</span>
+                      <button type="button" [qaTooltip]="iaTip" aria-label="About impact area scores" class="flex size-4 flex-none items-center justify-center rounded-full p-0 text-(--text-muted) hover:text-(--primary) focus-visible:shadow-(--focus-ring) focus-visible:outline-none"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01" /></svg></button>
+                    </span>
+                    <span class="ml-auto text-(length:--fs-12) font-normal text-(--text-4)"><span class="font-(family-name:--qa-mono) font-semibold text-(--text-3) tabular-nums">{{ iaAbove }}</span> of <span class="font-(family-name:--qa-mono) font-semibold text-(--text-3) tabular-nums">{{ iaTotal }}</span> scored above zero · <span class="font-(family-name:--qa-mono) font-semibold text-(--text-3) tabular-nums">{{ iaPrincipal }}</span> principal</span>
+                  </div>
+                }
+                <qa-review-field-card [field]="f" (act)="onCard(f.id, $event)" />
+              }
+            }
+          </section>
+
+          @if (narrow()) {
+            <div class="mt-4 flex flex-col gap-3">
+              <div class="rounded-[8px] border border-(--border) bg-(--surface) px-[14px] py-3 text-(length:--fs-13) leading-[1.55] font-normal text-pretty text-(--text-2)">{{ h.instructions }}</div>
+              <a hlmBtn qaBtn tone="secondary" size="sm" [href]="cycle.guidanceUrl" target="_blank" rel="noopener">
+                <span>{{ cycle.guidanceLabel }}</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-4)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3" /></svg>
+                <span class="sr-only">(opens in a new tab)</span>
+              </a>
+            </div>
+          }
+        }
+      </div>
+
+      <!-- ===== Footer ===== -->
+      @if (!closing()) {
+        <qa-review-footer
+          [class]="narrow() ? 'sticky bottom-0 z-10' : ''"
+          [mode]="footerMode()"
+          [sectionNum]="idx() + 1"
+          [sectionTotal]="sections().length"
+          [openCount]="openCount()"
+          [canFinish]="!readOnly()"
+          [warnCount]="warnCount()"
+          [warnText]="warnText()"
+          [resolvedCount]="resolvedCount()"
+          [commentedCount]="commentedCount()"
+          [skipped]="skippedCount()"
+          (back)="goSection(idx() - 1)"
+          (next)="goSection(idx() + 1)"
+          (finish)="finish()"
+          (reviewThem)="reviewThem()"
+          (finishAnyway)="finishAnyway()"
+          (keepWorking)="keepWorking()"
+          (confirmFinish)="confirmFinish()"
+        />
+      }
+    </div>
+  </div>
+</div>
+
+<!-- ===== Comments drawer (480px) ===== -->
+<qa-review-comments-drawer
+  [(open)]="drawerOpen"
+  [field]="drawerField()"
+  [text]="commentForm.text"
+  [showError]="showDraftError()"
+  [focusTick]="focusTick()"
+  (add)="addComment()"
+  (quickPick)="pickQuick($event)"
+/>

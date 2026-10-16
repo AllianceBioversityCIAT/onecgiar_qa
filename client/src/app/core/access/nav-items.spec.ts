@@ -21,13 +21,8 @@ describe('navItems (menu derived from the guarded routes)', () => {
     ]);
   });
 
-  it('a lead assessor sees assessments and lead review', () => {
-    expect(menuFor([{ role: 'LEAD_ASSESSOR', resultTypeKey: 'KP' }])).toEqual([
-      '/',
-      '/results',
-      '/assessments',
-      '/lead-review',
-    ]);
+  it('a lead assessor sees the assessment entries, not administration', () => {
+    expect(menuFor([{ role: 'LEAD_ASSESSOR', resultTypeKey: 'KP' }])).toEqual(['/', '/results']);
   });
 
   it('every entry carries the permission its route guard checks', () => {

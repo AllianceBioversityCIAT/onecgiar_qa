@@ -1,0 +1,310 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  OneCGIAR QA frontend (Angular SSR) — Lambda container image run by the AWS Lambda
+  Web Adapter, Lambda Function URL and CloudFront distribution.
+  The image comes from the ECR stack (ecr.yaml). Every deploy passes a new ImageUri,
+  so CloudFormation stays the single owner of the function code and configuration.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: onecgiar-qa-frontend
+    Description: Base name for resources and value of the Project tag.
+
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+    Description: Environment label (appended to resource names and Environment tag).
+
+  ImageUri:
+    Type: String
+    AllowedPattern: '^\d{12}\.dkr\.ecr\.[a-z0-9-]+\.amazonaws\.com/[a-z0-9._/-]+(:[A-Za-z0-9._-]+|@sha256:[a-f0-9]{64})$'
+    ConstraintDescription: Must be an ECR image URI with a tag or digest.
+    Description: Full container image URI (account.dkr.ecr.region.amazonaws.com/repo:tag).
+
+  SecretName:
+    Type: String
+    Default: ''
+    Description: >
+      Optional existing Secrets Manager secret name. Leave empty while the frontend
+      has no runtime secrets. When set, the role gets GetSecretValue on it and
+      SECRET_NAME is exposed to the function.
+
+  AdditionalAllowedHosts:
+    Type: String
+    Default: ''
+    Description: >
+      Optional comma-separated hostnames added to NG_ALLOWED_HOSTS (Angular SSR host
+      validation). Function URL hosts of the region are always allowed, because
+      CloudFront forwards the origin host, not the viewer host.
+
+  EnableOriginAccessControl:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: >
+      true = Function URL uses AWS_IAM and only this CloudFront distribution can call it (OAC).
+      false = public Function URL (AuthType NONE), same as the reference architecture.
+      Requests with a body (POST/PUT/PATCH) need the x-amz-content-sha256 header when true.
+
+  MemorySize:
+    Type: Number
+    Default: 1024
+    MinValue: 512
+    MaxValue: 10240
+    Description: Lambda memory (MB).
+
+  Timeout:
+    Type: Number
+    Default: 30
+    MinValue: 10
+    MaxValue: 120
+    Description: Lambda timeout (seconds).
+
+  LogRetentionDays:
+    Type: Number
+    Default: 30
+    AllowedValues: [1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1827, 3653]
+    Description: CloudWatch Log Group retention for the Lambda function.
+
+Conditions:
+  HasSecret: !Not [!Equals [!Ref SecretName, '']]
+  HasAdditionalAllowedHosts: !Not [!Equals [!Ref AdditionalAllowedHosts, '']]
+  UseOriginAccessControl: !Equals [!Ref EnableOriginAccessControl, 'true']
+  UsePublicFunctionUrl: !Not [!Condition UseOriginAccessControl]
+
+Resources:
+  LambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${ProjectName}-${Environment}'
+      RetentionInDays: !Ref LogRetentionDays
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Name
+          Value: !Sub '/aws/lambda/${ProjectName}-${Environment}'
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  # Explicit role (instead of the SAM-generated one) so it carries the tags and
+  # only gets write access to its own log group.
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-${Environment}-lambda-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+      Policies:
+        - PolicyName: WriteOwnLogs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub '${LambdaLogGroup.Arn}'
+        - !If
+          - HasSecret
+          - PolicyName: SecretsManagerRead
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - secretsmanager:GetSecretValue
+                  Resource: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SecretName}-??????'
+          - !Ref AWS::NoValue
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-lambda-role'
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  AppFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}'
+      Description: OneCGIAR QA frontend — Angular SSR via AWS Lambda Web Adapter
+      PackageType: Image
+      ImageUri: !Ref ImageUri
+      Role: !GetAtt LambdaExecutionRole.Arn
+      MemorySize: !Ref MemorySize
+      Timeout: !Ref Timeout
+      Architectures:
+        - x86_64
+      LoggingConfig:
+        LogGroup: !Ref LambdaLogGroup
+        LogFormat: Text
+      # Every runtime variable lives here: anything set by hand in the console is
+      # replaced on the next deploy (no drift, no hidden configuration).
+      Environment:
+        Variables:
+          # Without an allowed host, Angular SSR answers 400 to every rendered route.
+          NG_ALLOWED_HOSTS: !If
+            - HasAdditionalAllowedHosts
+            - !Sub '*.lambda-url.${AWS::Region}.on.aws,${AdditionalAllowedHosts}'
+            - !Sub '*.lambda-url.${AWS::Region}.on.aws'
+          # Set by the Function URL; trusting them gives SSR the real https URL.
+          NG_TRUST_PROXY_HEADERS: x-forwarded-for,x-forwarded-proto,x-forwarded-port
+          SECRET_NAME: !If [HasSecret, !Ref SecretName, !Ref AWS::NoValue]
+      # SAM takes Tags as a map and adds the lambda:createdBy tag itself.
+      Tags:
+        Project: !Ref ProjectName
+        Environment: !Ref Environment
+        Name: !Sub '${ProjectName}-${Environment}'
+        ManagedBy: CloudFormation
+
+  # Native resources instead of the SAM FunctionUrlConfig shortcut: SAM needs a literal
+  # AuthType there, and the OAC switch needs it to come from a condition.
+  # AWS::Lambda::Url, AWS::Lambda::Permission and the OAC do not support tags.
+  FunctionUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      TargetFunctionArn: !GetAtt AppFunction.Arn
+      AuthType: !If [UseOriginAccessControl, AWS_IAM, NONE]
+      InvokeMode: BUFFERED
+
+  # Public mode (reference architecture): anyone can call the Function URL.
+  PublicFunctionUrlPermission:
+    Type: AWS::Lambda::Permission
+    Condition: UsePublicFunctionUrl
+    Properties:
+      Action: lambda:InvokeFunctionUrl
+      FunctionName: !Ref AppFunction
+      Principal: '*'
+      FunctionUrlAuthType: NONE
+
+  PublicInvokeViaUrlPermission:
+    Type: AWS::Lambda::Permission
+    Condition: UsePublicFunctionUrl
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref AppFunction
+      Principal: '*'
+      InvokedViaFunctionUrl: true
+
+  # OAC mode: only this distribution, signing with SigV4, can call the Function URL.
+  OriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Condition: UseOriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub '${ProjectName}-${Environment}-lambda-oac'
+        Description: Signs CloudFront requests to the Lambda Function URL
+        OriginAccessControlOriginType: lambda
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  CloudFrontFunctionUrlPermission:
+    Type: AWS::Lambda::Permission
+    Condition: UseOriginAccessControl
+    Properties:
+      Action: lambda:InvokeFunctionUrl
+      FunctionName: !Ref AppFunction
+      Principal: cloudfront.amazonaws.com
+      SourceArn: !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}'
+      FunctionUrlAuthType: AWS_IAM
+
+  CloudFrontInvokeViaUrlPermission:
+    Type: AWS::Lambda::Permission
+    Condition: UseOriginAccessControl
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref AppFunction
+      Principal: cloudfront.amazonaws.com
+      SourceArn: !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}'
+      InvokedViaFunctionUrl: true
+
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub '${ProjectName}-${Environment} (Lambda Function URL origin)'
+        HttpVersion: http2and3
+        IPV6Enabled: true
+        PriceClass: PriceClass_100
+        Origins:
+          - Id: LambdaFunctionUrlOrigin
+            DomainName: !Select
+              - 2
+              - !Split
+                - '/'
+                - !GetAtt FunctionUrl.FunctionUrl
+            OriginAccessControlId: !If
+              - UseOriginAccessControl
+              - !GetAtt OriginAccessControl.Id
+              - !Ref AWS::NoValue
+            CustomOriginConfig:
+              HTTPSPort: 443
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols:
+                - TLSv1.2
+        DefaultCacheBehavior:
+          TargetOriginId: LambdaFunctionUrlOrigin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+            - PUT
+            - PATCH
+            - POST
+            - DELETE
+          CachedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          Compress: true
+          # Managed-CachingDisabled — SSR responses must not be cached by default
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+          # Managed-AllViewerExceptHostHeader — forward cookies/query/headers to Lambda
+          OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-cdn'
+        - Key: ManagedBy
+          Value: CloudFormation
+
+Outputs:
+  LambdaFunctionName:
+    Description: Lambda function name
+    Value: !Ref AppFunction
+
+  LambdaFunctionUrl:
+    Description: Lambda Function URL (origin; returns 403 when OAC is enabled)
+    Value: !GetAtt FunctionUrl.FunctionUrl
+
+  CloudFrontDistributionId:
+    Description: CloudFront distribution ID (used for invalidations)
+    Value: !Ref CloudFrontDistribution
+
+  CloudFrontDomainName:
+    Description: CloudFront domain name (public site hostname)
+    Value: !GetAtt CloudFrontDistribution.DomainName
+
+  OriginAccessControlEnabled:
+    Description: Whether the Function URL only accepts signed CloudFront requests
+    Value: !Ref EnableOriginAccessControl
