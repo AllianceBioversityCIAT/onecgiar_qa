@@ -5,5 +5,4 @@ export const environment: Environment = {
   name: 'production',
   apiBaseUrl: 'https://api.qa.cgiar.org/api/v1',
   ssoCallbackPath: '/auth/callback',
-  mockAuth: false,
 };
