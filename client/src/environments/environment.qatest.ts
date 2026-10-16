@@ -5,5 +5,4 @@ export const environment: Environment = {
   name: 'test',
   apiBaseUrl: 'https://qatest-serv.ciat.cgiar.org/api/v1',
   ssoCallbackPath: '/auth/callback',
-  mockAuth: false,
 };
