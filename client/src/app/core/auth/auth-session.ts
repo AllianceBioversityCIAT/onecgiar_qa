@@ -11,6 +11,7 @@ import {
   NewPasswordChallenge,
   Session,
   UserProfile,
+  endsSession,
   isChallenge,
 } from './auth.models';
 import { DeepLink, LOGIN_PATH } from './deep-link';
@@ -66,6 +67,8 @@ export class AuthSession {
     challenge: NewPasswordChallenge;
   } | null>(null);
   private readonly startupProblem = signal<ApiError | null>(null);
+  /** Why the server closed the session when it was not a plain expiry (inactive user, no roles…). */
+  private readonly endReason = signal<ApiError | null>(null);
 
   private resolveReady!: () => void;
   private readonly readyPromise = new Promise<void>((resolve) => (this.resolveReady = resolve));
@@ -84,6 +87,8 @@ export class AuthSession {
   readonly pendingChallenge = computed(() => this.challengeState());
   /** Network or service problem on the startup refresh (not a missing session). */
   readonly startupError = this.startupProblem.asReadonly();
+  /** Server message to show on the login page after an admission refusal; null for a plain expiry. */
+  readonly sessionEndReason = this.endReason.asReadonly();
 
   constructor() {
     if (!this.isBrowser) this.resolveReady();
@@ -111,7 +116,8 @@ export class AuthSession {
       );
     } catch (error) {
       const apiError = toApiError(error);
-      if (apiError.status !== 401) this.startupProblem.set(apiError);
+      if (!endsSession(apiError)) this.startupProblem.set(apiError);
+      else if (apiError.status !== 401) this.endReason.set(apiError);
       this.clearLocal();
     } finally {
       this.resolveReady();
@@ -219,10 +225,15 @@ export class AuthSession {
         return 'renewed';
       })
       .catch((error: unknown): RefreshOutcome => {
-        // Only a 401 means the session is over. 5xx, 429, a gateway timeout or a 403 on Origin
-        // keep the user signed in: their cookie may still be valid and unsaved work must not be lost.
-        if (toApiError(error).status !== 401) return 'unavailable';
-        if (epoch === this.epoch) this.clearLocal();
+        // A 401 or an admission refusal (403/409) means the session is over. 5xx, 429, a gateway
+        // timeout or a 403 on Origin keep the user signed in: their cookie may still be valid and
+        // unsaved work must not be lost.
+        const apiError = toApiError(error);
+        if (!endsSession(apiError)) return 'unavailable';
+        if (epoch === this.epoch) {
+          this.clearLocal();
+          if (apiError.status !== 401) this.endReason.set(apiError);
+        }
         return 'ended';
       })
       .finally(() => (this.refreshAttempt = null));
@@ -268,6 +279,7 @@ export class AuthSession {
     this.profile.set(session.user);
     this.challengeState.set(null);
     this.startupProblem.set(null);
+    this.endReason.set(null);
     this.state.set('authenticated');
     this.scheduleRefresh(session.expiresIn);
   }
