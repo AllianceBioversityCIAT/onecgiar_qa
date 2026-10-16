@@ -1,12 +1,16 @@
-import { Component, signal } from '@angular/core';
+import { Component, afterNextRender, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
+import { PaletteStore } from './theme/palette-store';
+import { PaletteSwitcher } from './theme/palette-switcher';
 
 @Component({
-  imports: [RouterOutlet],
+  imports: [RouterOutlet, PaletteSwitcher],
   selector: 'app-root',
-  styleUrl: './app.css',
   templateUrl: './app.html',
 })
 export class App {
-  protected readonly title = signal('onecgiar-qa');
+  constructor() {
+    const palettes = inject(PaletteStore);
+    afterNextRender(() => palettes.restore());
+  }
 }
