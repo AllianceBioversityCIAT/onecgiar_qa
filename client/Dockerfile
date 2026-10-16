@@ -3,7 +3,8 @@
 # OneCGIAR QA front: Angular 22 SSR (Express) image (docs/infrastructure.md § 1: Docker in TEST).
 # Build context: client/
 #
-#   docker build -t qa-client .
+#   docker build -t qa-client .                                     # production config
+#   docker build --build-arg NG_CONFIGURATION=test -t qa-client .   # TEST (qatest)
 #   docker run -d -p 4000:4000 -e NG_ALLOWED_HOSTS=qatest.ciat.cgiar.org qa-client
 #
 # NG_ALLOWED_HOSTS is required at run time: Angular answers 400 on every rendered
@@ -13,12 +14,15 @@ ARG NODE_VERSION=24-alpine
 
 # ---- build: ng build → dist/onecgiar-qa/{browser,server} ----
 FROM node:${NODE_VERSION} AS build
+# Angular configuration per environment (angular.json): selects src/environments/*.ts,
+# e.g. `--build-arg NG_CONFIGURATION=test` for TEST. Not a secret: it ships to the browser.
+ARG NG_CONFIGURATION=production
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm \
     npm ci --no-audit --no-fund
 COPY . .
-RUN npx ng build --configuration production
+RUN npx ng build --configuration ${NG_CONFIGURATION}
 
 # ---- runtime: Node SSR server (default target, keep it last) ----
 FROM node:${NODE_VERSION} AS runtime
