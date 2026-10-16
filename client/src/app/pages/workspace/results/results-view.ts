@@ -11,7 +11,10 @@ import {
   PROGRAM_CODES,
   PUBLISHED_PROGRAMS,
   QA_ROUNDS,
+  QA_STAGES,
+  QA_STAGE_LABELS,
   QaResult,
+  QaStage,
   QaTimeline,
   RESULTS,
   RESULT_TYPES,
@@ -19,6 +22,7 @@ import {
   STATUS_CLASSES,
   STATUS_ORDER,
   TIMELINES,
+  qaStage,
 } from './results.mock';
 
 const PAGE_SIZE = 50;
@@ -28,9 +32,10 @@ interface TimelineOption extends QaTimeline {
   readonly count: number;
 }
 
-type FilterKey = 'program' | 'status' | 'round' | 'assessor' | 'batch';
+type FilterKey = 'stage' | 'program' | 'status' | 'round' | 'assessor' | 'batch';
 
 const FILTER_LABELS: Readonly<Record<FilterKey, string>> = {
+  stage: 'QA stage',
   program: 'Science program',
   status: 'Status',
   round: 'QA round',
@@ -73,7 +78,10 @@ export class ResultsView {
   protected readonly assessorOptions = ASSESSOR_NAMES.map((a) => ({ value: a, label: a }));
   protected readonly batchOptions = BATCHES.map((b) => ({ value: b, label: b }));
 
-  // Page state. Deep links (e.g. from Overview) can preset filters: ?status=…&program=…&assessor=…&type=…
+  // Page state. Deep links (e.g. from Overview) can preset filters: ?stage=…&status=…&program=…&assessor=…&type=…
+  protected readonly stage = signal<QaStage | null>(
+    (QA_STAGES as readonly string[]).includes(this.params.get('stage') ?? '') ? (this.params.get('stage') as QaStage) : null,
+  );
   protected readonly timelineId = signal('all');
   protected readonly search = signal(this.params.get('q') ?? '');
   protected readonly programs = signal(listParam(this.params.get('program'), PROGRAM_CODES));
@@ -121,12 +129,13 @@ export class ResultsView {
   protected readonly timelineTotal = computed(() => this.inTimeline().filter((r) => r.status !== 'Automatic').length);
   protected readonly timelineSuffix = computed(() => (this.timeline() ? ' in ' + this.timeline()!.name : ''));
 
-  /** Search + program / assessor / timeline / round filters (everything except type and status). */
+  /** Search + stage / program / assessor / timeline / round filters (everything except type and status). */
   private readonly baseMatch = computed(() => {
     const q = this.search().trim().toLowerCase();
-    const programs = this.programs(), assessors = this.assessors(), batches = this.batches(), round = this.round();
+    const stage = this.stage(), programs = this.programs(), assessors = this.assessors(), batches = this.batches(), round = this.round();
     return (r: QaResult) =>
       (!q || r.code.toLowerCase().includes(q) || r.title.toLowerCase().includes(q)) &&
+      (!stage || qaStage(r) === stage) &&
       (!programs.length || programs.includes(r.program)) &&
       (!assessors.length || (r.assessor !== null && assessors.includes(r.assessor))) &&
       (!batches.length || batches.includes(r.batch)) &&
@@ -207,7 +216,9 @@ export class ResultsView {
   });
 
   protected readonly applied = computed(() => {
+    const stage = this.stage();
     const values: Record<FilterKey, readonly string[]> = {
+      stage: stage ? [QA_STAGE_LABELS[stage]] : [],
       program: this.programs(),
       status: this.statuses(),
       round: this.round() ? [this.round()] : [],
@@ -251,7 +262,8 @@ export class ResultsView {
   }
 
   protected clearFilter(key: FilterKey): void {
-    if (key === 'program') this.programs.set([]);
+    if (key === 'stage') this.stage.set(null);
+    else if (key === 'program') this.programs.set([]);
     else if (key === 'status') this.statuses.set([]);
     else if (key === 'round') this.round.set('');
     else if (key === 'assessor') this.assessors.set([]);
@@ -259,6 +271,7 @@ export class ResultsView {
   }
 
   protected clearAll(): void {
+    this.stage.set(null);
     this.programs.set([]);
     this.statuses.set([]);
     this.round.set('');
