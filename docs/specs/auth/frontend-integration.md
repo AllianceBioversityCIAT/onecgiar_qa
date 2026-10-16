@@ -44,13 +44,11 @@ No secrets in the front: every value ships to the browser.
 
 ## Open questions for the back
 
-1. **SSO `state` / PKCE** (known gap, `server/src/auth/AGENTS.md`): who generates `state`? Proposal: `provider-url` returns `{ url, state }`, the front keeps it in `sessionStorage` and sends it back in `/auth/callback`; the front refuses a callback whose `state` does not match.
-2. **Password policy:** can the Cognito policy (length, character classes) be exposed, or `AUTH_PASSWORD_POLICY` carry `fields`? The front only checks 8 characters today.
-3. **Real `expiresIn` in TEST** (3600?): the refresh timer depends on it.
-4. **Cognito callbacks** for TEST and PROD (`https://…/auth/callback`): still pending with the pool owner.
+- **Cognito callbacks** for TEST and PROD (`https://…/auth/callback`): asked to Juanda 2026-10-16. Without them the CGIAR sign-in button fails outside localhost.
 
 ## Not done yet (front)
 
 - Several tabs: a sign-out in one tab does not end the others (no `BroadcastChannel`). The spec does not ask for it.
 - GUEST users (SSO, no roles): `AccessControl.isGuest` exists but no screen tells them they have no role yet.
+- SSO `state` / PKCE: owned by the back (`server/src/auth/AGENTS.md`, known gap); the front follows its contract once defined.
 - T-11 (manual run on TEST with real accounts) is pending the TEST deploy built with `--configuration test`.
