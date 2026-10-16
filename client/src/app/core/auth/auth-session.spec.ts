@@ -126,6 +126,75 @@ describe('AuthSession', () => {
     });
   });
 
+  describe('admission refusals (back contract, 16-Oct-2026)', () => {
+    const signedIn = async () => {
+      const start = auth.signIn({ email: 'ana@cgiar.org', password: 'x' });
+      http.expectOne(`${API}/auth/login`).flush(ok(session()));
+      await start;
+    };
+
+    it.each([
+      [403, 'AUTH_USER_INACTIVE'],
+      [403, 'AUTH_NO_ACTIVE_ROLES'],
+      [403, 'AUTH_USER_NOT_REGISTERED'],
+      [409, 'AUTH_EMAIL_CONFLICT'],
+    ])('a %i %s on refresh ends the session and keeps the server message', async (status, code) => {
+      await signedIn();
+      const p = auth.refresh();
+      http
+        .expectOne(`${API}/auth/session/refresh`)
+        .flush(err(status, code, 'Your account is not active.'), { status, statusText: 'x' });
+      expect(await p).toBe('ended');
+      expect(auth.isSignedIn()).toBe(false);
+      expect(auth.sessionEndReason()?.message).toBe('Your account is not active.');
+    });
+
+    it('a 403 on Origin keeps the session (the server keeps the cookies)', async () => {
+      await signedIn();
+      const p = auth.refresh();
+      http
+        .expectOne(`${API}/auth/session/refresh`)
+        .flush(err(403, 'AUTH_ORIGIN_NOT_ALLOWED'), { status: 403, statusText: 'x' });
+      expect(await p).toBe('unavailable');
+      expect(auth.isSignedIn()).toBe(true);
+      expect(auth.sessionEndReason()).toBeNull();
+    });
+
+    it('a gateway 403 without our envelope keeps the session', async () => {
+      await signedIn();
+      const p = auth.refresh();
+      http
+        .expectOne(`${API}/auth/session/refresh`)
+        .flush('<html>Forbidden</html>', { status: 403, statusText: 'Forbidden' });
+      expect(await p).toBe('unavailable');
+      expect(auth.isSignedIn()).toBe(true);
+    });
+
+    it('at startup an admission refusal is a reason to show, not a "service did not answer" banner', async () => {
+      const start = auth.bootstrap();
+      http
+        .expectOne(`${API}/auth/session/refresh`)
+        .flush(err(403, 'AUTH_NO_ACTIVE_ROLES', 'You have no active roles.'), {
+          status: 403,
+          statusText: 'x',
+        });
+      await start;
+      expect(auth.status()).toBe('anonymous');
+      expect(auth.startupError()).toBeNull();
+      expect(auth.sessionEndReason()?.message).toBe('You have no active roles.');
+    });
+
+    it('a new sign-in clears the old reason', async () => {
+      const p = auth.refresh();
+      http
+        .expectOne(`${API}/auth/session/refresh`)
+        .flush(err(403, 'AUTH_USER_INACTIVE'), { status: 403, statusText: 'x' });
+      await p;
+      await signedIn();
+      expect(auth.sessionEndReason()).toBeNull();
+    });
+  });
+
   describe('sign-out', () => {
     it('ends the local session even when the server cannot be reached', async () => {
       const start = auth.signIn({ email: 'ana@cgiar.org', password: 'x' });

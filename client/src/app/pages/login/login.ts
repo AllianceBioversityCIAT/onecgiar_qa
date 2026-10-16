@@ -76,6 +76,8 @@ export class LoginPage {
   );
   /** The startup refresh could not reach the service (not "no session"). */
   protected readonly serviceProblem = this.session.startupError;
+  /** The server closed the session for a reason the user must read (inactive, no roles…). */
+  protected readonly sessionEndReason = this.session.sessionEndReason;
   /** First login of a custom user: the server asks for a new password before giving a session. */
   protected readonly settingPassword = computed(() => this.session.pendingChallenge() !== null);
 
