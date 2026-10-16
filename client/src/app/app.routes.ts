@@ -4,20 +4,19 @@ import { permissionActivate, permissionMatch } from './core/access/permission-gu
 import { Permission } from './core/access/role-definitions';
 import { authGuard, guestGuard } from './core/auth/auth-guards';
 
-const placeholder = () =>
-  import('./pages/section-placeholder/section-placeholder').then((m) => m.SectionPlaceholderPage);
-
 /**
- * Protected section: guarded by permission at match (no chunk download) and at activation.
- * The menu reads `data.nav` from here, so an entry never shows for a page that would be refused.
+ * Workspace view: guarded by permission at match (the chunk is not downloaded) and at activation.
+ * `data.permission` is the single rule; the shell menu uses the same permissions.
  */
-function section(
+function view(
   path: string,
+  title: string,
   data: NavRouteData,
-  loadComponent: Route['loadComponent'] = placeholder,
+  loadComponent: Route['loadComponent'],
 ): Route {
   return {
     path,
+    title,
     data,
     canMatch: [permissionMatch],
     canActivate: [permissionActivate],
@@ -49,42 +48,51 @@ export const routes: Routes = [
     pathMatch: 'full',
     title: 'PRMS Quality Assurance',
     canActivate: [authGuard],
-    data: { nav: { label: 'Start', group: 'assessment', order: 0 } } satisfies NavRouteData,
+    data: { nav: { label: 'Overview', group: 'assessment', order: 0 } } satisfies NavRouteData,
     loadComponent: () => import('./pages/home/home').then((m) => m.HomePage),
   },
-  // Workspace sections. TODO(design): swap `placeholder` for Juanpa's pages when his branch is approved.
-  section('results', { nav: { label: 'Results', group: 'assessment', order: 1 } }),
-  section('assessments', {
-    permission: Permission.ASSESSOR_ACCESS,
-    nav: { label: 'My assessments', group: 'assessment', order: 2 },
-  }),
-  section('lead-review', {
-    permission: Permission.LEAD_ACCESS,
-    nav: { label: 'Lead review', group: 'assessment', order: 3 },
-  }),
-  section('program-responses', {
-    permission: Permission.PROGRAM_ACCESS,
-    nav: { label: 'Program responses', group: 'assessment', order: 4 },
-  }),
-  section('broker', {
-    permission: Permission.TPB_ACCESS,
-    nav: { label: 'Third-party broker', group: 'assessment', order: 5 },
-  }),
-  section('ppu', {
-    permission: Permission.PPU_ACCESS,
-    nav: { label: 'PPU cases', group: 'assessment', order: 6 },
-  }),
-  section('cycle', {
-    permission: Permission.ADMIN_ACCESS,
-    nav: { label: 'Cycle', group: 'administration', order: 10 },
-  }),
-  section('fields', {
-    permission: Permission.ADMIN_ACCESS,
-    nav: { label: 'Fields', group: 'administration', order: 11 },
-  }),
-  section('assessors', {
-    permission: Permission.ADMIN_ACCESS,
-    nav: { label: 'Assessors', group: 'administration', order: 12 },
-  }),
+  {
+    path: '',
+    canActivate: [authGuard],
+    loadComponent: () => import('./shell/qa-shell').then((m) => m.QaShell),
+    children: [
+      view(
+        'results',
+        'Results in QA · PRMS Quality Assurance',
+        { nav: { label: 'Results', group: 'assessment', order: 1 } },
+        () => import('./pages/workspace/results/results-view').then((m) => m.ResultsView),
+      ),
+      view('results/:code', 'Review · PRMS Quality Assurance', {}, () =>
+        import('./pages/workspace/review/review-view').then((m) => m.ReviewView),
+      ),
+      view(
+        'cycle',
+        'Cycle · PRMS Quality Assurance',
+        {
+          permission: Permission.ADMIN_ACCESS,
+          nav: { label: 'Cycle', group: 'administration', order: 10 },
+        },
+        () => import('./pages/workspace/cycle/cycle-view').then((m) => m.CycleView),
+      ),
+      view(
+        'fields',
+        'Fields · PRMS Quality Assurance',
+        {
+          permission: Permission.ADMIN_ACCESS,
+          nav: { label: 'Fields', group: 'administration', order: 11 },
+        },
+        () => import('./pages/workspace/fields/fields-view').then((m) => m.FieldsView),
+      ),
+      view(
+        'assessors',
+        'Assessors · PRMS Quality Assurance',
+        {
+          permission: Permission.ADMIN_ACCESS,
+          nav: { label: 'Assessors', group: 'administration', order: 12 },
+        },
+        () => import('./pages/workspace/assessors/assessors-view').then((m) => m.AssessorsView),
+      ),
+    ],
+  },
   { path: '**', redirectTo: '' },
 ];

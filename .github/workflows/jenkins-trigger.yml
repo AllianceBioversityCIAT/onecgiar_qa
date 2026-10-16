@@ -1,0 +1,29 @@
+name: Trigger Jenkins Job
+
+on:
+  push:
+    branches:
+      - jp-design/mockup-completo
+  workflow_dispatch: # Allows the workflow to be triggered manually if needed
+
+jobs:
+  trigger-job:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Get the branch name and build the Jenkins job URL
+      - name: Get branch name and build Jenkins URL
+        run: |
+          BRANCH_NAME=${GITHUB_REF#refs/heads/}  # Remove 'refs/heads/' from GITHUB_REF
+          JENKINS_URL="https://automation.prms.cgiar.org/job/qa-ssr-application-dev/build"
+          echo "Jenkins job URL for the branch $BRANCH_NAME is: $JENKINS_URL"
+          echo "JENKINS_URL=${JENKINS_URL}" >> "$GITHUB_ENV"
+
+      # Step 2: Trigger the Jenkins job (credentials come from repository secrets)
+      - name: Trigger Jenkins Job
+        run: |
+          curl --fail-with-body -X POST "${JENKINS_URL}" --user "${JENKINS_USERNAME}:${JENKINS_API_TOKEN}"
+        env:
+          JENKINS_URL: ${{ env.JENKINS_URL }}
+          JENKINS_USERNAME: ${{ secrets.JENKINS_USERNAME }}
+          JENKINS_API_TOKEN: ${{ secrets.JENKINS_API_TOKEN }}

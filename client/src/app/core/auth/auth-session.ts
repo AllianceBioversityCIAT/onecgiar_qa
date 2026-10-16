@@ -14,6 +14,7 @@ import {
   isChallenge,
 } from './auth.models';
 import { DeepLink, LOGIN_PATH } from './deep-link';
+import { DESIGN_SESSION_KEY, designSession, isDesignUser } from './design-user';
 import { TokenStore } from './token-store';
 
 /**
@@ -74,6 +75,8 @@ export class AuthSession {
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
   /** Bumped on every local sign-out: a refresh answer from an older epoch is ignored (no resurrection). */
   private epoch = 0;
+  /** TODO(api): design branch only, see `design-user.ts`. */
+  private designActive = false;
 
   readonly status = this.state.asReadonly();
   readonly user = this.profile.asReadonly();
@@ -98,6 +101,11 @@ export class AuthSession {
   /** App start (browser only): one refresh with the cookie recovers the session after a reload. */
   async bootstrap(): Promise<void> {
     if (!this.isBrowser || this.state() !== 'unknown') return;
+    if (this.hasDesignSession()) {
+      this.applyDesign();
+      this.resolveReady();
+      return;
+    }
     if (this.hasPendingLogout()) {
       // The last sign-out did not reach the server: finish it instead of reviving the session.
       await this.retryPendingLogout();
@@ -121,6 +129,7 @@ export class AuthSession {
   /** One attempt at a time: a second call while one runs returns the same promise. */
   signIn(credentials: Credentials): Promise<LoginResult> {
     if (this.signInAttempt) return this.signInAttempt;
+    if (isDesignUser(credentials)) return Promise.resolve(this.applyDesign());
     this.busy.set(true);
     this.signInAttempt = firstValueFrom(this.api.login(credentials))
       .then((result) => {
@@ -209,6 +218,7 @@ export class AuthSession {
    * Only `ended` clears the session; a network blip or 503 keeps it (the server keeps the cookies on 503).
    */
   refresh(): Promise<RefreshOutcome> {
+    if (this.designActive) return Promise.resolve('renewed');
     if (this.refreshAttempt) return this.refreshAttempt;
     const epoch = this.epoch;
     this.refreshAttempt = firstValueFrom(this.api.refresh())
@@ -238,6 +248,11 @@ export class AuthSession {
 
   /** Server logout (revokes and clears cookies); the local session ends even if the call fails. */
   async signOut(): Promise<void> {
+    if (this.designActive) {
+      this.clearLocal();
+      await this.router.navigateByUrl(LOGIN_PATH);
+      return;
+    }
     try {
       if (this.isSignedIn()) await firstValueFrom(this.api.logout());
       this.setPendingLogout(false);
@@ -272,7 +287,42 @@ export class AuthSession {
     this.scheduleRefresh(session.expiresIn);
   }
 
+  /** Signs in the hardcoded design user: no API call, no refresh timer. */
+  private applyDesign(): Session {
+    const session = designSession();
+    this.designActive = true;
+    this.setDesignSession(true);
+    this.tokens.set(session.accessToken, session.expiresIn);
+    this.profile.set(session.user);
+    this.challengeState.set(null);
+    this.startupProblem.set(null);
+    this.state.set('authenticated');
+    return session;
+  }
+
+  private hasDesignSession(): boolean {
+    try {
+      return sessionStorage.getItem(DESIGN_SESSION_KEY) === '1';
+    } catch {
+      return false;
+    }
+  }
+
+  private setDesignSession(active: boolean): void {
+    if (!this.isBrowser) return;
+    try {
+      if (active) sessionStorage.setItem(DESIGN_SESSION_KEY, '1');
+      else sessionStorage.removeItem(DESIGN_SESSION_KEY);
+    } catch {
+      // Storage blocked: the design user signs in again after a reload.
+    }
+  }
+
   private clearLocal(): void {
+    if (this.designActive) {
+      this.designActive = false;
+      this.setDesignSession(false);
+    }
     this.epoch++;
     this.cancelRefreshTimer();
     this.tokens.clear();
