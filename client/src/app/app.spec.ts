@@ -10,10 +10,10 @@ describe('App', () => {
     }).compileComponents();
   });
 
-  it('renders the router outlet and the palette preview', () => {
+  it('renders the router outlet without the palette preview', () => {
     const fixture = TestBed.createComponent(App);
     const host = fixture.nativeElement as HTMLElement;
     expect(host.querySelector('router-outlet')).not.toBeNull();
-    expect(host.querySelector('app-palette-switcher')).not.toBeNull();
+    expect(host.querySelector('app-palette-switcher')).toBeNull();
   });
 });

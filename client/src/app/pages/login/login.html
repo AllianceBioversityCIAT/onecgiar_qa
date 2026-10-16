@@ -132,6 +132,13 @@
             <p class="rounded-xl bg-[var(--qa-field)] px-3.5 py-3 text-sm text-[var(--qa-danger)]">
               {{ message }}
             </p>
+          } @else if (sessionEndReason(); as reason) {
+            <p
+              class="rounded-xl bg-[var(--qa-field)] px-3.5 py-3 text-sm text-[var(--qa-danger)]"
+              data-testid="session-ended"
+            >
+              {{ reason.message }}
+            </p>
           }
         </div>
 
