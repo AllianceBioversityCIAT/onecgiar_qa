@@ -465,6 +465,7 @@ function userOf(overrides: Partial<AdmittedUser> = {}): AdmittedUser {
     email: 'ana@cgiar.org',
     firstName: null,
     lastName: null,
+    nickname: null,
     authSource: 'sso',
     isActive: true,
     assignments: [],

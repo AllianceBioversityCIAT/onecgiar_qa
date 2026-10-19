@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import {
   and,
   asc,
@@ -15,11 +15,11 @@ import {
   sql,
   type SQL,
 } from 'drizzle-orm';
-import { errorBody, FIELD_ERRORS } from '../common/error-codes.js';
 import type { DrizzleDB } from '../database/drizzle/drizzle.module.js';
 import { DRIZZLE } from '../database/drizzle/drizzle.constants.js';
 import { roleAssignments } from '../database/drizzle/schema/role-assignments.js';
 import { ROLE_DEFINITIONS } from './permissions.js';
+import { InvalidListQueryError } from './users.errors.js';
 import { roles } from '../database/drizzle/schema/roles.js';
 import {
   userProgramExclusions,
@@ -103,20 +103,6 @@ export interface UserDetail extends UserSummary {
 export interface UserListPage {
   items: UserSummary[];
   nextCursor: string | null;
-}
-
-/**
- * The cursor or the limit of a list request is unusable (FR-9). T-8 maps it to
- * 400 `VALIDATION_FAILED` on `field`; the constructor takes the catalog body
- * so no message of its own reaches the client.
- */
-export class InvalidListQueryError extends BadRequestException {
-  constructor(readonly field: 'cursor' | 'limit') {
-    super({
-      ...errorBody('VALIDATION_FAILED'),
-      fields: [{ field, code: 'INVALID', message: FIELD_ERRORS.INVALID() }],
-    });
-  }
 }
 
 export interface UserListCriteria {

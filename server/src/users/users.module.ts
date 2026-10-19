@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { CognitoAdminModule } from '../auth/cognito-admin.module.js';
 import { catalogsConfig } from '../config/catalogs.config.js';
 import { DrizzleModule } from '../database/drizzle/drizzle.module.js';
 import { CatalogService } from './catalogs/catalog.service.js';
@@ -23,10 +24,17 @@ import {
   USER_PROGRAMS_STORE,
   UserProgramsRepository,
 } from './user-programs.repository.js';
+import { UsersAdminController } from './users-admin.controller.js';
+import { UsersAdminService } from './users-admin.service.js';
 import {
   DrizzleUsersAdminUnitOfWork,
   USERS_ADMIN_UNIT_OF_WORK,
 } from './users-admin.unit-of-work.js';
+import {
+  DrizzleUsersQueryStore,
+  USERS_QUERY_STORE,
+  UsersQueryRepository,
+} from './users-query.repository.js';
 import {
   DrizzleUsersStore,
   USERS_STORE,
@@ -38,8 +46,14 @@ import {
  * modules import this module for `AuthorizationService` and the repositories.
  */
 @Module({
-  imports: [DrizzleModule, ConfigModule.forFeature(catalogsConfig)],
-  controllers: [CatalogsController],
+  // CognitoAdminModule, not AuthModule: AuthModule imports this module, so
+  // importing it back would be a cycle.
+  imports: [
+    DrizzleModule,
+    ConfigModule.forFeature(catalogsConfig),
+    CognitoAdminModule,
+  ],
+  controllers: [CatalogsController, UsersAdminController],
   providers: [
     { provide: USERS_STORE, useClass: DrizzleUsersStore },
     { provide: ROLE_ASSIGNMENTS_STORE, useClass: DrizzleRoleAssignmentsStore },
@@ -50,6 +64,9 @@ import {
       provide: USERS_ADMIN_UNIT_OF_WORK,
       useClass: DrizzleUsersAdminUnitOfWork,
     },
+    { provide: USERS_QUERY_STORE, useClass: DrizzleUsersQueryStore },
+    UsersQueryRepository,
+    UsersAdminService,
     UsersRepository,
     RoleAssignmentsRepository,
     UserProgramsRepository,

@@ -529,3 +529,62 @@ lint ✅ · build ✅ · unit 1007/1007 ✅ · e2e 260/260 ✅ · tsc baseline �
 - **Reviewer verdict:** PASS — exact mirror; PROGRAM is in `ROLE_DEFINITIONS` (not grantable), so a live PROGRAM grant counts as authorization would; unknown codes excluded in both places.
 - **spawns:** implementer (same context) not reported by host calls, 151224 tokens (8 tool uses), ended complete; reviewer (same context) not reported by host calls, 88843 tokens (2 tool uses), ended complete
 - **ADVISORY:** the fake emulates only `roleActive` — make it call `isLiveAssignment` (one rule, no drift); `roles.code IN (...)` compares under the column collation vs exact `findRoleDefinition` — note beside P-7 for **T-10**; import grouping.
+
+### T-8: Admin controllers, DTOs, OpenAPI and `/auth/me` nickname
+
+- **Final status:** PASS on attempt 2 (lens 1 PASS on attempt 1; lens 2 FAIL on attempt 1, PASS on attempt 2)
+- **Date:** 2026-10-19
+- **Skills:** nestjs-expert, api-design-principles, nestjs-best-practices, tdd · Effort: xhigh · Review: parallel lenses (public contract + authz surface)
+
+#### Attempt 1 — FAIL (lens 2)
+
+- **Files changed:** new `server/src/users/users-admin.controller.ts`, `server/src/users/dto/{user-fields,user-params,list-users.query,create-user.dto,edit-user.dto,user-scope.dtos,user.models}.ts`, `server/src/users/public-user.ts` + spec, `server/src/auth/cognito-admin.module.ts`, `server/test/users-admin.e2e-spec.ts`, `server/test/support/in-memory-query-store.ts`; modified `users.module.ts`, `auth.module.ts`, `me.controller.ts`, `current-user.cache.ts` + spec, `users.errors.ts`, `users-query.repository.ts` + spec, `users-admin.service.ts` + spec, `server/src/common/{api-response,response-envelope.interceptor,validation}.ts` + `validation.spec.ts`, `server/test/{auth-guards,openapi}.e2e-spec.ts`.
+- **Forward pointers satisfied:** (1) new `CognitoAdminModule` (provides `COGNITO_IDP_CLIENT` + `CognitoAdminClient`) imported by `UsersModule`; no cycle, no `forwardRef`; (2) `USERS_QUERY_STORE` bound, `InvalidListQueryError` moved to `users.errors.ts`; (3) duplicate exclusion `programId` → 400 on `exclusions[i].programId` (in the service's `validateCreate`; pipe cannot attach sibling-dependent item errors); (4) `programs: []` rejected (`@IsAllOrList`, OpenAPI minItems 1); (5) every mutation re-reads `UserDetail`; create 201; (6) `/auth/me` `nickname`, exact `toEqual` + "has a nickname" case.
+- **Outside-scope changes (accepted by lens 1):** `Paged` → `meta.page` in the envelope interceptor; `ApiOkEnvelope` `status: 201`/`paged`; `toFieldErrors` names array items `roles[0].role` (old `x.0.y` form was never served — no array `ValidateNested` existed; front looks up top-level names only); `openapi.e2e-spec.ts` `operationOf` fixed for `{id}` vs `:id` (latent bug); 503 documented on routes with catalog validation.
+- **Red run:** 90 e2e failed before the controllers existed (`expected 404 to be 401/403/400/409`); auth-guards `toEqual` failed on the missing `nickname`.
+- **Falsifiers (restored):** class-level `ADMIN_ACCESS` moved to 11 of 12 routes with `@ReadAccess()` on `GET /users/:id` → 5 red; class-level decorator removed → 28 red. Lens 2 trace: the global `PermissionGuard` refuses routes with no declared permission, so removing `@RequirePermission` leaves the 403 tests green — only the route inventory and admin happy-path tests catch it (the task's falsifier wording overstates the 403 tests' role).
+- **Implementer verification:** lint 0; unit 1012; e2e 362; tsc 7 (token-verifier only); `tsc -p tsconfig.build.json` 0; `pnpm build` blocked by the resource guard.
+- **Evidence re-run (Leader-inline, non-author):** lint 0; unit 1012/1012; e2e 362/362; tsc 7; `tsc -p tsconfig.build.json` 0 → VERIFIED for these; `pnpm build` blocked twice (3.6 / 3.5 GB free < 4.5 GB) — **owed**.
+- **Reviewer lens 1 (contract/reliability):** PASS — all 12 § 6 routes, statuses, `UserDetail` re-reads, `meta.page.nextCursor`, per-route OpenAPI codes pinned; FR-1/NFR-1/FR-12/P-12 hold; pointers 1–6 done; field-name change conformant with TRD § 6 / `common/AGENTS.md`; DD-15 named check — no contradiction.
+- **Reviewer lens 2 (risk/security/privacy): FAIL** (verbatim issue):
+
+> 1. **Discovered Issue:** The 403 test matrix leaves out LEAD_ASSESSOR. `NON_ADMINS = ['ASSESSOR', 'TPB', 'PPU', 'GUEST']` (`server/test/users-admin.e2e-spec.ts`, FR-1 access block). LEAD_ASSESSOR is a grantable role (`permissions.ts:55-60`, `GRANTABLE_ROLES`). It is the only non-admin role with two permissions (`LEAD_ACCESS` and `ASSESSOR_ACCESS`), and it is the role most likely to carry the new `*` "all result types" grant (DD-1). That makes it the riskiest non-admin case for the guard's `canAny`, and it is never run against the 12 routes.
+>    * **Violated Rule:** Task T-8 disqualifier: "403 tests that only use GUEST (each role must be checked)". `requirements.md` § 7 NFR-1: "Non-admin on any user-management route, 100 % → 403; checked by the route inventory and a per-route test". The defect-class table row "Route reachable by a non-admin: e2e route inventory + per-route 403 tests". FR-1's scenario names four roles, but "each role" and "100 %" cover every non-admin role that can be granted.
+>    * **Remediation Suggestion:** In `build()`, add `LEAD_ASSESSOR: await actor('sub-lead_assessor', [['LEAD_ASSESSOR', '*']])` and add `'LEAD_ASSESSOR'` to `NON_ADMINS`. This also exercises the `*` wildcard on the deny path. Optionally add a user holding an ASSESSOR grant on a specific key plus TPB, so multi-grant users are covered too.
+
+- **runtime events:** none
+- **spawns:** implementer not reported by host calls, 244573 tokens (73 tool uses), ended complete; reviewer lens 1 not reported by host calls, 113988 tokens (19 tool uses), ended complete; reviewer lens 2 not reported by host calls, 107577 tokens (21 tool uses), ended fail
+- **Effort for attempt 2:** stays `xhigh` — the bump to `max` is barred on the T2 tier ("never max a cheaper tier") and the fix is a mechanical test addition, so a tier escalation is not warranted (Leader decision).
+
+#### Attempt 2 — PASS
+
+- **Attempt history in the brief:** attempt 1's 403 matrix covered ASSESSOR, TPB, PPU, GUEST only.
+- **Files changed:** `server/test/users-admin.e2e-spec.ts` (actors `LEAD_ASSESSOR` with `*` and `MULTI_GRANT` = ASSESSOR on KP + TPB, both in `NON_ADMINS`; new test "has a 403 row for every grantable role" — `{ADMIN} ∪ NON_ADMINS` ⊇ `GRANTABLE_ROLES`; list/paging expectations updated); `server/src/auth/cognito-admin.module.ts` docblock (only `UsersModule` imports it). [the multi-grant actor and the docblock were advisory-grade]
+- **Falsifiers (reverted):** `ADMIN_ACCESS` granted to LEAD_ASSESSOR in `permissions.ts` → 12 red (one LEAD_ASSESSOR row per route, nothing else); LEAD_ASSESSOR removed from `NON_ADMINS` → only the coverage test red.
+- **Implementer verification:** lint 0; unit 1012; e2e 387; tsc 7; `pnpm build` OK.
+- **Evidence re-run (Leader-inline, non-author):** lint 0; **build 0** (the owed build closed); unit 1012/1012; e2e 387/387; tsc 7 → **VERIFIED**.
+- **Reviewer lens 2 verdict:** PASS — tokens map to real admitted actors; the `*` grant reaches the guard's `canAny` on the deny path; coverage test prevents drift; no new risk.
+- **runtime events:** resource guard refused `pnpm build` (RAM) on attempt 1 — environment, not a runtime event of a worker; build ran on attempt 2.
+- **spawns:** implementer (rework, same context) not reported by host calls, 251177 tokens (4 tool uses), ended complete; reviewer lens 2 (re-review, same context) not reported by host calls, 110894 tokens (1 tool use), ended complete
+
+#### ADVISORY (Reviewers, 4R — non-gating)
+
+- **→ T-9 brief:** NFR-2 log-spy assertion through the real HTTP path (create/edit: no email, first/last name in any `Logger` argument); one assertion of an unknown key inside a nested item (`roles[0].programId`, `exclusions[0].createdBy`) → `UNKNOWN_FIELD`; exactly one new audit row after each of deactivate, activate and invitation over HTTP (DD-15 (1)).
+- **→ T-9 docs:** the `[i]` field-path rule (`roles[0].role`) is now an API-wide contract — document it in `server/src/common/AGENTS.md` (validation row) and record a TRD § 6 pending item; front contract note: `ApiFieldError.field` may be a path; `ApiMeta.page` is new (ADR-007 keeps the front copy in step).
+- RELIABILITY — `PATCH /users/:id` with `{}` is untested (pin no-op 200 without audit, or 400); `POST /users` re-read failure after commit → 5xx then `USERS_EMAIL_TAKEN` on retry (no data lost; describe in OpenAPI).
+- READABILITY — duplicate `class-validator` import in `create-user.dto.ts`; one-line comment on the coverage test (listing ≠ behavior).
+- RISK — `UNKNOWN_FIELD` echoes the attacker-chosen key name (never values; body-size limit caps length) — acceptable.
+- Falsifier wording: the global `PermissionGuard` refuses routes with no declared permission, so removing `@RequirePermission` is caught by the route inventory and admin happy-path tests, not by the 403 rows.
+
+#### Decisions made
+
+- Effort kept at `xhigh` for attempt 2 (see above).
+- No execute-time spec edits in T-8.
+
+#### Requirements covered
+
+FR-1, FR-2/3/4/5/7/8/9/10 (HTTP surface), FR-12 (own profile nickname; public-user mapper), NFR-1.
+
+#### Final verification
+
+lint ✅ · build ✅ · unit 1012/1012 ✅ · e2e 387/387 ✅ · tsc baseline ✅

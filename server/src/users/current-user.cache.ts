@@ -25,6 +25,8 @@ export interface AdmittedUser {
   readonly email: string;
   readonly firstName: string | null;
   readonly lastName: string | null;
+  /** The caller's own nickname (FR-12); never another user's. */
+  readonly nickname: string | null;
   readonly authSource: AuthSource;
   readonly isActive: boolean;
   readonly assignments: readonly AssignmentView[];
@@ -75,6 +77,7 @@ export function toAdmittedUser(
     email: row.email,
     firstName: row.firstName,
     lastName: row.lastName,
+    nickname: row.nickname,
     authSource: row.authSource,
     isActive: row.isActive,
     assignments: Object.freeze(views.map((view) => Object.freeze({ ...view }))),

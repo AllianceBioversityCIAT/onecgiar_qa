@@ -4,7 +4,6 @@ import type { UserProgramExclusion } from '../database/drizzle/schema/user-progr
 import type { User } from '../database/drizzle/schema/users.js';
 import {
   DrizzleUsersQueryStore,
-  InvalidListQueryError,
   UsersQueryRepository,
   type ActorRef,
   type GrantRow,
@@ -12,6 +11,7 @@ import {
   type UserListCriteria,
   type UsersQueryStore,
 } from './users-query.repository.js';
+import { InvalidListQueryError } from './users.errors.js';
 
 // Expected values come from FR-9 / FR-10 and design 6 and 7, written as literals:
 // team = an active grant or created_by set; GUESTs only by filter; sort by

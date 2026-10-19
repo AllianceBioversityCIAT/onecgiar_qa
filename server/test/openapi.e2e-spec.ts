@@ -83,7 +83,11 @@ function documentedRoutes(doc: OpenAPIObject): string[] {
 
 function operationOf(doc: OpenAPIObject, key: string): Operation {
   const [method, path] = key.split(' ');
-  const item = doc.paths[path] as Record<string, Operation>;
+  // `documentedRoutes` writes `{id}` as `:id` to match the router; the document keeps `{id}`.
+  const item = doc.paths[path.replace(/:(\w+)/g, '{$1}')] as Record<
+    string,
+    Operation
+  >;
   return item[method.toLowerCase()];
 }
 

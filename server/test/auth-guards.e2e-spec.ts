@@ -242,7 +242,11 @@ let seq = 0;
 /** Registers a user as the admission step would have left it. */
 async function addUser(
   world: World,
-  options: { authSource?: 'sso' | 'custom'; isActive?: boolean } = {},
+  options: {
+    authSource?: 'sso' | 'custom';
+    isActive?: boolean;
+    nickname?: string;
+  } = {},
 ): Promise<User> {
   const n = ++seq;
   const user = await world.users.create({
@@ -251,6 +255,7 @@ async function addUser(
     firstName: 'Ada',
     lastName: `Lovelace ${n}`,
     authSource: options.authSource ?? 'sso',
+    nickname: options.nickname ?? null,
   });
   // The in-memory store hands out its own row, so this changes the stored user.
   if (options.isActive === false) user.isActive = false;
@@ -641,6 +646,24 @@ describe('Global guards (e2e)', () => {
         firstName: 'Ada',
         lastName: guest.lastName,
         authSource: 'sso',
+        nickname: null,
+        assignments: [],
+      });
+    });
+
+    it("returns the nickname of a user who has one, and no other user's", async () => {
+      const user = await addUser(world, { nickname: 'Countess' });
+      await addUser(world, { nickname: 'Someone else' });
+      const res = await world
+        .call('get', '/auth/me', world.bearer(sub(user)))
+        .expect(200);
+      expect(res.body.data).toEqual({
+        id: user.id,
+        email: user.email,
+        firstName: 'Ada',
+        lastName: user.lastName,
+        authSource: 'sso',
+        nickname: 'Countess',
         assignments: [],
       });
     });
@@ -691,6 +714,7 @@ describe('Global guards (e2e)', () => {
         'firstName',
         'id',
         'lastName',
+        'nickname',
       ]);
     });
   });

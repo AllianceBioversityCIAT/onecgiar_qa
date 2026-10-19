@@ -50,6 +50,15 @@ export class UserProfile {
   @ApiProperty({ type: String, nullable: true, example: 'Lovelace' })
   lastName!: string | null;
 
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    example: 'Ada',
+    description:
+      "The user's own nickname (FR-12); null when none is set, as for a GUEST",
+  })
+  nickname!: string | null;
+
   @ApiProperty({ type: String, enum: ['sso', 'custom'], example: 'sso' })
   authSource!: AuthSource;
 
@@ -66,6 +75,7 @@ export function toUserProfile(user: AdmittedUser): UserProfile {
     email: user.email,
     firstName: user.firstName,
     lastName: user.lastName,
+    nickname: user.nickname,
     authSource: user.authSource,
     assignments: user.assignments
       .filter(isLiveAssignment)

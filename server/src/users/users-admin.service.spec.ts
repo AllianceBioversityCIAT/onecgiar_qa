@@ -605,6 +605,37 @@ describe('UsersAdminService.create (FR-2)', () => {
   });
 });
 
+describe('create: one exclusion per program (design 6)', () => {
+  it('refuses a program listed twice in exclusions as VALIDATION_FAILED on the repeated entry, writing nothing', async () => {
+    const { w, ctx } = await setup();
+    const before = w.snapshot();
+
+    const error = await failureOf(
+      w.service.create(
+        ctx,
+        command({
+          exclusions: [
+            { programId: 1, reason: 'a' },
+            { programId: 2, reason: 'b' },
+            { programId: 1, reason: 'c' },
+          ],
+        }),
+      ),
+    );
+
+    expect(error.getStatus()).toBe(400);
+    expect(bodyOf(error).code).toBe('VALIDATION_FAILED');
+    expect(bodyOf(error).fields).toEqual([
+      expect.objectContaining({
+        field: 'exclusions[2].programId',
+        code: 'INVALID',
+      }),
+    ]);
+    expectUntouched(w, before);
+    expect(w.cognito.createUser).not.toHaveBeenCalled();
+  });
+});
+
 describe('UsersAdminService.edit (FR-5, DD-8)', () => {
   it('changes the nickname: one audit event with before and after, the target invalidated after the commit', async () => {
     const { w, admin, ctx } = await setup();

@@ -174,6 +174,20 @@ export class FieldValidationError extends BadRequestException {
   }
 }
 
+/**
+ * The cursor or the limit of a list request is unusable (FR-9). A 400
+ * `VALIDATION_FAILED` on `field`; the body comes from the catalog so no
+ * message of its own reaches the client.
+ */
+export class InvalidListQueryError extends BadRequestException {
+  constructor(readonly field: 'cursor' | 'limit') {
+    super({
+      ...errorBody('VALIDATION_FAILED'),
+      fields: [{ field, code: 'INVALID', message: FIELD_ERRORS.INVALID() }],
+    });
+  }
+}
+
 export class DuplicateUserError extends ConflictException {
   constructor() {
     super(errorBody('USERS_DUPLICATE_USER'));

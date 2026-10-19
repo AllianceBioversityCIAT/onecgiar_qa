@@ -143,7 +143,7 @@ Serial boundaries: T-1 (schema, `server/src/database/**`), T-2 and T-5 (`server/
 - **Skills:** nestjs-expert, api-design-principles
 
 ## T-8: Admin controllers, DTOs, OpenAPI and `/auth/me` nickname
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-6, T-7
 - **Requirements:** FR-1 (non-admin 403 — BUT no existence leak; no token 401); FR-2/3/4/5/7/8/9/10 (HTTP surface); FR-12 (own profile nickname; public-user mapper); NFR-1

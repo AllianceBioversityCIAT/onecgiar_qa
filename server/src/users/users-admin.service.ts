@@ -82,11 +82,11 @@ export interface CreatedUser {
   invitation: InvitationState;
 }
 
-const NICKNAME_MAX_LENGTH = 50;
-const NAME_MAX_LENGTH = 100;
-const REASON_MAX_LENGTH = 500;
+export const NICKNAME_MAX_LENGTH = 50;
+export const NAME_MAX_LENGTH = 100;
+export const REASON_MAX_LENGTH = 500;
 const ALL_RESULT_TYPES = '*';
-const UNSIGNED_INT_MAX = 4294967295;
+export const UNSIGNED_INT_MAX = 4294967295;
 
 /** NFR-3: one budget for everything QA asks Cognito inside one request. */
 export const COGNITO_BUDGET_MS = 10_000;
@@ -761,6 +761,19 @@ export class UsersAdminService {
         this.exclusionShape(exclusion, `exclusions[${index}].`, issues),
       ),
     };
+    // One exclusion per program: a repeat is a bad request on the repeated
+    // entry, not a 409 from the unique key (design 6; T-6 forward pointer 3).
+    const seenPrograms = new Set<number>();
+    shape.exclusions.forEach((exclusion, index) => {
+      if (exclusion === undefined) return;
+      if (seenPrograms.has(exclusion.programId)) {
+        issues.push({
+          field: `exclusions[${index}].programId`,
+          code: 'INVALID',
+        });
+      }
+      seenPrograms.add(exclusion.programId);
+    });
     if (issues.length > 0) throw new FieldValidationError(issues);
 
     await this.checkCatalogs(
