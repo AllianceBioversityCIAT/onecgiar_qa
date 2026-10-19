@@ -38,3 +38,10 @@
 - **Today** (`docs/specs/auth/user-management/core`): no email on any role change. The only email is Cognito's temporary-password invitation, sent when a custom user new to the shared pool is created or the invitation is resent. It uses the pool's shared template, which may not mention QA (P-10). PRD § 5 keeps notifications out of v1, and the user-management spec lists "email notifications beyond the one Cognito sends" as out of scope.
 - **Verdict:** 🔴. A new outbound channel: needs an email service (e.g. AWS SES on the CGIAR account — infrastructure), QA-branded templates, a decision on which events notify and whether people can opt out (business), and audit of what was sent. Not risky for the QA flow, but outside v1 scope.
 - **What is needed:** a business decision (QA product, Santi) on events and wording; infrastructure (Cris) for the sender; then a spec of its own (`/akili-propose`), built on the `user_audit_events` rows the user-management spec already writes.
+
+## 2026-10-19 · Juanda · QA-branded invitation email for custom users
+
+- **Idea:** the temporary-password email that Cognito sends when a QA Admin creates a custom user should say it is for QA and link to the sign-in page.
+- **Today** (validated in `docs/specs/auth/user-management/core`, T-10): Cognito's default template — sender `no-reply@verificationemail.com`, subject "Your temporary password", one line with the username (the email) and the temporary password. No QA or PRMS name, no link. The user pool is shared with other applications, so its templates are shared too.
+- **Verdict:** 🟡. Needs the pool owner (Cris): a `CustomMessage` Lambda trigger on the shared pool that brands the message only for QA. QA would send `ClientMetadata` (e.g. `{ app: 'qa' }`) in `AdminCreateUser` so the trigger can tell QA's invitations apart — a small change in `CognitoAdminClient`.
+- **What is needed:** agreement with the pool owner on the trigger (infrastructure); the email copy (QA product); then a small server change plus a real-pool smoke test.

@@ -177,7 +177,7 @@ Serial boundaries: T-1 (schema, `server/src/database/**`), T-2 and T-5 (`server/
 - **Skills:** nestjs-expert, api-design-principles
 
 ## T-10: HITL validation (shared DB, real pool, real catalogs)
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** S
 - **Depends on:** T-9; a human applies migration `0001` on `qadb`
 - **Requirements:** FR-2 real Cognito (new / existing / email received), FR-7 last admin under real MySQL locking, FR-11 real catalogs, NFR-4 (p95 ≤ 300 ms, ≥ 200 requests, 500 users — or record the spread), P-7, P-10, P-13

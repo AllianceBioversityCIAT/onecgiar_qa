@@ -662,3 +662,127 @@ lint ✅ · build ✅ · unit 1012/1012 ✅ · e2e 387/387 ✅ · tsc baseline �
 1. Logging spec tension — "Lo que decidas es bien" → Leader applied its proposal: `design.md` § 7 Logging amended (a request the global validation pipe refuses is not a mutation and logs no decision line; traceable by request id). No code change (the code already behaves so). Carried as a named conformance check into the next Reviewer brief.
 2. NFR-4 measurement — option **(a)**: on `qadb`, with the data **seeded and cleaned up by a human** (agents never seed `qadb`). The Leader prepares the seed/cleanup instructions for T-10; seeded rows are tagged so cleanup is exact.
 3. Role-change email — recorded as an idea in `docs/ideas.md` (🔴, its own spec later).
+
+### T-10: HITL validation (shared DB, real pool, real catalogs)
+
+- **Final status:** PASS (Reviewer, checklist, attempt 2) — evidence recorded; residual risks listed as open
+- **Date:** 2026-10-19
+
+Steps ran in the order 1, 2, 3, 4, 6, 5, 7 (step 6 before step 5 because the catalogs needed no pool action); they are recorded in that order.
+
+#### Step 1 — read-only checks on `qadb` before migrating (run by the back lead)
+
+| Check | Observation | Outcome |
+|---|---|---|
+| P-7 collation | `users` table `utf8mb3_general_ci` (`SHOW CREATE TABLE` + `information_schema.tables`) | **P-7 confirmed** — `_ci`: the nickname unique index is case-insensitive |
+| P-13 Assessor + Lead on the same result type | query returned **0 rows** | **P-13 confirmed** — no data fix needed before DD-11 |
+| DD-14 binlog | `@@binlog_format = ROW` | confirmed — READ COMMITTED writes will not hit error 1665 |
+| Default isolation | `@@transaction_isolation = REPEATABLE-READ` | expected; the unit of work sets READ COMMITTED per transaction |
+| Migration state | `__drizzle_migrations`: 1 row, hash `71a742696ec0…21a8`, `created_at` 1791907214872 = `0000_silent_risque.sql` (journal `when` matches) | `db:migrate` will apply only `0001` |
+
+- **New finding (not a premise):** `users` uses `DEFAULT CHARSET=utf8mb3`; tables created by `0001` inherit the database default. A nickname or name with a 4-byte character (emoji, some CJK) would fail at insert/update — likely a 500 instead of a 400. Not blocking. Options for the back lead: validate the BMP-only range in the DTOs (a follow-up), or move the schema to `utf8mb4` (infrastructure, Cris). Raised at this gate.
+
+#### Step 2 — migration `0001` applied by the back lead (`pnpm db:migrate` from the worktree)
+
+- `__drizzle_migrations`: 2 rows — id 1 `71a742696ec0…21a8` (`0000`), id 2 `2ba8dd20658b…ad29` (= sha256 of `server/drizzle/0001_user_management.sql`).
+- `SHOW CREATE TABLE users`: `nickname varchar(50) DEFAULT NULL`, `invitation enum('none','sent','existing_account') NOT NULL DEFAULT 'none'`, `invited_at datetime DEFAULT NULL`, `UNIQUE KEY uq_users_nickname`; existing rows and constraints intact (`AUTO_INCREMENT=8`, `chk_users_email_lowercase`, FKs). Charset still `utf8mb3`.
+- From now on this branch can run against `qadb`.
+
+#### Step 3 — DB constraints on real MySQL (one transaction, ROLLBACK; run by the back lead)
+
+| Case | Expected | Observed |
+|---|---|---|
+| A. `SHOW CREATE TABLE user_program_exclusions` | table, stored `active_key`, unique key, three CHECKs, FKs | ✅ as § 5 + DD-12 (ended CHECK carries the `reporting`+`removed` exception) |
+| B. active manual exclusion | insert OK | ✅ (C collided with its key `5:441`) |
+| C. second active exclusion, same user/program | 1062 on `uq_user_program_exclusions_active_key` | ✅ `Duplicate entry '5:441'` |
+| D. manual without reason | 3819 `chk_user_program_exclusions_manual_reason` | ✅ |
+| E. manual row as `dismissed` | 3819 `chk_user_program_exclusions_dismissed` | ✅ |
+| F. manual `removed` without `ended_by` (DD-12) | 3819 `chk_user_program_exclusions_ended` | ✅ |
+| G. reporting `removed` by the system (`ended_by` NULL) | insert OK | ✅ no error |
+| H. nickname `ProbeNick` then `probenick` on another user (P-7) | 1062 on `uq_users_nickname` | ✅ `Duplicate entry 'probenick'` — case-insensitive uniqueness confirmed on real data |
+| I. JSON `changes` round-trip | `SELECT` returns the object | not observed here — **closed in Step 5b** (audit rows read back as objects) |
+| J. after ROLLBACK | 0 / 0 / 0 | ✅ 0 exclusions, 0 audit rows, 0 nicknames |
+
+- T-1 known gap ("live-DB behavior of `active_key` uniqueness, the CHECKs and the nickname collation") **closed**; the JSON round-trip (I) was closed in Step 5b.
+
+#### Step 4 — lock serialization on real MySQL (run by the Leader at the back lead's request; ROLLBACK only)
+
+- **Deviation from the plan, approved by the back lead (2026-10-19, "¿Eso lo puedes hacer tú?"):** T-10 assigned `qadb` actions to a human. The Leader ran a rollback-only two-connection probe through the worktree's `DATABASE_URL` (`SELECT … FOR UPDATE` and reads only — no row written, no reset, no seed; the ADMIN `roles` row was held ≈ 2 s). Script kept outside the repo (session scratchpad). The back lead offered an application account's credentials in chat; the Leader did not use or store them (not needed for a DB-level probe) and recommended rotating them.
+- **Observed:** active admins in `qadb` = **1** (user id 5) — so `X = 5`, `Y = 6` (a non-admin; enough to test the roles-row wait). Session 1 (`READ COMMITTED`): `users(5) FOR UPDATE` → `roles(ADMIN) FOR UPDATE`. Session 2 (`READ COMMITTED`): `users(6) FOR UPDATE`, then `roles(ADMIN) FOR UPDATE` → **still waiting after 1.5 s**. Session 1 plain-read admin count = 1, then `ROLLBACK` → session 2 acquired the lock **41 ms later, no deadlock (no 1213)**; its count = 1; `ROLLBACK`.
+- **Not observable:** `information_schema.innodb_trx.trx_isolation_level` → `ER_SPECIFIC_ACCESS_DENIED_ERROR` (the DB user lacks `PROCESS`), so the per-transaction isolation and "no leak to the next transaction" could not be read directly. Relies on MySQL's documented `SET TRANSACTION` (next transaction only) + the T-4 unit test asserting the statement order.
+- **Not run — DD-3 falsifier not exercised on real MySQL:** the full two-admin demotion race with `COMMIT` (only one active admin exists; running it would change real grants). What the probe shows: the second transaction **waits** on the ADMIN `roles` row and acquires it after release with **no deadlock**. What it does **not** show: the READ COMMITTED recount after a committed demotion — covered only by the T-4/T-6 lock-emulating tests. **Residual risk, open** (see the residual list below).
+- **Operational note for the back lead:** with a single active ADMIN (id 5), any demotion or deactivation of that user is refused with `USERS_LAST_ADMIN` — grant ADMIN to a second person before front testing.
+
+#### Step 6 — real catalogs through the API (Leader, read-only, admin id 5's token supplied by the back lead)
+
+- API from the worktree on `http://localhost:3400` (`PORT=3400` in `.env`), against `qadb` with `0001` applied. The back lead pasted the access token in chat; the Leader kept it only in a mode-600 file in the session scratchpad (deleted at the end of T-10) and never printed it.
+- `GET /catalogs/roles` → 200 (189 ms): 5 grantable roles — ADMIN (global), LEAD_ASSESSOR (result_type), ASSESSOR (result_type), TPB (global), PPU (global); no PROGRAM. ✅ FR-2/FR-11.
+- `GET /catalogs/result-types` → 200 (1,254 ms, cold Reporting call): 9 types with real keys — `policy_change`, `innovation_use`, `other_outcome`, `capacity_sharing`, `knowledge_product`, `innovation_development`, `other_output`, `impact_contribution`, `innovation_package`. ✅ P-5 on the running app.
+- `GET /catalogs/science-programs` → 200 (248 ms): 13 active programs, ids 441–453, SP01 Breeding for Tomorrow … SP13 Genebank (inactive SGP-02 filtered out). ✅ P-6 on the running app.
+- Second calls served from the in-process cache (< 1 ms). ✅ DD-9.
+- Read-only list check: `GET /users?population=all&status=all` → 200 in 286 ms, 3 users (5 custom ADMIN; 6 and 7 SSO without roles), `meta.page.nextCursor` null; default list 200; `GET /users/5` keys match `UserDetail` (§ 6). NFR-4 is measured in step 7 with seeded data.
+- **Note for the front and seeds:** real result-type keys are lowercase snake case (`knowledge_product`), not the short codes used in unit fixtures (`KP`) — no code impact (keys are opaque strings validated against the catalog).
+
+#### Step 5 — Cognito admin on the real pool (Leader via the API, emails chosen by the back lead)
+
+- **5b — existing pool account** (back lead's own address; it already existed in the shared pool): `POST /users` custom, ASSESSOR on `knowledge_product`, programs `all` → **201** in 1.9 s, user id 8, `invitation: existing_account`. No Cognito write and no email (FR-2 "BUT it must NOT change the existing Cognito account"; DD-7 `getUser` first). `POST /users/8/invitation` → **409 `USERS_INVITATION_NOT_APPLICABLE`** (`invitation ≠ sent`, DD-15).
+- **Audit on real MySQL (closes step 3 case I):** two rows sharing the request id `76752f6b-…`: `create` (`changes` = before/after of email, firstName, lastName, nickname, accountType) and `role_grant` (role ASSESSOR, resultType `knowledge_product`); actor 5; the JSON column round-trips as an object. Audit ids start at 2 (id 1 was consumed by the rolled-back step-3 insert — auto-increment is not rolled back; harmless). No `scope_change` row: `programs: 'all'` on create is the default (no rows) — consistent with DD-15.
+- `users` row 8: `auth_source=custom`, `invitation=existing_account`, `invited_at` NULL, `created_by=5`, `cognito_sub` NULL (linked at first custom login by email, P-1).
+- **5a — new pool account** (a `+qatest` alias of the back lead's address, new to the pool; approved by the back lead): `POST /users` custom, ASSESSOR on `policy_change`, programs `[441, 442]` → **201** in 2.6 s, user id 9, `invitation: sent`. **P-8 fully settled — `AdminCreateUser` works on the shared pool with `qa-cognito-service`.**
+  - Audit: 3 rows on one request id — `create`, `role_grant` (ASSESSOR · `policy_change`), `scope_change` (`programs: 'all' → [441, 442]`) — DD-15 ✅.
+  - Pool (read-only `AdminGetUser`): status `FORCE_CHANGE_PASSWORD`, enabled, `email_verified=true`, given/family names set. **P-4 finding:** the pool **generated the username** (not the email) — the email works as an alias for `AdminGetUser` and for login (`USER_PASSWORD_AUTH` with the email as `USERNAME`), so no code change; `AliasExistsException` handling stays a watch item.
+  - `POST /users/9/invitation` → **200** in 1.5 s, `invitation: sent`; one `invitation_resend` audit row (`invitedAt` before/after) ✅ FR-8.
+  - `invited_at` stored in UTC (the Leader's raw mysql2 read showed it shifted by the local offset — reader artifact, not an app defect).
+- **P-10 (back lead, 2026-10-19):** both emails arrived (create + resend). Template = Cognito's default — sender `no-reply@verificationemail.com`, subject "Your temporary password", one line "Your username is <email> and temporary password is …". No QA/PRMS branding, no sign-in link; the username shown is the email. **Settled: usable but generic.** Option for later (not this spec): a pool `CustomMessage` Lambda trigger owned by the pool owner, with QA sending `ClientMetadata` so the trigger can brand QA's message — recorded as a follow-up idea. The screenshot shared in chat showed the temporary passwords of the test account → that account is to be deleted by the pool owner at cleanup.
+
+#### Step 7 — NFR-4 list performance on `qadb` (seed and cleanup by the back lead; measurement by the Leader)
+
+- **Seed (back lead, SQL tagged `@qa-load.invalid`):** 550 users (500 team with `created_by`, 50 guests; every 10th without nickname), 766 grants (ASSESSOR on one type; every 3rd + LEAD_ASSESSOR on another type; every 5th + TPB), program scopes for every 4th, active manual exclusions for every 7th.
+- **Measurement (Leader, `GET /users` through the running API with admin id 5's token):** 20 warm-up requests, then **260 measured, sequential**, limit 50, mixing default, `q`, `role`, `resultType`, `programId`, `hasExclusions`, `population=all&status=all`, `role+resultType`, with full cursor walks (up to 12 pages). Client-side latency from the dev machine over VPN (includes network).
+  - **p95 = 167 ms** (p50 121 ms, max 193 ms) — **NFR-4 met (≤ 300 ms)**.
+  - Per filter p95: default 169 · `q` 193 · role 159 · resultType 176 · programId 158 · hasExclusions 120 · population=all 152 · role+resultType 187 ms.
+  - Per page index p95 stays 137–183 ms from page 1 to 12 — keyset cursor shows no depth degradation.
+  - Walk completeness: default (team, active) = 11 pages ≈ 503 users (500 seeded + ids 5, 8, 9); `population=all&status=all` = 12 pages ≈ 555 users.
+- Disqualifier check: ≥ 200 requests ✅, non-empty table ✅.
+- **Load-data cleanup (back lead, SQL deleting only `@qa-load.invalid`, committed):** Leader's read-only check — 0 load users left; users ids 5, 6, 7, 8, 9; role_assignments 3 (admin 5 + test users 8, 9), user_programs 2 (user 9), exclusions 0, audit rows 6 (from the step-5 test users).
+
+#### Cleanup (owners and status)
+
+- Load data `@qa-load.invalid`: deleted by the back lead (committed); Leader read-only check — 0 left. ✅
+- Test users 8 and 9 (QA rows, grants, programs, 6 audit rows): **deleted by the back lead** with a scoped SQL (`id IN (8, 9)`, FK order), committed; Leader read-only check — users 5, 6, 7 left; `role_assignments` 1 (admin 5's ADMIN); `user_programs`, `user_program_exclusions`, `user_audit_events` 0. ✅ (A deliberate exception to FR-7's no-delete rule, for test data only, decided by the back lead.)
+- Pool account of the `+qatest` alias (its temporary passwords appeared in a chat screenshot): **deletion requested from the pool owner (Cris) on 2026-10-19 via Slack — pending on his side.** The back lead's own pre-existing account was not touched by QA and must not be deleted.
+- Access token file (mode 600, session scratchpad): **deleted** by the Leader before this entry (`rm -f`, confirmed). The password the back lead pasted in chat was never used or stored; rotation recommended to him.
+- `qadb` final state: `0001` applied; users 5, 6, 7; one ADMIN (id 5).
+
+#### Not run / residual risks (open — not counted as verified)
+
+| Item (source) | Why not run | Residual / trigger to re-run |
+|---|---|---|
+| DD-3 falsifier: two admins demoting each other with `COMMIT` (T-10 Falsifier; T-4 checklist) | one active admin in `qadb`; would change real grants | **Open.** Re-run once a second ADMIN exists (the operational note already recommends granting one). Covered meanwhile by T-4/T-6 lock-emulating tests |
+| Demotion racing a login (`FOR SHARE`) or a concurrent ADMIN grant (T-4 checklist) | needs two live sessions + a second admin | Open — same trigger |
+| Concurrent opposite-role grants on the **same** `users` row (T-4 checklist) | the probe locked users 5 and 6 (different rows) | Open — covered by T-4 two-writer test |
+| Concurrent `replaceScope` → 409 not 500 (T-4 checklist) | not exercised over the API | Open — covered by unit tests |
+| `ER_DUP_ENTRY` on `active_key` → 409 `USERS_EXCLUSION_EXISTS` over the API (T-4 checklist) | only the raw MySQL 1062 observed (step 3 C) | Open — mapping covered by unit/e2e tests |
+| Isolation level per transaction / no leak to the next (T-4 checklist) | DB user lacks `PROCESS` | Open — relies on documented `SET TRANSACTION` semantics + T-4 statement-order test |
+| Resend after the account is confirmed → `UnsupportedUserStateException` → `not_applicable` (T-5 checklist) | the test account was never signed in; then deleted | Open — re-run on the next real invite |
+| Same email created twice → `UsernameExistsException` race path (T-5 checklist) | 5b went through the `getUser` path (the normal one) | Open — race fallback covered by T-5 unit tests |
+| Case-insensitive `q` search on real data (T-7 checklist) | `q` was timed in step 7, case not varied | Open — the collation is `_ci` (P-7 confirmed), so low risk |
+| `utf8mb3` charset — 4-byte characters (emoji) in names/nickname likely → 500 (step 1 finding) | found, not fixed | **Tracked follow-up** for the back lead: either DTO validation (BMP-only) in a small change, or a schema move to `utf8mb4` (infrastructure) |
+
+#### Review
+
+- **Attempt 1 — FAIL (Reviewer, documentation):** (1) carried checklist items without an observation or an explicit "not run", and Step 4 counted the DD-3 falsifier as covered; (2) § 11 P-8 row contradicted itself (citation "not exercised" vs settled), duplicate clause in the Count line, two superseded "pending" lines. Remediation: residual table, Step 4 reworded, ledger fixed, stale lines removed (Leader, documentation only).
+- **Attempt 2 — PASS:** every unexercised item has a reason and a trigger; the DD-3 falsifier is recorded as not exercised and open; P-8 consistent; no premise refuted (no Pivot); NFR-4 disqualifier not hit; no credential in the evidence.
+- **ADVISORY:** keep the `+qatest` pool-account deletion as a named open item (pending on the pool owner); the scoped delete of users 8 and 9 is a one-off for test data — not a procedure.
+- **spawns:** reviewer not reported by host calls, 35422 tokens (7 tool uses), ended fail; reviewer (re-review, same context) ended complete
+- **Requirements covered:** FR-2 real Cognito (new / existing / email received), FR-7 last-admin locking (serialization + no deadlock on real MySQL; COMMIT race residual), FR-11 real catalogs, NFR-4 (p95 167 ms), P-7, P-8, P-10, P-13 settled.
+
+## Summary
+
+- **Status:** all 10 tasks `[x]` (2026-10-19). Branch `feat/auth-user-management`, worktree `onecgiar_qa-users`; not pushed, not merged.
+- **Delivered:** user-management admin API (12 `/users` routes, 3 `/catalogs` routes) behind `ADMIN_ACCESS`; nickname, program scope, conflict-of-interest exclusions with history, "all result types" grants, Assessor/Lead exclusivity, ADMIN-holds-all, effective review scope (`canReview`); audited, cache-invalidating mutations in one READ COMMITTED unit of work with the last-admin rule; Cognito admin client for custom accounts; `/auth/me` nickname; module guides, infrastructure § 6 and a front contract note. Migration `0001_user_management` applied to `qadb`.
+- **Spec amendments approved during execution:** DD-12 (system-ended reporting exclusions), DD-13 (active ADMIN exempt from conflict of interest), DD-14 (READ COMMITTED + lock order, recorded), DD-15 (audit granularity, no resend to deactivated users, plain uniqueness reads); § 7 Logging (pipe refusals are not mutations); Science Programs source and Reporting auth (back lead decisions).
+- **Verification at close:** server lint ✅ · build ✅ · unit 1012 ✅ · e2e 397 ✅ · tsc baseline (7 pre-existing errors in `token-verifier.service.spec.ts`) ✅.
+- **Budget:** ~16,200 LOC vs ~3,200 original / ~12,500 re-baseline (+30 %; mostly tests) · 25 Reviewer passes vs ~16 / ~20 — overruns reported and accepted by the back lead at each tripwire.
+- **Open items:** (1) residual risks — T-10 table (DD-3 COMMIT race once a second ADMIN exists; `utf8mb3` 4-byte characters); (2) `+qatest` pool-account deletion by the pool owner; (3) pending for `staging` — TRD § 5.1/§ 6/§ 7 items, ADR candidates DD-13/DD-14, front `ApiMeta.page`; (4) ideas in `docs/ideas.md` — role-change email, QA-branded invitation; (5) the 7 pre-existing `token-verifier.service.spec.ts` type errors (outside this spec).
+- **Next:** `/akili-validate` or `/akili-test` for this spec, then `/akili-archive` (TRD/ADR sync on `staging`, Kaizen); merge `feat/auth-user-management` → `staging-center` with `--no-ff` when the back lead decides.
