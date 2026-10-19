@@ -192,3 +192,15 @@ FR-11 (both scenarios), FR-1 (catalog routes), NFR-3; NFR-2 for the catalog clie
 #### Final verification
 
 lint ✅ · build ✅ · unit 649/649 ✅ · e2e 259/259 ✅
+
+### Pre-check for T-5 (P-8) — 2026-10-19 (not a task attempt)
+
+- **Source:** Cris (pool owner), Slack DM 2026-10-19 10:32 / 10:59 — new QA-only App Client + IAM user; credentials delivered out of band and placed in the local `server/.env` by the back lead (`COGNITO_ADMIN_ACCESS_KEY_ID`, `COGNITO_ADMIN_SECRET_ACCESS_KEY`; `COGNITO_CLIENT_ID`/`COGNITO_CLIENT_SECRET` replaced by the new client).
+- **Probe (Leader-inline, read-only, no user data read, nothing created):**
+  1. `sts get-caller-identity` with the admin keys → OK, IAM user `qa-cognito-service`.
+  2. `AdminGetUser` on a username that cannot exist → **AccessDeniedException** (`not authorized to perform: cognito-idp:AdminGetUser`). **P-8 refuted as of today** — the IAM user lacks the actions design § 7 / DD-6 require.
+  3. New client `InitiateAuth USER_PASSWORD_AUTH` (fake user, correct `SECRET_HASH`) → `USER_PASSWORD_AUTH flow not enabled for this client`; with a wrong secret → `Unable to verify secret hash` ⇒ the secret is valid, the flow is off. The server's custom login (`cognito-auth.client.ts:124`) and refresh (`:227`) need `USER_PASSWORD_AUTH` and `REFRESH_TOKEN_AUTH` — custom login does not work with the new client yet.
+  4. Hosted UI `/oauth2/authorize` with `identity_provider=CGIAR-AzureAD` → 302 to Microsoft for both `http://localhost:4200/auth/callback` and `https://qatest.ciat.cgiar.org/auth/callback` (return leg needs a browser).
+- **Action:** reply sent to Cris (Slack DM, at the back lead's request) asking for `cognito-idp:AdminGetUser` + `cognito-idp:AdminCreateUser` on the pool ARN, the two auth flows, and confirmation of token revocation. T-5 stays blocked (`[ ]`, external) until a re-probe passes.
+- Also noted (out of this spec): Cris announced Cognito JWT/OIDC metadata changes rolling out from 2026-11-04 (deadline 2027-02-28) — the token verification in `auth` should be checked against it.
+- **Re-probe after Cris's fix (Slack DM 2026-10-19 11:22 — flows enabled, `AdminGetUser` + `AdminCreateUser` added to `qa-cognito-service`, token revocation on):** `AdminGetUser` (nonexistent username) → `UserNotFoundException` ⇒ permission granted; `InitiateAuth USER_PASSWORD_AUTH` (fake user, correct hash) → `Incorrect username or password` ⇒ flow on, secret valid; wrong secret → `Unable to verify secret hash`; SSO authorize → 302 to Microsoft for both callbacks. **P-8: `AdminGetUser` settled**; `AdminCreateUser` is granted per the pool owner but not exercised (it would create a real account and send the shared-template email) — T-5's first step re-runs the read-only probe; the real call stays a T-10 HITL smoke. Confirmation sent to Cris. Worktree `.env` refreshed from the main checkout (new client).
