@@ -160,7 +160,7 @@ Serial boundaries: T-1 (schema, `server/src/database/**`), T-2 and T-5 (`server/
 - **Skills:** nestjs-expert, api-design-principles, nestjs-best-practices
 
 ## T-9: Privacy, docs and contract hand-off
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** S
 - **Depends on:** T-8
 - **Requirements:** NFR-2 (no email/name/credential in logs); FR-12 (no full name/email of another user to non-admins — rule recorded for later specs); FR-13 (audit coverage check)

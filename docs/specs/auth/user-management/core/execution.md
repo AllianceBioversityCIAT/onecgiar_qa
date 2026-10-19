@@ -593,3 +593,66 @@ lint ✅ · build ✅ · unit 1012/1012 ✅ · e2e 387/387 ✅ · tsc baseline �
 
 - Actual: 8 of 10 tasks · ~15,000 LOC (re-baseline ~12,500, **+20 %**) · 20 Reviewer passes (re-baseline ~20, reached). Remaining: T-9 (~500–800 LOC, 1–2 passes), T-10 (no code).
 - Escalated to the back lead; answer "SI" — continue with T-9 without cutting scope.
+
+### T-9: Privacy, docs and contract hand-off
+
+- **Final status:** PASS on attempt 2 (attempt 1 FAIL: refusal-log test + two false doc statements)
+- **Date:** 2026-10-19
+- **Skills:** nestjs-expert, api-design-principles, cognitive-doc-design · Effort: high (attempt 1)
+- **Scope widened by the back lead (2026-10-19, "Acuérdate de crear o modificar los AGENTS.md necesarios"):** every module guide this spec made stale — `server/src/{users,config,common,database,auth}/AGENTS.md`, `server/test/AGENTS.md`, `server/AGENTS.md`; new child guides only if needed (none created; `catalogs/`, `dto/` folded into the users guide). TRD and `.agents/*` stay pending for `staging`.
+
+#### Attempt 1 — FAIL
+
+- **Files changed:** new `server/test/users-admin-privacy.e2e-spec.ts`, `server/test/support/users-admin-app.ts`, `docs/specs/auth/user-management/core/front-contract.md`; modified `server/src/users/users-admin.service.ts` (the `cognito_sent_not_recorded` reason folded into the single decision line via `FORCED_LOG_REASONS`), `server/vitest.config.e2e.ts` (dummy `COGNITO_ADMIN_*`), `server/test/openapi.e2e-spec.ts` (no-secret test covers four keys), `docs/infrastructure.md` § 6, and the guides above. `.env.example` already complete.
+- **Falsifiers (reverted):** email in the decision line → 3 red; audit skipped on `activate` → red (`expected [] to deeply equal [ 'reactivate' ]`); email in the exception-filter line on a forced 5xx → red.
+- **Implementer verification:** lint, build ok; unit 1012; e2e 397; tsc 7.
+- **Evidence re-run (Leader-inline, non-author):** lint 0; build 0; unit 1012/1012; e2e 397/397; tsc 7 → VERIFIED. Secret scan: no `CLARISA_API_KEY`, `COGNITO_ADMIN_*` or `COGNITO_CLIENT_SECRET` value in the diff or new files.
+- **Reviewer verdict: FAIL** (verbatim issues):
+
+> 1. **Discovered Issue:** In `server/test/users-admin-privacy.e2e-spec.ts`, the test "logs refusals with a reason code only, one line each" checks only the HTTP status and `expectNoSecret()`. It never checks that a refusal writes exactly one `users_admin` line, that `outcome` is `refused`, that `reason` is the catalog code, or the fixed key set. The "spy saw the app log" guard exists only in the first test. If refusal logging were deleted, or a refusal line gained extra fields, this test would still pass. Its name claims checks it does not make.
+>    * **Violated Rule:** `requirements.md` NFR-2 ("decisions logged with user ids only"). `design.md` § 7 Logging ("one decision line per mutation (`event: users_admin`, action, target id, actor id, outcome, request id)"). Task forward pointer: "log spy over every logger and every mutation route through HTTP". Reviewer rule: a test named after a behaviour is not evidence that it exercises it.
+>    * **Remediation Suggestion:** For each refusal, check that `spy.decisionsOf(requestIdOf(res))` has exactly one line, that its keys are the fixed set plus `reason`, that `outcome: 'refused'`, and that `reason` equals the expected code (`USERS_EMAIL_TAKEN`, `USERS_NICKNAME_TAKEN`, `VALIDATION_FAILED`, `USERS_NOT_FOUND`, `USERS_LAST_ADMIN`, `USERS_INVITATION_NOT_APPLICABLE`, …). Then remove the logger's refusal branch once, confirm the test goes red, and record that run.
+> 2. **Discovered Issue:** `front-contract.md` says the "Send invitation" resend works "only for an active custom user who never signed in (else 409 `USERS_INVITATION_NOT_APPLICABLE`)". That reads as the full condition, but it is incomplete. `assertInvitable` (`users-admin.service.ts:697-713`) also refuses when `invitation !== 'sent'`, so a custom user with `existing_account` gets 409. A front built from this note would show a resend button that always fails for those users.
+>    * **Violated Rule:** `design.md` § 7 Invitation: "allowed for an **active** `custom` user with `invitation = sent` who never signed in".
+>    * **Remediation Suggestion:** Add the condition "`invitation: 'sent'`" to the note, e.g. "only for an active custom user with `invitation: 'sent'` who never signed in".
+> 3. **Discovered Issue:** `docs/infrastructure.md` (row "Migration `0001_user_management`") lists "new nullable `users.nickname`, `invitation`, `invited_at`". But `invitation` is `enum(...) DEFAULT 'none' NOT NULL` (`server/drizzle/0001_user_management.sql:40`), so the statement is false for that column.
+>    * **Violated Rule:** `design.md` § 5 (`invitation` enum … default `none`, not NULL). Brief: every statement in `infrastructure.md` must be true of the code.
+>    * **Remediation Suggestion:** Reword to "new nullable `users.nickname`, `invited_at`; new `invitation` (NOT NULL, default `none`)". Also check the "new nullable columns" phrase in `server/src/database/AGENTS.md` (`../../drizzle/` row) and make it consistent.
+
+- **ADVISORY (non-gating):** users-guide `users.module.ts` row omits the `CatalogService` export and `CATALOG_CLOCK`; common-guide `@ApiOkEnvelope` signature omits `extraModels` and the `listOf(...)` form; TRD pending items must be recorded by the Leader; no HTTP check that a rolled-back request leaves the audit count unchanged; `infrastructure.md` "The user-management API signs in with the QA-only App Client" is misleading (sessions use it; admin calls use IAM); `front-contract.md` heading "Not in this API" reads as exclusions — retitle "Scope limits".
+- **runtime events:** none
+- **spawns:** implementer not reported by host calls, 175085 tokens (50 tool uses), ended complete; reviewer not reported by host calls, 122039 tokens (45 tool uses), ended fail
+
+#### Attempt 2 — PASS (effort xhigh)
+
+- **Attempt history in the brief:** attempt 1's refusal test asserted status + no-secret only; two doc statements were false.
+- **Files changed:** `server/test/users-admin-privacy.e2e-spec.ts`; `docs/specs/auth/user-management/core/front-contract.md`; `docs/infrastructure.md`; `server/src/users/AGENTS.md`, `server/src/common/AGENTS.md`, `server/src/database/AGENTS.md`, `server/test/AGENTS.md`.
+- **Fixes:** (1) each refusal asserts status + `error.code`; each service-level refusal → exactly one `users_admin` line with keys `action, actorId, event, outcome, reason, requestId, targetId`, `outcome: 'refused'`, `reason` = catalog code; count guard; a pipe-level 400 (`programs: []`) asserted to log zero lines; (2) resend condition complete (`invitation: 'sent'`); (3) `invitation` NOT NULL default `none` in `infrastructure.md` and the database guide. Advisory-grade items done (users-guide module row, `@ApiOkEnvelope` signature, App Client wording, "Scope limits" heading).
+- **Sweep corrections (Implementer):** `canReview` signature; nickname uniqueness raised in the service (`NicknameTakenError`); controller reads through `UsersQueryRepository`; live-grant wording; `test/AGENTS.md` "the error codes of each route"; pipe refusals log no decision line.
+- **Falsifier (reverted):** refusal `this.logger.warn(line)` emptied → red (`post /users -> USERS_EMAIL_TAKEN: expected [] to have a length of 1 but got +0`).
+- **Implementer verification:** lint, build ok; unit 1012; e2e 397; tsc 7.
+- **Evidence re-run (Leader-inline, non-author):** lint 0; build 0; unit 1012/1012; e2e 397/397; tsc 7 → **VERIFIED**.
+- **Reviewer verdict:** PASS — all three issues fixed; every new or reworded statement checked against the code (file:line cited); no stale statement left in the edited guides.
+- **runtime events:** none
+- **spawns:** implementer (rework, same context) not reported by host calls, 207433 tokens (18 tool uses), ended complete; reviewer (re-review, same context) not reported by host calls, 137041 tokens (5 tool uses), ended complete
+
+#### Guides and docs (final state)
+
+- Updated: `server/AGENTS.md`, `server/src/users/AGENTS.md`, `server/src/config/AGENTS.md`, `server/src/common/AGENTS.md`, `server/src/database/AGENTS.md`, `server/src/auth/AGENTS.md`, `server/test/AGENTS.md`, `docs/infrastructure.md` § 6. New: `docs/specs/auth/user-management/core/front-contract.md`. Unchanged: root `AGENTS.md` (no new child guide; `catalogs/` and `dto/` folded into the users guide), `.env.example` (already complete).
+
+#### Pending items for `staging` (shared-file discipline — not edited on this branch)
+
+- **TRD § 5.1:** `users` gains `nickname` (nullable, unique), `invitation` (NOT NULL, default `none`), `invited_at`; new tables `user_programs` (no rows = all programs), `user_program_exclusions` (origin/status/history, stored `active_key`, CHECKs incl. DD-12), `user_audit_events` (append-only by repository); `role_assignments.result_type_key = '*'` = all result types (DD-1); migration `0001_user_management`.
+- **TRD § 6:** the 12 `/users` routes and the three `/catalogs` routes with their error codes (`USERS_*` set, `SERVICE_UNAVAILABLE`); 201 on create and on add exclusion; API-wide rules — field-error paths use brackets for array items (`roles[0].role`, dots for nested objects); list paging in `meta.page.nextCursor`.
+- **TRD § 7 (integrations):** Reporting `qa/catalog` authenticated with the shared CLARISA key in `x-api-key`; CLARISA `cgiar-entities/by-portfolio?portfolioId=2,3&version=2` for Science Programs; Cognito admin API through IAM user `qa-cognito-service` (TEST/PROD roles pending).
+- **TRD ADR candidates for `/akili-archive`:** DD-13 (ADMIN exempt from conflict of interest), DD-14 (READ COMMITTED admin unit of work).
+- **Root `AGENTS.md` `## Module Guides`:** the `server/src/users/AGENTS.md` description could mention catalogs and the admin API (optional).
+- **Front (`client/`, not this spec):** `ApiMeta.page?` and `ApiFieldError.field` comment (paths), per `front-contract.md`.
+
+#### Open point raised to the back lead at this gate
+
+- **Spec tension (Reviewer):** § 7 Logging "one decision line per mutation" vs the code and users guide "a request the validation pipe refuses logs no decision line". Leader proposal: amend § 7 Logging — "requests the global validation pipe refuses never reach the service; they are not mutations and log no decision line (the 400 is still traced by the request id in the HTTP layer)". Answer pending.
+
+#### ADVISORY (non-gating)
+
+- RISK — `findByNickname` is case-insensitive only through the column collation (P-7); the guide states it without the caveat. **→ T-10** checklist (already listed).

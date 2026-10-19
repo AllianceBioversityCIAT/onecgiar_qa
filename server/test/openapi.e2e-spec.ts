@@ -247,7 +247,16 @@ describe('OpenAPI document (e2e)', () => {
 
   it('carries no secret or token value', () => {
     const text = JSON.stringify(doc);
-    expect(text).not.toContain(process.env.COGNITO_CLIENT_SECRET!);
+    for (const name of [
+      'COGNITO_CLIENT_SECRET',
+      'CLARISA_API_KEY',
+      'COGNITO_ADMIN_SECRET_ACCESS_KEY',
+      'COGNITO_ADMIN_ACCESS_KEY_ID',
+    ]) {
+      const value = process.env[name];
+      expect(value, `${name} must be set in vitest.config.e2e.ts`).toBeTruthy();
+      expect(text).not.toContain(value!);
+    }
     expect(text).not.toMatch(/eyJ[\w-]+\.[\w-]+\./);
   });
 });

@@ -144,6 +144,9 @@ const isPositiveId = (value: unknown): value is number =>
   value >= 1 &&
   value <= UNSIGNED_INT_MAX;
 
+/** Errors whose decision line carries a fixed reason instead of the one derived from the error (one line per mutation). */
+const FORCED_LOG_REASONS = new WeakMap<object, string>();
+
 /** Design 7, `UsersAdminService`: every admin mutation of a user, its audit trail and its cache invalidation. */
 @Injectable()
 export class UsersAdminService {
@@ -487,16 +490,11 @@ export class UsersAdminService {
         });
       } catch (error) {
         // Cognito already sent the email but QA could not record it (the user
-        // signed in or was deactivated meanwhile, or the write failed).
-        this.logger.error(
-          this.line(
-            'invitation_resend',
-            ctx,
-            userId,
-            'error',
-            'cognito_sent_not_recorded',
-          ),
-        );
+        // signed in or was deactivated meanwhile, or the write failed). The
+        // reason rides on the error so `logged` writes ONE line (design 7 Logging).
+        if (typeof error === 'object' && error !== null) {
+          FORCED_LOG_REASONS.set(error, 'cognito_sent_not_recorded');
+        }
         throw error;
       }
     });
@@ -1072,25 +1070,31 @@ export class UsersAdminService {
       this.logger.log(this.line(action, ctx, targetOf(result), 'ok'));
       return result;
     } catch (error) {
+      const forced =
+        typeof error === 'object' && error !== null
+          ? FORCED_LOG_REASONS.get(error)
+          : undefined;
       const status = error instanceof HttpException ? error.getStatus() : 500;
       const body =
         error instanceof HttpException
           ? (error.getResponse() as { code?: unknown })
           : {};
       const reason =
-        typeof body.code === 'string' && /^[A-Z_]{1,64}$/.test(body.code)
+        forced ??
+        (typeof body.code === 'string' && /^[A-Z_]{1,64}$/.test(body.code)
           ? body.code
           : status < 500
             ? `http_${status}`
-            : 'internal_error';
+            : 'internal_error');
+      const refused = status < 500 && forced === undefined;
       const line = this.line(
         action,
         ctx,
         targetId,
-        status < 500 ? 'refused' : 'error',
+        refused ? 'refused' : 'error',
         reason,
       );
-      if (status < 500) this.logger.warn(line);
+      if (refused) this.logger.warn(line);
       else this.logger.error(line);
       throw error;
     }
