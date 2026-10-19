@@ -139,6 +139,9 @@ describe('FR-17: no QA-issued tokens, client secret from env only (static)', () 
       "secretAccessKey: 'abc',",
       'DYNAMODB_SECRET_ACCESS_KEY=abc',
       "const secretAccessKey = process.env.DYNAMODB_SECRET_ACCESS_KEY ?? 'abc';",
+      'COGNITO_ADMIN_SECRET_ACCESS_KEY=abc',
+      "const secretAccessKey = process.env.COGNITO_ADMIN_SECRET_ACCESS_KEY || 'abc';",
+      'this.logger.warn(`k ${this.config.credentials.secretAccessKey}`);',
       'this.logger.log(`keys ${config.credentials.secretAccessKey}`);',
     ])('flags a client secret in %j', (line) => {
       expect(hasClientSecret(line)).toBe(true);
@@ -197,15 +200,19 @@ describe('FR-17: no QA-issued tokens, client secret from env only (static)', () 
       expect(found).toEqual([]);
     });
 
-    it('reads secrets only in their config file: COGNITO_CLIENT_SECRET (auth), DYNAMODB_SECRET_ACCESS_KEY (dynamodb)', () => {
+    it('reads secrets only in their config file: COGNITO_CLIENT_SECRET (auth), DYNAMODB_SECRET_ACCESS_KEY (dynamodb), COGNITO_ADMIN_SECRET_ACCESS_KEY (cognito-admin)', () => {
       const readers = sourceFiles()
         .filter((path) => /process\.env\.\w*SECRET/i.test(codeOf(read(path))))
         .map((path) => relative(SRC_ROOT, path))
         .sort();
       expect(readers).toEqual([
         'config/auth.config.ts',
+        'config/cognito-admin.config.ts',
         'config/dynamodb.config.ts',
       ]);
+      expect(read(join(SRC_ROOT, 'config/cognito-admin.config.ts'))).toMatch(
+        /^\s*process\.env\.COGNITO_ADMIN_SECRET_ACCESS_KEY \|\| undefined;$/m,
+      );
       expect(read(join(SRC_ROOT, 'config/dynamodb.config.ts'))).toMatch(
         /^\s*const secretAccessKey = process\.env\.DYNAMODB_SECRET_ACCESS_KEY \|\| undefined;$/m,
       );

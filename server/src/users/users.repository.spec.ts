@@ -146,6 +146,7 @@ describe('UsersRepository.findOrCreateByEmail', () => {
     const racing: UsersStore = {
       findById: (id) => store.findById(id),
       findByCognitoSub: (sub) => store.findByCognitoSub(sub),
+      findByNickname: (nickname) => store.findByNickname(nickname),
       insert: (values) => store.insert(values),
       update: (id, values) => store.update(id, values),
       linkCognitoSub: (id, sub) => store.linkCognitoSub(id, sub),

@@ -9,6 +9,7 @@ import {
 import {
   AssignmentNotFoundError,
   DuplicateActiveAssignmentError,
+  RoleConflictError,
   ScopeMismatchError,
   UnknownRoleError,
 } from './users.errors.js';
@@ -217,13 +218,24 @@ describe('RoleAssignmentsRepository.create — duplicate active assignment (FR-1
     ).rejects.toBeInstanceOf(DuplicateActiveAssignmentError);
   });
 
-  it('accepts the same role for another result type, another user, or another role', async () => {
+  // DD-11 (reversion, C6): this test used to also grant LEAD_ASSESSOR on KP to
+  // the same user and expect four rows. Assessor + Lead on one result type is
+  // now forbidden; that case lives in the exclusivity table below.
+  it('accepts the same role for another result type or another user', async () => {
     const { repo, store } = setup();
     await repo.create(assessorKp);
     await repo.create({ ...assessorKp, resultTypeKey: 'INNOVATION_DEV' });
     await repo.create({ ...assessorKp, userId: USER + 1 });
-    await repo.create({ ...assessorKp, roleCode: RoleCode.LEAD_ASSESSOR });
-    expect(store.rows).toHaveLength(4);
+    expect(store.rows).toHaveLength(3);
+  });
+
+  it('refuses a Lead Assessor on the result type where the user is Assessor (DD-11)', async () => {
+    const { repo, store } = setup();
+    await repo.create(assessorKp);
+    await expect(
+      repo.create({ ...assessorKp, roleCode: RoleCode.LEAD_ASSESSOR }),
+    ).rejects.toBeInstanceOf(RoleConflictError);
+    expect(store.rows).toHaveLength(1);
   });
 
   it('accepts a new active assignment once the previous one was revoked', async () => {
@@ -348,4 +360,154 @@ describe('DrizzleRoleAssignmentsStore.findActiveViewsByUserId (the real adapter 
     expect(statements[0]).toMatch(/inner join `roles`/);
     expect(statements[0]).not.toMatch(/for update|for share/);
   });
+});
+
+// FR-3 / DD-2: Assessor and Lead Assessor are exclusive per result type, and `*`
+// (all result types, DD-1) overlaps every key. The rule lives in the repository
+// so the seed and every future writer get it.
+describe('RoleAssignmentsRepository.create — Assessor/Lead exclusivity (FR-3, DD-2)', () => {
+  const A = RoleCode.ASSESSOR;
+  const L = RoleCode.LEAD_ASSESSOR;
+  type Grant = [role: RoleCode, key: string];
+
+  // existing active grants, the grant being added, and whether it is refused
+  const shapes: Array<[string, Grant[], Grant, 'refused' | 'allowed']> = [
+    ['A KP then L KP (same key)', [[A, 'KP']], [L, 'KP'], 'refused'],
+    [
+      'L KP then A KP (same key, other order)',
+      [[L, 'KP']],
+      [A, 'KP'],
+      'refused',
+    ],
+    ['A KP then L * (all covers KP)', [[A, 'KP']], [L, '*'], 'refused'],
+    ['L KP then A * (all covers KP)', [[L, 'KP']], [A, '*'], 'refused'],
+    ['A * then L KP (all covers KP)', [[A, '*']], [L, 'KP'], 'refused'],
+    ['L * then A KP (all covers KP)', [[L, '*']], [A, 'KP'], 'refused'],
+    ['L * then A * (all vs all)', [[L, '*']], [A, '*'], 'refused'],
+    ['A * then L * (all vs all, other order)', [[A, '*']], [L, '*'], 'refused'],
+    [
+      'the third grant of a mixed set overlaps the second',
+      [
+        [A, 'KP'],
+        [L, 'IDEV'],
+      ],
+      [A, 'IDEV'],
+      'refused',
+    ],
+    ['A KP then L IDEV (different keys)', [[A, 'KP']], [L, 'IDEV'], 'allowed'],
+    ['L KP then A IDEV (different keys)', [[L, 'KP']], [A, 'IDEV'], 'allowed'],
+    [
+      'A KP then A * (same role, no exclusivity)',
+      [[A, 'KP']],
+      [A, '*'],
+      'allowed',
+    ],
+    [
+      'L KP then L * (same role, no exclusivity)',
+      [[L, 'KP']],
+      [L, '*'],
+      'allowed',
+    ],
+    [
+      'A KP then A IDEV (same role, other key)',
+      [[A, 'KP']],
+      [A, 'IDEV'],
+      'allowed',
+    ],
+  ];
+
+  it.each(shapes)('%s', async (_label, existing, added, outcome) => {
+    const { repo, store } = setup();
+    for (const [roleCode, resultTypeKey] of existing) {
+      await repo.create({ userId: USER, roleCode, resultTypeKey });
+    }
+    const writesBefore = store.writes;
+    const attempt = repo.create({
+      userId: USER,
+      roleCode: added[0],
+      resultTypeKey: added[1],
+    });
+    if (outcome === 'refused') {
+      await expect(attempt).rejects.toBeInstanceOf(RoleConflictError);
+      expect(store.writes).toBe(writesBefore);
+      expect(store.rows).toHaveLength(existing.length);
+    } else {
+      await expect(attempt).resolves.toMatchObject({ resultTypeKey: added[1] });
+      expect(store.rows).toHaveLength(existing.length + 1);
+    }
+  });
+
+  it('refuses the same shape for the same user only: another user is unaffected', async () => {
+    const { repo } = setup();
+    await repo.create({ userId: USER, roleCode: A, resultTypeKey: '*' });
+    await expect(
+      repo.create({ userId: USER + 1, roleCode: L, resultTypeKey: 'KP' }),
+    ).resolves.toMatchObject({ userId: USER + 1 });
+  });
+
+  it('ignores a revoked grant: Lead * after the Assessor KP was revoked', async () => {
+    const { repo } = setup();
+    const assessor = await repo.create({
+      userId: USER,
+      roleCode: A,
+      resultTypeKey: 'KP',
+    });
+    await repo.revoke(assessor.id, ACTOR);
+    await expect(
+      repo.create({ userId: USER, roleCode: L, resultTypeKey: '*' }),
+    ).resolves.toMatchObject({ resultTypeKey: '*' });
+  });
+
+  it('ignores a revoked wildcard: Assessor KP after the Lead * was revoked', async () => {
+    const { repo } = setup();
+    const lead = await repo.create({
+      userId: USER,
+      roleCode: L,
+      resultTypeKey: '*',
+    });
+    await repo.revoke(lead.id, ACTOR);
+    await expect(
+      repo.create({ userId: USER, roleCode: A, resultTypeKey: 'KP' }),
+    ).resolves.toMatchObject({ resultTypeKey: 'KP' });
+  });
+
+  it('does not let a global role grant interfere with the check', async () => {
+    const { repo } = setup();
+    await repo.create({ userId: USER, roleCode: RoleCode.TPB });
+    await repo.create({ userId: USER, roleCode: A, resultTypeKey: '*' });
+    await expect(
+      repo.create({ userId: USER, roleCode: L, resultTypeKey: 'KP' }),
+    ).rejects.toBeInstanceOf(RoleConflictError);
+  });
+});
+
+describe('RoleAssignmentsRepository.create — the all-result-types sentinel (DD-1)', () => {
+  it.each([RoleCode.ASSESSOR, RoleCode.LEAD_ASSESSOR])(
+    'stores * for %s',
+    async (roleCode) => {
+      const { repo } = setup();
+      const created = await repo.create({
+        userId: USER,
+        roleCode,
+        resultTypeKey: '*',
+      });
+      expect(created.resultTypeKey).toBe('*');
+    },
+  );
+
+  it.each([
+    ['ADMIN', RoleCode.ADMIN, { resultTypeKey: '*' }],
+    ['TPB', RoleCode.TPB, { resultTypeKey: '*' }],
+    ['PPU', RoleCode.PPU, { resultTypeKey: '*' }],
+    ['PROGRAM', RoleCode.PROGRAM, { resultTypeKey: '*', programId: null }],
+  ])(
+    'refuses * for %s (not a result-type role)',
+    async (_l, roleCode, scope) => {
+      const { repo, store } = setup();
+      await expect(
+        repo.create({ userId: USER, roleCode, ...scope }),
+      ).rejects.toBeInstanceOf(ScopeMismatchError);
+      expect(store.rows).toHaveLength(0);
+    },
+  );
 });

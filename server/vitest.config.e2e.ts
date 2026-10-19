@@ -20,6 +20,12 @@ export default defineConfig({
       COGNITO_URL: 'https://qa-test.auth.us-east-1.amazoncognito.com',
       COGNITO_USER_POOL_URL: 'https://cognito-idp.test.invalid/',
       ALLOWED_ORIGINS: 'https://qa.example.org',
+      REPORTING_API_URL: 'https://reporting.test.invalid/api/',
+      CLARISA_API_URL: 'https://clarisa.test.invalid/api/',
+      CLARISA_API_KEY: 'test-catalog-key',
+      // Dummy values (both or neither): lets the OpenAPI test prove no key value leaks.
+      COGNITO_ADMIN_ACCESS_KEY_ID: 'AKIATESTADMINKEY0000',
+      COGNITO_ADMIN_SECRET_ACCESS_KEY: 'test-admin-secret-access-key',
     },
   },
 });

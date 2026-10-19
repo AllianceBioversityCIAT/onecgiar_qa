@@ -161,9 +161,58 @@ export const ERROR_CATALOG = {
     status: 409,
     message: 'This user already has this role in this scope.',
   },
+  USERS_ROLE_CONFLICT: {
+    status: 409,
+    message:
+      'A user cannot be both Assessor and Lead Assessor for the same result type. Remove one of the two roles and try again.',
+  },
   USERS_ASSIGNMENT_NOT_FOUND: {
     status: 404,
     message: 'This role assignment does not exist.',
+  },
+  USERS_NOT_FOUND: { status: 404, message: 'This user does not exist.' },
+  USERS_EMAIL_TAKEN: {
+    status: 409,
+    message:
+      'A user with this email already exists. Open that user instead, or use a different email.',
+  },
+  USERS_NICKNAME_TAKEN: {
+    status: 409,
+    message:
+      'This nickname is already used by another user. Choose a different nickname.',
+  },
+  USERS_NAME_LOCKED: {
+    status: 409,
+    message:
+      'The name comes from the identity provider once the user has signed in, so it can no longer be edited here.',
+  },
+  USERS_INVITATION_NOT_APPLICABLE: {
+    status: 409,
+    message:
+      'An invitation can only be resent to a custom-account user, invited by QA, who has not signed in yet.',
+  },
+  USERS_LAST_ADMIN: {
+    status: 409,
+    message:
+      'This change would leave QA without an active administrator. Make another user an administrator first.',
+  },
+  USERS_EXCLUSION_EXISTS: {
+    status: 409,
+    message: 'This program is already excluded for this user.',
+  },
+  USERS_EXCLUSION_NOT_FOUND: {
+    status: 404,
+    message: 'This program exclusion does not exist or is no longer active.',
+  },
+  USERS_EXCLUSION_NOT_MANUAL: {
+    status: 409,
+    message:
+      'Only an exclusion added by an administrator can be removed. Dismiss an exclusion that comes from Reporting instead.',
+  },
+  USERS_EXCLUSION_NOT_REPORTING: {
+    status: 409,
+    message:
+      'Only an exclusion that comes from Reporting can be dismissed. Remove an exclusion added by an administrator instead.',
   },
 } as const satisfies Record<string, { status: number; message: string }>;
 

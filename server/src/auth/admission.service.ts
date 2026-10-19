@@ -3,8 +3,8 @@ import type { AuthSource, User } from '../database/drizzle/schema/users.js';
 import {
   CurrentUserCache,
   isLiveAssignment,
-  toAuthenticatedUser,
-  type AuthenticatedUser,
+  toAdmittedUser,
+  type AdmittedUser,
 } from '../users/current-user.cache.js';
 import { RoleAssignmentsRepository } from '../users/role-assignments.repository.js';
 import { DuplicateUserError } from '../users/users.errors.js';
@@ -40,7 +40,7 @@ export interface AdmissionUnitOfWork {
 export type AdmissionMode = 'login' | 'refresh';
 
 export interface AdmissionResult {
-  user: AuthenticatedUser;
+  user: AdmittedUser;
   /** The `cognito:username` claim, for the refresh cookie (DD-2); null when the token has none. */
   cognitoUsername: string | null;
 }
@@ -195,7 +195,7 @@ export class AdmissionService {
     user = await users.update(user.id, this.changes(user, claims));
 
     return {
-      user: toAuthenticatedUser(user, views),
+      user: toAdmittedUser(user, views),
       cognitoUsername: claims.username,
     };
   }
