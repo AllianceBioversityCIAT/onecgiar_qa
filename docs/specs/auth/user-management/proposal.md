@@ -130,7 +130,8 @@ Smallest safe path: chunk 1 delivers every AC except the automatic part of AC 9,
 - Program identity: front codes `SP01…` vs numeric ids — decide the canonical key before chunk 1.
 - Permission changes reach other API instances within ≤ 60 s (cache, DD-6); AC 12 says "immediately" — proposed to accept and document.
 
-**Open questions**
+**Open questions** — 1–4 decided by the back lead on 2026-10-19 (see `core/requirements.md` § 1): PROGRAM not grantable here (decided in the comments spec); the front's `lead` switch is the Lead Assessor role; **QA creates the Cognito account of custom users** (needs AWS admin credentials on the shared pool); Science Programs come from CLARISA (its id is canonical). 5–10 follow the proposed defaults.
+
 1. **PROGRAM role:** with program membership living in Reporting, does PROGRAM leave QA (programs answer comments in the Reporting Tool)? The front has no PROGRAM screen or label.
 2. **The front's `lead` switch** on an Assessor ("Can edit and delete other assessors' comments", `assessors.mock.ts:22-41`): is it the Lead Assessor role, or a separate permission?
 3. **Invitations:** the front has "Send invitation" / "Resend invitation". Does the server create Cognito users or send emails (Jira: notifications out of scope)? Proposed: no; "invite" = pre-register.
