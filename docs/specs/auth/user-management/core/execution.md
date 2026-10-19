@@ -656,3 +656,9 @@ lint ✅ · build ✅ · unit 1012/1012 ✅ · e2e 387/387 ✅ · tsc baseline �
 #### ADVISORY (non-gating)
 
 - RISK — `findByNickname` is case-insensitive only through the column collation (P-7); the guide states it without the caveat. **→ T-10** checklist (already listed).
+
+#### Back lead answers at the T-9 gate (2026-10-19)
+
+1. Logging spec tension — "Lo que decidas es bien" → Leader applied its proposal: `design.md` § 7 Logging amended (a request the global validation pipe refuses is not a mutation and logs no decision line; traceable by request id). No code change (the code already behaves so). Carried as a named conformance check into the next Reviewer brief.
+2. NFR-4 measurement — option **(a)**: on `qadb`, with the data **seeded and cleaned up by a human** (agents never seed `qadb`). The Leader prepares the seed/cleanup instructions for T-10; seeded rows are tagged so cleanup is exact.
+3. Role-change email — recorded as an idea in `docs/ideas.md` (🔴, its own spec later).

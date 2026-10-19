@@ -120,7 +120,7 @@ All under `/api/v1`, response standard (TRD § 6), **`ADMIN_ACCESS`** (Bearer) u
 - **List (FR-9)** — one query with `LIKE` on email, nickname, first/last name; filters by joins/EXISTS; `population=team` = has an active grant or `created_by` not null; sort `nickname`, then `id`; opaque cursor of (sort key, id).
 - **Nickname exposure (FR-12)** — a shared "public user" mapper (id + nickname) is the only way later non-admin endpoints may render another user; `/auth/me` adds the caller's nickname.
 - **Errors** — new catalog codes: `USERS_NOT_FOUND` 404, `USERS_EMAIL_TAKEN` 409, `USERS_NICKNAME_TAKEN` 409, `USERS_ROLE_CONFLICT` 409, `USERS_LAST_ADMIN` 409, `USERS_NAME_LOCKED` 409, `USERS_INVITATION_NOT_APPLICABLE` 409, `USERS_EXCLUSION_EXISTS` 409, `USERS_EXCLUSION_NOT_FOUND` 404, `USERS_EXCLUSION_NOT_MANUAL` 409, `USERS_EXCLUSION_NOT_REPORTING` 409. Unknown role/result type/program and PROGRAM → `VALIDATION_FAILED` with field errors.
-- **Logging** — one decision line per mutation (`event: users_admin`, action, target id, actor id, outcome, request id); never email, names or credentials (NFR-2).
+- **Logging** — one decision line per mutation (`event: users_admin`, action, target id, actor id, outcome, request id); never email, names or credentials (NFR-2). A request the global validation pipe refuses never reaches the service: it is not a mutation and logs no decision line — its 400 stays traceable by the request id in the HTTP layer (amended 2026-10-19 after the T-9 review, back lead delegated the call to the Leader).
 
 ## 8. Frontend / UX Component Architecture
 
