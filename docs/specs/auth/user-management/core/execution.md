@@ -89,4 +89,45 @@ Known gap: live-DB behavior of `active_key` uniqueness, the CHECKs and the nickn
 
 lint ✅ · tests 602/602 ✅ · tsc ✅ · `pnpm build` ✅ exit 0 (Leader re-run, 2026-10-19, third try after two resource-guard refusals).
 
-- **Gate:** closed under `gated` mode; spec tension (exclusion `ended_by` vs system-ended `reporting` exclusions) presented to the user as amendment options (a) admin-only ending / (b) `ended_by` nullable = system — answer pending, recorded here when given.
+- **Gate:** closed under `gated` mode; spec tension (exclusion `ended_by` vs system-ended `reporting` exclusions) presented to the user as amendment options (a) admin-only ending / (b) `ended_by` nullable = system — **answered 2026-10-19: option (b)**, applied as the T-1 amendment DD-12 below.
+
+### T-1 amendment: DD-12 — `ended_by` NULL means "ended by the system"
+
+- **Final status:** PASS (Reviewer)
+- **Date:** 2026-10-19
+- **Trigger:** spec tension raised by the T-1 Reviewer (advisory RISK): `chk_user_program_exclusions_ended` required `ended_by` on every ended exclusion, so child 2's Reporting sync could never end a `reporting` exclusion on its own — against DD-5's "child 2 writes `reporting` rows without schema change".
+- **User decision:** the back lead asked for the Leader's recommendation and approved option (b) on 2026-10-19 ("adelante y quede documentado todo"). Option (a) — only admins end exclusions, schema unchanged — was rejected because a later change would need a second migration on the shared `qadb`.
+- **Attempts:** 1 · Skills: nestjs-expert, tdd · Effort: medium
+
+#### Decisions made (execute-time spec edits, recorded when made)
+
+- `design.md` § 5, row `user_program_exclusions`: `ended_by` NULL (= system); CHECK split into `ended_at` iff status ≠ `active`; `ended_by`/`end_reason` NULL while `active`; `ended_by` NULL only for origin `reporting` + status `removed`; a `manual` removal and every `dismissed` row require `ended_by`. Also closes the T-1 READABILITY advisory on the "ended fields" wording.
+- `design.md` § 10: new row **DD-12** (decision, rejected alternative, consequence).
+- `design.md` Document Control: `Last updated | 2026-10-19 (DD-12 amendment)`.
+- `tasks.md` T-1 Tests line aligned with DD-12.
+- Correction sweep: `grep -rn "ended fields\|ended_by" docs/specs/auth/user-management/` → only the amended sites remained; no other stale text.
+- These § 5 / DD-12 edits are carried as a named conformance check into the next task's Reviewer brief (T-2), then drop.
+
+#### Attempt 1
+
+- **Files changed:** `server/src/database/drizzle/schema/user-program-exclusions.ts` (ended CHECK + two comments); `server/src/database/drizzle/schema/schema.spec.ts` (ended-CHECK case); `server/drizzle/0001_user_management.sql`, `server/drizzle/meta/0001_snapshot.json`, `server/drizzle/meta/_journal.json` (0001 regenerated in place with `pnpm db:generate --name user_management` — never applied anywhere; SQL differs from `f0d02bd` in exactly one line, the ended CHECK; journal diff is only the `when` timestamp).
+- **Red run:** ended-CHECK case failed at assertion (expected the new branch text, received the old one), 1 failed / 28 passed.
+- **Falsifiers executed:** (1) `status <> 'active'` instead of `removed` (NULL `ended_by` for `dismissed`) → red; (2) dropping `origin = 'reporting'` (NULL `ended_by` for `manual` + `removed`) → red. Reverted; 29/29.
+- **Implementer verification:** `pnpm lint` clean; `pnpm build` ok; `pnpm test --reporter=dot` 22 files, 602 passed.
+- **Evidence re-run (Leader-inline, non-author):** `pnpm lint` exit 0; `pnpm build` exit 0; `pnpm test --reporter=dot --maxWorkers=2` 602/602 → **VERIFIED**.
+- **Reviewer verdict:** PASS — the CHECK traced by hand against every § 5 clause (`manual`+`removed` and `dismissed` with NULL `ended_by` both rejected; no new UNKNOWN case); DD-12 followed exactly; FR-4 meaning unchanged (manual removal keeps who/when, dismissal keeps who/when/why) — no Pivot evidence; conventions held.
+- **runtime events:** none
+- **spawns:** implementer not reported by host calls, 75369 tokens (11 tool uses), ended complete; reviewer not reported by host calls, 29094 tokens (6 tool uses), ended complete
+
+#### ADVISORY (Reviewer, 4R — non-gating)
+
+- RISK — a `reporting` + `removed` row with NULL `ended_by` passes the DB whether a person or the system ended it; recording the admin id on human ends relies on the service (DD-12 says so). **Forward pointer → T-4 and T-6 briefs:** the admin-facing end paths must always set `ended_by`, with a test.
+- READABILITY — `not.toMatch(/`ended_by` IS NOT NULL OR `origin`/)` can never fail against the current wording; redundant beside the `toContain`.
+
+#### Requirements covered
+
+FR-4 (exclusion end history — schema part), FR-13 (actor on human ends), NFR-5.
+
+#### Final verification
+
+lint ✅ · build ✅ · tests 602/602 ✅

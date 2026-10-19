@@ -218,9 +218,16 @@ describe('user_program_exclusions schema', () => {
     expect(expr).toContain(
       "`status` = 'active' AND `ended_at` IS NULL AND `ended_by` IS NULL AND `end_reason` IS NULL",
     );
+    // ended_at is mandatory once ended; ended_by is mandatory too, except for
+    // a system end: origin reporting AND status removed (DD-12).
     expect(expr).toContain(
-      "`status` <> 'active' AND `ended_at` IS NOT NULL AND `ended_by` IS NOT NULL",
+      "`status` <> 'active' AND `ended_at` IS NOT NULL AND (`ended_by` IS NOT NULL OR (`origin` = 'reporting' AND `status` = 'removed'))",
     );
+    // A NULL ended_by must never be allowed outside that one exception.
+    expect(expr.match(/`ended_by` IS NULL/g)).toHaveLength(1);
+    expect(expr).not.toMatch(/`ended_by` IS NOT NULL OR `origin`/);
+    expect(expr).not.toContain("`origin` = 'manual'");
+    expect(expr).not.toContain("`status` = 'dismissed'");
   });
 });
 

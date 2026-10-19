@@ -9,7 +9,7 @@
 | Depth | Full |
 | Status | Draft |
 | Base commit | `8ecef79` (branch `feat/auth-user-management`, from `origin/staging-center` @ `8866e69`) |
-| Last updated | 2026-10-19 |
+| Last updated | 2026-10-19 (DD-12 amendment) |
 
 ## 2. Executive Summary
 
@@ -72,7 +72,7 @@ server/drizzle/0001_<name>.sql          # generated migration
 | `users` + | `nickname varchar(50)` NULL, unique (collation-insensitive, P-7); `invitation` enum(`none`,`sent`,`existing_account`) default `none`; `invited_at` datetime NULL | FR-2, FR-8, FR-12 |
 | `role_assignments` (rule) | `result_type_key = '*'` means **all result types** (current and future). Allowed only for result-type-scoped roles. Existing CHECK (at most one scope) and `active_key` unchanged | FR-3 |
 | `user_programs` (new) | `user_id`, `program_id` (CLARISA id); PK (`user_id`,`program_id`). **No rows = all programs** (current and future) | FR-4 |
-| `user_program_exclusions` (new) | `id`, `user_id`, `program_id`, `origin` enum(`manual`,`reporting`), `status` enum(`active`,`removed`,`dismissed`), `reason` varchar(500), `reporting_role` varchar(100) NULL, `created_at`, `created_by` NULL (= system), `ended_at`, `ended_by`, `end_reason`. Stored generated `active_key` = user:program when `status='active'`, unique. CHECKs: `manual` ⇒ reason not empty; `dismissed` ⇒ origin `reporting` and `end_reason` not empty; ended fields set iff status ≠ `active` | FR-4 |
+| `user_program_exclusions` (new) | `id`, `user_id`, `program_id`, `origin` enum(`manual`,`reporting`), `status` enum(`active`,`removed`,`dismissed`), `reason` varchar(500), `reporting_role` varchar(100) NULL, `created_at`, `created_by` NULL (= system), `ended_at`, `ended_by` NULL (= system), `end_reason`. Stored generated `active_key` = user:program when `status='active'`, unique. CHECKs: `manual` ⇒ reason not empty; `dismissed` ⇒ origin `reporting` and `end_reason` not empty; `ended_at` set iff status ≠ `active`; `ended_by` and `end_reason` NULL while `active`; `ended_by` NULL (system end) allowed only for origin `reporting` with status `removed` — a `manual` removal and every `dismissed` row require `ended_by` (amended 2026-10-19, see DD-12) | FR-4 |
 | `user_audit_events` (new) | `id`, `user_id` (target), `actor_id`, `action` enum, `changes` JSON (`{ field: { before, after } }`), `request_id`, `created_at`. Append-only; index (`user_id`,`created_at`) | FR-13 |
 
 Migration `0001`: additive only (new nullable columns, new tables); no data rewrite. Applied by a human on `qadb` (P-17 of the auth spec).
@@ -142,6 +142,7 @@ Not in scope (server only). Contract notes for the front team: roles come groupe
 | DD-3 | Last-admin rule serialized by locking the ADMIN `roles` row | Count without lock (two admins demote each other → 0 admins) | Admin-affecting changes serialize; logins only take a shared lock on roles (auth DD-10) and wait at most one short transaction | FR-7, NFR-5 |
 | DD-4 | Program scope as a separate table, no rows = all | Program in `role_assignments` (C2: single scope); a JSON column (no FK/index) | Scope is per user, applies to every role (D5) | FR-4 |
 | DD-5 | Exclusions keep origin + status, never deleted | Hard delete on removal (loses history); one table per origin | Child 2 writes `reporting` rows without schema change; dismissals survive syncs | FR-4, FR-13 |
+| DD-12 | **Amendment (2026-10-19, back lead):** `ended_by` NULL means "ended by the system", symmetric with `created_by`; allowed only for a `reporting` exclusion with status `removed` | Keep `ended_by` mandatory (child 2 could never end a `reporting` exclusion on its own; a later change would need another migration on the shared `qadb`) | Child 2 decides whether its sync ends exclusions automatically, with no schema change. The DB still forces an actor on every `manual` removal and every dismissal; human ends always carry the admin id (service + audit) | FR-4, FR-13 |
 | DD-6 | Cognito account via AWS SDK with IAM credentials | Signing admin calls by hand; asking users to self-register | New IAM dependency on the shared pool (Cris); SDK adds a package | FR-2, FR-8 |
 | DD-7 | Create order: check → Cognito → DB tx | DB first (an orphan QA row if Cognito fails, violating FR-2) | A Cognito account may outlive a failed insert; harmless and reported as `existing_account` | FR-2 |
 | DD-8 | Name editable by admin only before first sign-in | Admin always owns the name (admission would overwrite it each login, C4) | IdP is the source after first login; matches the front (name not editable in edit) | FR-5 |

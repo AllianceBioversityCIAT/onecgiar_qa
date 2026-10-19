@@ -30,7 +30,7 @@ Serial boundaries: T-1 (schema, `server/src/database/**`), T-2 and T-5 (`server/
 - **Requirements:** FR-2 (nickname unique — schema part), FR-4 (exclusion origin/status/history — schema part), FR-8 (invitation state), FR-13 (audit storage), NFR-5 (unique email/nickname, one active exclusion per user/program)
 - **Design refs:** § 5; DD-1, DD-4, DD-5; P-7, P-13
 - **Scope:** `server/src/database/drizzle/schema/{users,user-programs,user-program-exclusions,user-audit-events,index}.ts`; generated `server/drizzle/0001_*.sql`; `schema.spec.ts`. Not touched: repositories, services.
-- **Tests:** extend `schema.spec.ts`: nickname unique index; `user_programs` PK; exclusions: `active_key` stored generated + unique, CHECKs (manual ⇒ reason, dismissed ⇒ reporting + end_reason, ended fields iff not active); audit table append-only columns and index.
+- **Tests:** extend `schema.spec.ts`: nickname unique index; `user_programs` PK; exclusions: `active_key` stored generated + unique, CHECKs (manual ⇒ reason, dismissed ⇒ reporting + end_reason, `ended_at` iff not active; `ended_by`/`end_reason` NULL while active; `ended_by` NULL only for `reporting` + `removed` — DD-12); audit table append-only columns and index.
 - **Verification:** server command; review the generated SQL by hand against § 5.
 - **Falsifier:** drop the `dismissed ⇒ origin reporting` CHECK → its `schema.spec` assertion goes red; make `active_key` ignore `status` → the uniqueness assertion goes red.
 - **Red run:** new `schema.spec` cases fail before the schema exists (assertion level).

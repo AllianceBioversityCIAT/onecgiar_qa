@@ -47,6 +47,7 @@ export const userProgramExclusions = mysqlTable(
     // null = created by the system (a Reporting sync).
     createdBy: int('created_by', { unsigned: true }).references(() => users.id),
     endedAt: datetime('ended_at'),
+    // null = ended by the system (a Reporting sync).
     endedBy: int('ended_by', { unsigned: true }).references(() => users.id),
     endReason: varchar('end_reason', { length: 500 }),
     // Identity of an ACTIVE exclusion; NULL once removed or dismissed, so a
@@ -68,10 +69,12 @@ export const userProgramExclusions = mysqlTable(
       'chk_user_program_exclusions_dismissed',
       sql`${status} <> 'dismissed' OR (${origin} = 'reporting' AND ${endReason} IS NOT NULL AND TRIM(${endReason}) <> '')`,
     ),
-    // Active: no end data. Removed/dismissed: ended_at and ended_by both set.
+    // Active: no end data. Removed/dismissed: ended_at set. ended_by NULL means
+    // "ended by the system" and is allowed only for a reporting removal; a
+    // manual removal and every dismissal need an actor (DD-12).
     check(
       'chk_user_program_exclusions_ended',
-      sql`(${status} = 'active' AND ${endedAt} IS NULL AND ${endedBy} IS NULL AND ${endReason} IS NULL) OR (${status} <> 'active' AND ${endedAt} IS NOT NULL AND ${endedBy} IS NOT NULL)`,
+      sql`(${status} = 'active' AND ${endedAt} IS NULL AND ${endedBy} IS NULL AND ${endReason} IS NULL) OR (${status} <> 'active' AND ${endedAt} IS NOT NULL AND (${endedBy} IS NOT NULL OR (${origin} = 'reporting' AND ${status} = 'removed')))`,
     ),
   ],
 );

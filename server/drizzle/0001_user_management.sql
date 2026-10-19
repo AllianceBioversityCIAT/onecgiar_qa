@@ -22,7 +22,7 @@ CREATE TABLE `user_program_exclusions` (
 	CONSTRAINT `uq_user_program_exclusions_active_key` UNIQUE(`active_key`),
 	CONSTRAINT `chk_user_program_exclusions_manual_reason` CHECK(`origin` <> 'manual' OR (`reason` IS NOT NULL AND TRIM(`reason`) <> '')),
 	CONSTRAINT `chk_user_program_exclusions_dismissed` CHECK(`status` <> 'dismissed' OR (`origin` = 'reporting' AND `end_reason` IS NOT NULL AND TRIM(`end_reason`) <> '')),
-	CONSTRAINT `chk_user_program_exclusions_ended` CHECK((`status` = 'active' AND `ended_at` IS NULL AND `ended_by` IS NULL AND `end_reason` IS NULL) OR (`status` <> 'active' AND `ended_at` IS NOT NULL AND `ended_by` IS NOT NULL))
+	CONSTRAINT `chk_user_program_exclusions_ended` CHECK((`status` = 'active' AND `ended_at` IS NULL AND `ended_by` IS NULL AND `end_reason` IS NULL) OR (`status` <> 'active' AND `ended_at` IS NOT NULL AND (`ended_by` IS NOT NULL OR (`origin` = 'reporting' AND `status` = 'removed'))))
 );
 --> statement-breakpoint
 CREATE TABLE `user_audit_events` (

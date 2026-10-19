@@ -1,7 +1,7 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "34f1b0b3-64cc-430e-9078-5ed58dec0989",
+  "id": "d66b3812-ccbc-4284-8508-325594c7def0",
   "prevId": "ff01c784-f949-41d1-8c79-87ddec749fab",
   "tables": {
     "users": {
@@ -624,7 +624,7 @@
         },
         "chk_user_program_exclusions_ended": {
           "name": "chk_user_program_exclusions_ended",
-          "value": "(`status` = 'active' AND `ended_at` IS NULL AND `ended_by` IS NULL AND `end_reason` IS NULL) OR (`status` <> 'active' AND `ended_at` IS NOT NULL AND `ended_by` IS NOT NULL)"
+          "value": "(`status` = 'active' AND `ended_at` IS NULL AND `ended_by` IS NULL AND `end_reason` IS NULL) OR (`status` <> 'active' AND `ended_at` IS NOT NULL AND (`ended_by` IS NOT NULL OR (`origin` = 'reporting' AND `status` = 'removed')))"
         }
       }
     },
