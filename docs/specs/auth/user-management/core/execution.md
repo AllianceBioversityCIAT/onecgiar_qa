@@ -511,3 +511,9 @@ FR-9 (repository part), FR-10 (repository part).
 #### Final verification
 
 lint ✅ · build ✅ · unit 1007/1007 ✅ · e2e 260/260 ✅ · tsc baseline ✅
+
+#### Budget projection after T-7 (2026-10-19)
+
+- Actual ~12,100 LOC · 15 Reviewer passes, against the re-baseline ~12,500 · ~20. Projection with T-8 (~1,800) and T-9 (~500): **~14,400 LOC (~15 % over the re-baseline)**, mostly tests.
+- Reported to the back lead before it happened; answer: "Si, alinealo y adelante con T-8" — continue without cutting scope. No further re-baseline; the final total is reported at closure.
+- Also approved: align the T-7 list's "team" and role filters with `isLiveAssignment` (a grant of an inactive role does not count) — T-7 follow-up below.
