@@ -31,7 +31,7 @@ function uniqueColumnSets(table: Parameters<typeof getTableConfig>[0]) {
 const dialect = new MySqlDialect();
 // Renders a CHECK / generated expression exactly as the migration emits it.
 const render = (expr: SQL) => dialect.sqlToQuery(expr).sql;
-const names = (cols: ReadonlyArray<{ name?: string }>) =>
+const names = (cols: ReadonlyArray<object>) =>
   cols.map((c) => ('name' in c ? c.name : ''));
 
 describe('users schema', () => {

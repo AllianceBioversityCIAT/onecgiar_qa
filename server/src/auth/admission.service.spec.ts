@@ -871,6 +871,9 @@ describe('AdmissionService concurrent first login (DD-10)', () => {
       createdAt: new Date(),
       updatedAt: new Date(),
       createdBy: null,
+      nickname: null,
+      invitation: 'none',
+      invitedAt: null,
       ...overrides,
     };
   }

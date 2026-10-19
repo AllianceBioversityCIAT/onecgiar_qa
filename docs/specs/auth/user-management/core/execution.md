@@ -314,3 +314,13 @@ FR-4 (storage part), FR-6 (cache carries scope + exclusions; invalidate refreshe
 #### Final verification
 
 lint ✅ · build ✅ · unit 818/818 ✅ · e2e 260/260 ✅
+
+### T-1 follow-up fix: spec type errors introduced by T-1
+
+- **Final status:** PASS (Reviewer) · **Date:** 2026-10-19 · approved by the back lead as a separate commit
+- **Cause:** `tsc --noEmit -p tsconfig.json` errors in `schema.spec.ts:285` and `admission.service.spec.ts:861` came from T-1 (new `users` columns; `IndexColumn[]` helper typing). Not caught because vitest does not type-check and `pnpm build` excludes specs.
+- **Files changed:** `server/src/database/drizzle/schema/schema.spec.ts` (`names` helper takes `ReadonlyArray<object>`; existing `'name' in c` guard kept); `server/src/auth/admission.service.spec.ts` (`winnerRow` sets `nickname: null`, `invitation: 'none'`, `invitedAt: null` before `...overrides`). No assertion changed.
+- **Verification:** Implementer — tsc: `token-verifier.service.spec.ts` 7 (pre-existing, untouched), others 0; lint, build ok; unit 818. Leader re-run — tsc only the 7 pre-existing errors; unit 818/818 → **VERIFIED**.
+- **Reviewer verdict:** PASS — fixture defaults match `users.ts:52-56`; widened helper returns the same values; no casts; § 7 / DD-14 unaffected.
+- **spawns:** implementer not reported by host calls, 64386 tokens (8 tool uses), ended complete; reviewer not reported by host calls, 27769 tokens (8 tool uses), ended complete
+- **Leader decision:** from T-5 on, every task's verification adds `cd server && npx tsc --noEmit -p tsconfig.json`, expected to report exactly the 7 pre-existing `token-verifier.service.spec.ts` errors (baseline) — more is a failure. [advisory-grade gate addition, recorded per the T-4 lens-2 advisory]
