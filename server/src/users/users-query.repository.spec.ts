@@ -66,14 +66,18 @@ function exclusion(over: Partial<UserProgramExclusion>): UserProgramExclusion {
  */
 class FakeStore implements UsersQueryStore {
   users: User[] = [];
-  grants: Array<GrantRow> = [];
+  grants: Array<GrantRow & { roleActive?: boolean }> = [];
+  /** Mirrors the SQL `liveGrant`: a grant of a deactivated role holds no permission. */
+  private live() {
+    return this.grants.filter((g) => g.roleActive !== false);
+  }
   scopes: ScopeRow[] = [];
   exclusions: UserProgramExclusion[] = [];
   criteria: UserListCriteria[] = [];
   calls = { grants: 0, scopes: 0, exclusions: 0, actors: 0 };
 
   private isTeam(u: User) {
-    return this.grants.some((g) => g.userId === u.id) || u.createdBy !== null;
+    return this.live().some((g) => g.userId === u.id) || u.createdBy !== null;
   }
 
   findPage(c: UserListCriteria): Promise<User[]> {
@@ -96,7 +100,7 @@ class FakeStore implements UsersQueryStore {
       )
       .filter((u) => {
         if (c.role === undefined && c.resultType === undefined) return true;
-        return this.grants.some(
+        return this.live().some(
           (g) =>
             g.userId === u.id &&
             (c.role === undefined || g.roleCode === c.role) &&
@@ -146,7 +150,7 @@ class FakeStore implements UsersQueryStore {
   }
   findActiveGrants(ids: number[]) {
     this.calls.grants++;
-    return Promise.resolve(this.grants.filter((g) => ids.includes(g.userId)));
+    return Promise.resolve(this.live().filter((g) => ids.includes(g.userId)));
   }
   findScopes(ids: number[]) {
     this.calls.scopes++;
@@ -288,6 +292,32 @@ describe('UsersQueryRepository.list — filters and population (FR-9)', () => {
     const { repo } = world();
     expect(ids(await repo.list({ hasExclusions: true }))).toEqual([1]);
     expect(ids(await repo.list({ hasExclusions: false }))).toEqual([2, 5]);
+  });
+
+  it('a grant of a deactivated role is no grant: not team, not matched by role, not in roles; still listed with population=all', async () => {
+    const { store, repo } = setup();
+    store.users = [user({ id: 20, nickname: 'dora', createdBy: null })];
+    store.grants = [
+      {
+        userId: 20,
+        roleCode: 'ASSESSOR',
+        resultTypeKey: 'KP',
+        programId: null,
+        roleActive: false,
+      },
+    ];
+    expect(ids(await repo.list())).toEqual([]);
+    expect(
+      ids(await repo.list({ role: 'ASSESSOR', population: 'all' })),
+    ).toEqual([]);
+    expect(
+      ids(await repo.list({ resultType: 'KP', population: 'all' })),
+    ).toEqual([]);
+    expect(ids(await repo.list({ population: 'guests' }))).toEqual([20]);
+    const all = await repo.list({ population: 'all' });
+    expect(ids(all)).toEqual([20]);
+    expect(all.items[0]?.roles).toEqual([]);
+    expect((await repo.get(20))?.roles).toEqual([]);
   });
 
   it('combines filters with AND', async () => {
@@ -727,13 +757,13 @@ describe('DrizzleUsersQueryStore (the real adapter over a stub driver)', () => {
     const team = statements[0]!;
     expect(team.sql).toContain('`users`.`is_active` = ?');
     expect(team.sql).toMatch(
-      /\(exists \(select 1 from `role_assignments` where \(`role_assignments`\.`user_id` = `users`\.`id` and `role_assignments`\.`is_active` = \?\)\) or `users`\.`created_by` is not null\)/,
+      /\(exists \(select 1 from `role_assignments` inner join `roles` on `roles`\.`id` = `role_assignments`\.`role_id` where \(`role_assignments`\.`user_id` = `users`\.`id` and \(`role_assignments`\.`is_active` = \? and `role_assignments`\.`revoked_at` is null and `roles`\.`is_active` = \? and `roles`\.`code` in \(.*\)\)\)\) or `users`\.`created_by` is not null\)/,
     );
 
     const g = adapter();
     await g.store.findPage({ ...base, population: 'guests' });
     expect(g.statements[0]!.sql).toMatch(
-      /not \(exists \(select 1 from `role_assignments` where .*\) or `users`\.`created_by` is not null\)/,
+      /not \(exists \(select 1 from `role_assignments` inner join `roles` on .* `roles`\.`is_active` = \? and .*\) or `users`\.`created_by` is not null\)/,
     );
   });
 
@@ -745,6 +775,13 @@ describe('DrizzleUsersQueryStore (the real adapter over a stub driver)', () => {
       /exists \(select 1 from `role_assignments` inner join `roles` on .* where .*`roles`\.`code` = \? and \(`role_assignments`\.`result_type_key` = \? or `role_assignments`\.`result_type_key` = \?\)\)/,
     );
     expect(values).toEqual(expect.arrayContaining(['ASSESSOR', 'KP', '*']));
+    // Same rule as isLiveAssignment: not revoked, role active and in the catalog.
+    expect(sql).toMatch(
+      /`role_assignments`\.`revoked_at` is null and `roles`\.`is_active` = \? and `roles`\.`code` in \(/,
+    );
+    expect(values).toEqual(
+      expect.arrayContaining(['ADMIN', 'ASSESSOR', 'LEAD_ASSESSOR']),
+    );
   });
 
   it('programId matches users with no user_programs row or with that program', async () => {
@@ -798,7 +835,7 @@ describe('DrizzleUsersQueryStore (the real adapter over a stub driver)', () => {
     await store.findActors([4, 5]);
     expect(statements).toHaveLength(4);
     expect(statements[0]!.sql).toMatch(
-      /from `role_assignments` inner join `roles` .*`role_assignments`\.`user_id` in \(\?, \?, \?\) and `role_assignments`\.`is_active` = \?/,
+      /from `role_assignments` inner join `roles` .*`role_assignments`\.`user_id` in \(\?, \?, \?\) and \(`role_assignments`\.`is_active` = \? and `role_assignments`\.`revoked_at` is null and `roles`\.`is_active` = \? and `roles`\.`code` in \(/,
     );
     expect(statements[1]!.sql).toMatch(
       /from `user_programs` where `user_programs`\.`user_id` in \(\?, \?, \?\)/,

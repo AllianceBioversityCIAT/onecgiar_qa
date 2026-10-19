@@ -19,6 +19,7 @@ import { errorBody, FIELD_ERRORS } from '../common/error-codes.js';
 import type { DrizzleDB } from '../database/drizzle/drizzle.module.js';
 import { DRIZZLE } from '../database/drizzle/drizzle.constants.js';
 import { roleAssignments } from '../database/drizzle/schema/role-assignments.js';
+import { ROLE_DEFINITIONS } from './permissions.js';
 import { roles } from '../database/drizzle/schema/roles.js';
 import {
   userProgramExclusions,
@@ -374,6 +375,24 @@ export class UsersQueryRepository {
   }
 }
 
+/**
+ * SQL form of `isLiveAssignment` (`current-user.cache.ts`): the assignment is
+ * active and not revoked, and its role is active and in the permission
+ * catalog. A grant that fails any of these holds no permission, so the read
+ * model treats it as absent. Needs `roles` joined to `role_assignments`.
+ */
+function liveGrant(): SQL {
+  return and(
+    eq(roleAssignments.isActive, true),
+    isNull(roleAssignments.revokedAt),
+    eq(roles.isActive, true),
+    inArray(
+      roles.code,
+      ROLE_DEFINITIONS.map((role) => role.code),
+    ),
+  ) as SQL;
+}
+
 /** `%`, `_` and `\` are LIKE metacharacters (MySQL's default escape is `\`). */
 function likePattern(q: string): string {
   return `%${q.replace(/[\\%_]/g, '\\$&')}%`;
@@ -386,17 +405,13 @@ type QueryDb = Pick<DrizzleDB, 'select'>;
 export class DrizzleUsersQueryStore implements UsersQueryStore {
   constructor(@Inject(DRIZZLE) private readonly db: QueryDb) {}
 
-  /** A team member has an active grant or was created by someone (`created_by` not null). */
+  /** A team member has a live grant (`liveGrant`) or was created by someone (`created_by` not null). */
   private team(): SQL {
     const grant = this.db
       .select({ one: sql`1` })
       .from(roleAssignments)
-      .where(
-        and(
-          eq(roleAssignments.userId, users.id),
-          eq(roleAssignments.isActive, true),
-        ),
-      );
+      .innerJoin(roles, eq(roles.id, roleAssignments.roleId))
+      .where(and(eq(roleAssignments.userId, users.id), liveGrant()));
     return or(exists(grant), isNotNull(users.createdBy)) as SQL;
   }
 
@@ -427,7 +442,7 @@ export class DrizzleUsersQueryStore implements UsersQueryStore {
         .where(
           and(
             eq(roleAssignments.userId, users.id),
-            eq(roleAssignments.isActive, true),
+            liveGrant(),
             c.role === undefined ? undefined : eq(roles.code, c.role),
             c.resultType === undefined
               ? undefined
@@ -512,12 +527,7 @@ export class DrizzleUsersQueryStore implements UsersQueryStore {
       })
       .from(roleAssignments)
       .innerJoin(roles, eq(roles.id, roleAssignments.roleId))
-      .where(
-        and(
-          inArray(roleAssignments.userId, userIds),
-          eq(roleAssignments.isActive, true),
-        ),
-      );
+      .where(and(inArray(roleAssignments.userId, userIds), liveGrant()));
   }
 
   async findScopes(userIds: number[]): Promise<ScopeRow[]> {

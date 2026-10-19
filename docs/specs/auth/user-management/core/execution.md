@@ -517,3 +517,15 @@ lint ✅ · build ✅ · unit 1007/1007 ✅ · e2e 260/260 ✅ · tsc baseline �
 - Actual ~12,100 LOC · 15 Reviewer passes, against the re-baseline ~12,500 · ~20. Projection with T-8 (~1,800) and T-9 (~500): **~14,400 LOC (~15 % over the re-baseline)**, mostly tests.
 - Reported to the back lead before it happened; answer: "Si, alinealo y adelante con T-8" — continue without cutting scope. No further re-baseline; the final total is reported at closure.
 - Also approved: align the T-7 list's "team" and role filters with `isLiveAssignment` (a grant of an inactive role does not count) — T-7 follow-up below.
+
+### T-7 follow-up: list uses the live-grant rule
+
+- **Final status:** PASS (Reviewer, re-review) · **Date:** 2026-10-19 · approved by the back lead ("Si, alinealo")
+- **Files changed:** `server/src/users/users-query.repository.ts`, `server/src/users/users-query.repository.spec.ts`.
+- **Change:** one SQL predicate `liveGrant()` mirroring `isLiveAssignment` (`server/src/users/current-user.cache.ts:46`) condition for condition — `role_assignments.is_active`, `revoked_at IS NULL`, `roles.is_active`, `roles.code IN (ROLE_DEFINITIONS codes)` — used by the team EXISTS (now joined to `roles`), the role/resultType EXISTS and the batch grants load. `created_by IS NOT NULL` still makes a team member.
+- **Tests:** fake-based behavior test (inactive-role-only user: not team, not matched, no such role in summary/detail; still listed under `all`/`guests`) + SQL assertions of all four conditions in each query.
+- **Falsifier:** removing `eq(roles.isActive, true)` → 3 SQL tests red (the fake-based test stays green — accepted by the Reviewer: the task's disqualifier makes the SQL the proof).
+- **Implementer verification:** lint 0, build ok, unit 1008, tsc 7. **Evidence re-run (Leader):** lint 0; build 0; unit 1008/1008; tsc 7 → **VERIFIED**.
+- **Reviewer verdict:** PASS — exact mirror; PROGRAM is in `ROLE_DEFINITIONS` (not grantable), so a live PROGRAM grant counts as authorization would; unknown codes excluded in both places.
+- **spawns:** implementer (same context) not reported by host calls, 151224 tokens (8 tool uses), ended complete; reviewer (same context) not reported by host calls, 88843 tokens (2 tool uses), ended complete
+- **ADVISORY:** the fake emulates only `roleActive` — make it call `isLiveAssignment` (one rule, no drift); `roles.code IN (...)` compares under the column collation vs exact `findRoleDefinition` — note beside P-7 for **T-10**; import grouping.
