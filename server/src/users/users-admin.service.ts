@@ -253,9 +253,9 @@ export class UsersAdminService {
           throw new NameLockedError();
         }
         if (values.nickname !== undefined) {
-          const holder = await repos.users.findByNickname(values.nickname, {
-            forUpdate: true,
-          });
+          // A plain read (DD-15): only the target row is locked; a concurrent
+          // winner is caught by the unique index at the write below.
+          const holder = await repos.users.findByNickname(values.nickname);
           if (holder && holder.id !== target.id) throw new NicknameTakenError();
         }
         try {
@@ -472,18 +472,33 @@ export class UsersAdminService {
         throw new InvitationNotApplicableError('Cognito has nothing to resend');
       }
 
-      return this.mutate(userId, async (repos, target) => {
-        this.assertInvitable(target);
-        const invitedAt = new Date();
-        await repos.users.update(target.id, { invitedAt });
-        await this.audit(repos, ctx, target.id, 'invitation_resend', {
-          invitedAt: {
-            before: target.invitedAt?.toISOString() ?? null,
-            after: invitedAt.toISOString(),
-          },
+      try {
+        return await this.mutate(userId, async (repos, target) => {
+          this.assertInvitable(target);
+          const invitedAt = new Date();
+          await repos.users.update(target.id, { invitedAt });
+          await this.audit(repos, ctx, target.id, 'invitation_resend', {
+            invitedAt: {
+              before: target.invitedAt?.toISOString() ?? null,
+              after: invitedAt.toISOString(),
+            },
+          });
+          return true;
         });
-        return true;
-      });
+      } catch (error) {
+        // Cognito already sent the email but QA could not record it (the user
+        // signed in or was deactivated meanwhile, or the write failed).
+        this.logger.error(
+          this.line(
+            'invitation_resend',
+            ctx,
+            userId,
+            'error',
+            'cognito_sent_not_recorded',
+          ),
+        );
+        throw error;
+      }
     });
   }
 
@@ -601,6 +616,7 @@ export class UsersAdminService {
       createdBy: ctx.actorId,
     });
     await this.audit(repos, ctx, userId, 'exclusion_add', {
+      exclusionId: { before: null, after: row.id },
       programId: { before: null, after: row.programId },
       origin: { before: null, after: row.origin },
       reason: { before: null, after: row.reason },
@@ -627,7 +643,8 @@ export class UsersAdminService {
     } catch (error) {
       if (!(error instanceof DuplicateUserError)) throw error;
       // Lost a race with another creator: say which key it was (FR-2). Nothing stays: the throw rolls back.
-      if (await repos.users.findByEmail(input.email, { forUpdate: true })) {
+      // Plain read (DD-15): no second `users` lock outside the design 7 order.
+      if (await repos.users.findByEmail(input.email)) {
         throw new EmailTakenError();
       }
       throw new NicknameTakenError();
@@ -685,6 +702,10 @@ export class UsersAdminService {
     }
     if (user.lastLoginAt !== null) {
       throw new InvitationNotApplicableError('the user has signed in');
+    }
+    // DD-15: QA refuses this user's sign-in (403), so no temporary password is sent.
+    if (!user.isActive) {
+      throw new InvitationNotApplicableError('the user is deactivated');
     }
     if (user.invitation !== 'sent') {
       throw new InvitationNotApplicableError(

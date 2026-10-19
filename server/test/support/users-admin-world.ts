@@ -36,6 +36,9 @@ export const PROGRAMS = [
  * insert, design 7 step 2 / T-4).
  */
 export class RecordingUnitOfWork implements UsersAdminUnitOfWork {
+  /** Runs just before a user row is written, to model another transaction committing in between. */
+  beforeUserWrite?: () => Promise<void>;
+
   constructor(
     private readonly inner: UsersAdminUnitOfWork,
     private readonly calls: string[],
@@ -58,7 +61,31 @@ export class RecordingUnitOfWork implements UsersAdminUnitOfWork {
     }
   }
 
-  private spy({ admins, assignments }: UsersAdminRepositories): void {
+  private spy({ admins, assignments, users }: UsersAdminRepositories): void {
+    const lookups = [
+      ['findByEmail', 'email'],
+      ['findByNickname', 'nickname'],
+    ] as const;
+    for (const [method, label] of lookups) {
+      const original = users[method].bind(users);
+      users[method] = (value, options) => {
+        this.calls.push(
+          `lookup:${label}:${options?.forUpdate ? 'for-update' : 'plain'}`,
+        );
+        return original(value, options);
+      };
+    }
+    for (const method of ['create', 'update'] as const) {
+      const original = users[method].bind(users) as (
+        ...args: unknown[]
+      ) => Promise<unknown>;
+      (users as unknown as Record<string, unknown>)[method] = async (
+        ...args: unknown[]
+      ) => {
+        await this.beforeUserWrite?.();
+        return original(...args);
+      };
+    }
     const guard = admins.assertAnotherAdminRemains.bind(admins);
     admins.assertAnotherAdminRemains = (userId) => {
       this.calls.push('guard');

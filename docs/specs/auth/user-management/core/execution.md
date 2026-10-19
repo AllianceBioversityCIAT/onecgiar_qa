@@ -442,3 +442,33 @@ FR-2, FR-3 (replacing roles), FR-4 (behavior), FR-5, FR-6 (invalidate after comm
 #### Final verification
 
 lint ✅ · build ✅ · unit 961/961 ✅ · e2e 260/260 ✅ · tsc baseline ✅
+
+### T-6 amendment: DD-15 — audit granularity, resend to a deactivated user, plain uniqueness reads
+
+- **Final status:** PASS (Reviewer lens 1, re-review) · **Date:** 2026-10-19
+- **User decisions (back lead, 2026-10-19):** "Adelante con la A y lo que consideres con el 2 y 3" — (1) option A: one `update` row per edit request with every changed field; (2) Leader's recommendation: refuse resend to a deactivated user (409); (3) Leader's recommendation: plain reads for uniqueness inside the unit of work. Business owner for (2): Santi Sánchez (QA product, per root `CLAUDE.md`) — may revisit; one-line change.
+- **Attempts:** code 1 (PASS); spec wording 2 (attempt 1 FAIL on the Leader's DD-15 text, attempt 2 PASS)
+
+#### Code (Implementer, same context as T-6)
+
+- **Files changed:** `server/src/users/users-admin.service.ts`, `server/src/users/users-admin.service.spec.ts`, `server/test/support/users-admin-world.ts` (fake logs plain vs `FOR UPDATE` lookups; hook to model a concurrent commit mid-write).
+- **Changes:** (1) no code change — existing test pins one `update` row with firstName + lastName before/after; (2) deactivated resend → 409 `USERS_INVITATION_NOT_APPLICABLE` in the pre-check (before Cognito) and the in-tx re-check; (3) nickname lookup in `edit` and email lookup in the create race path are plain reads; unique violation at write → 409 `USERS_NICKNAME_TAKEN` / `USERS_EMAIL_TAKEN`, no audit, no invalidation; (4) [advisory-grade] `exclusion_add` changes carry `exclusionId`; `cognito_sent_not_recorded` log line (`outcome=error`, ids only) when Cognito resent but the in-tx re-check refuses or the write fails.
+- **Falsifiers (reverted):** drop `isActive` on resend → deactivated test red; restore `forUpdate: true` on the nickname lookup → "plain read" test red (`expected [ 'tx:begin', …(3) ] to include 'lookup:nickname:plain'`).
+- **Implementer verification:** lint 0, build ok, unit 968, e2e 260, tsc 7 (token-verifier only).
+- **Evidence re-run (Leader-inline, non-author):** lint 0; build 0; unit 968/968; e2e 260/260; tsc 7 → **VERIFIED**.
+
+#### Spec (Leader edits, recorded when made)
+
+- `design.md` § 7 step 5 (audit rows per DD-15), § 7 "Invitation (FR-8)" (active users only), § 10 new **DD-15**, § 2 summary line, Document Control date; `requirements.md` FR-8 headline ("an active custom user") + "Not applicable" scenario (+ deactivated); `tasks.md` T-4 Requirements line (FR-13 → DD-15).
+- **Reviewer attempt 1 — FAIL (verbatim issue):** "DD-15 (1) says "one row per admin request per target". Step 5 says "role grants/revokes, scope changes and exclusion actions are one row each", and it also defines a change as "one admin request on one target". A create already writes `create` plus one `role_grant` per grant plus `scope_change` plus `exclusion_add` for a single request, and `replaceRoles` writes one row per grant or revoke. Read literally, DD-15 (1) would fail both, and a later reviewer could fail T-6 or T-8 on it. · Violated Rule: `design.md` § 10 DD-15 (1) against § 7 step 5 and the shipped create and roles audit layout. · Remediation: Spec-only fix … reword DD-15 (1) and the opening of step 5 … No code change."
+- **Fix:** step 5 and DD-15 (1) reworded (edit = one `update` row; each grant/revoke, scope change, exclusion action, deactivation, reactivation and resend = its own row; create = one `create` row plus those rows); correction note in DD-15; sweep for "one event per change" / "row per change" / "per request per target" → only the correction note.
+- **Reviewer attempt 2 — PASS:** step 5 and DD-15 agree with each other and with the service; FR-13 met by per-field before/after; FR-8 changes limited to the approved case. Leader then added deactivation/reactivation/resend to step 5's list (Reviewer's advisory; additive) — carried as a named conformance check into the T-7 Reviewer brief.
+- **spawns:** implementer (follow-up, same context) not reported by host calls, 292835 tokens (8 tool uses), ended complete; reviewer lens 1 (re-review ×2, same context) not reported by host calls, 126626 + 133810 tokens (4 + 6 tool uses), ended fail then complete
+
+#### ADVISORY (non-gating)
+
+- RELIABILITY — the `cognito_sent_not_recorded` path writes a second decision line for one mutation (§ 7 Logging: "one decision line per mutation"); the catch would also fire if `cache.invalidate` threw after commit (synchronous; unlikely). **→ T-9 brief** (log-spy task): fold into one line or document the exception.
+
+#### Final verification
+
+lint ✅ · build ✅ · unit 968/968 ✅ · e2e 260/260 ✅ · tsc baseline ✅

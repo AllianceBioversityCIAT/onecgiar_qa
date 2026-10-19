@@ -194,10 +194,10 @@ The system SHALL let a QA Admin deactivate and reactivate a user; users are neve
 - AND IT MUST hold when two admins act at the same time
 
 ### FR-8: Resend the invitation
-The system SHALL let a QA Admin resend the Cognito invitation of a custom user who has never signed in.
+The system SHALL let a QA Admin resend the Cognito invitation of an active custom user who has never signed in (DD-15).
 
 #### Scenario: Not applicable
-- WHEN the user is `sso`, has signed in, or their account pre-existed in the pool
+- WHEN the user is `sso`, has signed in, is deactivated (DD-15, back lead 2026-10-19), or their account pre-existed in the pool
 - THEN 409 `USERS_INVITATION_NOT_APPLICABLE`
 
 ### FR-9: List and find users

@@ -630,7 +630,7 @@ describe('UsersAdminService.edit (FR-5, DD-8)', () => {
       },
     ]);
     expect(w.cache.invalidate).toHaveBeenCalledTimes(1);
-    expect(w.calls).toEqual([
+    expect(w.calls.filter((c) => /^(tx:|invalidate)/.test(c))).toEqual([
       'tx:begin',
       'tx:commit',
       `invalidate:${target.id}`,
@@ -1302,6 +1302,7 @@ describe('exclusions (FR-4, DD-12)', () => {
       actorId: admin.id,
       requestId: 'req-1',
       changes: {
+        exclusionId: { before: null, after: w.db.exclusions[0]!.id },
         programId: { before: null, after: 1 },
         origin: { before: null, after: 'manual' },
         reason: { before: null, after: 'Co-authored the results' },
@@ -1656,6 +1657,7 @@ describe('resendInvitation (FR-8)', () => {
       { invitation: 'existing_account' },
     ],
     ['a user who was never invited', { invitation: 'none' }],
+    ['a deactivated user (DD-15)', { invitation: 'sent', isActive: false }],
   ] as const)(
     '%s: 409 USERS_INVITATION_NOT_APPLICABLE, Cognito not called, no audit',
     async (_name, seed) => {
@@ -1710,6 +1712,136 @@ describe('resendInvitation (FR-8)', () => {
     expect(error.getStatus()).toBe(503);
     expect(bodyOf(error).code).toBe('AUTH_SERVICE_UNAVAILABLE');
     expectUntouched(w, before);
+  });
+});
+
+describe('uniqueness races use plain reads (DD-15)', () => {
+  const forUpdate = (w: AdminWorld) =>
+    w.calls.filter((c) => c.endsWith(':for-update'));
+
+  it('edit looks the nickname up with a plain read: only the target row is locked', async () => {
+    const { w, ctx } = await setup();
+    const target = await w.seedUser({ email: 'b@cgiar.org', nickname: 'Beta' });
+    w.calls.length = 0;
+
+    await w.service.edit(ctx, target.id, { nickname: 'Gamma' });
+
+    expect(w.calls).toContain('lookup:nickname:plain');
+    expect(forUpdate(w)).toEqual([]);
+  });
+
+  it('a nickname committed by another transaction after the lookup is caught by the unique index: 409, no audit, no invalidation', async () => {
+    const { w, ctx } = await setup();
+    const target = await w.seedUser({ email: 'b@cgiar.org', nickname: 'Beta' });
+    w.unitOfWork.beforeUserWrite = async () => {
+      w.unitOfWork.beforeUserWrite = undefined;
+      await w.db.stores.users.insert({
+        email: 'racer@cgiar.org',
+        nickname: 'Gamma',
+      });
+    };
+
+    const error = await failureOf(
+      w.service.edit(ctx, target.id, { nickname: 'Gamma' }),
+    );
+
+    expect(bodyOf(error).code).toBe('USERS_NICKNAME_TAKEN');
+    expect(w.db.audit.filter((e) => e.action === 'update')).toEqual([]);
+    expect(w.cache.invalidate).not.toHaveBeenCalled();
+    expect(rowOf(w, 'b@cgiar.org')!.nickname).toBe('Beta');
+  });
+
+  it('create resolves a lost email race with a plain read, 409 USERS_EMAIL_TAKEN, nothing recorded', async () => {
+    const { w, ctx } = await setup();
+    w.unitOfWork.beforeUserWrite = async () => {
+      w.unitOfWork.beforeUserWrite = undefined;
+      await w.db.stores.users.insert({
+        email: 'new.user@cgiar.org',
+        nickname: 'Racer',
+      });
+    };
+
+    const error = await failureOf(w.service.create(ctx, command()));
+
+    expect(bodyOf(error).code).toBe('USERS_EMAIL_TAKEN');
+    expect(forUpdate(w)).toEqual([]);
+    expect(w.db.audit.filter((e) => e.action === 'create')).toEqual([]);
+    expect(w.cache.invalidate).not.toHaveBeenCalled();
+  });
+
+  it('create resolves a lost nickname race with a plain read, 409 USERS_NICKNAME_TAKEN', async () => {
+    const { w, ctx } = await setup();
+    w.unitOfWork.beforeUserWrite = async () => {
+      w.unitOfWork.beforeUserWrite = undefined;
+      await w.db.stores.users.insert({
+        email: 'racer@cgiar.org',
+        nickname: 'nia o',
+      });
+    };
+
+    const error = await failureOf(w.service.create(ctx, command()));
+
+    expect(bodyOf(error).code).toBe('USERS_NICKNAME_TAKEN');
+    expect(forUpdate(w)).toEqual([]);
+    expect(rowOf(w, 'new.user@cgiar.org')).toBeUndefined();
+  });
+});
+
+describe('Cognito resent but QA could not record it', () => {
+  const sentNotRecorded = () =>
+    logged
+      .filter((line) => line.includes('cognito_sent_not_recorded'))
+      .map((line) => JSON.parse(line));
+
+  it('logs outcome=error reason=cognito_sent_not_recorded when the in-transaction re-check refuses (the user signed in meanwhile)', async () => {
+    const { w, admin, ctx } = await setup();
+    const target = await w.seedUser({
+      email: 'inv@cgiar.org',
+      nickname: 'Inv',
+      invitation: 'sent',
+    });
+    w.cognito.resendInvitation.mockImplementationOnce(async () => {
+      await w.users.update(target.id, { lastLoginAt: new Date() });
+      return 'resent';
+    });
+
+    const error = await failureOf(w.service.resendInvitation(ctx, target.id));
+
+    expect(bodyOf(error).code).toBe('USERS_INVITATION_NOT_APPLICABLE');
+    expect(sentNotRecorded()).toEqual([
+      {
+        event: 'users_admin',
+        action: 'invitation_resend',
+        targetId: target.id,
+        actorId: admin.id,
+        outcome: 'error',
+        reason: 'cognito_sent_not_recorded',
+        requestId: 'req-1',
+      },
+    ]);
+    expect(w.db.audit.filter((e) => e.action === 'invitation_resend')).toEqual(
+      [],
+    );
+  });
+
+  it('logs it when the write fails; and never when Cognito itself refuses', async () => {
+    const { w, ctx } = await setup();
+    const target = await w.seedUser({
+      email: 'inv@cgiar.org',
+      nickname: 'Inv',
+      invitation: 'sent',
+    });
+    w.unitOfWork.beforeUserWrite = async () => {
+      throw new Error('connection lost');
+    };
+    await failureOf(w.service.resendInvitation(ctx, target.id));
+    expect(sentNotRecorded()).toHaveLength(1);
+
+    w.unitOfWork.beforeUserWrite = undefined;
+    logged.length = 0;
+    w.cognito.resendInvitation.mockResolvedValueOnce('not_applicable');
+    await failureOf(w.service.resendInvitation(ctx, target.id));
+    expect(sentNotRecorded()).toEqual([]);
   });
 });
 

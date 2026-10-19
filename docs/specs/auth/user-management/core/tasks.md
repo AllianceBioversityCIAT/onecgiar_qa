@@ -78,7 +78,7 @@ Serial boundaries: T-1 (schema, `server/src/database/**`), T-2 and T-5 (`server/
 - **Status:** [x]
 - **Size:** M
 - **Depends on:** T-1, T-3
-- **Requirements:** FR-4 (manual add/remove; dismiss with reason; history kept — storage part); FR-6 (cache carries scope + exclusions; invalidate after commit); FR-7 (last admin — locking part, AND IT MUST hold concurrently); FR-13 (one event per change; none on refusal — storage part); NFR-5
+- **Requirements:** FR-4 (manual add/remove; dismiss with reason; history kept — storage part); FR-6 (cache carries scope + exclusions; invalidate after commit); FR-7 (last admin — locking part, AND IT MUST hold concurrently); FR-13 (audit rows per DD-15; none on refusal — storage part); NFR-5
 - **Design refs:** § 7 UsersAdminService steps 1–5, CurrentUserCache; DD-3, DD-5; P-2
 - **Scope:** `user-programs.repository.ts`, `user-audit.repository.ts`, `users-admin.unit-of-work.ts` (lock target user `FOR UPDATE`; lock ADMIN role row `FOR UPDATE` on admin-reducing changes; active-admin count), `current-user.cache.ts` (load program scope + active exclusions), in-memory fakes in `test/support/in-memory-stores.ts` incl. a snapshot fake for the last-admin race.
 - **Tests:** unit — exclusion lifecycle (active → removed / dismissed, history kept, unique active per program); audit rows written in the same transaction and absent on rollback; last-admin: two concurrent demotions with the snapshot fake → exactly one succeeds; cache loads scope/exclusions and `invalidate` makes the next read fresh.
