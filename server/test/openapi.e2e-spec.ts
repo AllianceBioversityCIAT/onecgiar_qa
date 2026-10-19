@@ -83,7 +83,11 @@ function documentedRoutes(doc: OpenAPIObject): string[] {
 
 function operationOf(doc: OpenAPIObject, key: string): Operation {
   const [method, path] = key.split(' ');
-  const item = doc.paths[path] as Record<string, Operation>;
+  // `documentedRoutes` writes `{id}` as `:id` to match the router; the document keeps `{id}`.
+  const item = doc.paths[path.replace(/:(\w+)/g, '{$1}')] as Record<
+    string,
+    Operation
+  >;
   return item[method.toLowerCase()];
 }
 
@@ -241,9 +245,29 @@ describe('OpenAPI document (e2e)', () => {
     }
   });
 
+  it('documents USERS_LAST_ADMIN on deactivate but never on activate (reactivation adds an admin)', () => {
+    const responses = (key: string) =>
+      JSON.stringify(operationOf(doc, key).responses);
+    expect(responses('POST /api/v1/users/:id/deactivate')).toContain(
+      'USERS_LAST_ADMIN',
+    );
+    expect(responses('POST /api/v1/users/:id/activate')).not.toContain(
+      'USERS_LAST_ADMIN',
+    );
+  });
+
   it('carries no secret or token value', () => {
     const text = JSON.stringify(doc);
-    expect(text).not.toContain(process.env.COGNITO_CLIENT_SECRET!);
+    for (const name of [
+      'COGNITO_CLIENT_SECRET',
+      'CLARISA_API_KEY',
+      'COGNITO_ADMIN_SECRET_ACCESS_KEY',
+      'COGNITO_ADMIN_ACCESS_KEY_ID',
+    ]) {
+      const value = process.env[name];
+      expect(value, `${name} must be set in vitest.config.e2e.ts`).toBeTruthy();
+      expect(text).not.toContain(value!);
+    }
     expect(text).not.toMatch(/eyJ[\w-]+\.[\w-]+\./);
   });
 });

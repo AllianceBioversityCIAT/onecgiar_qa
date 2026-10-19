@@ -1,0 +1,50 @@
+{
+  "portfolio": "P25",
+  "phase": 2026,
+  "catalog_version": "2026.30",
+  "generated_at": "2026-10-19T15:55:37.551Z",
+  "result_types": [
+    {
+      "key": "policy_change",
+      "label": "Policy change",
+      "level": "outcome"
+    },
+    {
+      "key": "innovation_use",
+      "label": "Innovation use",
+      "level": "outcome"
+    },
+    {
+      "key": "other_outcome",
+      "label": "Other outcome",
+      "level": "outcome"
+    },
+    {
+      "key": "capacity_sharing",
+      "label": "Capacity sharing for development",
+      "level": "output"
+    }
+  ],
+  "sections": [
+    {
+      "key": "general_information",
+      "label": "General information",
+      "order": 10,
+      "result_types": ["*"]
+    }
+  ],
+  "fields": [
+    {
+      "key": "general.result_level",
+      "label": "Result level",
+      "type": "single_select",
+      "control_list": "result_levels",
+      "section": "general_information",
+      "order": 1,
+      "result_types": ["*"],
+      "required": true,
+      "valid_from": 2026,
+      "valid_to": null
+    }
+  ]
+}

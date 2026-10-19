@@ -9,10 +9,13 @@ import {
 } from '../database/drizzle/schema/role-assignments.js';
 import { roles, type Role } from '../database/drizzle/schema/roles.js';
 import type { AssignmentView } from './authorization.service.js';
+import { resultTypeKeysOverlap } from './effective-scope.js';
+import { RoleCode } from './permissions.js';
 import {
   AssignmentNotFoundError,
   DuplicateActiveAssignmentError,
   isDuplicateKeyError,
+  RoleConflictError,
   ScopeMismatchError,
   UnknownRoleError,
 } from './users.errors.js';
@@ -31,6 +34,11 @@ export interface AssignmentReadOptions {
   forShare?: boolean;
 }
 
+/** An active assignment with its id, for a writer that revokes by id (FR-3: roles are replaced by diff). */
+export interface ActiveAssignment extends AssignmentView {
+  id: number;
+}
+
 /** The persistence port of `RoleAssignmentsRepository` (TRD section 4, Repository). */
 export interface RoleAssignmentsStore {
   findRoleByCode(code: string): Promise<Role | undefined>;
@@ -46,6 +54,8 @@ export interface RoleAssignmentsStore {
     userId: number,
     options?: AssignmentReadOptions,
   ): Promise<AssignmentView[]>;
+  /** The user's active assignments with their ids; a plain read (the caller holds the user row lock). */
+  findActiveByUserId(userId: number): Promise<ActiveAssignment[]>;
 }
 
 export interface CreateAssignmentInput {
@@ -55,6 +65,12 @@ export interface CreateAssignmentInput {
   programId?: number | null;
   createdBy?: number | null;
 }
+
+/** The two roles that exclude each other on one result type (D2). */
+const OPPOSITE_RESULT_TYPE_ROLE: Readonly<Record<string, string>> = {
+  [RoleCode.ASSESSOR]: RoleCode.LEAD_ASSESSOR,
+  [RoleCode.LEAD_ASSESSOR]: RoleCode.ASSESSOR,
+};
 
 const RESULT_TYPE_KEY_MAX_LENGTH = 64;
 const UNSIGNED_INT_MAX = 4294967295;
@@ -80,6 +96,11 @@ export class RoleAssignmentsRepository {
       input.resultTypeKey ?? null,
       input.programId ?? null,
     );
+    await this.assertNoAssessorLeadOverlap(
+      input.userId,
+      role.code,
+      scope.resultTypeKey,
+    );
     const result = await this.store.insert({
       userId: input.userId,
       roleId: role.id,
@@ -88,6 +109,40 @@ export class RoleAssignmentsRepository {
     });
     if (result.kind === 'duplicate') throw new DuplicateActiveAssignmentError();
     return result.assignment;
+  }
+
+  /**
+   * Assessor and Lead Assessor never share a result type, `*` included (FR-3,
+   * DD-2, DD-11): the user's active grants of the opposite role are read
+   * before inserting, with a shared lock so a concurrent commit is seen (the
+   * user-row lock that serializes writers is the unit of work's, DD-10).
+   * Revoked rows are not active, so they never conflict. A grant of an
+   * inactive role still counts: reactivating the role must not create the
+   * overlap by the back door.
+   */
+  private async assertNoAssessorLeadOverlap(
+    userId: number,
+    roleCode: string,
+    resultTypeKey: string | null,
+  ): Promise<void> {
+    const opposite = OPPOSITE_RESULT_TYPE_ROLE[roleCode];
+    if (!opposite || resultTypeKey === null) return;
+    const held = await this.store.findActiveViewsByUserId(userId, {
+      forShare: true,
+    });
+    const clash = held.find(
+      (view) =>
+        view.isActive &&
+        view.revokedAt === null &&
+        view.roleCode === opposite &&
+        view.resultTypeKey !== null &&
+        resultTypeKeysOverlap(view.resultTypeKey, resultTypeKey),
+    );
+    if (clash) {
+      throw new RoleConflictError(
+        `${roleCode} on ${resultTypeKey} overlaps ${opposite} on ${clash.resultTypeKey}`,
+      );
+    }
   }
 
   /** Deactivates the assignment, keeping the row and its history. */
@@ -101,6 +156,10 @@ export class RoleAssignmentsRepository {
     options?: AssignmentReadOptions,
   ): Promise<AssignmentView[]> {
     return this.store.findActiveViewsByUserId(userId, options);
+  }
+
+  findActiveByUserId(userId: number): Promise<ActiveAssignment[]> {
+    return this.store.findActiveByUserId(userId);
   }
 }
 
@@ -222,6 +281,27 @@ export class DrizzleRoleAssignmentsStore implements RoleAssignmentsStore {
         ),
       );
     return rows;
+  }
+
+  async findActiveByUserId(userId: number): Promise<ActiveAssignment[]> {
+    return this.db
+      .select({
+        id: roleAssignments.id,
+        roleCode: roles.code,
+        roleIsActive: roles.isActive,
+        isActive: roleAssignments.isActive,
+        revokedAt: roleAssignments.revokedAt,
+        resultTypeKey: roleAssignments.resultTypeKey,
+        programId: roleAssignments.programId,
+      })
+      .from(roleAssignments)
+      .innerJoin(roles, eq(roleAssignments.roleId, roles.id))
+      .where(
+        and(
+          eq(roleAssignments.userId, userId),
+          eq(roleAssignments.isActive, true),
+        ),
+      );
   }
 
   /**
