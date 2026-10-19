@@ -44,7 +44,7 @@ Serial boundaries: T-1 (schema, `server/src/database/**`), T-2 and T-5 (`server/
 - **Status:** [x]
 - **Size:** M
 - **Depends on:** none (config boundary: not in parallel with T-5)
-- **Requirements:** FR-11 (both scenarios: catalogs; upstream down → 503, stale ≤ 24 h MAY), FR-1 (catalog routes admin-only — route part), NFR-3
+- **Requirements:** FR-11 (its one scenario, upstream down → 503, plus the stale-copy clause: a cached copy ≤ 24 h MAY be served), FR-1 (catalog routes admin-only — route part), NFR-3
 - **Design refs:** § 6 catalogs rows, § 7 CatalogService, § 9 env; DD-9; P-5, P-6
 - **Scope:** **first step: settle P-5 and P-6** (read the Reporting `GET /api/qa/catalog` and the CLARISA programs endpoint with the local keys; record shapes in `execution.md`; a refuted premise → Pivot). Then `server/src/users/catalogs/*` (clients behind ports, service with 1 h cache / 24 h stale, controller with `/catalogs/roles|result-types|science-programs`), `server/src/config/catalogs.config.ts`, env validation + `.env.example`, error-catalog usage, OpenAPI.
 - **Tests:** unit — clients against stubbed `fetch` with fixtures shaped from the settled responses; cache fresh/stale/expired; 5xx/timeout → `UpstreamUnavailable`; grantable roles exclude PROGRAM. e2e — each route: 200 for ADMIN, 403 for an Assessor, 401 without token; 503 envelope when the source fails with no cache.
@@ -94,7 +94,7 @@ Serial boundaries: T-1 (schema, `server/src/database/**`), T-2 and T-5 (`server/
 ## T-5: Cognito admin client (create user, existing user, resend invitation)
 - **Status:** [x]
 - **Size:** M
-- **Depends on:** none; **external: IAM credentials with `AdminGetUser`/`AdminCreateUser` on the pool (P-8)** — stays `[!]` until Cris provides them (config boundary: not in parallel with T-2)
+- **Depends on:** none; **external: IAM credentials with `AdminGetUser`/`AdminCreateUser` on the pool (P-8)** — was `[!]` until Cris provided them (IAM provided 2026-10-19) (config boundary: not in parallel with T-2)
 - **Requirements:** FR-2 (custom new → account + email; existing → no change; Cognito down → 503); FR-8 (resend; not applicable); NFR-2 (no email/credentials in logs); NFR-3
 - **Design refs:** § 7 CognitoAdminClient; § 9 env/IAM; DD-6; P-4, P-8, P-9
 - **Scope:** **first step: settle P-8** (credentials exist and allow the two actions — a read-only `AdminGetUser` on a known user). Then add `@aws-sdk/client-cognito-identity-provider`; `server/src/auth/cognito-admin.client.ts`; `server/src/config/cognito-admin.config.ts` (keys local-only, both or neither; default chain otherwise); env validation; extend the FR-17 static check (`no-qa-tokens.spec.ts`) to the new secret.
@@ -149,7 +149,7 @@ Serial boundaries: T-1 (schema, `server/src/database/**`), T-2 and T-5 (`server/
 - **Requirements:** FR-1 (non-admin 403 — BUT no existence leak; no token 401); FR-2/3/4/5/7/8/9/10 (HTTP surface); FR-12 (own profile nickname; public-user mapper); NFR-1
 - **Design refs:** § 6 (all rows), § 7 Nickname exposure, Errors; P-12
 - **Scope:** `server/src/users/users-admin.controller.ts`, `dto/*` (validation + OpenAPI with per-route codes), `server/src/auth/me.controller.ts` (+ nickname), public-user mapper; update `test/auth-guards.e2e-spec.ts:625` (exact profile shape).
-- **Tests:** e2e (`test/users-admin.e2e-spec.ts`): each route — 403 for Assessor/TPB/PPU/GUEST with the same body for an existing and a missing id, 401 without token, happy path, validation fields, 409/404 codes; `/auth/me` returns `nickname`; route inventory and OpenAPI tests stay green with the new routes.
+- **Tests:** e2e (`test/users-admin.e2e-spec.ts`): each route — 403 for every grantable non-admin role (Assessor, Lead Assessor, TPB, PPU, GUEST, multi-grant) with the same body for an existing and a missing id, 401 without token, happy path, validation fields, 409/404 codes; `/auth/me` returns `nickname`; route inventory and OpenAPI tests stay green with the new routes.
 - **Verification:** server command + `pnpm test:e2e --reporter=dot`
 - **Falsifier:** remove `@RequirePermission(ADMIN_ACCESS)` from one route → its 403 test and the route inventory go red; return 404 to a non-admin for a missing id → the existence-leak test goes red.
 - **Red run:** e2e fail on status assertions before the controllers exist.
@@ -165,7 +165,7 @@ Serial boundaries: T-1 (schema, `server/src/database/**`), T-2 and T-5 (`server/
 - **Depends on:** T-8
 - **Requirements:** NFR-2 (no email/name/credential in logs); FR-12 (no full name/email of another user to non-admins — rule recorded for later specs); FR-13 (audit coverage check)
 - **Design refs:** § 7 Logging, § 8 contract notes, § 9
-- **Scope:** log-spy e2e over every mutation route; an audit-coverage test (each mutation → exactly one event); docs: `server/src/users/AGENTS.md`, `server/src/config/AGENTS.md`, `.env.example`, `docs/infrastructure.md` § 6 (new env, IAM), TRD pending items for `staging` (§ 5.1, § 6) recorded in `execution.md`; contract notes for the front (§ 8) as a short markdown in the spec folder.
+- **Scope:** log-spy e2e over every mutation route; an audit-coverage test (audit rows per DD-15: an edit writes one `update` row; each grant/revoke, scope change, exclusion action, deactivation, reactivation and resend its own row; none on refusal); docs: `server/src/users/AGENTS.md`, `server/src/config/AGENTS.md`, `.env.example`, `docs/infrastructure.md` § 6 (new env, IAM), TRD pending items for `staging` (§ 5.1, § 6) recorded in `execution.md`; contract notes for the front (§ 8) as a short markdown in the spec folder.
 - **Tests:** as scope.
 - **Verification:** server command + `pnpm test:e2e --reporter=dot`
 - **Falsifier:** log the created email in the decision line → the log-spy test goes red; skip the audit on `activate` → the coverage test goes red.

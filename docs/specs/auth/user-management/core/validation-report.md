@@ -11,7 +11,7 @@
 
 ## Summary
 
-**Verdict: PASS with warnings — archive-ready once the documentation drift below is fixed (or explicitly accepted).** No FAIL. Every requirement clause is implemented and tested; the warnings are (a) documentation drift accumulated through four approved amendments, (b) residual risks already recorded as open in T-10, (c) a handful of small test or contract gaps.
+**Verdict: PASS — archive-ready.** R-A and R-B were fixed on 2026-10-19 (see *Remediation status*); R-C stays as recorded residual risk. Original verdict before remediation: PASS with warnings. No FAIL. Every requirement clause is implemented and tested; the warnings are (a) documentation drift accumulated through four approved amendments, (b) residual risks already recorded as open in T-10, (c) a handful of small test or contract gaps.
 
 | Area | PASS | WARN | FAIL | BLOCKED |
 |---|---|---|---|---|
@@ -162,3 +162,22 @@ Lint clean. Architecture: no module cycle, no `forwardRef`, secrets read only in
 ```text
 /akili-archive auth/user-management/core
 ```
+
+## Remediation status (2026-10-19)
+
+Back lead's choice: fix R-A and R-B. Done on `feat/auth-user-management`; reviewed by auditor B (attempt 1 FAIL on three documentation statements, fixed; attempt 2 PASS).
+
+| Item | Status |
+|---|---|
+| R-A 1 `design.md` (§ 4 files, § 5 `invitation` NOT NULL, § 6 deactivate/activate split + 503 rows, Status) | ✅ |
+| R-A 2 `requirements.md` (§ 7 audit gate per DD-15, FR-9, FR-10, NFR-3 incl. ~30 s cold-cache create, known limitation for 4-byte characters, Status) | ✅ |
+| R-A 3 `tasks.md` (T-2, T-5, T-8, and the T-9 scope line found by the sweep) | ✅ |
+| R-A 4 `execution.md` (budget, Summary merge state and Next, Reviewer passes = 23 with the counting rule, Constitution Impact block) · `family.md` core `done` | ✅ |
+| R-B 1 `/activate` no longer documents `USERS_LAST_ADMIN` | ✅ |
+| R-B 2 `/catalogs` 403 for every grantable non-admin role + `ADMIN_ACCESS` inventory (falsifier: 19 red) | ✅ |
+| R-B 3 deactivation keeps first/last name and nickname (unit) | ✅ |
+| R-B 4 `fetch` `redirect: 'error'` (falsifier red) + `CLARISA_API_KEY` pinned in the no-secret check | ✅ |
+| R-B 5 `countActiveAdmins` aligned with `isLiveAssignment` (falsifier red) | ✅ |
+| R-C residual risks | Open — recorded in `execution.md` T-10 |
+
+Verification after remediation (Leader re-run): lint 0 · build 0 · unit 1,016 · e2e 414 · tsc baseline (7 pre-existing).

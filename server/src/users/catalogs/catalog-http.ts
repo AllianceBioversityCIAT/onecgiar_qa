@@ -25,6 +25,8 @@ export async function getJson(
     const res = await fetch(url, {
       headers: { accept: 'application/json', ...headers },
       signal: controller.signal,
+      // A redirect would forward `x-api-key` to another host: refuse it.
+      redirect: 'error',
     });
     if (!res.ok) {
       logger.warn(`upstream_unavailable source=${source} status=${res.status}`);
