@@ -109,7 +109,7 @@ Serial boundaries: T-1 (schema, `server/src/database/**`), T-2 and T-5 (`server/
 - **Skills:** nestjs-expert, error-handling-patterns, aws-serverless
 
 ## T-6: UsersAdminService (create, edit, roles, programs, exclusions, activation, invitation)
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** L → executed as one task with two checkpoints (create/edit; roles/programs/exclusions/activation)
 - **Depends on:** T-2, T-4, T-5
 - **Requirements:** FR-2 (SSO; custom new; custom existing — BUT existing account not changed; validation and uniqueness 409s — BUT no record left on failure; Cognito down → 503 and no record); FR-3 (Replacing roles — BUT unchanged grants not re-issued); FR-4 (all four scenarios, AND IT MUST reason; unknown program); FR-5 (email immutable; name only before first sign-in; 404); FR-6 (invalidate after commit); FR-7 (deactivated: login 403, refresh fails, BUT Cognito account untouched; last admin incl. self); FR-8; FR-13 (every listed action audited; BUT none on refusal)

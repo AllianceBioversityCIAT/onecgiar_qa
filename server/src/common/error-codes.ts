@@ -171,6 +171,26 @@ export const ERROR_CATALOG = {
     message: 'This role assignment does not exist.',
   },
   USERS_NOT_FOUND: { status: 404, message: 'This user does not exist.' },
+  USERS_EMAIL_TAKEN: {
+    status: 409,
+    message:
+      'A user with this email already exists. Open that user instead, or use a different email.',
+  },
+  USERS_NICKNAME_TAKEN: {
+    status: 409,
+    message:
+      'This nickname is already used by another user. Choose a different nickname.',
+  },
+  USERS_NAME_LOCKED: {
+    status: 409,
+    message:
+      'The name comes from the identity provider once the user has signed in, so it can no longer be edited here.',
+  },
+  USERS_INVITATION_NOT_APPLICABLE: {
+    status: 409,
+    message:
+      'An invitation can only be resent to a custom-account user, invited by QA, who has not signed in yet.',
+  },
   USERS_LAST_ADMIN: {
     status: 409,
     message:

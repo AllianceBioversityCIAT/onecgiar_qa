@@ -34,6 +34,11 @@ export interface AssignmentReadOptions {
   forShare?: boolean;
 }
 
+/** An active assignment with its id, for a writer that revokes by id (FR-3: roles are replaced by diff). */
+export interface ActiveAssignment extends AssignmentView {
+  id: number;
+}
+
 /** The persistence port of `RoleAssignmentsRepository` (TRD section 4, Repository). */
 export interface RoleAssignmentsStore {
   findRoleByCode(code: string): Promise<Role | undefined>;
@@ -49,6 +54,8 @@ export interface RoleAssignmentsStore {
     userId: number,
     options?: AssignmentReadOptions,
   ): Promise<AssignmentView[]>;
+  /** The user's active assignments with their ids; a plain read (the caller holds the user row lock). */
+  findActiveByUserId(userId: number): Promise<ActiveAssignment[]>;
 }
 
 export interface CreateAssignmentInput {
@@ -149,6 +156,10 @@ export class RoleAssignmentsRepository {
     options?: AssignmentReadOptions,
   ): Promise<AssignmentView[]> {
     return this.store.findActiveViewsByUserId(userId, options);
+  }
+
+  findActiveByUserId(userId: number): Promise<ActiveAssignment[]> {
+    return this.store.findActiveByUserId(userId);
   }
 }
 
@@ -270,6 +281,27 @@ export class DrizzleRoleAssignmentsStore implements RoleAssignmentsStore {
         ),
       );
     return rows;
+  }
+
+  async findActiveByUserId(userId: number): Promise<ActiveAssignment[]> {
+    return this.db
+      .select({
+        id: roleAssignments.id,
+        roleCode: roles.code,
+        roleIsActive: roles.isActive,
+        isActive: roleAssignments.isActive,
+        revokedAt: roleAssignments.revokedAt,
+        resultTypeKey: roleAssignments.resultTypeKey,
+        programId: roleAssignments.programId,
+      })
+      .from(roleAssignments)
+      .innerJoin(roles, eq(roleAssignments.roleId, roles.id))
+      .where(
+        and(
+          eq(roleAssignments.userId, userId),
+          eq(roleAssignments.isActive, true),
+        ),
+      );
   }
 
   /**

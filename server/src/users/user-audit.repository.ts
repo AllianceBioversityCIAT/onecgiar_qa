@@ -5,6 +5,8 @@ import type { DrizzleDB } from '../database/drizzle/drizzle.module.js';
 import {
   userAuditEvents,
   type NewUserAuditEvent,
+  type UserAuditAction,
+  type UserAuditChanges,
   type UserAuditEvent,
 } from '../database/drizzle/schema/user-audit-events.js';
 
@@ -24,6 +26,19 @@ export interface UserAuditStore {
 export const DEFAULT_AUDIT_PAGE_SIZE = 50;
 
 /**
+ * What a writer may say about a change. The id and the time are the
+ * database's: a caller cannot back-date or pick the id of an event (the table
+ * is append-only, FR-13).
+ */
+export interface AuditEventInput {
+  userId: number;
+  actorId: number;
+  action: UserAuditAction;
+  changes: UserAuditChanges;
+  requestId?: string | null;
+}
+
+/**
  * Writer of `user_audit_events` (FR-13). It is built over the transaction of
  * the unit of work, so an event is committed together with the change it
  * records and is gone with it on a rollback; a refused change never reaches
@@ -36,8 +51,16 @@ export class UserAuditRepository {
   ) {}
 
   /** One event per change, with `{ field: { before, after } }`. */
-  record(event: NewUserAuditEvent): Promise<UserAuditEvent> {
-    return this.store.insert(event);
+  record(event: AuditEventInput): Promise<UserAuditEvent> {
+    const { userId, actorId, action, changes, requestId } = event;
+    // Picked field by field: a cast caller cannot smuggle `id` or `createdAt` through.
+    return this.store.insert({
+      userId,
+      actorId,
+      action,
+      changes,
+      requestId: requestId ?? null,
+    });
   }
 
   findByUserId(

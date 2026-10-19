@@ -39,31 +39,26 @@ describe('UserAuditRepository (FR-13)', () => {
 
   it('reads the events of one user, newest first, limited', async () => {
     const { audit } = setup();
-    const at = (iso: string) => new Date(iso);
     const base = { actorId: 1, changes: { x: { before: 1, after: 2 } } };
     await audit.record({
       ...base,
       userId: 7,
       action: 'create',
-      createdAt: at('2026-10-01T10:00:00Z'),
     });
     await audit.record({
       ...base,
       userId: 8,
       action: 'create',
-      createdAt: at('2026-10-01T11:00:00Z'),
     });
     await audit.record({
       ...base,
       userId: 7,
       action: 'update',
-      createdAt: at('2026-10-02T10:00:00Z'),
     });
     await audit.record({
       ...base,
       userId: 7,
       action: 'deactivate',
-      createdAt: at('2026-10-02T10:00:00Z'),
     });
 
     const all = await audit.findByUserId(7);
@@ -75,6 +70,23 @@ describe('UserAuditRepository (FR-13)', () => {
       'create',
     ]);
     expect(first.map((e) => e.action)).toEqual(['deactivate']);
+  });
+
+  it('lets the database set the id and the time: a caller cannot choose them', async () => {
+    const { audit } = setup();
+    const forged = {
+      userId: 7,
+      actorId: 1,
+      action: 'update',
+      changes: { x: { before: 1, after: 2 } },
+      id: 999,
+      createdAt: new Date('2001-01-01T00:00:00Z'),
+    } as unknown as Parameters<typeof audit.record>[0];
+
+    const event = await audit.record(forged);
+
+    expect(event.id).not.toBe(999);
+    expect(event.createdAt.getFullYear()).toBeGreaterThan(2020);
   });
 
   it('exposes no way to change or delete an event: insert and read only', () => {

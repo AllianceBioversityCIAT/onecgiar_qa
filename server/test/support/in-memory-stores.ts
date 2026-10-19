@@ -14,6 +14,7 @@ import type { AssignmentView } from '../../src/users/authorization.service.js';
 import { RoleCode } from '../../src/users/permissions.js';
 import {
   RoleAssignmentsRepository,
+  type ActiveAssignment,
   type AssignmentReadOptions,
   type RoleAssignmentsStore,
 } from '../../src/users/role-assignments.repository.js';
@@ -62,10 +63,19 @@ export class InMemoryUsersStore implements UsersStore {
     return this.rows.find((u) => u.cognitoSub === sub);
   }
 
+  /** Case-insensitive, like the column's collation (P-7). */
+  async findByNickname(nickname: string) {
+    return this.rows.find(
+      (u) => u.nickname?.toLowerCase() === nickname.toLowerCase(),
+    );
+  }
+
   async insert(values: NewUser) {
     const clash = this.rows.some(
       (u) =>
         u.email === values.email ||
+        (values.nickname != null &&
+          u.nickname?.toLowerCase() === values.nickname.toLowerCase()) ||
         (values.cognitoSub != null && u.cognitoSub === values.cognitoSub) ||
         // MySQL treats two '' values as equal under the unique index.
         (values.cognitoSub === '' && u.cognitoSub === ''),
@@ -100,6 +110,8 @@ export class InMemoryUsersStore implements UsersStore {
       (u) =>
         u.id !== id &&
         ((values.email !== undefined && u.email === values.email) ||
+          (values.nickname != null &&
+            u.nickname?.toLowerCase() === values.nickname.toLowerCase()) ||
           (values.cognitoSub != null && u.cognitoSub === values.cognitoSub)),
     );
     if (clash) return { kind: 'duplicate' as const };
@@ -184,6 +196,19 @@ export class InMemoryRoleAssignmentsStore implements RoleAssignmentsStore {
 
   async findActiveViewsByUserId(userId: number): Promise<AssignmentView[]> {
     return this.viewsOf(this.rows, userId);
+  }
+
+  async findActiveByUserId(userId: number): Promise<ActiveAssignment[]> {
+    return this.withIds(this.rows, userId);
+  }
+
+  protected withIds(
+    rows: readonly RoleAssignment[],
+    userId: number,
+  ): ActiveAssignment[] {
+    const active = rows.filter((a) => a.userId === userId && a.isActive);
+    const views = this.viewsOf(active, userId);
+    return active.map((a, i) => ({ id: a.id, ...views[i]! }));
   }
 
   /** The active assignments of a user among `rows`, with their `roles`; a snapshot fake may pass its own of either in place of the current ones. */
@@ -744,6 +769,10 @@ class TransactionalUsersStore extends InMemoryUsersStore {
     return this.locked(options, () => super.findByCognitoSub(sub));
   }
 
+  override findByNickname(nickname: string, options?: ReadOptions) {
+    return this.locked(options, () => super.findByNickname(nickname));
+  }
+
   override insert(values: NewUser) {
     return this.statement({ current: true }, async () => {
       const result = await super.insert(values);
@@ -786,6 +815,10 @@ class TransactionalAssignmentsStore extends InMemoryRoleAssignmentsStore {
 
   override findRoleByCode(code: string) {
     return this.statement({}, () => super.findRoleByCode(code));
+  }
+
+  override findActiveByUserId(userId: number) {
+    return this.statement({}, () => this.withIds(this.rows, userId));
   }
 
   override insert(values: NewRoleAssignment) {

@@ -3,7 +3,11 @@ import {
   ConflictException,
   NotFoundException,
 } from '@nestjs/common';
-import { errorBody, FIELD_ERRORS } from '../common/error-codes.js';
+import {
+  errorBody,
+  FIELD_ERRORS,
+  type FieldErrorCode,
+} from '../common/error-codes.js';
 
 // Typed domain errors of the users module (TRD section 11). They extend the
 // Nest HTTP exceptions so the global filter maps them to the error envelope
@@ -113,6 +117,60 @@ export class InvalidProgramIdError extends BadRequestException {
 export class InvalidEmailError extends BadRequestException {
   constructor() {
     super(errorBody('USERS_INVALID_EMAIL'));
+  }
+}
+
+/** Another QA user already has this email (FR-2), whatever its case. */
+export class EmailTakenError extends ConflictException {
+  constructor() {
+    super(errorBody('USERS_EMAIL_TAKEN'));
+  }
+}
+
+/** Another QA user already has this nickname, whatever its case (FR-2, NFR-5). */
+export class NicknameTakenError extends ConflictException {
+  constructor() {
+    super(errorBody('USERS_NICKNAME_TAKEN'));
+  }
+}
+
+/** The name can no longer be edited here: the user has signed in (FR-5, DD-8). */
+export class NameLockedError extends ConflictException {
+  constructor() {
+    super(errorBody('USERS_NAME_LOCKED'));
+  }
+}
+
+/** The invitation cannot be resent for this user (FR-8). Why stays in `detail`, for logs and tests only. */
+export class InvitationNotApplicableError extends ConflictException {
+  constructor(readonly detail: string) {
+    super(errorBody('USERS_INVITATION_NOT_APPLICABLE'));
+  }
+}
+
+/** One field of a `VALIDATION_FAILED` answer, named as the API names it (design 6). */
+export interface FieldIssue {
+  field: string;
+  code: FieldErrorCode;
+  max?: number;
+}
+
+/**
+ * A request the DTO pipe cannot judge: catalog references and combinations
+ * (an unknown role, result type or program, an ambiguous role list). The
+ * field names are the API's (`programs`, `programId`, `roles[0].resultTypes`),
+ * not the repositories' (FR-2, FR-4).
+ */
+export class FieldValidationError extends BadRequestException {
+  constructor(readonly issues: readonly FieldIssue[]) {
+    super({
+      ...errorBody('VALIDATION_FAILED'),
+      fields: issues.map(({ field, code, max }) => ({
+        field,
+        code,
+        message: FIELD_ERRORS[code](max),
+      })),
+    });
   }
 }
 

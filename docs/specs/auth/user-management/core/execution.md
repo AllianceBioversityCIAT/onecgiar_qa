@@ -395,3 +395,50 @@ FR-2 (client part: custom new → account + email; existing → `existing_accoun
 #### Final verification
 
 lint ✅ · build ✅ · unit 860/860 ✅ · e2e 260/260 ✅ · tsc baseline (7 pre-existing) ✅
+
+### T-6: UsersAdminService (create, edit, roles, programs, exclusions, activation, invitation)
+
+- **Final status:** PASS (parallel lens Reviewers: conformance/reliability + risk/security/privacy)
+- **Date:** 2026-10-19
+- **Attempts:** 1 · checkpoints: none needed (~55 tool calls)
+- **Skills:** nestjs-expert, nestjs-best-practices, error-handling-patterns, tdd · Effort: xhigh · Review: parallel lenses
+
+#### Attempt 1
+
+- **Files changed:** new `server/src/users/users-admin.service.ts` + spec (96 tests), `server/test/support/users-admin-world.ts` (fake world + recording unit of work); modified `server/src/common/error-codes.ts` (`USERS_EMAIL_TAKEN`, `USERS_NICKNAME_TAKEN`, `USERS_NAME_LOCKED`, `USERS_INVITATION_NOT_APPLICABLE` — all 409; all 11 § 7 codes now present), `server/src/users/users.errors.ts` (+ `FieldValidationError`), `server/src/users/users.repository.ts` + spec (nickname, `isActive`, invitation fields, `findByNickname`), `server/src/users/role-assignments.repository.ts` (`findActiveByUserId` with grant ids, for the diff), `server/src/users/user-audit.repository.ts` + spec (pointer 5), `server/test/support/in-memory-stores.ts` (case-insensitive nickname uniqueness). Outside-scope edits judged necessary by both Reviewers.
+- **Forward pointers satisfied:** (1) `ended_by` = acting admin on remove/dismiss (tested with a second admin); (2) roles by diff, revoke before insert — Assessor KP → Lead KP swap asserts call order; (3) **reject** (not collapse): role listed twice, `*` inside the array, empty array, scope on a global role → `VALIDATION_FAILED` on `roles[i].…`; (4) last-admin guard before the first revoke and any insert (order asserted); (5) `record` takes `{ userId, actorId, action, changes, requestId? }` field by field — forged `id`/`createdAt` ignored; (6) invalidate spied, after `tx:commit` only; (7) API field names (`programs`, `programId`, `exclusions[i].reason`, `roles[i].…`); (8) `getUser` first, `createUser` only if absent, one 10 s deadline across both (6 s + 6 s → 503; 4 s + 4 s → success); (9) not-applicable resend cases → 409.
+- **Red run:** 92/96 failed against a no-op skeleton (≈29 on the "expected refusal" helper — behavioral, accepted by Reviewer 1; 4 TypeErrors not counted).
+- **Falsifiers (restored, `cmp` verified):** re-issue unchanged grants → "unchanged grant keeps its id" red; QA row before Cognito → 4 red incl. "Cognito down → no record" and the 10 s budget; name edit after sign-in → both `USERS_NAME_LOCKED` cases red.
+- **Implementer verification:** lint 0, build ok, unit 961 (32 files), e2e 260, tsc 7 (token-verifier only).
+- **Evidence re-run (Leader-inline, non-author):** lint 0; build 0; unit 961/961; e2e 260/260; tsc 7 → **VERIFIED**.
+- **Not Done / Assumptions (verbatim from the report):** "Return shape: methods return `{ userId, changed }` (create returns `{ userId, invitation }`), not `UserDetail`. The query repository does not exist yet; T-8 can read the detail afterwards. · No-ops: an action that changes nothing (same nickname, same roles, already inactive) writes no audit, does not invalidate, and returns `changed: false`. · Name rule: a name sent unchanged after the first sign-in is not an error; only a changed one gives `USERS_NAME_LOCKED`. · PROGRAM grants: a role replacement never touches existing PROGRAM grants (D6). · Scope: `programs: []` is rejected, because it would silently mean "all". · Create: it does not invalidate the cache, since the new user has no cached entry. · Audit layout: `create` is one event with the profile fields, then one `role_grant` / `scope_change` / `exclusion_add` per change. An edit is one `update` event with all changed fields. · Resend: a successful resend updates `invited_at`. · Late Cognito create: after a 503 from the budget, the in-flight Cognito create may still land in the pool. DD-7 accepts this, and it shows as `existing_account` on retry. · Real MySQL locking is still unverified (HITL on `qadb`)." — no owed item and no blocker (assumptions only; both Reviewers checked them against the spec) → not a continuation.
+- **Leader correction:** the report said `CognitoAdminClient` is not provided in any module — false: `server/src/auth/auth.module.ts:55,60` provides and exports it. The service is not yet registered in `UsersModule`. **Forward pointer → T-8 brief:** register `UsersAdminService` and wire `CognitoAdminClient` without an `AuthModule` ↔ `UsersModule` cycle.
+- **Reviewer verdict, lens 1 (conformance/reliability):** PASS — every FR-2…FR-8/FR-13 scenario tested with side effects (no row, no audit, Cognito not called, no invalidation, `tx:begin` absent); P-1 through the real `AdmissionService`; deactivation → 403 `AUTH_USER_INACTIVE`, refresh refused, no Cognito call; order validate → uniqueness → Cognito → tx → invalidate asserted; `Promise.race` handles late rejections; P-8 named check consistent.
+- **Reviewer verdict, lens 2 (risk/security/privacy):** PASS — deactivate/activate never call Cognito; existing account gets no write; resend gated before Cognito and re-checked under lock; last-admin concurrency tested; audit inside the unit of work; decision line holds only ids/action/outcome/code (`^[A-Z_]{1,64}$`)/request id; non-HTTP errors log only `internal_error`.
+- **runtime events:** none
+- **spawns:** implementer not reported by host calls, 279462 tokens (56 tool uses), ended complete; reviewer lens 1 not reported by host calls, 108177 tokens (18 tool uses), ended complete; reviewer lens 2 not reported by host calls, 90446 tokens (14 tool uses), ended complete
+
+#### Open points raised to the back lead at this gate (2026-10-19)
+
+1. **Spec tension (FR-13 vs design § 7 step 5):** an edit writes one `update` event with every changed field's before/after. FR-13 "edit of each field … recorded with … before and after" vs § 7 "one `user_audit_events` row per change". Both Reviewers deferred it to each other. Leader proposal: amend § 7 to "one row per field changed" **or** "one row per request, each changed field with before/after" — answer pending.
+2. **Product question (lens 2):** resend to a **deactivated** custom user is allowed today (temporary password for an account QA refuses with 403). FR-8 does not forbid it. Leader recommendation: refuse with 409 `USERS_INVITATION_NOT_APPLICABLE` — answer pending (business may confirm with Santi).
+3. **Reliability (lens 1):** `edit` locks a second `users` row (`findByNickname(..., { forUpdate: true })`) outside the § 7 lock order — two admins swapping colliding nicknames concurrently can deadlock (MySQL 1213 → 500 instead of 409). A plain read suffices (unique key maps the race to `USERS_NICKNAME_TAKEN`, as DD-14 relies on); same for `findByEmail(..., { forUpdate: true })` in the insert race path. Raised as a spec-gap fix proposal (not an advisory-to-task): answer pending.
+
+#### ADVISORY (Reviewers, 4R — non-gating, recorded only)
+
+- Resend: if the in-tx re-check refuses or the DB write fails after Cognito resent, the email went out with no audit row — log `outcome=refused|error` with a reason (`cognito_sent_not_recorded`) and test the in-tx refusal; add a code comment (DD-7-style window).
+- Duplicate `programId` in create `exclusions` → 409 `USERS_EXCLUSION_EXISTS`, not in § 6 `POST /users` errors — dedupe as `VALIDATION_FAILED` on `exclusions[i].programId`. **→ T-8 brief** (DTO validation).
+- Worst case on create ≈ 20 s before 503 (catalog 10 s + Cognito 10 s; NFR-3 is per upstream — conforms). **→ T-10** note.
+- `exclusion_add` audit changes omit the new exclusion's `id` (remove/dismiss include it) — record it for joinable history.
+- `programs: []` rejected — stricter than § 6 `'all' | number[]` but follows "no rows = all". **→ T-8** document in OpenAPI.
+- Log spy covers `create` and `deactivate`; others by construction (shared wrapper). **→ T-9 brief** (log-spy e2e over every mutation route).
+- P-7 (collation) still decides case-insensitive nickname uniqueness — T-10.
+- Readability: `resendInvitation` builds its 404 via `this.mutate(userId, async () => false)`.
+
+#### Requirements covered
+
+FR-2, FR-3 (replacing roles), FR-4 (behavior), FR-5, FR-6 (invalidate after commit), FR-7, FR-8, FR-13 (service part).
+
+#### Final verification
+
+lint ✅ · build ✅ · unit 961/961 ✅ · e2e 260/260 ✅ · tsc baseline ✅
