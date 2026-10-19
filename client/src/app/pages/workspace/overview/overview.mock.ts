@@ -315,16 +315,6 @@ export const WORK_BY_TIMELINE: readonly TimelineWorkRow[] = [
   { id: 'sep', name: 'September pilot', chip: 'Sub', pct: 0, pending: 0, pace: 'On track' },
 ];
 
-// ---------- Assessment outcomes (for the 1,114 results of the official timeline) ----------
-
-export const OUTCOMES = {
-  approvedFirstPass: 534,
-  returnedResolved: 301,
-  returnedOpen: 212,
-  neverFinished: 67,
-  autoApproved: 84,
-} as const;
-
 // ---------- Load results into QA ----------
 
 export interface LoadTarget {

@@ -19,3 +19,15 @@
   5. `bundle initial` budget warning (~542 kB > 500 kB). The cause is the temporary `app-palette-switcher`, which pulls spartan input, `@angular/forms` and the CDK overlay into the initial bundle. Wrapping it in `@defer (on idle)` in `app.html` brings it down to ~411 kB (tested; `app.spec.ts` then needs `getDeferBlocks()`). Not applied because those are Yeck's files.
   6. Contrast: the "Pending" badge and some grey texts from the mockup are below WCAG AA (≈ 2.9:1). This is a design decision pending with Juanpa.
   7. The temporary palette switcher (`app-palette-switcher`) is hidden inside the workspace with CSS (`ui/tokens/qa-tokens.css`) and still shows on the login. Remove it from `app.html` once a palette is chosen.
+
+## 2026-10-16 · Juanpa · Overview: Round 1 and Round 2 side by side
+
+- **Idea** (agreed in a meeting with Ángel and Mariagiulia): split the Overview hero into a Round 1 column and a Round 2 column, so the QA admin can compare both rounds without mixing their data. Every number opens Results filtered by that stage.
+  - Round 1: Pending · In review · Assessed by 1 assessor · Assessed by 2 assessors (knowledge products and other outputs finish round 1 after one check).
+  - Round 2: Pending · Assessed (resolved by a lead assessor or a third-party broker).
+  - "Quality assessed" is reserved for the final green state; the columns use "Assessed".
+- **Done** (branch `jp-design/mockup-completo`, mock data): `overview/ov-cycle-hero.ts`, `overview/overview-view.ts`, `results/results.mock.ts` (`qaStage()`), `results/results-view.ts` (`?stage=` filter). Details in `docs/overview-rounds-2026-10-16.md`.
+- **Verdict:** 🟡. The design and the drill-down work with mock data. The counts need the API.
+- **What a developer needs to do (Yeck / Juanda):**
+  1. The API must return each result's QA stage, and how many assessors have finished round 1. The mock derives both from the old status + round (`qaStage()`, marked `TODO(api)`).
+  2. Business to confirm (Santi / Mariagiulia): in the mock, "Awaiting response" results in round 1 count as "Assessed by 2 assessors", and "Answered" count as "Round 2 · Pending".

@@ -1,21 +1,18 @@
 import { Component, DestroyRef, ElementRef, computed, inject, signal, viewChild } from '@angular/core';
 import { OvAttention, AttentionGroupVm } from './ov-attention';
 import { OvLoadDrawer } from './ov-load-drawer';
-import { OvOutcomes, OutcomesVm } from './ov-outcomes';
-import { CycleHeroVm, OvCycleHero } from './ov-cycle-hero';
+import { CycleHeroVm, OvCycleHero, RoundVm } from './ov-cycle-hero';
+import { QaStage, RESULTS, qaStage } from '../results/results.mock';
 import { OvStages, StageVm } from './ov-stages';
 import { OvTimelineLanes, TimelineLaneVm } from './ov-timeline-lanes';
 import { OvWork, WorkRowVm, WorkTab } from './ov-work';
 import { TimelineInfo, daysFromToday, fmt, phaseState, timelineInfo } from './overview-calc';
 import {
   ATTENTION,
-  OUTCOMES,
-  OFFICIAL_RESULTS,
   PHASE_ELAPSED,
   PROGRAMS,
   STAGES,
   STAGE_BASE,
-  STATUS_COUNTS,
   TIMELINES,
   Timeline,
   WORK_BASE,
@@ -26,6 +23,33 @@ import {
 
 const isOfficial = (b: Timeline) => b.kind === 'Official timeline';
 const ANGLE: Record<'type' | 'program' | 'assessor', string> = { type: 'Result type', program: 'Science program', assessor: 'Assessor' };
+
+/** Round columns of the hero (agreed with the QA admin, 2026-10-16). "Quality assessed" is kept for the final state only. */
+const ROUNDS: readonly { id: RoundVm['id']; title: string; who: string; stages: readonly { stage: QaStage; label: string; hint: string }[] }[] = [
+  {
+    id: 'r1', title: 'Round 1', who: 'Assessors',
+    stages: [
+      { stage: 'r1-pending', label: 'Pending', hint: 'No assessor has opened them yet' },
+      { stage: 'r1-review', label: 'In review', hint: 'Assessors are working on them' },
+      { stage: 'r1-one', label: 'Assessed by 1 assessor', hint: 'Waiting for the second assessor' },
+      { stage: 'r1-two', label: 'Assessed by 2 assessors', hint: 'Round 1 complete, single-check types included' },
+    ],
+  },
+  {
+    id: 'r2', title: 'Round 2', who: 'Lead assessors, third-party brokers and PPU',
+    stages: [
+      { stage: 'r2-pending', label: 'Pending', hint: 'Comments or core fields still to review' },
+      { stage: 'r2-assessed', label: 'Assessed', hint: 'Resolved by a lead assessor or a broker' },
+    ],
+  },
+];
+
+/** Results per QA stage. TODO(api): read the counts from the API instead of the Results mock. */
+const STAGE_COUNTS = RESULTS.reduce((m, r) => {
+  const s = qaStage(r);
+  if (s) m.set(s, (m.get(s) ?? 0) + 1);
+  return m;
+}, new Map<QaStage, number>());
 
 /** "closes in 3 days" / "closes today" / "opens 01 Sep" for a timeline's current step. */
 function whenText(info: TimelineInfo): string {
@@ -45,7 +69,6 @@ function whenText(info: TimelineInfo): string {
     OvStages,
     OvAttention,
     OvWork,
-    OvOutcomes,
     OvLoadDrawer,
   ],
   templateUrl: './overview-view.html',
@@ -83,7 +106,8 @@ export class OverviewView {
 
   // ---------- Hero: the whole cycle at a glance ----------
   protected readonly hero = computed<CycleHeroVm>(() => {
-    const sum = STATUS_COUNTS.reduce((a, [, n]) => a + n, 0) || 1;
+    const sum = [...STAGE_COUNTS.values()].reduce((a, n) => a + n, 0) || 1;
+    const qa = STAGE_COUNTS.get('quality-assessed') ?? 0;
     const official = this.officials[0];
     const info = official ? timelineInfo(official) : null;
     const live = this.timelines.filter((b) => b.status === 'Live').length;
@@ -92,7 +116,14 @@ export class OverviewView {
       total: this.totalText,
       step: info ? `Step ${info.step} of ${info.steps}: ${info.phase.name}` : '',
       stepWhen: info ? whenText(info) : '',
-      statuses: STATUS_COUNTS.map(([status, n]) => ({ status, count: fmt(n), pct: Math.round((n / sum) * 100) })),
+      rounds: ROUNDS.map((r) => {
+        const stages = r.stages.map((s) => {
+          const n = STAGE_COUNTS.get(s.stage) ?? 0;
+          return { ...s, n, count: fmt(n) };
+        });
+        return { id: r.id, title: r.title, who: r.who, total: fmt(stages.reduce((a, s) => a + s.n, 0)), stages };
+      }),
+      final: { count: fmt(qa), pct: Math.round((qa / sum) * 100) },
     };
   });
 
@@ -194,20 +225,6 @@ export class OverviewView {
         .map(({ m, r }) => this.rowVm(m, r, f, true));
     }
     return WORK_BY[tab].map((r) => this.rowVm(tab, r, f, false));
-  });
-
-  // ---------- Assessment outcomes ----------
-  protected readonly outcomes = computed<OutcomesVm>(() => {
-    const f = this.total / OFFICIAL_RESULTS;
-    const sc = (n: number) => Math.round(n * f);
-    return {
-      total: this.totalText,
-      approvedFirstPass: sc(OUTCOMES.approvedFirstPass),
-      returnedResolved: sc(OUTCOMES.returnedResolved),
-      returnedOpen: sc(OUTCOMES.returnedOpen),
-      neverFinished: sc(OUTCOMES.neverFinished),
-      autoApproved: sc(OUTCOMES.autoApproved),
-    };
   });
 
   // ---------- Actions ----------

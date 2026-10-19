@@ -394,3 +394,41 @@ function generateResults(): QaResult[] {
 
 /** Every result in QA: the mockup's 14 rows first, then 1,400 generated ones (1,330 + 84 automatic in total). */
 export const RESULTS: readonly QaResult[] = [...MOCKUP_RESULTS, ...generateResults()];
+
+// ---------- QA stage (Overview round columns) ----------
+
+/** Where a result sits in the QA flow, as the Overview's Round 1 / Round 2 columns count it. */
+export type QaStage = 'r1-pending' | 'r1-review' | 'r1-one' | 'r1-two' | 'r2-pending' | 'r2-assessed' | 'quality-assessed';
+
+export const QA_STAGES: readonly QaStage[] = ['r1-pending', 'r1-review', 'r1-one', 'r1-two', 'r2-pending', 'r2-assessed', 'quality-assessed'];
+
+/** Filter chip text in Results, e.g. "Round 1 · Assessed by 1 assessor". */
+export const QA_STAGE_LABELS: Readonly<Record<QaStage, string>> = {
+  'r1-pending': 'Round 1 · Pending',
+  'r1-review': 'Round 1 · In review',
+  'r1-one': 'Round 1 · Assessed by 1 assessor',
+  'r1-two': 'Round 1 · Assessed by 2 assessors',
+  'r2-pending': 'Round 2 · Pending',
+  'r2-assessed': 'Round 2 · Assessed',
+  'quality-assessed': 'Quality assessed',
+};
+
+/** Result types that get a single check in round 1 (no second assessor). */
+export const SINGLE_CHECK_TYPES: readonly ResultType[] = ['Knowledge product', 'Other output'];
+
+/**
+ * Stage of a result, derived from the mock status and round (null for automatic results).
+ * TODO(api): the API should return the stage and how many assessors finished round 1;
+ * here "assessed by 1" is a fixed share of double-check results in review.
+ */
+export function qaStage(r: QaResult): QaStage | null {
+  if (r.status === 'Automatic') return null;
+  if (r.status === 'Quality assessed') return 'quality-assessed';
+  if (r.status === 'Pending') return 'r1-pending';
+  if (r.round === 'QA round 1') {
+    if (r.status === 'In review') return !SINGLE_CHECK_TYPES.includes(r.type) && Number(r.code.slice(-4)) % 5 < 2 ? 'r1-one' : 'r1-review';
+    if (r.status === 'Awaiting response') return 'r1-two';
+    return 'r2-pending';
+  }
+  return r.status === 'Answered' ? 'r2-assessed' : 'r2-pending';
+}
