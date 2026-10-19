@@ -509,13 +509,23 @@ describe('Global guards (e2e)', () => {
       expect(handlerSpy).toHaveBeenCalledTimes(1);
     });
 
+    // FR-14: ADMIN holds every permission, so the refused role here is PPU.
     it('refuses a role that does not hold the declared permission', async () => {
+      const ppu = await addUser(world);
+      await world.assignments.create({ userId: ppu.id, roleCode: 'PPU' });
+      await world
+        .call('post', '/probe/tpb', world.bearer(sub(ppu)))
+        .expect(403);
+      expect(handlerSpy).not.toHaveBeenCalled();
+    });
+
+    it('lets ADMIN through a route that declares another role permission (FR-14)', async () => {
       const admin = await addUser(world);
       await world.assignments.create({ userId: admin.id, roleCode: 'ADMIN' });
       await world
         .call('post', '/probe/tpb', world.bearer(sub(admin)))
-        .expect(403);
-      expect(handlerSpy).not.toHaveBeenCalled();
+        .expect(201);
+      expect(handlerSpy).toHaveBeenCalledTimes(1);
     });
 
     it('passes a scoped permission at route level whatever the scope (DD-4)', async () => {

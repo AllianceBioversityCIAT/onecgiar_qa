@@ -28,6 +28,16 @@ export class DuplicateActiveAssignmentError extends ConflictException {
   }
 }
 
+/**
+ * Assessor and Lead Assessor on one result type, `*` included (FR-3, DD-2,
+ * DD-11). Which two grants clash stays in `detail`, for logs and tests only.
+ */
+export class RoleConflictError extends ConflictException {
+  constructor(readonly detail: string) {
+    super(errorBody('USERS_ROLE_CONFLICT'));
+  }
+}
+
 export class AssignmentNotFoundError extends NotFoundException {
   constructor(readonly assignmentId: number) {
     super(errorBody('USERS_ASSIGNMENT_NOT_FOUND'));

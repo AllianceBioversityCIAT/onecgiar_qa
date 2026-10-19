@@ -9,10 +9,13 @@ import {
 } from '../database/drizzle/schema/role-assignments.js';
 import { roles, type Role } from '../database/drizzle/schema/roles.js';
 import type { AssignmentView } from './authorization.service.js';
+import { resultTypeKeysOverlap } from './effective-scope.js';
+import { RoleCode } from './permissions.js';
 import {
   AssignmentNotFoundError,
   DuplicateActiveAssignmentError,
   isDuplicateKeyError,
+  RoleConflictError,
   ScopeMismatchError,
   UnknownRoleError,
 } from './users.errors.js';
@@ -56,6 +59,12 @@ export interface CreateAssignmentInput {
   createdBy?: number | null;
 }
 
+/** The two roles that exclude each other on one result type (D2). */
+const OPPOSITE_RESULT_TYPE_ROLE: Readonly<Record<string, string>> = {
+  [RoleCode.ASSESSOR]: RoleCode.LEAD_ASSESSOR,
+  [RoleCode.LEAD_ASSESSOR]: RoleCode.ASSESSOR,
+};
+
 const RESULT_TYPE_KEY_MAX_LENGTH = 64;
 const UNSIGNED_INT_MAX = 4294967295;
 
@@ -80,6 +89,11 @@ export class RoleAssignmentsRepository {
       input.resultTypeKey ?? null,
       input.programId ?? null,
     );
+    await this.assertNoAssessorLeadOverlap(
+      input.userId,
+      role.code,
+      scope.resultTypeKey,
+    );
     const result = await this.store.insert({
       userId: input.userId,
       roleId: role.id,
@@ -88,6 +102,40 @@ export class RoleAssignmentsRepository {
     });
     if (result.kind === 'duplicate') throw new DuplicateActiveAssignmentError();
     return result.assignment;
+  }
+
+  /**
+   * Assessor and Lead Assessor never share a result type, `*` included (FR-3,
+   * DD-2, DD-11): the user's active grants of the opposite role are read
+   * before inserting, with a shared lock so a concurrent commit is seen (the
+   * user-row lock that serializes writers is the unit of work's, DD-10).
+   * Revoked rows are not active, so they never conflict. A grant of an
+   * inactive role still counts: reactivating the role must not create the
+   * overlap by the back door.
+   */
+  private async assertNoAssessorLeadOverlap(
+    userId: number,
+    roleCode: string,
+    resultTypeKey: string | null,
+  ): Promise<void> {
+    const opposite = OPPOSITE_RESULT_TYPE_ROLE[roleCode];
+    if (!opposite || resultTypeKey === null) return;
+    const held = await this.store.findActiveViewsByUserId(userId, {
+      forShare: true,
+    });
+    const clash = held.find(
+      (view) =>
+        view.isActive &&
+        view.revokedAt === null &&
+        view.roleCode === opposite &&
+        view.resultTypeKey !== null &&
+        resultTypeKeysOverlap(view.resultTypeKey, resultTypeKey),
+    );
+    if (clash) {
+      throw new RoleConflictError(
+        `${roleCode} on ${resultTypeKey} overlaps ${opposite} on ${clash.resultTypeKey}`,
+      );
+    }
   }
 
   /** Deactivates the assignment, keeping the row and its history. */

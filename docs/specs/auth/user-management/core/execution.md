@@ -204,3 +204,48 @@ lint ✅ · build ✅ · unit 649/649 ✅ · e2e 259/259 ✅
 - **Action:** reply sent to Cris (Slack DM, at the back lead's request) asking for `cognito-idp:AdminGetUser` + `cognito-idp:AdminCreateUser` on the pool ARN, the two auth flows, and confirmation of token revocation. T-5 stays blocked (`[ ]`, external) until a re-probe passes.
 - Also noted (out of this spec): Cris announced Cognito JWT/OIDC metadata changes rolling out from 2026-11-04 (deadline 2027-02-28) — the token verification in `auth` should be checked against it.
 - **Re-probe after Cris's fix (Slack DM 2026-10-19 11:22 — flows enabled, `AdminGetUser` + `AdminCreateUser` added to `qa-cognito-service`, token revocation on):** `AdminGetUser` (nonexistent username) → `UserNotFoundException` ⇒ permission granted; `InitiateAuth USER_PASSWORD_AUTH` (fake user, correct hash) → `Incorrect username or password` ⇒ flow on, secret valid; wrong secret → `Unable to verify secret hash`; SSO authorize → 302 to Microsoft for both callbacks. **P-8: `AdminGetUser` settled**; `AdminCreateUser` is granted per the pool owner but not exercised (it would create a real account and send the shared-template email) — T-5's first step re-runs the read-only probe; the real call stays a T-10 HITL smoke. Confirmation sent to Cris. Worktree `.env` refreshed from the main checkout (new client).
+
+### T-3: Permissions and assignment rules (ADMIN all, `*`, Assessor/Lead exclusivity, effective scope)
+
+- **Final status:** PASS (Reviewer, twice: initial diff + DD-13 continuation)
+- **Date:** 2026-10-19
+- **Attempts:** 1 · **continuations: 1** (DD-13 ADMIN exemption in `canReview`, after the back lead resolved the spec tension) — same Implementer by message
+- **Skills:** nestjs-expert, nestjs-best-practices + `tdd` (Leader: authorization rules, red-first pays) · Effort: xhigh
+
+#### Attempt 1
+
+- **Files changed:** `server/src/users/{permissions,authorization.service,role-assignments.repository,users.errors}.ts`; new `server/src/users/effective-scope.ts` + spec; `server/src/common/error-codes.ts` (`USERS_ROLE_CONFLICT` 409); `server/src/users/catalogs/catalog.service.ts` (reads `GRANTABLE_ROLES`); specs `role-assignments.repository.spec.ts` (DD-11 pinned test now expects the refusal, with a note), `authorization.service.spec.ts`, `authorization.matrix.spec.ts`; `server/test/auth-guards.e2e-spec.ts`.
+- **What it does:** ADMIN grants `Object.values(Permission)` (FR-14, DD-10); `GRANTABLE_ROLES` (no PROGRAM) is the single source, used by `/catalogs/roles`; `*` matches any result type, accepted only for result-type roles (DD-1); Assessor vs Lead overlap for one user refused in the repository, `*` included → `USERS_ROLE_CONFLICT` (FR-3, DD-2, DD-11); `canReview(user, perm, {resultType, programId}, ...predicates)` = permission ∧ program in scope ∧ no active exclusion ∧ extra predicates (D9 seam); only `active` exclusions exclude (DD-12); an active ADMIN skips scope + exclusions (DD-13).
+- **Red run:** repository 11 failures (`promise resolved … instead of rejecting`, incl. DD-11 and A KP / L `*`); matrix ADMIN grid `expected [ …(25) ] to deeply equal []`; service 13 failures (`canReview` stubbed false). `effective-scope.ts` written before its spec (no own red; falsifiers cover it).
+- **Falsifiers (reverted):** `*` literal-only → 7 red; overlap ignores `*` → 7 red (`*` vs `*` row stays green via `a === b`; `*` vs key rows red); ADMIN back to one permission → 8 red. DD-13 continuation: no exemption → 3 red; exemption for every role → 7 red; exempt a revoked/inactive ADMIN → 2 red.
+- **Existing tests changed by FR-14:** three asserting ADMIN lacks TPB/assessor flipped; e2e "refuses a role that does not hold the declared permission" switched ADMIN → PPU; e2e ADMIN passes `/probe/tpb` added.
+- **Implementer verification:** lint 0, build ok, unit 26 files / 734 passed, e2e 7 / 260 passed (after the continuation; 729 / 260 before it).
+- **Evidence re-run (Leader-inline, non-author):** initial — lint 0, build 0, unit 729/729, e2e 260/260 → VERIFIED; after continuation — lint 0, build 0, unit 734/734, e2e 260/260 → **VERIFIED**.
+- **Reviewer verdict 1:** PASS — FR-14/DD-10 matrix derived from the `Permission` catalog; DD-1 `*` edge cases; all four `*` overlap shapes both orders; DD-11 pinned test; § 7 conjunction; FR-2 grantable list; T-2 spec edits (§ 9, P-5, P-6) not contradicted. Flagged the ADMIN-vs-exclusion **spec tension** (FR-4 vs D3), not a defect.
+- **Reviewer verdict 2 (continuation):** PASS — exemption skips only `coversProgram`; `ADMIN_ACCESS` is granted by ADMIN only (`permissions.ts:53`), so `can(user, ADMIN_ACCESS)` ≡ live ADMIN grant; revoked/inactive pinned. Listed stale spec restatements (fixed by the Leader, below).
+- **runtime events:** none
+- **spawns:** implementer not reported by host calls, 130974 tokens (31 tool uses), ended complete; implementer (continuation) not reported by host calls, 139920 tokens (3 tool uses), ended complete; reviewer not reported by host calls, 72034 tokens (12 tool uses), ended complete; reviewer (continuation) not reported by host calls, 85371 tokens (6 tool uses), ended complete
+
+#### Decisions made
+
+- **Back lead, 2026-10-19 — DD-13:** "No puede haber un admin con conflicto" → option (a) (Leader-recommended): an active ADMIN is never blocked by a conflict of interest; exclusions stay stored and apply again if ADMIN is revoked. Option (b) — forbid exclusions on admins — rejected (extra validation, new error code, open case for child 2).
+- Execute-time spec edits (recorded when made): `design.md` § 7 "Effective scope & `canReview`" (ADMIN exempt from scope + exclusion conjuncts; permission and timeline predicate still apply — narrowed after Reviewer 2); § 10 new **DD-13**; DD-12/DD-13 rows moved into ID order after DD-11; `requirements.md` FR-4 statement (ADMIN exception), § 3 Glossary "Exclusion" and "Effective scope", FR-4 Manual-exclusion scenario "(for a non-admin …)"; `tasks.md` T-3 Requirements + Design refs (DD-13), coverage row FR-4 "T-3 (wins; ADMIN exempt, DD-13)". Document Control dates updated. These are carried as a named conformance check into the T-4 Reviewer brief.
+- Not edited (above this spec): `../proposal.md:41` describes scope as "minus exclusions" for everyone — recorded here; the proposal is historical input.
+- The Leader judged requirement meaning changed for admins (FR-4) — approved explicitly by the back lead, so recorded as a user-approved amendment rather than a silent edit.
+
+#### ADVISORY (Reviewer, 4R — non-gating)
+
+- RISK (high) — `AuthorizationSubject extends Partial<ProgramScopeView>`: a subject loaded without exclusions passes `coversProgram` (fail-open), and the effective-scope row "nothing loaded at all = all programs" makes it official. **Forward pointer → T-4 brief:** make `programScope` and `exclusions` required on the cached subject and delete/flip that row.
+- RESILIENCE — shared locks do not stop two concurrent inserts of the opposite role; the rule is safe only under the unit of work's `users` row `FOR UPDATE` (DD-2). **Forward pointer → T-4 brief:** two-writer test. **→ T-6 brief:** role replacement must revoke before insert, or Assessor KP → Lead KP is refused.
+- RISK — Assessor KP + Assessor `*` allowed, but `UserSummary.roles[].resultTypes` (`'all' | string[]`) cannot represent both. **Forward pointer → T-6 brief:** reject or collapse to `all`.
+- RISK — the exemption keys on the permission `ADMIN_ACCESS`, DD-13 on the role; a future role granted `ADMIN_ACCESS` would skip conflict checks silently. Suggest a test that only ADMIN grants `ADMIN_ACCESS` (or check the role code).
+- READABILITY — redundant `isActive && revokedAt === null` filter in the overlap check; `authorization.matrix.spec.ts` header still says every cell is a literal (ADMIN row now derived).
+- DOCS — `server/src/users/AGENTS.md` still describes the old ADMIN and file list (T-9 docs scope).
+
+#### Requirements covered
+
+FR-14; FR-3 (mixed roles, Assessor/Lead incl. `*`, all covers future types); FR-4 (exclusion wins — pure part; ADMIN exempt, DD-13); FR-2 (PROGRAM not grantable — rule part).
+
+#### Final verification
+
+lint ✅ · build ✅ · unit 734/734 ✅ · e2e 260/260 ✅

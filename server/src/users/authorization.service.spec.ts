@@ -61,18 +61,18 @@ const canRows: Row[] = [
     true,
   ],
   [
-    'ADMIN does not hold TPB',
+    'ADMIN holds TPB too (FR-14: every permission)',
     subject(assignment(RoleCode.ADMIN)),
     Permission.TPB_ACCESS,
     {},
-    false,
+    true,
   ],
   [
-    'ADMIN does not hold assessor on a result type',
+    'ADMIN holds assessor on any result type (FR-14)',
     subject(assignment(RoleCode.ADMIN)),
     Permission.ASSESSOR_ACCESS,
     { resultType: 'KP' },
-    false,
+    true,
   ],
   [
     'TPB holds TPB',
@@ -516,10 +516,10 @@ const canAnyRows: AnyRow[] = [
     true,
   ],
   [
-    'ADMIN has no TPB',
+    'ADMIN has TPB (FR-14: every permission)',
     subject(assignment(RoleCode.ADMIN)),
     Permission.TPB_ACCESS,
-    false,
+    true,
   ],
   [
     'ASSESSOR(KP) has assessor in some scope',
@@ -625,5 +625,280 @@ const canAnyRows: AnyRow[] = [
 describe('AuthorizationService.canAny', () => {
   it.each(canAnyRows)('%s', (_label, user, permission, expected) => {
     expect(service.canAny(user, permission)).toBe(expected);
+  });
+});
+
+// FR-3 (All result types, DD-1): `*` covers every key, including types that do
+// not exist yet. FR-4 / D5: effective scope = program scope minus active
+// exclusions; an exclusion always wins. Expected values are the scenarios'.
+describe('AuthorizationService with the all-result-types sentinel (DD-1)', () => {
+  const leadAll = subject(
+    assignment(RoleCode.LEAD_ASSESSOR, { resultTypeKey: '*' }),
+  );
+  const assessorAll = subject(
+    assignment(RoleCode.ASSESSOR, { resultTypeKey: '*' }),
+  );
+
+  it.each(['KP', 'INNOVATION_DEV', 'A_TYPE_ADDED_NEXT_YEAR'])(
+    'a Lead for all holds lead and assessor on %s',
+    (resultType) => {
+      expect(service.can(leadAll, Permission.LEAD_ACCESS, { resultType })).toBe(
+        true,
+      );
+      expect(
+        service.can(leadAll, Permission.ASSESSOR_ACCESS, { resultType }),
+      ).toBe(true);
+    },
+  );
+
+  it('an Assessor for all holds assessor but not lead, on any type', () => {
+    expect(
+      service.can(assessorAll, Permission.ASSESSOR_ACCESS, {
+        resultType: 'NEW_TYPE',
+      }),
+    ).toBe(true);
+    expect(
+      service.can(assessorAll, Permission.LEAD_ACCESS, { resultType: 'KP' }),
+    ).toBe(false);
+  });
+
+  it('fails closed: no context, empty type, and a revoked wildcard all deny', () => {
+    expect(service.can(leadAll, Permission.LEAD_ACCESS, {})).toBe(false);
+    expect(
+      service.can(leadAll, Permission.LEAD_ACCESS, { resultType: '' }),
+    ).toBe(false);
+    expect(
+      service.can(leadAll, Permission.LEAD_ACCESS, { resultType: null }),
+    ).toBe(false);
+    const revoked = subject(
+      assignment(RoleCode.LEAD_ASSESSOR, { resultTypeKey: '*' }, REVOKED),
+    );
+    expect(
+      service.can(revoked, Permission.LEAD_ACCESS, { resultType: 'KP' }),
+    ).toBe(false);
+  });
+
+  it('a listed key is still exact: KP does not cover another type', () => {
+    const kp = subject(assignment(RoleCode.ASSESSOR, { resultTypeKey: 'KP' }));
+    expect(
+      service.can(kp, Permission.ASSESSOR_ACCESS, { resultType: 'OTHER' }),
+    ).toBe(false);
+  });
+
+  it('canAny sees a wildcard grant like any other', () => {
+    expect(service.canAny(leadAll, Permission.LEAD_ACCESS)).toBe(true);
+    expect(service.canAny(leadAll, Permission.ASSESSOR_ACCESS)).toBe(true);
+    expect(service.canAny(assessorAll, Permission.LEAD_ACCESS)).toBe(false);
+  });
+});
+
+describe('AuthorizationService.canReview (D5, FR-4)', () => {
+  const assessorKp = assignment(RoleCode.ASSESSOR, { resultTypeKey: 'KP' });
+  const assessorAll = assignment(RoleCode.ASSESSOR, { resultTypeKey: '*' });
+  const active = (programId: number) => ({
+    programId,
+    status: 'active' as const,
+  });
+  const review = (
+    user: AuthorizationSubject,
+    resultType: string,
+    programId: number,
+    ...extra: Parameters<AuthorizationService['canReview']>[3][]
+  ) =>
+    service.canReview(
+      user,
+      Permission.ASSESSOR_ACCESS,
+      { resultType, programId },
+      ...extra,
+    );
+
+  type ReviewRow = [
+    label: string,
+    user: AuthorizationSubject,
+    resultType: string,
+    programId: number,
+    expected: boolean,
+  ];
+  const rows: ReviewRow[] = [
+    ['no program rows = all programs', subject(assessorKp), 'KP', 5, true],
+    [
+      'program in the list',
+      { assignments: [assessorKp], programScope: [5, 6] },
+      'KP',
+      5,
+      true,
+    ],
+    [
+      'program outside the list',
+      { assignments: [assessorKp], programScope: [5, 6] },
+      'KP',
+      7,
+      false,
+    ],
+    [
+      'result type outside the role scope',
+      subject(assessorKp),
+      'OTHER',
+      5,
+      false,
+    ],
+    [
+      'wildcard covers a type and any program',
+      subject(assessorAll),
+      'NEW_TYPE',
+      99,
+      true,
+    ],
+    [
+      'wildcard with a program list still filters the program',
+      { assignments: [assessorAll], programScope: [5] },
+      'NEW_TYPE',
+      6,
+      false,
+    ],
+    [
+      'active exclusion wins over an empty scope (all programs)',
+      { assignments: [assessorKp], exclusions: [active(5)] },
+      'KP',
+      5,
+      false,
+    ],
+    [
+      'active exclusion wins over a scope that lists the program',
+      {
+        assignments: [assessorKp],
+        programScope: [5, 6],
+        exclusions: [active(5)],
+      },
+      'KP',
+      5,
+      false,
+    ],
+    [
+      'an exclusion of another program does not touch this one',
+      { assignments: [assessorKp], exclusions: [active(6)] },
+      'KP',
+      5,
+      true,
+    ],
+    [
+      'a removed exclusion no longer excludes (DD-12)',
+      {
+        assignments: [assessorKp],
+        exclusions: [{ programId: 5, status: 'removed' }],
+      },
+      'KP',
+      5,
+      true,
+    ],
+    [
+      'a dismissed exclusion no longer excludes (DD-12)',
+      {
+        assignments: [assessorKp],
+        exclusions: [{ programId: 5, status: 'dismissed' }],
+      },
+      'KP',
+      5,
+      true,
+    ],
+    [
+      'a revoked role denies even inside the program scope',
+      subject({ ...assessorKp, ...REVOKED }),
+      'KP',
+      5,
+      false,
+    ],
+    [
+      'ADMIN reviews anything inside the scope',
+      subject(assignment(RoleCode.ADMIN)),
+      'ANY',
+      5,
+      true,
+    ],
+    [
+      'ADMIN is exempt from an active exclusion (DD-13)',
+      { assignments: [assignment(RoleCode.ADMIN)], exclusions: [active(5)] },
+      'ANY',
+      5,
+      true,
+    ],
+    [
+      'ADMIN is exempt from a program scope that lacks the program (DD-13)',
+      { assignments: [assignment(RoleCode.ADMIN)], programScope: [6] },
+      'ANY',
+      5,
+      true,
+    ],
+    [
+      'the same exclusion still blocks a non-admin who holds the permission (DD-13 guard)',
+      {
+        assignments: [assignment(RoleCode.ASSESSOR, { resultTypeKey: 'KP' })],
+        exclusions: [active(5)],
+      },
+      'KP',
+      5,
+      false,
+    ],
+    [
+      'a revoked ADMIN grant no longer exempts: the exclusion applies again',
+      {
+        assignments: [
+          assignment(RoleCode.ADMIN, {}, REVOKED),
+          assignment(RoleCode.ASSESSOR, { resultTypeKey: '*' }),
+        ],
+        exclusions: [active(5)],
+      },
+      'KP',
+      5,
+      false,
+    ],
+    [
+      'an inactive ADMIN role no longer exempts',
+      {
+        assignments: [
+          assignment(RoleCode.ADMIN, {}, { roleIsActive: false }),
+          assignment(RoleCode.ASSESSOR, { resultTypeKey: '*' }),
+        ],
+        exclusions: [active(5)],
+      },
+      'KP',
+      5,
+      false,
+    ],
+  ];
+
+  it.each(rows)('%s', (_label, user, resultType, programId, expected) => {
+    expect(review(user, resultType, programId)).toBe(expected);
+  });
+
+  it('denies a permission the user does not hold, whatever the scope', () => {
+    expect(
+      service.canReview(subject(assessorKp), Permission.LEAD_ACCESS, {
+        resultType: 'KP',
+        programId: 5,
+      }),
+    ).toBe(false);
+  });
+
+  it('takes a later predicate as one more conjunct (D9 seam)', () => {
+    const user = subject(assessorKp);
+    expect(review(user, 'KP', 5, () => true)).toBe(true);
+    expect(review(user, 'KP', 5, () => false)).toBe(false);
+    expect(review(user, 'KP', 5, (_u, target) => target.programId !== 5)).toBe(
+      false,
+    );
+  });
+
+  it('still applies extra predicates to ADMIN: DD-13 exempts scope and exclusions only', () => {
+    const admin = {
+      assignments: [assignment(RoleCode.ADMIN)],
+      exclusions: [active(5)],
+    };
+    expect(review(admin, 'KP', 5, () => true)).toBe(true);
+    expect(review(admin, 'KP', 5, () => false)).toBe(false);
+  });
+
+  it('never runs a predicate to rescue a denial', () => {
+    expect(review(subject(assessorKp), 'OTHER', 5, () => true)).toBe(false);
   });
 });

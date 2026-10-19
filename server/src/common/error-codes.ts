@@ -161,6 +161,11 @@ export const ERROR_CATALOG = {
     status: 409,
     message: 'This user already has this role in this scope.',
   },
+  USERS_ROLE_CONFLICT: {
+    status: 409,
+    message:
+      'A user cannot be both Assessor and Lead Assessor for the same result type. Remove one of the two roles and try again.',
+  },
   USERS_ASSIGNMENT_NOT_FOUND: {
     status: 404,
     message: 'This role assignment does not exist.',

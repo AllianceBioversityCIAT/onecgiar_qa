@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { ROLE_DEFINITIONS, RoleCode } from '../permissions.js';
+import { GRANTABLE_ROLES } from '../permissions.js';
 import { UpstreamUnavailableError } from './catalogs.errors.js';
 import {
   CATALOG_CLOCK,
@@ -83,9 +83,11 @@ export class CatalogService {
 
   /** ADMIN, ASSESSOR, LEAD_ASSESSOR, TPB, PPU: PROGRAM is not grantable (D6). */
   grantableRoles(): GrantableRoleOption[] {
-    return ROLE_DEFINITIONS.filter(
-      (role) => role.code !== RoleCode.PROGRAM,
-    ).map(({ code, name, scopeType }) => ({ code, name, scopeType }));
+    return GRANTABLE_ROLES.map(({ code, name, scopeType }) => ({
+      code,
+      name,
+      scopeType,
+    }));
   }
 
   listResultTypes(): Promise<ResultTypeOption[]> {

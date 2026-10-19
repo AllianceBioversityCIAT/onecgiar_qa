@@ -14,7 +14,7 @@
 | PRD stories | US-3, US-12; personas § Roles |
 | Source | `../proposal.md` + decisions of 2026-10-19 (below) |
 | Scope | Server only (`server/`) |
-| Last updated | 2026-10-19 |
+| Last updated | 2026-10-19 (FR-4 ADMIN exception — DD-13) |
 
 **Decisions taken before writing (back lead, 2026-10-19):**
 
@@ -45,9 +45,9 @@ The QA Admin gets an API to run the assessment team: create people (and their Co
 | Grantable role | ADMIN, ASSESSOR, LEAD_ASSESSOR, TPB, PPU. PROGRAM is not grantable here (D6) |
 | Result type scope | For ASSESSOR / LEAD_ASSESSOR: a list of result types, or **all** (which includes result types added later) |
 | Program scope | The Science Programs a user reviews: a list, or **all** (empty = all, including programs added later) |
-| Exclusion | A Science Program a user must never review (conflict of interest), with a reason. Origin `manual` (admin) or `reporting` (child 2). An exclusion always wins over the program scope |
+| Exclusion | A Science Program a user must never review (conflict of interest), with a reason. Origin `manual` (admin) or `reporting` (child 2). An exclusion always wins over the program scope (an active ADMIN is exempt — DD-13) |
 | Dismissed exclusion | A `reporting` exclusion an admin set aside, keeping who, when and why |
-| Effective scope | Role → result types → program scope minus active exclusions (→ timeline, later) |
+| Effective scope | Role → result types → program scope minus active exclusions (→ timeline, later); an active ADMIN skips the scope and exclusion steps (DD-13) |
 
 ## 4. System Context & Scope
 
@@ -143,12 +143,12 @@ The system SHALL let a QA Admin grant ADMIN, TPB and PPU globally, and ASSESSOR 
 - BUT it must NOT revoke and re-grant an unchanged grant
 
 ### FR-4: Program scope and exclusions
-The system SHALL keep, per user, a program scope (a list, or all including future programs) and a set of exclusions; an active exclusion always removes its program from the user's effective scope.
+The system SHALL keep, per user, a program scope (a list, or all including future programs) and a set of exclusions; an active exclusion always removes its program from the user's effective scope — except for a user holding an active ADMIN grant, who is never blocked by a conflict of interest (D3; design DD-13, back lead 2026-10-19).
 
 #### Scenario: Manual exclusion
 - WHEN the admin blocks program P for a user, with a reason
 - THEN P is excluded, recorded as `manual` with who, when and the reason
-- AND it is excluded even if P is in the program scope
+- AND it is excluded even if P is in the program scope (for a non-admin; an active ADMIN is exempt — DD-13)
 
 #### Scenario: Remove a manual exclusion
 - THEN it is no longer active and its history (who removed it, when) is kept

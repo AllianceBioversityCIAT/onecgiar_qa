@@ -58,11 +58,11 @@ Serial boundaries: T-1 (schema, `server/src/database/**`), T-2 and T-5 (`server/
 - **Skills:** nestjs-expert, api-design-principles, error-handling-patterns
 
 ## T-3: Permissions and assignment rules (ADMIN all, `*`, Assessor/Lead exclusivity, effective scope)
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-1
-- **Requirements:** FR-14; FR-3 (Mixed roles; Assessor and Lead on the same type incl. **all**; All result types covers future types); FR-4 (exclusion always wins — pure part); FR-2 (non-grantable PROGRAM — rule part)
-- **Design refs:** § 7 effective scope/`canReview`, ADMIN; DD-1, DD-2, DD-10, DD-11; P-3, P-11, P-14
+- **Requirements:** FR-14; FR-3 (Mixed roles; Assessor and Lead on the same type incl. **all**; All result types covers future types); FR-4 (exclusion always wins — pure part; active ADMIN exempt, DD-13); FR-2 (non-grantable PROGRAM — rule part)
+- **Design refs:** § 7 effective scope/`canReview`, ADMIN; DD-1, DD-2, DD-10, DD-11, DD-13; P-3, P-11, P-14
 - **Scope:** `server/src/users/permissions.ts` (ADMIN grants every permission; grantable-role list), `authorization.service.ts` (`*` matches any key; `canReview`), `effective-scope.ts` (pure), `role-assignments.repository.ts` (accept `*` for result-type roles only; refuse Assessor/Lead overlap for one user, `*` included), `users.errors.ts`/error catalog (`USERS_ROLE_CONFLICT`). **First step:** update `role-assignments.repository.spec.ts:225` (the test that grants Assessor+Lead on KP) to expect the refusal.
 - **Tests:** table tests: every overlap shape (A/A, A/L same key, A/L `*` vs key, L `*` vs A `*`, different keys allowed, revoked ignored); `can`/`canAny`/`canReview` with `*`, program list, all programs, exclusion over scope; matrix spec: ADMIN true everywhere.
 - **Verification:** server command
@@ -206,7 +206,7 @@ Serial boundaries: T-1 (schema, `server/src/database/**`), T-2 and T-5 (`server/
 | FR-2 | Cognito unavailable → 503, no record | T-5, T-6 |
 | FR-3 | Mixed roles · Assessor+Lead same type incl. all → 409 · All covers future types | T-3 |
 | FR-3 | Replacing roles · BUT unchanged grants not re-issued | T-6 |
-| FR-4 | Manual exclusion (wins over scope) · remove (history) · dismiss reporting (AND IT MUST reason) · unknown program | T-3 (wins), T-4 (storage), T-6 (behavior) |
+| FR-4 | Manual exclusion (wins over scope) · remove (history) · dismiss reporting (AND IT MUST reason) · unknown program | T-3 (wins; ADMIN exempt, DD-13), T-4 (storage), T-6 (behavior) |
 | FR-5 | Email immutable · name only before first sign-in · 404 | T-6, T-8 |
 | FR-6 | Same instance immediately · other instances ≤ 60 s | T-4 (cache), T-6 (invalidate) |
 | FR-7 | Deactivated: login 403 · refresh fails · BUT Cognito untouched · history keeps names | T-6 |
