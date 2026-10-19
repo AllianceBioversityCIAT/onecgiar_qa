@@ -5,7 +5,7 @@
 | Spec path | `docs/specs/auth/user-management/core` |
 | Branch | `feat/auth-user-management` (from `origin/staging-center`) |
 | Jira | P2-3908 — commits `<emoji> <type>(users) P2-3908: …` |
-| Budget (design § 2) | 10 tasks (one more than the design estimate: the HITL step is its own task) · ~3,200 LOC · ~16 Reviewer passes |
+| Budget (design § 2) | 10 tasks (the HITL step is its own task) · ~12,500 LOC · ~20 Reviewer passes — re-baselined 2026-10-19 (was ~3,200 LOC · ~16 passes) |
 | Verification (server) | `cd server && pnpm lint && pnpm build && pnpm test --reporter=dot` (+ `pnpm test:e2e --reporter=dot` where stated) |
 
 Status: `[ ]` pending · `[~]` in progress · `[x]` done (after a Reviewer PASS or a recorded `REVIEW_WAIVED`) · `[!]` blocked.

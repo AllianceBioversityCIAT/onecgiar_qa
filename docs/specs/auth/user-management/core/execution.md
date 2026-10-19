@@ -305,7 +305,7 @@ From this commit on, this branch reads `user_programs` and `user_program_exclusi
 
 - Budget: 10 tasks · ~3,200 LOC · ~16 Reviewer passes. Actual after T-4: 4 tasks · ~6,200 LOC (T-1 ~600, T-2 ~1,200, T-3 ~1,000, T-4 ~3,400; more than half tests) · 7 Reviewer passes. **LOC exceeded.**
 - Causes: two user-approved amendments (DD-12, DD-13), concurrency tests with a lock-emulating fake, real-response fixtures (T-2), fail-open fix carried from T-3.
-- Escalated to the back lead 2026-10-19. Answer: "Sí, ajusta el alcance que todo quede bien". The Leader proposed option A (re-baseline to ~12,500 LOC / ~20 Reviewer passes, no requirement cut) vs B (cut ~800 LOC of tests/filters). **Awaiting explicit choice; no re-baseline written yet.**
+- Escalated to the back lead 2026-10-19. Answer: "Sí, ajusta el alcance que todo quede bien". The Leader proposed option A (re-baseline to ~12,500 LOC / ~20 Reviewer passes, no requirement cut) vs B (cut ~800 LOC of tests/filters). **Back lead chose option A (2026-10-19, "Si. A")** — `design.md` § 2 and `tasks.md` header re-baselined to ~12,500 LOC · ~20 Reviewer passes; no requirement cut.
 
 #### Requirements covered
 
