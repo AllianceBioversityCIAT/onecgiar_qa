@@ -588,3 +588,8 @@ FR-1, FR-2/3/4/5/7/8/9/10 (HTTP surface), FR-12 (own profile nickname; public-us
 #### Final verification
 
 lint ✅ · build ✅ · unit 1012/1012 ✅ · e2e 387/387 ✅ · tsc baseline ✅
+
+#### Budget tripwire after T-8 (2026-10-19)
+
+- Actual: 8 of 10 tasks · ~15,000 LOC (re-baseline ~12,500, **+20 %**) · 20 Reviewer passes (re-baseline ~20, reached). Remaining: T-9 (~500–800 LOC, 1–2 passes), T-10 (no code).
+- Escalated to the back lead; answer "SI" — continue with T-9 without cutting scope.
