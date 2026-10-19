@@ -267,18 +267,18 @@ The ADMIN role SHALL grant every permission in the catalog, present and future (
 
 | ID | Title | Scenarios | Owning task(s) |
 |---|---|---|---|
-| FR-1 | Admin-only access | 2 | (tasks.md) |
-| FR-2 | Create a user | 5 | |
-| FR-3 | Roles and result-type scope | 4 | |
-| FR-4 | Program scope and exclusions | 4 | |
-| FR-5 | Edit a user | 2 | |
-| FR-6 | Changes take effect | 1 | |
-| FR-7 | Deactivate / reactivate | 2 | |
-| FR-8 | Resend invitation | 1 | |
-| FR-9 | List and find | 2 | |
-| FR-10 | Detail | — | |
-| FR-11 | Catalogs | 1 | |
-| FR-12 | Nickname exposure | 1 | |
-| FR-13 | Audit | 1 | |
-| FR-14 | ADMIN holds every permission | — | |
-| NFR-1…5 | See § 7 | — | |
+| FR-1 | Admin-only access | 2 | T-2, T-8 |
+| FR-2 | Create a user | 5 | T-1, T-3, T-5, T-6, T-8, T-10 |
+| FR-3 | Roles and result-type scope | 4 | T-3, T-6 |
+| FR-4 | Program scope and exclusions | 4 | T-3, T-4, T-6 |
+| FR-5 | Edit a user | 2 | T-6, T-8 |
+| FR-6 | Changes take effect | 1 | T-4, T-6 |
+| FR-7 | Deactivate / reactivate | 2 | T-4, T-6, T-10 |
+| FR-8 | Resend invitation | 1 | T-5, T-6, T-10 |
+| FR-9 | List and find | 2 | T-7, T-8 |
+| FR-10 | Detail | — | T-7, T-8 |
+| FR-11 | Catalogs | 1 | T-2, T-10 |
+| FR-12 | Nickname exposure | 1 | T-8, T-9 |
+| FR-13 | Audit | 1 | T-4, T-6, T-9 |
+| FR-14 | ADMIN holds every permission | — | T-3 |
+| NFR-1…5 | See § 7 | — | T-1–T-5, T-8–T-10 |

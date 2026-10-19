@@ -15,7 +15,7 @@
 
 The `users` module gains an admin API (`/api/v1/users…`, `/api/v1/catalogs/…`) behind `ADMIN_ACCESS`. The data model adds a nickname, a per-user program scope, conflict-of-interest exclusions with origin and history, an "all result types" grant, and an audit table. Writes run in one MySQL transaction that locks the target user row (and the ADMIN role row when the last-admin rule is at stake), write one audit event per change, and invalidate the user's cached authorization after commit. Custom-account users get their Cognito account through a new admin client that uses AWS credentials (IAM) on the shared pool. Catalogs come from Reporting (result types) and CLARISA (Science Programs), cached in process. Authorization gains one composable rule, `canReview`, used by later result stories.
 
-**Budget (tripwire for `/akili-execute`):** 9 tasks · ~3,200 LOC (≈ 1,400 production, ≈ 1,800 tests) · ~16 Reviewer passes.
+**Budget (tripwire for `/akili-execute`):** 10 tasks (9 build + 1 HITL) · ~3,200 LOC (≈ 1,400 production, ≈ 1,800 tests) · ~16 Reviewer passes.
 
 ## 3. Architecture Overview
 
