@@ -131,3 +131,64 @@ FR-4 (exclusion end history — schema part), FR-13 (actor on human ends), NFR-5
 #### Final verification
 
 lint ✅ · build ✅ · tests 602/602 ✅
+
+### T-2: Catalogs — result types (Reporting) and Science Programs (CLARISA)
+
+- **Final status:** PASS (Reviewer) — blockers P-5 and P-6 cleared by the back lead the same day
+- **Date:** 2026-10-19
+- **Setup:** back lead added `REPORTING_API_URL` and `CLARISA_API_URL` (TEST hosts) to the local `server/.env`; the Leader copied that git-ignored file into the worktree.
+- **Skills:** nestjs-expert, api-design-principles, error-handling-patterns · Effort: high
+
+#### Attempt 1 (spawn 1 — ended partial)
+
+- **P-5 (Reporting `GET qa/catalog?phase_year=2026`):** **UNSETTLED — blocker.** No auth → 401 (JSON `{response, statusCode, message, timestamp, path}`). The repo and `.env` hold no Reporting credential or scheme; no header guessed. Result-types client not built.
+- **P-6 (CLARISA):** endpoint settled with an open question. Swagger has no "science programs" route; nearest is `GET initiatives` (fields `id`, `name`, `short_name`, `official_code`, `type_id`, `active`, `status`, `stageId`, `description`, `action_area_id`, `action_area_description`, `stages[]`). 200 without a key on TEST (`CLARISA_API_KEY` not read). `show=active` ignored and ids can repeat → client keeps `active === 1`, de-duplicates by id. **Open:** TEST data is the old portfolio (`INIT-xx`, `PLAT-xx`, `SGP-xx`), no `SP-xx` codes — whether these are the "Science Programs" (D8) is unconfirmed.
+- **Files changed (uncommitted):** new `server/src/users/catalogs/{catalogs.ports,catalogs.errors,catalog.service,catalogs.controller,clarisa-science-programs.client,pending-result-type.source}.ts`, `fixtures/clarisa-initiatives.json`, two specs; new `server/src/config/catalogs.config.ts`, `server/test/catalogs.e2e-spec.ts`; modified `users.module.ts`, `env.validation.ts`, `env.validation.spec.ts`, `openapi.config.spec.ts`, `vitest.config.e2e.ts`, `.env.example`, `server/src/config/AGENTS.md`.
+- **Implementer verification:** lint, build clean; unit 24 files / 634 passed; e2e 7 files / 259 passed.
+- **Red run / falsifiers (mutation runs):** dropping `active === 1` → `expected [ …(5) ] to deeply equal [ …(3) ]`; stale limit 48 h → two specs `promise resolved … instead of rejecting`; PROGRAM grantable → unit + e2e `expected [ …(6) ] to deeply equal [ …(5) ]`. Restored.
+- **Not Done / Assumptions (verbatim from report):** Reporting result-types client not built (P-5 unsettled); `pending-result-type.source.ts` stands in and always answers 503; `src/users/AGENTS.md` catalogs row and `docs/infrastructure.md` § 6 not updated; no e2e for a stale copy after 1 h (unit only); assumption that CLARISA `initiatives` are the Science Programs.
+- **runtime events:** none
+- **spawns:** implementer not reported by host calls, 169404 tokens (40 tool uses), ended partial
+
+#### Leader notes
+
+- The `pending-result-type.source.ts` placeholder is not in the task text; kept uncommitted pending the user's answer on P-5 — it must not ship as the final result-types source.
+- Escalated to the back lead 2026-10-19: Reporting auth scheme + whether `qa/catalog` carries result-type key/name; whether CLARISA `initiatives` are the Science Programs.
+- **Back lead answers (2026-10-19):** (1) Reporting authenticates with the same API key as CLARISA (`CLARISA_API_KEY`); the placement is still to be confirmed at source. (2) The "Science Programs" are the initiatives, read from CLARISA `GET cgiar-entities/by-portfolio?portfolioId=2,3&version=2` instead of `initiatives`. P-6 settled by user decision (source endpoint).
+- **continuations: 1** (Reporting result-types client on the CLARISA key; CLARISA client moved to `cgiar-entities/by-portfolio`; placeholder removed) — sent to the same Implementer by message (context intact).
+
+#### Attempt 1 (continuation 1 — ended complete)
+
+- **P-5 settled:** no swagger on the Reporting host; `Authorization: Bearer` and `auth` header → 401; **`x-api-key` → 200**. `qa/catalog` top level: `portfolio`, `phase`, `catalog_version`, `generated_at`, `result_types`, `sections`, `fields`; `result_types[]` = `{ key, label, level }` (9) → mapped `key → key`, `label → name`. Assumption: `phase_year` = current UTC year.
+- **P-6 settled:** `cgiar-entities/by-portfolio?portfolioId=2,3&version=2` → 14 rows `{ id, code, name, compose_code, year, short_name, acronym, start_date, end_date, level, is_active, entity_type{code,name}, portfolio{code,name} }` = SP01–SP13 + inactive SGP-02; names trimmed; only `is_active === 1` kept; no dedupe needed; same answer with and without a key → no key sent to CLARISA. SP12/SP13 are `entity_type` "Accelerators" with SP codes — kept.
+- **Files changed (whole attempt):** new `server/src/users/catalogs/{catalogs.ports,catalogs.errors,catalog.service,catalogs.controller,catalog-http,clarisa-science-programs.client,reporting-result-types.client}.ts` + specs, `fixtures/{reporting-qa-catalog,clarisa-entities-by-portfolio}.json`; new `server/src/config/catalogs.config.ts`, `server/test/catalogs.e2e-spec.ts`; modified `server/src/users/users.module.ts`, `server/src/config/{env.validation,env.validation.spec,openapi.config.spec}.ts`, `server/src/config/AGENTS.md` (env rows), `server/vitest.config.e2e.ts`, `server/.env.example`. Deleted before landing: `pending-result-type.source.ts`, `fixtures/clarisa-initiatives.json`.
+- **Falsifiers (restored):** stale limit 48 h → 2 red (`promise resolved … instead of rejecting`); PROGRAM grantable → unit + e2e red (`expected [ 'ADMIN', 'ASSESSOR', …(4) ] to deeply equal [ …(3) ]`); Reporting maps `name` from `key` → 2 red; key in the wrong header → `expected { accept: 'application/json', …(1) } to match object { 'x-api-key': 'unit-test-key' }`.
+- **Implementer verification:** lint, build clean; unit 25 files / 649 passed; e2e 7 files / 259 passed.
+- **Evidence re-run (Leader-inline, non-author):** `pnpm lint` 0; `pnpm build` 0; `pnpm test --reporter=dot --maxWorkers=2` 649/649; `pnpm test:e2e --reporter=dot` 259/259 → **VERIFIED**. Secret scan: the `CLARISA_API_KEY` value appears in no tracked or untracked file nor in the diff; no TEST host names in code or fixtures.
+- **Reviewer verdict:** PASS — FR-11 (three catalogs, 503 `SERVICE_UNAVAILABLE` without a copy, stale ≤ 24 h), FR-1 (class-level `ADMIN_ACCESS`; 200/403/401 per route in e2e), NFR-3 (one 10 s `AbortController` over `fetch` + `json()`), NFR-2 (logs carry source + status/reason only; unit test asserts the key never logs); § 6/§ 7/DD-9 match; fixtures match the settled shapes (disqualifier not hit); OpenAPI generic test covers the new routes and their 503 codes; named check on the § 5 / DD-12 amendment: untouched, no contradiction; `src/config/AGENTS.md` env rows accepted (task adds those vars).
+- **runtime events:** none
+- **spawns:** implementer not reported by host calls, 188623 tokens (11 tool uses, continuation), ended complete; reviewer not reported by host calls, 72827 tokens (16 tool uses), ended complete
+
+#### ADVISORY (Reviewer, 4R — non-gating, recorded only)
+
+- RISK — `fetch` follows redirects; Node strips `Authorization` cross-origin but not `x-api-key`, so a redirecting Reporting/proxy would forward the key. Suggest `redirect: 'error'` in `catalog-http.ts` `getJson`. **Raised to the user.**
+- RISK — `phase_year = getUTCFullYear()` is unstated in the spec; on 1 January, if Reporting has no catalog for the new year, the stale window ends after 24 h and every user-management mutation answers 503. Later: take the year from the active cycle (TRD § 5 `cycles.phase_year`).
+- RESILIENCE — no failure memory: during an outage each request in the stale window waits up to 10 s before getting the stale copy; consider a short backoff.
+- READABILITY — `UpstreamUnavailableError` now exists twice (`auth/cognito-auth.client.ts:49` → `AUTH_SERVICE_UNAVAILABLE`; `users/catalogs/catalogs.errors.ts:9` → `SERVICE_UNAVAILABLE`); `auth-decision.ts:79` maps by class, so a wrong import fails silently. **Forward pointer → T-5 brief** (CognitoAdminClient needs one too).
+- READABILITY — CLARISA spec title still says `initiatives`; e2e "serves the cached copy when the source fails after a success" only proves the fresh path (stale end to end is unit-only); duplicate `@nestjs/swagger` import in `catalogs.controller.ts`.
+- RISK — the OpenAPI "carries no secret" test checks only `COGNITO_CLIENT_SECRET`; add `CLARISA_API_KEY`. **Forward pointer → T-9 brief** (privacy task).
+- SPEC — `/catalogs/science-programs` includes Accelerators (SP12, SP13); follows the user decision, to be confirmed with business (Santi) and then recorded in `docs/qa-context.md`.
+
+#### Requirements covered
+
+FR-11 (both scenarios), FR-1 (catalog routes), NFR-3; NFR-2 for the catalog clients.
+
+#### Decisions made
+
+- Back lead (2026-10-19): Reporting auth = shared `CLARISA_API_KEY`; Science Programs source = CLARISA `cgiar-entities/by-portfolio?portfolioId=2,3&version=2`.
+- Execute-time spec edits (recorded when made, no requirement meaning changed): `design.md` § 9 Env — Reporting auth and `CLARISA_API_KEY` usage; `design.md` § 11 — P-5 and P-6 rows settled and the ledger count updated (10 verified · 4 UNVERIFIED). Carried as a named conformance check into the T-3 Reviewer brief.
+- Leader: the `pending-result-type.source.ts` placeholder (not in the task text) was removed before landing.
+
+#### Final verification
+
+lint ✅ · build ✅ · unit 649/649 ✅ · e2e 259/259 ✅

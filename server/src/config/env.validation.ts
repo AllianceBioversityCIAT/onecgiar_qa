@@ -8,6 +8,9 @@ const REQUIRED_ENV_VARS = [
   'COGNITO_CLIENT_SECRET',
   'COGNITO_URL',
   'ALLOWED_ORIGINS',
+  'REPORTING_API_URL',
+  'CLARISA_API_URL',
+  'CLARISA_API_KEY',
 ] as const;
 
 /**
@@ -93,6 +96,12 @@ export function validateEnv(
   for (const key of ['COGNITO_URL', 'COGNITO_USER_POOL_URL'] as const) {
     const value = config[key];
     if (value !== undefined && value !== '' && !isHttpsUrl(value as string)) {
+      throw new Error(`Invalid ${key}: expected an https:// URL`);
+    }
+  }
+  // Catalog sources (FR-11): their answers decide who may be granted what.
+  for (const key of ['REPORTING_API_URL', 'CLARISA_API_URL'] as const) {
+    if (!isHttpsUrl(config[key] as string)) {
       throw new Error(`Invalid ${key}: expected an https:// URL`);
     }
   }

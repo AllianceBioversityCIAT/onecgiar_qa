@@ -10,6 +10,7 @@ Environment validation and typed configuration. This is the **only** place in th
 | `auth.config.ts` | `authConfig` namespace: Cognito region, pool id, client id, client secret, Hosted UI URL, user-pool API URL (defaults to `https://cognito-idp.<region>.amazonaws.com/`), parsed `allowedOrigins` |
 | `mysql.config.ts` | `mysqlConfig`: `DATABASE_URL`, `DATABASE_POOL_SIZE` (default 10) |
 | `openapi.config.ts` | `openApiConfig`: `enabled` — `OPENAPI_ENABLED` if set, else on unless `NODE_ENV=production` |
+| `catalogs.config.ts` | `catalogsConfig`: `REPORTING_API_URL`, `CLARISA_API_URL` and the shared `CLARISA_API_KEY` (base URLs and key of the catalog sources) |
 | `dynamodb.config.ts` | `dynamoDbConfig`: `AWS_REGION`, `DYNAMODB_TABLE_NAME`, optional `DYNAMODB_ENDPOINT`, and `credentials` only when both `DYNAMODB_*` keys are set (else the SDK default chain) |
 
 ## Variables
@@ -25,6 +26,8 @@ Environment validation and typed configuration. This is the **only** place in th
 | `COGNITO_CLIENT_SECRET` | yes | **secret**: local `.env` or the secret store only; never a value in `.env.example` |
 | `COGNITO_URL` | yes | Hosted UI domain, `https://` only |
 | `COGNITO_USER_POOL_URL` | no | user-pool API endpoint override, `https://` only |
+| `REPORTING_API_URL`, `CLARISA_API_URL` | yes | base URLs with the `/api` path, `https://` only |
+| `CLARISA_API_KEY` | yes | **secret**: local `.env` or the secret store only; sent as `x-api-key` to Reporting only |
 | `ALLOWED_ORIGINS` | yes | comma-separated exact origins; `https://` only, except `http://localhost:<port>`; no path or trailing slash |
 | `OPENAPI_ENABLED` | no | `true` / `false`; default on unless `NODE_ENV=production` (Swagger UI at `/api/v1/docs`) |
 | `SEED_ADMIN_EMAIL` | no | first ADMIN for `pnpm db:seed` |

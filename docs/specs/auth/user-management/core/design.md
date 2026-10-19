@@ -129,7 +129,7 @@ Not in scope (server only). Contract notes for the front team: roles come groupe
 ## 9. Shared Contracts or Package Extensions
 
 - **New dependency:** `@aws-sdk/client-cognito-identity-provider`.
-- **Env:** `COGNITO_ADMIN_ACCESS_KEY_ID` / `COGNITO_ADMIN_SECRET_ACCESS_KEY` (local only, both or neither), `REPORTING_API_URL` (+ its auth), `CLARISA_API_URL`, `CLARISA_API_KEY` (exists in local `.env`, not yet read by code — P-6). All validated; secrets read only in `src/config/` (FR-17 of the auth spec).
+- **Env:** `COGNITO_ADMIN_ACCESS_KEY_ID` / `COGNITO_ADMIN_SECRET_ACCESS_KEY` (local only, both or neither), `REPORTING_API_URL` (auth: the shared `CLARISA_API_KEY` in header `x-api-key` — P-5), `CLARISA_API_URL`, `CLARISA_API_KEY` (required; sent to Reporting only — CLARISA `by-portfolio` needs no key, P-6). All validated; secrets read only in `src/config/` (FR-17 of the auth spec).
 - **IAM (Cris):** `AdminGetUser`, `AdminCreateUser` on the shared pool for local (user) and TEST/PROD (role).
 - **TRD (pending for `staging`):** § 5.1 new tables/columns; § 6 users and catalogs routes.
 
@@ -152,7 +152,7 @@ Not in scope (server only). Contract notes for the front team: roles come groupe
 
 ## 11. Premise Ledger
 
-Count: 8 verified · 6 UNVERIFIED (High: 3 · Low: 3)
+Count: 10 verified · 4 UNVERIFIED (High: 1 · Low: 3) — P-5, P-6 settled in T-2 (2026-10-19)
 Blast-radius triggers: `live-path` (admin actions and the SSO first-login link), `shared-state` (`AuthenticatedUser`/`CurrentUserCache`, `ROLE_DEFINITIONS`), `consumer` (`/auth/me` shape, error catalog, `can()` matrix) — all three fired.
 
 | # | Claim | Class | Citation (as run) | Verified at | If false | Settled by |
@@ -161,8 +161,8 @@ Blast-radius triggers: `live-path` (admin actions and the SSO first-login link),
 | P-2 | `CurrentUserCache.invalidate(userId)` exists and admission calls it after commit | location | `server/src/users/current-user.cache.ts:128`; `server/src/auth/admission.service.ts:155` | `8ecef79` | FR-6 needs a new mechanism — Low | — |
 | P-3 | `active_key` includes `role_id`, so the DB cannot forbid ASSESSOR+LEAD on one type | existence | `server/src/database/drizzle/schema/role-assignments.ts:47-54` | `8ecef79` | DD-2 could be a DB constraint — Low | — |
 | P-4 | Custom login sends the email as Cognito `USERNAME` (email is the username or an alias) | data-env | `server/src/auth/cognito-auth.client.ts:127` | `8ecef79` | `AdminCreateUser` username choice changes — Low | — |
-| P-5 | Reporting exposes result types (key + name) on `GET /api/qa/catalog?phase_year=` | data-env | UNVERIFIED — confirm at source before relying on it | — | Result-type catalog source changes — **High** | T-2 first step (read the endpoint; PRD states it exists, user-stated) |
-| P-6 | CLARISA exposes Science Programs (id, code, name) reachable with `CLARISA_API_KEY` | data-env | UNVERIFIED — confirm at source before relying on it | — | Program catalog source changes (D8) — **High** | T-2 first step |
+| P-5 | Reporting exposes result types (key + name) on `GET /api/qa/catalog?phase_year=` | data-env | Read on TEST 2026-10-19 (T-2): `result_types[]` = `{ key, label, level }` (9 entries); auth = the shared CLARISA API key in header `x-api-key` (back lead decision; `Authorization: Bearer` and `auth` → 401) | `f0d02bd`+T-2 | — | Settled (T-2) |
+| P-6 | CLARISA exposes Science Programs (id, code, name) | data-env | Read on TEST 2026-10-19 (T-2): source decided by the back lead = `GET cgiar-entities/by-portfolio?portfolioId=2,3&version=2` (not `initiatives`); rows `{ id, code, name, is_active, entity_type, portfolio, … }` = SP01–SP13 + inactive SGP-02; no key required | `f0d02bd`+T-2 | — | Settled (T-2); Accelerators SP12/SP13 included — to confirm with business (Santi) |
 | P-7 | `qadb` default collation is case-insensitive, so a unique index makes the nickname unique case-insensitively | data-env | UNVERIFIED — confirm at source before relying on it | — | Need a generated lower-case column — Low | T-1 (read-only `SHOW CREATE TABLE users` at HITL) |
 | P-8 | QA can obtain IAM credentials with `AdminGetUser`/`AdminCreateUser` on the shared pool | data-env | UNVERIFIED — confirm at source before relying on it | — | DD-6 impossible; D7 must be revisited — **High** | Cris (pool owner) before T-5 |
 | P-9 | `@aws-sdk/client-cognito-identity-provider` is not installed | existence | `grep -c "client-cognito-identity-provider" server/package.json` → 0 | `8ecef79` | — (T-5 adds it) — Low | — |

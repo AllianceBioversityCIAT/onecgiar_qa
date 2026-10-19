@@ -41,7 +41,7 @@ Serial boundaries: T-1 (schema, `server/src/database/**`), T-2 and T-5 (`server/
 - **Skills:** nestjs-expert, nestjs-best-practices
 
 ## T-2: Catalogs — result types (Reporting) and Science Programs (CLARISA)
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** none (config boundary: not in parallel with T-5)
 - **Requirements:** FR-11 (both scenarios: catalogs; upstream down → 503, stale ≤ 24 h MAY), FR-1 (catalog routes admin-only — route part), NFR-3

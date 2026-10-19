@@ -10,6 +10,9 @@ const VALID = {
   COGNITO_CLIENT_SECRET: 'secret',
   COGNITO_URL: 'https://example.auth.us-east-1.amazoncognito.com',
   ALLOWED_ORIGINS: 'https://qa.example.org',
+  REPORTING_API_URL: 'https://reporting.example.org/api/',
+  CLARISA_API_URL: 'https://clarisa.example.org/api/',
+  CLARISA_API_KEY: 'key',
 };
 
 describe('validateEnv', () => {
@@ -47,6 +50,15 @@ describe('validateEnv', () => {
   it('accepts the optional COGNITO_USER_POOL_URL when absent', () => {
     expect(() => validateEnv({ ...VALID })).not.toThrow();
   });
+
+  it.each(['REPORTING_API_URL', 'CLARISA_API_URL'])(
+    'rejects a non-https %s',
+    (key) => {
+      expect(() =>
+        validateEnv({ ...VALID, [key]: 'http://catalog.example.com/api/' }),
+      ).toThrow(`Invalid ${key}`);
+    },
+  );
 
   it.each(['DYNAMODB_ACCESS_KEY_ID', 'DYNAMODB_SECRET_ACCESS_KEY'])(
     'refuses %s alone, naming the missing partner',
