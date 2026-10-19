@@ -24,7 +24,7 @@ Serial boundaries: T-1 (schema, `server/src/database/**`), T-2 and T-5 (`server/
 ---
 
 ## T-1: Schema and migration for nickname, program scope, exclusions and audit
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** none
 - **Requirements:** FR-2 (nickname unique — schema part), FR-4 (exclusion origin/status/history — schema part), FR-8 (invitation state), FR-13 (audit storage), NFR-5 (unique email/nickname, one active exclusion per user/program)

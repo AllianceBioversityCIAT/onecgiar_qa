@@ -1129,6 +1129,10 @@ describe.each(['login', 'refresh'] as const)(
       at,
       at,
       null,
+      // nickname, invitation, invited_at (appended by migration 0001)
+      null,
+      'none',
+      null,
     ];
     const assignmentRow = [
       10,
