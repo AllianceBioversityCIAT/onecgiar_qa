@@ -11,6 +11,9 @@ import { Permission, ROLE_DEFINITIONS } from './permissions.js';
 // `ROLE_DEFINITIONS`), and a completeness check fails when a role or a
 // permission exists that the grid does not know.
 
+/** The program part of a subject: scope and exclusions loaded, none (this grid is about permissions). */
+const NO_PROGRAM_RULES = { programScope: [], exclusions: [] } as const;
+
 function actionsOfCatalog(): Permission[] {
   return Object.values(Permission).filter((p) => p !== Permission.READ);
 }
@@ -90,7 +93,10 @@ describe('AuthorizationService.can: role x permission x scope grid (NFR-2)', () 
 
   describe.each(Object.entries(FR3))('%s', (role, { scope, grants }) => {
     it('grants exactly its permissions, and only inside its scope', () => {
-      const user = { assignments: [assignmentOf(role, scope)] };
+      const user = {
+        assignments: [assignmentOf(role, scope)],
+        ...NO_PROGRAM_RULES,
+      };
       const wrong: string[] = [];
       for (const permission of ACTIONS) {
         for (const [label, context, inside] of contextsOf(scope)) {
@@ -106,7 +112,10 @@ describe('AuthorizationService.can: role x permission x scope grid (NFR-2)', () 
     });
 
     it('grants through canAny exactly its permissions, whatever the scope', () => {
-      const user = { assignments: [assignmentOf(role, scope)] };
+      const user = {
+        assignments: [assignmentOf(role, scope)],
+        ...NO_PROGRAM_RULES,
+      };
       for (const permission of ACTIONS) {
         expect(service.canAny(user, permission), permission).toBe(
           grants.includes(permission),
@@ -117,13 +126,18 @@ describe('AuthorizationService.can: role x permission x scope grid (NFR-2)', () 
 
   it('GUEST holds no action permission in any context', () => {
     for (const permission of ACTIONS) {
-      expect(service.canAny({ assignments: [] }, permission), permission).toBe(
-        false,
-      );
+      expect(
+        service.canAny({ assignments: [], ...NO_PROGRAM_RULES }, permission),
+        permission,
+      ).toBe(false);
       for (const scope of ['global', 'result_type', 'program'] as const) {
         for (const [label, context] of contextsOf(scope)) {
           expect(
-            service.can({ assignments: [] }, permission, context),
+            service.can(
+              { assignments: [], ...NO_PROGRAM_RULES },
+              permission,
+              context,
+            ),
             `${permission} with ${label}`,
           ).toBe(false);
         }
@@ -133,7 +147,10 @@ describe('AuthorizationService.can: role x permission x scope grid (NFR-2)', () 
 });
 
 describe('ADMIN grants every permission everywhere (FR-14, DD-10)', () => {
-  const admin = { assignments: [assignmentOf('ADMIN', 'global')] };
+  const admin = {
+    assignments: [assignmentOf('ADMIN', 'global')],
+    ...NO_PROGRAM_RULES,
+  };
 
   it('answers true for every catalog permission in every context', () => {
     expect(ACTIONS.length).toBeGreaterThan(1);

@@ -170,6 +170,30 @@ export const ERROR_CATALOG = {
     status: 404,
     message: 'This role assignment does not exist.',
   },
+  USERS_NOT_FOUND: { status: 404, message: 'This user does not exist.' },
+  USERS_LAST_ADMIN: {
+    status: 409,
+    message:
+      'This change would leave QA without an active administrator. Make another user an administrator first.',
+  },
+  USERS_EXCLUSION_EXISTS: {
+    status: 409,
+    message: 'This program is already excluded for this user.',
+  },
+  USERS_EXCLUSION_NOT_FOUND: {
+    status: 404,
+    message: 'This program exclusion does not exist or is no longer active.',
+  },
+  USERS_EXCLUSION_NOT_MANUAL: {
+    status: 409,
+    message:
+      'Only an exclusion added by an administrator can be removed. Dismiss an exclusion that comes from Reporting instead.',
+  },
+  USERS_EXCLUSION_NOT_REPORTING: {
+    status: 409,
+    message:
+      'Only an exclusion that comes from Reporting can be dismissed. Remove an exclusion added by an administrator instead.',
+  },
 } as const satisfies Record<string, { status: number; message: string }>;
 
 export type ErrorCode = keyof typeof ERROR_CATALOG;

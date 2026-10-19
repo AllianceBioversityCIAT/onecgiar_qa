@@ -4,6 +4,7 @@ import {
   type AuthorizationSubject,
   type PermissionContext,
 } from './authorization.service.js';
+import type { ProgramScopeView } from './effective-scope.js';
 import { Permission, RoleCode } from './permissions.js';
 
 // Expected values come from the FR-3 role table and scenarios of the spec, as
@@ -25,8 +26,21 @@ function assignment(
   };
 }
 
+/** A subject that loaded its program scope and exclusions: none, so all programs. */
 function subject(...assignments: AssignmentView[]): AuthorizationSubject {
-  return { assignments };
+  return { assignments, programScope: [], exclusions: [] };
+}
+
+function subjectWith(
+  assignments: AssignmentView | AssignmentView[],
+  scope: Partial<ProgramScopeView> = {},
+): AuthorizationSubject {
+  return {
+    assignments: Array.isArray(assignments) ? assignments : [assignments],
+    programScope: [],
+    exclusions: [],
+    ...scope,
+  };
 }
 
 const REVOKED = {
@@ -723,14 +737,14 @@ describe('AuthorizationService.canReview (D5, FR-4)', () => {
     ['no program rows = all programs', subject(assessorKp), 'KP', 5, true],
     [
       'program in the list',
-      { assignments: [assessorKp], programScope: [5, 6] },
+      subjectWith(assessorKp, { programScope: [5, 6] }),
       'KP',
       5,
       true,
     ],
     [
       'program outside the list',
-      { assignments: [assessorKp], programScope: [5, 6] },
+      subjectWith(assessorKp, { programScope: [5, 6] }),
       'KP',
       7,
       false,
@@ -751,52 +765,49 @@ describe('AuthorizationService.canReview (D5, FR-4)', () => {
     ],
     [
       'wildcard with a program list still filters the program',
-      { assignments: [assessorAll], programScope: [5] },
+      subjectWith(assessorAll, { programScope: [5] }),
       'NEW_TYPE',
       6,
       false,
     ],
     [
       'active exclusion wins over an empty scope (all programs)',
-      { assignments: [assessorKp], exclusions: [active(5)] },
+      subjectWith(assessorKp, { exclusions: [active(5)] }),
       'KP',
       5,
       false,
     ],
     [
       'active exclusion wins over a scope that lists the program',
-      {
-        assignments: [assessorKp],
+      subjectWith(assessorKp, {
         programScope: [5, 6],
         exclusions: [active(5)],
-      },
+      }),
       'KP',
       5,
       false,
     ],
     [
       'an exclusion of another program does not touch this one',
-      { assignments: [assessorKp], exclusions: [active(6)] },
+      subjectWith(assessorKp, { exclusions: [active(6)] }),
       'KP',
       5,
       true,
     ],
     [
       'a removed exclusion no longer excludes (DD-12)',
-      {
-        assignments: [assessorKp],
+      subjectWith(assessorKp, {
         exclusions: [{ programId: 5, status: 'removed' }],
-      },
+      }),
       'KP',
       5,
       true,
     ],
     [
       'a dismissed exclusion no longer excludes (DD-12)',
-      {
-        assignments: [assessorKp],
+      subjectWith(assessorKp, {
         exclusions: [{ programId: 5, status: 'dismissed' }],
-      },
+      }),
       'KP',
       5,
       true,
@@ -817,50 +828,49 @@ describe('AuthorizationService.canReview (D5, FR-4)', () => {
     ],
     [
       'ADMIN is exempt from an active exclusion (DD-13)',
-      { assignments: [assignment(RoleCode.ADMIN)], exclusions: [active(5)] },
+      subjectWith(assignment(RoleCode.ADMIN), { exclusions: [active(5)] }),
       'ANY',
       5,
       true,
     ],
     [
       'ADMIN is exempt from a program scope that lacks the program (DD-13)',
-      { assignments: [assignment(RoleCode.ADMIN)], programScope: [6] },
+      subjectWith(assignment(RoleCode.ADMIN), { programScope: [6] }),
       'ANY',
       5,
       true,
     ],
     [
       'the same exclusion still blocks a non-admin who holds the permission (DD-13 guard)',
-      {
-        assignments: [assignment(RoleCode.ASSESSOR, { resultTypeKey: 'KP' })],
+      subjectWith(assignment(RoleCode.ASSESSOR, { resultTypeKey: 'KP' }), {
         exclusions: [active(5)],
-      },
+      }),
       'KP',
       5,
       false,
     ],
     [
       'a revoked ADMIN grant no longer exempts: the exclusion applies again',
-      {
-        assignments: [
+      subjectWith(
+        [
           assignment(RoleCode.ADMIN, {}, REVOKED),
           assignment(RoleCode.ASSESSOR, { resultTypeKey: '*' }),
         ],
-        exclusions: [active(5)],
-      },
+        { exclusions: [active(5)] },
+      ),
       'KP',
       5,
       false,
     ],
     [
       'an inactive ADMIN role no longer exempts',
-      {
-        assignments: [
+      subjectWith(
+        [
           assignment(RoleCode.ADMIN, {}, { roleIsActive: false }),
           assignment(RoleCode.ASSESSOR, { resultTypeKey: '*' }),
         ],
-        exclusions: [active(5)],
-      },
+        { exclusions: [active(5)] },
+      ),
       'KP',
       5,
       false,
@@ -869,6 +879,12 @@ describe('AuthorizationService.canReview (D5, FR-4)', () => {
 
   it.each(rows)('%s', (_label, user, resultType, programId, expected) => {
     expect(review(user, resultType, programId)).toBe(expected);
+  });
+
+  it('a subject that did not load its program scope and exclusions does not compile (fail closed by type)', () => {
+    // @ts-expect-error programScope and exclusions are required: a forgotten load must not read as "all programs"
+    const forgotten: AuthorizationSubject = { assignments: [assessorKp] };
+    expect(forgotten.assignments).toHaveLength(1);
   });
 
   it('denies a permission the user does not hold, whatever the scope', () => {
@@ -890,10 +906,9 @@ describe('AuthorizationService.canReview (D5, FR-4)', () => {
   });
 
   it('still applies extra predicates to ADMIN: DD-13 exempts scope and exclusions only', () => {
-    const admin = {
-      assignments: [assignment(RoleCode.ADMIN)],
+    const admin = subjectWith(assignment(RoleCode.ADMIN), {
       exclusions: [active(5)],
-    };
+    });
     expect(review(admin, 'KP', 5, () => true)).toBe(true);
     expect(review(admin, 'KP', 5, () => false)).toBe(false);
   });

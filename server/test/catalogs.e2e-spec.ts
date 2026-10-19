@@ -15,9 +15,11 @@ import {
   ROLE_ASSIGNMENTS_STORE,
   RoleAssignmentsRepository,
 } from '../src/users/role-assignments.repository.js';
+import { USER_PROGRAMS_STORE } from '../src/users/user-programs.repository.js';
 import { USERS_STORE, UsersRepository } from '../src/users/users.repository.js';
 import {
   InMemoryRoleAssignmentsStore,
+  InMemoryUserProgramsStore,
   InMemoryUsersStore,
 } from './support/in-memory-stores.js';
 import {
@@ -110,6 +112,8 @@ describe('Catalog routes (e2e)', () => {
       .useValue(usersStore)
       .overrideProvider(ROLE_ASSIGNMENTS_STORE)
       .useValue(assignmentsStore)
+      .overrideProvider(USER_PROGRAMS_STORE)
+      .useValue(new InMemoryUserProgramsStore())
       .overrideProvider(JWKS_CACHE)
       .useValue(localJwksCache(signer))
       .overrideProvider(RESULT_TYPE_SOURCE)

@@ -68,17 +68,26 @@ describe('coversProgram (D5, FR-4)', () => {
       boolean,
     ]
   >([
-    ['no program rows = all programs', { programScope: [] }, 5, true],
-    ['nothing loaded at all = all programs', {}, 5, true],
-    ['listed program', { programScope: [5, 6] }, 5, true],
-    ['unlisted program', { programScope: [5, 6] }, 7, false],
+    [
+      'no program rows = all programs',
+      { programScope: [], exclusions: [] },
+      5,
+      true,
+    ],
+    ['listed program', { programScope: [5, 6], exclusions: [] }, 5, true],
+    ['unlisted program', { programScope: [5, 6], exclusions: [] }, 7, false],
     [
       'no program on the target fails closed',
-      { programScope: [] },
+      { programScope: [], exclusions: [] },
       null,
       false,
     ],
-    ['undefined program fails closed', {}, undefined, false],
+    [
+      'undefined program fails closed',
+      { programScope: [], exclusions: [] },
+      undefined,
+      false,
+    ],
     [
       'active exclusion beats all programs',
       { programScope: [], exclusions: [active(5)] },
@@ -99,19 +108,25 @@ describe('coversProgram (D5, FR-4)', () => {
     ],
     [
       'removed exclusion does not exclude',
-      { exclusions: [{ programId: 5, status: 'removed' }] },
+      { programScope: [], exclusions: [{ programId: 5, status: 'removed' }] },
       5,
       true,
     ],
     [
       'dismissed exclusion does not exclude',
-      { exclusions: [{ programId: 5, status: 'dismissed' }] },
+      {
+        programScope: [],
+        exclusions: [{ programId: 5, status: 'dismissed' }],
+      },
       5,
       true,
     ],
     [
       'an ended row beside an active one: the active one wins',
-      { exclusions: [{ programId: 5, status: 'removed' }, active(5)] },
+      {
+        programScope: [],
+        exclusions: [{ programId: 5, status: 'removed' }, active(5)],
+      },
       5,
       false,
     ],

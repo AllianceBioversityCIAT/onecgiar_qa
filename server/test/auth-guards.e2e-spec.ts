@@ -18,6 +18,7 @@ import {
   ROLE_ASSIGNMENTS_STORE,
   RoleAssignmentsRepository,
 } from '../src/users/role-assignments.repository.js';
+import { USER_PROGRAMS_STORE } from '../src/users/user-programs.repository.js';
 import { USERS_STORE, UsersRepository } from '../src/users/users.repository.js';
 import {
   b64url,
@@ -27,6 +28,7 @@ import {
 } from './support/jwt-test-keys.js';
 import {
   InMemoryRoleAssignmentsStore,
+  InMemoryUserProgramsStore,
   InMemoryUsersStore,
 } from './support/in-memory-stores.js';
 
@@ -202,6 +204,8 @@ async function buildWorld(): Promise<World> {
     .useValue(usersStore)
     .overrideProvider(ROLE_ASSIGNMENTS_STORE)
     .useValue(assignmentsStore)
+    .overrideProvider(USER_PROGRAMS_STORE)
+    .useValue(new InMemoryUserProgramsStore())
     .overrideProvider(JWKS_CACHE)
     .useValue(localJwksCache(signer))
     .overrideProvider(CURRENT_USER_CLOCK)

@@ -75,7 +75,7 @@ Serial boundaries: T-1 (schema, `server/src/database/**`), T-2 and T-5 (`server/
 - **Skills:** nestjs-expert, nestjs-best-practices
 
 ## T-4: Repositories, unit of work and cache for program scope, exclusions and audit
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-1, T-3
 - **Requirements:** FR-4 (manual add/remove; dismiss with reason; history kept — storage part); FR-6 (cache carries scope + exclusions; invalidate after commit); FR-7 (last admin — locking part, AND IT MUST hold concurrently); FR-13 (one event per change; none on refusal — storage part); NFR-5

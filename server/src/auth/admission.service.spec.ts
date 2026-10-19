@@ -2,6 +2,7 @@ import { ConflictException, ForbiddenException } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/mysql2';
 import {
   InMemoryRoleAssignmentsStore,
+  InMemoryUserProgramsStore,
   InMemoryUsersStore,
 } from '../../test/support/in-memory-stores.js';
 import * as schema from '../database/drizzle/schema/index.js';
@@ -9,6 +10,7 @@ import type { RoleAssignment } from '../database/drizzle/schema/role-assignments
 import type { Role } from '../database/drizzle/schema/roles.js';
 import type { User } from '../database/drizzle/schema/users.js';
 import { CurrentUserCache } from '../users/current-user.cache.js';
+import { UserProgramsRepository } from '../users/user-programs.repository.js';
 import {
   RoleAssignmentsRepository,
   type AssignmentReadOptions,
@@ -276,7 +278,12 @@ function setup(
       return payload(claims);
     },
   } as unknown as TokenVerifier;
-  const cache = new CurrentUserCache(users, assignments, () => 1_000);
+  const cache = new CurrentUserCache(
+    users,
+    assignments,
+    new UserProgramsRepository(new InMemoryUserProgramsStore()),
+    () => 1_000,
+  );
   const invalidateCache = cache.invalidate.bind(cache);
   vi.spyOn(cache, 'invalidate').mockImplementation((userId: number) => {
     events.push(`invalidate:${userId}`);

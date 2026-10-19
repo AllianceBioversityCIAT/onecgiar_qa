@@ -19,6 +19,15 @@ import {
   RoleAssignmentsRepository,
 } from './role-assignments.repository.js';
 import {
+  DrizzleUserProgramsStore,
+  USER_PROGRAMS_STORE,
+  UserProgramsRepository,
+} from './user-programs.repository.js';
+import {
+  DrizzleUsersAdminUnitOfWork,
+  USERS_ADMIN_UNIT_OF_WORK,
+} from './users-admin.unit-of-work.js';
+import {
   DrizzleUsersStore,
   USERS_STORE,
   UsersRepository,
@@ -34,8 +43,16 @@ import {
   providers: [
     { provide: USERS_STORE, useClass: DrizzleUsersStore },
     { provide: ROLE_ASSIGNMENTS_STORE, useClass: DrizzleRoleAssignmentsStore },
+    { provide: USER_PROGRAMS_STORE, useClass: DrizzleUserProgramsStore },
+    // The audit repository and the last-admin guard are NOT providers: they
+    // exist only inside the unit of work, bound to its transaction (FR-13).
+    {
+      provide: USERS_ADMIN_UNIT_OF_WORK,
+      useClass: DrizzleUsersAdminUnitOfWork,
+    },
     UsersRepository,
     RoleAssignmentsRepository,
+    UserProgramsRepository,
     AuthorizationService,
     { provide: CURRENT_USER_CLOCK, useValue: () => Date.now() },
     CurrentUserCache,

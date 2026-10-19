@@ -249,3 +249,68 @@ FR-14; FR-3 (mixed roles, Assessor/Lead incl. `*`, all covers future types); FR-
 #### Final verification
 
 lint ✅ · build ✅ · unit 734/734 ✅ · e2e 260/260 ✅
+
+### T-4: Repositories, unit of work and cache for program scope, exclusions and audit
+
+- **Final status:** PASS (parallel lens Reviewers: reliability/concurrency + risk/security)
+- **Date:** 2026-10-19
+- **Attempts:** 1
+- **Skills:** nestjs-expert, nestjs-best-practices + `tdd` · Effort: xhigh · Review mode: parallel lenses (effort xhigh; data-integrity/auth surface)
+
+#### Attempt 1
+
+- **Files changed:** new `server/src/users/{user-programs.repository,user-audit.repository,users-admin.unit-of-work}.ts` + specs; modified `server/src/users/{current-user.cache,effective-scope,authorization.service,users.errors,users.module}.ts` + the cache, effective-scope, matrix, authorization and module specs; `server/src/common/error-codes.ts` (6 codes: `USERS_NOT_FOUND`, `USERS_LAST_ADMIN`, `USERS_EXCLUSION_EXISTS`, `USERS_EXCLUSION_NOT_FOUND`, `USERS_EXCLUSION_NOT_MANUAL`, `USERS_EXCLUSION_NOT_REPORTING` — match design § 7); `server/src/auth/{admission.service,me.controller}.ts` (new `AdmittedUser` type, same behavior) + admission spec; `server/test/support/in-memory-stores.ts`; five e2e suites (override `USER_PROGRAMS_STORE`).
+- **Forward pointers satisfied:** (1) audit repository exposes only `record`/`findByUserId`, pinned by a test, not a module provider; (2) admin-facing end paths require the actor (`requireActor` refuses null/undefined/0/non-integers before any write); the only actor-less end is `endReportingExclusionAsSystem` (reporting → removed); the fake emulates the three schema CHECKs; (3) `programScope`/`exclusions` required on `AuthorizationSubject`, `?? []` defaults removed, "nothing loaded" row deleted, admission returns `AdmittedUser` (cannot reach `canReview`); (4) two-writer opposite-role test (same key and `*` vs key) — exactly one succeeds; user-row `FOR UPDATE` asserted in SQL.
+- **Red run:** 27 programs-repository + 12 unit-of-work tests failed at assertion against no-op skeletons (e.g. `expected [ 'fulfilled', 'fulfilled' ] to deeply equal [ 'fulfilled', 'rejected' ]`). Audit repository: no own red (insert/read only); rollback proven by falsifier.
+- **Falsifiers (restored):** admin count without the ADMIN `roles` lock → concurrent-demotion + `FOR UPDATE` SQL red; audit repository on `this.db` instead of the tx → 2 red; user-row lock removed → 5 red incl. 3 two-writer rows; cache without scope → 3 red; no isolation level → red; subject loses required fields → `tsc` unused `@ts-expect-error`.
+- **Implementer verification:** lint 0, build ok, unit 818 (was 734), e2e 260.
+- **Evidence re-run (Leader-inline, non-author):** `pnpm lint` 0; `pnpm build` 0; unit 818/818; e2e 260/260 → **VERIFIED**. Full type check `tsc --noEmit -p tsconfig.json` → 9 errors in spec files: 7 pre-existing in `token-verifier.service.spec.ts` (untouched by this spec); `schema.spec.ts:285` and `admission.service.spec.ts:861` **introduced by T-1** (vitest does not type-check; `pnpm build` excludes specs) — fix approved by the back lead as a separate commit; this diff adds none.
+- **Reviewer verdict, lens 1 (reliability/concurrency):** PASS — locks user row then ADMIN `roles` row `FOR UPDATE` (SQL asserted); audit on the tx connection, gone on rollback; fake waits on row locks without serializing transactions (negative controls prove the race); **READ COMMITTED judged correct and safer**: no leak (`SET TRANSACTION` without `SESSION` binds only the next tx), a locking count deadlocks at any isolation, RC + plain read after the roles lock is the only cycle-free form; RC drops gap locks — "read nothing then insert" checks rely on the user-row lock or a unique key (already DD-2).
+- **Reviewer verdict, lens 2 (risk/security):** PASS — no fail-open path (cache always loads scope; a load error rejects in `AuthGuard`); DD-13 exempts only scope/exclusions; actor rules hold; `findActive` matches user + exclusion id; audit `actor_id` NOT NULL + FK; out-of-scope files are necessary wiring and do not change login, refresh or the `/auth/me` shape (P-12 untouched).
+- **runtime events:** none
+- **spawns:** implementer not reported by host calls, 282815 tokens (76 tool uses), ended complete; reviewer lens 1 not reported by host calls, 120398 tokens (10 tool uses), ended complete; reviewer lens 2 not reported by host calls, 118047 tokens (21 tool uses), ended complete
+
+#### Decisions made
+
+- **DD-14 (recorded by the Leader from the lens-1 spec-gap finding; reported to the back lead at this gate):** the admin unit of work runs `READ COMMITTED`; the last-admin count is a plain read after the ADMIN `roles` row lock. Does not change any requirement's meaning; it records how DD-3 is made correct.
+- Execute-time spec edits (recorded when made): `design.md` § 7 step 2 (plain read under RC, DD-14); § 7 lock-order line rewritten (user row → ADMIN roles row → role_assignments writes; ADMIN guard before any grant insert) — the old "users → role_assignments → roles" contradicted steps 2–3; § 10 new DD-14; Document Control date. Sweep: no other restatement of the old order or of isolation in the spec folder. Carried as a named conformance check into the next Reviewer brief.
+
+#### ADVISORY (Reviewers, 4R — non-gating)
+
+- RELIABILITY — the fake takes the REPEATABLE READ snapshot at `begin`; InnoDB takes it at the first plain read (here, the count), so the RR test's claim does not hold on real MySQL — the real hazard is an earlier plain read freezing the snapshot. Rename the test and comment.
+- RESILIENCE — the unit of work does not enforce step order. **Forward pointer → T-6 brief:** test that the ADMIN guard runs before any grant insert (FK shared lock → exclusive upgrade deadlock risk); role replacement revokes before insert (T-3 pointer).
+- RESILIENCE — the fake has no deadlock detection (a cycle shows as a timeout).
+- RISK — `UserAuditRepository.record` accepts the full `NewUserAuditEvent` (a caller can set `createdAt`/`id` and backdate). **Forward pointer → T-6 brief:** narrow the input to `userId, actorId, action, changes, requestId`; the DB sets the time.
+- RELIABILITY — `findScopeView` does two separate reads (scope, then exclusions); a load during a commit can pair old scope with new exclusions until invalidate/TTL — within FR-6. **Forward pointer → T-6 brief:** invalidate after commit (epoch guard handles overlap).
+- RELIABILITY — the `@ts-expect-error` test is enforced only by `tsc -p tsconfig.json`, which no gate runs. **Leader:** add a spec type-check (baseline 7 pre-existing errors) to the verification of T-5…T-9 after the T-1 fix.
+- READABILITY — `InvalidProgramIdError` field `programIds` vs API body `programs`/`programId` (§ 6) — **→ T-6/T-8** remap; `addManualExclusion` does not range-check `programId` like `replaceScope` (T-6's catalog check covers it).
+- DOCS — `server/src/users/AGENTS.md` file table lacks the three new files and the `USER_PROGRAMS_STORE` / `USERS_ADMIN_UNIT_OF_WORK` bindings (T-9).
+
+#### T-10 checklist additions (real MySQL — merged from Implementer + lens 1)
+
+- Two admins demoting each other concurrently under the pinned READ COMMITTED: the second waits on the ADMIN `roles` row, then counts after the first commits — exactly one succeeds.
+- The same race with a plain read before the lock (confirms the RC choice).
+- Concurrent opposite-role grants to one user serialize on the `users` row.
+- An admin demotion racing a login (admission `FOR SHARE`) and a concurrent ADMIN grant (FK shared lock on `roles`): no deadlock, no 500.
+- `SET TRANSACTION ISOLATION LEVEL READ COMMITTED` applies only to that transaction: `@@transaction_isolation` on the next use of the pooled connection reads `REPEATABLE-READ`.
+- `SELECT @@binlog_format` on `qadb` is not `STATEMENT` (RC + statement binlog → error 1665).
+- `ER_DUP_ENTRY` on `active_key` maps to `USERS_EXCLUSION_EXISTS`; the DD-12 CHECKs reject their cases; a rolled-back audit insert leaves no row; the JSON `changes` column round-trips.
+- Concurrent `replaceScope` on one user without the user lock gives 409, not 500.
+
+#### Operational note
+
+From this commit on, this branch reads `user_programs` and `user_program_exclusions` on every authenticated request (cache load). **Running the branch against `qadb` requires migration `0001` applied first**; otherwise authenticated requests fail. Not an issue for other branches. Applied by a human at T-10.
+
+#### Budget tripwire (design § 2)
+
+- Budget: 10 tasks · ~3,200 LOC · ~16 Reviewer passes. Actual after T-4: 4 tasks · ~6,200 LOC (T-1 ~600, T-2 ~1,200, T-3 ~1,000, T-4 ~3,400; more than half tests) · 7 Reviewer passes. **LOC exceeded.**
+- Causes: two user-approved amendments (DD-12, DD-13), concurrency tests with a lock-emulating fake, real-response fixtures (T-2), fail-open fix carried from T-3.
+- Escalated to the back lead 2026-10-19. Answer: "Sí, ajusta el alcance que todo quede bien". The Leader proposed option A (re-baseline to ~12,500 LOC / ~20 Reviewer passes, no requirement cut) vs B (cut ~800 LOC of tests/filters). **Awaiting explicit choice; no re-baseline written yet.**
+
+#### Requirements covered
+
+FR-4 (storage part), FR-6 (cache carries scope + exclusions; invalidate refreshes), FR-7 (last admin — locking part, concurrent), FR-13 (storage part), NFR-5.
+
+#### Final verification
+
+lint ✅ · build ✅ · unit 818/818 ✅ · e2e 260/260 ✅

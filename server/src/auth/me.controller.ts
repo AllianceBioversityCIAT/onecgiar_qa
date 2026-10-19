@@ -9,6 +9,7 @@ import { ApiErrorResponses, ApiOkEnvelope } from '../common/api-response.js';
 import { ACCESS_TOKEN_SCHEME } from '../common/openapi.js';
 import { Controller, Get } from '@nestjs/common';
 import {
+  type AdmittedUser,
   type AuthenticatedUser,
   isLiveAssignment,
 } from '../users/current-user.cache.js';
@@ -59,7 +60,7 @@ export class UserProfile {
   assignments!: ProfileAssignment[];
 }
 
-export function toUserProfile(user: AuthenticatedUser): UserProfile {
+export function toUserProfile(user: AdmittedUser): UserProfile {
   return {
     id: user.id,
     email: user.email,

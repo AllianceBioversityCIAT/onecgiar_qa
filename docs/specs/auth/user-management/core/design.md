@@ -9,7 +9,7 @@
 | Depth | Full |
 | Status | Draft |
 | Base commit | `8ecef79` (branch `feat/auth-user-management`, from `origin/staging-center` @ `8866e69`) |
-| Last updated | 2026-10-19 (DD-12, DD-13 amendments) |
+| Last updated | 2026-10-19 (DD-12, DD-13 amendments; DD-14, § 7 lock order) |
 
 ## 2. Executive Summary
 
@@ -105,11 +105,11 @@ All under `/api/v1`, response standard (TRD § 6), **`ADMIN_ACCESS`** (Bearer) u
 
 - **UsersAdminService** — every mutation: validate DTO (global pipe) → validate catalog references (result type keys, program ids) through `CatalogService` (stale cache allowed; none → 503) → one transaction through `UsersAdminUnitOfWork` → invalidate the target in `CurrentUserCache` **after commit** (FR-6). Inside the transaction:
   1. lock the target `users` row `FOR UPDATE` (404 if absent);
-  2. when the change can reduce active admins (revoke ADMIN, deactivate an ADMIN), lock the ADMIN row of `roles` `FOR UPDATE`, then count active ADMIN grants of active users and refuse with `USERS_LAST_ADMIN` if it would reach 0 (FR-7);
+  2. when the change can reduce active admins (revoke ADMIN, deactivate an ADMIN), lock the ADMIN row of `roles` `FOR UPDATE`, then count — with a plain (non-locking) read, under READ COMMITTED (DD-14) — active ADMIN grants of active users and refuse with `USERS_LAST_ADMIN` if it would reach 0 (FR-7);
   3. apply the change (roles by **diff**: revoke removed grants, insert new ones, leave unchanged ones — FR-3);
   4. the repository refuses an Assessor/Lead overlap for the user's resulting active grants, `*` included (FR-3, DD-2);
   5. write one `user_audit_events` row per change, with before/after (FR-13).
-  Lock order stays `users` → `role_assignments` → `roles` (auth DD-10).
+  Lock order for an admin mutation: target `users` row `FOR UPDATE` (step 1) → ADMIN `roles` row `FOR UPDATE` (step 2, only when admins can decrease) → `role_assignments` writes (step 3). The ADMIN guard runs **before** any grant insert, because an insert takes a shared lock on `roles` through its foreign key and a later exclusive request on the same row could deadlock. Logins keep the auth order (DD-10) and take only shared locks. Amended 2026-10-19 (T-4 review; the earlier line "users → role_assignments → roles" contradicted steps 2–3).
 - **Create (FR-2)** — uniqueness pre-check (email, nickname) → for `custom`: `CognitoAdminClient.getUser(email)`; absent → `createUser` (email verified, given/family name, Cognito sends the temporary password) → `invitation: sent`; present → `invitation: existing_account`, no write to Cognito → transaction inserts user + grants + programs + exclusions + audit. A unique violation at insert (race) → 409 and no QA row; the Cognito account may remain and is reported as `existing_account` on retry (accepted). For `sso`: no Cognito call; admission's email link (auth FR-8 step 2) attaches the first SSO login to this row.
 - **Name rule (FR-5)** — first/last name editable only while `last_login_at` is null (`USERS_NAME_LOCKED` otherwise); admission keeps overwriting names from the token on each login (C4). Nickname is never touched by admission.
 - **Invitation (FR-8)** — allowed for `custom` + `invitation = sent` + never signed in; `CognitoAdminClient.resendInvitation(email)`; Cognito refusing (user already confirmed) → `USERS_INVITATION_NOT_APPLICABLE`.
@@ -150,6 +150,7 @@ Not in scope (server only). Contract notes for the front team: roles come groupe
 | DD-11 | **Reversion:** ASSESSOR + LEAD_ASSESSOR on the same result type becomes forbidden (C6) | Keep allowing it | **Challenge — what does removing it break?** (1) existing data with both active grants → the migration task reports any such pair on `qadb` (read-only query at the HITL step, P-13); (2) seeds create only ADMIN (`seed.ts`); (3) **one test pins the old behavior**: `server/src/users/role-assignments.repository.spec.ts:225` creates ASSESSOR and LEAD_ASSESSOR for the same user and type (`grep -rn "LEAD_ASSESSOR" server/src server/test` → 27 hits, the others grant Lead alone or on another type, e.g. `authorization.service.spec.ts:232` KP vs INNOVATION_DEV) → T-3 changes it to expect the refusal | FR-3 |
 | DD-12 | **Amendment (2026-10-19, back lead):** `ended_by` NULL means "ended by the system", symmetric with `created_by`; allowed only for a `reporting` exclusion with status `removed` | Keep `ended_by` mandatory (child 2 could never end a `reporting` exclusion on its own; a later change would need another migration on the shared `qadb`) | Child 2 decides whether its sync ends exclusions automatically, with no schema change. The DB still forces an actor on every `manual` removal and every dismissal; human ends always carry the admin id (service + audit) | FR-4, FR-13 |
 | DD-13 | **Amendment (2026-10-19, back lead):** an active ADMIN is never blocked by a conflict of interest — `canReview` ignores program scope and exclusions while the user holds an active ADMIN grant. Exclusions stay stored and apply again if the ADMIN grant is revoked | Exclusions beat ADMIN too (FR-4 read literally); forbid exclusions on an admin (extra validation, a new error code, and an open case for the child-2 Reporting sync) | D3 wins over FR-4 for admins; child 2 stores `reporting` exclusions for admins without special handling; the front may show an admin's exclusions as having no effect | FR-4, FR-14, D3 |
+| DD-14 | **Recorded 2026-10-19 (T-4 review, Leader; reported to the back lead):** the admin unit of work runs `READ COMMITTED`; the last-admin count is a plain read taken after the ADMIN `roles` row lock | `REPEATABLE READ` (the snapshot can predate the competing commit — both demotions pass); a locking count (`FOR SHARE`/`FOR UPDATE`) — deadlocks two admins demoting each other at any isolation level | DD-3 holds with no lock cycle; checks that read nothing and then insert rely on the user-row lock or a unique key (DD-2); `qadb` must not use `binlog_format=STATEMENT` (RC + statement binlog fails writes, error 1665) — checked at T-10 | FR-7, NFR-5 |
 
 ## 11. Premise Ledger
 

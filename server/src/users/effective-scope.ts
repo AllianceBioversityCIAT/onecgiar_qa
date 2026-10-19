@@ -36,17 +36,22 @@ export function resultTypeKeysOverlap(a: string, b: string): boolean {
   return a === ALL_RESULT_TYPES || b === ALL_RESULT_TYPES || a === b;
 }
 
-/** Is `programId` inside the user's program scope, exclusions applied? */
+/**
+ * Is `programId` inside the user's program scope, exclusions applied? Both
+ * parts are required: a subject whose scope was never loaded must not compile,
+ * rather than read as "all programs" and pass (fail closed by type).
+ */
 export function coversProgram(
-  scope: Partial<ProgramScopeView>,
+  scope: ProgramScopeView,
   programId: number | null | undefined,
 ): boolean {
   if (programId === null || programId === undefined) return false;
-  const excluded = (scope.exclusions ?? []).some(
+  const excluded = scope.exclusions.some(
     (exclusion) =>
       exclusion.status === 'active' && exclusion.programId === programId,
   );
   if (excluded) return false;
-  const listed = scope.programScope ?? [];
-  return listed.length === 0 || listed.includes(programId);
+  return (
+    scope.programScope.length === 0 || scope.programScope.includes(programId)
+  );
 }

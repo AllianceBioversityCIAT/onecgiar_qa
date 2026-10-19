@@ -23,7 +23,12 @@ export interface AssignmentView {
   programId: number | null;
 }
 
-export interface AuthorizationSubject extends Partial<ProgramScopeView> {
+/**
+ * What an authorization decision reads. The program scope and the exclusions
+ * are required, not optional: a loader that forgets them fails to compile
+ * instead of granting every program (T-3 review, FR-4).
+ */
+export interface AuthorizationSubject extends ProgramScopeView {
   assignments: readonly AssignmentView[];
 }
 
