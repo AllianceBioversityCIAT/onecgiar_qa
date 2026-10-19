@@ -60,7 +60,7 @@ export interface QaSelectOptionContext {
 export class QaSelectOptionDef {
   readonly template = inject<TemplateRef<QaSelectOptionContext>>(TemplateRef);
 
-  static ngTemplateContextGuard(_dir: QaSelectOptionDef, ctx: unknown): ctx is QaSelectOptionContext {
+  static ngTemplateContextGuard(_dir: QaSelectOptionDef, _ctx: unknown): _ctx is QaSelectOptionContext {
     return true;
   }
 }
@@ -201,6 +201,8 @@ export class QaSelectFooter {}
             </div>
           </div>
           @if (footer()) {
+            <!-- Delegated click: the footer's own buttons are the keyboard targets; any of them closes the panel. -->
+            <!-- eslint-disable-next-line @angular-eslint/template/click-events-have-key-events, @angular-eslint/template/interactive-supports-focus -->
             <div class="flex-none border-t border-(--surface-4) pt-2" (click)="closePanel()">
               <ng-content select="[qaSelectFooter]" />
             </div>

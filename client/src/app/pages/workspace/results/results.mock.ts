@@ -334,7 +334,11 @@ function generateResults(): QaResult[] {
   const annualPrograms = pool(ANNUAL_PROGRAM_COUNTS, inBatch(ANNUAL).map((m) => m.program), rnd);
   const statuses = pool(STATUS_COUNTS, manual.map((m) => m.status as Exclude<ResultStatus, 'Automatic'>), rnd);
 
-  type Draft = { type: ResultType; program: string; batch: string };
+  interface Draft {
+    type: ResultType;
+    program: string;
+    batch: string;
+  }
   const drafts: Draft[] = [
     ...annualTypes.map((type, i) => ({ type, program: annualPrograms[i], batch: ANNUAL })),
     ...julyTypes.map((type) => ({ type, program: pick(PROGRAM_CODES, rnd), batch: JULY })),
