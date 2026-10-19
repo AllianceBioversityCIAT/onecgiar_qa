@@ -126,7 +126,7 @@ Serial boundaries: T-1 (schema, `server/src/database/**`), T-2 and T-5 (`server/
 - **Skills:** nestjs-expert, nestjs-best-practices, error-handling-patterns
 
 ## T-7: Users list and detail read model
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-4
 - **Requirements:** FR-9 (search, filters, team by default, GUESTs only by filter; AND IT MUST cursor 50/200); FR-10 (detail with exclusion history)

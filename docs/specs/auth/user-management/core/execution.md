@@ -472,3 +472,42 @@ lint ✅ · build ✅ · unit 961/961 ✅ · e2e 260/260 ✅ · tsc baseline ✅
 #### Final verification
 
 lint ✅ · build ✅ · unit 968/968 ✅ · e2e 260/260 ✅ · tsc baseline ✅
+
+### T-7: Users list and detail read model
+
+- **Final status:** PASS (Reviewer, checklist) · **Date:** 2026-10-19 · **Attempts:** 1
+- **Skills:** nestjs-expert, api-design-principles, tdd · Effort: high
+
+#### Attempt 1
+
+- **Files changed:** new `server/src/users/users-query.repository.ts` (`UsersQueryRepository.list/get`, `UsersQueryStore` port, `USERS_QUERY_STORE` token, `DrizzleUsersQueryStore`, types `UserSummary` / `UserDetail` / `ExclusionHistoryItem`, `InvalidListQueryError` → 400 `VALIDATION_FAILED`) + spec (39 tests). `UsersModule` not touched.
+- **Decisions:** NULL nicknames last — `ORDER BY (nickname IS NULL), nickname, id`; cursor base64url JSON `{n, i}`; keyset (named) `nickname > ? OR (nickname = ? AND id > ?) OR nickname IS NULL`, (NULL) `nickname IS NULL AND id > ?`; `limit + 1` fetch; LIKE escapes `%`, `_`, `\` with MySQL's default escape (no `ESCAPE` clause — Reviewer confirmed correct); blank `q` ignored; defaults `status=active`, `population=team`; `role` + `resultType` on the same active grant, `*` matches any type (DD-1); `programId`: no scope rows = any program (DD-4); an active exclusion does **not** remove the match (FR-9 lists scope and exclusions as separate fields — Reviewer accepted); `hasExclusions` = active only; detail history `createdBy`/`endedBy` as `ActorRef | null` (null = system, DD-12; admin-only endpoint, FR-12); roles grouped, `*` wins over keys; PROGRAM-scoped grants as a role with no `resultTypes`; one page query + one batch per relation, none for an empty page.
+- **Red run:** 37/39 failed against an empty skeleton (`expected [] to deeply equal [ 2 ]`).
+- **Falsifiers (reverted):** cursor ignored → "page 2 stable after an insert" red (`expected [ 99, 1 ] to deeply equal [ 3, 4 ]`); population default `all` → 4 red; `.offset(5)` → 4 adapter SQL tests red incl. "never OFFSET".
+- **Implementer verification:** lint 0, build ok, unit 1007, tsc 7 (token-verifier only).
+- **Evidence re-run (Leader-inline, non-author):** lint 0; build 0; unit 1007/1007; e2e 260/260; tsc 7 → **VERIFIED**.
+- **Reviewer verdict:** PASS — FR-9/FR-10, § 6 shapes, § 7 List; real SQL asserted via stub driver; fake honors the cursor; falsifier traced; DD-15 named check — no conflict.
+- **runtime events:** none
+- **spawns:** implementer not reported by host calls, 139654 tokens (24 tool uses), ended complete; reviewer not reported by host calls, 81025 tokens (16 tool uses), ended complete
+
+#### Decisions made
+
+- Leader spec edit (Reviewer's spec-drift advisory, additive): DD-15 (1) and the § 2 summary now list deactivation, reactivation and invitation resend as their own audit rows, matching § 7 step 5. Carried as a named conformance check into the T-8 Reviewer brief.
+
+#### ADVISORY (Reviewer, 4R — non-gating)
+
+- RISK — NFR-4 needs ~500 team users; agents never seed `qadb` (`server/src/database/AGENTS.md`); the Implementer's plan says "disposable or staging DB, never `qadb`" while T-10 reads "shared DB … measure the list". **→ T-10:** ask the back lead where the data comes from before measuring; record it. Implementer plan: seed 500 team users (1–3 grants, some scopes and exclusions) + ~50 GUESTs and NULL nicknames; `GET /users` warm with an ADMIN token mixing filters and cursor pages (limit 50); ≥ 200 requests after 20 warm-ups, low concurrency, no build running; p95 per page ≤ 300 ms; `EXPLAIN` the page query (`LIKE '%…%'` scan, `nickname IS NULL` filesort).
+- RELIABILITY — the case-insensitive search test proves only the fake; real behavior depends on P-7 collation. **→ T-10** checklist.
+- RELIABILITY — "team" and the role filter treat a grant as active on `role_assignments.is_active` only, while `isLiveAssignment` (`current-user.cache.ts:46`) also requires `roles.is_active` and a known definition. **Raised to the back lead at this gate** (align or not).
+- RESILIENCE — `USERS_QUERY_STORE` not bound in `users.module.ts`. **→ T-8 brief.**
+- READABILITY — `InvalidListQueryError` lives in the repository file (guide keeps typed errors in `users.errors.ts`). **→ T-8 brief** (move when wiring).
+- RISK (NFR-4) — `ORDER BY (nickname IS NULL), nickname, id` + OR keyset needs a filesort; fine at 500 rows, watch at T-10.
+- DOCS — active exclusions in the detail carry no `createdBy`/`reportingRole` (matches § 6). **→ T-9** contract note for the front.
+
+#### Requirements covered
+
+FR-9 (repository part), FR-10 (repository part).
+
+#### Final verification
+
+lint ✅ · build ✅ · unit 1007/1007 ✅ · e2e 260/260 ✅ · tsc baseline ✅
