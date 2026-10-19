@@ -31,17 +31,18 @@ const STATUS_CHIP: Record<TimelineStatus, string> = {
   selector: 'qa-ov-timeline-lanes',
   host: { class: 'block @container' },
   template: `
-    <section aria-labelledby="overview-lanes-title" class="flex flex-col gap-3">
-      <div class="flex flex-col gap-1">
+    <!-- Same card as the other Overview sections: title inside, lanes as full-width rows below it. -->
+    <section aria-labelledby="overview-lanes-title" class="flex flex-col gap-4 overflow-hidden rounded-[12px] border border-(--border) bg-(--surface) pt-5">
+      <div class="flex flex-col gap-1 px-5">
         <h3 id="overview-lanes-title" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">Timelines</h3>
         <p class="m-0 text-(length:--fs-13) font-normal text-(--text-3)">Each timeline moves through the same 5 steps on its own dates.</p>
       </div>
 
-      <ol class="m-0 flex list-none flex-col overflow-hidden rounded-[12px] border border-(--border) bg-(--surface) p-0">
+      <ol class="m-0 flex list-none flex-col p-0">
         @for (lane of lanes(); track lane.id) {
           <li
             [id]="'lane-' + lane.id"
-            class="grid scroll-mt-6 grid-cols-1 items-center gap-x-6 gap-y-3 border-t border-(--border-soft) px-5 py-4 transition-colors duration-500 first:border-t-0 @3xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1.4fr)_minmax(0,1fr)]"
+            class="grid scroll-mt-6 grid-cols-1 items-center gap-x-6 gap-y-3 border-t border-(--surface-4) px-5 py-4 transition-colors duration-500 first:border-t-0 @3xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1.4fr)_minmax(0,1fr)]"
             [class.bg-(--tint)]="lane.highlighted"
           >
             <!-- Who -->
