@@ -82,6 +82,28 @@ describe('validateEnv', () => {
     expect(() => validateEnv({ ...VALID })).not.toThrow();
   });
 
+  it.each(['COGNITO_ADMIN_ACCESS_KEY_ID', 'COGNITO_ADMIN_SECRET_ACCESS_KEY'])(
+    'refuses %s alone, naming the missing partner',
+    (key) => {
+      const partner =
+        key === 'COGNITO_ADMIN_ACCESS_KEY_ID'
+          ? 'COGNITO_ADMIN_SECRET_ACCESS_KEY'
+          : 'COGNITO_ADMIN_ACCESS_KEY_ID';
+      expect(() => validateEnv({ ...VALID, [key]: 'x' })).toThrow(partner);
+    },
+  );
+
+  it('accepts both Cognito admin keys together, or neither (default chain)', () => {
+    expect(() =>
+      validateEnv({
+        ...VALID,
+        COGNITO_ADMIN_ACCESS_KEY_ID: 'id',
+        COGNITO_ADMIN_SECRET_ACCESS_KEY: 'secret',
+      }),
+    ).not.toThrow();
+    expect(() => validateEnv({ ...VALID })).not.toThrow();
+  });
+
   it('rejects an http origin that is not localhost', () => {
     expect(() =>
       validateEnv({ ...VALID, ALLOWED_ORIGINS: 'http://evil.com' }),

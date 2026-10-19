@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, type ConfigType } from '@nestjs/config';
+import { CognitoIdentityProviderClient } from '@aws-sdk/client-cognito-identity-provider';
 import { SimpleJwksCache } from 'aws-jwt-verify/jwk';
 import { authConfig } from '../config/auth.config.js';
+import { cognitoAdminConfig } from '../config/cognito-admin.config.js';
 import { DrizzleModule } from '../database/drizzle/drizzle.module.js';
 import { UsersModule } from '../users/users.module.js';
 import {
@@ -9,6 +11,11 @@ import {
   AdmissionService,
 } from './admission.service.js';
 import { DrizzleAdmissionUnitOfWork } from './admission.unit-of-work.js';
+import {
+  COGNITO_IDP_CLIENT,
+  CognitoAdminClient,
+  type CognitoIdpSender,
+} from './cognito-admin.client.js';
 import { CognitoAuthClient } from './cognito-auth.client.js';
 import { AuthThrottlerModule } from './auth-throttle.js';
 import { AuthController } from './auth.controller.js';
@@ -26,6 +33,7 @@ import { JWKS_CACHE, TokenVerifier } from './token-verifier.service.js';
     DrizzleModule,
     UsersModule,
     ConfigModule.forFeature(authConfig),
+    ConfigModule.forFeature(cognitoAdminConfig),
     AuthThrottlerModule,
   ],
   controllers: [AuthController, SessionController, MeController],
@@ -34,10 +42,21 @@ import { JWKS_CACHE, TokenVerifier } from './token-verifier.service.js';
     { provide: JWKS_CACHE, useFactory: () => new SimpleJwksCache() },
     TokenVerifier,
     CognitoAuthClient,
+    // Admin API (user management): SigV4 with the local keys, else the default chain.
+    {
+      provide: COGNITO_IDP_CLIENT,
+      inject: [cognitoAdminConfig.KEY],
+      useFactory: (config: ConfigType<typeof cognitoAdminConfig>) =>
+        new CognitoIdentityProviderClient({
+          region: config.region,
+          credentials: config.credentials,
+        }) as CognitoIdpSender,
+    },
+    CognitoAdminClient,
     OriginGuard,
     { provide: ADMISSION_UNIT_OF_WORK, useClass: DrizzleAdmissionUnitOfWork },
     AdmissionService,
   ],
-  exports: [TokenVerifier, AdmissionService],
+  exports: [TokenVerifier, AdmissionService, CognitoAdminClient],
 })
 export class AuthModule {}

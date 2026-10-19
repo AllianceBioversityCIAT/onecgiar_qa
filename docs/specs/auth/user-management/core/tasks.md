@@ -92,7 +92,7 @@ Serial boundaries: T-1 (schema, `server/src/database/**`), T-2 and T-5 (`server/
 - **Skills:** nestjs-expert, nestjs-best-practices
 
 ## T-5: Cognito admin client (create user, existing user, resend invitation)
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** none; **external: IAM credentials with `AdminGetUser`/`AdminCreateUser` on the pool (P-8)** — stays `[!]` until Cris provides them (config boundary: not in parallel with T-2)
 - **Requirements:** FR-2 (custom new → account + email; existing → no change; Cognito down → 503); FR-8 (resend; not applicable); NFR-2 (no email/credentials in logs); NFR-3

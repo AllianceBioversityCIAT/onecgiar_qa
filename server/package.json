@@ -26,6 +26,7 @@
     "db:seed": "nest build && node dist/database/seeds/seed.js"
   },
   "dependencies": {
+    "@aws-sdk/client-cognito-identity-provider": "^3.1152.0",
     "@aws-sdk/client-dynamodb": "^3.1146.0",
     "@nestjs/common": "^12.0.1",
     "@nestjs/config": "^12.0.1",

@@ -324,3 +324,74 @@ lint ✅ · build ✅ · unit 818/818 ✅ · e2e 260/260 ✅
 - **Reviewer verdict:** PASS — fixture defaults match `users.ts:52-56`; widened helper returns the same values; no casts; § 7 / DD-14 unaffected.
 - **spawns:** implementer not reported by host calls, 64386 tokens (8 tool uses), ended complete; reviewer not reported by host calls, 27769 tokens (8 tool uses), ended complete
 - **Leader decision:** from T-5 on, every task's verification adds `cd server && npx tsc --noEmit -p tsconfig.json`, expected to report exactly the 7 pre-existing `token-verifier.service.spec.ts` errors (baseline) — more is a failure. [advisory-grade gate addition, recorded per the T-4 lens-2 advisory]
+
+### T-5: Cognito admin client (create user, existing user, resend invitation)
+
+- **Final status:** PASS (Reviewer) on attempt 2 — attempt 1 FAIL (log-spy coverage)
+- **Date:** 2026-10-19
+- **Skills:** nestjs-expert, error-handling-patterns, aws-serverless + `tdd` · Effort: high (attempt 1)
+
+#### Attempt 1 — FAIL
+
+- **P-8 probe (Implementer):** one read-only `AdminGetUser` on `qa-permission-probe-does-not-exist-20261019` → `UserNotFoundException` (HTTP 400) ⇒ permitted. `AdminCreateUser` never called against the real pool.
+- **Findings with sources:** `Username` defaults to the email — SDK docs (`AdminCreateUserRequest.Username`): when the pool supports only email/phone as sign-in attributes, Cognito generates the username → unsettled, T-10. RESEND = `AdminCreateUser` + `MessageAction: 'RESEND'` on an existing user (SDK `MessageAction` docs); refusal state via `UnsupportedUserStateException` unproven → T-10.
+- **Error class:** reused the auth `UpstreamUnavailableError` (503 `AUTH_SERVICE_UNAVAILABLE`); no third same-named class (T-2 forward pointer satisfied).
+- **Files changed:** new `server/src/auth/cognito-admin.client.ts` + spec, `server/src/config/cognito-admin.config.ts` + spec; modified `server/src/auth/auth.module.ts`, `server/src/config/env.validation{,.spec}.ts`, `server/src/auth/no-qa-tokens.spec.ts`, `server/.env.example`, `server/package.json` (+ `@aws-sdk/client-cognito-identity-provider ^3.1152.0`), `server/pnpm-lock.yaml`.
+- **Red run:** 18/18 failed against a deliberately wrong stub (e.g. `expected 'created' to be 'existing_account'`); TypeErrors not counted.
+- **Falsifiers (reverted):** `email_verified` 'false' → attributes red; email appended to a log line → log-spy red; `console.log(secretAccessKey)` in config → `no-qa-tokens.spec.ts` red.
+- **Implementer verification:** lint, build clean; unit 847/847; e2e 260/260; tsc exactly the 7 pre-existing `token-verifier.service.spec.ts` errors.
+- **Evidence re-run (Leader-inline, non-author):** lint 0; build 0; unit 847/847; e2e 260/260; tsc 7 (token-verifier only) → **VERIFIED**. Secret scan: `COGNITO_ADMIN_ACCESS_KEY_ID`, `COGNITO_ADMIN_SECRET_ACCESS_KEY`, `COGNITO_CLIENT_SECRET` values in neither the diff nor new files; `package.json` adds only the approved SDK.
+- **runtime events:** none
+- **Reviewer verdict: FAIL** (verbatim):
+
+> STATUS: FAIL
+> SUMMARY: The client, config, env validation and FR-17 static check match design § 7 CognitoAdminClient, § 9 and DD-6. One gap blocks the gate: the NFR-2 log-spy test never runs the successful `createUser` path, so logging the email on the most likely line would leave every test green. The named check (design § 7 step 2, the lock-order line, DD-14) passes: the diff touches none of them, and Cognito calls stay outside the transaction, consistent with DD-7. The red run (a deliberately wrong stub failing on assertions) is accepted as stronger than "fails before the client exists". P-8: `AdminGetUser` is settled per `execution.md:206`. A nonexistent username returning `UserNotFoundException` proves the permission without reading user data.
+>
+> ISSUES:
+> 1. **Discovered Issue:** The log-spy test (`cognito-admin.client.spec.ts`, "logs the operation and the AWS error name, and never the email…") runs five calls: `getUser` throttled, `createUser` NotAuthorized, `createUser` UsernameExists, resend unsupported, resend success. It never runs a successful `createUser`, so the `outcome=created` line (`cognito-admin.client.ts:482` in the diff) is never checked. It also never runs `getUser` for a user that exists or does not exist. Changing line 482 to `` `…outcome=created email=${input.email}` `` keeps every test green. So the evidence "email in log → log-spy red" only holds for wherever the Implementer put that change, not for the path where a create gets logged.
+>    * **Violated Rule:** `requirements.md` NFR-2 ("No email, name, temporary password or AWS credential in any log line") and the defect-class gate "PII leak … to logs → log spies". `tasks.md` T-5 Tests ("logs carry no email or key (log spy)") and Falsifier ("log the email → the log-spy test goes red"). Reviewer checklist: "trace the named mutation through the fixture".
+>    * **Remediation Suggestion:** Add `send.mockResolvedValueOnce({})` followed by `client.createUser(input)` to the `calls` list. Also add a found and a not-found `getUser`. Assert `text` contains `outcome=created`. Re-run the email falsifier on the `created` line and record the red.
+
+- **ADVISORY (non-gating):** permission-refusal fixture uses `NotAuthorizedException` but the real IAM refusal is `AccessDeniedException` (add that fixture); `AliasExistsException` if the pool uses email as alias → maps to 503 instead of `existing_account` (T-10); T-6 must call `getUser` before `createUser` (DD-7) and share one 10 s budget across both calls (NFR-3) — **forward pointers → T-6 brief**; no test pins `COGNITO_ADMIN_TIMEOUT_MS === 10_000`; resend on `UserNotFound` → `not_applicable` goes beyond § 7 Invitation (defensible under FR-8 — record as decision); `server/src/config/AGENTS.md` Secrets line + `docs/infrastructure.md` § 6 → T-9; design § 11 P-8 row still UNVERIFIED (Leader to update).
+- **spawns:** implementer not reported by host calls, 142417 tokens (30 tool uses), ended complete; reviewer not reported by host calls, 60161 tokens (13 tool uses), ended fail
+
+#### Attempt 2 — PASS (effort bumped to xhigh)
+
+- **Attempt history carried in the brief:** attempt 1 ran the email falsifier on one log line; the log spy never drove a successful `createUser` nor `getUser` found / not found.
+- **Files changed:** `server/src/auth/cognito-admin.client.spec.ts` only (client byte-identical to attempt 1 — Reviewer confirmed line for line).
+- **Change:** the five-call logging test replaced by a 13-case table — `getUser` found / not found / throttled / IAM `AccessDeniedException`; `createUser` created / existing_account / NotAuthorized / 5xx / timeout; `resendInvitation` resent / not_applicable (confirmed) / not_applicable (missing) / throttled. Each asserts `op=` / `outcome=` / `error=` and that no line holds the email (full, local part, domain), given/family name, stubbed key id/secret or pool id; `getUser` found/not found must log nothing. `AccessDeniedException` fixture built with the SDK class.
+- **Falsifiers, one per log line (reverted):** `created` + email → `createUser created` red; `existing_account` + email → its case red; `resent` + email → its case red; `not_applicable` + email → both cases red; `unavailable` + pool id → 5 cases red; a new `getUser` found log with the email → `getUser found` red.
+- **Implementer verification:** lint, build clean; unit 860/860; e2e 260/260; tsc 7 (token-verifier only).
+- **Evidence re-run (Leader-inline, non-author):** lint 0; build 0; unit 860/860; e2e 260/260; tsc 7 (token-verifier only) → **VERIFIED**.
+- **Reviewer verdict:** PASS — FAIL fixed; every outcome driven with its own logger spy; timeout case proves the abort message's email never reaches a log; P-8 § 11 row accurate.
+- **runtime events:** none
+- **spawns:** implementer (rework, same context) not reported by host calls, 150650 tokens (5 tool uses), ended complete; reviewer (re-review, same context) not reported by host calls, 73501 tokens (4 tool uses), ended complete
+
+#### ADVISORY (Reviewer, 4R — non-gating)
+
+- RISK (ledger) — keep P-8's `AdminCreateUser` half as High if refuted: **applied by the Leader** (§ 11 P-8 "If false" + count line).
+- READABILITY — the `getUser` 503 table lacks an `accessDenied` row (proved only indirectly through the log case).
+- Unpinned: no test asserts `COGNITO_ADMIN_TIMEOUT_MS === 10_000`.
+- **Forward pointers → T-6 brief:** call `getUser` before `createUser` (DD-7 — the client's `UsernameExists` path is only the race fallback); share **one** 10 s NFR-3 budget across `getUser` + `createUser` (each call alone has 10 s).
+- **→ T-9 brief:** `server/src/config/AGENTS.md` Secrets line + env rows for `COGNITO_ADMIN_*`; `docs/infrastructure.md` § 6 (new env, IAM user `qa-cognito-service`).
+
+#### T-10 checklist additions (real pool, by a human, after telling the pool owner)
+
+- `AdminCreateUser` with a test user: is `Username = email` accepted, or does the pool generate the username (P-4)?
+- Invitation email content with the shared template (P-10).
+- Resend while invited → `resent`; resend after confirmation → `UnsupportedUserStateException` → `not_applicable`.
+- Creating the same email twice → `UsernameExistsException`; under an alias-configured pool, `AliasExistsException` (today maps to 503 — would need mapping to `existing_account`).
+
+#### Decisions made
+
+- Error class: reuse the auth `UpstreamUnavailableError` (503 `AUTH_SERVICE_UNAVAILABLE`, FR-2) — no third same-named class.
+- `resendInvitation` maps `UserNotFoundException` to `not_applicable` (409 `USERS_INVITATION_NOT_APPLICABLE`) in addition to the confirmed-user refusal named in design § 7 Invitation — defensible under FR-8 ("not applicable" when the account is absent from the pool). Recorded here at the Reviewer's request; no requirement meaning changed.
+- Execute-time spec edits (recorded when made): `design.md` § 11 P-8 row (settled for `AdminGetUser`; `AdminCreateUser` High → T-10) and the ledger count line. Carried as a named conformance check into the next Reviewer brief.
+
+#### Requirements covered
+
+FR-2 (client part: custom new → account + email; existing → `existing_account`, no write; Cognito down → 503), FR-8 (client part), NFR-2 (client logs), NFR-3 (10 s per call).
+
+#### Final verification
+
+lint ✅ · build ✅ · unit 860/860 ✅ · e2e 260/260 ✅ · tsc baseline (7 pre-existing) ✅
