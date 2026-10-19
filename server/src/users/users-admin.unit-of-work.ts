@@ -1,12 +1,12 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, countDistinct, eq, ne } from 'drizzle-orm';
+import { and, countDistinct, eq, inArray, isNull, ne } from 'drizzle-orm';
 import { DRIZZLE } from '../database/drizzle/drizzle.constants.js';
 import type { DrizzleDB } from '../database/drizzle/drizzle.module.js';
 import { roleAssignments } from '../database/drizzle/schema/role-assignments.js';
 import { roles, type Role } from '../database/drizzle/schema/roles.js';
 import type { User } from '../database/drizzle/schema/users.js';
 import { users } from '../database/drizzle/schema/users.js';
-import { RoleCode } from './permissions.js';
+import { ROLE_DEFINITIONS, RoleCode } from './permissions.js';
 import {
   DrizzleRoleAssignmentsStore,
   RoleAssignmentsRepository,
@@ -114,6 +114,11 @@ export class DrizzleAdminsStore implements AdminsStore {
           eq(roles.code, RoleCode.ADMIN),
           eq(roles.isActive, true),
           eq(roleAssignments.isActive, true),
+          isNull(roleAssignments.revokedAt),
+          inArray(
+            roles.code,
+            ROLE_DEFINITIONS.map((role) => role.code),
+          ),
           eq(users.isActive, true),
           excludingUserId === undefined
             ? undefined

@@ -245,6 +245,17 @@ describe('OpenAPI document (e2e)', () => {
     }
   });
 
+  it('documents USERS_LAST_ADMIN on deactivate but never on activate (reactivation adds an admin)', () => {
+    const responses = (key: string) =>
+      JSON.stringify(operationOf(doc, key).responses);
+    expect(responses('POST /api/v1/users/:id/deactivate')).toContain(
+      'USERS_LAST_ADMIN',
+    );
+    expect(responses('POST /api/v1/users/:id/activate')).not.toContain(
+      'USERS_LAST_ADMIN',
+    );
+  });
+
   it('carries no secret or token value', () => {
     const text = JSON.stringify(doc);
     for (const name of [

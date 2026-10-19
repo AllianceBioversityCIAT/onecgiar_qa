@@ -1560,6 +1560,26 @@ describe('deactivate and reactivate (FR-7)', () => {
     expect(w.calls).not.toContain('guard');
   });
 
+  it('deactivation keeps the first name, last name and nickname (past actions keep their name)', async () => {
+    const { w, ctx } = await setup();
+    const target = await w.seedUser({
+      email: 'keep@cgiar.org',
+      nickname: 'Kay',
+      roles: [['TPB']],
+    });
+    const { firstName, lastName, nickname } = rowOf(w, 'keep@cgiar.org')!;
+
+    await w.service.deactivate(ctx, target.id);
+
+    expect(rowOf(w, 'keep@cgiar.org')).toMatchObject({
+      isActive: false,
+      firstName,
+      lastName,
+      nickname: 'Kay',
+    });
+    expect(nickname).toBe('Kay');
+  });
+
   it('reactivates, audited as reactivate; asking for what already holds writes nothing', async () => {
     const { w, admin, ctx } = await setup();
     const target = await w.seedUser({

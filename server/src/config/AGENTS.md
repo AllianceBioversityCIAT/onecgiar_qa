@@ -39,7 +39,7 @@ Environment validation and typed configuration. This is the **only** place in th
 
 - **Adding a variable:** add it to `REQUIRED_ENV_VARS` (if required) and validate its format in `validateEnv`, expose it through a `registerAs` namespace, add it to `.env.example` (empty or a safe example — never a real secret), to `vitest.config.e2e.ts` `env` (a dummy value), and to `docs/infrastructure.md` § 6. Add a unit test that names it when missing.
 - **Consumers inject the namespace** (`@Inject(authConfig.KEY) config: ConfigType<typeof authConfig>`), never `process.env`.
-- **Secrets:** read only here, with no fallback literal: `COGNITO_CLIENT_SECRET` in `auth.config.ts`, `DYNAMODB_SECRET_ACCESS_KEY` in `dynamodb.config.ts`, `COGNITO_ADMIN_SECRET_ACCESS_KEY` in `cognito-admin.config.ts`; `CLARISA_API_KEY` in `catalogs.config.ts` (read only there, sent as `x-api-key` to Reporting). `src/auth/no-qa-tokens.spec.ts` pins the reading line of each of the three secrets and flags fallbacks, literals, logs and `process.env[...]`.
+- **Secrets:** read only here, with no fallback literal: `COGNITO_CLIENT_SECRET` in `auth.config.ts`, `DYNAMODB_SECRET_ACCESS_KEY` in `dynamodb.config.ts`, `COGNITO_ADMIN_SECRET_ACCESS_KEY` in `cognito-admin.config.ts`; `CLARISA_API_KEY` in `catalogs.config.ts` (read only there, sent as `x-api-key` to Reporting). `src/auth/no-qa-tokens.spec.ts` pins the reading line of each of the three secrets and of `CLARISA_API_KEY`, and flags fallbacks, literals, logs and `process.env[...]` for the `*SECRET*` names (for `CLARISA_API_KEY` it pins the reader file and line only).
 - Endpoints that receive credentials must be validated as `https://`.
 
 ## Testing

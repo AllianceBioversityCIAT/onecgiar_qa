@@ -9,9 +9,9 @@
 | Approval Mode | gated |
 | Leader | Claude Code `opus` (T1) · Implementer `sonnet` (T2, `akili-implementer`) · Reviewer `opus` (T3, `akili-reviewer`) |
 | Started | 2026-10-19 |
-| Budget (design § 2) | 10 tasks · ~3,200 LOC · ~16 Reviewer passes |
+| Budget (design § 2) | Original: 10 tasks · ~3,200 LOC · ~16 Reviewer passes. Re-baselined 2026-10-19 (back lead, after T-4): ~12,500 LOC · ~20 passes |
 
-Note: `requirements.md` and `design.md` read `Status: Draft`; execution started on the back lead's `/akili-execute` invocation (2026-10-19).
+Note: `requirements.md` and `design.md` read `Status: Draft`; execution started on the back lead's `/akili-execute` invocation (2026-10-19). Both now read `Approved — implemented (2026-10-19)`.
 
 ## Task Execution History
 
@@ -779,10 +779,29 @@ Steps ran in the order 1, 2, 3, 4, 6, 5, 7 (step 6 before step 5 because the cat
 
 ## Summary
 
-- **Status:** all 10 tasks `[x]` (2026-10-19). Branch `feat/auth-user-management`, worktree `onecgiar_qa-users`; not pushed, not merged.
+- **Status:** all 10 tasks `[x]` (2026-10-19). Branch `feat/auth-user-management`, worktree `onecgiar_qa-users`; merged into `staging-center` @ `8fda249` (`--no-ff`) and pushed.
 - **Delivered:** user-management admin API (12 `/users` routes, 3 `/catalogs` routes) behind `ADMIN_ACCESS`; nickname, program scope, conflict-of-interest exclusions with history, "all result types" grants, Assessor/Lead exclusivity, ADMIN-holds-all, effective review scope (`canReview`); audited, cache-invalidating mutations in one READ COMMITTED unit of work with the last-admin rule; Cognito admin client for custom accounts; `/auth/me` nickname; module guides, infrastructure § 6 and a front contract note. Migration `0001_user_management` applied to `qadb`.
 - **Spec amendments approved during execution:** DD-12 (system-ended reporting exclusions), DD-13 (active ADMIN exempt from conflict of interest), DD-14 (READ COMMITTED + lock order, recorded), DD-15 (audit granularity, no resend to deactivated users, plain uniqueness reads); § 7 Logging (pipe refusals are not mutations); Science Programs source and Reporting auth (back lead decisions).
 - **Verification at close:** server lint ✅ · build ✅ · unit 1012 ✅ · e2e 397 ✅ · tsc baseline (7 pre-existing errors in `token-verifier.service.spec.ts`) ✅.
-- **Budget:** ~16,200 LOC vs ~3,200 original / ~12,500 re-baseline (+30 %; mostly tests) · 25 Reviewer passes vs ~16 / ~20 — overruns reported and accepted by the back lead at each tripwire.
+- **Budget:** ~16,200 LOC vs ~3,200 original / ~12,500 re-baseline (+30 %; mostly tests) · 23 Reviewer passes vs ~16 / ~20 — overruns reported and accepted by the back lead at each tripwire. Counting rule: every reviewer spawn, lens or re-review message in an entry's `spawns:` line is one pass (continuations of the same reviewer count again); 17 `spawns:` lines (14 entries) with reviewer items sum to 23 (corrected per tripwire: 7 after T-4, 15 after T-7, 19 after T-8). The earlier totals ("20 after T-8", "25 at close") over-counted.
 - **Open items:** (1) residual risks — T-10 table (DD-3 COMMIT race once a second ADMIN exists; `utf8mb3` 4-byte characters); (2) `+qatest` pool-account deletion by the pool owner; (3) pending for `staging` — TRD § 5.1/§ 6/§ 7 items, ADR candidates DD-13/DD-14, front `ApiMeta.page`; (4) ideas in `docs/ideas.md` — role-change email, QA-branded invitation; (5) the 7 pre-existing `token-verifier.service.spec.ts` type errors (outside this spec).
-- **Next:** `/akili-validate` or `/akili-test` for this spec, then `/akili-archive` (TRD/ADR sync on `staging`, Kaizen); merge `feat/auth-user-management` → `staging-center` with `--no-ff` when the back lead decides.
+- **Next:** `/akili-archive auth/user-management/core`, then `staging-center → staging` with Yeck's OK.
+
+Note (2026-10-19, validation): the tripwire blocks above (after T-4 and after T-8) and the earlier Summary total of 25 over-counted Reviewer passes; the derived count is 23 (rule in the Summary). History is left as written.
+
+## Constitution Impact: user-management/core
+
+- **Modules created or reshaped:** `users` (admin API: controller, service, unit of work, query and audit repositories, effective scope); `users/catalogs` (catalog controller, service and the Reporting and CLARISA clients); `users/dto` (request and response models); `auth/cognito-admin.module.ts` (own module, avoids an Auth↔Users cycle).
+- **Child guides updated in T-9:** `server/src/users/AGENTS.md`, `server/src/auth/AGENTS.md`, `server/src/config/AGENTS.md`, `server/src/database/AGENTS.md`, `server/test/AGENTS.md`, `server/src/common/AGENTS.md`.
+- **Parent `## Module Guides` in root `AGENTS.md`:** the users and auth descriptions need refreshing — pending for `staging` (shared-file discipline: not edited on this branch).
+- **CodeGraph re-index:** not initialized in this repo; nothing to re-index.
+
+### Validation remediation (R-A, R-B)
+
+Approved by the back lead 2026-10-19 ("1" = fix R-A and R-B); source `validation-report.md` § Remediation. R-C (human residual risks) not touched.
+
+- **Files changed (docs):** `design.md`, `requirements.md`, `tasks.md`, `execution.md` (Document Control, Summary, this entry), `../family.md` (core status `done`).
+- **Files changed (server):** `src/users/users-admin.controller.ts` (`/activate` no longer documents `USERS_LAST_ADMIN`); `src/users/catalogs/catalog-http.ts` (`redirect: 'error'`); `src/users/users-admin.unit-of-work.ts` (`countActiveAdmins` = live grants: `revoked_at IS NULL`, role active and known); tests: `catalog-http.spec.ts` (new), `users-admin.unit-of-work.spec.ts`, `users-admin.service.spec.ts`, `auth/no-qa-tokens.spec.ts` (`CLARISA_API_KEY` pinned), `test/catalogs.e2e-spec.ts` (403 for every grantable non-admin role, controller inventory), `test/openapi.e2e-spec.ts`.
+- **Falsifiers (red, then reverted):** `ADMIN_ACCESS` swapped on the catalogs controller → 19 e2e failures (inventory plus the 403 rows); `redirect: 'error'` dropped → `catalog-http.spec` red (`expected undefined to be 'error'`); `isNull(revokedAt)` dropped → the live-grant SQL test red.
+- **Verification:** Implementer — lint clean, build ok, unit 1016, e2e 414, tsc 7 (token-verifier only). **Evidence re-run (Leader-inline, non-author):** lint 0; build 0; unit 1016/1016; e2e 414/414; tsc 7 → VERIFIED.
+- **Review:** auditor B (validation) attempt 1 — FAIL on three documentation statements (FR-10 sentence claimed the history holds the creator of active exclusions; Summary supporting figure "18 entries" not reproducible — 17 `spawns:` lines in 14 entries; Summary "Next" line stale). Fixed by the Leader (documentation only); NFR-3 worst case stated (~30 s on a cold-cache create) and the config guide's no-secret line updated per the auditor's advisories.

@@ -547,6 +547,20 @@ describe('DrizzleUsersAdminUnitOfWork over a stub MySQL driver', () => {
     expect(selects[2]).not.toMatch(/for update|for share/);
   });
 
+  it('counts only live admin grants, as isLiveAssignment does: not revoked, role active and known', async () => {
+    const { unitOfWork, log } = stub();
+
+    await unitOfWork.run(steps);
+
+    const count = log
+      .map((s) => s.sql)
+      .find((sql) => sql.includes('count(distinct'))!;
+    expect(count).toMatch(/`role_assignments`\.`revoked_at` is null/);
+    expect(count).toMatch(/`roles`\.`is_active` = \?/);
+    expect(count).toMatch(/`role_assignments`\.`is_active` = \?/);
+    expect(count).toMatch(/`roles`\.`code` in \(/);
+  });
+
   it('every statement, the audit insert included, runs on the transaction connection between begin and commit', async () => {
     const { unitOfWork, log } = stub();
 

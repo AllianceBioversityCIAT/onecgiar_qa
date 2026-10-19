@@ -222,6 +222,19 @@ describe('FR-17: no QA-issued tokens, client secret from env only (static)', () 
       expect(config).toMatch(SECRET_CONFIG_LINE);
     });
 
+    it('reads CLARISA_API_KEY only in config/catalogs.config.ts, on the line `apiKey: process.env.CLARISA_API_KEY!,` (no fallback)', () => {
+      const readers = sourceFiles()
+        .filter((path) =>
+          /process\.env\.CLARISA_API_KEY\b/.test(codeOf(read(path))),
+        )
+        .map((path) => relative(SRC_ROOT, path))
+        .sort();
+      expect(readers).toEqual(['config/catalogs.config.ts']);
+      expect(read(join(SRC_ROOT, 'config/catalogs.config.ts'))).toMatch(
+        /^\s*apiKey: process\.env\.CLARISA_API_KEY!,$/m,
+      );
+    });
+
     it('reads no environment variable dynamically (process.env[...]) in server/src', () => {
       const found = sourceFiles()
         .filter((path) => DYNAMIC_ENV.test(codeOf(read(path))))

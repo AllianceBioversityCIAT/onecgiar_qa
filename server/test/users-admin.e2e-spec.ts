@@ -1207,7 +1207,6 @@ describe('Users admin routes (e2e)', () => {
             ...AUTH,
             '400': ['VALIDATION_FAILED'],
             '404': ['USERS_NOT_FOUND'],
-            '409': ['USERS_LAST_ADMIN'],
           },
         ],
         [

@@ -10,11 +10,11 @@
 | Depth | Full (authorization, data model, API, two external integrations) |
 | Jira | P2-3908 (epic P2-3902) |
 | Approval Mode | gated |
-| Status | Draft |
+| Status | Approved — implemented (2026-10-19) |
 | PRD stories | US-3, US-12; personas § Roles |
 | Source | `../proposal.md` + decisions of 2026-10-19 (below) |
 | Scope | Server only (`server/`) |
-| Last updated | 2026-10-19 (FR-4 ADMIN exception — DD-13) |
+| Last updated | 2026-10-19 (FR-4 ADMIN exception — DD-13; validation remediation R-A: FR-9, FR-10, NFR-3, § 7 audit gate, known limitation) |
 
 **Decisions taken before writing (back lead, 2026-10-19):**
 
@@ -52,6 +52,8 @@ The QA Admin gets an API to run the assessment team: create people (and their Co
 ## 4. System Context & Scope
 
 **In scope:** user-management API for QA Admins; nickname; result-type and program scopes; manual exclusions (storage ready for `reporting` ones); Cognito account creation and invitation resend for custom users; deactivation; catalogs (grantable roles, result types, Science Programs); audit records; `/auth/me` nickname; ADMIN grants every permission.
+
+**Known limitation:** names and nicknames with 4-byte characters (for example emoji) are not supported while `qadb` uses `utf8mb3`; pending decision: DTO validation or moving to `utf8mb4` (with the pool/infra owner).
 
 **Out of scope:** front-end work; the Reporting sync of exclusions (child 2); timelines (D9); per-result assignment; email notifications beyond the one Cognito sends; progress per member (needs results); permanent deletion; the PROGRAM role's future (D6).
 
@@ -206,13 +208,14 @@ The system SHALL list users with: name, nickname, email, account type, status, r
 #### Scenario: Search and filters
 - WHEN the admin searches by part of name, nickname or email, or filters by role, result type, program, status or "has exclusions"
 - THEN only matching users are returned
+- AND the `programId` filter matches users whose program scope covers the program, including users with an active exclusion on it (use `hasExclusions` to find them)
 - AND by default only team members are listed; GUESTs appear only with an explicit filter
 
 #### Scenario: Pagination
 - AND IT MUST paginate with a cursor (default 50, maximum 200)
 
 ### FR-10: User detail
-The system SHALL return one user with everything in FR-9 plus exclusion history (active, removed and dismissed).
+The system SHALL return one user with everything in FR-9 plus its active exclusions and their history (removed and dismissed). Active exclusions show id, program, origin, reason and since; who created an active exclusion is not shown until it ends. The history (removed and dismissed) holds who, when and why of each creation and end (clarified 2026-10-19, validation; matches design § 6).
 
 ### FR-11: Catalogs
 The system SHALL serve the grantable roles, the result types (key and display name) and the Science Programs (CLARISA id, code and name) for the forms.
@@ -243,7 +246,7 @@ The ADMIN role SHALL grant every permission in the catalog, present and future (
 |---|---|---|---|---|
 | NFR-1 | Security | Non-admin on any user-management route | 100 % → 403; checked by the route inventory and a per-route test | QAS-SEC-2 |
 | NFR-2 | Security / privacy | Logs of user-management calls | No email, name, temporary password or AWS credential in any log line; decisions logged with user ids only | QAS-OBS-1 |
-| NFR-3 | Availability | Cognito admin API or CLARISA slow or down | Answer 503 within 10 s; other routes unaffected | QAS-AVL-1 |
+| NFR-3 | Availability | Cognito admin API or CLARISA slow or down | Answer 503 within 10 s **per upstream call** (the Cognito create shares one 10 s budget across its two calls); other routes unaffected. Cold-cache worst case: a create reads the two catalogs one after the other and then calls Cognito, so it can take about 30 s before the 503 | QAS-AVL-1 |
 | NFR-4 | Performance | List of 500 team members, warm | p95 ≤ 300 ms per page, measured over ≥ 200 requests | QAS-PERF-1 |
 | NFR-5 | Integrity | Concurrent edits | The DB enforces unique email, unique nickname (case-insensitive), at most one active grant per user/role/scope, and the last-admin rule under concurrency | TRD § 5.1 |
 
@@ -258,7 +261,7 @@ The ADMIN role SHALL grant every permission in the catalog, present and future (
 | Cognito admin contract drift (create, existing user, resend) | Contract tests with fixtures shaped like the Cognito API | Real pool: HITL smoke |
 | CLARISA / Reporting catalog drift | Fixture-based client tests | Real APIs: HITL smoke |
 | PII leak to non-admins or to logs | e2e body assertions + log spies | — |
-| Audit gap | Unit/e2e: each mutation writes exactly one audit entry, none on refusal | — |
+| Audit gap | Unit/e2e: audit rows follow DD-15 — an edit writes one `update` row; each grant/revoke, scope change, exclusion action, deactivation, reactivation and resend writes its own row; a create writes one `create` row plus those; none on refusal | — |
 | Migration defect on shared `qadb` | Generated SQL review + `schema.spec` | Applied by a human at the HITL step |
 | Compiler-only | `pnpm build` | — |
 | Contract mismatch with the front | OpenAPI document test + review of the contract with the front team | Front integration is theirs |

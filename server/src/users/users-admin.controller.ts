@@ -330,7 +330,6 @@ export class UsersAdminController {
     ...ACCESS,
     400: BAD_PARAMS,
     404: NOT_FOUND,
-    409: ['USERS_LAST_ADMIN'],
   })
   @HttpCode(200)
   @Post(':id/activate')

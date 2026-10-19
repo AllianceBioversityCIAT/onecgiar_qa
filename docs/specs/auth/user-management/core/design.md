@@ -7,9 +7,9 @@
 | Spec path | `docs/specs/auth/user-management/core` |
 | Requirements | `requirements.md` (FR-1…FR-14, NFR-1…NFR-5) |
 | Depth | Full |
-| Status | Draft |
+| Status | Approved — implemented (2026-10-19) |
 | Base commit | `8ecef79` (branch `feat/auth-user-management`, from `origin/staging-center` @ `8866e69`) |
-| Last updated | 2026-10-19 (DD-12, DD-13 amendments; DD-14, § 7 lock order; DD-15) |
+| Last updated | 2026-10-19 (DD-12, DD-13 amendments; DD-14, § 7 lock order; DD-15; validation remediation R-A: § 4 file names, § 5 column nullability, § 6 error rows, Status) |
 
 ## 2. Executive Summary
 
@@ -51,13 +51,15 @@ server/src/
 │   ├── user-programs.repository.ts    # program scope + exclusions (port + Drizzle adapter)
 │   ├── user-audit.repository.ts       # audit events (port + Drizzle adapter)
 │   ├── effective-scope.ts             # pure: role → result type → program scope − exclusions
-│   ├── dto/*.ts                       # request/response models (OpenAPI)
+│   ├── dto/{create-user.dto,edit-user.dto,list-users.query,user-fields,user-params,user-scope.dtos,user.models}.ts  # request/response models (OpenAPI)
+│   ├── public-user.ts                 # the only mapper that renders another user to a non-admin (FR-12)
 │   ├── permissions.ts                 # ADMIN grants all
 │   ├── authorization.service.ts       # + canReview
 │   ├── current-user.cache.ts          # carries program scope + exclusions
-│   └── catalogs/{catalogs.controller,catalog.service,reporting-catalog.client,clarisa.client}.ts
+│   └── catalogs/{catalogs.controller,catalog.service,catalog-http,catalogs.ports,catalogs.errors,reporting-result-types.client,clarisa-science-programs.client}.ts
 ├── auth/
 │   ├── cognito-admin.client.ts        # AdminCreateUser / AdminGetUser (AWS SDK, SigV4)
+│   ├── cognito-admin.module.ts        # own module: avoids an Auth↔Users module cycle
 │   └── me.controller.ts               # + nickname
 ├── common/error-codes.ts              # + USERS_* codes
 ├── config/{cognito-admin,catalogs}.config.ts, env.validation.ts
@@ -69,13 +71,13 @@ server/drizzle/0001_<name>.sql          # generated migration
 
 | Table / change | Columns and rules | Requirement |
 |---|---|---|
-| `users` + | `nickname varchar(50)` NULL, unique (collation-insensitive, P-7); `invitation` enum(`none`,`sent`,`existing_account`) default `none`; `invited_at` datetime NULL | FR-2, FR-8, FR-12 |
+| `users` + | `nickname varchar(50)` NULL, unique (collation-insensitive, P-7); `invitation` enum(`none`,`sent`,`existing_account`) NOT NULL, default `none`; `invited_at` datetime NULL | FR-2, FR-8, FR-12 |
 | `role_assignments` (rule) | `result_type_key = '*'` means **all result types** (current and future). Allowed only for result-type-scoped roles. Existing CHECK (at most one scope) and `active_key` unchanged | FR-3 |
 | `user_programs` (new) | `user_id`, `program_id` (CLARISA id); PK (`user_id`,`program_id`). **No rows = all programs** (current and future) | FR-4 |
 | `user_program_exclusions` (new) | `id`, `user_id`, `program_id`, `origin` enum(`manual`,`reporting`), `status` enum(`active`,`removed`,`dismissed`), `reason` varchar(500), `reporting_role` varchar(100) NULL, `created_at`, `created_by` NULL (= system), `ended_at`, `ended_by` NULL (= system), `end_reason`. Stored generated `active_key` = user:program when `status='active'`, unique. CHECKs: `manual` ⇒ reason not empty; `dismissed` ⇒ origin `reporting` and `end_reason` not empty; `ended_at` set iff status ≠ `active`; `ended_by` and `end_reason` NULL while `active`; `ended_by` NULL (system end) allowed only for origin `reporting` with status `removed` — a `manual` removal and every `dismissed` row require `ended_by` (amended 2026-10-19, see DD-12) | FR-4 |
 | `user_audit_events` (new) | `id`, `user_id` (target), `actor_id`, `action` enum, `changes` JSON (`{ field: { before, after } }`), `request_id`, `created_at`. Append-only; index (`user_id`,`created_at`) | FR-13 |
 
-Migration `0001`: additive only (new nullable columns, new tables); no data rewrite. Applied by a human on `qadb` (P-17 of the auth spec).
+Migration `0001`: additive only (new columns — `nickname` and `invited_at` nullable, `invitation` NOT NULL with default `none` — and new tables); no data rewrite. Applied by a human on `qadb` (P-17 of the auth spec).
 
 ## 6. API Design
 
@@ -87,12 +89,13 @@ All under `/api/v1`, response standard (TRD § 6), **`ADMIN_ACCESS`** (Bearer) u
 | GET | `/users/:id` | — | `data: UserDetail` | 404 `USERS_NOT_FOUND` |
 | POST | `/users` | `{ email, firstName, lastName, nickname, accountType, roles?, programs?, exclusions? }` | 201 `data: UserDetail` (`invitation`) | 400, 409 `USERS_EMAIL_TAKEN` / `USERS_NICKNAME_TAKEN` / `USERS_ROLE_CONFLICT`, 503 |
 | PATCH | `/users/:id` | `{ nickname?, firstName?, lastName? }` | `data: UserDetail` | 404, 409 `USERS_NICKNAME_TAKEN` / `USERS_NAME_LOCKED` |
-| PUT | `/users/:id/roles` | `{ roles: [{ role, resultTypes: 'all' \| string[] }] }` (global roles: no `resultTypes`) | `data: UserDetail` | 400 (incl. non-grantable role), 404, 409 `USERS_ROLE_CONFLICT` / `USERS_LAST_ADMIN` |
-| PUT | `/users/:id/programs` | `{ programs: 'all' \| number[] }` | `data: UserDetail` | 400, 404 |
-| POST | `/users/:id/exclusions` | `{ programId, reason }` | 201 `data: UserDetail` | 400, 404, 409 `USERS_EXCLUSION_EXISTS` |
+| PUT | `/users/:id/roles` | `{ roles: [{ role, resultTypes: 'all' \| string[] }] }` (global roles: no `resultTypes`) | `data: UserDetail` | 400 (incl. non-grantable role), 404, 409 `USERS_ROLE_CONFLICT` / `USERS_LAST_ADMIN`, 503 (catalog validation, § 7) |
+| PUT | `/users/:id/programs` | `{ programs: 'all' \| number[] }` | `data: UserDetail` | 400, 404, 503 (catalog validation, § 7) |
+| POST | `/users/:id/exclusions` | `{ programId, reason }` | 201 `data: UserDetail` | 400, 404, 409 `USERS_EXCLUSION_EXISTS`, 503 (catalog validation, § 7) |
 | DELETE | `/users/:id/exclusions/:exclusionId` | — (manual only) | `data: UserDetail` | 404 `USERS_EXCLUSION_NOT_FOUND`, 409 `USERS_EXCLUSION_NOT_MANUAL` |
 | POST | `/users/:id/exclusions/:exclusionId/dismiss` | `{ reason }` (reporting only) | `data: UserDetail` | 400, 404, 409 `USERS_EXCLUSION_NOT_REPORTING` |
-| POST | `/users/:id/deactivate` · `/activate` | — | `data: UserDetail` | 404, 409 `USERS_LAST_ADMIN` |
+| POST | `/users/:id/deactivate` | — | `data: UserDetail` | 404, 409 `USERS_LAST_ADMIN` |
+| POST | `/users/:id/activate` | — | `data: UserDetail` | 404 (never `USERS_LAST_ADMIN`: reactivating adds an admin) |
 | POST | `/users/:id/invitation` | — | `data: UserDetail` | 404, 409 `USERS_INVITATION_NOT_APPLICABLE`, 503 |
 | GET | `/catalogs/roles` | — | grantable roles `{ code, name, scopeType }` | — |
 | GET | `/catalogs/result-types` | — | `{ key, name }[]` | 503 `SERVICE_UNAVAILABLE` |

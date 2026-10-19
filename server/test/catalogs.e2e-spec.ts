@@ -5,12 +5,14 @@ import request from 'supertest';
 import { AppModule } from '../src/app.module.js';
 import { JWKS_CACHE } from '../src/auth/token-verifier.service.js';
 import { configureApp } from '../src/common/configure-app.js';
+import { REQUIRE_PERMISSION_KEY } from '../src/auth/decorators/require-permission.decorator.js';
+import { CatalogsController } from '../src/users/catalogs/catalogs.controller.js';
 import { UpstreamUnavailableError } from '../src/users/catalogs/catalogs.errors.js';
 import {
   RESULT_TYPE_SOURCE,
   SCIENCE_PROGRAM_SOURCE,
 } from '../src/users/catalogs/catalogs.ports.js';
-import { ROLE_DEFINITIONS } from '../src/users/permissions.js';
+import { Permission, ROLE_DEFINITIONS } from '../src/users/permissions.js';
 import {
   ROLE_ASSIGNMENTS_STORE,
   RoleAssignmentsRepository,
@@ -106,6 +108,38 @@ describe('Catalog routes (e2e)', () => {
       roleCode: 'ASSESSOR',
       resultTypeKey: 'KP',
     });
+    const grants: [string, string, string?][] = [
+      ['sub-lead', 'LEAD_ASSESSOR', 'KP'],
+      ['sub-tpb', 'TPB'],
+      ['sub-ppu', 'PPU'],
+    ];
+    for (const [sub, roleCode, resultTypeKey] of grants) {
+      const user = await users.create({
+        email: `${sub}@cgiar.org`,
+        cognitoSub: sub,
+        firstName: sub,
+        lastName: 'User',
+        authSource: 'sso',
+      });
+      await assignments.create({ userId: user.id, roleCode, resultTypeKey });
+    }
+    // GUEST: an SSO user with no assignment.
+    await users.create({
+      email: 'guest@cgiar.org',
+      cognitoSub: 'sub-guest',
+      firstName: 'Gus',
+      lastName: 'Guest',
+      authSource: 'sso',
+    });
+    const multi = await users.create({
+      email: 'multi@cgiar.org',
+      cognitoSub: 'sub-multi',
+      firstName: 'Mia',
+      lastName: 'Multi',
+      authSource: 'sso',
+    });
+    await assignments.create({ userId: multi.id, roleCode: 'TPB' });
+    await assignments.create({ userId: multi.id, roleCode: 'PPU' });
 
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(USERS_STORE)
@@ -151,10 +185,28 @@ describe('Catalog routes (e2e)', () => {
     },
   );
 
-  it.each(ROUTES)(
-    'GET %s as an Assessor answers 403 and reads no source',
-    async (path) => {
-      const res = await get(path, bearer('sub-assessor')).expect(403);
+  it('CatalogsController declares ADMIN_ACCESS (inventory)', () => {
+    expect(
+      Reflect.getMetadata(REQUIRE_PERMISSION_KEY, CatalogsController),
+    ).toBe(Permission.ADMIN_ACCESS);
+  });
+
+  const NON_ADMINS = [
+    ['Assessor', 'sub-assessor'],
+    ['Lead Assessor', 'sub-lead'],
+    ['TPB', 'sub-tpb'],
+    ['PPU', 'sub-ppu'],
+    ['GUEST', 'sub-guest'],
+    ['multi-grant (TPB + PPU)', 'sub-multi'],
+  ];
+  const DENIED = NON_ADMINS.flatMap(([label, sub]) =>
+    ROUTES.map((path) => [label, sub, path]),
+  );
+
+  it.each(DENIED)(
+    'GET as %s (%s) %s answers 403 and reads no source',
+    async (_label, sub, path) => {
+      const res = await get(path, bearer(sub)).expect(403);
       expect(res.body).toMatchObject({
         success: false,
         error: { status: 403, code: 'AUTH_PERMISSION_DENIED' },
