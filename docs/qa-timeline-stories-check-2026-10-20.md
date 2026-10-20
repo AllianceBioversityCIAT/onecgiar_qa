@@ -29,3 +29,9 @@ Designed for the ADMIN user (María Julia): the screen informs her instead of lo
 Tested in the browser (1440 and 390): July sub-timeline edit (closed rows, scope, confirmation), September pilot (step 1 load off), step drawer for a closed and an in-progress step. `npx ng build` passes (only the existing bundle budget warning).
 
 Pending: Juanpa's review. Dark mode not checked.
+
+## Update (same day): P2-3971 empty states
+- Live tab: empty card "No live timelines" with a "New sub-timeline" button (hidden in a read-only closed cycle).
+- Closed tab: empty card "No closed timelines yet" explaining that finished timelines stay as the record of the cycle.
+- Timeline drawer: "No steps yet. Add the first step, or start from the official timeline." when every step was removed.
+- Checked in the browser at 1440 by emptying the mock list temporarily (restored afterwards; `cycle-view.ts` is unchanged).

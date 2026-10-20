@@ -166,6 +166,8 @@ interface TimelineDraft {
                   </div>
                 }
               </div>
+            } @empty {
+              <p class="m-0 px-[14px] py-4 text-(length:--fs-13) text-pretty text-(--text-3)">No steps yet. Add the first step, or start from the official timeline.</p>
             }
             <div class="flex min-h-11 flex-wrap items-center gap-x-4 gap-y-1 border-t border-(--surface-4) px-[6px] py-1 @xl:py-0">
               <button hlmBtn qaBtn tone="link" size="sm" type="button" (click)="addRow()">Add step</button>

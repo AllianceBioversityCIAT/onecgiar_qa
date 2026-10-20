@@ -170,7 +170,13 @@
                   (viewProgress)="openProgress(t.id, $event)"
                 />
               } @empty {
-                <p class="m-0 text-(length:--fs-14) text-(--text-3)">No live timelines.</p>
+                <section class="flex flex-col items-start gap-1 rounded-[12px] border border-(--border) bg-(--surface) px-5 py-6">
+                  <h3 class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">No live timelines</h3>
+                  <p class="m-0 text-(length:--fs-14) font-normal text-pretty text-(--text-3)">Timelines show here while their steps are running. Add a sub-timeline for programs that submit late.</p>
+                  @if (!readOnly()) {
+                    <button hlmBtn qaBtn tone="secondary" type="button" (click)="newSubTimeline()" class="mt-3">New sub-timeline</button>
+                  }
+                </section>
               }
             </div>
           }
@@ -189,7 +195,10 @@
                 <button hlmBtn qaBtn tone="link" size="sm" type="button" (click)="loadMoreClosed()">Load more</button>
               </div>
             } @else {
-              <p class="m-0 max-w-40 text-(length:--fs-14) text-(--text-3)">No timelines have closed yet.</p>
+              <section class="flex flex-col items-start gap-1 rounded-[12px] border border-(--border) bg-(--surface) px-5 py-6">
+                <h3 class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">No closed timelines yet</h3>
+                <p class="m-0 text-(length:--fs-14) font-normal text-pretty text-(--text-3)">When a timeline finishes its last step, it moves here and stays as the record of the cycle.</p>
+              </section>
             }
           }
         </div>
