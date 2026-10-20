@@ -49,6 +49,15 @@ describe('UsersApi', () => {
     req.flush({ success: true, data: { id: 1 }, meta: meta() });
   });
 
+  it('invitation and exclusions are never queued (a repeat sends another email / answers 409)', () => {
+    void firstValueFrom(api.resendInvitation(3, 'Ada'));
+    void firstValueFrom(api.addExclusion(3, 441, 'Co-author', 'Ada'));
+    for (const req of http.match(() => true)) {
+      expect(req.request.context.get(NO_QUEUE)).toBe(true);
+      req.flush({ success: true, data: { id: 3 }, meta: meta() });
+    }
+  });
+
   it('other writes are silent and can be queued', () => {
     void firstValueFrom(api.setPrograms(3, 'all', 'Ada'));
     const req = http.expectOne(`${API}/users/3/programs`);

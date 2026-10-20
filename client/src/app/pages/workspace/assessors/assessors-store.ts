@@ -109,6 +109,9 @@ export class AssessorsStore {
     return this.members().find((m) => m.id === id) ?? this.removedMembers()?.find((m) => m.id === id);
   }
 
+  /** Email of an invite whose answer never came (it may have been created anyway). */
+  private unconfirmedInvite: string | null = null;
+
   async invite(input: PersonInput): Promise<SaveOutcome> {
     const cat = this.catalogState();
     const blocked = input.blocked.filter((b) => b.code);
@@ -136,8 +139,19 @@ export class AssessorsStore {
             ? `Invitation sent to ${created.email}.`
             : `${input.nick.trim()} can sign in with their CGIAR account.`,
       );
+      this.unconfirmedInvite = null;
       return { ok: true };
     } catch (error) {
+      const e = toApiError(error);
+      const email = input.email.trim().toLowerCase();
+      // Retry after a lost answer: "email taken" means the first try did create them (Juanda, 20-oct).
+      if (e.code === USERS_ERROR.EMAIL_TAKEN && this.unconfirmedInvite === email) {
+        this.unconfirmedInvite = null;
+        await this.load();
+        this.toasts.success(`${input.nick.trim()} was already created by the first try.`);
+        return { ok: true };
+      }
+      if (e.status === 0) this.unconfirmedInvite = email;
       return failure(error);
     }
   }

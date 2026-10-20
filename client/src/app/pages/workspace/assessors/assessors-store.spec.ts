@@ -104,6 +104,20 @@ describe('AssessorsStore', () => {
     expect(await store.invite(input())).toEqual({ ok: false, message: 'That nickname is taken.', field: 'nick' });
   });
 
+  it('a retry after a lost answer that says "email taken" counts as created and reloads', async () => {
+    users['create']
+      .mockReturnValueOnce(throwError(() => new ApiError({ status: 0, code: 'CLIENT_NETWORK_ERROR', message: 'Offline.' })))
+      .mockReturnValueOnce(throwError(() => new ApiError({ status: 409, code: 'USERS_EMAIL_TAKEN', message: 'Taken.' })));
+    expect((await store.invite(input({ email: 'bo@x.org' }))).ok).toBe(false);
+    expect(await store.invite(input({ email: 'bo@x.org' }))).toEqual({ ok: true });
+    expect(users['listAll']).toHaveBeenCalledTimes(2);
+  });
+
+  it('"email taken" without a lost answer before is a real conflict on the email field', async () => {
+    users['create'].mockReturnValueOnce(throwError(() => new ApiError({ status: 409, code: 'USERS_EMAIL_TAKEN', message: 'Taken.' })));
+    expect(await store.invite(input())).toEqual({ ok: false, message: 'Taken.', field: 'email' });
+  });
+
   it('edit sends only what changed, in order, and stops at the first refusal', async () => {
     users['setRoles'].mockReturnValueOnce(throwError(() => new ApiError({ status: 409, code: 'USERS_ROLE_CONFLICT', message: 'Conflict.' })));
     const outcome = await store.edit('7', input({ nick: 'New', types: ['Policy change'], programs: ['SP01'] }));

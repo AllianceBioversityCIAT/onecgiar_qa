@@ -3,7 +3,7 @@ import { Service, inject } from '@angular/core';
 import { EMPTY, Observable, expand, reduce } from 'rxjs';
 import { APP_CONFIG } from '../config/app-config';
 import { ApiEnvelope, ApiPage, unwrap, unwrapPage } from '../http/api-envelope';
-import { NO_QUEUE, SILENT_ERRORS, UNSENT_LABEL } from '../http/request-context';
+import { NO_QUEUE, SILENT_ERRORS, TIMEOUT_MS, UNSENT_LABEL } from '../http/request-context';
 import {
   AllOr,
   CreateUserBody,
@@ -16,11 +16,16 @@ import {
 
 /** Largest page the API serves (`limit` 1–200). */
 const MAX_PAGE = 200;
+/** Creating reads Reporting + CLARISA (cold cache) and then calls Cognito: it can take well over 20 s (Juanda, 20-oct-2026). */
+const CREATE_TIMEOUT_MS = 60_000;
 
 /**
  * HTTP calls of the user-management API (`/api/v1/users`, ADMIN only). Only transport, no state.
  * Writes are silent (the drawer shows field errors and conflicts inline) and carry a label for the
- * Unsent list; creating a user is never queued for replay (Cognito may have created the account).
+ * Unsent list. Until the server honors `Idempotency-Key` (Juanda's spec `users-admin-write-safety`),
+ * only the writes that are safe to repeat go to the unsent queue: PATCH, PUT roles / programs,
+ * deactivate, activate. Create (a repeat answers 409 EMAIL_TAKEN), exclusions (409 / 404) and the
+ * invitation (every repeat sends another Cognito email) are never replayed.
  */
 @Service()
 export class UsersApi {
@@ -48,7 +53,7 @@ export class UsersApi {
   }
 
   create(body: CreateUserBody): Observable<UserDetail> {
-    const context = this.silent(`Invite ${body.email}`).set(NO_QUEUE, true);
+    const context = this.silent(`Invite ${body.email}`).set(NO_QUEUE, true).set(TIMEOUT_MS, CREATE_TIMEOUT_MS);
     return this.http.post<ApiEnvelope<UserDetail>>(this.base, body, { context }).pipe(unwrap<UserDetail>());
   }
 
@@ -65,15 +70,15 @@ export class UsersApi {
   }
 
   addExclusion(id: number, programId: number, reason: string, who: string): Observable<UserDetail> {
-    return this.write('POST', `${this.base}/${id}/exclusions`, { programId, reason }, `Block a program for ${who}`);
+    return this.write('POST', `${this.base}/${id}/exclusions`, { programId, reason }, `Block a program for ${who}`, false);
   }
 
   removeExclusion(id: number, exclusionId: number, who: string): Observable<UserDetail> {
-    return this.write('DELETE', `${this.base}/${id}/exclusions/${exclusionId}`, null, `Unblock a program for ${who}`);
+    return this.write('DELETE', `${this.base}/${id}/exclusions/${exclusionId}`, null, `Unblock a program for ${who}`, false);
   }
 
   dismissExclusion(id: number, exclusionId: number, reason: string, who: string): Observable<UserDetail> {
-    return this.write('POST', `${this.base}/${id}/exclusions/${exclusionId}/dismiss`, { reason }, `Dismiss a block for ${who}`);
+    return this.write('POST', `${this.base}/${id}/exclusions/${exclusionId}/dismiss`, { reason }, `Dismiss a block for ${who}`, false);
   }
 
   deactivate(id: number, who: string): Observable<UserDetail> {
@@ -85,12 +90,14 @@ export class UsersApi {
   }
 
   resendInvitation(id: number, who: string): Observable<UserDetail> {
-    return this.write('POST', `${this.base}/${id}/invitation`, null, `Resend the invitation to ${who}`);
+    return this.write('POST', `${this.base}/${id}/invitation`, null, `Resend the invitation to ${who}`, false);
   }
 
-  private write(method: string, url: string, body: unknown, label: string): Observable<UserDetail> {
+  /** `replayable = false`: a lost answer is shown to the user instead of going to the unsent queue. */
+  private write(method: string, url: string, body: unknown, label: string, replayable = true): Observable<UserDetail> {
+    const context = this.silent(label).set(NO_QUEUE, !replayable);
     return this.http
-      .request<ApiEnvelope<UserDetail>>(method, url, { body, context: this.silent(label) })
+      .request<ApiEnvelope<UserDetail>>(method, url, { body, context })
       .pipe(unwrap<UserDetail>());
   }
 
