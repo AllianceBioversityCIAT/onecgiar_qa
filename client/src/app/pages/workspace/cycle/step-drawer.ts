@@ -57,8 +57,8 @@ interface StepDraft {
             placeholder="QA platform open for assessors"
             [attr.aria-invalid]="nameError() ? true : null"
             [attr.aria-describedby]="nameError() ? 'cycle-step-name-err' : null"
-            [attr.data-invalid]="!!nameError()"
-            class="h-9 w-full rounded-[8px] border-(--border) bg-(--field-bg) px-3 py-0 text-(length:--fs-14) text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[invalid=true]:border-(--danger) md:text-(length:--fs-14) dark:bg-(--field-bg)"
+            [attr.data-error]="!!nameError()"
+            class="h-9 w-full rounded-[8px] border-(--border) bg-(--field-bg) px-3 py-0 text-(length:--fs-14) text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-14) dark:bg-(--field-bg)"
           />
           @if (nameError()) {
             <span id="cycle-step-name-err" class="text-(length:--fs-13) text-(--danger)">{{ nameError() }}</span>
@@ -98,8 +98,8 @@ interface StepDraft {
                   placeholder="06 Jul 2026"
                   [attr.aria-invalid]="opensError() ? true : null"
                   [attr.aria-describedby]="opensError() ? 'cycle-step-opens-err' : null"
-                  [attr.data-invalid]="!!opensError()"
-                  class="h-9 w-[180px] rounded-[8px] border-(--border) bg-(--field-bg) py-0 pr-10 pl-3 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[invalid=true]:border-(--danger) md:text-(length:--fs-13) dark:bg-(--field-bg)"
+                  [attr.data-error]="!!opensError()"
+                  class="h-9 w-[180px] rounded-[8px] border-(--border) bg-(--field-bg) py-0 pr-10 pl-3 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) dark:bg-(--field-bg)"
                 />
                 <qa-date-picker [value]="stepForm.opens().value()" (valueChange)="stepForm.opens().value.set($event)" label="Pick the opening date" class="absolute top-1/2 right-1 -translate-y-1/2" />
               </span>
@@ -289,12 +289,12 @@ export class StepDrawer {
     );
   });
 
-  /** Errors show after a save attempt, as in the mockup. */
+  /** Errors show once a field is left or after a save attempt (same as Assessors). */
   private readonly tried = linkedSignal({ source: this.request, computation: () => false });
   protected readonly confirmRemove = linkedSignal({ source: this.request, computation: () => false });
 
-  protected readonly nameError = computed(() => (this.tried() ? (this.stepForm.name().errors()[0]?.message ?? '') : ''));
-  protected readonly opensError = computed(() => (this.tried() ? (this.stepForm.opens().errors()[0]?.message ?? '') : ''));
+  protected readonly nameError = computed(() => (this.tried() || this.stepForm.name().touched() ? (this.stepForm.name().errors()[0]?.message ?? '') : ''));
+  protected readonly opensError = computed(() => (this.tried() || this.stepForm.opens().touched() ? (this.stepForm.opens().errors()[0]?.message ?? '') : ''));
 
   protected readonly title = computed(() => this.draft().name.trim() || 'New step');
 
