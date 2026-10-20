@@ -22,7 +22,7 @@ Serial boundaries: T-1 (`server/src/database/**`); T-4 and T-5 both edit `users-
 ---
 
 ## T-1: Schema and migration for `idempotency_keys`
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** S
 - **Depends on:** none
 - **Requirements:** FR-2, FR-5, FR-6, FR-7 (storage part: PK per admin + key, state, lease, expiry); NFR-5 (expiry index)

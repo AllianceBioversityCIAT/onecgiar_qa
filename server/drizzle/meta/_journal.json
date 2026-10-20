@@ -15,6 +15,13 @@
       "when": 1792423972796,
       "tag": "0001_user_management",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1792511217931,
+      "tag": "0002_idempotency_keys",
+      "breakpoints": true
     }
   ]
 }

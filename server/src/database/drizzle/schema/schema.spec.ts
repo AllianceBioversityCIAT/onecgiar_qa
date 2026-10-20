@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { MySqlDialect, getTableConfig } from 'drizzle-orm/mysql-core';
 import type { SQL } from 'drizzle-orm';
 import * as schema from './index.js';
-import { roleAssignments, roles, users } from './index.js';
+import { idempotencyKeys, roleAssignments, roles, users } from './index.js';
 
 // Schema metadata and the committed migration are checked against the
 // requirements (FR-1), not against each other: removing a rule from the
@@ -300,8 +300,8 @@ describe('committed migrations', () => {
     .filter((f) => f.endsWith('.sql'))
     .sort();
 
-  it('are exactly two SQL files', () => {
-    expect(files).toHaveLength(2);
+  it('are exactly three SQL files', () => {
+    expect(files).toHaveLength(3);
   });
 
   const sql = readFileSync(`${migrationsDir}${files[0]}`, 'utf8');
@@ -392,5 +392,102 @@ describe('committed migration 0001 (user management)', () => {
       );
     }
     expect(sql).toMatch(/`status` <> 'dismissed' OR \(`origin` = 'reporting'/);
+  });
+});
+
+describe('idempotency_keys schema (users-admin-write-safety design 5)', () => {
+  const config = getTableConfig(idempotencyKeys);
+  const col = (n: string) => config.columns.find((c) => c.name === n);
+
+  it('uses (actor_id, idem_key) as the composite primary key: per admin (FR-6)', () => {
+    expect(config.primaryKeys).toHaveLength(1);
+    expect(names(config.primaryKeys[0].columns)).toEqual([
+      'actor_id',
+      'idem_key',
+    ]);
+    // No single-column PK: a key alone must never identify a row.
+    expect(config.columns.filter((c) => c.primary)).toHaveLength(0);
+  });
+
+  it('references users from actor_id', () => {
+    const fks = config.foreignKeys.map((f) => {
+      const ref = f.reference();
+      return [names(ref.columns), getTableConfig(ref.foreignTable).name];
+    });
+    expect(fks).toContainEqual([['actor_id'], 'users']);
+    expect(col('actor_id')?.notNull).toBe(true);
+    expect(col('actor_id')?.getSQLType()).toBe('int unsigned');
+  });
+
+  it('types the key, fingerprint and owner token', () => {
+    expect(col('idem_key')?.getSQLType()).toBe('varchar(128)');
+    expect(col('fingerprint')?.getSQLType()).toBe('char(64)');
+    expect(col('owner_token')?.getSQLType()).toBe('char(36)');
+    for (const n of ['idem_key', 'fingerprint', 'owner_token']) {
+      expect(col(n)?.notNull).toBe(true);
+    }
+  });
+
+  it('declares the three states (FR-2, FR-5)', () => {
+    expect(col('state')?.getSQLType()).toBe(
+      "enum('in_progress','executed','completed')",
+    );
+    expect(col('state')?.notNull).toBe(true);
+  });
+
+  it('keeps lease, route status and expiry mandatory', () => {
+    expect(col('lease_until')?.getSQLType()).toBe('datetime');
+    expect(col('lease_until')?.notNull).toBe(true);
+    expect(col('route_status')?.getSQLType()).toBe('smallint');
+    expect(col('route_status')?.notNull).toBe(true);
+    expect(col('created_at')?.notNull).toBe(true);
+    expect(col('expires_at')?.getSQLType()).toBe('datetime');
+    expect(col('expires_at')?.notNull).toBe(true);
+  });
+
+  it('leaves the answer columns nullable until the answer is stored', () => {
+    expect(col('target_user_id')?.notNull).toBe(false);
+    expect(col('response_status')?.notNull).toBe(false);
+    expect(col('response_body')?.notNull).toBe(false);
+    expect(col('response_body')?.getSQLType()).toBe('json');
+  });
+
+  it('indexes expires_at for the retention purge (NFR-5)', () => {
+    const idx = config.indexes.find((i) => !i.config.unique);
+    expect(idx).toBeDefined();
+    expect(names(idx!.config.columns)).toEqual(['expires_at']);
+  });
+});
+
+describe('committed migration 0002 (idempotency keys)', () => {
+  const files = readdirSync(migrationsDir)
+    .filter((f) => f.endsWith('.sql'))
+    .sort();
+  const sql = files[2]
+    ? readFileSync(`${migrationsDir}${files[2]}`, 'utf8')
+    : '';
+
+  it('is additive only: one new table, no change to any existing table', () => {
+    expect(files[2]).toMatch(/^0002_/);
+    // drizzle emits the FK as ALTER ... ADD CONSTRAINT on the new table; every
+    // ALTER must target idempotency_keys and only add.
+    for (const a of sql.match(/\bALTER TABLE [^;]*/g) ?? []) {
+      expect(a).toMatch(/^ALTER TABLE `idempotency_keys` ADD CONSTRAINT /);
+    }
+    expect(sql).not.toMatch(
+      /\bDROP\b|\bINSERT INTO\b|\bUPDATE `\w+` SET\b|\bDELETE FROM\b|\bTRUNCATE\b|\bMODIFY\b|\bRENAME\b/,
+    );
+    expect(sql.match(/CREATE TABLE/g) ?? []).toHaveLength(1);
+    expect(sql).toContain('CREATE TABLE `idempotency_keys`');
+  });
+
+  it('carries the composite primary key, the user FK and the expiry index', () => {
+    expect(sql).toMatch(/PRIMARY KEY\(`actor_id`,`idem_key`\)/);
+    expect(sql).toMatch(
+      /FOREIGN KEY \(`actor_id`\) REFERENCES `users`\(`id`\)/,
+    );
+    expect(sql).toMatch(
+      /CREATE INDEX `idx_idempotency_keys_expires` ON `idempotency_keys` \(`expires_at`\)/,
+    );
   });
 });
