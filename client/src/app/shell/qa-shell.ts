@@ -129,9 +129,16 @@ export class QaShell {
   }
 
   protected signOut(): void {
+    const unsent = this.unsent.count();
+    if (
+      unsent > 0 &&
+      !window.confirm(`You have ${unsent} unsent ${unsent === 1 ? 'change' : 'changes'}. Signing out discards them. Sign out anyway?`)
+    ) {
+      return;
+    }
     this.closeOverlays();
-    // The next person on this browser must not replay this user's unsent writes.
-    this.unsent.clear();
+    // Agreed: the next person on this browser must not find this user's writes waiting.
+    this.unsent.clearMine();
     // Server logout + local clear + navigation to login (core/auth/auth-session.ts).
     void this.session.signOut();
   }

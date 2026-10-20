@@ -61,15 +61,19 @@ describe('UnsentQueue', () => {
   });
   afterEach(() => http.verify());
 
-  it('Keep in queue persists the write with its idempotency key', async () => {
+  it('a failed write is stored at once (a reload before deciding loses nothing), with its key', async () => {
     await signIn();
     const queue = TestBed.inject(UnsentQueue);
     await failOffline();
     const key = queue.awaitingDecision()[0].idempotencyKey;
-    queue.keepAwaiting();
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '[]').length).toBe(1);
 
+    queue.keepAwaiting();
     expect(queue.awaitingDecision().length).toBe(0);
     expect(queue.count()).toBe(1);
+    // Keep does not resend by itself (no loop): the next online event / tick / Send now does.
+    await tick();
+    http.expectNone(`${API}/users`);
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '[]');
     expect(stored[0].idempotencyKey).toBe(key);
     expect(JSON.stringify(stored)).not.toContain('tok');
@@ -136,7 +140,62 @@ describe('UnsentQueue', () => {
     http.expectOne(`${API}/users`).error(new ProgressEvent('error'), { status: 0, statusText: 'x' });
     await retry;
     expect(queue.awaitingDecision().length).toBe(1);
+    expect(queue.count()).toBe(1);
+  });
+
+  it('a gateway error (503) on replay waits for later instead of being rejected', async () => {
+    await signIn();
+    const queue = TestBed.inject(UnsentQueue);
+    await failOffline();
+    queue.keepAwaiting();
+
+    void queue.sendPending();
+    await tick();
+    http.expectOne(`${API}/users`).flush(null, { status: 503, statusText: 'Service Unavailable' });
+    await tick();
+    expect(queue.items()[0].state).toBe('pending');
+  });
+
+  it('a rejected item can be tried again on purpose', async () => {
+    await signIn();
+    const queue = TestBed.inject(UnsentQueue);
+    await failOffline();
+    queue.keepAwaiting();
+    void queue.sendPending();
+    await tick();
+    http.expectOne(`${API}/users`).flush(err(409, 'X', 'No.'), { status: 409, statusText: 'x' });
+    await tick();
+
+    queue.retryRejected(queue.items()[0].id);
+    await tick();
+    http.expectOne(`${API}/users`).flush(ok({}));
+    await tick();
     expect(queue.count()).toBe(0);
+  });
+
+  it('saving the same thing again reuses the stored key and drops the stored copy on success', async () => {
+    await signIn();
+    const queue = TestBed.inject(UnsentQueue);
+    await failOffline({ email: 'a@cgiar.org' });
+    const key = queue.items()[0].idempotencyKey;
+    queue.keepAwaiting();
+
+    const again = firstValueFrom(client.post(`${API}/users`, { email: 'a@cgiar.org' }));
+    const req = http.expectOne(`${API}/users`);
+    expect(req.request.headers.get(IDEMPOTENCY_HEADER)).toBe(key);
+    req.flush(ok({ id: 3 }));
+    await again;
+    expect(queue.count()).toBe(0);
+  });
+
+  it('a failed identical write is never stored twice', async () => {
+    await signIn();
+    const queue = TestBed.inject(UnsentQueue);
+    await failOffline();
+    queue.keepAwaiting();
+    await failOffline();
+    expect(queue.count()).toBe(1);
+    expect(queue.awaitingDecision().length).toBe(1);
   });
 
   it('survives a reload and is sent after signing in again', async () => {
@@ -166,13 +225,20 @@ describe('UnsentQueue', () => {
     expect(TestBed.inject(UnsentQueue).count()).toBe(0);
   });
 
-  it('clear() (sign-out) empties the list and storage', async () => {
-    await signIn();
+  it('clearMine() (sign-out the user agreed to) drops only that user\'s writes', async () => {
+    await signIn(1);
+    await failOffline({ n: 1 });
+    TestBed.inject(UnsentQueue).keepAwaiting();
+    TestBed.resetTestingModule();
+    configure();
+    await signIn(2);
     const queue = TestBed.inject(UnsentQueue);
-    await failOffline();
+    await failOffline({ n: 2 });
     queue.keepAwaiting();
-    queue.clear();
+
+    queue.clearMine();
     expect(queue.count()).toBe(0);
-    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+    const left = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '[]');
+    expect(left.map((i: { ownerId: number }) => i.ownerId)).toEqual([1]);
   });
 });

@@ -118,6 +118,26 @@ describe('requestSafetyInterceptor', () => {
     expect(toasts.error).not.toHaveBeenCalled();
   });
 
+  it('a 503 on a write goes to the queue (the server may come back), not to a toast', async () => {
+    const queue = TestBed.inject(UnsentQueue);
+    const call = firstValueFrom(client.post(`${API}/users`, { email: 'a@cgiar.org' })).catch(() => 'failed');
+    http.expectOne(`${API}/users`).flush(null, { status: 503, statusText: 'Service Unavailable' });
+    expect(await call).toBe('failed');
+    expect(queue.awaitingDecision().length).toBe(1);
+    expect(toasts.error).not.toHaveBeenCalled();
+  });
+
+  it('a 401 whose refresh could not reach the server is queued while the session lives', async () => {
+    const queue = TestBed.inject(UnsentQueue);
+    const call = firstValueFrom(client.post(`${API}/users`, { email: 'a@cgiar.org' })).catch(() => 'failed');
+    http.expectOne(`${API}/users`).flush(err(401, 'AUTH_TOKEN_INVALID'), { status: 401, statusText: 'x' });
+    await tick();
+    http.expectOne(`${API}/auth/session/refresh`).error(new ProgressEvent('error'), { status: 0, statusText: 'x' });
+    expect(await call).toBe('failed');
+    expect(TestBed.inject(AuthSession).isSignedIn()).toBe(true);
+    expect(queue.awaitingDecision().length).toBe(1);
+  });
+
   it('a silent server counts as unreachable after the timeout', async () => {
     const queue = TestBed.inject(UnsentQueue);
     // Caught right away: the timeout rejects before the assertion runs.

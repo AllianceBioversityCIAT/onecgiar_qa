@@ -3,15 +3,17 @@ import {
   HttpEvent,
   HttpInterceptorFn,
   HttpRequest,
+  HttpResponse,
 } from '@angular/common/http';
 import { Injector, Service, inject } from '@angular/core';
-import { Observable, catchError, finalize, share, throwError, timeout } from 'rxjs';
+import { Observable, catchError, finalize, share, tap, throwError, timeout } from 'rxjs';
+import { AuthSession } from '../auth/auth-session';
 import { isApiUrl, isAuthUrl } from '../auth/auth.interceptor';
 import { APP_CONFIG } from '../config/app-config';
 import { toApiError } from './api-envelope';
 import { QUEUE_REPLAY, SILENT_ERRORS, TIMEOUT_MS, isWrite } from './request-context';
 import { Toasts } from './toasts';
-import { IDEMPOTENCY_HEADER, UnsentQueue, newId } from './unsent-queue';
+import { IDEMPOTENCY_HEADER, UnsentQueue, actionSignature, isTransientStatus, newId } from './unsent-queue';
 
 /** Identical writes still in flight, shared so a second click never sends a second request. */
 @Service()
@@ -25,7 +27,9 @@ export class InFlightWrites {
  * - timeout: no eternal spinner; a silent server counts as "could not reach it";
  * - double submit: an identical write already in flight is shared, not sent again;
  * - `Idempotency-Key` on every write, so the server can drop a repeat (replays keep the same key);
- * - a write that could not reach the server goes to the unsent queue (Retry / Keep in queue);
+ * - a write that could not reach the server (no answer, timeout, 502/503/504, or a 401 whose token
+ *   refresh could not reach the server while the session is still alive) goes to the unsent queue;
+ * - saving again something already in the queue reuses its key, and drops the stored copy on success;
  * - any other unhandled error shows one toast with the catalog message, unless the request is
  *   silent, is an auth call (login renders its own errors), is a 401 (the session handles it) or
  *   is a 422 with field errors (the form shows them).
@@ -42,21 +46,27 @@ export const requestSafetyInterceptor: HttpInterceptorFn = (req, next) => {
   const auth = isAuthUrl(req.url, apiBaseUrl);
   const replay = req.context.get(QUEUE_REPLAY);
 
-  const key = write ? dedupeKey(req) : null;
+  const key = write ? actionSignature(req.method, req.urlWithParams, req.body) : null;
   const shared = key ? inFlight.get(key) : undefined;
   if (shared) return shared;
 
+  const queue = () => injector.get(UnsentQueue);
+  const tracked = write && !auth && !replay;
   const prepared =
     write && !req.headers.has(IDEMPOTENCY_HEADER)
-      ? req.clone({ setHeaders: { [IDEMPOTENCY_HEADER]: newId() } })
+      ? req.clone({ setHeaders: { [IDEMPOTENCY_HEADER]: (tracked && queue().keyFor(key)) || newId() } })
       : req;
 
   const call = next(prepared).pipe(
+    tap((event) => {
+      if (tracked && event instanceof HttpResponse) queue().confirmedElsewhere(key);
+    }),
     timeout({ each: req.context.get(TIMEOUT_MS), with: () => throwError(() => timedOut(req)) }),
     catchError((error: unknown) => {
       if (!(error instanceof HttpErrorResponse) || replay) return throwError(() => error);
-      if (error.status === 0 && write && !auth) {
-        injector.get(UnsentQueue).offer(prepared);
+      const lostRefresh = error.status === 401 && injector.get(AuthSession).isSignedIn();
+      if (tracked && (isTransientStatus(error.status) || lostRefresh)) {
+        queue().offer(prepared);
       } else if (shouldToast(error, req, auth)) {
         toasts.error(toApiError(error).message);
       }
@@ -77,17 +87,6 @@ function shouldToast(error: HttpErrorResponse, req: HttpRequest<unknown>, auth: 
   if (auth || req.context.get(SILENT_ERRORS) || error.status === 401) return false;
   const fields = toApiError(error).fields;
   return !(error.status === 422 && fields.length > 0) && !(error.status === 400 && fields.length > 0);
-}
-
-/** Same method + URL + body = the same user action. Bodies that cannot be compared are never merged. */
-function dedupeKey(req: HttpRequest<unknown>): string | null {
-  const body = req.body;
-  if (body instanceof FormData || body instanceof Blob || body instanceof ArrayBuffer) return null;
-  try {
-    return `${req.method} ${req.urlWithParams} ${JSON.stringify(body ?? null)}`;
-  } catch {
-    return null;
-  }
 }
 
 function timedOut(req: HttpRequest<unknown>): HttpErrorResponse {

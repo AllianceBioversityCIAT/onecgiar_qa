@@ -53,7 +53,10 @@ import { QaDrawerImports } from '../drawer/qa-drawer';
             @if (item.error) {
               <p class="m-0 text-(length:--fs-13) text-(--danger)">{{ item.error }}</p>
             }
-            <div class="flex justify-end">
+            <div class="flex justify-end gap-2">
+              @if (item.state === 'rejected') {
+                <button hlmBtn qaBtn tone="secondary" size="sm" type="button" (click)="queue.retryRejected(item.id)">Try again</button>
+              }
               <button hlmBtn qaBtn tone="danger-quiet" size="sm" type="button" [disabled]="item.state === 'sending'" (click)="queue.dismiss(item.id)">Discard</button>
             </div>
           </li>
