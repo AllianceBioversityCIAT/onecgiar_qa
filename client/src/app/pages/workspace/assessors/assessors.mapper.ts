@@ -35,8 +35,9 @@ function nameOfType(key: string, cat: TeamCatalogs): string {
   return cat.types.find((t) => t.key === key)?.name ?? key;
 }
 
-function keyOfType(name: string, cat: TeamCatalogs): string | null {
-  return cat.types.find((t) => t.name === name)?.key ?? null;
+/** A key the catalog no longer lists is shown as is (see nameOfType), so it maps back to itself. */
+function keyOfType(name: string, cat: TeamCatalogs): string {
+  return cat.types.find((t) => t.name === name)?.key ?? name;
 }
 
 function codeOfProgram(id: number, cat: TeamCatalogs): string {
@@ -44,7 +45,11 @@ function codeOfProgram(id: number, cat: TeamCatalogs): string {
 }
 
 function idOfProgram(code: string, cat: TeamCatalogs): number | null {
-  return cat.programs.find((p) => p.code === code)?.id ?? null;
+  const known = cat.programs.find((p) => p.code === code)?.id;
+  if (known !== undefined) return known;
+  // A program CLARISA no longer lists is shown as "#<id>" (codeOfProgram): keep it, never drop it.
+  const raw = /^#(\d+)$/.exec(code);
+  return raw ? Number(raw[1]) : null;
 }
 
 function typesOf(grant: RoleGrant | undefined, cat: TeamCatalogs): string[] {
@@ -56,19 +61,20 @@ function typesOf(grant: RoleGrant | undefined, cat: TeamCatalogs): string[] {
  * The one role the screen shows (design D2), most powerful first. Assessor + Lead on different types
  * collapse into "Assessor, leads them all": `otherRoles` then flags that saving would change grants.
  */
-function roleOf(grants: readonly RoleGrant[], cat: TeamCatalogs): { role: TeamRole; lead: boolean; types: string[] } {
+function roleOf(grants: readonly RoleGrant[], cat: TeamCatalogs): { role: TeamRole; lead: boolean; types: string[]; noRole: boolean } {
   const byCode = (code: string) => grants.find((g) => g.role === code);
-  if (byCode('ADMIN')) return { role: 'QA lead', lead: false, types: [] };
+  if (byCode('ADMIN')) return { role: 'QA lead', lead: false, types: [], noRole: false };
   const lead = byCode('LEAD_ASSESSOR');
-  if (lead?.resultTypes === 'all') return { role: 'Lead assessor', lead: true, types: [] };
+  if (lead?.resultTypes === 'all') return { role: 'Lead assessor', lead: true, types: [], noRole: false };
   const assessor = byCode('ASSESSOR');
   if (lead || assessor) {
     const types = [...new Set([...typesOf(lead, cat), ...typesOf(assessor, cat)])];
-    return { role: 'Assessor', lead: !!lead, types };
+    return { role: 'Assessor', lead: !!lead, types, noRole: false };
   }
-  if (byCode('TPB')) return { role: 'Third-party broker', lead: false, types: [] };
-  if (byCode('PPU')) return { role: 'PPU', lead: false, types: [] };
-  return { role: 'Assessor', lead: false, types: [] };
+  if (byCode('TPB')) return { role: 'Third-party broker', lead: false, types: [], noRole: false };
+  if (byCode('PPU')) return { role: 'PPU', lead: false, types: [], noRole: false };
+  // No grant at all: the form needs a role to edit, but the screen says "No role" (nothing invented).
+  return { role: 'Assessor', lead: false, types: [], noRole: true };
 }
 
 /** UI role → API grants. Never Assessor and Lead on the same type (the server answers 409). */
@@ -83,9 +89,11 @@ export function rolesFor(role: TeamRole, lead: boolean, typeNames: readonly stri
     case 'Lead assessor':
       return [{ role: 'LEAD_ASSESSOR', resultTypes: 'all' }];
     case 'Assessor': {
-      const keys = [...new Set(typeNames.map((n) => keyOfType(n, cat)).filter((k): k is string => !!k))];
+      const keys = [...new Set(typeNames.map((n) => keyOfType(n, cat)))];
       if (!keys.length) return [];
-      const resultTypes: AllOr<string> = cat.types.length && keys.length === cat.types.length ? 'all' : keys;
+      // Lead on every type stays a list: 'all' would turn this person into the "Lead assessor" role.
+      const everyType = !lead && cat.types.length > 0 && cat.types.every((t) => keys.includes(t.key));
+      const resultTypes: AllOr<string> = everyType ? 'all' : keys;
       return [{ role: lead ? 'LEAD_ASSESSOR' : 'ASSESSOR', resultTypes }];
     }
   }
@@ -101,7 +109,7 @@ export function programIdOf(code: string, cat: TeamCatalogs): number | null {
   return idOfProgram(code, cat);
 }
 
-function sameGrants(a: readonly RoleGrant[], b: readonly RoleGrant[]): boolean {
+export function sameGrants(a: readonly RoleGrant[], b: readonly RoleGrant[]): boolean {
   const norm = (list: readonly RoleGrant[]) =>
     JSON.stringify(
       [...list]
@@ -119,7 +127,7 @@ function inviteOf(u: UserSummary): InviteState {
 }
 
 export function toMember(u: UserSummary, cat: TeamCatalogs, now: number): TeamMember {
-  const { role, lead, types } = roleOf(u.roles, cat);
+  const { role, lead, types, noRole } = roleOf(u.roles, cat);
   const name = [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.email;
   const blocked: BlockedProgram[] = u.exclusions.map((e) => ({
     code: codeOfProgram(e.programId, cat),
@@ -146,6 +154,7 @@ export function toMember(u: UserSummary, cat: TeamCatalogs, now: number): TeamMe
     canResend: u.status === 'active' && u.accountType === 'custom' && u.invitation === 'sent' && !u.lastSignInAt,
     active: u.status === 'active',
     otherRoles: !sameGrants(u.roles, rolesFor(role, lead, types, cat)),
+    noRole,
     namesLocked: !!u.lastSignInAt,
   };
 }

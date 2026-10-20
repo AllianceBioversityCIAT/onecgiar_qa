@@ -76,6 +76,22 @@ describe('assessors mapper', () => {
     expect(rolesFor('Third-party broker', false, [], cat)).toEqual([{ role: 'TPB' }]);
   });
 
+  it('no grant at all is flagged "No role"; lead on every type stays a list (not the Lead assessor role)', () => {
+    expect(toMember(user({ roles: [] }), cat, NOW)).toMatchObject({ noRole: true });
+    expect(rolesFor('Assessor', true, ['Knowledge product', 'Innovation development', 'Policy change'], cat)).toEqual([
+      { role: 'LEAD_ASSESSOR', resultTypes: ['kp', 'id', 'pc'] },
+    ]);
+  });
+
+  it('unknown type keys and program ids survive a round trip (never dropped)', () => {
+    const m = toMember(user({ roles: [{ role: 'ASSESSOR', resultTypes: ['old_type'] }], programs: [999] }), cat, NOW);
+    expect(m.types).toEqual(['old_type']);
+    expect(m.programs).toEqual(['#999']);
+    expect(rolesFor('Assessor', false, m.types, cat)).toEqual([{ role: 'ASSESSOR', resultTypes: ['old_type'] }]);
+    expect(programsFor(m.programs, cat)).toEqual([999]);
+    expect(m.otherRoles).toBe(false);
+  });
+
   it('programs: [] means all (the server refuses an empty list); codes go as CLARISA ids', () => {
     expect(programsFor([], cat)).toBe('all');
     expect(programsFor(['SP02'], cat)).toEqual([442]);

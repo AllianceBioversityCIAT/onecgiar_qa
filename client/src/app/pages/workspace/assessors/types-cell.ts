@@ -1,4 +1,4 @@
-import { Component, computed, inject, input, output, signal } from '@angular/core';
+import { Component, booleanAttribute, computed, inject, input, output, signal } from '@angular/core';
 import { HlmInput } from '@spartan/input';
 import { BrnPopoverImports, provideBrnPopoverConfig, provideBrnPopoverDefaultOptions } from '@spartan-ng/brain/popover';
 import { QaButtonImports } from '../../../ui';
@@ -56,6 +56,7 @@ import { TeamMember, fmt } from './assessors.models';
                 type="button"
                 role="checkbox"
                 [attr.aria-checked]="o.on"
+                [disabled]="busy()"
                 (click)="toggle(o.label, o.on)"
                 class="flex min-h-[34px] flex-none pointer-coarse:min-h-10 cursor-pointer items-center gap-2.5 rounded-lg border-0 bg-transparent px-2 text-left outline-none hover:bg-(--surface-3) focus-visible:shadow-(--focus-ring)"
               >
@@ -90,6 +91,8 @@ import { TeamMember, fmt } from './assessors.models';
 })
 export class AssessorTypesCell {
   readonly member = input.required<TeamMember>();
+  /** A save of this row is in flight: options are locked until it answers. */
+  readonly busy = input(false, { transform: booleanAttribute });
   readonly addType = output<string>();
   readonly removeType = output<string>();
 

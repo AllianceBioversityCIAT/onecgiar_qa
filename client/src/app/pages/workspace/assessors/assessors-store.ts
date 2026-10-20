@@ -3,10 +3,10 @@ import { firstValueFrom, forkJoin } from 'rxjs';
 import { CatalogsApi } from '../../../core/api/catalogs-api';
 import { UsersApi } from '../../../core/api/users-api';
 import { USERS_ERROR, UserDetail, UserSummary } from '../../../core/api/users.models';
-import { toApiError } from '../../../core/http/api-envelope';
+import { CLIENT_ERROR, toApiError } from '../../../core/http/api-envelope';
 import { Toasts } from '../../../core/http/toasts';
 import { TeamMember, TeamRole } from './assessors.models';
-import { TeamCatalogs, accountTypeFor, programIdOf, programsFor, rolesFor, toMember } from './assessors.mapper';
+import { TeamCatalogs, accountTypeFor, programIdOf, programsFor, rolesFor, sameGrants, toMember } from './assessors.mapper';
 
 export type LoadState = 'loading' | 'ready' | 'error';
 
@@ -54,6 +54,13 @@ function failure(error: unknown): SaveOutcome & { ok: false } {
   return { ok: false, message: first?.message ?? e.message, field: CODE_FIELD[e.code] ?? (first ? fieldOfPath(first.field) : undefined) };
 }
 
+/** An Assessor with no result type would be saved with no role at all (every grant revoked). */
+function assessorWithoutTypes(input: PersonInput): SaveOutcome | null {
+  return input.role === 'Assessor' && !input.types.length
+    ? { ok: false, field: 'types', message: 'Pick at least one result type for an assessor.' }
+    : null;
+}
+
 /**
  * State and actions of the Assessors view (provided by the view, shared with its drawer and cells).
  * The whole team is loaded at once and filtered on the client (design D1). Every write answers the
@@ -77,6 +84,12 @@ export class AssessorsStore {
   readonly catalogs = this.catalogState.asReadonly();
   readonly typeNames = computed(() => this.catalogState().types.map((t) => t.name));
   readonly programCodes = computed(() => this.catalogState().programs.map((p) => p.code));
+  /** Rows with an inline save in flight: their cells are locked so two quick clicks never race. */
+  private readonly busyRows = signal<ReadonlySet<string>>(new Set());
+
+  isBusy(id: string): boolean {
+    return this.busyRows().has(id);
+  }
 
   programName(code: string): string {
     return this.catalogState().programs.find((p) => p.code === code)?.name ?? '';
@@ -113,6 +126,8 @@ export class AssessorsStore {
   private unconfirmedInvite: string | null = null;
 
   async invite(input: PersonInput): Promise<SaveOutcome> {
+    const noTypes = assessorWithoutTypes(input);
+    if (noTypes) return noTypes;
     const cat = this.catalogState();
     const blocked = input.blocked.filter((b) => b.code);
     try {
@@ -124,7 +139,7 @@ export class AssessorsStore {
           nickname: input.nick.trim(),
           accountType: accountTypeFor(input.email),
           roles: rolesFor(input.role, input.lead, input.types, cat),
-          programs: programsFor(input.programs.filter((c) => !blocked.some((b) => b.code === c)), cat),
+          programs: programsFor(input.programs, cat),
           exclusions: blocked.flatMap((b) => {
             const programId = programIdOf(b.code, cat);
             return programId === null ? [] : [{ programId, reason: b.reason.trim() }];
@@ -151,7 +166,9 @@ export class AssessorsStore {
         this.toasts.success(`${input.nick.trim()} was already created by the first try.`);
         return { ok: true };
       }
-      if (e.status === 0) this.unconfirmedInvite = email;
+      // No answer, or a gateway that gave up without the server's envelope: it may have been created.
+      const lost = e.status === 0 || ((e.status === 502 || e.status === 504) && e.code === CLIENT_ERROR.UNEXPECTED_RESPONSE);
+      if (lost) this.unconfirmedInvite = email;
       return failure(error);
     }
   }
@@ -163,6 +180,8 @@ export class AssessorsStore {
   async edit(id: string, input: PersonInput): Promise<SaveOutcome> {
     const before = this.find(id);
     if (!before) return { ok: false, message: 'This person is no longer in the list. Reload the page.' };
+    const noTypes = assessorWithoutTypes(input);
+    if (noTypes) return noTypes;
     const cat = this.catalogState();
     const num = Number(id);
     const who = input.nick.trim() || before.name;
@@ -171,23 +190,26 @@ export class AssessorsStore {
     if (input.nick.trim() !== before.nick) {
       steps.push(() => firstValueFrom(this.users.edit(num, { nickname: input.nick.trim() }, who)));
     }
-    // Only when the admin changed role, lead or types: a person with grants this screen cannot show
-    // (`otherRoles`) keeps them until someone edits their role on purpose (the drawer warns).
-    const sorted = (list: readonly string[]) => JSON.stringify([...list].sort());
-    if (input.role !== before.role || input.lead !== before.lead || sorted(input.types) !== sorted(before.types)) {
-      const roles = rolesFor(input.role, input.lead, input.role === 'Assessor' ? input.types : [], cat);
+    // Only when what the screen shows changed: a person with grants it cannot show (`otherRoles`)
+    // keeps them until someone edits their role on purpose (the drawer warns).
+    const roles = rolesFor(input.role, input.lead, input.role === 'Assessor' ? input.types : [], cat);
+    if (!sameGrants(roles, rolesFor(before.role, before.lead, before.types, cat))) {
       steps.push(() => firstValueFrom(this.users.setRoles(num, roles, who)));
     }
     const kept = input.blocked.filter((b) => b.code);
-    const removed = before.blocked.filter((b) => b.id !== undefined && !kept.some((k) => k.id === b.id));
-    const added = kept.filter((b) => b.id === undefined);
+    // Matched by id or program: after a partial save the drawer still holds new blocks without an id.
+    const removed = before.blocked.filter((b) => b.id !== undefined && !kept.some((k) => k.id === b.id || k.code === b.code));
+    const added = kept.filter((b) => b.id === undefined && !before.blocked.some((x) => x.code === b.code));
     for (const b of removed) {
       if (b.origin === 'reporting') continue; // dismissed with its own reason, not from this form
       steps.push(() => firstValueFrom(this.users.removeExclusion(num, b.id as number, who)));
     }
-    const programs = input.programs.filter((c) => !kept.some((b) => b.code === c));
-    if (JSON.stringify(programsFor(programs, cat)) !== JSON.stringify(programsFor(before.programs, cat))) {
-      steps.push(() => firstValueFrom(this.users.setPrograms(num, programsFor(programs, cat), who)));
+    // Never widen by accident: blocking their only program must not turn the limit into "all".
+    if (before.programs.length && !input.programs.length && added.some((b) => before.programs.includes(b.code))) {
+      return { ok: false, field: 'programs', message: 'Blocking that program leaves them none. Pick the programs they can assess.' };
+    }
+    if (JSON.stringify(programsFor(input.programs, cat)) !== JSON.stringify(programsFor(before.programs, cat))) {
+      steps.push(() => firstValueFrom(this.users.setPrograms(num, programsFor(input.programs, cat), who)));
     }
     for (const b of added) {
       const programId = programIdOf(b.code, cat);
@@ -205,20 +227,27 @@ export class AssessorsStore {
   }
 
   /** Inline role / result-type edits from the table cells: the row shows the server answer, errors go to a toast. */
+  /** Assessor needs result types: the caller opens the drawer instead of revoking every grant. */
   async setRole(id: string, role: TeamRole): Promise<void> {
     const m = this.find(id);
-    if (m) await this.inline(() => this.users.setRoles(Number(id), rolesFor(role, m.lead, role === 'Assessor' ? m.types : [], this.catalogState()), m.nick || m.name));
+    if (!m || (role === 'Assessor' && !m.types.length)) return;
+    await this.inline(id, () => this.users.setRoles(Number(id), rolesFor(role, m.lead, role === 'Assessor' ? m.types : [], this.catalogState()), m.nick || m.name));
   }
 
   async setTypes(id: string, types: readonly string[]): Promise<void> {
     const m = this.find(id);
-    if (m) await this.inline(() => this.users.setRoles(Number(id), rolesFor(m.role, m.lead, types, this.catalogState()), m.nick || m.name));
+    if (!m) return;
+    if (!types.length) {
+      this.toasts.info('An assessor needs at least one result type. To take them all away, change the role or remove the person.');
+      return;
+    }
+    await this.inline(id, () => this.users.setRoles(Number(id), rolesFor(m.role, m.lead, types, this.catalogState()), m.nick || m.name));
   }
 
   async resendInvitation(id: string): Promise<void> {
     const m = this.find(id);
     if (!m) return;
-    if (await this.inline(() => this.users.resendInvitation(Number(id), m.nick || m.name))) {
+    if (await this.inline(id, () => this.users.resendInvitation(Number(id), m.nick || m.name))) {
       this.toasts.success(`Invitation sent again to ${m.email}.`);
     }
   }
@@ -249,13 +278,21 @@ export class AssessorsStore {
     }
   }
 
-  private async inline(call: () => ReturnType<UsersApi['setRoles']>): Promise<boolean> {
+  private async inline(id: string, call: () => ReturnType<UsersApi['setRoles']>): Promise<boolean> {
+    if (this.isBusy(id)) return false;
+    this.busyRows.update((set) => new Set(set).add(id));
     try {
       this.replace(await firstValueFrom(call()));
       return true;
     } catch (error) {
       this.toasts.error(failure(error).message);
       return false;
+    } finally {
+      this.busyRows.update((set) => {
+        const next = new Set(set);
+        next.delete(id);
+        return next;
+      });
     }
   }
 

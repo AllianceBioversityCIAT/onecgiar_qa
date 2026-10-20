@@ -250,6 +250,12 @@ export class AssessorsView {
 
   // Inline cell edits: the row shows what the server answers (errors go to a toast).
   protected setRole(id: string, role: TeamRole): void {
+    const m = this.store.find(id);
+    // Becoming an assessor needs result types first: saving it bare would revoke every grant.
+    if (m && role === 'Assessor' && !m.types.length) {
+      this.openPerson(m);
+      return;
+    }
     void this.store.setRole(id, role);
   }
 

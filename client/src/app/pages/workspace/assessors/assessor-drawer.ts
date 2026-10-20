@@ -108,7 +108,9 @@ export class AssessorDrawer {
   private readonly serverField = linkedSignal<{ field: PersonField; message: string } | null>(() => (this.session(), null));
   private readonly triedSave = linkedSignal(() => (this.session(), false));
   protected readonly blockError = computed(() => {
-    if (!this.triedSave()) return this.serverField()?.field === 'blocked' ? this.serverField()?.message : '';
+    const server = this.serverField();
+    if (server?.field === 'blocked') return server.message;
+    if (!this.triedSave()) return '';
     const missing = this.draft().blocked.some((b) => b.isNew && (!b.code || !b.reason.trim()));
     return missing ? 'Pick a program and write the reason for every block.' : '';
   });
@@ -144,6 +146,10 @@ export class AssessorDrawer {
   );
 
   /** How the new person will sign in (account type rule, design integration review 5). */
+  /** Server or rule message for the result types / programs pickers. */
+  protected readonly typesError = computed(() => (this.serverField()?.field === 'types' ? this.serverField()?.message : ''));
+  protected readonly programsError = computed(() => (this.serverField()?.field === 'programs' ? this.serverField()?.message : ''));
+
   protected readonly accountHint = computed(() =>
     accountTypeFor(this.draft().email) === 'sso'
       ? 'Signs in with their CGIAR account.'
@@ -207,6 +213,10 @@ export class AssessorDrawer {
 
   protected patch(p: Partial<PersonDraft>): void {
     this.draft.update((d) => ({ ...d, ...p }));
+    this.clearServerError();
+  }
+
+  private clearServerError(): void {
     this.confirmDiscard.set(false);
     this.serverField.set(null);
     this.formError.set('');
@@ -214,8 +224,7 @@ export class AssessorDrawer {
 
   /** Typing the name proposes a nickname ("Assessor DD") until the nickname is edited by hand. */
   protected onNameInput(): void {
-    this.confirmDiscard.set(false);
-    this.serverField.set(null);
+    this.clearServerError();
     if (this.nickTouched()) return;
     const d = this.draft();
     const full = `${d.firstName} ${d.lastName}`.trim();
@@ -224,7 +233,7 @@ export class AssessorDrawer {
 
   protected onNickInput(): void {
     this.nickTouched.set(true);
-    this.serverField.set(null);
+    this.clearServerError();
   }
 
   protected setRole(value: string | null): void {
@@ -306,7 +315,8 @@ export class AssessorDrawer {
       const s = this.session();
       if (!s) return undefined;
       const outcome = await this.saving.run(() => this.send(s));
-      if (outcome) this.after(outcome);
+      // The drawer may show someone else by now: an old answer never lands on another session.
+      if (outcome && this.session()?.seq === s.seq) this.after(outcome);
       return undefined;
     });
   }
@@ -314,8 +324,9 @@ export class AssessorDrawer {
   protected async remove(): Promise<void> {
     const p = this.person();
     if (!p) return;
+    const seq = this.session()?.seq;
     const outcome = await this.saving.run(() => this.store.deactivate(p.id));
-    if (outcome) this.after(outcome);
+    if (outcome && this.session()?.seq === seq) this.after(outcome);
   }
 
   private send(s: DrawerSession): Promise<SaveOutcome> {
@@ -340,7 +351,7 @@ export class AssessorDrawer {
       this.open.set(false);
       return;
     }
-    const onField = outcome.field && ['firstName', 'lastName', 'email', 'nick', 'blocked'].includes(outcome.field);
+    const onField = outcome.field && ['firstName', 'lastName', 'email', 'nick', 'blocked', 'types', 'programs'].includes(outcome.field);
     this.serverField.set(onField && outcome.field ? { field: outcome.field, message: outcome.message } : null);
     this.formError.set(onField ? '' : outcome.message);
   }

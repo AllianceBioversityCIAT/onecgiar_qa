@@ -129,6 +129,77 @@ describe('AssessorsStore', () => {
     expect(store.team()[0].nick).toBe('New');
   });
 
+  it('only the nickname of a Lead assessor with other roles changes: roles are not touched', async () => {
+    users['listAll'].mockReturnValueOnce(of([u({ roles: [{ role: 'LEAD_ASSESSOR', resultTypes: 'all' }, { role: 'TPB' }] })]));
+    await store.load();
+    await store.edit('7', input({ role: 'Lead assessor', lead: false, types: [], nick: 'New' }));
+    expect(users['edit']).toHaveBeenCalledOnce();
+    expect(users['setRoles']).not.toHaveBeenCalled();
+  });
+
+  it('blocking their only program is refused instead of widening to all programs', async () => {
+    users['listAll'].mockReturnValueOnce(of([u({ programs: [441] })]));
+    await store.load();
+    const outcome = await store.edit('7', input({ programs: [], blocked: [{ code: 'SP01', reason: 'Co-author' }] }));
+    expect(outcome).toMatchObject({ ok: false, field: 'programs' });
+    expect(users['setPrograms']).not.toHaveBeenCalled();
+    expect(users['addExclusion']).not.toHaveBeenCalled();
+  });
+
+  it('an existing block on their only program never turns the limit into "all"', async () => {
+    users['listAll'].mockReturnValueOnce(
+      of([u({ programs: [441], exclusions: [{ id: 5, programId: 441, origin: 'reporting', reason: null, since: '2026-02-12T00:00:00Z' }] })]),
+    );
+    await store.load();
+    await store.edit('7', input({ nick: 'New', programs: ['SP01'], blocked: [{ code: 'SP01', reason: '', id: 5 }] }));
+    expect(users['setPrograms']).not.toHaveBeenCalled();
+  });
+
+  it('retry after a partial save does not send the block that already saved, nor delete it', async () => {
+    users['listAll'].mockReturnValueOnce(
+      of([u({ exclusions: [{ id: 9, programId: 441, origin: 'manual', reason: 'x', since: '2026-02-12T00:00:00Z' }] })]),
+    );
+    await store.load();
+    // The drawer still holds the block as new (no id) after the first, partly failed save.
+    await store.edit('7', input({ blocked: [{ code: 'SP01', reason: 'x' }] }));
+    expect(users['addExclusion']).not.toHaveBeenCalled();
+    expect(users['removeExclusion']).not.toHaveBeenCalled();
+  });
+
+  it('an assessor without result types is refused (it would revoke every grant)', async () => {
+    expect(await store.invite(input({ types: [] }))).toMatchObject({ ok: false, field: 'types' });
+    expect(await store.edit('7', input({ types: [] }))).toMatchObject({ ok: false, field: 'types' });
+    await store.setTypes('7', []);
+    expect(users['setRoles']).not.toHaveBeenCalled();
+  });
+
+  it('a gateway timeout (504 without envelope) on invite also counts as a lost answer', async () => {
+    users['create']
+      .mockReturnValueOnce(throwError(() => new ApiError({ status: 504, code: 'CLIENT_UNEXPECTED_RESPONSE', message: 'x' })))
+      .mockReturnValueOnce(throwError(() => new ApiError({ status: 409, code: 'USERS_EMAIL_TAKEN', message: 'Taken.' })));
+    await store.invite(input({ email: 'bo@x.org' }));
+    expect(await store.invite(input({ email: 'bo@x.org' }))).toEqual({ ok: true });
+  });
+
+  it('two quick inline type changes: the second waits for the first (no lost update)', async () => {
+    let release!: () => void;
+    users['setRoles'].mockReturnValueOnce(
+      new (await import('rxjs')).Observable((sub) => {
+        release = () => {
+          sub.next(detail({ roles: [{ role: 'ASSESSOR', resultTypes: ['kp', 'pc'] }] }));
+          sub.complete();
+        };
+      }),
+    );
+    const first = store.setTypes('7', ['Knowledge product', 'Policy change']);
+    expect(store.isBusy('7')).toBe(true);
+    await store.setTypes('7', ['Knowledge product']);
+    expect(users['setRoles']).toHaveBeenCalledOnce();
+    release();
+    await first;
+    expect(store.isBusy('7')).toBe(false);
+  });
+
   it('nothing changed: no call at all', async () => {
     await store.edit('7', input());
     for (const fn of Object.values(users)) if (fn !== users['listAll']) expect(fn).not.toHaveBeenCalled();

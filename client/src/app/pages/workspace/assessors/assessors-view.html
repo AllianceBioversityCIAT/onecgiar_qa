@@ -117,11 +117,19 @@
                 </div>
               </td>
               <td class="relative z-[1] min-w-0 p-0" [class]="cell.role">
-                <qa-assessor-role-cell [member]="r.member" (roleChange)="setRole(r.member.id, $event)" />
+                @if (r.member.active) {
+                  <qa-assessor-role-cell [member]="r.member" [busy]="store.isBusy(r.member.id)" (roleChange)="setRole(r.member.id, $event)" />
+                } @else {
+                  <span class="px-2 text-(length:--fs-13) font-medium text-(--text-3)">{{ r.member.noRole ? 'No role' : r.member.role }}</span>
+                }
               </td>
               @if (r.member.role === 'Assessor') {
                 <td class="relative z-[1] min-w-0 p-0" [class]="cell.types">
-                  <qa-assessor-types-cell [member]="r.member" (addType)="addType(r.member.id, $event)" (removeType)="removeType(r.member.id, $event)" />
+                  @if (r.member.active) {
+                    <qa-assessor-types-cell [member]="r.member" [busy]="store.isBusy(r.member.id)" (addType)="addType(r.member.id, $event)" (removeType)="removeType(r.member.id, $event)" />
+                  } @else {
+                    <span class="px-2 text-(length:--fs-13) text-(--text-3)">{{ r.member.types.join(', ') || '—' }}</span>
+                  }
                 </td>
               } @else {
                 <td class="min-w-0 p-0 pl-[9px] text-(length:--fs-13) font-normal text-(--text-muted)" [class]="cell.types">All types</td>

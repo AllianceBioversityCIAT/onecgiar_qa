@@ -1,4 +1,4 @@
-import { Component, computed, input, output } from '@angular/core';
+import { Component, booleanAttribute, computed, input, output } from '@angular/core';
 import {
   BrnPopover,
   BrnPopoverImports,
@@ -24,7 +24,7 @@ import { ROLE_OPTIONS, TeamMember, TeamRole } from './assessors.models';
         [attr.aria-label]="'Change role of ' + member().nick + ': ' + member().role"
         class="box-border flex min-h-8 w-full min-w-0 cursor-pointer flex-col items-start justify-center gap-1 @max-[950px]:flex-row @max-[950px]:items-center @max-[950px]:gap-1.5 @max-[640px]:min-h-10 rounded-lg border border-transparent bg-transparent px-2 py-1 text-left hover:border-(--border) hover:bg-(--surface) focus-visible:shadow-(--focus-ring) focus-visible:outline-none aria-expanded:border-(--border-accent) aria-expanded:bg-(--surface)"
       >
-        <span class="max-w-full min-w-0 truncate text-(length:--fs-13) font-medium text-(--text-2)">{{ member().role }}</span>
+        <span class="max-w-full min-w-0 truncate text-(length:--fs-13) font-medium text-(--text-2)">{{ member().noRole ? 'No role' : member().role }}</span>
         @if (member().lead) {
           <span title="Can edit and delete other assessors' comments." class="flex-none rounded-full bg-(--tint-2) px-1.5 py-px text-(length:--fs-10) font-semibold text-(--accent)">Lead</span>
         }
@@ -41,6 +41,7 @@ import { ROLE_OPTIONS, TeamMember, TeamRole } from './assessors.models';
               type="button"
               role="option"
               [attr.aria-selected]="on"
+              [disabled]="busy()"
               (click)="pick(o.role, pop)"
               class="flex min-h-11 cursor-pointer items-start gap-2.5 rounded-lg border-0 px-2 py-1.5 text-left outline-none hover:bg-(--surface-3) focus-visible:shadow-(--focus-ring)"
               [class]="on ? 'bg-(--tint)' : 'bg-transparent'"
@@ -67,6 +68,8 @@ import { ROLE_OPTIONS, TeamMember, TeamRole } from './assessors.models';
 })
 export class AssessorRoleCell {
   readonly member = input.required<TeamMember>();
+  /** A save of this row is in flight: options are locked until it answers. */
+  readonly busy = input(false, { transform: booleanAttribute });
   readonly roleChange = output<TeamRole>();
 
   protected readonly options = ROLE_OPTIONS;

@@ -53,6 +53,8 @@ export interface TeamMember {
   readonly active: boolean;
   /** The API holds grants this one-role screen cannot show exactly: saving roles replaces them. */
   readonly otherRoles: boolean;
+  /** The API holds no grant at all: shown as "No role" (the form still edits it as an Assessor). */
+  readonly noRole: boolean;
   /** Names can change only until the first sign-in. */
   readonly namesLocked: boolean;
 }
