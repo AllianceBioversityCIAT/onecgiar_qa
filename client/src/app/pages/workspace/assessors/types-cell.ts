@@ -1,8 +1,9 @@
-import { Component, computed, input, output, signal } from '@angular/core';
+import { Component, booleanAttribute, computed, inject, input, output, signal } from '@angular/core';
 import { HlmInput } from '@spartan/input';
 import { BrnPopoverImports, provideBrnPopoverConfig, provideBrnPopoverDefaultOptions } from '@spartan-ng/brain/popover';
 import { QaButtonImports } from '../../../ui';
-import { TYPE_COUNTS, TYPE_NAMES, TeamMember, fmt } from './assessors.mock';
+import { AssessorsStore } from './assessors-store';
+import { TeamMember, fmt } from './assessors.models';
 
 /**
  * Result-types cell of the team table (Assessor role only): chips, and a popover with a searchable
@@ -55,6 +56,7 @@ import { TYPE_COUNTS, TYPE_NAMES, TeamMember, fmt } from './assessors.mock';
                 type="button"
                 role="checkbox"
                 [attr.aria-checked]="o.on"
+                [disabled]="busy()"
                 (click)="toggle(o.label, o.on)"
                 class="flex min-h-[34px] flex-none pointer-coarse:min-h-10 cursor-pointer items-center gap-2.5 rounded-lg border-0 bg-transparent px-2 text-left outline-none hover:bg-(--surface-3) focus-visible:shadow-(--focus-ring)"
               >
@@ -68,7 +70,6 @@ import { TYPE_COUNTS, TYPE_NAMES, TeamMember, fmt } from './assessors.mock';
                   }
                 </span>
                 <span class="min-w-0 flex-1 truncate text-(length:--fs-13) text-(--text-2)">{{ o.label }}</span>
-                <span class="flex-none font-(family-name:--qa-mono) text-(length:--fs-12) font-semibold text-(--text-4) tabular-nums">{{ o.count }}</span>
               </button>
             } @empty {
               <div class="p-2 text-(length:--fs-13) text-(--text-3)">Nothing matches that search.</div>
@@ -76,7 +77,7 @@ import { TYPE_COUNTS, TYPE_NAMES, TeamMember, fmt } from './assessors.mock';
           </div>
           @if (confirmType(); as type) {
             <div role="alertdialog" aria-label="Remove result type" class="mt-2 flex flex-none items-center gap-2 border-t border-(--surface-4) pt-2.5">
-              <span class="min-w-0 flex-1 text-(length:--fs-12) leading-[1.45] font-normal text-(--text-2)"><span class="font-(family-name:--qa-mono) font-semibold tabular-nums">{{ unreviewed(type) }}</span> unreviewed results go back to the pool.</span>
+              <span class="min-w-0 flex-1 text-(length:--fs-12) leading-[1.45] font-normal text-(--text-2)"><span class="font-(family-name:--qa-mono) font-semibold tabular-nums">{{ unreviewed(type) }}</span> of their results are not reviewed yet.</span>
               <div class="flex flex-none items-center gap-2">
                 <button hlmBtn qaBtn tone="secondary" size="sm" type="button" (click)="confirmType.set(null)">Cancel</button>
                 <button hlmBtn qaBtn tone="danger" size="sm" type="button" (click)="confirmRemove(type)">Remove</button>
@@ -90,8 +91,12 @@ import { TYPE_COUNTS, TYPE_NAMES, TeamMember, fmt } from './assessors.mock';
 })
 export class AssessorTypesCell {
   readonly member = input.required<TeamMember>();
+  /** A save of this row is in flight: options are locked until it answers. */
+  readonly busy = input(false, { transform: booleanAttribute });
   readonly addType = output<string>();
   readonly removeType = output<string>();
+
+  private readonly store = inject(AssessorsStore);
 
   protected readonly query = signal('');
   protected readonly confirmType = signal<string | null>(null);
@@ -101,11 +106,10 @@ export class AssessorTypesCell {
   protected readonly options = computed(() => {
     const q = this.query().trim().toLowerCase();
     const types = this.member().types;
-    return TYPE_NAMES.filter((t) => !q || t.toLowerCase().includes(q)).map((t) => ({
-      label: t,
-      count: fmt(TYPE_COUNTS[t] ?? 0),
-      on: types.includes(t),
-    }));
+    return this.store
+      .typeNames()
+      .filter((t) => !q || t.toLowerCase().includes(q))
+      .map((t) => ({ label: t, on: types.includes(t) }));
   });
 
   protected unreviewed(type: string): string {
