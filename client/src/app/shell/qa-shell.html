@@ -60,10 +60,12 @@
   </div>
 
   <nav class="flex-1 overflow-y-auto px-3 pt-1 pb-4 [scrollbar-color:var(--border-strong)_transparent] [scrollbar-width:thin]">
-    <div class="mb-2 flex flex-col gap-0.5 border-b border-(--nav-divider) px-3 py-3.5" [class.lg:hidden]="collapsed()">
-      <span class="text-(length:--fs-10) font-semibold tracking-[0.08em] text-(--nav-eyebrow) uppercase">Active cycle</span>
-      <span class="text-(length:--fs-14) font-semibold text-(--nav-fg)">2026 cycle</span>
-      <span class="text-(length:--fs-11) text-(--nav-fg-3)">QA round 2 · step 5 closes 19 Jul</span>
+    <div class="mb-4 flex flex-col gap-1 rounded-lg border border-(--nav-divider) bg-(--surface) px-3 py-2.5" [class.lg:hidden]="collapsed()">
+      <div class="flex items-baseline justify-between gap-2">
+        <span class="text-(length:--fs-14) font-semibold text-(--nav-fg)">2026 cycle</span>
+        <span class="text-(length:--fs-12) text-(--nav-fg-3)">Active</span>
+      </div>
+      <span class="text-(length:--fs-12) text-(--nav-fg-2)">Round 2, step 5 closes 19 Jul</span>
     </div>
 
     <div class="px-1 py-2 text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--nav-eyebrow) uppercase" [class.lg:sr-only]="collapsed()">Assessment</div>
