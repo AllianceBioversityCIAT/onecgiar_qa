@@ -1,9 +1,10 @@
 import { Component, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
+import { HlmToaster } from '@spartan/sonner';
 import { PaletteStore } from './theme/palette-store';
 
 @Component({
-  imports: [RouterOutlet],
+  imports: [RouterOutlet, HlmToaster],
   selector: 'app-root',
   templateUrl: './app.html',
 })

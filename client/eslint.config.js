@@ -45,6 +45,31 @@ module.exports = defineConfig([
     },
   },
   {
+    // Ratchet (no request lost, Yeck 28-sep-2026): every call to the API goes through HttpClient,
+    // so the request-safety and auth interceptors always run. Raw fetch/XHR/HttpBackend skip them.
+    files: ['src/app/**/*.ts'],
+    ignores: ['src/app/**/*.spec.ts'],
+    rules: {
+      'no-restricted-globals': [
+        'error',
+        { name: 'fetch', message: 'Use HttpClient: raw fetch skips the request-safety and auth interceptors.' },
+        { name: 'XMLHttpRequest', message: 'Use HttpClient: raw XHR skips the request-safety and auth interceptors.' },
+      ],
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: '@angular/common/http',
+              importNames: ['HttpBackend', 'HttpXhrBackend', 'FetchBackend'],
+              message: 'Use HttpClient: a backend skips the request-safety and auth interceptors.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     files: ['**/*.html'],
     extends: [angular.configs.templateRecommended, angular.configs.templateAccessibility],
     rules: {
