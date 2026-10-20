@@ -41,7 +41,7 @@ Make the users admin API safe to call from a client that retries writes, and let
 
 ## Proposed Outcome
 
-- A write sent again with the **same `Idempotency-Key`** gets **the same answer as the first time** (status and body) and **does nothing again** — no second user, no second email, no second audit row.
+- A write sent again with the **same `Idempotency-Key`** gets **the same answer as the first time** (status and `data`; the envelope `meta` is per request) and **does nothing again** — no second user, no second email, no second audit row.
 - The same key with a **different request** is refused instead of silently returning a stale answer.
 - **`PUT /users/:id`** saves a person's nickname/names, roles, program scope and manual exclusions **in one transaction**: all or nothing, one cache invalidation, the same audit rows and rules as the separate routes.
 
