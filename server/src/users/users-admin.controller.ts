@@ -26,11 +26,18 @@ import {
   Paged,
 } from '../common/api-response.js';
 import type { ErrorCode } from '../common/error-codes.js';
+import { idempotencyHandleOf } from '../common/idempotency/idempotency.context.js';
+import {
+  IDEMPOTENCY_REPLAYED_HEADERS,
+  withIdempotencyErrors,
+} from '../common/idempotency/idempotency.openapi.js';
+import { Idempotent } from '../common/idempotency/idempotent.decorator.js';
 import { ACCESS_TOKEN_SCHEME } from '../common/openapi.js';
 import { requestIdOf, type RequestWithId } from '../common/request-id.js';
 import type { AuthenticatedUser } from './current-user.cache.js';
 import { CreateUserDto, ExclusionDto } from './dto/create-user.dto.js';
 import { EditUserDto } from './dto/edit-user.dto.js';
+import { ReplaceUserDto } from './dto/replace-user.dto.js';
 import { ListUsersQuery } from './dto/list-users.query.js';
 import { ExclusionParams, UserIdParams } from './dto/user-params.js';
 import {
@@ -73,7 +80,8 @@ const listOf = (model: new () => unknown) => ({
  * The admin API of users (design 6; FR-2…FR-5, FR-7…FR-10). `ADMIN_ACCESS`
  * on the whole class: the global `PermissionGuard` refuses everyone else
  * before any handler, pipe or lookup runs, so no answer depends on the target.
- * Every mutation answers the user's `UserDetail`, read after the commit.
+ * Every mutation answers the user's `UserDetail`, read after the commit, and
+ * runs at most once per `Idempotency-Key` (`@Idempotent()`, FR-1…FR-6).
  */
 @ApiTags('users')
 @ApiBearerAuth(ACCESS_TOKEN_SCHEME)
@@ -90,7 +98,14 @@ export class UsersAdminController {
     actor: AuthenticatedUser,
     request: RequestWithId,
   ): AdminContext {
-    return { actorId: actor.id, requestId: requestIdOf(request) };
+    // A keyed request carries its reservation from the interceptor (design 7,
+    // P-5); without the header there is none and nothing is marked (FR-1).
+    const idempotency = idempotencyHandleOf(request);
+    return {
+      actorId: actor.id,
+      requestId: requestIdOf(request),
+      ...(idempotency === undefined ? {} : { idempotency }),
+    };
   }
 
   private async detail(id: number): Promise<UserDetail> {
@@ -130,13 +145,19 @@ export class UsersAdminController {
     description:
       'A `custom` user also gets a Cognito account and an invitation email (`invitation: sent`, or `existing_account` when the email already had one). An `sso` user is linked at the first sign-in.',
   })
-  @ApiOkEnvelope(UserDetailModel, { status: 201 })
-  @ApiErrorResponses({
-    ...ACCESS,
-    400: BAD_BODY,
-    409: ['USERS_EMAIL_TAKEN', 'USERS_NICKNAME_TAKEN', 'USERS_ROLE_CONFLICT'],
-    503: UNAVAILABLE,
+  @ApiOkEnvelope(UserDetailModel, {
+    status: 201,
+    headers: IDEMPOTENCY_REPLAYED_HEADERS,
   })
+  @ApiErrorResponses(
+    withIdempotencyErrors({
+      ...ACCESS,
+      400: BAD_BODY,
+      409: ['USERS_EMAIL_TAKEN', 'USERS_NICKNAME_TAKEN', 'USERS_ROLE_CONFLICT'],
+      503: UNAVAILABLE,
+    }),
+  )
+  @Idempotent()
   @Post()
   async create(
     @CurrentUser() actor: AuthenticatedUser,
@@ -155,13 +176,16 @@ export class UsersAdminController {
     description:
       'The email never changes. First and last name can be edited only until the user signs in for the first time.',
   })
-  @ApiOkEnvelope(UserDetailModel)
-  @ApiErrorResponses({
-    ...ACCESS,
-    400: BAD_BODY,
-    404: NOT_FOUND,
-    409: ['USERS_NICKNAME_TAKEN', 'USERS_NAME_LOCKED'],
-  })
+  @ApiOkEnvelope(UserDetailModel, { headers: IDEMPOTENCY_REPLAYED_HEADERS })
+  @ApiErrorResponses(
+    withIdempotencyErrors({
+      ...ACCESS,
+      400: BAD_BODY,
+      404: NOT_FOUND,
+      409: ['USERS_NICKNAME_TAKEN', 'USERS_NAME_LOCKED'],
+    }),
+  )
+  @Idempotent()
   @Patch(':id')
   async edit(
     @CurrentUser() actor: AuthenticatedUser,
@@ -174,18 +198,54 @@ export class UsersAdminController {
   }
 
   @ApiOperation({
+    summary: 'Save a whole person in one call',
+    description:
+      'Replaces the editable state of one person in ONE transaction: nickname and names (each optional), the complete role list, the program scope (`all` or a non-empty list) and the complete list of MANUAL exclusions. Every rule of the separate routes applies and each part writes the same audit rows it would write there; parts that did not change write none. All or nothing: any refusal leaves the person untouched. Manual exclusions are reconciled to the list: missing ones are added, manual ones absent from the list are removed, and an existing one keeps its original reason even when the list sends another one (a reason is recorded when the exclusion is created). Exclusions that come from Reporting, the activation status, the invitation and the email are never changed here. Everything is validated before the person is locked, so an unknown user answers 503 while a catalog is unavailable, exactly as the separate routes do.',
+  })
+  @ApiOkEnvelope(UserDetailModel, { headers: IDEMPOTENCY_REPLAYED_HEADERS })
+  @ApiErrorResponses(
+    withIdempotencyErrors({
+      ...ACCESS,
+      400: BAD_BODY,
+      404: NOT_FOUND,
+      409: [
+        'USERS_NICKNAME_TAKEN',
+        'USERS_NAME_LOCKED',
+        'USERS_ROLE_CONFLICT',
+        'USERS_LAST_ADMIN',
+        'USERS_EXCLUSION_EXISTS',
+      ],
+      503: CATALOG_UNAVAILABLE,
+    }),
+  )
+  @Idempotent()
+  @Put(':id')
+  async replace(
+    @CurrentUser() actor: AuthenticatedUser,
+    @Req() request: RequestWithId,
+    @Param() { id }: UserIdParams,
+    @Body() dto: ReplaceUserDto,
+  ): Promise<UserDetail> {
+    await this.admin.replaceUser(this.context(actor, request), id, dto);
+    return this.detail(id);
+  }
+
+  @ApiOperation({
     summary: 'Replace the roles of a user',
     description:
       'The list is the whole truth: roles not listed are revoked, new ones granted, unchanged ones untouched. ADMIN cannot be removed from the last active admin.',
   })
-  @ApiOkEnvelope(UserDetailModel)
-  @ApiErrorResponses({
-    ...ACCESS,
-    400: BAD_BODY,
-    404: NOT_FOUND,
-    409: ['USERS_ROLE_CONFLICT', 'USERS_LAST_ADMIN'],
-    503: CATALOG_UNAVAILABLE,
-  })
+  @ApiOkEnvelope(UserDetailModel, { headers: IDEMPOTENCY_REPLAYED_HEADERS })
+  @ApiErrorResponses(
+    withIdempotencyErrors({
+      ...ACCESS,
+      400: BAD_BODY,
+      404: NOT_FOUND,
+      409: ['USERS_ROLE_CONFLICT', 'USERS_LAST_ADMIN'],
+      503: CATALOG_UNAVAILABLE,
+    }),
+  )
+  @Idempotent()
   @Put(':id/roles')
   async replaceRoles(
     @CurrentUser() actor: AuthenticatedUser,
@@ -202,13 +262,16 @@ export class UsersAdminController {
     description:
       '`all` removes the restriction (including future programs); a list restricts the user to those programs. An empty list is refused.',
   })
-  @ApiOkEnvelope(UserDetailModel)
-  @ApiErrorResponses({
-    ...ACCESS,
-    400: BAD_BODY,
-    404: NOT_FOUND,
-    503: CATALOG_UNAVAILABLE,
-  })
+  @ApiOkEnvelope(UserDetailModel, { headers: IDEMPOTENCY_REPLAYED_HEADERS })
+  @ApiErrorResponses(
+    withIdempotencyErrors({
+      ...ACCESS,
+      400: BAD_BODY,
+      404: NOT_FOUND,
+      503: CATALOG_UNAVAILABLE,
+    }),
+  )
+  @Idempotent()
   @Put(':id/programs')
   async replacePrograms(
     @CurrentUser() actor: AuthenticatedUser,
@@ -227,14 +290,20 @@ export class UsersAdminController {
   @ApiOperation({
     summary: 'Exclude a user from a program (conflict of interest)',
   })
-  @ApiOkEnvelope(UserDetailModel, { status: 201 })
-  @ApiErrorResponses({
-    ...ACCESS,
-    400: BAD_BODY,
-    404: NOT_FOUND,
-    409: ['USERS_EXCLUSION_EXISTS'],
-    503: CATALOG_UNAVAILABLE,
+  @ApiOkEnvelope(UserDetailModel, {
+    status: 201,
+    headers: IDEMPOTENCY_REPLAYED_HEADERS,
   })
+  @ApiErrorResponses(
+    withIdempotencyErrors({
+      ...ACCESS,
+      400: BAD_BODY,
+      404: NOT_FOUND,
+      409: ['USERS_EXCLUSION_EXISTS'],
+      503: CATALOG_UNAVAILABLE,
+    }),
+  )
+  @Idempotent()
   @Post(':id/exclusions')
   async addExclusion(
     @CurrentUser() actor: AuthenticatedUser,
@@ -251,13 +320,16 @@ export class UsersAdminController {
     description:
       'Only exclusions added by an administrator; the row moves to the history.',
   })
-  @ApiOkEnvelope(UserDetailModel)
-  @ApiErrorResponses({
-    ...ACCESS,
-    400: BAD_PARAMS,
-    404: [...NOT_FOUND, 'USERS_EXCLUSION_NOT_FOUND'],
-    409: ['USERS_EXCLUSION_NOT_MANUAL'],
-  })
+  @ApiOkEnvelope(UserDetailModel, { headers: IDEMPOTENCY_REPLAYED_HEADERS })
+  @ApiErrorResponses(
+    withIdempotencyErrors({
+      ...ACCESS,
+      400: BAD_PARAMS,
+      404: [...NOT_FOUND, 'USERS_EXCLUSION_NOT_FOUND'],
+      409: ['USERS_EXCLUSION_NOT_MANUAL'],
+    }),
+  )
+  @Idempotent()
   @Delete(':id/exclusions/:exclusionId')
   async removeExclusion(
     @CurrentUser() actor: AuthenticatedUser,
@@ -277,13 +349,16 @@ export class UsersAdminController {
     description:
       'Only Reporting exclusions, with a reason; the row moves to the history.',
   })
-  @ApiOkEnvelope(UserDetailModel)
-  @ApiErrorResponses({
-    ...ACCESS,
-    400: BAD_BODY,
-    404: [...NOT_FOUND, 'USERS_EXCLUSION_NOT_FOUND'],
-    409: ['USERS_EXCLUSION_NOT_REPORTING'],
-  })
+  @ApiOkEnvelope(UserDetailModel, { headers: IDEMPOTENCY_REPLAYED_HEADERS })
+  @ApiErrorResponses(
+    withIdempotencyErrors({
+      ...ACCESS,
+      400: BAD_BODY,
+      404: [...NOT_FOUND, 'USERS_EXCLUSION_NOT_FOUND'],
+      409: ['USERS_EXCLUSION_NOT_REPORTING'],
+    }),
+  )
+  @Idempotent()
   @HttpCode(200)
   @Post(':id/exclusions/:exclusionId/dismiss')
   async dismissExclusion(
@@ -306,13 +381,16 @@ export class UsersAdminController {
     description:
       'The user can no longer sign in or use the API. Refused for the last active admin.',
   })
-  @ApiOkEnvelope(UserDetailModel)
-  @ApiErrorResponses({
-    ...ACCESS,
-    400: BAD_PARAMS,
-    404: NOT_FOUND,
-    409: ['USERS_LAST_ADMIN'],
-  })
+  @ApiOkEnvelope(UserDetailModel, { headers: IDEMPOTENCY_REPLAYED_HEADERS })
+  @ApiErrorResponses(
+    withIdempotencyErrors({
+      ...ACCESS,
+      400: BAD_PARAMS,
+      404: NOT_FOUND,
+      409: ['USERS_LAST_ADMIN'],
+    }),
+  )
+  @Idempotent()
   @HttpCode(200)
   @Post(':id/deactivate')
   async deactivate(
@@ -325,12 +403,15 @@ export class UsersAdminController {
   }
 
   @ApiOperation({ summary: 'Reactivate a user' })
-  @ApiOkEnvelope(UserDetailModel)
-  @ApiErrorResponses({
-    ...ACCESS,
-    400: BAD_PARAMS,
-    404: NOT_FOUND,
-  })
+  @ApiOkEnvelope(UserDetailModel, { headers: IDEMPOTENCY_REPLAYED_HEADERS })
+  @ApiErrorResponses(
+    withIdempotencyErrors({
+      ...ACCESS,
+      400: BAD_PARAMS,
+      404: NOT_FOUND,
+    }),
+  )
+  @Idempotent()
   @HttpCode(200)
   @Post(':id/activate')
   async activate(
@@ -347,14 +428,17 @@ export class UsersAdminController {
     description:
       'Only for an active custom-account user, invited by QA, who has not signed in yet.',
   })
-  @ApiOkEnvelope(UserDetailModel)
-  @ApiErrorResponses({
-    ...ACCESS,
-    400: BAD_PARAMS,
-    404: NOT_FOUND,
-    409: ['USERS_INVITATION_NOT_APPLICABLE'],
-    503: ['AUTH_SERVICE_UNAVAILABLE'],
-  })
+  @ApiOkEnvelope(UserDetailModel, { headers: IDEMPOTENCY_REPLAYED_HEADERS })
+  @ApiErrorResponses(
+    withIdempotencyErrors({
+      ...ACCESS,
+      400: BAD_PARAMS,
+      404: NOT_FOUND,
+      409: ['USERS_INVITATION_NOT_APPLICABLE'],
+      503: ['AUTH_SERVICE_UNAVAILABLE'],
+    }),
+  )
+  @Idempotent()
   @HttpCode(200)
   @Post(':id/invitation')
   async resendInvitation(

@@ -107,7 +107,7 @@ Serial boundaries: T-1 (`server/src/database/**`); T-4 and T-5 both edit `users-
 - **Skills:** nestjs-expert, nestjs-best-practices, tdd
 
 ## T-6: Route wiring, `PUT /users/:id`, DTO and OpenAPI
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-3, T-4, T-5
 - **Requirements:** FR-1…FR-6 (HTTP surface, every write route); FR-3 Replayed create · Replayed invitation (BUT no email — Cognito spy) · Replayed refusal; FR-6 Another admin, same key (BUT no reveal); FR-8 (HTTP surface); FR-10

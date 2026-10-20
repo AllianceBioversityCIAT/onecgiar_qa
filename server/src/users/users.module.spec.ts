@@ -2,6 +2,16 @@ import { Global, Module } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { DRIZZLE } from '../database/drizzle/drizzle.constants.js';
 import { DrizzleModule } from '../database/drizzle/drizzle.module.js';
+import {
+  IDEMPOTENCY_REPLAY_READER,
+  type IdempotencyReplayReader,
+} from '../common/idempotency/idempotency.interceptor.js';
+import {
+  DrizzleIdempotencyStore,
+  IDEMPOTENCY_CLOCK,
+  IDEMPOTENCY_STORE,
+  IDEMPOTENCY_TOKEN_FACTORY,
+} from '../common/idempotency/idempotency.store.js';
 import { AuthorizationService } from './authorization.service.js';
 import { CurrentUserCache } from './current-user.cache.js';
 import { RoleAssignmentsRepository } from './role-assignments.repository.js';
@@ -53,6 +63,24 @@ describe('UsersModule wiring', () => {
     );
     // An audit repository outside the unit of work could write an event with no change (FR-13).
     expect(() => moduleRef.get(UserAuditRepository)).toThrow();
+    await moduleRef.close();
+  });
+
+  it('binds what the idempotency interceptor needs and leaves the token factory unbound', async () => {
+    const moduleRef = await Test.createTestingModule({ imports: [UsersModule] })
+      .overrideModule(DrizzleModule)
+      .useModule(FakeDrizzleModule)
+      .compile();
+
+    expect(moduleRef.get(IDEMPOTENCY_STORE)).toBeInstanceOf(
+      DrizzleIdempotencyStore,
+    );
+    expect(moduleRef.get(IDEMPOTENCY_CLOCK)()).toBeInstanceOf(Date);
+    expect(
+      moduleRef.get<IdempotencyReplayReader>(IDEMPOTENCY_REPLAY_READER),
+    ).toHaveProperty('read');
+    // Owner tokens come from randomUUID (T-3 pointer): nothing may bind a factory here.
+    expect(() => moduleRef.get(IDEMPOTENCY_TOKEN_FACTORY)).toThrow();
     await moduleRef.close();
   });
 });

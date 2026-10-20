@@ -185,7 +185,8 @@ const dataSchemaOf = (data: DataSchema) =>
 /**
  * Documents a 2xx answer wrapped in `{ success: true, data, meta }`. `data` is
  * a model class or an inline schema (e.g. a `oneOf`). `status` is 200 unless
- * the route answers 201; `paged` adds `meta.page` for a cursor-paginated list.
+ * the route answers 201; `paged` adds `meta.page` for a cursor-paginated list;
+ * `headers` documents response headers of the answer.
  */
 export const ApiOkEnvelope = (
   data: DataSchema,
@@ -194,6 +195,8 @@ export const ApiOkEnvelope = (
     extraModels?: Type<unknown>[];
     status?: 200 | 201;
     paged?: boolean;
+    /** Response headers of the answer (e.g. `Idempotency-Replayed`). */
+    headers?: Record<string, { description: string; schema: object }>;
   } = {},
 ) =>
   applyDecorators(
@@ -206,6 +209,7 @@ export const ApiOkEnvelope = (
     ApiResponse({
       status: options.status ?? 200,
       description: options.description,
+      headers: options.headers,
       schema: {
         type: 'object',
         required: ['success', 'data', 'meta'],

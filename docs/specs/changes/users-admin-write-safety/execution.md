@@ -203,6 +203,36 @@
   - RISK: the `reporting` refusal can fire after earlier parts wrote (rolled back — correct but wasteful); checking first under the lock would avoid it.
 - **Final verification:** VERIFIED + both lenses PASS.
 
+### T-6: Route wiring, `PUT /users/:id`, DTO and OpenAPI — PASS (attempt 1)
+
+- **Date:** 2026-10-20
+- **Skills / effort:** nestjs-expert, api-design-principles, nestjs-best-practices · effort `xhigh` · compact tests requested
+- **Review mode:** parallel lenses (A: contract; B: security), as the task's Review field names
+
+**Attempt 1 — PASS**
+- **Files changed:** `server/src/users/users-admin.controller.ts` (`@Idempotent()` on 11 routes, new `PUT /users/:id`, `context()` reads `idempotencyHandleOf`), `server/src/users/users.module.ts` (binds `IDEMPOTENCY_STORE`, `IDEMPOTENCY_CLOCK`, `IDEMPOTENCY_REPLAY_READER`; token factory unbound), `server/src/users/users.module.spec.ts`, `server/src/users/dto/replace-user.dto.ts` (new), `server/src/common/idempotency/idempotency.openapi.ts` (new), `server/src/common/idempotency/idempotent.decorator.ts` (+ `ApiHeader`), `server/src/common/api-response.ts` (`headers` option), `server/src/users/users-admin.unit-of-work.ts` (comment), `server/test/users-admin-idempotency.e2e-spec.ts` (new, 102 tests), `server/test/users-admin.e2e-spec.ts` (PUT cases, 13-route inventory, PUT row in the 403 matrix, exact OpenAPI table) — +1,811/−95. Files outside the literal scope list judged by lens A as covered by "OpenAPI (header, replay header, codes)" and DD-6.
+- **Keyed routes (11):** `POST /users`, `PATCH /users/:id`, `PUT /users/:id`, `PUT /users/:id/roles`, `PUT /users/:id/programs`, `POST /users/:id/exclusions`, `DELETE /users/:id/exclusions/:exclusionId`, `POST /users/:id/exclusions/:exclusionId/dismiss`, `POST /users/:id/deactivate`, `POST /users/:id/activate`, `POST /users/:id/invitation`.
+- **Implementer verification:** lint 0 warnings; build ok; `Test Files 41 passed (41)`, `Tests 1316 passed (1316)`; tsc 7 baseline only; e2e `Test Files 10 passed (10)`, `Tests 531 passed (531)`.
+- **Red run:** idempotency e2e before wiring → 91 failed / 11 passed (`expected undefined to be 'true'`, `expected 409 to be 201`, `expected 200 to be 422`, side-effect counters; 2 in-flight timeouts were setup-style). PUT cases not red-run separately (route absent → 404).
+- **Falsifier 1** (`@Idempotent()` removed from `POST /users/:id/invitation`): 6 failed — `expected { users: 10, audit: 2, …} to deeply equal { users: 10, audit: 1, …}` (cognitoResend 2 vs 1). **Falsifier 2** (constant actor id passed to `claim`): 11/11 `another admin` rows failed — `expected 'true' to be undefined`. Both restored.
+- **Evidence re-run (Leader inline):** VERIFIED — identical unit/e2e counts, 0 non-baseline tsc errors.
+- **Lens A verdict (contract):** PASS — 11 keyed routes, PUT contract and codes, real replay status, exact OpenAPI, forward pointers honored (bindings, real status, fence-lost neither remembered nor released, PUT notes).
+- **Lens B verdict (security):** PASS — per-admin isolation, 401/403 reserve nothing, 403 matrix covers every non-admin role, malformed key refused before storage, reader exposes nothing cross-actor, token factory unbound, D4 fields unreachable.
+- **runtime events:** none
+- **spawns:** Implementer not reported by host (72 tool calls, 267,596 tokens, ended complete); Reviewer A not reported by host, ended complete; Reviewer B not reported by host (20 tool calls, 90,924 tokens), ended complete
+- **Requirements covered:** FR-1…FR-6 (HTTP), FR-3 replayed create/invitation/refusal, FR-6 cross-admin, FR-8 (HTTP incl. `UNKNOWN_FIELD`), FR-10.
+- **Decisions made:** `POST /users` asserts 0 invalidations (a new user has no cache entry).
+- **ADVISORY (never gating):**
+  - RISK (contract) → **T-7 addendum:** a replayed refusal also carries `Idempotency-Replayed: true`, while OpenAPI documents it on 2xx only ("Absent otherwise"); the addendum must state it, and OpenAPI text should be aligned later.
+  - READABILITY → **T-7 addendum:** state that 409 `IDEMPOTENCY_IN_PROGRESS` is transient — retry later with the same key (design § 8, DD-4).
+  - RISK: FR-6 cross-admin tested only for the same request; add "another admin, different body, same key → fresh run not 422" and "another admin while first is held → not 409".
+  - RELIABILITY: the production reader's missing-user path (→ 503) has no unit test; `withIdempotencyErrors` replaces a route's own 422 list instead of merging.
+  - RELIABILITY: PUT OpenAPI notes (reason kept, 503 before 404) and the request-body schema are not asserted by an OpenAPI e2e.
+  - RISK → **T-7:** FR-3 "no decision line other than the replay line" and NFR-2 have no HTTP-level log test — the T-7 log spy must cover them.
+  - READABILITY: `NON_ADMINS` duplicated in two e2e files.
+  - RESILIENCE → **T-8:** everything ran on the in-memory key store (P-12).
+- **Final verification:** VERIFIED + both lenses PASS.
+
 ## Budget Tripwire: after T-3 attempt 1
 
 - **Budget (design § 2):** 8 tasks · ~3,600 LOC · ~14 Reviewer passes.

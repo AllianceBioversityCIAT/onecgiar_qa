@@ -1,6 +1,15 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { CognitoAdminModule } from '../auth/cognito-admin.module.js';
+import {
+  IDEMPOTENCY_REPLAY_READER,
+  type IdempotencyReplayReader,
+} from '../common/idempotency/idempotency.interceptor.js';
+import {
+  DrizzleIdempotencyStore,
+  IDEMPOTENCY_CLOCK,
+  IDEMPOTENCY_STORE,
+} from '../common/idempotency/idempotency.store.js';
 import { catalogsConfig } from '../config/catalogs.config.js';
 import { DrizzleModule } from '../database/drizzle/drizzle.module.js';
 import { CatalogService } from './catalogs/catalog.service.js';
@@ -35,6 +44,7 @@ import {
   USERS_QUERY_STORE,
   UsersQueryRepository,
 } from './users-query.repository.js';
+import { UserNotFoundError } from './users.errors.js';
 import {
   DrizzleUsersStore,
   USERS_STORE,
@@ -77,6 +87,23 @@ import {
     { provide: SCIENCE_PROGRAM_SOURCE, useClass: ClarisaScienceProgramsClient },
     { provide: CATALOG_CLOCK, useValue: () => Date.now() },
     CatalogService,
+    // The idempotency interceptor of the admin writes (DD-6). The token
+    // factory stays unbound: the store generates owner tokens with randomUUID.
+    { provide: IDEMPOTENCY_STORE, useClass: DrizzleIdempotencyStore },
+    { provide: IDEMPOTENCY_CLOCK, useValue: () => new Date() },
+    {
+      // The crash window of FR-2: a key left `executed` without an answer is
+      // replayed with a fresh `UserDetail` of the person the change touched.
+      provide: IDEMPOTENCY_REPLAY_READER,
+      useFactory: (queries: UsersQueryRepository): IdempotencyReplayReader => ({
+        read: async (userId) => {
+          const detail = await queries.get(userId);
+          if (!detail) throw new UserNotFoundError(userId);
+          return detail;
+        },
+      }),
+      inject: [UsersQueryRepository],
+    },
   ],
   exports: [
     UsersRepository,

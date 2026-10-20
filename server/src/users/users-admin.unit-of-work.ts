@@ -150,8 +150,8 @@ export class DrizzleAdminsStore implements AdminsStore {
 export class DrizzleUsersAdminUnitOfWork implements UsersAdminUnitOfWork {
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
-    // Optional so the module needs no new provider before the interceptor is
-    // wired (T-6): the same wall clock the interceptor's store defaults to.
+    // The clock `UsersModule` binds for the interceptor's store. Optional so
+    // the unit's own specs can build the adapter without a module.
     @Optional()
     @Inject(IDEMPOTENCY_CLOCK)
     private readonly clock: IdempotencyClock = () => new Date(),
