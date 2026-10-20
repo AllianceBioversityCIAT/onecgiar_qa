@@ -90,7 +90,7 @@ Serial boundaries: T-1 (`server/src/database/**`); T-4 and T-5 both edit `users-
 - **Skills:** nestjs-expert, nestjs-best-practices, tdd
 
 ## T-5: Aggregate edit in the service (`replaceUser`) and helper extraction
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-4
 - **Requirements:** FR-8 (Full save · All or nothing BUT nothing may change · Same rules AND IT MUST enforce every rule / write the same audit rows · No change · Out of reach (D4) · Unknown user)

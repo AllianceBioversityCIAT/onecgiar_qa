@@ -177,6 +177,32 @@
   - READABILITY: fence spec selects rows by index (`CHANGING[1]`…) — look up by name; helpers declared after use; the unit of work's `IDEMPOTENCY_CLOCK` is never read by `markExecuted` — revisit once T-6 provides it.
 - **Final verification:** VERIFIED + both lenses PASS.
 
+### T-5: Aggregate edit in the service (`replaceUser`) and helper extraction — PASS (attempt 1)
+
+- **Date:** 2026-10-20
+- **Skills / effort:** nestjs-expert, nestjs-best-practices, tdd · effort `xhigh` · compact tests requested
+- **Review mode:** parallel lenses (A: risk — rule parity + readability; B: reliability + resilience — atomicity)
+
+**Attempt 1 — PASS**
+- **Files changed:** `server/src/users/users-admin.service.ts` (`replaceUser`; extracted `applyEdit`, `applyPrograms`, `removeManualExclusion`, new `reconcileExclusions`; shared validation `shapePatch`/`shapeState`/`checkShapeCatalogs`; `LogAction` + `'replace'`), `server/src/users/users-admin.replace.spec.ts` (new), `server/src/users/users-admin.fence.spec.ts` (`replaceUser` rows; positional lookups → `changing(name)`, the T-4 advisory) — +816/−104. `users-admin.service.spec.ts` unchanged.
+- **Implementer verification:** lint/build clean; `Test Files 41 passed (41)`, `Tests 1315 passed (1315)`; tsc 7 baseline only; e2e `Test Files 9 passed (9)`, `Tests 414 passed (414)`.
+- **Red run:** stubbed `replaceUser` → 24 failed (parity `deeply equal`, refusals "expected the call to be refused, but it succeeded", fence rows not rejecting).
+- **Falsifier 1** (edit in its own `mutate`, the rest in a second): 5 red — `last admin refusal leaves the nickname unchanged`: `expected 'Root B' to be 'Root'`; full-save parity `expected [ [ 3 ], [ 3 ] ] to deeply equal [ [ 3 ] ]` (invalidated twice). A nested `unitOfWork.run` variant deadlocked on the row lock. **Falsifier 2** (reconcile removal loop deleted): 2 parity rows red. Both restored.
+- **Evidence re-run (Leader inline):** VERIFIED — identical counts.
+- **Lens A verdict:** PASS — rule parity with the separate routes through shared helpers; extraction verbatim; disqualifier not hit.
+- **Lens B verdict:** PASS — "`replaceUser` … follows design § 7 'Aggregate edit' and DD-7/DD-8 as written"; one transaction, lock order kept, mark last, single invalidate; refactor changes no tx/audit/invalidation behavior; no deadlock cycle traced.
+- **runtime events:** none
+- **spawns:** Implementer not reported by host (33 tool calls, 146,240 tokens, ended complete); Reviewer A not reported by host, ended complete; Reviewer B not reported by host (17 tool calls, 63,230 tokens), ended complete
+- **Requirements covered:** FR-8 service level (Full save, All or nothing, Same rules, No change, Out of reach D4 — except `UNKNOWN_FIELD`, which is the DTO in T-6, Unknown user).
+- **Decisions made:** shape issues from all parts returned as one 400; catalog check only when shape is valid; exclusion adds in list order, removals in row order.
+- **ADVISORY (never gating):**
+  - RISK → **T-6:** OpenAPI must state that an existing manual exclusion keeps its original reason (design § 7).
+  - RESILIENCE → **T-6/T-7:** catalog validation runs before the target lock, so an unknown user during a catalog outage answers 503, not 404 (same as the separate routes) — worth a line in OpenAPI notes.
+  - RELIABILITY → **T-7:** exclusion rows are locked `FOR UPDATE` after `role_assignments`; add "→ exclusion rows" to the documented lock order in `server/src/database/AGENTS.md` (TRD note pending for staging).
+  - READABILITY: `reconcileExclusions` throws inside a `filter` callback (use a loop); `e!` / `as ExclusionInput[]` rely on an unwritten "already thrown" invariant — a narrowing function would remove both.
+  - RISK: the `reporting` refusal can fire after earlier parts wrote (rolled back — correct but wasteful); checking first under the lock would avoid it.
+- **Final verification:** VERIFIED + both lenses PASS.
+
 ## Budget Tripwire: after T-3 attempt 1
 
 - **Budget (design § 2):** 8 tasks · ~3,600 LOC · ~14 Reviewer passes.

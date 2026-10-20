@@ -90,6 +90,17 @@ const CHANGING: Row[] = [
     audits: 2,
   },
   {
+    name: 'replaceUser',
+    call: (s, ctx, id, _w, n) =>
+      s.replaceUser(ctx, id, {
+        nickname: `Ana ${n}`,
+        roles: [{ role: 'ASSESSOR', resultTypes: ['KP'] }],
+        programs: [1, 2],
+        exclusions: [],
+      }),
+    audits: 2,
+  },
+  {
     name: 'replacePrograms',
     call: (s, ctx, id) => s.replacePrograms(ctx, id, [1, 2]),
     audits: 1,
@@ -146,6 +157,8 @@ const CHANGING: Row[] = [
   },
 ];
 
+const changing = (name: string) => CHANGING.find((row) => row.name === name)!;
+
 /** Requests that ask for what already holds: nothing is written, the key is still marked (design 7). */
 const NO_OPS: Row[] = [
   {
@@ -157,6 +170,16 @@ const NO_OPS: Row[] = [
     name: 'replaceRoles (same grants)',
     call: (s, ctx, id) =>
       s.replaceRoles(ctx, id, [{ role: 'ASSESSOR', resultTypes: ['KP'] }]),
+    audits: 0,
+  },
+  {
+    name: 'replaceUser (same state)',
+    call: (s, ctx, id) =>
+      s.replaceUser(ctx, id, {
+        roles: [{ role: 'ASSESSOR', resultTypes: ['KP'] }],
+        programs: 'all',
+        exclusions: [],
+      }),
     audits: 0,
   },
   {
@@ -362,7 +385,7 @@ describe('FR-5, NFR-1: a request that lost its key to a take-over cannot commit'
   );
 
   it('an executed key cannot be applied again: a second request on the same reservation rolls back, even a no-op', async () => {
-    const { w, ctx, target } = await arrange(CHANGING[7]!);
+    const { w, ctx, target } = await arrange(changing('deactivate'));
     const keyedCtx = await w.keyed(ctx);
     await w.service.deactivate(keyedCtx, target.id);
     const afterFirst = w.snapshot();
@@ -405,7 +428,7 @@ describe('create and resendInvitation mark in the transaction that follows the C
       audits: 1,
       byId: false,
     },
-    CHANGING[9]!,
+    changing('resendInvitation'),
   ];
   const cognitoCall = (row: Row) =>
     row.name.startsWith('create') ? 'cognito:createUser' : 'cognito:resend';
