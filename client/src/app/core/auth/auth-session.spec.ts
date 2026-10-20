@@ -138,6 +138,7 @@ describe('AuthSession', () => {
       [403, 'AUTH_NO_ACTIVE_ROLES'],
       [403, 'AUTH_USER_NOT_REGISTERED'],
       [409, 'AUTH_EMAIL_CONFLICT'],
+      [409, 'USERS_DUPLICATE_USER'],
     ])('a %i %s on refresh ends the session and keeps the server message', async (status, code) => {
       await signedIn();
       const p = auth.refresh();
