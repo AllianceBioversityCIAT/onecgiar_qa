@@ -5,7 +5,7 @@ import {
   type NestInterceptor,
 } from '@nestjs/common';
 import { map, type Observable } from 'rxjs';
-import { type ApiSuccess, metaFor } from './api-response.js';
+import { type ApiSuccess, metaFor, Paged } from './api-response.js';
 import { requestIdOf, type RequestWithId } from './request-id.js';
 
 /**
@@ -20,14 +20,18 @@ export class ResponseEnvelopeInterceptor implements NestInterceptor {
     next: CallHandler,
   ): Observable<ApiSuccess<unknown> | undefined> {
     const request = context.switchToHttp().getRequest<RequestWithId>();
-    return next
-      .handle()
-      .pipe(
-        map((data: unknown) =>
-          data === undefined
-            ? undefined
-            : { success: true, data, meta: metaFor(requestIdOf(request)) },
-        ),
-      );
+    return next.handle().pipe(
+      map((data: unknown) => {
+        if (data === undefined) return undefined;
+        const meta = metaFor(requestIdOf(request));
+        return data instanceof Paged
+          ? {
+              success: true,
+              data: data.items,
+              meta: { ...meta, page: { nextCursor: data.nextCursor } },
+            }
+          : { success: true, data, meta };
+      }),
+    );
   }
 }

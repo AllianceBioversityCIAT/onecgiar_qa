@@ -28,7 +28,13 @@ export function toFieldErrors(
   parent = '',
 ): ApiFieldError[] {
   return errors.flatMap((error) => {
-    const field = parent ? `${parent}.${error.property}` : error.property;
+    // `roles[0].role`, the way the API names array items (design 6); the
+    // service-level checks use the same form.
+    const field = !parent
+      ? error.property
+      : /^\d+$/.test(error.property)
+        ? `${parent}[${error.property}]`
+        : `${parent}.${error.property}`;
     const nested = toFieldErrors(error.children ?? [], field);
     const constraints = Object.keys(error.constraints ?? {});
     if (constraints.length === 0) return nested;

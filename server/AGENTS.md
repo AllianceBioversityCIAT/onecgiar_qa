@@ -19,7 +19,7 @@ NestJS 12 API of OneCGIAR QA. This guide adds to the root `AGENTS.md`; root rule
 | `src/common/` | HTTP wiring shared by app and e2e: prefix, helmet, CORS, cookies, body parsing, validation pipe, the response standard (envelope, error catalog, field errors), request id, OpenAPI document | `src/common/AGENTS.md` |
 | `src/config/` | Env validation and typed config namespaces | `src/config/AGENTS.md` |
 | `src/database/` | Drizzle (MySQL) and DynamoDB modules, schema, seeds | `src/database/AGENTS.md` |
-| `src/users/` | Users, roles, role assignments, permission catalog, `can()`, current-user cache | `src/users/AGENTS.md` |
+| `src/users/` | Users, roles, role assignments, program scope, permission catalog, `can()` / `canReview()`, current-user cache, the admin API (`/users`, `/catalogs`) with audit | `src/users/AGENTS.md` |
 | `src/auth/` | Cognito client, token verification, admission, login/session controllers, global guards, decorators | `src/auth/AGENTS.md` |
 | `drizzle/` | Generated SQL migrations (drizzle-kit). Never hand-edit an applied migration | `src/database/AGENTS.md` |
 | `test/` | e2e suites over the real app (`*.e2e-spec.ts`) and their fakes | `test/AGENTS.md` |

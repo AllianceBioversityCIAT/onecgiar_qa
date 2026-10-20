@@ -37,6 +37,10 @@ export type UserPatch = Partial<
     | 'lastName'
     | 'authSource'
     | 'lastLoginAt'
+    | 'nickname'
+    | 'isActive'
+    | 'invitation'
+    | 'invitedAt'
   >
 >;
 
@@ -46,6 +50,11 @@ export interface UsersStore {
   findByEmail(email: string, options?: ReadOptions): Promise<User | undefined>;
   findByCognitoSub(
     sub: string,
+    options?: ReadOptions,
+  ): Promise<User | undefined>;
+  /** The nickname is unique under a case-insensitive collation (NFR-5, P-7), so the match ignores case. */
+  findByNickname(
+    nickname: string,
     options?: ReadOptions,
   ): Promise<User | undefined>;
   insert(
@@ -81,6 +90,9 @@ export interface CreateUserInput {
   authSource?: User['authSource'];
   lastLoginAt?: Date | null;
   createdBy?: number | null;
+  nickname?: string | null;
+  invitation?: User['invitation'];
+  invitedAt?: Date | null;
 }
 
 const EMAIL_MAX_LENGTH = 255;
@@ -132,6 +144,13 @@ export class UsersRepository {
       : this.store.findByCognitoSub(normalized, options);
   }
 
+  findByNickname(
+    nickname: string,
+    options?: ReadOptions,
+  ): Promise<User | undefined> {
+    return this.store.findByNickname(nickname, options);
+  }
+
   async create(input: CreateUserInput): Promise<User> {
     const result = await this.store.insert({
       email: normalizeEmail(input.email),
@@ -142,6 +161,9 @@ export class UsersRepository {
       authSource: input.authSource ?? 'sso',
       lastLoginAt: input.lastLoginAt ?? null,
       createdBy: input.createdBy ?? null,
+      nickname: input.nickname ?? null,
+      invitation: input.invitation ?? 'none',
+      invitedAt: input.invitedAt ?? null,
     });
     if (result.kind === 'duplicate') throw new DuplicateUserError();
     return result.user;
@@ -236,6 +258,16 @@ export class DrizzleUsersStore implements UsersStore {
       .select()
       .from(users)
       .where(eq(users.cognitoSub, sub))
+      .limit(1);
+    const [row] = await (options.forUpdate ? query.for('update') : query);
+    return row;
+  }
+
+  async findByNickname(nickname: string, options: ReadOptions = {}) {
+    const query = this.db
+      .select()
+      .from(users)
+      .where(eq(users.nickname, nickname))
       .limit(1);
     const [row] = await (options.forUpdate ? query.for('update') : query);
     return row;
