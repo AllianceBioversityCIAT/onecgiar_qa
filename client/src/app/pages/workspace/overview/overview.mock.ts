@@ -232,22 +232,22 @@ export const ATTENTION: readonly AttentionGroup[] = [
   {
     key: 'coverage', name: 'Coverage',
     rows: [
-      { sev: 299, text: '2 result types have no active assessor. 299 results will not be reviewed.', segs: [['2', true], [' result types have no active assessor. '], ['299', true], [' results will not be reviewed.']], label: 'Go to Assessors', to: { kind: 'route', path: '/assessors' } },
-      { sev: 64, text: 'Assessor LM has never signed in. 64 results are assigned to them.', segs: [['Assessor LM', true], [' has never signed in. '], ['64', true], [' results are assigned to them.']], label: 'Go to Assessors', to: { kind: 'route', path: '/assessors' } },
+      { sev: 299, text: '2 result types have no active assessor. 299 results will not be reviewed.', segs: [['2 result types have no active assessor. 299 results will not be reviewed.']], label: 'Open Assessors', to: { kind: 'route', path: '/assessors' } },
+      { sev: 64, text: 'Assessor LM has never signed in. 64 results are assigned to them.', segs: [['Assessor LM', true], [' has never signed in. 64 results are assigned to them.']], label: 'Open Assessors', to: { kind: 'route', path: '/assessors' } },
     ],
   },
   {
     key: 'pace', name: 'Pace',
     rows: [
-      { pct: 20, text: 'Capacity sharing for development is 20% reviewed with 4 days left.', segs: [['Capacity sharing for development is '], ['20%', true], [' reviewed with '], ['4', true], [' days left.']], label: 'See the assessor', to: { kind: 'risk', key: 'type:Capacity sharing for development' } },
-      { pct: 19, text: 'SP09 has corrected 6 of 31 returned results with 2 days left.', segs: [['SP09', true], [' has corrected '], ['6', true], [' of '], ['31', true], [' returned results with '], ['2', true], [' days left.']], label: 'See SP09', to: { kind: 'risk', key: 'program:SP09' } },
-      { pct: 24, text: 'Assessor DD is 24% through 88 knowledge products.', segs: [['Assessor DD', true], [' is '], ['24%', true], [' through '], ['88', true], [' knowledge products.']], label: 'See their results', to: { kind: 'risk', key: 'assessor:Assessor DD' } },
+      { pct: 20, text: 'Capacity sharing for development is 20% reviewed with 4 days left.', segs: [['Capacity sharing for development', true], [' is 20% reviewed with 4 days left.']], label: 'Show progress', to: { kind: 'risk', key: 'type:Capacity sharing for development' } },
+      { pct: 19, text: 'SP09 has corrected 6 of 31 returned results with 2 days left.', segs: [['SP09', true], [' has corrected 6 of 31 returned results with 2 days left.']], label: 'Show progress', to: { kind: 'risk', key: 'program:SP09' } },
+      { pct: 24, text: 'Assessor DD is 24% through 88 knowledge products.', segs: [['Assessor DD', true], [' is 24% through 88 knowledge products.']], label: 'Show progress', to: { kind: 'risk', key: 'assessor:Assessor DD' } },
     ],
   },
   {
     key: 'waiting', name: 'Waiting',
     rows: [
-      { sev: 14, text: '212 returned results have been waiting on a program for more than 14 days.', segs: [['212', true], [' returned results have been waiting on a program for more than '], ['14', true], [' days.']], label: 'See them', to: { kind: 'status', statuses: ['Awaiting response'] } },
+      { sev: 14, text: '212 returned results have been waiting on a program for more than 14 days.', segs: [['212 returned results have been waiting on a program for more than 14 days.']], label: 'View results', to: { kind: 'status', statuses: ['Awaiting response'] } },
     ],
   },
 ];
