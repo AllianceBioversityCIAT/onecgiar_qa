@@ -124,7 +124,7 @@ Serial boundaries: T-1 (`server/src/database/**`); T-4 and T-5 both edit `users-
 - **Skills:** nestjs-expert, api-design-principles, nestjs-best-practices
 
 ## T-7: Privacy, docs and front contract addendum
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** S
 - **Depends on:** T-6
 - **Requirements:** FR-9; NFR-2; NFR-3 (overhead measured: keyed vs unkeyed write on the e2e app, recorded); FR-10 (docs); P-14 (front acceptance)

@@ -233,6 +233,46 @@
   - RESILIENCE → **T-8:** everything ran on the in-memory key store (P-12).
 - **Final verification:** VERIFIED + both lenses PASS.
 
+### T-7: Privacy, docs and front contract addendum — PASS (attempt 2)
+
+- **Date:** 2026-10-20
+- **Skills / effort:** nestjs-expert, api-design-principles, cognitive-doc-design · effort `medium`
+- **Review mode:** checklist (task Review field)
+
+**Attempt 1 — FAIL**
+- **Files changed:** `server/test/users-admin-idempotency-privacy.e2e-spec.ts` (new, 7 tests), `server/test/support/log-spy.ts` (new, extracted from `users-admin-privacy.e2e-spec.ts`), `server/test/perf/idempotency-overhead.measure.ts` (new), `server/vitest.config.measure.ts` (new), `docs/specs/changes/users-admin-write-safety/front-contract.md` (new), `server/test/users-admin-privacy.e2e-spec.ts`, `server/src/common/AGENTS.md`, `server/src/users/AGENTS.md`, `server/src/database/AGENTS.md`, `server/test/AGENTS.md` — +892/−61.
+- **Implementer verification:** lint/build clean; `Test Files 41 passed (41)`, `Tests 1316 passed (1316)`; tsc 7 baseline only; e2e `Test Files 11 passed (11)`, `Tests 538 passed (538)`.
+- **Falsifier** (extra replay line carrying `claim.body`): `AssertionError: POST /users: expected [ Array(2) ] to deeply equal [ { event: 'idempotency', …(5) } ]` (leaked email and reason); restored.
+- **NFR-3 (as measured):** in-memory key store, real socket, 50 warm-up + 300 interleaved unkeyed/keyed `PATCH /users/:id` pairs, 4 runs; paired difference p50 3.04 ms, p95 5.35 ms (other runs 5.05–5.13 ms); per-arm IQR ≈ 12 ms; replay touches no catalog or Cognito (counters). Opt-in command: `cd server && pnpm exec vitest run --config ./vitest.config.measure.ts --silent=false`.
+- **Evidence re-run (Leader inline):** VERIFIED — identical counts; the measure config is not picked up by the default suites.
+- **Reviewer verdict:** FAIL — verbatim:
+  1. **Discovered Issue:** The NFR-3 figure (p50 3.04 / p95 5.35 ms over 300 pairs) comes from the in-memory key store. That harness cannot measure what dominates the real cost: four MySQL round trips per keyed write (purge DELETE, INSERT, `markExecuted` UPDATE inside the business transaction, `complete` UPDATE). The purge also deletes nothing there, since no rows are expired, so its measured cost is a no-op. The measure file defers the gap with "the real figure is T-8" (`test/perf/idempotency-overhead.measure.ts:206-207`). `execution.md:145` likewise sends the purge/NFR-3 concern to T-8. But T-8's scope (`tasks.md:147-157`) has no overhead measurement, so the gap is not actually recorded anywhere that will close it. As things stand, the "≤ 20 ms" claim rests on a harness that cannot evaluate it. **Violated Rule:** `requirements.md:209` NFR-3 ("Added overhead p95 ≤ 20 ms"), and reviewer contract § 3: evidence from a harness that cannot evaluate the property must be a recorded gap, never a pass. **Remediation Suggestion:** Record the in-memory figure in `execution.md` as interceptor/store-call overhead only, with NFR-3 on MySQL marked as an explicit open gap. Then either add a keyed-vs-unkeyed check of at least 200 pairs (p95 plus spread) against the local API on `qadb` to T-8's checklist (Leader), or record that the gap is accepted. Make the measure-file comment point to wherever that lands.
+- **Leader adjudication:** the finding is a **spec tension**, not an Implementer defect — T-7's task text specifies the measurement "on the e2e app", which cannot evaluate NFR-3 on MySQL. Leader-side remediation applied here: **NFR-3 status = interceptor/store-call overhead only (p95 ≈ 5 ms on the in-memory store); NFR-3 on MySQL is an OPEN GAP.** A one-line amendment proposal (add a ≥ 200-pair keyed-vs-unkeyed check against the local API on `qadb` to T-8) goes to the back lead at the next gate. Attempt 2 fixes the measure-file pointer and the in-scope guide inaccuracies ("guides … true of the code").
+- **runtime events:** none
+- **spawns:** Implementer not reported by host (44 tool calls, 178,241 tokens, ended complete); Reviewer not reported by host, ended complete
+- **ADVISORY (attempt 1):** lock order in `database/AGENTS.md:101` / `users/AGENTS.md:37` omits the final `idempotency_keys` row lock taken by `markExecuted`; `database/AGENTS.md:92` says `response_body` is "never read by any route" (the same-actor replay reads it) and omits `reserve`'s stale-row delete; `common/AGENTS.md:64` "a few `*_failed` error lines" omits the `complete_lost` warn line; the log spy covers 6 of 11 routes.
+- **TRD pending items (for `staging`, recorded per T-7 scope):** § 5.1 `idempotency_keys` table and migration `0002`; § 6 idempotency convention for writes (`Idempotency-Key`, `Idempotency-Replayed`, 409 `IDEMPOTENCY_IN_PROGRESS`, 422 `IDEMPOTENCY_KEY_REUSED`, 120 s lease, 24 h retention, `PUT /users/:id`); § 7 logging convention gains the `idempotency` field and `event:idempotency` lines.
+- **P-14:** OPEN — addendum at `docs/specs/changes/users-admin-write-safety/front-contract.md` to be sent to the front lead by a human; if declined, DD-4 switches the in-flight answer to 503.
+
+**Attempt 2 — PASS**
+- **Effort:** `high` (bumped from `medium`).
+- **Files changed:** `server/test/perf/idempotency-overhead.measure.ts` (SCOPE block: in-memory overhead only, purge deletes nothing here, NFR-3 on MySQL is an OPEN GAP recorded in this entry), `server/test/AGENTS.md`, `server/src/database/AGENTS.md` (lock order ends with the `idempotency_keys` row X-locked by `markExecuted`; `response_body` read only by the same-actor replay; `reserve` stale-row delete), `server/src/users/AGENTS.md` (same lock-order step), `server/src/common/AGENTS.md` (`settle_failed`/`complete_failed` error + `complete_lost` warn). Text only.
+- **Sweep:** `grep -rn -i "T-8\|real figure\|real MySQL figure"` over perf, guides and addendum → only `server/test/AGENTS.md:30` "(P-12, T-8)" about MySQL locking (correct, kept).
+- **Implementer verification:** lint/build clean; `Tests 1316 passed (1316)`; tsc 7 baseline; e2e `Tests 538 passed (538)`.
+- **Evidence re-run (Leader inline):** VERIFIED — identical counts.
+- **Reviewer verdict (re-review, override (e)):** PASS — "every changed claim matches the code"; the adjudication record exists and keeps the gap open, not claimed closed.
+- **runtime events:** none
+- **spawns:** Implementer not reported by host (14 tool calls, 74,199 tokens, ended complete); Reviewer not reported by host, ended complete
+- **Requirements covered:** FR-9 (logs), NFR-2 (log spy over every logger), NFR-3 (in-memory overhead only — MySQL OPEN GAP), FR-10 (guides + addendum), P-14 (recorded OPEN).
+- **Final verification:** VERIFIED + Reviewer PASS.
+
+## Constitution Impact: T-2…T-7
+
+- `server/src/common/idempotency/` is a new shared sub-module (`@Idempotent()`, interceptor, store, fingerprint); its guide section lives in `server/src/common/AGENTS.md` (updated in T-7). No new child guide needed.
+- `users` public surface changed: `PUT /users/:id`, `@Idempotent()` on 11 routes, `AdminContext.idempotency`, `UsersAdminRepositories.idempotency` (guides updated in T-7).
+- TRD pending items for `staging`: listed in the T-7 entry. CodeGraph not initialized — no re-index.
+- Follow-up outside this spec: two identical `isDuplicateKeyError` copies (`common/idempotency/idempotency.errors.ts`, `users/users.errors.ts`).
+
 ## Budget Tripwire: after T-3 attempt 1
 
 - **Budget (design § 2):** 8 tasks · ~3,600 LOC · ~14 Reviewer passes.
