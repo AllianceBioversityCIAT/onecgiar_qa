@@ -1,21 +1,12 @@
-import { Component, computed, effect, input, linkedSignal, model, output, untracked } from '@angular/core';
+import { Component, DestroyRef, computed, effect, inject, input, linkedSignal, model, untracked } from '@angular/core';
 import { FieldTree, FormField, email, form, required, submit } from '@angular/forms/signals';
 import { HlmInputImports } from '@spartan/input';
+import { UnsavedChanges } from '../../../core/forms/unsaved-changes';
+import { submission } from '../../../core/http/submission';
 import { QaButtonImports, QaDrawerCloseGuard, QaDrawerImports, QaMultiSelect, QaMultiSelectOption, QaSelect, QaSelectOption, QaSwitch, QaTooltipImports } from '../../../ui';
-import {
-  CURRENT_SUBTIMELINE,
-  PROGRAMS,
-  PROGRAM_CODES,
-  PROGRAM_COUNTS,
-  ROLE_OPTIONS,
-  TODAY_LABEL,
-  TYPE_COUNTS,
-  TYPE_NAMES,
-  TeamMember,
-  TeamRole,
-  fmt,
-  initials,
-} from './assessors.mock';
+import { AssessorsStore, PersonField, PersonInput, SaveOutcome } from './assessors-store';
+import { accountTypeFor, dateLabel } from './assessors.mapper';
+import { BlockedProgram, ROLE_OPTIONS, TeamMember, TeamRole, fmt, initials } from './assessors.models';
 
 /** What the drawer is showing: the invite form, or one team member (optionally on the remove step). */
 export interface DrawerSession {
@@ -31,10 +22,14 @@ export interface BlockDraft {
   readonly reason: string;
   readonly date: string;
   readonly isNew: boolean;
+  /** API exclusion id of a saved block. */
+  readonly id?: number;
+  readonly origin?: BlockedProgram['origin'];
 }
 
 export interface PersonDraft {
-  name: string;
+  firstName: string;
+  lastName: string;
   email: string;
   nick: string;
   role: TeamRole;
@@ -42,12 +37,6 @@ export interface PersonDraft {
   types: readonly string[];
   programs: readonly string[];
   blocked: readonly BlockDraft[];
-}
-
-export interface PersonSave {
-  readonly mode: 'new' | 'edit';
-  readonly id: string | null;
-  readonly draft: PersonDraft;
 }
 
 const INFO = {
@@ -58,12 +47,13 @@ const INFO = {
 };
 
 function emptyDraft(): PersonDraft {
-  return { name: '', email: '', nick: '', role: 'Assessor', lead: false, types: [], programs: [], blocked: [] };
+  return { firstName: '', lastName: '', email: '', nick: '', role: 'Assessor', lead: false, types: [], programs: [], blocked: [] };
 }
 
 function draftOf(p: TeamMember): PersonDraft {
   return {
-    name: '',
+    firstName: '',
+    lastName: '',
     email: '',
     nick: p.nick,
     role: p.role,
@@ -85,13 +75,18 @@ function draftOf(p: TeamMember): PersonDraft {
 })
 export class AssessorDrawer {
   readonly open = model(false);
+  // Tab close / reload / leaving the view ask first while an invite has text in it.
+  private readonly unregisterUnsaved = inject(UnsavedChanges).register(() => this.open() && this.isDirty());
+  private readonly unsavedCleanup = inject(DestroyRef).onDestroy(this.unregisterUnsaved);
   readonly session = input<DrawerSession | null>(null);
-  readonly team = input.required<readonly TeamMember[]>();
-  readonly saved = output<PersonSave>();
-  readonly removed = output<string>();
+
+  private readonly store = inject(AssessorsStore);
+  private readonly team = this.store.team;
+  /** One save or remove at a time: a double click never sends twice. */
+  private readonly saving = submission();
+  protected readonly busy = this.saving.busy;
 
   protected readonly info = INFO;
-  protected readonly subtimeline = CURRENT_SUBTIMELINE;
   protected readonly isNew = computed(() => this.session()?.mode === 'new');
   protected readonly person = computed(() => {
     const s = this.session();
@@ -108,10 +103,22 @@ export class AssessorDrawer {
   protected readonly confirmDiscard = linkedSignal(() => (this.session(), false));
   protected readonly blockConfirm = linkedSignal<number | null>(() => (this.session(), null));
   private readonly nickTouched = linkedSignal(() => this.session()?.mode === 'edit');
+  /** Server answer that did not fit a field (or the field it pointed at, shown under it). */
+  protected readonly formError = linkedSignal<string>(() => (this.session(), ''));
+  private readonly serverField = linkedSignal<{ field: PersonField; message: string } | null>(() => (this.session(), null));
+  private readonly triedSave = linkedSignal(() => (this.session(), false));
+  protected readonly blockError = computed(() => {
+    const server = this.serverField();
+    if (server?.field === 'blocked') return server.message;
+    if (!this.triedSave()) return '';
+    const missing = this.draft().blocked.some((b) => b.isNew && (!b.code || !b.reason.trim()));
+    return missing ? 'Pick a program and write the reason for every block.' : '';
+  });
 
   protected readonly personForm = form(this.draft, (p) => {
     const isNew = () => this.isNew();
-    required(p.name, { message: 'Enter their full name.', when: isNew });
+    required(p.firstName, { message: 'Enter their first name.', when: isNew });
+    required(p.lastName, { message: 'Enter their last name.', when: isNew });
     required(p.email, { message: 'Enter their email address.', when: isNew });
     email(p.email, { message: 'Enter a valid email address.' });
     required(p.nick, { message: 'Enter a nickname.' });
@@ -127,49 +134,35 @@ export class AssessorDrawer {
     label: r.role,
     description: r.description,
   }));
-  protected readonly typeOptions: readonly QaMultiSelectOption[] = TYPE_NAMES.map((t) => ({
-    value: t,
-    label: t,
-    count: fmt(TYPE_COUNTS[t] ?? 0),
-  }));
+  protected readonly typeOptions = computed<readonly QaMultiSelectOption[]>(() =>
+    this.store.typeNames().map((t) => ({ value: t, label: t })),
+  );
   private readonly blockedCodes = computed(() => this.draft().blocked.filter((b) => b.code).map((b) => b.code));
   protected readonly programOptions = computed<readonly QaMultiSelectOption[]>(() =>
-    PROGRAM_CODES.filter((c) => !this.blockedCodes().includes(c)).map((c) => ({
-      value: c,
-      label: c + ' ' + PROGRAMS[c],
-      count: fmt(PROGRAM_COUNTS[c] ?? 0),
-    })),
+    this.store
+      .programCodes()
+      .filter((c) => !this.blockedCodes().includes(c))
+      .map((c) => ({ value: c, label: c + ' ' + this.store.programName(c) })),
   );
 
-  /** Estimated load: each type's results shared among its assessors, scaled by the programs they can see. */
-  protected readonly load = computed(() => {
-    const d = this.draft();
-    if (d.role !== 'Assessor' || !d.types.length) return null;
-    const blocked = this.blockedCodes().length;
-    const all = PROGRAM_CODES.length;
-    const pf = (d.programs.length ? d.programs.length : all - blocked) / all;
-    const id = this.session()?.id ?? null;
-    const rows = d.types.map((t) => {
-      const others = this.team().filter((p) => p.id !== id && p.role === 'Assessor' && p.types.includes(t)).length;
-      return { name: t, n: Math.round(((TYPE_COUNTS[t] ?? 0) / (others + 1)) * pf) };
-    });
-    return {
-      rows: rows.map((r) => ({ name: r.name, count: fmt(r.n) })),
-      total: fmt(rows.reduce((a, r) => a + r.n, 0)),
-      blockNote: blocked
-        ? blocked + (blocked === 1 ? ' blocked program is' : ' blocked programs are') + ' excluded from this estimate.'
-        : '',
-    };
-  });
+  /** How the new person will sign in (account type rule, design integration review 5). */
+  /** Server or rule message for the result types / programs pickers. */
+  protected readonly typesError = computed(() => (this.serverField()?.field === 'types' ? this.serverField()?.message : ''));
+  protected readonly programsError = computed(() => (this.serverField()?.field === 'programs' ? this.serverField()?.message : ''));
 
-  /** Copy of the remove-from-team confirmation. */
+  protected readonly accountHint = computed(() =>
+    accountTypeFor(this.draft().email) === 'sso'
+      ? 'Signs in with their CGIAR account.'
+      : 'Gets an email invitation to set a password.',
+  );
+
+  /**
+   * Copy of the remove-from-team confirmation. Removing only takes away access (the API deactivates
+   * the account); nothing moves results around, so the copy does not promise it.
+   */
   protected readonly removeCopy = computed(() => {
     const person = this.person();
     if (!person) return null;
-    const unreviewed = Math.max(0, person.prog.reduce((a, e) => a + e.assigned - e.reviewed, 0));
-    const tail = person.types.length
-      ? ' unreviewed results go back to the pool and are shared among the other ' + person.types.join(' and ') + ' assessors.'
-      : ' unreviewed results go back to the pool and are shared among the rest of the team.';
     const team = this.team();
     const alone =
       person.role === 'Assessor' && person.act !== 'never'
@@ -178,9 +171,7 @@ export class AssessorDrawer {
           )
         : [];
     return {
-      lead: 'Remove ' + person.name + ' from the team? Their ',
-      n: fmt(unreviewed),
-      tail,
+      lead: 'Remove ' + person.name + ' from the team? They lose access to QA. You can bring them back from "Show removed people".',
       warn: alone.length ? 'No one else assesses ' + alone.join(' or ') + '. Those results will not be reviewed until you assign someone.' : '',
       warn2: person.lead ? 'Comments they edited stay as they are, attributed to their original author.' : '',
     };
@@ -202,30 +193,47 @@ export class AssessorDrawer {
   protected fmt = fmt;
   protected readonly initialsOf = initials;
 
+  private readonly fieldOf = new Map<FieldTree<string>, PersonField>([
+    [this.personForm.firstName, 'firstName'],
+    [this.personForm.lastName, 'lastName'],
+    [this.personForm.email, 'email'],
+    [this.personForm.nick, 'nick'],
+  ]);
+
   protected showError(field: FieldTree<string>): boolean {
     const state = field();
-    return state.touched() && state.invalid();
+    return (state.touched() && state.invalid()) || this.serverField()?.field === this.fieldOf.get(field);
   }
 
   protected errorOf(field: FieldTree<string>): string {
+    const server = this.serverField();
+    if (server && server.field === this.fieldOf.get(field)) return server.message;
     return field().errors()[0]?.message ?? '';
   }
 
   protected patch(p: Partial<PersonDraft>): void {
     this.draft.update((d) => ({ ...d, ...p }));
-    this.confirmDiscard.set(false);
+    this.clearServerError();
   }
 
-  /** Typing the full name proposes a nickname ("Assessor DD") until the nickname is edited by hand. */
-  protected onNameInput(event: Event): void {
+  private clearServerError(): void {
     this.confirmDiscard.set(false);
+    this.serverField.set(null);
+    this.formError.set('');
+  }
+
+  /** Typing the name proposes a nickname ("Assessor DD") until the nickname is edited by hand. */
+  protected onNameInput(): void {
+    this.clearServerError();
     if (this.nickTouched()) return;
-    const v = (event.target as HTMLInputElement).value.trim();
-    this.draft.update((d) => ({ ...d, nick: v ? 'Assessor ' + initials(v) : '' }));
+    const d = this.draft();
+    const full = `${d.firstName} ${d.lastName}`.trim();
+    this.draft.update((x) => ({ ...x, nick: full ? 'Assessor ' + initials(full) : '' }));
   }
 
   protected onNickInput(): void {
     this.nickTouched.set(true);
+    this.clearServerError();
   }
 
   protected setRole(value: string | null): void {
@@ -243,14 +251,17 @@ export class AssessorDrawer {
   // Conflict-of-interest blocks
   protected addBlock(): void {
     this.blockConfirm.set(null);
-    this.patch({ blocked: [...this.draft().blocked, { code: '', reason: '', date: TODAY_LABEL, isNew: true }] });
+    this.patch({ blocked: [...this.draft().blocked, { code: '', reason: '', date: dateLabel(new Date().toISOString()), isNew: true }] });
   }
 
   protected blockOptions(index: number): readonly QaSelectOption[] {
     const blocked = this.draft().blocked;
     const own = blocked[index]?.code;
     const taken = blocked.map((b) => b.code);
-    return PROGRAM_CODES.filter((c) => c === own || !taken.includes(c)).map((c) => ({ value: c, label: c + ' ' + PROGRAMS[c] }));
+    return this.store
+      .programCodes()
+      .filter((c) => c === own || !taken.includes(c))
+      .map((c) => ({ value: c, label: c + ' ' + this.store.programName(c) }));
   }
 
   protected setBlockCode(index: number, code: string | null): void {
@@ -273,13 +284,13 @@ export class AssessorDrawer {
   }
 
   protected programName(code: string): string {
-    return PROGRAMS[code] ?? '';
+    return this.store.programName(code);
   }
 
   // Closing, saving, removing
   private isDirty(): boolean {
     const d = this.draft();
-    return this.isNew() && !!(d.name.trim() || d.email.trim());
+    return this.isNew() && !!(d.firstName.trim() || d.lastName.trim() || d.email.trim());
   }
 
   /** Esc, overlay click and X: an invite with text in it asks before discarding (the drawer stays open). */
@@ -298,19 +309,50 @@ export class AssessorDrawer {
   }
 
   protected async save(): Promise<void> {
+    this.triedSave.set(true);
+    if (this.blockError()) return;
     await submit(this.personForm, async () => {
       const s = this.session();
       if (!s) return undefined;
-      this.saved.emit({ mode: s.mode, id: s.id, draft: this.draft() });
-      this.open.set(false);
+      const outcome = await this.saving.run(() => this.send(s));
+      // The drawer may show someone else by now: an old answer never lands on another session.
+      if (outcome && this.session()?.seq === s.seq) this.after(outcome);
       return undefined;
     });
   }
 
-  protected remove(): void {
+  protected async remove(): Promise<void> {
     const p = this.person();
     if (!p) return;
-    this.removed.emit(p.id);
-    this.open.set(false);
+    const seq = this.session()?.seq;
+    const outcome = await this.saving.run(() => this.store.deactivate(p.id));
+    if (outcome && this.session()?.seq === seq) this.after(outcome);
+  }
+
+  private send(s: DrawerSession): Promise<SaveOutcome> {
+    const d = this.draft();
+    const input: PersonInput = {
+      firstName: d.firstName,
+      lastName: d.lastName,
+      email: d.email,
+      nick: d.nick,
+      role: d.role,
+      lead: d.role === 'Assessor' && d.lead,
+      types: d.role === 'Assessor' ? d.types : [],
+      programs: d.programs,
+      blocked: d.blocked.map((b) => ({ code: b.code, reason: b.reason, id: b.id })),
+    };
+    return s.mode === 'new' || !s.id ? this.store.invite(input) : this.store.edit(s.id, input);
+  }
+
+  /** Success closes; a refusal keeps the drawer open with the message on its field (or in the footer). */
+  private after(outcome: SaveOutcome): void {
+    if (outcome.ok) {
+      this.open.set(false);
+      return;
+    }
+    const onField = outcome.field && ['firstName', 'lastName', 'email', 'nick', 'blocked', 'types', 'programs'].includes(outcome.field);
+    this.serverField.set(onField && outcome.field ? { field: outcome.field, message: outcome.message } : null);
+    this.formError.set(onField ? '' : outcome.message);
   }
 }

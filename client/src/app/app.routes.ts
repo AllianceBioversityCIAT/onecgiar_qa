@@ -3,6 +3,7 @@ import { NavRouteData } from './core/access/nav-items';
 import { permissionActivate, permissionMatch } from './core/access/permission-guard';
 import { Permission } from './core/access/role-definitions';
 import { authGuard, guestGuard } from './core/auth/auth-guards';
+import { unsavedChangesGuard } from './core/forms/unsaved-changes';
 
 /**
  * Workspace view: guarded by permission at match (the chunk is not downloaded) and at activation.
@@ -20,6 +21,8 @@ function view(
     data,
     canMatch: [permissionMatch],
     canActivate: [permissionActivate],
+    // Leaving a view with a dirty form or drawer asks first.
+    canDeactivate: [unsavedChangesGuard],
     loadComponent,
   };
 }

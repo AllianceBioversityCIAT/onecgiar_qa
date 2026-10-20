@@ -1,7 +1,7 @@
 import { Component, computed, input, linkedSignal, model, output } from '@angular/core';
 import { FormField, form, required, validate } from '@angular/forms/signals';
 import { HlmInput } from '@spartan/input';
-import { QaButtonImports, QaDatePicker, QaDrawerImports, QaSegmented, QaSelect, QaSwitch, QaTooltipImports } from '../../../ui';
+import { QaButtonImports, QaDatePicker, QaDrawerImports, QaSegmented, QaSelect, QaSwitch, QaTooltipImports, discardGuard } from '../../../ui';
 import { AUDIENCES, CORRECTION_AUDIENCE, CycleStep, DEMO_ACCESS, PROGRAMS, ReopenMode, Timeline } from './cycle.mock';
 import { parseDate, stepState } from './cycle.logic';
 
@@ -40,7 +40,7 @@ interface StepDraft {
   selector: 'qa-cycle-step-drawer',
   imports: [FormField, QaButtonImports, HlmInput, QaDatePicker, QaDrawerImports, QaSegmented, QaSelect, QaSwitch, QaTooltipImports],
   template: `
-    <qa-drawer [(open)]="open" [title]="title()" [subtitle]="request().timeline.name" width="720px">
+    <qa-drawer [(open)]="open" [closeGuard]="discard.guard" [title]="title()" [subtitle]="request().timeline.name" width="720px">
       @if (open()) {
         @let d = draft();
         <div class="flex flex-col items-stretch gap-[6px]">
@@ -163,7 +163,13 @@ interface StepDraft {
       }
 
       <div qaDrawerFooter class="contents">
-        @if (confirmRemove()) {
+        @if (discard.confirming()) {
+          <div role="alertdialog" aria-label="Discard changes" class="mr-auto flex min-w-0 flex-[1_1_280px] flex-col gap-1">
+            <span class="text-(length:--fs-13) leading-[1.55] font-normal text-(--text-2)">Discard what you wrote?</span>
+          </div>
+          <button hlmBtn qaBtn tone="secondary" type="button" (click)="discard.keepWriting()">Keep writing</button>
+          <button hlmBtn qaBtn tone="danger" type="button" (click)="discard.discard()">Discard and close</button>
+        } @else if (confirmRemove()) {
           <div role="alertdialog" aria-label="Remove step" class="flex w-full flex-wrap items-center justify-end gap-[10px]">
             <div class="mr-auto flex min-w-0 flex-[1_1_280px] flex-col gap-1">
               <span class="text-(length:--fs-13) leading-[1.55] font-normal text-(--text-2)">Remove this step? Results in it go back to the previous step.</span>
@@ -180,7 +186,7 @@ interface StepDraft {
           } @else if (canLoad()) {
             <button hlmBtn qaBtn tone="secondary" type="button" (click)="loadIntoStep.emit()" class="gap-[7px]"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M12 3v12M8 11l4 4 4-4M8 5H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-4" /></svg>Load results into this step</button>
           }
-          <button hlmBtn qaBtn tone="secondary" type="button" (click)="open.set(false)">Cancel</button>
+          <button hlmBtn qaBtn tone="secondary" type="button" (click)="discard.requestClose()">Cancel</button>
           <button hlmBtn qaBtn tone="primary" type="button" (click)="save()">{{ isEdit() ? 'Save step' : 'Add step' }}</button>
         }
       </div>
@@ -217,7 +223,11 @@ export class StepDrawer {
     return r.index === 0 || (r.index == null && !r.timeline.steps.length);
   });
 
-  protected readonly draft = linkedSignal<StepDraft>(() => {
+  protected readonly draft = linkedSignal<StepDraft>(() => this.initialDraft());
+  /** Esc / overlay / X / Cancel ask before dropping edits (also blocks tab close while open). */
+  protected readonly discard = discardGuard(this.open, () => JSON.stringify(this.draft()) !== JSON.stringify(this.initialDraft()));
+
+  private initialDraft(): StepDraft {
     const r = this.request();
     const p = this.existing();
     if (!p) {
@@ -240,7 +250,7 @@ export class StepDrawer {
       reopen: p.reopen ?? 'comments',
       access: (p.access ?? DEMO_ACCESS).map((a) => ({ ...a, isNew: false })),
     };
-  });
+  }
 
   protected readonly stepForm = form(this.draft, (f) => {
     required(f.name, { message: 'Enter a name for the step.' });

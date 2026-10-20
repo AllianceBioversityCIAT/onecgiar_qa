@@ -11,10 +11,9 @@
   -webkit-font-smoothing: antialiased;
 }
 
-/* Active nav item: same look as the mockup (tint, 600 weight, 3px stripe). */
+/* Active nav item: tint and 600 weight, no side stripe. */
 .qa-nav-active {
   background: var(--tint-2);
   color: var(--accent);
   font-weight: 600;
-  box-shadow: inset 3px 0 0 var(--primary);
 }

@@ -1,4 +1,5 @@
 import { HttpException, Inject, Injectable, Logger } from '@nestjs/common';
+import type { IdempotencyHandle } from '../common/idempotency/idempotency.context.js';
 import { CognitoAdminClient } from '../auth/cognito-admin.client.js';
 import { UpstreamUnavailableError } from '../auth/cognito-auth.client.js';
 import type { UserAuditChanges } from '../database/drizzle/schema/user-audit-events.js';
@@ -19,6 +20,7 @@ import {
 import {
   DuplicateUserError,
   EmailTakenError,
+  ExclusionExistsError,
   FieldValidationError,
   InvalidEmailError,
   InvitationNotApplicableError,
@@ -32,6 +34,12 @@ import { normalizeEmail, UsersRepository } from './users.repository.js';
 export interface AdminContext {
   actorId: number;
   requestId: string | null;
+  /**
+   * The keyed request's handle (design 7, P-5), set by the controller from
+   * `@CurrentIdempotency()`. Absent = no `Idempotency-Key`: nothing is marked
+   * and behavior is exactly as before (FR-1).
+   */
+  idempotency?: IdempotencyHandle;
 }
 
 export type AccountType = 'sso' | 'custom';
@@ -71,6 +79,17 @@ export interface EditUserPatch {
   lastName?: string;
 }
 
+/**
+ * The editable state of one person for `replaceUser` (FR-8): the patch fields
+ * are optional, the rest is the full desired state. `exclusions` is the
+ * desired MANUAL set; `reporting` exclusions are never part of it (D4).
+ */
+export interface ReplaceUserCommand extends EditUserPatch {
+  roles: RoleGrantInput[];
+  programs: ProgramScopeInput;
+  exclusions: ExclusionInput[];
+}
+
 /** `changed` = false when the request asked for what already holds: nothing was written. */
 export interface UserChangeResult {
   userId: number;
@@ -94,6 +113,7 @@ export const COGNITO_BUDGET_MS = 10_000;
 type LogAction =
   | 'create'
   | 'edit'
+  | 'replace'
   | 'roles'
   | 'programs'
   | 'exclusion_add'
@@ -213,6 +233,9 @@ export class UsersAdminService {
           for (const exclusion of input.exclusions) {
             await this.insertExclusion(repos, ctx, user.id, exclusion);
           }
+          // The transaction that follows the Cognito call: the user, its
+          // audit rows and the mark commit together (design 7).
+          await this.markExecuted(repos, ctx, user.id);
           return { userId: user.id, invitation: invitation.state };
         });
         return created;
@@ -233,44 +256,55 @@ export class UsersAdminService {
   ): Promise<UserChangeResult> {
     return this.logged('edit', ctx, userId, async () => {
       const wanted = this.validatePatch(patch);
-      return this.mutate(userId, async (repos, target) => {
-        const changes: UserAuditChanges = {};
-        const values: {
-          nickname?: string;
-          firstName?: string;
-          lastName?: string;
-        } = {};
-        for (const field of ['firstName', 'lastName', 'nickname'] as const) {
-          const next = wanted[field];
-          if (next === undefined || next === target[field]) continue;
-          values[field] = next;
-          changes[field] = { before: target[field], after: next };
-        }
-        if (Object.keys(values).length === 0) return false;
+      return this.mutate(ctx, userId, (repos, target) =>
+        this.applyEdit(repos, ctx, target, wanted),
+      );
+    });
+  }
 
-        // Name rule (FR-5): after the first sign-in the identity provider owns the name.
-        if (
-          (values.firstName !== undefined || values.lastName !== undefined) &&
-          target.lastLoginAt !== null
-        ) {
-          throw new NameLockedError();
-        }
-        if (values.nickname !== undefined) {
-          // A plain read (DD-15): only the target row is locked; a concurrent
-          // winner is caught by the unique index at the write below.
-          const holder = await repos.users.findByNickname(values.nickname);
-          if (holder && holder.id !== target.id) throw new NicknameTakenError();
-        }
-        try {
-          await repos.users.update(target.id, values);
-        } catch (error) {
-          // Email is not in `values`, so the only unique key left to clash is the nickname.
-          if (error instanceof DuplicateUserError)
-            throw new NicknameTakenError();
-          throw error;
-        }
-        await this.audit(repos, ctx, target.id, 'update', changes);
-        return true;
+  /**
+   * The aggregate edit (FR-8, design 7): validate everything first, outside
+   * the transaction, then ONE `mutate` applies edit -> roles -> programs ->
+   * exclusions through the same helpers the separate routes call, so a
+   * refusal anywhere rolls the whole save back and the rules cannot drift.
+   */
+  replaceUser(
+    ctx: AdminContext,
+    userId: number,
+    command: ReplaceUserCommand,
+  ): Promise<UserChangeResult> {
+    return this.logged('replace', ctx, userId, async () => {
+      const issues: FieldIssue[] = [];
+      const wanted = this.shapePatch(command, issues);
+      const shape = this.shapeState(
+        command.roles,
+        command.programs,
+        command.exclusions,
+        issues,
+      );
+      if (issues.length > 0) throw new FieldValidationError(issues);
+      await this.checkShapeCatalogs(shape, issues);
+      if (issues.length > 0) throw new FieldValidationError(issues);
+
+      const grants = shape.grants.map((g) => g.grant);
+      const exclusions = shape.exclusions as ExclusionInput[];
+      return this.mutate(ctx, userId, async (repos, target) => {
+        // No short-circuit: every part runs, and any of them may be the refusal.
+        const edited = await this.applyEdit(repos, ctx, target, wanted);
+        const roled = await this.applyRoles(repos, ctx, target, grants);
+        const scoped = await this.applyPrograms(
+          repos,
+          ctx,
+          target,
+          shape.programs,
+        );
+        const reconciled = await this.reconcileExclusions(
+          repos,
+          ctx,
+          target,
+          exclusions,
+        );
+        return edited || roled || scoped || reconciled;
       });
     });
   }
@@ -287,7 +321,7 @@ export class UsersAdminService {
   ): Promise<UserChangeResult> {
     return this.logged('roles', ctx, userId, async () => {
       const grants = await this.validateRoles(roles);
-      return this.mutate(userId, (repos, target) =>
+      return this.mutate(ctx, userId, (repos, target) =>
         this.applyRoles(repos, ctx, target, grants),
       );
     });
@@ -304,20 +338,9 @@ export class UsersAdminService {
   ): Promise<UserChangeResult> {
     return this.logged('programs', ctx, userId, async () => {
       const ids = await this.validatePrograms(programs, 'programs');
-      return this.mutate(userId, async (repos, target) => {
-        const { before, after } = await repos.programs.replaceScope(
-          target.id,
-          ids,
-        );
-        if (before.join() === after.join()) return false;
-        await this.audit(repos, ctx, target.id, 'scope_change', {
-          programs: {
-            before: this.scopeOf(before),
-            after: this.scopeOf(after),
-          },
-        });
-        return true;
-      });
+      return this.mutate(ctx, userId, (repos, target) =>
+        this.applyPrograms(repos, ctx, target, ids),
+      );
     });
   }
 
@@ -328,7 +351,7 @@ export class UsersAdminService {
   ): Promise<UserChangeResult> {
     return this.logged('exclusion_add', ctx, userId, async () => {
       const [clean] = await this.validateExclusions([exclusion], '');
-      return this.mutate(userId, async (repos, target) => {
+      return this.mutate(ctx, userId, async (repos, target) => {
         await this.insertExclusion(repos, ctx, target.id, clean!);
         return true;
       });
@@ -342,26 +365,8 @@ export class UsersAdminService {
     exclusionId: number,
   ): Promise<UserChangeResult> {
     return this.logged('exclusion_remove', ctx, userId, () =>
-      this.mutate(userId, async (repos, target) => {
-        const ended = await repos.programs.removeManualExclusion({
-          userId: target.id,
-          exclusionId,
-          endedBy: ctx.actorId,
-        });
-        await this.audit(repos, ctx, target.id, 'exclusion_remove', {
-          exclusion: {
-            before: {
-              id: ended.id,
-              programId: ended.programId,
-              status: 'active',
-            },
-            after: {
-              id: ended.id,
-              programId: ended.programId,
-              status: ended.status,
-            },
-          },
-        });
+      this.mutate(ctx, userId, async (repos, target) => {
+        await this.removeManualExclusion(repos, ctx, target.id, exclusionId);
         return true;
       }),
     );
@@ -378,7 +383,7 @@ export class UsersAdminService {
       const issues: FieldIssue[] = [];
       const cleanReason = this.cleanReason(reason, 'reason', issues);
       if (issues.length > 0) throw new FieldValidationError(issues);
-      return this.mutate(userId, async (repos, target) => {
+      return this.mutate(ctx, userId, async (repos, target) => {
         const ended = await repos.programs.dismissReportingExclusion({
           userId: target.id,
           exclusionId,
@@ -416,7 +421,7 @@ export class UsersAdminService {
    */
   deactivate(ctx: AdminContext, userId: number): Promise<UserChangeResult> {
     return this.logged('deactivate', ctx, userId, () =>
-      this.mutate(userId, async (repos, target) => {
+      this.mutate(ctx, userId, async (repos, target) => {
         if (!target.isActive) return false;
         const views = await repos.assignments.findActiveViewsByUserId(
           target.id,
@@ -440,7 +445,7 @@ export class UsersAdminService {
 
   activate(ctx: AdminContext, userId: number): Promise<UserChangeResult> {
     return this.logged('activate', ctx, userId, () =>
-      this.mutate(userId, async (repos, target) => {
+      this.mutate(ctx, userId, async (repos, target) => {
         if (target.isActive) return false;
         await repos.users.update(target.id, { isActive: true });
         await this.audit(repos, ctx, target.id, 'reactivate', {
@@ -464,7 +469,7 @@ export class UsersAdminService {
       const current = await this.users.findById(userId);
       if (!current) {
         // Same 404 as every other action; the row lock below would say it too.
-        return this.mutate(userId, async () => false);
+        return this.mutate(ctx, userId, async () => false);
       }
       this.assertInvitable(current);
 
@@ -476,7 +481,7 @@ export class UsersAdminService {
       }
 
       try {
-        return await this.mutate(userId, async (repos, target) => {
+        return await this.mutate(ctx, userId, async (repos, target) => {
           this.assertInvitable(target);
           const invitedAt = new Date();
           await repos.users.update(target.id, { invitedAt });
@@ -511,15 +516,40 @@ export class UsersAdminService {
    * `apply` answers whether it changed anything.
    */
   private async mutate(
+    ctx: AdminContext,
     userId: number,
     apply: (repos: UsersAdminRepositories, target: User) => Promise<boolean>,
   ): Promise<UserChangeResult> {
     const changed = await this.unitOfWork.run(async (repos) => {
       const target = await lockTargetUser(repos, userId);
-      return apply(repos, target);
+      const result = await apply(repos, target);
+      // After the last write, still inside the transaction: a refusal above
+      // never marks, and a lost fence rolls the whole change back, so nothing
+      // is audited or invalidated (design 7, DD-2; FR-2, FR-5). A request that
+      // changed nothing marks too: its answer is still deterministic.
+      await this.markExecuted(repos, ctx, userId);
+      return result;
     });
     if (changed) this.cache.invalidate(userId);
     return { userId, changed };
+  }
+
+  /**
+   * The exactly-once fence (design 7): `in_progress` -> `executed` for a keyed
+   * request, conditioned on still owning the key, in the business transaction.
+   * It throws `IdempotencyFenceLostError` when a take-over got the key first.
+   * No handle (no `Idempotency-Key`) = nothing to mark (FR-1).
+   */
+  private async markExecuted(
+    repos: UsersAdminRepositories,
+    ctx: AdminContext,
+    targetUserId: number,
+  ): Promise<void> {
+    if (ctx.idempotency === undefined) return;
+    await repos.idempotency.markExecuted(
+      ctx.idempotency.reservation,
+      targetUserId,
+    );
   }
 
   private audit(
@@ -599,6 +629,129 @@ export class UsersAdminService {
       );
     }
     return true;
+  }
+
+  /** Nickname / names by diff (FR-5). The patch is already validated; `false` = nothing differs, nothing written. */
+  private async applyEdit(
+    repos: UsersAdminRepositories,
+    ctx: AdminContext,
+    target: User,
+    wanted: EditUserPatch,
+  ): Promise<boolean> {
+    const changes: UserAuditChanges = {};
+    const values: {
+      nickname?: string;
+      firstName?: string;
+      lastName?: string;
+    } = {};
+    for (const field of ['firstName', 'lastName', 'nickname'] as const) {
+      const next = wanted[field];
+      if (next === undefined || next === target[field]) continue;
+      values[field] = next;
+      changes[field] = { before: target[field], after: next };
+    }
+    if (Object.keys(values).length === 0) return false;
+
+    // Name rule (FR-5): after the first sign-in the identity provider owns the name.
+    if (
+      (values.firstName !== undefined || values.lastName !== undefined) &&
+      target.lastLoginAt !== null
+    ) {
+      throw new NameLockedError();
+    }
+    if (values.nickname !== undefined) {
+      // A plain read (DD-15): only the target row is locked; a concurrent
+      // winner is caught by the unique index at the write below.
+      const holder = await repos.users.findByNickname(values.nickname);
+      if (holder && holder.id !== target.id) throw new NicknameTakenError();
+    }
+    try {
+      await repos.users.update(target.id, values);
+    } catch (error) {
+      // Email is not in `values`, so the only unique key left to clash is the nickname.
+      if (error instanceof DuplicateUserError) throw new NicknameTakenError();
+      throw error;
+    }
+    await this.audit(repos, ctx, target.id, 'update', changes);
+    return true;
+  }
+
+  /** Program scope by diff (FR-4); `ids` empty = all programs. */
+  private async applyPrograms(
+    repos: UsersAdminRepositories,
+    ctx: AdminContext,
+    target: User,
+    ids: readonly number[],
+  ): Promise<boolean> {
+    const { before, after } = await repos.programs.replaceScope(target.id, ids);
+    if (before.join() === after.join()) return false;
+    await this.audit(repos, ctx, target.id, 'scope_change', {
+      programs: {
+        before: this.scopeOf(before),
+        after: this.scopeOf(after),
+      },
+    });
+    return true;
+  }
+
+  /** Ends one active MANUAL exclusion; the acting admin is `ended_by` (DD-12). */
+  private async removeManualExclusion(
+    repos: UsersAdminRepositories,
+    ctx: AdminContext,
+    userId: number,
+    exclusionId: number,
+  ): Promise<void> {
+    const ended = await repos.programs.removeManualExclusion({
+      userId,
+      exclusionId,
+      endedBy: ctx.actorId,
+    });
+    await this.audit(repos, ctx, userId, 'exclusion_remove', {
+      exclusion: {
+        before: { id: ended.id, programId: ended.programId, status: 'active' },
+        after: {
+          id: ended.id,
+          programId: ended.programId,
+          status: ended.status,
+        },
+      },
+    });
+  }
+
+  /**
+   * Aggregate exclusions (design 7, DD-8): `desired` is the manual set. A
+   * listed program with an active manual exclusion keeps it as is (its reason
+   * is a creation-time fact); one with an active `reporting` exclusion is
+   * refused like `addExclusion` would; a missing one is added; an active
+   * manual one that is not listed is removed. `reporting` rows are never
+   * touched here (D4).
+   */
+  private async reconcileExclusions(
+    repos: UsersAdminRepositories,
+    ctx: AdminContext,
+    target: User,
+    desired: readonly ExclusionInput[],
+  ): Promise<boolean> {
+    const active = (
+      await repos.programs.findExclusions(target.id, { forUpdate: true })
+    ).filter((row) => row.status === 'active');
+    const wanted = new Set(desired.map((e) => e.programId));
+    const held = new Map(active.map((row) => [row.programId, row]));
+    const toAdd = desired.filter((e) => {
+      const row = held.get(e.programId);
+      if (row?.origin === 'reporting') throw new ExclusionExistsError();
+      return row === undefined;
+    });
+    const toRemove = active.filter(
+      (row) => row.origin === 'manual' && !wanted.has(row.programId),
+    );
+    for (const exclusion of toAdd) {
+      await this.insertExclusion(repos, ctx, target.id, exclusion);
+    }
+    for (const row of toRemove) {
+      await this.removeManualExclusion(repos, ctx, target.id, row.id);
+    }
+    return toAdd.length > 0 || toRemove.length > 0;
   }
 
   private async insertExclusion(
@@ -748,39 +901,15 @@ export class UsersAdminService {
     if (command.accountType !== 'sso' && command.accountType !== 'custom') {
       issues.push({ field: 'accountType', code: 'INVALID' });
     }
-    const shape = {
-      grants: this.roleShape(command.roles ?? [], issues),
-      programs: this.programShape(
-        command.programs ?? 'all',
-        'programs',
-        issues,
-      ),
-      exclusions: (command.exclusions ?? []).map((exclusion, index) =>
-        this.exclusionShape(exclusion, `exclusions[${index}].`, issues),
-      ),
-    };
-    // One exclusion per program: a repeat is a bad request on the repeated
-    // entry, not a 409 from the unique key (design 6; T-6 forward pointer 3).
-    const seenPrograms = new Set<number>();
-    shape.exclusions.forEach((exclusion, index) => {
-      if (exclusion === undefined) return;
-      if (seenPrograms.has(exclusion.programId)) {
-        issues.push({
-          field: `exclusions[${index}].programId`,
-          code: 'INVALID',
-        });
-      }
-      seenPrograms.add(exclusion.programId);
-    });
-    if (issues.length > 0) throw new FieldValidationError(issues);
-
-    await this.checkCatalogs(
-      shape.grants,
-      shape.programs,
-      shape.exclusions.map((e) => e!.programId),
-      shape.exclusions.map((_, index) => `exclusions[${index}].programId`),
+    const shape = this.shapeState(
+      command.roles ?? [],
+      command.programs ?? 'all',
+      command.exclusions ?? [],
       issues,
     );
+    if (issues.length > 0) throw new FieldValidationError(issues);
+
+    await this.checkShapeCatalogs(shape, issues);
     if (issues.length > 0) throw new FieldValidationError(issues);
 
     return {
@@ -797,6 +926,15 @@ export class UsersAdminService {
 
   private validatePatch(patch: EditUserPatch): EditUserPatch {
     const issues: FieldIssue[] = [];
+    const wanted = this.shapePatch(patch, issues);
+    if (issues.length > 0) throw new FieldValidationError(issues);
+    return wanted;
+  }
+
+  private shapePatch(
+    patch: EditUserPatch,
+    issues: FieldIssue[],
+  ): EditUserPatch {
     const wanted: EditUserPatch = {};
     if (patch.nickname !== undefined) {
       wanted.nickname = this.cleanText(
@@ -822,8 +960,53 @@ export class UsersAdminService {
         issues,
       );
     }
-    if (issues.length > 0) throw new FieldValidationError(issues);
     return wanted;
+  }
+
+  /**
+   * Roles, program scope and manual exclusions of a whole state, shape only.
+   * One exclusion per program: a repeat is a bad request on the repeated
+   * entry, not a 409 from the unique key (design 6; T-6 forward pointer 3).
+   */
+  private shapeState(
+    roles: RoleGrantInput[],
+    programs: ProgramScopeInput,
+    exclusions: ExclusionInput[],
+    issues: FieldIssue[],
+  ): StateShape {
+    const shape: StateShape = {
+      grants: this.roleShape(roles, issues),
+      programs: this.programShape(programs, 'programs', issues),
+      exclusions: exclusions.map((exclusion, index) =>
+        this.exclusionShape(exclusion, `exclusions[${index}].`, issues),
+      ),
+    };
+    const seenPrograms = new Set<number>();
+    shape.exclusions.forEach((exclusion, index) => {
+      if (exclusion === undefined) return;
+      if (seenPrograms.has(exclusion.programId)) {
+        issues.push({
+          field: `exclusions[${index}].programId`,
+          code: 'INVALID',
+        });
+      }
+      seenPrograms.add(exclusion.programId);
+    });
+    return shape;
+  }
+
+  /** The one catalog check of a whole state: at most one read per catalog. */
+  private checkShapeCatalogs(
+    shape: StateShape,
+    issues: FieldIssue[],
+  ): Promise<void> {
+    return this.checkCatalogs(
+      shape.grants,
+      shape.programs,
+      shape.exclusions.map((e) => e!.programId),
+      shape.exclusions.map((_, index) => `exclusions[${index}].programId`),
+      issues,
+    );
   }
 
   private async validateRoles(roles: RoleGrantInput[]): Promise<Grant[]> {
@@ -1115,8 +1298,18 @@ export class UsersAdminService {
       outcome,
       ...(reason === undefined ? {} : { reason }),
       requestId: ctx.requestId,
+      // `none` | `taken_over`: the interceptor writes no line of its own for
+      // a first or taken-over execution (design 7, Decision log).
+      idempotency: ctx.idempotency?.outcome ?? 'none',
     });
   }
+}
+
+/** A whole state after the shape pass; `undefined` exclusions only exist alongside issues. */
+interface StateShape {
+  grants: Array<{ grant: Grant; keys: string[]; index: number }>;
+  programs: number[];
+  exclusions: Array<ExclusionInput | undefined>;
 }
 
 interface ValidCreate {

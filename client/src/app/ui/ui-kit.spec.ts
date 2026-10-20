@@ -191,7 +191,7 @@ describe('UI kit', () => {
 
     const radios = document.querySelectorAll<HTMLInputElement>('qa-segmented input[type="radio"]');
     expect(radios.length).toBe(2);
-    $('qa-segmented [role="radiogroup"]') ?? expect.fail('no radiogroup');
+    expect($('qa-segmented [role="radiogroup"]')).toBeTruthy();
     radios[1].click();
     await settle(fixture);
     expect(fixture.componentInstance.seg()).toBe('view');

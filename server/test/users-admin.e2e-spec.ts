@@ -10,7 +10,9 @@ import { REQUIRE_PERMISSION_KEY } from '../src/auth/decorators/require-permissio
 import { GRANTABLE_ROLES } from '../src/users/permissions.js';
 import { UsersAdminController } from '../src/users/users-admin.controller.js';
 import { CognitoAdminClient } from '../src/auth/cognito-admin.client.js';
-import { UpstreamUnavailableError } from '../src/auth/cognito-auth.client.js';
+import { UpstreamUnavailableError as CognitoUnavailableError } from '../src/auth/cognito-auth.client.js';
+import { UpstreamUnavailableError } from '../src/users/catalogs/catalogs.errors.js';
+import { CurrentUserCache } from '../src/users/current-user.cache.js';
 import { JWKS_CACHE } from '../src/auth/token-verifier.service.js';
 import { configureApp } from '../src/common/configure-app.js';
 import { buildOpenApiDocument } from '../src/common/openapi.js';
@@ -64,7 +66,7 @@ const bearer = (sub: string) =>
 
 type World = Awaited<ReturnType<typeof build>>;
 
-async function build() {
+async function build(opts: { programsDown?: boolean } = {}) {
   const w = adminWorld();
   const actor = async (
     sub: string,
@@ -116,7 +118,12 @@ async function build() {
     .overrideProvider(RESULT_TYPE_SOURCE)
     .useValue({ list: async () => RESULT_TYPES })
     .overrideProvider(SCIENCE_PROGRAM_SOURCE)
-    .useValue({ list: async () => PROGRAMS })
+    .useValue({
+      list: async () => {
+        if (opts.programsDown) throw new UpstreamUnavailableError();
+        return PROGRAMS;
+      },
+    })
     .overrideProvider(JWKS_CACHE)
     .useValue(localJwksCache(signer))
     .compile();
@@ -210,6 +217,12 @@ describe('Users admin routes (e2e)', () => {
       ],
       ['edit', 'patch', (id) => `/users/${id}`, { nickname: 'Renamed' }],
       [
+        'replace',
+        'put',
+        (id) => `/users/${id}`,
+        { roles: [{ role: 'TPB' }], programs: 'all', exclusions: [] },
+      ],
+      [
         'roles',
         'put',
         (id) => `/users/${id}/roles`,
@@ -295,7 +308,7 @@ describe('Users admin routes (e2e)', () => {
   });
 
   describe('FR-1: the route inventory of the controller', () => {
-    it('declares ADMIN_ACCESS on every one of its 12 routes and none as public', () => {
+    it('declares ADMIN_ACCESS on every one of its 13 routes and none as public', () => {
       const reflector = new Reflector();
       const served = Object.getOwnPropertyNames(UsersAdminController.prototype)
         .map(
@@ -329,6 +342,7 @@ describe('Users admin routes (e2e)', () => {
           'POST :id/exclusions',
           'POST :id/exclusions/:exclusionId/dismiss',
           'POST :id/invitation',
+          'PUT :id',
           'PUT :id/programs',
           'PUT :id/roles',
         ].sort(),
@@ -671,7 +685,7 @@ describe('Users admin routes (e2e)', () => {
     });
 
     it('answers 503 and stores nothing when Cognito is unavailable', async () => {
-      w.cognito.getUser.mockRejectedValueOnce(new UpstreamUnavailableError());
+      w.cognito.getUser.mockRejectedValueOnce(new CognitoUnavailableError());
       const before = w.snapshot();
       const res = await asAdmin('post', '/users', body);
       expectError(res, 503, 'AUTH_SERVICE_UNAVAILABLE');
@@ -747,6 +761,353 @@ describe('Users admin routes (e2e)', () => {
           ['nickname', 'REQUIRED'],
         ].sort(byField),
       );
+    });
+  });
+
+  // --- FR-8: the aggregate edit ---------------------------------------------------
+
+  describe('PUT /users/:id', () => {
+    const SAME_ROLES = [{ role: 'TPB' }];
+    const seedPerson = (over: Partial<Parameters<World['seedUser']>[0]> = {}) =>
+      target({
+        email: 'ana@cgiar.org',
+        nickname: 'Ana',
+        firstName: 'Ana',
+        lastName: 'Okoro',
+        roles: [['TPB']],
+        ...over,
+      });
+    const auditActions = (from: number) =>
+      w.db.audit
+        .slice(from)
+        .map((row) => row.action)
+        .sort();
+
+    it('saves the whole person in one call: names, roles, programs and manual exclusions, audited like the separate routes, one cache invalidation (FR-8)', async () => {
+      const user = await seedPerson({ roles: [['ASSESSOR', 'KP']] });
+      await w.programs.addManualExclusion({
+        userId: user.id,
+        programId: 1,
+        reason: 'Original',
+        createdBy: w.admin.id,
+      });
+      const invalidate = vi.spyOn(w.app.get(CurrentUserCache), 'invalidate');
+      const audits = w.db.audit.length;
+
+      const res = await asAdmin('put', `/users/${user.id}`, {
+        nickname: 'Ana B',
+        firstName: 'Anna',
+        lastName: 'Okoro-Lee',
+        roles: SAME_ROLES,
+        programs: [1, 2],
+        exclusions: [
+          { programId: 1, reason: 'A new reason that must be ignored' },
+          { programId: 2, reason: 'Worked together' },
+        ],
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data).toMatchObject({
+        id: user.id,
+        email: 'ana@cgiar.org',
+        nickname: 'Ana B',
+        firstName: 'Anna',
+        lastName: 'Okoro-Lee',
+        status: 'active',
+        invitation: 'none',
+        roles: [{ role: 'TPB' }],
+        programs: [1, 2],
+        exclusions: [
+          { programId: 1, origin: 'manual', reason: 'Original' },
+          { programId: 2, origin: 'manual', reason: 'Worked together' },
+        ],
+        exclusionHistory: [],
+      });
+      expect(auditActions(audits)).toEqual([
+        'exclusion_add',
+        'role_grant',
+        'role_revoke',
+        'scope_change',
+        'update',
+      ]);
+      expect(
+        new Set(w.db.audit.slice(audits).map((row) => row.requestId)),
+      ).toEqual(new Set([res.headers['x-request-id']]));
+      expect(invalidate).toHaveBeenCalledTimes(1);
+      expect(invalidate).toHaveBeenCalledWith(user.id);
+    });
+
+    it('removes the manual exclusions the list leaves out and never touches a Reporting one', async () => {
+      const user = await seedPerson();
+      await w.programs.addManualExclusion({
+        userId: user.id,
+        programId: 1,
+        reason: 'One',
+        createdBy: w.admin.id,
+      });
+      await w.programs.addManualExclusion({
+        userId: user.id,
+        programId: 2,
+        reason: 'Two',
+        createdBy: w.admin.id,
+      });
+      await w.db.stores.programs.insertExclusion({
+        userId: user.id,
+        programId: 3,
+        origin: 'reporting',
+        reportingRole: 'Lead',
+        createdBy: null,
+      });
+      const audits = w.db.audit.length;
+
+      const res = await asAdmin('put', `/users/${user.id}`, {
+        roles: SAME_ROLES,
+        programs: 'all',
+        exclusions: [],
+      }).expect(200);
+
+      expect(res.body.data.exclusions).toMatchObject([
+        { programId: 3, origin: 'reporting' },
+      ]);
+      expect(res.body.data.exclusionHistory).toMatchObject([
+        { programId: 1, status: 'removed' },
+        { programId: 2, status: 'removed' },
+      ]);
+      expect(auditActions(audits)).toEqual([
+        'exclusion_remove',
+        'exclusion_remove',
+      ]);
+    });
+
+    it('answers 200 for the state the person already has: no audit row, no invalidation', async () => {
+      const user = await seedPerson();
+      const invalidate = vi.spyOn(w.app.get(CurrentUserCache), 'invalidate');
+      const before = w.snapshot();
+
+      const res = await asAdmin('put', `/users/${user.id}`, {
+        nickname: 'Ana',
+        roles: SAME_ROLES,
+        programs: 'all',
+        exclusions: [],
+      }).expect(200);
+
+      expect(res.body.data).toMatchObject({ id: user.id, nickname: 'Ana' });
+      expect(w.snapshot()).toBe(before);
+      expect(invalidate).not.toHaveBeenCalled();
+    });
+
+    it('refuses a body the shape or the references do not allow: 400 on the field, nothing written', async () => {
+      const user = await seedPerson();
+      const path = `/users/${user.id}`;
+      const full = { roles: SAME_ROLES, programs: 'all', exclusions: [] };
+      const cases: Array<[string, object, Array<[string, string]>]> = [
+        [
+          'nothing sent',
+          {},
+          [
+            ['exclusions', 'REQUIRED'],
+            ['programs', 'REQUIRED'],
+            ['roles', 'REQUIRED'],
+          ],
+        ],
+        [
+          'fields the route does not accept',
+          {
+            ...full,
+            email: 'x@cgiar.org',
+            isActive: false,
+            invitation: 'sent',
+          },
+          [
+            ['email', 'UNKNOWN_FIELD'],
+            ['invitation', 'UNKNOWN_FIELD'],
+            ['isActive', 'UNKNOWN_FIELD'],
+          ],
+        ],
+        [
+          'empty and too long names',
+          { ...full, nickname: '', lastName: 'n'.repeat(101) },
+          [
+            ['lastName', 'TOO_LONG'],
+            ['nickname', 'REQUIRED'],
+          ],
+        ],
+        [
+          'an empty program list',
+          { ...full, programs: [] },
+          [['programs', 'INVALID']],
+        ],
+        [
+          'a program excluded twice',
+          {
+            ...full,
+            exclusions: [
+              { programId: 1, reason: 'a' },
+              { programId: 1, reason: 'b' },
+            ],
+          },
+          [['exclusions[1].programId', 'INVALID']],
+        ],
+        [
+          'a malformed exclusion',
+          { ...full, exclusions: [{ programId: 'x', reason: '' }] },
+          [
+            ['exclusions[0].programId', 'INVALID_TYPE'],
+            ['exclusions[0].reason', 'REQUIRED'],
+          ],
+        ],
+        [
+          'a role that cannot be granted',
+          { ...full, roles: [{ role: 'PROGRAM' }] },
+          [['roles[0].role', 'INVALID']],
+        ],
+        [
+          'a result type the catalog does not have',
+          {
+            ...full,
+            roles: [{ role: 'ASSESSOR', resultTypes: ['NOPE'] }],
+          },
+          [['roles[0].resultTypes', 'INVALID']],
+        ],
+        [
+          'programs the catalog does not have',
+          {
+            ...full,
+            programs: [99],
+            exclusions: [{ programId: 98, reason: 'r' }],
+          },
+          [
+            ['exclusions[0].programId', 'INVALID'],
+            ['programs', 'INVALID'],
+          ],
+        ],
+      ];
+      for (const [name, body, expected] of cases) {
+        const before = w.snapshot();
+        const res = await asAdmin('put', path, body);
+        expectError(res, 400, 'VALIDATION_FAILED');
+        expect(fieldsOf(res).sort(byField), name).toEqual(
+          [...expected].sort(byField),
+        );
+        expect(w.snapshot(), name).toBe(before);
+      }
+    });
+
+    it('answers 404 USERS_NOT_FOUND for a user that does not exist', async () => {
+      expectError(
+        await asAdmin('put', '/users/99999', {
+          roles: [],
+          programs: 'all',
+          exclusions: [],
+        }),
+        404,
+        'USERS_NOT_FOUND',
+      );
+      expectError(
+        await asAdmin('put', '/users/abc', {
+          roles: [],
+          programs: 'all',
+          exclusions: [],
+        }),
+        400,
+        'VALIDATION_FAILED',
+      );
+    });
+
+    it('answers every business refusal with its code and changes nothing, not even the parts that were fine (FR-8, all or nothing)', async () => {
+      await target({ email: 'taken@cgiar.org', nickname: 'Taken' });
+      const user = await seedPerson();
+      const signedIn = await target({
+        email: 'old@cgiar.org',
+        nickname: 'Old',
+        roles: [['TPB']],
+        lastLoginAt: new Date('2026-01-01T00:00:00Z'),
+      });
+      await w.db.stores.programs.insertExclusion({
+        userId: user.id,
+        programId: 3,
+        origin: 'reporting',
+        reportingRole: 'Lead',
+        createdBy: null,
+      });
+      const fine = { programs: [1], exclusions: [] as object[] };
+      const cases: Array<[string, string, object, string]> = [
+        [
+          'a taken nickname, whatever the case',
+          `/users/${user.id}`,
+          { ...fine, nickname: 'tAKEN', roles: [{ role: 'PPU' }] },
+          'USERS_NICKNAME_TAKEN',
+        ],
+        [
+          'a name edit after the first sign-in',
+          `/users/${signedIn.id}`,
+          { ...fine, firstName: 'Zed', roles: SAME_ROLES },
+          'USERS_NAME_LOCKED',
+        ],
+        [
+          'an Assessor and a Lead Assessor on the same result type',
+          `/users/${user.id}`,
+          {
+            ...fine,
+            nickname: 'Ana Fine',
+            roles: [
+              { role: 'ASSESSOR', resultTypes: ['KP'] },
+              { role: 'LEAD_ASSESSOR', resultTypes: ['KP'] },
+            ],
+          },
+          'USERS_ROLE_CONFLICT',
+        ],
+        [
+          'removing ADMIN from the last active admin',
+          `/users/${w.admin.id}`,
+          { nickname: 'Ada Fine', roles: [], programs: 'all', exclusions: [] },
+          'USERS_LAST_ADMIN',
+        ],
+        [
+          'a manual exclusion on a program that has an active Reporting one',
+          `/users/${user.id}`,
+          {
+            nickname: 'Ana Fine',
+            roles: [{ role: 'PPU' }],
+            programs: 'all',
+            exclusions: [{ programId: 3, reason: 'Conflict' }],
+          },
+          'USERS_EXCLUSION_EXISTS',
+        ],
+      ];
+      for (const [name, path, body, code] of cases) {
+        const before = w.snapshot();
+        const invalidate = vi.spyOn(w.app.get(CurrentUserCache), 'invalidate');
+        expectError(await asAdmin('put', path, body), 409, code);
+        expect(w.snapshot(), name).toBe(before);
+        expect(invalidate, name).not.toHaveBeenCalled();
+        invalidate.mockRestore();
+      }
+    });
+
+    it('answers 503 while a catalog is unavailable, even for an unknown user (validation runs before the lock), and changes nothing', async () => {
+      await w.app.close();
+      w = await build({ programsDown: true });
+      const user = await seedPerson();
+      const body = {
+        roles: SAME_ROLES,
+        programs: [1],
+        exclusions: [],
+      };
+      const before = w.snapshot();
+
+      expectError(
+        await asAdmin('put', `/users/${user.id}`, body),
+        503,
+        'SERVICE_UNAVAILABLE',
+      );
+      expectError(
+        await asAdmin('put', '/users/99999', body),
+        503,
+        'SERVICE_UNAVAILABLE',
+      );
+      expect(w.snapshot()).toBe(before);
     });
   });
 
@@ -1078,7 +1439,7 @@ describe('Users admin routes (e2e)', () => {
         roles: [['TPB']],
       });
       w.cognito.resendInvitation.mockRejectedValueOnce(
-        new UpstreamUnavailableError(),
+        new CognitoUnavailableError(),
       );
       expectError(
         await asAdmin('post', `/users/${custom.id}/invitation`),
@@ -1096,6 +1457,11 @@ describe('Users admin routes (e2e)', () => {
       '403': ['AUTH_PERMISSION_DENIED'],
     };
     const BODY = ['MALFORMED_JSON', 'VALIDATION_FAILED'];
+    const IN_FLIGHT = 'IDEMPOTENCY_IN_PROGRESS';
+    const REUSED = { '422': ['IDEMPOTENCY_KEY_REUSED'] };
+    const STORE_DOWN = 'SERVICE_UNAVAILABLE';
+    // The codes of every keyed write (FR-10): the route's own, plus a key in
+    // flight (409), a key reused (422) and the key store down (503).
     const EXPECTED: Array<[string, string, string, Record<string, string[]>]> =
       [
         ['get', '/users', '200', { ...AUTH, '400': ['VALIDATION_FAILED'] }],
@@ -1113,11 +1479,13 @@ describe('Users admin routes (e2e)', () => {
             ...AUTH,
             '400': BODY,
             '409': [
+              IN_FLIGHT,
               'USERS_EMAIL_TAKEN',
               'USERS_NICKNAME_TAKEN',
               'USERS_ROLE_CONFLICT',
             ],
-            '503': ['AUTH_SERVICE_UNAVAILABLE', 'SERVICE_UNAVAILABLE'],
+            ...REUSED,
+            '503': ['AUTH_SERVICE_UNAVAILABLE', STORE_DOWN],
           },
         ],
         [
@@ -1128,7 +1496,29 @@ describe('Users admin routes (e2e)', () => {
             ...AUTH,
             '400': BODY,
             '404': ['USERS_NOT_FOUND'],
-            '409': ['USERS_NAME_LOCKED', 'USERS_NICKNAME_TAKEN'],
+            '409': [IN_FLIGHT, 'USERS_NAME_LOCKED', 'USERS_NICKNAME_TAKEN'],
+            ...REUSED,
+            '503': [STORE_DOWN],
+          },
+        ],
+        [
+          'put',
+          '/users/{id}',
+          '200',
+          {
+            ...AUTH,
+            '400': BODY,
+            '404': ['USERS_NOT_FOUND'],
+            '409': [
+              IN_FLIGHT,
+              'USERS_EXCLUSION_EXISTS',
+              'USERS_LAST_ADMIN',
+              'USERS_NAME_LOCKED',
+              'USERS_NICKNAME_TAKEN',
+              'USERS_ROLE_CONFLICT',
+            ],
+            ...REUSED,
+            '503': [STORE_DOWN],
           },
         ],
         [
@@ -1139,8 +1529,9 @@ describe('Users admin routes (e2e)', () => {
             ...AUTH,
             '400': BODY,
             '404': ['USERS_NOT_FOUND'],
-            '409': ['USERS_LAST_ADMIN', 'USERS_ROLE_CONFLICT'],
-            '503': ['SERVICE_UNAVAILABLE'],
+            '409': [IN_FLIGHT, 'USERS_LAST_ADMIN', 'USERS_ROLE_CONFLICT'],
+            ...REUSED,
+            '503': [STORE_DOWN],
           },
         ],
         [
@@ -1151,7 +1542,9 @@ describe('Users admin routes (e2e)', () => {
             ...AUTH,
             '400': BODY,
             '404': ['USERS_NOT_FOUND'],
-            '503': ['SERVICE_UNAVAILABLE'],
+            '409': [IN_FLIGHT],
+            ...REUSED,
+            '503': [STORE_DOWN],
           },
         ],
         [
@@ -1162,8 +1555,9 @@ describe('Users admin routes (e2e)', () => {
             ...AUTH,
             '400': BODY,
             '404': ['USERS_NOT_FOUND'],
-            '409': ['USERS_EXCLUSION_EXISTS'],
-            '503': ['SERVICE_UNAVAILABLE'],
+            '409': [IN_FLIGHT, 'USERS_EXCLUSION_EXISTS'],
+            ...REUSED,
+            '503': [STORE_DOWN],
           },
         ],
         [
@@ -1174,7 +1568,9 @@ describe('Users admin routes (e2e)', () => {
             ...AUTH,
             '400': ['VALIDATION_FAILED'],
             '404': ['USERS_EXCLUSION_NOT_FOUND', 'USERS_NOT_FOUND'],
-            '409': ['USERS_EXCLUSION_NOT_MANUAL'],
+            '409': [IN_FLIGHT, 'USERS_EXCLUSION_NOT_MANUAL'],
+            ...REUSED,
+            '503': [STORE_DOWN],
           },
         ],
         [
@@ -1185,7 +1581,9 @@ describe('Users admin routes (e2e)', () => {
             ...AUTH,
             '400': BODY,
             '404': ['USERS_EXCLUSION_NOT_FOUND', 'USERS_NOT_FOUND'],
-            '409': ['USERS_EXCLUSION_NOT_REPORTING'],
+            '409': [IN_FLIGHT, 'USERS_EXCLUSION_NOT_REPORTING'],
+            ...REUSED,
+            '503': [STORE_DOWN],
           },
         ],
         [
@@ -1196,7 +1594,9 @@ describe('Users admin routes (e2e)', () => {
             ...AUTH,
             '400': ['VALIDATION_FAILED'],
             '404': ['USERS_NOT_FOUND'],
-            '409': ['USERS_LAST_ADMIN'],
+            '409': [IN_FLIGHT, 'USERS_LAST_ADMIN'],
+            ...REUSED,
+            '503': [STORE_DOWN],
           },
         ],
         [
@@ -1207,6 +1607,9 @@ describe('Users admin routes (e2e)', () => {
             ...AUTH,
             '400': ['VALIDATION_FAILED'],
             '404': ['USERS_NOT_FOUND'],
+            '409': [IN_FLIGHT],
+            ...REUSED,
+            '503': [STORE_DOWN],
           },
         ],
         [
@@ -1217,8 +1620,9 @@ describe('Users admin routes (e2e)', () => {
             ...AUTH,
             '400': ['VALIDATION_FAILED'],
             '404': ['USERS_NOT_FOUND'],
-            '409': ['USERS_INVITATION_NOT_APPLICABLE'],
-            '503': ['AUTH_SERVICE_UNAVAILABLE'],
+            '409': [IN_FLIGHT, 'USERS_INVITATION_NOT_APPLICABLE'],
+            ...REUSED,
+            '503': ['AUTH_SERVICE_UNAVAILABLE', STORE_DOWN],
           },
         ],
       ];

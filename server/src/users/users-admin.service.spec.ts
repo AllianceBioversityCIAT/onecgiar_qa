@@ -1868,6 +1868,7 @@ describe('Cognito resent but QA could not record it', () => {
         outcome: 'error',
         reason: 'cognito_sent_not_recorded',
         requestId: 'req-1',
+        idempotency: 'none',
       },
     ]);
     expect(w.db.audit.filter((e) => e.action === 'invitation_resend')).toEqual(
@@ -1924,6 +1925,7 @@ describe('decision log (NFR-2)', () => {
         actorId: admin.id,
         outcome: 'ok',
         requestId: 'req-1',
+        idempotency: 'none',
       },
       {
         event: 'users_admin',
@@ -1933,6 +1935,7 @@ describe('decision log (NFR-2)', () => {
         outcome: 'refused',
         reason: 'USERS_EMAIL_TAKEN',
         requestId: 'req-1',
+        idempotency: 'none',
       },
       {
         event: 'users_admin',
@@ -1942,6 +1945,7 @@ describe('decision log (NFR-2)', () => {
         outcome: 'error',
         reason: 'AUTH_SERVICE_UNAVAILABLE',
         requestId: 'req-1',
+        idempotency: 'none',
       },
       {
         event: 'users_admin',
@@ -1950,6 +1954,7 @@ describe('decision log (NFR-2)', () => {
         actorId: admin.id,
         outcome: 'ok',
         requestId: 'req-1',
+        idempotency: 'none',
       },
     ]);
     const everything = logged.join('\n').toLowerCase();
