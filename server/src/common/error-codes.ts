@@ -58,6 +58,18 @@ export const ERROR_CATALOG = {
       'Something went wrong on our side. Try again; if it keeps happening, contact support and share the reference code.',
   },
 
+  // --- Idempotency (keyed writes) -----------------------------------------
+  IDEMPOTENCY_IN_PROGRESS: {
+    status: 409,
+    message:
+      'This request is already being processed. Wait a moment and try again.',
+  },
+  IDEMPOTENCY_KEY_REUSED: {
+    status: 422,
+    message:
+      'This request identifier was already used for a different request. Start the change again.',
+  },
+
   // --- Auth: credentials and session --------------------------------------
   AUTH_INVALID_CREDENTIALS: {
     status: 401,

@@ -1,3 +1,10 @@
+import { IdempotencyFenceLostError } from '../../src/common/idempotency/idempotency.errors.js';
+import type {
+  IdempotencyClock,
+  IdempotencyRow,
+  IdempotencyStore,
+  Reservation,
+} from '../../src/common/idempotency/idempotency.store.js';
 import type {
   Role,
   RoleAssignment,
@@ -34,6 +41,10 @@ import {
   type UsersAdminRepositories,
   type UsersAdminUnitOfWork,
 } from '../../src/users/users-admin.unit-of-work.js';
+import {
+  idempotencyLockKey,
+  InMemoryIdempotencyStore,
+} from './in-memory-idempotency.js';
 import {
   UsersRepository,
   type ReadOptions,
@@ -702,7 +713,12 @@ export class InMemoryTransaction {
     );
     const exclusions = this.table(db.exclusions, (row) => String(row.id));
     const audit = this.table(db.audit, (row) => String(row.id));
+    const idempotency = this.table(
+      db.idempotency,
+      (row) => `${row.actorId}\u0000${row.idemKey}`,
+    );
     return {
+      idempotency: new TransactionalIdempotencyStore(this, idempotency.rows),
       users: new UsersRepository(new TransactionalUsersStore(this, users.rows)),
       assignments: new RoleAssignmentsRepository(
         new TransactionalAssignmentsStore(this, assignments.rows, roles.rows),
@@ -946,6 +962,53 @@ class TransactionalAdminsStore implements AdminsStore {
 }
 
 /**
+ * `markExecuted` bound to a transaction (what `new DrizzleIdempotencyStore(tx,
+ * clock)` is in production): the UPDATE takes the row lock and keeps it until
+ * the business transaction ends, sees the row as committed at that moment (a
+ * take-over that committed earlier makes it match no row), and its effect is
+ * visible to others only when the transaction commits; a rollback drops it
+ * together with the change (T-2 review forward pointer).
+ */
+class TransactionalIdempotencyStore implements Pick<
+  IdempotencyStore,
+  'markExecuted'
+> {
+  constructor(
+    private readonly tx: InMemoryTransaction,
+    private readonly rows: IdempotencyRow[],
+  ) {}
+
+  async markExecuted(reservation: Reservation, targetUserId: number) {
+    const changed = await this.tx.statement(
+      {
+        current: true,
+        locks: [
+          [idempotencyLockKey(reservation.actorId, reservation.key), 'X'],
+        ],
+        tables: [this.rows],
+      },
+      () => {
+        const row = this.rows.find(
+          (r) =>
+            r.actorId === reservation.actorId && r.idemKey === reservation.key,
+        );
+        if (
+          !row ||
+          row.state !== 'in_progress' ||
+          row.ownerToken !== reservation.ownerToken
+        ) {
+          return false;
+        }
+        row.state = 'executed';
+        row.targetUserId = targetUserId;
+        return true;
+      },
+    );
+    if (!changed) throw new IdempotencyFenceLostError();
+  }
+}
+
+/**
  * The tables of the user-management world as committed rows, plus the row
  * locks. `begin()` opens a transaction that sees its own uncommitted writes,
  * hides everyone else's until they commit, and waits on row locks: this is
@@ -960,6 +1023,8 @@ export class InMemoryDatabase {
   readonly scope: UserProgram[] = [];
   readonly exclusions: UserProgramExclusion[] = [];
   readonly audit: UserAuditEvent[] = [];
+  /** Committed `idempotency_keys` rows, shared with the autocommit store of `idempotencyStore()`. */
+  readonly idempotency: IdempotencyRow[] = [];
   readonly locks = new RowLocks();
 
   /** Plain stores over the committed rows. */
@@ -969,6 +1034,17 @@ export class InMemoryDatabase {
     programs: new InMemoryUserProgramsStore(this.scope, this.exclusions),
     audit: new InMemoryUserAuditStore(this.audit),
   };
+
+  /** The interceptor's own store over this database: same rows, same row locks as the transactions. */
+  idempotencyStore(
+    clock: IdempotencyClock,
+    newToken?: () => string,
+  ): InMemoryIdempotencyStore {
+    return new InMemoryIdempotencyStore(clock, newToken, {
+      rows: this.idempotency,
+      locks: this.locks,
+    });
+  }
 
   private readonly issued = new Map<string, number>();
 

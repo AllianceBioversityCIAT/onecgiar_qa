@@ -21,6 +21,11 @@ import { UserNotAdmittedError } from '../auth/guards/auth.guard.js';
 import { PermissionDeniedError } from '../auth/guards/permission.guard.js';
 import { InvalidTokenError } from '../auth/token-verifier.service.js';
 import {
+  IdempotencyFenceLostError,
+  IdempotencyInProgressError,
+  IdempotencyKeyReusedError,
+} from './idempotency/idempotency.errors.js';
+import {
   AssignmentNotFoundError,
   DuplicateActiveAssignmentError,
   DuplicateUserError,
@@ -108,6 +113,9 @@ describe('domain errors declare a catalog code with the same status', () => {
     ['AssignmentNotFoundError', new AssignmentNotFoundError(7)],
     ['InvalidEmailError', new InvalidEmailError()],
     ['DuplicateUserError', new DuplicateUserError()],
+    ['IdempotencyKeyReusedError', new IdempotencyKeyReusedError()],
+    ['IdempotencyInProgressError', new IdempotencyInProgressError()],
+    ['IdempotencyFenceLostError', new IdempotencyFenceLostError()],
   ];
 
   it.each(errors)('%s', (_name, error) => {
@@ -115,6 +123,21 @@ describe('domain errors declare a catalog code with the same status', () => {
     expect(isErrorCode(code), String(code)).toBe(true);
     expect(ERROR_CATALOG[code as keyof typeof ERROR_CATALOG].status).toBe(
       error.getStatus(),
+    );
+  });
+});
+
+describe('idempotency errors (users-admin-write-safety FR-4, FR-5)', () => {
+  it.each([
+    [new IdempotencyKeyReusedError(), 422, 'IDEMPOTENCY_KEY_REUSED'],
+    [new IdempotencyInProgressError(), 409, 'IDEMPOTENCY_IN_PROGRESS'],
+    // A stalled first request that lost the key answers like any in-flight key.
+    [new IdempotencyFenceLostError(), 409, 'IDEMPOTENCY_IN_PROGRESS'],
+  ])('%s answers %i %s', (error, status, code) => {
+    expect(error.getStatus()).toBe(status);
+    expect((error.getResponse() as { code: string }).code).toBe(code);
+    expect(ERROR_CATALOG[code as keyof typeof ERROR_CATALOG].status).toBe(
+      status,
     );
   });
 });
