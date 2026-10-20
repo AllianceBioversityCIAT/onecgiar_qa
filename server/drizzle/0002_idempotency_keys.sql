@@ -1,6 +1,6 @@
 CREATE TABLE `idempotency_keys` (
 	`actor_id` int unsigned NOT NULL,
-	`idem_key` varchar(128) NOT NULL,
+	`idem_key` varchar(128) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
 	`fingerprint` char(64) NOT NULL,
 	`state` enum('in_progress','executed','completed') NOT NULL,
 	`owner_token` char(36) NOT NULL,

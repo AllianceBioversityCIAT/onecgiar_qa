@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import {
   char,
+  customType,
   datetime,
   index,
   int,
@@ -9,9 +10,18 @@ import {
   mysqlTable,
   primaryKey,
   smallint,
-  varchar,
 } from 'drizzle-orm/mysql-core';
 import { users } from './users.js';
+
+// drizzle mysql-core has no per-column charset/collation option, so the column
+// type carries it. Keys are opaque and case-sensitive (FR-6); the default
+// collation is case-insensitive and would collide keys that differ only by
+// case into a false IDEMPOTENCY_KEY_REUSED. Allowed key chars are ASCII.
+const asciiBinKey = customType<{ data: string }>({
+  dataType() {
+    return 'varchar(128) CHARACTER SET ascii COLLATE ascii_bin';
+  },
+});
 
 export const idempotencyKeyStates = [
   'in_progress',
@@ -32,7 +42,7 @@ export const idempotencyKeys = mysqlTable(
     actorId: int('actor_id', { unsigned: true })
       .notNull()
       .references(() => users.id),
-    idemKey: varchar('idem_key', { length: 128 }).notNull(),
+    idemKey: asciiBinKey('idem_key').notNull(),
     // sha256 hex of method + route + canonical body; a different one under the
     // same key is a reuse (FR-4).
     fingerprint: char('fingerprint', { length: 64 }).notNull(),

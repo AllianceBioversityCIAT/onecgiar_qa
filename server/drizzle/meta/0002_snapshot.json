@@ -1,7 +1,7 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "c0cd7ce8-3806-444e-9428-49b994ef898c",
+  "id": "5ef9395b-cde8-4726-abe6-8b29617cade3",
   "prevId": "d66b3812-ccbc-4284-8508-325594c7def0",
   "tables": {
     "users": {
@@ -743,7 +743,7 @@
         },
         "idem_key": {
           "name": "idem_key",
-          "type": "varchar(128)",
+          "type": "varchar(128) CHARACTER SET ascii COLLATE ascii_bin",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false

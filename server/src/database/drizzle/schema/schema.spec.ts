@@ -420,7 +420,11 @@ describe('idempotency_keys schema (users-admin-write-safety design 5)', () => {
   });
 
   it('types the key, fingerprint and owner token', () => {
-    expect(col('idem_key')?.getSQLType()).toBe('varchar(128)');
+    // Opaque, case-sensitive key (FR-6): ascii_bin, so keys that differ only
+    // by case never collide in the PK.
+    expect(col('idem_key')?.getSQLType()).toBe(
+      'varchar(128) CHARACTER SET ascii COLLATE ascii_bin',
+    );
     expect(col('fingerprint')?.getSQLType()).toBe('char(64)');
     expect(col('owner_token')?.getSQLType()).toBe('char(36)');
     for (const n of ['idem_key', 'fingerprint', 'owner_token']) {
@@ -483,6 +487,9 @@ describe('committed migration 0002 (idempotency keys)', () => {
 
   it('carries the composite primary key, the user FK and the expiry index', () => {
     expect(sql).toMatch(/PRIMARY KEY\(`actor_id`,`idem_key`\)/);
+    expect(sql).toContain(
+      '`idem_key` varchar(128) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,',
+    );
     expect(sql).toMatch(
       /FOREIGN KEY \(`actor_id`\) REFERENCES `users`\(`id`\)/,
     );

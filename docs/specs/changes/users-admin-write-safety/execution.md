@@ -48,6 +48,26 @@
 - **Issues encountered:** none.
 - **Final verification:** VERIFIED (Leader re-run) + Reviewer PASS.
 
+### T-1 (amendment): `idem_key` binary collation — PASS
+
+- **Date:** 2026-10-20
+- **Final status:** PASS (attempt 1 of 3)
+- **Trigger:** back lead chose option 1 at the T-1 gate ("1 y sigue con la T2"), adopting the T-1 Reviewer RISK advisory. T-1 reopened `[~]` for this change only.
+- **Decisions made — execute-time spec edit:** `design.md` § 5, row `idempotency_keys`: `idem_key` varchar(128) → varchar(128) `CHARACTER SET ascii COLLATE ascii_bin` ("keys are opaque and case-sensitive, FR-6"). Does not change any requirement's meaning (strengthens FR-6 scope; FR-6 allowed chars are ASCII). Carried as a named conformance check into this Reviewer brief and the T-2 Reviewer brief. `0002` was not applied anywhere, so editing it obeys `server/src/database/AGENTS.md`.
+- **Skills / effort:** nestjs-expert, nestjs-best-practices · effort `medium`
+
+**Attempt 1**
+- **Files changed:** `server/src/database/drizzle/schema/idempotency-keys.ts` (`customType` `asciiBinKey`; drizzle mysql-core has no per-column collation), `server/src/database/drizzle/schema/schema.spec.ts`, `server/drizzle/0002_idempotency_keys.sql`, `server/drizzle/meta/0002_snapshot.json`, `server/drizzle/meta/_journal.json` (only `when`) — regenerated with `pnpm db:generate --name idempotency_keys` and a dummy `DATABASE_URL`; no `db:migrate`.
+- **Implementer verification:** server command → lint/build clean, `Tests 1025 passed (1025)`, tsc 7 baseline errors only.
+- **Red run:** 2 assertions failed before the schema change (`getSQLType()` and the SQL `toContain` of the `idem_key` line).
+- **Falsifier** (collation removed): `AssertionError: expected 'varchar(128)' to be 'varchar(128) CHARACTER SET ascii COLL…'`, 1 failed | 37 passed; restored. The SQL-file assertion guards the committed DDL text, not generation (disclosed).
+- **Evidence re-run (Leader inline):** VERIFIED — 35 files / 1025 tests passed, 0 non-baseline tsc errors.
+- **Reviewer verdict:** PASS — "The T-1 amendment matches the amended `design.md` § 5 row `idempotency_keys`"; migration still additive, snapshot carries the collation, `0000`/`0001` untouched. No ADVISORY (under 50 LOC).
+- **runtime events:** none
+- **spawns:** Implementer not reported by host (10 tool calls, 75,047 tokens, ended complete); Reviewer not reported by host, ended complete
+- **Issues encountered:** none.
+- **Final verification:** VERIFIED + Reviewer PASS.
+
 ## Constitution Impact: T-1
 
 - Shared schema gained `idempotency_keys` and migration `0002_idempotency_keys` (additive). `server/src/database/AGENTS.md` update is T-7 deliverable; TRD § 5.1 is a pending item for `staging`. Migration `0002` must be applied to `qadb` by a human (T-8) before the API runs against it with this code.

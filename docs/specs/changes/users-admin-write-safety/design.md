@@ -72,7 +72,7 @@ server/drizzle/0002_<name>.sql          # generated, additive
 
 | Table / change | Columns and rules | Requirement |
 |---|---|---|
-| `idempotency_keys` (new) | PK (`actor_id`, `idem_key`); `actor_id` FK users; `idem_key` varchar(128); `fingerprint` char(64) (sha256 hex); `state` enum(`in_progress`,`executed`,`completed`); `owner_token` char(36); `lease_until` datetime; `route_status` smallint (success status of the route, for a post-crash replay); `target_user_id` int NULL; `response_status` smallint NULL; `response_body` JSON NULL (`data`, or `{ code, fields }` for a refusal); `created_at`; `expires_at` datetime; index (`expires_at`) | FR-2…FR-7, FR-9, NFR-5 |
+| `idempotency_keys` (new) | PK (`actor_id`, `idem_key`); `actor_id` FK users; `idem_key` varchar(128) `CHARACTER SET ascii COLLATE ascii_bin` (keys are opaque and case-sensitive, FR-6; amended 2026-10-20 at the T-1 gate); `fingerprint` char(64) (sha256 hex); `state` enum(`in_progress`,`executed`,`completed`); `owner_token` char(36); `lease_until` datetime; `route_status` smallint (success status of the route, for a post-crash replay); `target_user_id` int NULL; `response_status` smallint NULL; `response_body` JSON NULL (`data`, or `{ code, fields }` for a refusal); `created_at`; `expires_at` datetime; index (`expires_at`) | FR-2…FR-7, FR-9, NFR-5 |
 
 Migration `0002`: additive only (one new table). Applied by a human on `qadb` (as `0001`).
 
