@@ -132,8 +132,13 @@ Give the QA Admin a real backend for the **Cycle** screen: create a cycle, then 
 
 ## Risks, Dependencies, And Open Questions
 
+No open questions remain; the decisions below closed them.
+
 | ID | Item | Owner | Blocks |
 |---|---|---|---|
+| R-1 | TRD edit on a spec branch: allowed only because `tasks.md` will name it as a deliverable (`AGENTS.md` write discipline) | Back lead | — |
+| R-2 | The front prototype keeps rules the API now owns (unlimited steps, derived rounds) — mismatch until P2-3934 | Front lead | Integration |
+| R-3 | `qadb` gets migration `0003` by a human step; agents never run it | Back lead | Manual tests |
 
 ### Decisions (back lead, 2026-10-20)
 
@@ -146,9 +151,6 @@ Give the QA Admin a real backend for the **Cycle** screen: create a cycle, then 
 | D-5 | A cycle needs only its **year** | `cycles`: `year` (unique), status; the display name is derived ("2026 cycle") |
 | D-6 | Results that entered the official timeline **stay there**, even if a later timeline is opened for their SP | A timeline's scope only limits **what can be loaded** into it; the load decides where a result is. Nothing moves between timelines (rule for P2-3905 / P2-3906) |
 | D-7 | **Every** timeline, official included, covers the SPs and the indicators the admin picks; "indicators" = result types (confirmed) | Same scope rules for official and additional: at least one SP and one result type, or "all" chosen explicitly. The front's "programs optional on the official" (`timeline-drawer.ts:204,249`) changes in P2-3934 |
-| R-1 | TRD edit on a spec branch: allowed only because `tasks.md` will name it as a deliverable (`AGENTS.md` write discipline) | Back lead | — |
-| R-2 | The front prototype keeps rules the API now owns (unlimited steps, derived rounds) — mismatch until P2-3934 | Front lead | Integration |
-| R-3 | `qadb` gets migration `0003` by a human step; agents never run it | Back lead | Manual tests |
 
 ## Success Criteria
 
