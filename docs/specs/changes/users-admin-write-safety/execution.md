@@ -150,6 +150,33 @@
   - READABILITY: `complete_lost` logged at `warn` with `outcome:'error'` vs `error` level siblings; the pipe-400 pipeline replay test needs a comment.
 - **Final verification:** VERIFIED + both lenses PASS.
 
+### T-4: Exactly-once fence in the unit of work and the service — PASS (attempt 1)
+
+- **Date:** 2026-10-20
+- **Skills / effort:** nestjs-expert, nestjs-best-practices, tdd · effort `xhigh` · brief asked for compact tests (back lead budget decision)
+- **Review mode:** parallel lenses (A: reliability — transactions/fencing; B: risk — exactly-once + readability)
+
+**Attempt 1 — PASS**
+- **Files changed:** `server/src/users/users-admin.unit-of-work.ts` (`UsersAdminRepositories.idempotency`, `new DrizzleIdempotencyStore(tx, clock)`, `@Optional() @Inject(IDEMPOTENCY_CLOCK)`), `server/src/users/users-admin.service.ts` (`AdminContext.idempotency?: IdempotencyHandle`; `mutate` and `create` mark as the last write in the tx; decision line `idempotency`), `server/src/users/users-admin.fence.spec.ts` (new, 52 tests), `server/src/users/users-admin.unit-of-work.spec.ts` (+6), `server/src/users/users-admin.service.spec.ts` and `server/test/users-admin-privacy.e2e-spec.ts` (exact log expectations gain the `idempotency` field — meaning unchanged, both lenses agree), `server/test/support/{in-memory-idempotency,in-memory-stores,users-admin-world}.ts` — +942/−56.
+- **Implementer verification:** lint 0 warnings; build ok; `Test Files 40 passed (40)`, `Tests 1287 passed (1287)`; tsc 7 baseline only; e2e `Test Files 9 passed (9)`, `Tests 414 passed (414)`.
+- **Red run:** 33 of 52 failed before wiring (e.g. `expected {…state 'in_progress'} to match { state: 'executed', targetUserId: 2 }`); take-over rows failed through the `failureOf` helper (call succeeded when it should be refused) — behavioral.
+- **Falsifier 1** (mark outside the tx): in-memory autocommit store → 10 failed (`expected {state:'executed', targetUserId:3} to match {state:'in_progress', targetUserId:null}`); Drizzle `this.db` instead of `tx` → `expected 'pool' to be 'tx'`. **Falsifier 2** (ignore 0 rows): adapter `promise resolved "undefined" instead of rejecting`; in-memory 14 failed with a second change committed. All restored.
+- **Evidence re-run (Leader inline):** VERIFIED — identical unit/e2e counts, 0 non-baseline tsc errors.
+- **Lens A verdict:** PASS — "meets design § 7 'Exactly-once fence', DD-2, DD-3, P-5, P-6 and P-11, and FR-2, FR-5 and NFR-1, on every public mutation."
+- **Lens B verdict:** PASS — "I found no public mutation that can apply twice or apply without its mark."
+- **Upstream finding (advisory-grade, report only):** Cognito failures other than `UsernameExists`/`UserNotFound` → 503 `AUTH_SERVICE_UNAVAILABLE` (`cognito-admin.client.ts:169-177`); catalogs → 503 (`reporting-result-types.client.ts:36`, `clarisa-science-programs.client.ts:38`). None surface as a 4xx the interceptor would remember.
+- **runtime events:** none
+- **spawns:** Implementer not reported by host (54 tool calls, 205,293 tokens, ended complete); Reviewer A not reported by host (14 tool calls, 70,297 tokens), ended complete; Reviewer B not reported by host, ended complete
+- **Requirements covered:** FR-2 (same-commit mark), FR-3 (service level: no second change/audit/invalidation after a lost fence), FR-5 (stalled request cannot commit after take-over), NFR-1 (fake + stub level; real MySQL at T-8).
+- **ADVISORY (never gating):**
+  - RISK (open — for the back lead): `resendInvitation` that loses its fence after Cognito answered has already sent the email; the taker runs as a first execution and sends a second one. Not an FR-3 breach (FR-3 covers replays; FR-5 says an abandoned key executes as new), but design § 7 does not record it as DD-7 does for create. **To be raised with the back lead; T-7 docs should state it if accepted.**
+  - RISK/READABILITY: a lost fence on resend logs `outcome=error`, `reason=cognito_sent_not_recorded` for a 409, hiding the take-over.
+  - RELIABILITY → **T-6:** make explicit and test that a fence-lost 409 is neither remembered nor released by the stalled request (today guaranteed only by the `owner_token` condition on `complete`/`release`).
+  - RESILIENCE: `markExecuted` ignores `lease_until` by design (state + owner_token only) — add a comment so nobody "fixes" it.
+  - RESILIENCE → **T-8:** `reserve` and its stale-row delete do not take the row lock in the fake; in MySQL a duplicate INSERT against a held row waits and may replay instead of 409 — both valid; observe on `qadb`.
+  - READABILITY: fence spec selects rows by index (`CHANGING[1]`…) — look up by name; helpers declared after use; the unit of work's `IDEMPOTENCY_CLOCK` is never read by `markExecuted` — revisit once T-6 provides it.
+- **Final verification:** VERIFIED + both lenses PASS.
+
 ## Budget Tripwire: after T-3 attempt 1
 
 - **Budget (design § 2):** 8 tasks · ~3,600 LOC · ~14 Reviewer passes.

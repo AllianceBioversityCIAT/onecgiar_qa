@@ -73,7 +73,7 @@ Serial boundaries: T-1 (`server/src/database/**`); T-4 and T-5 both edit `users-
 - **Skills:** nestjs-expert, error-handling-patterns, tdd
 
 ## T-4: Exactly-once fence in the unit of work and the service
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-2
 - **Requirements:** FR-2 (AND IT MUST mark executed in the same commit as the change); FR-3 (BUT no second user / Cognito call / audit / invalidation / email — service level); FR-5 (a stalled first request cannot commit after a take-over); NFR-1

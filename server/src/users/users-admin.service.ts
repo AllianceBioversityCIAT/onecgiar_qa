@@ -1,4 +1,5 @@
 import { HttpException, Inject, Injectable, Logger } from '@nestjs/common';
+import type { IdempotencyHandle } from '../common/idempotency/idempotency.context.js';
 import { CognitoAdminClient } from '../auth/cognito-admin.client.js';
 import { UpstreamUnavailableError } from '../auth/cognito-auth.client.js';
 import type { UserAuditChanges } from '../database/drizzle/schema/user-audit-events.js';
@@ -32,6 +33,12 @@ import { normalizeEmail, UsersRepository } from './users.repository.js';
 export interface AdminContext {
   actorId: number;
   requestId: string | null;
+  /**
+   * The keyed request's handle (design 7, P-5), set by the controller from
+   * `@CurrentIdempotency()`. Absent = no `Idempotency-Key`: nothing is marked
+   * and behavior is exactly as before (FR-1).
+   */
+  idempotency?: IdempotencyHandle;
 }
 
 export type AccountType = 'sso' | 'custom';
@@ -213,6 +220,9 @@ export class UsersAdminService {
           for (const exclusion of input.exclusions) {
             await this.insertExclusion(repos, ctx, user.id, exclusion);
           }
+          // The transaction that follows the Cognito call: the user, its
+          // audit rows and the mark commit together (design 7).
+          await this.markExecuted(repos, ctx, user.id);
           return { userId: user.id, invitation: invitation.state };
         });
         return created;
@@ -233,7 +243,7 @@ export class UsersAdminService {
   ): Promise<UserChangeResult> {
     return this.logged('edit', ctx, userId, async () => {
       const wanted = this.validatePatch(patch);
-      return this.mutate(userId, async (repos, target) => {
+      return this.mutate(ctx, userId, async (repos, target) => {
         const changes: UserAuditChanges = {};
         const values: {
           nickname?: string;
@@ -287,7 +297,7 @@ export class UsersAdminService {
   ): Promise<UserChangeResult> {
     return this.logged('roles', ctx, userId, async () => {
       const grants = await this.validateRoles(roles);
-      return this.mutate(userId, (repos, target) =>
+      return this.mutate(ctx, userId, (repos, target) =>
         this.applyRoles(repos, ctx, target, grants),
       );
     });
@@ -304,7 +314,7 @@ export class UsersAdminService {
   ): Promise<UserChangeResult> {
     return this.logged('programs', ctx, userId, async () => {
       const ids = await this.validatePrograms(programs, 'programs');
-      return this.mutate(userId, async (repos, target) => {
+      return this.mutate(ctx, userId, async (repos, target) => {
         const { before, after } = await repos.programs.replaceScope(
           target.id,
           ids,
@@ -328,7 +338,7 @@ export class UsersAdminService {
   ): Promise<UserChangeResult> {
     return this.logged('exclusion_add', ctx, userId, async () => {
       const [clean] = await this.validateExclusions([exclusion], '');
-      return this.mutate(userId, async (repos, target) => {
+      return this.mutate(ctx, userId, async (repos, target) => {
         await this.insertExclusion(repos, ctx, target.id, clean!);
         return true;
       });
@@ -342,7 +352,7 @@ export class UsersAdminService {
     exclusionId: number,
   ): Promise<UserChangeResult> {
     return this.logged('exclusion_remove', ctx, userId, () =>
-      this.mutate(userId, async (repos, target) => {
+      this.mutate(ctx, userId, async (repos, target) => {
         const ended = await repos.programs.removeManualExclusion({
           userId: target.id,
           exclusionId,
@@ -378,7 +388,7 @@ export class UsersAdminService {
       const issues: FieldIssue[] = [];
       const cleanReason = this.cleanReason(reason, 'reason', issues);
       if (issues.length > 0) throw new FieldValidationError(issues);
-      return this.mutate(userId, async (repos, target) => {
+      return this.mutate(ctx, userId, async (repos, target) => {
         const ended = await repos.programs.dismissReportingExclusion({
           userId: target.id,
           exclusionId,
@@ -416,7 +426,7 @@ export class UsersAdminService {
    */
   deactivate(ctx: AdminContext, userId: number): Promise<UserChangeResult> {
     return this.logged('deactivate', ctx, userId, () =>
-      this.mutate(userId, async (repos, target) => {
+      this.mutate(ctx, userId, async (repos, target) => {
         if (!target.isActive) return false;
         const views = await repos.assignments.findActiveViewsByUserId(
           target.id,
@@ -440,7 +450,7 @@ export class UsersAdminService {
 
   activate(ctx: AdminContext, userId: number): Promise<UserChangeResult> {
     return this.logged('activate', ctx, userId, () =>
-      this.mutate(userId, async (repos, target) => {
+      this.mutate(ctx, userId, async (repos, target) => {
         if (target.isActive) return false;
         await repos.users.update(target.id, { isActive: true });
         await this.audit(repos, ctx, target.id, 'reactivate', {
@@ -464,7 +474,7 @@ export class UsersAdminService {
       const current = await this.users.findById(userId);
       if (!current) {
         // Same 404 as every other action; the row lock below would say it too.
-        return this.mutate(userId, async () => false);
+        return this.mutate(ctx, userId, async () => false);
       }
       this.assertInvitable(current);
 
@@ -476,7 +486,7 @@ export class UsersAdminService {
       }
 
       try {
-        return await this.mutate(userId, async (repos, target) => {
+        return await this.mutate(ctx, userId, async (repos, target) => {
           this.assertInvitable(target);
           const invitedAt = new Date();
           await repos.users.update(target.id, { invitedAt });
@@ -511,15 +521,40 @@ export class UsersAdminService {
    * `apply` answers whether it changed anything.
    */
   private async mutate(
+    ctx: AdminContext,
     userId: number,
     apply: (repos: UsersAdminRepositories, target: User) => Promise<boolean>,
   ): Promise<UserChangeResult> {
     const changed = await this.unitOfWork.run(async (repos) => {
       const target = await lockTargetUser(repos, userId);
-      return apply(repos, target);
+      const result = await apply(repos, target);
+      // After the last write, still inside the transaction: a refusal above
+      // never marks, and a lost fence rolls the whole change back, so nothing
+      // is audited or invalidated (design 7, DD-2; FR-2, FR-5). A request that
+      // changed nothing marks too: its answer is still deterministic.
+      await this.markExecuted(repos, ctx, userId);
+      return result;
     });
     if (changed) this.cache.invalidate(userId);
     return { userId, changed };
+  }
+
+  /**
+   * The exactly-once fence (design 7): `in_progress` -> `executed` for a keyed
+   * request, conditioned on still owning the key, in the business transaction.
+   * It throws `IdempotencyFenceLostError` when a take-over got the key first.
+   * No handle (no `Idempotency-Key`) = nothing to mark (FR-1).
+   */
+  private async markExecuted(
+    repos: UsersAdminRepositories,
+    ctx: AdminContext,
+    targetUserId: number,
+  ): Promise<void> {
+    if (ctx.idempotency === undefined) return;
+    await repos.idempotency.markExecuted(
+      ctx.idempotency.reservation,
+      targetUserId,
+    );
   }
 
   private audit(
@@ -1115,6 +1150,9 @@ export class UsersAdminService {
       outcome,
       ...(reason === undefined ? {} : { reason }),
       requestId: ctx.requestId,
+      // `none` | `taken_over`: the interceptor writes no line of its own for
+      // a first or taken-over execution (design 7, Decision log).
+      idempotency: ctx.idempotency?.outcome ?? 'none',
     });
   }
 }

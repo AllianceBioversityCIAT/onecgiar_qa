@@ -12,6 +12,9 @@ import type {
 } from '../../src/users/users-admin.unit-of-work.js';
 import { UsersAdminService } from '../../src/users/users-admin.service.js';
 import { UsersRepository } from '../../src/users/users.repository.js';
+import type { IdempotencyHandle } from '../../src/common/idempotency/idempotency.context.js';
+import type { AdminContext } from '../../src/users/users-admin.service.js';
+import { FakeClock } from './in-memory-idempotency.js';
 import {
   InMemoryDatabase,
   InMemoryUsersAdminUnitOfWork,
@@ -38,6 +41,8 @@ export const PROGRAMS = [
 export class RecordingUnitOfWork implements UsersAdminUnitOfWork {
   /** Runs just before a user row is written, to model another transaction committing in between. */
   beforeUserWrite?: () => Promise<void>;
+  /** Runs just before the transaction marks its key executed: the moment a stalled request can lose it to a take-over. */
+  beforeMark?: () => Promise<void>;
 
   constructor(
     private readonly inner: UsersAdminUnitOfWork,
@@ -61,7 +66,18 @@ export class RecordingUnitOfWork implements UsersAdminUnitOfWork {
     }
   }
 
-  private spy({ admins, assignments, users }: UsersAdminRepositories): void {
+  private spy({
+    admins,
+    assignments,
+    idempotency,
+    users,
+  }: UsersAdminRepositories): void {
+    const mark = idempotency.markExecuted.bind(idempotency);
+    idempotency.markExecuted = async (reservation, targetUserId) => {
+      await this.beforeMark?.();
+      this.calls.push('mark');
+      return mark(reservation, targetUserId);
+    };
     const lookups = [
       ['findByEmail', 'email'],
       ['findByNickname', 'nickname'],
@@ -159,6 +175,29 @@ export function adminWorld() {
     }),
   };
 
+  // The interceptor's own store over the same rows and row locks as the transactions.
+  const clock = new FakeClock();
+  const idempotency = db.idempotencyStore(clock.now);
+
+  /** The context of a keyed request: the key is reserved first, as the interceptor does (T-3). */
+  async function keyed(
+    ctx: AdminContext,
+    key = 'key-1',
+    outcome: IdempotencyHandle['outcome'] = 'none',
+  ): Promise<AdminContext> {
+    const reserved = await idempotency.reserve({
+      actorId: ctx.actorId,
+      key,
+      fingerprint: 'f'.repeat(64),
+      routeStatus: 200,
+    });
+    if (reserved.kind !== 'reserved') throw new Error('key already in use');
+    return {
+      ...ctx,
+      idempotency: { reservation: reserved.reservation, outcome },
+    };
+  }
+
   const unitOfWork = new RecordingUnitOfWork(
     new InMemoryUsersAdminUnitOfWork(db),
     calls,
@@ -214,6 +253,9 @@ export function adminWorld() {
     catalogs,
     cache,
     unitOfWork,
+    clock,
+    idempotency,
+    keyed,
     service,
     seedUser,
     snapshot,

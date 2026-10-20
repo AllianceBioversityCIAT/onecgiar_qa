@@ -1,5 +1,11 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { and, countDistinct, eq, inArray, isNull, ne } from 'drizzle-orm';
+import {
+  DrizzleIdempotencyStore,
+  IDEMPOTENCY_CLOCK,
+  type IdempotencyClock,
+  type IdempotencyStore,
+} from '../common/idempotency/idempotency.store.js';
 import { DRIZZLE } from '../database/drizzle/drizzle.constants.js';
 import type { DrizzleDB } from '../database/drizzle/drizzle.module.js';
 import { roleAssignments } from '../database/drizzle/schema/role-assignments.js';
@@ -67,6 +73,13 @@ export interface UsersAdminRepositories {
   programs: UserProgramsRepository;
   audit: UserAuditRepository;
   admins: AdminGuard;
+  /**
+   * The exactly-once fence (design 7, DD-2): `markExecuted` bound to THIS
+   * transaction, so the mark commits or rolls back with the change. Only that
+   * method is exposed: `reserve`, `complete` and `release` belong to the
+   * interceptor's own short writes, never to a business transaction.
+   */
+  idempotency: Pick<IdempotencyStore, 'markExecuted'>;
 }
 
 /** Runs `work` in one database transaction: it commits when `work` resolves, rolls back when it throws. */
@@ -135,7 +148,14 @@ export class DrizzleAdminsStore implements AdminsStore {
  */
 @Injectable()
 export class DrizzleUsersAdminUnitOfWork implements UsersAdminUnitOfWork {
-  constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
+  constructor(
+    @Inject(DRIZZLE) private readonly db: DrizzleDB,
+    // Optional so the module needs no new provider before the interceptor is
+    // wired (T-6): the same wall clock the interceptor's store defaults to.
+    @Optional()
+    @Inject(IDEMPOTENCY_CLOCK)
+    private readonly clock: IdempotencyClock = () => new Date(),
+  ) {}
 
   run<T>(
     work: (repositories: UsersAdminRepositories) => Promise<T>,
@@ -152,6 +172,7 @@ export class DrizzleUsersAdminUnitOfWork implements UsersAdminUnitOfWork {
           ),
           audit: new UserAuditRepository(new DrizzleUserAuditStore(tx)),
           admins: new AdminGuard(new DrizzleAdminsStore(tx)),
+          idempotency: new DrizzleIdempotencyStore(tx, this.clock),
         }),
       // READ COMMITTED: a plain read sees what is committed when the statement
       // starts, so the admin count taken after the ADMIN roles row lock cannot

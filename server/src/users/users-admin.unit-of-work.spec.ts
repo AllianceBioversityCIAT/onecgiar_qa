@@ -1,8 +1,13 @@
 import { drizzle } from 'drizzle-orm/mysql2';
 import {
+  FakeClock,
+  roundTrip,
+} from '../../test/support/in-memory-idempotency.js';
+import {
   InMemoryDatabase,
   InMemoryUsersAdminUnitOfWork,
 } from '../../test/support/in-memory-stores.js';
+import { IdempotencyFenceLostError } from '../common/idempotency/idempotency.errors.js';
 import * as schema from '../database/drizzle/schema/index.js';
 import { ROLE_DEFINITIONS, RoleCode } from './permissions.js';
 import { RoleAssignmentsRepository } from './role-assignments.repository.js';
@@ -473,7 +478,7 @@ describe('DrizzleUsersAdminUnitOfWork over a stub MySQL driver', () => {
     sql: string;
   }
 
-  function stub(admins = 2) {
+  function stub(admins = 2, fenceRows = 1) {
     const log: Statement[] = [];
     const answer = (via: Statement['via']) => ({
       query: ({ sql }: { sql: string }) => {
@@ -482,7 +487,10 @@ describe('DrizzleUsersAdminUnitOfWork over a stub MySQL driver', () => {
           return Promise.resolve([{ insertId: 11, affectedRows: 1 }, []]);
         }
         if (!sql.startsWith('select')) {
-          return Promise.resolve([{ affectedRows: 1 }, []]);
+          const affectedRows = sql.startsWith('update `idempotency_keys`')
+            ? fenceRows
+            : 1;
+          return Promise.resolve([{ affectedRows }, []]);
         }
         const rows = sql.includes('count(distinct')
           ? [[admins]]
@@ -603,5 +611,172 @@ describe('DrizzleUsersAdminUnitOfWork over a stub MySQL driver', () => {
     const sqls = log.map((s) => s.sql);
     expect(sqls.some((sql) => sql.startsWith('insert'))).toBe(false);
     expect(sqls.at(-1)).toBe('rollback');
+  });
+  const reservation = { actorId: 1, key: 'k-1', ownerToken: 'owner-1' };
+  const markAfterAudit = (repositories: UsersAdminRepositories) =>
+    steps(repositories).then(() =>
+      repositories.idempotency.markExecuted(reservation, 7),
+    );
+
+  it('writes the mark on the transaction connection between begin and commit, conditioned on state and owner token (FR-2)', async () => {
+    const { unitOfWork, log } = stub();
+
+    await unitOfWork.run(markAfterAudit);
+
+    const sqls = log.map((s) => s.sql);
+    const at = sqls.findIndex((sql) =>
+      sql.startsWith('update `idempotency_keys`'),
+    );
+    expect(log[at]!.via).toBe('tx');
+    expect(at).toBeGreaterThan(sqls.indexOf('begin'));
+    expect(at).toBeLessThan(sqls.indexOf('commit'));
+    expect(sqls[at]).toMatch(/set `state` = \?, `target_user_id` = \?/);
+    expect(sqls[at]).toMatch(
+      /where \(`idempotency_keys`\.`actor_id` = \? and `idempotency_keys`\.`idem_key` = \? and `idempotency_keys`\.`state` = \? and `idempotency_keys`\.`owner_token` = \?\)$/,
+    );
+    expect(log.every((s) => s.via === 'tx')).toBe(true);
+  });
+
+  it('matching no row (the key was taken over) fails the transaction: the audit insert is rolled back and nothing commits (FR-5)', async () => {
+    const { unitOfWork, log } = stub(2, 0);
+
+    await expect(unitOfWork.run(markAfterAudit)).rejects.toBeInstanceOf(
+      IdempotencyFenceLostError,
+    );
+
+    const sqls = log.map((s) => s.sql);
+    expect(
+      sqls.some((sql) => sql.startsWith('insert into `user_audit_events`')),
+    ).toBe(true);
+    expect(sqls).not.toContain('commit');
+    expect(sqls.at(-1)).toBe('rollback');
+  });
+});
+
+// The mark inside the in-memory transactional world: what another connection
+// can see and wait for, which is what makes the commit-versus-take-over race
+// a proof and not an assumption (T-2 review forward pointer).
+describe('the tx-bound mark in the transactional world (design 7, DD-2)', () => {
+  async function keyed() {
+    const w = world();
+    const clock = new FakeClock();
+    const store = w.db.idempotencyStore(clock.now);
+    const reserved = await store.reserve({
+      actorId: 1,
+      key: 'k-1',
+      fingerprint: 'f'.repeat(64),
+      routeStatus: 200,
+    });
+    if (reserved.kind !== 'reserved') throw new Error('key already in use');
+    return {
+      ...w,
+      clock,
+      store,
+      reservation: reserved.reservation,
+      unitOfWork: new InMemoryUsersAdminUnitOfWork(w.db),
+    };
+  }
+  const state = (k: Awaited<ReturnType<typeof keyed>>) =>
+    k.store.peek(1, 'k-1')!.state;
+
+  /** Runs `work` in a transaction that stays open until `release()` is called. */
+  function openTransaction(
+    k: Awaited<ReturnType<typeof keyed>>,
+    work: (r: UsersAdminRepositories) => Promise<void>,
+  ) {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let reachedGate!: () => void;
+    const reached = new Promise<void>((resolve) => (reachedGate = resolve));
+    const finished = k.unitOfWork.run(async (repositories) => {
+      await work(repositories);
+      reachedGate();
+      await gate;
+    });
+    return { finished, reached, release };
+  }
+
+  it('is applied only when the transaction commits, together with its other writes', async () => {
+    const k = await keyed();
+    const tx = openTransaction(k, async (r) => {
+      await r.idempotency.markExecuted(k.reservation, 7);
+      await r.audit.record({
+        userId: 7,
+        actorId: 1,
+        action: 'deactivate',
+        changes: { isActive: { before: true, after: false } },
+      });
+    });
+    await tx.reached;
+
+    expect(state(k)).toBe('in_progress');
+    expect(k.db.audit).toHaveLength(0);
+
+    tx.release();
+    await tx.finished;
+
+    expect(state(k)).toBe('executed');
+    expect(k.store.peek(1, 'k-1')!.targetUserId).toBe(7);
+    expect(k.db.audit).toHaveLength(1);
+  });
+
+  it('is dropped with the rest when the transaction fails', async () => {
+    const k = await keyed();
+
+    await expect(
+      k.unitOfWork.run(async (r) => {
+        await r.idempotency.markExecuted(k.reservation, 7);
+        throw new Error('boom');
+      }),
+    ).rejects.toThrow('boom');
+
+    expect(k.store.peek(1, 'k-1')).toMatchObject({
+      state: 'in_progress',
+      targetUserId: null,
+    });
+  });
+
+  it('holds the key row until the commit: a take-over issued meanwhile waits, then finds it executed and gets nothing', async () => {
+    const k = await keyed();
+    const tx = openTransaction(k, (r) =>
+      r.idempotency.markExecuted(k.reservation, 7),
+    );
+    await tx.reached;
+    k.clock.advance(120_001); // the lease has run out
+    let settled = false;
+    const takeOver = k.store
+      .takeOver(1, 'k-1', k.reservation.ownerToken)
+      .finally(() => (settled = true));
+    for (let i = 0; i < 5; i++) await roundTrip();
+
+    expect(settled).toBe(false);
+
+    tx.release();
+    await tx.finished;
+
+    expect(await takeOver).toBeUndefined();
+    expect(k.store.peek(1, 'k-1')!.state).toBe('executed');
+    expect(k.store.peek(1, 'k-1')!.ownerToken).toBe(k.reservation.ownerToken);
+  });
+
+  it('a take-over that committed first makes the mark match no row: the transaction rolls back its other writes', async () => {
+    const k = await keyed();
+    k.clock.advance(120_001);
+
+    const outcome = k.unitOfWork.run(async (r) => {
+      // The take-over commits while this request is mid-flight.
+      await k.store.takeOver(1, 'k-1', k.reservation.ownerToken);
+      await r.audit.record({
+        userId: 7,
+        actorId: 1,
+        action: 'deactivate',
+        changes: { isActive: { before: true, after: false } },
+      });
+      await r.idempotency.markExecuted(k.reservation, 7);
+    });
+
+    await expect(outcome).rejects.toBeInstanceOf(IdempotencyFenceLostError);
+    expect(k.db.audit).toHaveLength(0);
+    expect(state(k)).toBe('in_progress');
   });
 });
