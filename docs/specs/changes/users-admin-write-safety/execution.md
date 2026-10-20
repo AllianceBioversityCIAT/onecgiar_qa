@@ -68,6 +68,58 @@
 - **Issues encountered:** none.
 - **Final verification:** VERIFIED + Reviewer PASS.
 
+### T-2: Fingerprint and idempotency store — PASS (attempt 2)
+
+- **Date:** 2026-10-20
+- **Skills / effort:** nestjs-expert, nestjs-best-practices, tdd · attempt 1 effort `xhigh` (concurrency + isolation)
+- **Review mode:** parallel lenses (A: reliability + resilience; B: risk + readability), each with baseline spec conformance.
+
+**Attempt 1 — FAIL (lens B)**
+- **Files changed:** `server/src/common/idempotency/{fingerprint,fingerprint.spec,idempotency.errors,idempotency.store,idempotency.store.spec}.ts` (new), `server/src/common/error-codes.ts`, `server/src/common/error-codes.spec.ts`, `server/test/support/in-memory-idempotency.ts` (new), `server/test/support/idempotency-sql-driver.ts` (new) — 1,896 insertions.
+- **Implementer verification:** lint 0 warnings; build ok; `Test Files 37 passed (37)`, `Tests 1163 passed (1163)`; tsc 7 baseline only; e2e `Test Files 9 passed (9)`, `Tests 414 passed (414)`.
+- **Red run:** skeleton → `Tests 60 failed | 56 passed (116)`, assertion failures.
+- **Falsifiers:** owner_token dropped → `4 failed | 126 passed (130)` (`take-overs racing from instances whose clocks are a lease apart`: `expected [ …(2) ] to have a length of 1 but got 2`); actor_id dropped from `find` → `3 failed` (`expected { actorId: 1, … } to be undefined`); arrays sorted → `3 failed` (`array order matters`). Extra falsifiers (release state guard, markExecuted token, purge limit, expired-as-live) all red.
+- **Evidence re-run (Leader inline):** VERIFIED — identical unit/e2e counts, 0 non-baseline tsc errors.
+- **Lens A verdict:** PASS — store and fingerprint meet design § 7, DD-1, DD-3, P-7 at the store layer; stale-row handling in `reserve` judged in scope (FR-7); named check (`ascii_bin`) consistent.
+- **Lens B verdict:** FAIL — verbatim issues:
+  1. **Discovered Issue:** `DrizzleIdempotencyStore` is `@Injectable()` but its third constructor parameter `private readonly newToken: () => string = randomUUID` (`server/src/common/idempotency/idempotency.store.ts:134`) has no injection token. When Nest instantiates the class (e.g. `useClass` provider in T-3), decorator metadata types it as `Function` → boot fails with "can't resolve dependencies (DRIZZLE, IDEMPOTENCY_CLOCK, ?)". All other `Drizzle*Store` classes take only `@Inject(DRIZZLE)`. **Violated Rule:** `server/AGENTS.md` § Dependency injection: "inject with `@Inject(Token)` explicitly (constructor parameters), including classes. Use `Symbol` tokens for ports". **Remediation:** add an `IDEMPOTENCY_TOKEN_FACTORY` Symbol with `@Optional() @Inject(IDEMPOTENCY_TOKEN_FACTORY)`, or drop `@Injectable()` and document factory/`new` construction. Add a unit test resolving the class through a `Test.createTestingModule` provider.
+  2. **Discovered Issue:** the shared `common/` layer imports a feature module: `import { isDuplicateKeyError } from '../../users/users.errors.js'` (`idempotency.store.ts:10`). Reverses dependency direction (`users` already depends on `common`), contradicting DD-6 ("Reusable by later modules"). **Violated Rule:** `docs/trd/trd.md` ADR-001 Implications ("a module talks to another only through its exported service"); `design.md` § 10 DD-6. **Remediation:** move `isDuplicateKeyError` to a neutral location (e.g. `server/src/common/mysql-errors.ts`) and re-export from `users/users.errors.ts` — outside T-2 scope list, needs Leader approval.
+- **Leader adjudication:** both in scope. Issue 2 is remediated **without** widening scope: the store gets a duplicate-key check inside T-2's own files (`idempotency.errors.ts`), `users.errors.ts` untouched; consolidating the two helpers is recorded as a follow-up, not a task.
+- **runtime events:** none
+- **spawns:** Implementer not reported by host (53 tool calls, 209,823 tokens, ended complete); Reviewer A not reported by host, ended complete; Reviewer B not reported by host, ended complete
+- **ADVISORY (both lenses, never gating):**
+  - RELIABILITY: `reserve` throws a plain `Error('Could not reserve the idempotency key')` after 3 attempts — renders 500 unless T-3 maps it to 503 (forward pointer to T-3).
+  - RELIABILITY: `find` returns rows past `expires_at` not yet purged; a direct caller could replay an expired answer (forward pointer to T-3).
+  - RELIABILITY: `IDEMPOTENCY_CLOCK` has no provider yet (forward pointer to T-3).
+  - RESILIENCE: leases use each instance's app clock; skew lets a fast instance take over early (fence still holds) — record at T-8.
+  - RESILIENCE: `datetime` without fractional seconds rounds ms (±0.5 s); the SQL driver keeps ms.
+  - READABILITY: port docstring "Every method is keyed by `actorId`" should name `purgeExpired` as the global exception.
+  - READABILITY: fake vs adapter differ (clock read at apply vs issue; `undefined` vs `null` in `complete`).
+  - READABILITY: `server/src/common/AGENTS.md` Files table lacks `idempotency/` (T-7).
+  - RISK: `requestFingerprint` uses the path "as received" — T-3 must pass one consistent form (`originalUrl` vs `url`, prefix) and pin it (forward pointer to T-3).
+  - T-4 note: the in-memory fake does not hold the `markExecuted` row lock until the business tx commits — T-4's `InMemoryDatabase` extension must emulate it (forward pointer to T-4).
+
+**Attempt 2 — PASS**
+- **Effort:** kept `xhigh` (the bump would be `max` on T2; the fix was mechanical and narrowly adjudicated, so no tier escalation — Leader deviation from the bump rule).
+- **Files changed:** `server/src/common/idempotency/idempotency.store.ts` (`IDEMPOTENCY_TOKEN_FACTORY` Symbol, `@Optional() @Inject(...)`, local `isDuplicateKeyError` import), `server/src/common/idempotency/idempotency.errors.ts` (+ `isDuplicateKeyError`, same semantics as `users/users.errors.ts:201-214`), `server/src/common/idempotency/idempotency.errors.spec.ts` (new, 7-case table), `server/src/common/idempotency/idempotency.store.spec.ts` (+ `Test.createTestingModule` DI test). `server/src/users/**` untouched.
+- **Implementer verification:** lint clean; build clean; `Test Files 38 passed (38)`, `Tests 1171 passed (1171)`; tsc 7 baseline only; e2e `Test Files 9 passed (9)`, `Tests 414 passed (414)`.
+- **Falsifier (DI, `@Optional()` removed):** `Error: Nest can't resolve dependencies of the DrizzleIdempotencyStore (Symbol(DRIZZLE), Symbol(IDEMPOTENCY_CLOCK), ?)…` → 1 failed; restored. F1 re-run (owner_token): 4 failed; F2 re-run (actor_id): 3 failed; restored.
+- **Red run:** the helper table had no meaningful red ("not a function" before the helper existed); accepted by the Reviewer as a byte-for-byte copy of an already-tested helper.
+- **Evidence re-run (Leader inline):** VERIFIED — identical counts; `grep -rn "from '.*users/" server/src/common/idempotency/` empty.
+- **Reviewer verdict (re-review, risk + readability + conformance; override (e) rework):** PASS — "Issue 1 (DI) is fixed… Issue 2 (layering) is fixed… Lens A guards are intact."
+- **runtime events:** none
+- **spawns:** Implementer not reported by host (14 tool calls, 88,301 tokens, ended complete); Reviewer not reported by host, ended complete
+- **ADVISORY:** two identical `isDuplicateKeyError` copies (`common/idempotency/idempotency.errors.ts`, `users/users.errors.ts`) — consolidation is a recorded follow-up outside this spec unless the back lead reopens it; `IDEMPOTENCY_TOKEN_FACTORY` doc should say it stays unbound outside tests.
+
+**T-2 summary**
+- **Requirements covered:** FR-3 (lookup), FR-4 (fingerprint), FR-5 (in-flight, lease, CAS take-over), FR-6 (per-admin scope, case-sensitive keys), FR-7 (retention, stale-row-as-new, purge), FR-9 (no cross-admin read), NFR-1 (store layer), NFR-4 (driver errors propagate), NFR-5 (bounded purge).
+- **Decisions made:** stale-row-as-new in `reserve`, `find` on the port, and `release` limited to own `in_progress` rows (judged in scope by lens A). Issue 2 remediated inside T-2 files instead of editing `users/`.
+- **Forward pointers → T-3:** map every store failure to 503 including `reserve` exhausting retries (plain `Error`) and `DrizzleQueryError` causes; do not store `IdempotencyFenceLostError` (409) as a remembered refusal; provide `IDEMPOTENCY_CLOCK`; leave `IDEMPOTENCY_TOKEN_FACTORY` unbound; `find` returns expired-unpurged rows — filter or go through `reserve`; pass one consistent path form to `requestFingerprint` (`originalUrl` vs `url`, prefix) and pin it in a test.
+- **Forward pointers → T-4:** the in-memory fake does not hold the `markExecuted` row lock until the business tx commits; T-4's `InMemoryDatabase` extension must emulate it; build the adapter as `new DrizzleIdempotencyStore(tx, clock)`.
+- **Forward pointers → T-8:** P-12 still UNVERIFIED; app-clock leases under instance skew; `datetime` rounds ms.
+- **Budget:** T-2 ≈ 2,000 LOC (design estimated ≈ 600 for fingerprint + fakes). Cumulative ≈ 2,200 of ~3,600; Reviewer verdicts so far 5 of ~14.
+- **Final verification:** VERIFIED + Reviewer PASS.
+
 ## Constitution Impact: T-1
 
 - Shared schema gained `idempotency_keys` and migration `0002_idempotency_keys` (additive). `server/src/database/AGENTS.md` update is T-7 deliverable; TRD § 5.1 is a pending item for `staging`. Migration `0002` must be applied to `qadb` by a human (T-8) before the API runs against it with this code.

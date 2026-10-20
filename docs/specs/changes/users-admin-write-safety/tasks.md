@@ -39,7 +39,7 @@ Serial boundaries: T-1 (`server/src/database/**`); T-4 and T-5 both edit `users-
 - **Skills:** nestjs-expert, nestjs-best-practices
 
 ## T-2: Fingerprint and idempotency store (port + Drizzle adapter)
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-1
 - **Requirements:** FR-3 (replay lookup), FR-4 (fingerprint mismatch), FR-5 (in-flight, lease, take-over), FR-6 (per-admin scope), FR-7 (retention, purge), FR-9 (no cross-admin read), NFR-1, NFR-4 (store errors surface), NFR-5
