@@ -2,7 +2,13 @@
 <div class="flex flex-wrap items-start gap-4 px-4 pt-6 md:px-8 md:pt-8">
   <div class="flex min-w-[min(100%,260px)] flex-1 basis-[260px] flex-col gap-1">
     <h1 class="m-0 text-(length:--fs-26) leading-[1.2] font-bold tracking-[-0.02em] text-balance text-(--text)">Assessment team</h1>
-    <p class="m-0 text-(length:--fs-14) font-normal text-pretty text-(--text-3)">Eleven people. Click a row to change what they assess.</p>
+    <p class="m-0 text-(length:--fs-14) font-normal text-pretty text-(--text-3)">
+      @if (store.state() === 'ready') {
+        {{ store.team().length }} {{ store.team().length === 1 ? 'person' : 'people' }}. Click a row to change what they assess.
+      } @else {
+        Click a row to change what they assess.
+      }
+    </p>
   </div>
   <div class="flex w-auto flex-none items-center gap-2 max-sm:w-full max-sm:flex-col-reverse max-sm:items-stretch">
     <button hlmBtn qaBtn tone="primary" type="button" (click)="openInvite()" class="max-sm:w-full max-sm:justify-center">
@@ -22,7 +28,7 @@
         <input hlmInput type="text" placeholder="Search by name or email..." [value]="search()" (input)="onSearch($event)" class="h-auto min-w-0 flex-1 rounded-none border-0 bg-transparent p-0 text-(length:--fs-14) text-(--text) shadow-none outline-none placeholder:text-(--text-muted) focus-visible:ring-0 md:text-(length:--fs-14) dark:bg-transparent" />
       </label>
 
-      @for (d of filterDefs; track d.key) {
+      @for (d of filterDefs(); track d.key) {
         <qa-multi-select
           [value]="filters[d.key]()"
           (valueChange)="filters[d.key].set($event)"
@@ -33,6 +39,9 @@
           emptyText="Nothing matches that search."
         />
       }
+      <button hlmBtn qaBtn tone="link" size="sm" type="button" [attr.aria-pressed]="showRemoved()" (click)="toggleRemoved()">
+        {{ showRemoved() ? 'Show the team' : 'Show removed people' }}
+      </button>
     </div>
 
     @if (applied().length) {
@@ -49,7 +58,14 @@
     }
   </div>
 
-  @if (rows().length) {
+  @if (store.state() === 'loading') {
+    <p class="m-0 text-(length:--fs-14) text-(--text-3)" role="status">Loading the team…</p>
+  } @else if (store.state() === 'error') {
+    <div class="flex max-w-[420px] flex-col items-start gap-2" role="alert">
+      <p class="m-0 text-(length:--fs-14) text-(--text-2)">The team could not load. {{ store.loadError() }}</p>
+      <button hlmBtn qaBtn tone="secondary" size="sm" type="button" (click)="store.load()">Try again</button>
+    </div>
+  } @else if (rows().length) {
     <!--
       Team table. A row opens the person drawer; role, result types and ⋯ have their own popovers.
       No own overflow: the sticky header sticks to the shell's scrolling <main>. Layout per container width: see CELL in the .ts.
@@ -89,6 +105,11 @@
                     }
                     @if (r.invited) {
                       <span class="relative z-[1] flex-none rounded-full bg-(--st-editing-bg) px-1.5 py-px text-(length:--fs-10) font-semibold text-(--st-editing-fg)">Invited</span>
+                    } @else if (r.hasAccount) {
+                      <span [title]="'Already had an account: no invitation email was sent'" class="relative z-[1] flex-none rounded-full bg-(--surface-4) px-1.5 py-px text-(length:--fs-10) font-semibold text-(--text-3)">Has an account</span>
+                    }
+                    @if (!r.member.active) {
+                      <span class="relative z-[1] flex-none rounded-full bg-(--surface-4) px-1.5 py-px text-(length:--fs-10) font-semibold text-(--text-3)">Removed</span>
                     }
                   </div>
                   <span class="truncate text-(length:--fs-12) font-normal text-(--text-4)">{{ r.member.email }}</span>
@@ -96,11 +117,19 @@
                 </div>
               </td>
               <td class="relative z-[1] min-w-0 p-0" [class]="cell.role">
-                <qa-assessor-role-cell [member]="r.member" (roleChange)="setRole(r.member.id, $event)" />
+                @if (r.member.active) {
+                  <qa-assessor-role-cell [member]="r.member" [busy]="store.isBusy(r.member.id)" (roleChange)="setRole(r.member.id, $event)" />
+                } @else {
+                  <span class="px-2 text-(length:--fs-13) font-medium text-(--text-3)">{{ r.member.noRole ? 'No role' : r.member.role }}</span>
+                }
               </td>
               @if (r.member.role === 'Assessor') {
                 <td class="relative z-[1] min-w-0 p-0" [class]="cell.types">
-                  <qa-assessor-types-cell [member]="r.member" (addType)="addType(r.member.id, $event)" (removeType)="removeType(r.member.id, $event)" />
+                  @if (r.member.active) {
+                    <qa-assessor-types-cell [member]="r.member" [busy]="store.isBusy(r.member.id)" (addType)="addType(r.member.id, $event)" (removeType)="removeType(r.member.id, $event)" />
+                  } @else {
+                    <span class="px-2 text-(length:--fs-13) text-(--text-3)">{{ r.member.types.join(', ') || '—' }}</span>
+                  }
                 </td>
               } @else {
                 <td class="min-w-0 p-0 pl-[9px] text-(length:--fs-13) font-normal text-(--text-muted)" [class]="cell.types">All types</td>
@@ -117,6 +146,10 @@
                 }
                 @if (r.progExtra) {
                   <span class="text-(length:--fs-11) font-medium text-(--text-4)">{{ r.progExtra }}</span>
+                }
+                @if (!r.progRows.length) {
+                  <!-- Review progress needs the results module (no API yet): nothing is invented here. -->
+                  <span class="text-(length:--fs-12) font-normal text-(--text-muted)">No results loaded yet</span>
                 }
               </td>
               <td class="z-[1] min-w-0 p-0" [class]="cell.menu">
@@ -135,7 +168,7 @@
     </div>
   } @else {
     <div class="flex max-w-[160px] flex-col items-start gap-2">
-      <p class="m-0 text-(length:--fs-14) text-(--text-3)">No one has been added to the team yet.</p>
+      <p class="m-0 text-(length:--fs-14) text-(--text-3)">{{ showRemoved() ? 'No one has been removed from the team.' : 'No one has been added to the team yet.' }}</p>
       <button hlmBtn qaBtn tone="link" size="sm" flush="start" type="button" (click)="openInvite()">Invite assessor</button>
     </div>
   }
@@ -156,12 +189,16 @@
 
 <ng-template #rowMenu let-member>
   <qa-menu-panel width="220px">
-    <button qaMenuItem (triggered)="openPerson(member)">Edit assignment</button>
-    @if (member.act === 'never') {
-      <button qaMenuItem (triggered)="resendInvitation(member)">Resend invitation</button>
+    @if (member.active) {
+      <button qaMenuItem (triggered)="openPerson(member)">Edit assignment</button>
+      @if (member.canResend) {
+        <button qaMenuItem (triggered)="resendInvitation(member)">Resend invitation</button>
+      }
+      <button qaMenuItem variant="danger" (triggered)="openPerson(member, true)">Remove from team</button>
+    } @else {
+      <button qaMenuItem (triggered)="reactivate(member)">Bring back to the team</button>
     }
-    <button qaMenuItem variant="danger" (triggered)="openPerson(member, true)">Remove from team</button>
   </qa-menu-panel>
 </ng-template>
 
-<qa-assessor-drawer [(open)]="drawerOpen" [session]="drawerSession()" [team]="team()" (saved)="onSaved($event)" (removed)="onRemoved($event)" />
+<qa-assessor-drawer [(open)]="drawerOpen" [session]="drawerSession()" />

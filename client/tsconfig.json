@@ -20,7 +20,8 @@
       "@spartan/separator": ["./src/app/spartan/separator/src/index.ts"],
       "@spartan/card": ["./src/app/spartan/card/src/index.ts"],
       "@spartan/alert": ["./src/app/spartan/alert/src/index.ts"],
-      "@spartan/spinner": ["./src/app/spartan/spinner/src/index.ts"]
+      "@spartan/spinner": ["./src/app/spartan/spinner/src/index.ts"],
+      "@spartan/sonner": ["./src/app/spartan/sonner/src/index.ts"]
     }
   },
   "angularCompilerOptions": {

@@ -1,4 +1,14 @@
-import { Component, DestroyRef, afterNextRender, computed, inject, signal } from '@angular/core';
+import {
+  Component,
+  DestroyRef,
+  ElementRef,
+  Injector,
+  afterNextRender,
+  computed,
+  inject,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { Router } from '@angular/router';
 import {
   FieldTree,
@@ -48,6 +58,15 @@ import { ResultPreview } from './result-preview';
         0 0 0 1.5px var(--qa-danger);
     }
     @media (prefers-reduced-motion: no-preference) {
+      .reveal {
+        animation: reveal 280ms cubic-bezier(0.22, 1, 0.36, 1);
+      }
+      @keyframes reveal {
+        from {
+          opacity: 0;
+          translate: 0 -0.5rem;
+        }
+      }
       .drift {
         transition: translate 900ms cubic-bezier(0.22, 1, 0.36, 1);
       }
@@ -58,6 +77,7 @@ export class LoginPage {
   private readonly session = inject(AuthSession);
   private readonly router = inject(Router);
   private readonly deepLink = inject(DeepLink);
+  private readonly injector = inject(Injector);
 
   protected readonly busy = this.session.signingIn;
   protected readonly failure = signal<string | null>(null);
@@ -76,8 +96,17 @@ export class LoginPage {
   );
   /** The startup refresh could not reach the service (not "no session"). */
   protected readonly serviceProblem = this.session.startupError;
+  /** The server closed the session for a reason the user must read (inactive, no roles…). */
+  protected readonly sessionEndReason = this.session.sessionEndReason;
   /** First login of a custom user: the server asks for a new password before giving a session. */
   protected readonly settingPassword = computed(() => this.session.pendingChallenge() !== null);
+
+  /**
+   * SSO is the main way in; email + password (custom users) stays folded behind a button
+   * until the user asks for it.
+   */
+  protected readonly passwordSignIn = signal(false);
+  private readonly emailInput = viewChild<ElementRef<HTMLInputElement>>('emailInput');
 
   /** Pointer offset (-0.5..0.5) for the slow parallax of the matte background shapes. */
   protected readonly pointer = signal({ x: 0, y: 0 });
@@ -106,6 +135,11 @@ export class LoginPage {
   constructor() {
     afterNextRender(() => this.interactive.set(true));
     inject(DestroyRef).onDestroy(() => this.stopCooldown());
+  }
+
+  protected showPasswordSignIn(): void {
+    this.passwordSignIn.set(true);
+    afterNextRender(() => this.emailInput()?.nativeElement.focus(), { injector: this.injector });
   }
 
   protected trackPointer(event: PointerEvent): void {

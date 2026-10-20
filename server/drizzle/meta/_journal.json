@@ -8,6 +8,20 @@
       "when": 1791907214872,
       "tag": "0000_silent_risque",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1792423972796,
+      "tag": "0001_user_management",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1792511564695,
+      "tag": "0002_idempotency_keys",
+      "breakpoints": true
     }
   ]
 }

@@ -62,6 +62,31 @@ export const AUTH_ERROR = {
   USER_NOT_REGISTERED: 'AUTH_USER_NOT_REGISTERED',
   USER_INACTIVE: 'AUTH_USER_INACTIVE',
   NO_ACTIVE_ROLES: 'AUTH_NO_ACTIVE_ROLES',
+  EMAIL_NOT_VERIFIED: 'AUTH_EMAIL_NOT_VERIFIED',
+  EMAIL_CONFLICT: 'AUTH_EMAIL_CONFLICT',
+  DUPLICATE_USER: 'USERS_DUPLICATE_USER',
+  LOGIN_INCOMPLETE: 'AUTH_LOGIN_INCOMPLETE',
+  ORIGIN_NOT_ALLOWED: 'AUTH_ORIGIN_NOT_ALLOWED',
+  REDIRECT_URI_NOT_ALLOWED: 'AUTH_REDIRECT_URI_NOT_ALLOWED',
   TOO_MANY_REQUESTS: 'TOO_MANY_REQUESTS',
   SERVICE_UNAVAILABLE: 'AUTH_SERVICE_UNAVAILABLE',
 } as const;
+
+/** Admission refusals that close the session on refresh (the server clears the cookies, FR-13). */
+const ADMISSION_REFUSALS: ReadonlySet<string> = new Set([
+  AUTH_ERROR.USER_INACTIVE,
+  AUTH_ERROR.NO_ACTIVE_ROLES,
+  AUTH_ERROR.USER_NOT_REGISTERED,
+  AUTH_ERROR.EMAIL_NOT_VERIFIED,
+  AUTH_ERROR.EMAIL_CONFLICT,
+  AUTH_ERROR.DUPLICATE_USER,
+]);
+
+/**
+ * The server refused the session itself: a 401, or a known admission refusal (403/409). Listed codes
+ * only: a 403 on Origin (the OriginGuard keeps the cookies, FR-14) or a gateway/WAF 403 without our
+ * envelope must not sign the user out.
+ */
+export function endsSession(error: { status: number; code: string }): boolean {
+  return error.status === 401 || ADMISSION_REFUSALS.has(error.code);
+}

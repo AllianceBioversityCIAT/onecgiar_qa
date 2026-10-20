@@ -5,26 +5,52 @@
   }
   @if (session() && (isNew() || person())) {
     @if (isNew()) {
+      <!-- The API keeps first and last name apart; the list shows them joined. -->
+      <div class="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
       <div class="flex flex-col items-stretch gap-1.5">
         <div class="flex items-center gap-1">
-          <label for="assessor-drawer-name" class="text-(length:--fs-13) font-semibold text-(--text-2)">Full name</label>
+          <label for="assessor-drawer-first-name" class="text-(length:--fs-13) font-semibold text-(--text-2)">First name</label>
           <span aria-hidden="true" class="text-(length:--fs-13) font-semibold text-(--danger-strong)">*</span>
         </div>
         <input
           hlmInput
-          id="assessor-drawer-name"
+          id="assessor-drawer-first-name"
           type="text"
-          placeholder="Full name"
-          [formField]="personForm.name"
-          (input)="onNameInput($event)"
-          [attr.data-error]="showError(personForm.name)"
-          [attr.aria-invalid]="showError(personForm.name)"
-          [attr.aria-describedby]="showError(personForm.name) ? 'assessor-drawer-name-error' : null"
+          autocomplete="off"
+          placeholder="First name"
+          [formField]="personForm.firstName"
+          (input)="onNameInput()"
+          [attr.data-error]="showError(personForm.firstName)"
+          [attr.aria-invalid]="showError(personForm.firstName)"
+          [attr.aria-describedby]="showError(personForm.firstName) ? 'assessor-drawer-first-name-error' : null"
           class="h-9 w-full rounded-lg border-(--border) bg-(--field-bg) px-3 py-0 text-(length:--fs-14) text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 md:text-(length:--fs-14) dark:bg-(--field-bg) data-[error=true]:border-(--danger)"
         />
-        @if (showError(personForm.name)) {
-          <span id="assessor-drawer-name-error" class="text-(length:--fs-13) text-(--danger)">{{ errorOf(personForm.name) }}</span>
+        @if (showError(personForm.firstName)) {
+          <span id="assessor-drawer-first-name-error" class="text-(length:--fs-13) text-(--danger)">{{ errorOf(personForm.firstName) }}</span>
         }
+      </div>
+      <div class="flex flex-col items-stretch gap-1.5">
+        <div class="flex items-center gap-1">
+          <label for="assessor-drawer-last-name" class="text-(length:--fs-13) font-semibold text-(--text-2)">Last name</label>
+          <span aria-hidden="true" class="text-(length:--fs-13) font-semibold text-(--danger-strong)">*</span>
+        </div>
+        <input
+          hlmInput
+          id="assessor-drawer-last-name"
+          type="text"
+          autocomplete="off"
+          placeholder="Last name"
+          [formField]="personForm.lastName"
+          (input)="onNameInput()"
+          [attr.data-error]="showError(personForm.lastName)"
+          [attr.aria-invalid]="showError(personForm.lastName)"
+          [attr.aria-describedby]="showError(personForm.lastName) ? 'assessor-drawer-last-name-error' : null"
+          class="h-9 w-full rounded-lg border-(--border) bg-(--field-bg) px-3 py-0 text-(length:--fs-14) text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 md:text-(length:--fs-14) dark:bg-(--field-bg) data-[error=true]:border-(--danger)"
+        />
+        @if (showError(personForm.lastName)) {
+          <span id="assessor-drawer-last-name-error" class="text-(length:--fs-13) text-(--danger)">{{ errorOf(personForm.lastName) }}</span>
+        }
+      </div>
       </div>
       <div class="flex flex-col items-stretch gap-1.5">
         <div class="flex items-center gap-1">
@@ -47,6 +73,8 @@
         />
         @if (showError(personForm.email)) {
           <span id="assessor-drawer-email-error" class="text-(length:--fs-13) text-(--danger)">{{ errorOf(personForm.email) }}</span>
+        } @else if (draft().email.trim()) {
+          <span class="text-(length:--fs-12) text-(--text-4)">{{ accountHint() }}</span>
         }
       </div>
     }
@@ -89,7 +117,7 @@
         <div class="flex min-h-[52px] items-center gap-4">
           <div class="flex min-w-0 flex-1 flex-col gap-0.5">
             <span id="assessor-drawer-lead" class="text-(length:--fs-14) font-medium text-(--text-2)">Can edit and delete other assessors' comments</span>
-            <span id="assessor-drawer-lead-help" class="text-(length:--fs-13) font-normal text-pretty text-(--text-4)">Gives this assessor lead assessor permissions without changing their role.</span>
+            <span id="assessor-drawer-lead-help" class="text-(length:--fs-13) font-normal text-pretty text-(--text-4)">They lead the assessment of their result types: lead assessor permissions on those types.</span>
           </div>
           <qa-switch [checked]="draft().lead" (checkedChange)="patch({ lead: $event })" aria-labelledby="assessor-drawer-lead" aria-describedby="assessor-drawer-lead-help" />
         </div>
@@ -114,7 +142,7 @@
         <qa-multi-select
           [value]="draft().types"
           (valueChange)="setTypes($event)"
-          [options]="typeOptions"
+          [options]="typeOptions()"
           label="Result types"
           placeholder="Select result types"
           mutedPlaceholder
@@ -125,6 +153,9 @@
           sideOffset="4"
           class="max-[400px]:w-full"
         />
+        @if (typesError()) {
+          <span class="text-(length:--fs-13) text-(--danger)" role="alert">{{ typesError() }}</span>
+        }
       } @else {
         <div class="box-border w-full rounded-lg border border-(--border) bg-(--surface-3) px-3 py-2.5 text-(length:--fs-14) text-(--text)">All result types</div>
       }
@@ -148,6 +179,9 @@
         sideOffset="4"
         class="max-[400px]:w-full"
       />
+      @if (programsError()) {
+        <span class="text-(length:--fs-13) text-(--danger)" role="alert">{{ programsError() }}</span>
+      }
     </div>
 
     <div class="flex flex-col items-stretch gap-1.5">
@@ -197,7 +231,12 @@
                   </div>
                 }
                 <span class="text-right font-(family-name:--qa-mono) tabular-nums text-(length:--fs-12) font-medium text-(--text-4) max-sm:hidden">{{ b.date }}</span>
+                @if (b.origin === 'reporting') {
+                  <!-- Comes from the Reporting Tool: it is dismissed with a reason, not removed here. -->
+                  <span title="Comes from the Reporting Tool" class="justify-self-end text-(length:--fs-11) font-semibold text-(--text-4)">Reporting</span>
+                } @else {
                 <button hlmBtn variant="ghost" type="button" (click)="blockConfirm.set(i)" [attr.aria-label]="'Remove block ' + (b.code || 'without program')" class="size-6 justify-self-end rounded-md border-0 bg-transparent p-0 text-(--text-3) hover:bg-transparent hover:text-(--danger) dark:hover:bg-transparent focus-visible:ring-0 focus-visible:shadow-(--focus-ring) focus-visible:outline-none"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"></path></svg></button>
+                }
               </div>
             }
           </div>
@@ -206,33 +245,23 @@
         }
         <div class="flex min-h-12 items-center px-3.5"><button hlmBtn qaBtn tone="link" size="sm" flush="start" type="button" (click)="addBlock()">Add a blocked program</button></div>
       </div>
+      @if (blockError()) {
+        <span class="text-(length:--fs-13) text-(--danger)" role="alert">{{ blockError() }}</span>
+      }
     </div>
 
-    @if (load(); as ld) {
-      <div aria-live="polite" class="flex flex-col gap-2 rounded-lg bg-(--surface-3) px-4 py-3.5">
-        <div class="text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--text-muted) uppercase">Estimated load</div>
-        @for (r of ld.rows; track r.name) {
-          <div class="flex items-baseline gap-2 text-(length:--fs-13) font-normal text-(--text-2)">
-            <span class="min-w-0">{{ r.name }}</span>
-            <span class="ml-auto flex-none"><span class="font-(family-name:--qa-mono) tabular-nums text-(length:--fs-13) font-semibold text-(--text)">{{ r.count }}</span> <span class="text-(length:--fs-12) text-(--text-4)">results</span></span>
-          </div>
-        }
-        <div class="border-t border-(--surface-4) pt-2 text-(length:--fs-13) font-semibold text-(--text)">About <span class="font-(family-name:--qa-mono) tabular-nums">{{ ld.total }}</span> results in the next load</div>
-        @if (ld.blockNote) {
-          <div class="border-t border-(--surface-4) pt-2 text-(length:--fs-12) font-normal text-(--text-4)">{{ ld.blockNote }}</div>
-        }
-      </div>
+    @if (person()?.otherRoles) {
+      <p class="m-0 rounded-lg bg-(--surface-3) px-3.5 py-3 text-(length:--fs-13) text-(--text-2)">
+        This person has more roles than this screen shows. Changing their role or result types here replaces all of them.
+      </p>
     }
 
-    @if (assigned() > 0) {
-      <div class="flex items-start gap-2.5 rounded-lg bg-(--st-submitted-bg) px-3.5 py-3">
-        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--st-submitted-fg)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="mt-0.5 flex-none"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01"></path></svg>
-        <span class="text-(length:--fs-13) leading-[1.55] font-normal text-pretty text-(--st-submitted-fg)">Changing result types does not move the <span class="font-(family-name:--qa-mono) tabular-nums font-semibold">{{ fmt(assigned()) }}</span> results already assigned in the {{ subtimeline }}. It applies from the next load.</span>
-      </div>
-    }
   }
 
   <div qaDrawerFooter class="contents">
+    @if (formError()) {
+      <p class="m-0 w-full text-(length:--fs-13) font-medium text-(--danger)" role="alert">{{ formError() }}</p>
+    }
     @if (confirmDiscard()) {
       <div role="alertdialog" aria-label="Discard invitation" class="mr-auto flex min-w-0 flex-[1_1_280px] flex-col gap-1">
         <span class="text-(length:--fs-13) leading-[1.55] font-normal text-(--text-2)">Discard what you wrote?</span>
@@ -241,7 +270,7 @@
       <button hlmBtn qaBtn tone="danger" type="button" (click)="open.set(false)">Discard and close</button>
     } @else if (confirmRemove() && removeCopy(); as rc) {
       <div role="alertdialog" aria-label="Remove from team" class="mr-auto flex min-w-0 flex-[1_1_280px] flex-col gap-1">
-        <span class="text-(length:--fs-13) leading-[1.55] font-normal text-(--text-2)">{{ rc.lead }}<span class="font-(family-name:--qa-mono) tabular-nums font-semibold text-(--text)">{{ rc.n }}</span>{{ rc.tail }}</span>
+        <span class="text-(length:--fs-13) leading-[1.55] font-normal text-(--text-2)">{{ rc.lead }}</span>
         @if (rc.warn) {
           <span class="text-(length:--fs-13) leading-[1.55] font-medium text-(--danger)">{{ rc.warn }}</span>
         }
@@ -250,14 +279,14 @@
         }
       </div>
       <button hlmBtn qaBtn tone="secondary" type="button" (click)="confirmRemove.set(false)">Keep them</button>
-      <button hlmBtn qaBtn tone="danger" type="button" (click)="remove()">Remove</button>
+      <button hlmBtn qaBtn tone="danger" type="button" [disabled]="busy()" (click)="remove()">Remove</button>
     } @else if (isNew()) {
       <button hlmBtn qaBtn tone="secondary" type="button" (click)="requestClose()">Cancel</button>
-      <button hlmBtn qaBtn tone="primary" type="button" (click)="save()">Send invitation</button>
+      <button hlmBtn qaBtn tone="primary" type="button" [disabled]="busy()" (click)="save()">{{ busy() ? 'Sending…' : 'Send invitation' }}</button>
     } @else {
       <button hlmBtn qaBtn tone="danger-quiet" type="button" (click)="confirmRemove.set(true)" class="mr-auto">Remove from team</button>
       <button hlmBtn qaBtn tone="secondary" type="button" (click)="open.set(false)">Cancel</button>
-      <button hlmBtn qaBtn tone="primary" type="button" (click)="save()">Save changes</button>
+      <button hlmBtn qaBtn tone="primary" type="button" [disabled]="busy()" (click)="save()">{{ busy() ? 'Saving…' : 'Save changes' }}</button>
     }
   </div>
 </qa-drawer>

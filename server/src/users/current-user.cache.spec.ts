@@ -1,17 +1,22 @@
 import {
   InMemoryRoleAssignmentsStore,
+  InMemoryUserProgramsStore,
   InMemoryUsersStore,
 } from '../../test/support/in-memory-stores.js';
-import type { AssignmentView } from './authorization.service.js';
+import {
+  AuthorizationService,
+  type AssignmentView,
+} from './authorization.service.js';
 import {
   CURRENT_USER_TTL_MS,
   CurrentUserCache,
   isAdmitted,
   isLiveAssignment,
-  type AuthenticatedUser,
+  type AdmittedUser,
 } from './current-user.cache.js';
-import { ROLE_DEFINITIONS } from './permissions.js';
+import { Permission, ROLE_DEFINITIONS } from './permissions.js';
 import { RoleAssignmentsRepository } from './role-assignments.repository.js';
+import { UserProgramsRepository } from './user-programs.repository.js';
 import { UsersRepository } from './users.repository.js';
 
 // The cache is exercised over the in-memory stores with a hand-moved clock, so
@@ -68,11 +73,27 @@ function setup() {
       isActive: true,
     });
   }
+  const programsStore = new InMemoryUserProgramsStore();
   const users = new UsersRepository(usersStore);
   const assignments = new RoleAssignmentsRepository(assignmentsStore);
+  const programs = new UserProgramsRepository(programsStore);
   const clock = { now: 5_000_000 };
-  const cache = new CurrentUserCache(users, assignments, () => clock.now);
-  return { usersStore, assignmentsStore, users, assignments, clock, cache };
+  const cache = new CurrentUserCache(
+    users,
+    assignments,
+    programs,
+    () => clock.now,
+  );
+  return {
+    usersStore,
+    assignmentsStore,
+    programsStore,
+    users,
+    assignments,
+    programs,
+    clock,
+    cache,
+  };
 }
 
 describe('CurrentUserCache', () => {
@@ -273,6 +294,159 @@ describe('CurrentUserCache', () => {
   });
 });
 
+describe('CurrentUserCache program scope and exclusions (FR-4, FR-6, D5)', () => {
+  const authorization = new AuthorizationService();
+
+  async function ana(roles: Array<[string, string | undefined]> = []) {
+    const ctx = setup();
+    const created = await ctx.users.create({
+      email: 'ana@cgiar.org',
+      cognitoSub: 'sub-ana',
+      authSource: 'custom',
+    });
+    for (const [roleCode, resultTypeKey] of roles) {
+      await ctx.assignments.create({
+        userId: created.id,
+        roleCode,
+        resultTypeKey,
+      });
+    }
+    return { ...ctx, id: created.id };
+  }
+
+  it('loads the program scope and only the active exclusions with the user', async () => {
+    const { programs, programsStore, cache, id } = await ana();
+    await programs.replaceScope(id, [5, 6]);
+    const ended = await programs.addManualExclusion({
+      userId: id,
+      programId: 5,
+      reason: 'old',
+      createdBy: id,
+    });
+    await programs.removeManualExclusion({
+      userId: id,
+      exclusionId: ended.id,
+      endedBy: id,
+    });
+    await programsStore.insertExclusion({
+      userId: id,
+      programId: 6,
+      origin: 'reporting',
+      reportingRole: 'Science Program Lead',
+    });
+
+    const user = await cache.getBySub('sub-ana');
+
+    expect(user?.programScope).toEqual([5, 6]);
+    expect(user?.exclusions).toEqual([{ programId: 6, status: 'active' }]);
+  });
+
+  it('a user with nothing set loads an empty scope and no exclusions: all programs', async () => {
+    const { cache } = await ana();
+
+    const user = await cache.getBySub('sub-ana');
+
+    expect(user?.programScope).toEqual([]);
+    expect(user?.exclusions).toEqual([]);
+  });
+
+  it('hands out the scope and the exclusions frozen', async () => {
+    const { programs, cache, id } = await ana();
+    await programs.replaceScope(id, [5]);
+    await programs.addManualExclusion({
+      userId: id,
+      programId: 5,
+      reason: 'r',
+      createdBy: id,
+    });
+
+    const user = (await cache.getBySub('sub-ana'))!;
+
+    expect(Object.isFrozen(user.programScope)).toBe(true);
+    expect(Object.isFrozen(user.exclusions)).toBe(true);
+    expect(Object.isFrozen(user.exclusions[0])).toBe(true);
+  });
+
+  it('keeps serving the loaded scope and exclusions until `invalidate`, then reads them fresh', async () => {
+    const { programs, cache, id } = await ana();
+    await programs.replaceScope(id, [5]);
+    expect((await cache.getBySub('sub-ana'))?.programScope).toEqual([5]);
+
+    await programs.replaceScope(id, [6, 7]);
+    await programs.addManualExclusion({
+      userId: id,
+      programId: 6,
+      reason: 'r',
+      createdBy: id,
+    });
+    const stale = await cache.getBySub('sub-ana');
+    expect(stale?.programScope).toEqual([5]);
+    expect(stale?.exclusions).toEqual([]);
+
+    cache.invalidate(id);
+
+    const fresh = await cache.getBySub('sub-ana');
+    expect(fresh?.programScope).toEqual([6, 7]);
+    expect(fresh?.exclusions).toEqual([{ programId: 6, status: 'active' }]);
+  });
+
+  it('invalidating another user leaves this one cached', async () => {
+    const { programs, cache, id } = await ana();
+    await cache.getBySub('sub-ana');
+    await programs.replaceScope(id, [5]);
+
+    cache.invalidate(id + 100);
+
+    expect((await cache.getBySub('sub-ana'))?.programScope).toEqual([]);
+  });
+
+  it('feeds the review decision: an active exclusion removes the program, the scope limits the rest', async () => {
+    const { programs, cache, id } = await ana([['ASSESSOR', '*']]);
+    await programs.replaceScope(id, [5, 6]);
+    await programs.addManualExclusion({
+      userId: id,
+      programId: 6,
+      reason: 'conflict',
+      createdBy: id,
+    });
+    const user = (await cache.getBySub('sub-ana'))!;
+    const review = (programId: number) =>
+      authorization.canReview(user, Permission.ASSESSOR_ACCESS, {
+        resultType: 'KP',
+        programId,
+      });
+
+    expect(review(5)).toBe(true);
+    expect(review(6)).toBe(false); // listed, but excluded
+    expect(review(7)).toBe(false); // not listed
+  });
+
+  it('an active ADMIN stays exempt from the loaded scope and exclusions (DD-13)', async () => {
+    const { programs, cache, id } = await ana([['ADMIN', undefined]]);
+    await programs.replaceScope(id, [5]);
+    await programs.addManualExclusion({
+      userId: id,
+      programId: 5,
+      reason: 'conflict',
+      createdBy: id,
+    });
+    const user = (await cache.getBySub('sub-ana'))!;
+
+    expect(
+      authorization.canReview(user, Permission.ASSESSOR_ACCESS, {
+        resultType: 'KP',
+        programId: 5,
+      }),
+    ).toBe(true);
+    expect(
+      authorization.canReview(user, Permission.ASSESSOR_ACCESS, {
+        resultType: 'KP',
+        programId: 9,
+      }),
+    ).toBe(true);
+  });
+});
+
 function view(overrides: Partial<AssignmentView> = {}): AssignmentView {
   return {
     roleCode: 'ADMIN',
@@ -285,12 +459,13 @@ function view(overrides: Partial<AssignmentView> = {}): AssignmentView {
   };
 }
 
-function userOf(overrides: Partial<AuthenticatedUser> = {}): AuthenticatedUser {
+function userOf(overrides: Partial<AdmittedUser> = {}): AdmittedUser {
   return {
     id: 1,
     email: 'ana@cgiar.org',
     firstName: null,
     lastName: null,
+    nickname: null,
     authSource: 'sso',
     isActive: true,
     assignments: [],
@@ -315,7 +490,7 @@ describe('isLiveAssignment', () => {
 });
 
 describe('isAdmitted (FR-11)', () => {
-  it.each<[string, Partial<AuthenticatedUser>, boolean]>([
+  it.each<[string, Partial<AdmittedUser>, boolean]>([
     ['an active SSO user without assignments (GUEST)', {}, true],
     ['an active SSO user with assignments', { assignments: [view()] }, true],
     ['an inactive SSO user', { isActive: false }, false],

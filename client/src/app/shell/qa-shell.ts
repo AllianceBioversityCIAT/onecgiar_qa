@@ -6,7 +6,8 @@ import { filter, map } from 'rxjs';
 import { AccessControl } from '../core/access/access-control';
 import { Permission } from '../core/access/role-definitions';
 import { AuthSession } from '../core/auth/auth-session';
-import { QaTokensLoader } from '../ui';
+import { UnsentQueue } from '../core/http/unsent-queue';
+import { QaTokensLoader, QaUnsentCenter } from '../ui';
 
 interface NavItem {
   readonly label: string;
@@ -65,7 +66,7 @@ const ADMINISTRATION: readonly NavItem[] = [
  */
 @Component({
   selector: 'qa-shell',
-  imports: [NgOptimizedImage, NgTemplateOutlet, RouterLink, RouterLinkActive, RouterOutlet],
+  imports: [NgOptimizedImage, NgTemplateOutlet, RouterLink, RouterLinkActive, RouterOutlet, QaUnsentCenter],
   templateUrl: './qa-shell.html',
   styleUrl: './qa-shell.css',
   host: {
@@ -77,6 +78,7 @@ export class QaShell {
   /** Registers the global stylesheet behind the host class qa-tokens (colors, font). */
   private readonly tokens = inject(QaTokensLoader);
   private readonly session = inject(AuthSession);
+  private readonly unsent = inject(UnsentQueue);
   private readonly access = inject(AccessControl);
   private readonly router = inject(Router);
   private readonly location = inject(Location);
@@ -127,7 +129,16 @@ export class QaShell {
   }
 
   protected signOut(): void {
+    const unsent = this.unsent.count();
+    if (
+      unsent > 0 &&
+      !window.confirm(`You have ${unsent} unsent ${unsent === 1 ? 'change' : 'changes'}. Signing out discards them. Sign out anyway?`)
+    ) {
+      return;
+    }
     this.closeOverlays();
+    // Agreed: the next person on this browser must not find this user's writes waiting.
+    this.unsent.clearMine();
     // Server logout + local clear + navigation to login (core/auth/auth-session.ts).
     void this.session.signOut();
   }

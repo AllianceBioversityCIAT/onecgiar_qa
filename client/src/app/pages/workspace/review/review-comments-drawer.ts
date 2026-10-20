@@ -1,5 +1,6 @@
-import { Component, ElementRef, computed, effect, input, model, output, signal, untracked, viewChild } from '@angular/core';
+import { Component, DestroyRef, ElementRef, computed, effect, inject, input, model, output, signal, untracked, viewChild } from '@angular/core';
 import { FieldTree, FormField } from '@angular/forms/signals';
+import { UnsavedChanges } from '../../../core/forms/unsaved-changes';
 import { QaButtonImports, QaDrawerCloseGuard, QaDrawerImports, QaMenuImports } from '../../../ui';
 import { FieldComment, QUICK_COMMENTS } from './review.mock';
 
@@ -34,6 +35,9 @@ export class ReviewCommentsDrawer {
   protected readonly query = signal('');
   /** "Discard what you wrote?" step, asked before Esc / overlay / X close a drawer with a draft. */
   protected readonly confirmDiscard = signal(false);
+  // Tab close / reload / leaving the view ask first while a comment draft is open.
+  private readonly unregisterUnsaved = inject(UnsavedChanges).register(() => this.open() && !!this.text()().value().trim());
+  private readonly unsavedCleanup = inject(DestroyRef).onDestroy(this.unregisterUnsaved);
 
   protected readonly closeGuard: QaDrawerCloseGuard = () => {
     if (!this.text()().value().trim()) return true;

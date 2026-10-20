@@ -1,7 +1,7 @@
 import { Component, computed, input, linkedSignal, model, output } from '@angular/core';
 import { FormField, applyEach, form, required, validate } from '@angular/forms/signals';
 import { HlmInput } from '@spartan/input';
-import { QaButtonImports, QaDatePicker, QaDialogImports, QaDrawerImports, QaMultiSelect, QaSwitch, QaTooltipImports } from '../../../ui';
+import { QaButtonImports, QaDatePicker, QaDialogImports, QaDrawerImports, QaMultiSelect, QaSwitch, QaTooltipImports, discardGuard } from '../../../ui';
 import { DEFAULT_STEP_DATES, PROGRAMS, STEP_NAMES, Timeline } from './cycle.mock';
 import { StepDraftRow, formatNumber, officialRelative, stepOrderErrors, stepState } from './cycle.logic';
 import { PROGRAM_OPTIONS, TYPE_OPTIONS } from './load-drawer';
@@ -36,7 +36,7 @@ interface TimelineDraft {
   selector: 'qa-cycle-timeline-drawer',
   imports: [FormField, QaButtonImports, HlmInput, QaDatePicker, QaDialogImports, QaDrawerImports, QaSwitch, QaTooltipImports, QaMultiSelect],
   template: `
-    <qa-drawer [(open)]="open" [title]="title()" [subtitle]="subtitle()" width="720px">
+    <qa-drawer [(open)]="open" [closeGuard]="discard.guard" [title]="title()" [subtitle]="subtitle()" width="720px">
       @if (open()) {
         @let d = draft();
         @if (!isOfficialEdit()) {
@@ -211,8 +211,16 @@ interface TimelineDraft {
         }
       }
       <div qaDrawerFooter class="contents">
-        <button hlmBtn qaBtn tone="secondary" type="button" (click)="open.set(false)">Cancel</button>
-        <button hlmBtn qaBtn tone="primary" type="button" (click)="save()">{{ isNew() ? 'Create sub-timeline' : 'Save changes' }}</button>
+        @if (discard.confirming()) {
+          <div role="alertdialog" aria-label="Discard changes" class="mr-auto flex min-w-0 flex-[1_1_280px] flex-col gap-1">
+            <span class="text-(length:--fs-13) leading-[1.55] font-normal text-(--text-2)">Discard what you wrote?</span>
+          </div>
+          <button hlmBtn qaBtn tone="secondary" type="button" (click)="discard.keepWriting()">Keep writing</button>
+          <button hlmBtn qaBtn tone="danger" type="button" (click)="discard.discard()">Discard and close</button>
+        } @else {
+          <button hlmBtn qaBtn tone="secondary" type="button" (click)="discard.requestClose()">Cancel</button>
+          <button hlmBtn qaBtn tone="primary" type="button" (click)="save()">{{ isNew() ? 'Create sub-timeline' : 'Save changes' }}</button>
+        }
       </div>
     </qa-drawer>
 
@@ -286,7 +294,11 @@ export class TimelineDrawer {
         : 'Runs on its own calendar, alongside the official timeline.',
   );
 
-  protected readonly draft = linkedSignal<TimelineDraft>(() => {
+  protected readonly draft = linkedSignal<TimelineDraft>(() => this.initialDraft());
+  /** Esc / overlay / X / Cancel ask before dropping edits (also blocks tab close while open). */
+  protected readonly discard = discardGuard(this.open, () => JSON.stringify(this.draft()) !== JSON.stringify(this.initialDraft()));
+
+  private initialDraft(): TimelineDraft {
     const t = this.request().timeline;
     if (t) {
       return {
@@ -307,7 +319,7 @@ export class TimelineDrawer {
       test: false,
       runNow: true,
     };
-  });
+  }
 
   protected readonly tlForm = form(this.draft, (f) => {
     required(f.name, { message: 'Enter a name for the timeline.', when: () => !this.isOfficialEdit() });
