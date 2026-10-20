@@ -273,6 +273,20 @@
 - TRD pending items for `staging`: listed in the T-7 entry. CodeGraph not initialized — no re-index.
 - Follow-up outside this spec: two identical `isDuplicateKeyError` copies (`common/idempotency/idempotency.errors.ts`, `users/users.errors.ts`).
 
+### T-8: HITL validation (shared DB) — in progress
+
+- **Date:** 2026-10-20 · with the back lead (operator), VPN connected.
+- **Deploy:** feature merged `--no-ff` into `staging-center` (`617d560`, server suite re-run on the merge: 1316 unit / 538 e2e green) and `staging-center` into `dev` (`83980f0`); GitHub trigger run `39478851801` success; back lead confirmed the Jenkins `dev` deploy.
+- **`0002` on `qadb` (read-only check, 192.168.20.210:3306/qadb):** **confirmed** — `idempotency_keys` exists exactly as migration `0002` (PK `(actor_id, idem_key)`, `idem_key` `ascii`/`ascii_bin`, state enum, `idx_idempotency_keys_expires`, FK to `users`); `__drizzle_migrations` holds 3 entries; 0 rows. Server: MySQL 8.0.46, global isolation `REPEATABLE-READ` (the unit of work sets `READ COMMITTED` per transaction), `binlog_format=ROW` (meets `server/src/database/AGENTS.md`).
+- **P-12 (real MySQL locking) — CONFIRMED** with the real `DrizzleIdempotencyStore` (`dist/`) on `qadb`, concurrent connections (pool of 12); probe keys `t8-probe-*`, all deleted (46 rows deleted, 0 left):
+  - concurrent `reserve` of one key: 20/20 rounds, exactly 1 winner of 8 racers (duplicate-key 1062 for the rest);
+  - take-over race on an expired lease: 20/20 rounds, exactly 1 winner of 8; the old token is refused afterwards 20/20;
+  - `markExecuted` inside a `READ COMMITTED` transaction vs a concurrent take-over: 5/5 rounds the take-over blocked on the row lock (≥ 500 ms) and lost after commit; the row stayed `executed` with the original owner;
+  - stale `markExecuted` after a take-over: throws `IdempotencyFenceLostError`.
+- **P-13 (qatest shares `qadb`):** open — pending the back lead / infrastructure owner.
+- **API replays (FR-3/FR-5 on the running API):** pending — waiting for an admin session token supplied out-of-band (file outside the repo) and a test email the back lead owns.
+- **Open decisions carried:** NFR-3 on MySQL (T-8 amendment proposed, undecided); resend second-email risk after a take-over (undecided); P-14 (addendum to send).
+
 ## Budget Tripwire: after T-3 attempt 1
 
 - **Budget (design § 2):** 8 tasks · ~3,600 LOC · ~14 Reviewer passes.
