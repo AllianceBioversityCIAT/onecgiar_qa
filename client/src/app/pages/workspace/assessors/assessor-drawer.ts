@@ -1,6 +1,7 @@
-import { Component, computed, effect, input, linkedSignal, model, output, untracked } from '@angular/core';
+import { Component, DestroyRef, computed, effect, inject, input, linkedSignal, model, output, untracked } from '@angular/core';
 import { FieldTree, FormField, email, form, required, submit } from '@angular/forms/signals';
 import { HlmInputImports } from '@spartan/input';
+import { UnsavedChanges } from '../../../core/forms/unsaved-changes';
 import { QaButtonImports, QaDrawerCloseGuard, QaDrawerImports, QaMultiSelect, QaMultiSelectOption, QaSelect, QaSelectOption, QaSwitch, QaTooltipImports } from '../../../ui';
 import {
   CURRENT_SUBTIMELINE,
@@ -85,6 +86,9 @@ function draftOf(p: TeamMember): PersonDraft {
 })
 export class AssessorDrawer {
   readonly open = model(false);
+  // Tab close / reload / leaving the view ask first while an invite has text in it.
+  private readonly unregisterUnsaved = inject(UnsavedChanges).register(() => this.open() && this.isDirty());
+  private readonly unsavedCleanup = inject(DestroyRef).onDestroy(this.unregisterUnsaved);
   readonly session = input<DrawerSession | null>(null);
   readonly team = input.required<readonly TeamMember[]>();
   readonly saved = output<PersonSave>();
