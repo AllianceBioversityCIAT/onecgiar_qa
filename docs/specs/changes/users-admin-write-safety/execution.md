@@ -273,6 +273,35 @@
 - TRD pending items for `staging`: listed in the T-7 entry. CodeGraph not initialized — no re-index.
 - Follow-up outside this spec: two identical `isDuplicateKeyError` copies (`common/idempotency/idempotency.errors.ts`, `users/users.errors.ts`).
 
+### T-8: HITL validation (shared DB) — PASS (attempt 3)
+
+- **Date:** 2026-10-20 · with the back lead (operator), VPN connected.
+- **Deploy:** feature merged `--no-ff` into `staging-center` (`617d560`, server suite re-run on the merge: 1316 unit / 538 e2e green) and `staging-center` into `dev` (`83980f0`); GitHub trigger run `39478851801` success; back lead confirmed the Jenkins `dev` deploy.
+- **`0002` on `qadb` (read-only check, 192.168.20.210:3306/qadb):** **confirmed** — `idempotency_keys` exists exactly as migration `0002` (PK `(actor_id, idem_key)`, `idem_key` `ascii`/`ascii_bin`, state enum, `idx_idempotency_keys_expires`, FK to `users`); `__drizzle_migrations` holds 3 entries; 0 rows. Server: MySQL 8.0.46, global isolation `REPEATABLE-READ` (the unit of work sets `READ COMMITTED` per transaction), `binlog_format=ROW` (meets `server/src/database/AGENTS.md`).
+- **P-12 (real MySQL locking) — CONFIRMED** with the real `DrizzleIdempotencyStore` (`dist/`) on `qadb`, concurrent connections (pool of 12); probe keys `t8-probe-*`, all deleted (46 rows deleted, 0 left):
+  - concurrent `reserve` of one key: 20/20 rounds, exactly 1 winner of 8 racers (duplicate-key 1062 for the rest);
+  - take-over race on an expired lease: 20/20 rounds, exactly 1 winner of 8; the old token is refused afterwards 20/20;
+  - `markExecuted` inside a `READ COMMITTED` transaction vs a concurrent take-over: 5/5 rounds the take-over blocked on the row lock (≥ 500 ms) and lost after commit; the row stayed `executed` with the original owner;
+  - stale `markExecuted` after a take-over: throws `IdempotencyFenceLostError`.
+- **P-13 (qatest shares `qadb`) — CONFIRMED** by the back lead (2026-10-20, in session: "Si, qatest usa qadb"). Consequence: `0002`, already confirmed on `qadb`, covers qatest too; no separate migration run is needed for TEST.
+- **API replays (FR-3/FR-5 on the running API) — CONFIRMED** (create `data`: id-only; invitation email: confirmed at the Cognito-call level, inbox delivery unobservable — see below) on the local API (`staging-center` build, `localhost:3400`, `qadb`, MySQL + DynamoDB startup checks green), with the back lead's admin session (token used in memory only, never stored). TEST was not touched (`AGENTS.md`). Test user: `j.delgado+t8-idem@cgiar.org` (`custom`), user id **1036** — persists in `qadb` and the Cognito pool (users are not deletable).
+  - `POST /users` with K1 twice → 201, then 201 `Idempotency-Replayed: true`, same id 1036, new `meta.requestId`; users with the test email: 0 → **1**. The `data` of this replay was compared only as raw text (differs by key order) and by id — a value-level comparison was **not** run on the create replay (see the finding below).
+  - Same K1, different body → 422 `IDEMPOTENCY_KEY_REUSED`.
+  - `POST /users/1036/invitation` with K2 twice → 200, then 200 `Idempotency-Replayed: true`; audit rows added by both calls: **1** (one resend executed). The audit count is a stand-in for emails sent — nothing was observed on the Cognito side (pool events) or in the inbox. **"Replayed invitation BUT no email" — confirmed at the Cognito-call level:** the local API log (`api.log` in the session scratchpad) holds, for the two K2 calls, exactly one `CognitoAdminClient op=AdminCreateUser outcome=resent` line (the Cognito call itself, `api.log:57`) and one `{"event":"users_admin","action":"invitation_resend","outcome":"ok","idempotency":"none"}` line (`api.log:58`; `CognitoAdminClient.resendInvitation` has a single caller, `users-admin.service.ts:477`, inside `logged(...)`, which writes a line on every outcome), and the replay wrote only `{"event":"idempotency","outcome":"replayed","status":200}` — the service, the only caller of the Cognito resend, ran once. The create replay likewise wrote only a `replayed` line after one `action":"create"` line. **Inbox evidence unavailable:** the back lead received **no** email at all for the test address — not even the creation invitation — so delivery to `+alias` CGIAR addresses is blocked or filtered upstream (back lead: "creo que ciat bloquea esos correos"). Not a defect of this spec; raised as a separate deliverability question for the team (invitations to `custom` CGIAR aliases may never arrive).
+  - Two identical `PATCH /users/1036` with K3 at once → one 200 and one 409 `IDEMPOTENCY_IN_PROGRESS`; audit rows added: **1**.
+  - No key twice → 200, 200, no replay header (FR-1). Malformed key → 400 `VALIDATION_FAILED`.
+  - Stored rows for K1/K2/K3: `completed` with statuses 201/200/200 and `target_user_id` 1036.
+- **Finding — replayed `data` key order (FR-3):** measured with `t8-diff.mjs` on a keyed `PATCH /users/1036` replay (lastName set to its current value): the replayed `data` equals the first answer in every value but is **not byte-equal**: MySQL's `JSON` column normalizes object key order (first: `id,email,firstName,…`; replay: `id,email,roles,status,lastName,…`). The e2e suite could not see it (the in-memory store keeps insertion order). JSON objects are unordered, so clients parsing JSON are unaffected; a client comparing raw bytes would see a difference. Raised to the back lead: accept, or store `response_body` as text in a follow-up.
+- **Method notes:** "rollback-only where possible" was not possible for P-12 — a rolled-back insert would make the losing racers wait and then win, so committed probe rows were required; they were deleted afterwards (46 rows, 0 left). `reserve`/`takeOver` ran at the session default `REPEATABLE-READ`, exactly as in production (they run outside the unit of work); single-statement INSERT/UPDATE on the primary key behave the same under both levels, and `markExecuted` ran under `READ COMMITTED` as the unit of work sets it.
+- **Side effects left in `qadb` / Cognito:** test user 1036 (`j.delgado+t8-idem@cgiar.org`, `custom`) with its creation and one resend invitation; its last name edited to `Concurrent` then back to `Idempotency` (audit rows for those edits); 4 `completed` rows in `idempotency_keys` for the back lead's actor (removed by the 24 h purge).
+- **Reviewer (attempt 1):** FAIL — the record claimed the invitation email and create-replay `data` equality beyond the evidence; corrected above. Attempt 2 settled the invitation email row as "confirmed at the Cognito-call level; inbox delivery unobservable" (one status, see the API replays row), and scoped the create-replay `data` claim to id-only with the value compare named on the `PATCH` replay (`t8-diff.mjs`). Reviewer judgement: key order is **not** an FR-3 breach (JSON members are unordered; FR-3 sets no byte-identity rule).
+- **Reviewer (attempt 2):** FAIL — the attempt-1 reviewer line still called the email row OPEN while the API row said confirmed (two statuses for one row), and the deliverability residual was not listed among open items. Attempt 3: one status per row, the Cognito-call line (`api.log:57`) cited, the open item tracked below.
+- **Reviewer (attempt 3):** PASS — "Both attempt-2 issues are fixed, and Done-when is met. Each row in the T-8 section now has one status, and every claim I checked is backed by the evidence." Advisory: tag test user 1036 for cleanup once user deletion exists.
+- **spawns:** no Implementer (HITL run by the Leader with the back lead); Reviewer ×3 not reported by host, ended complete (FAIL, FAIL, PASS)
+- **Decisions made — execute-time spec edit:** `design.md` § 11 rows P-12 and P-13 updated from UNVERIFIED to confirmed (T-8, 2026-10-20); no requirement meaning changed.
+- **Open — invitation deliverability to `custom` CGIAR `+alias` addresses:** no invitation (creation or resend) reached `j.delgado+t8-idem@cgiar.org`, so the FR-3 inbox check is unobservable; owner: back lead (with the Cognito pool owner). Outside this spec's scope; tracked here so it is not lost.
+- **Open decisions carried:** NFR-3 on MySQL (T-8 amendment proposed, undecided); resend second-email risk after a take-over (undecided); P-14 (addendum to send).
+
 ## Budget Tripwire: after T-3 attempt 1
 
 - **Budget (design § 2):** 8 tasks · ~3,600 LOC · ~14 Reviewer passes.
@@ -285,3 +314,20 @@
 ## Constitution Impact: T-1
 
 - Shared schema gained `idempotency_keys` and migration `0002_idempotency_keys` (additive). `server/src/database/AGENTS.md` update is T-7 deliverable; TRD § 5.1 is a pending item for `staging`. Migration `0002` must be applied to `qadb` by a human (T-8) before the API runs against it with this code.
+
+## Summary
+
+- **Status:** all 8 tasks `[x]` (2026-10-20). T-1 (+ amendment), T-3, T-4, T-5, T-6 passed on the first attempt; T-2 and T-7 on the second; T-8 on the third (record corrections only).
+- **Delivered:** idempotent handling of the 10 users-admin writes and the new `PUT /users/:id` (11 keyed routes): `idempotency_keys` (migration `0002`, applied on `qadb`, which qatest shares), fingerprint, store with CAS take-over and owner-token fence, route-scoped `@Idempotent()` interceptor, `markExecuted` in the same transaction as each change, aggregate edit `replaceUser`, OpenAPI, log-spy gate, module guides, front contract addendum.
+- **Verification at close:** server 1316 unit / 538 e2e green, tsc baseline only; P-12 confirmed on real MySQL; FR-3/FR-5 confirmed on the running local API.
+- **Budget:** ≈ 8,200 LOC (≈ 75 % tests) vs ~3,600 planned — tripwire fired after T-3, re-baselined to ≈ 8,000 by the back lead; 20 Reviewer verdicts vs ~14 planned.
+- **Merged:** `staging-center` (`617d560`) and `dev` (`83980f0`) carry T-1…T-7; the T-8 record commits are on the feature branch only.
+- **Open items (for the back lead):**
+  1. P-14 — send `front-contract.md` to the front lead (409 `IDEMPOTENCY_IN_PROGRESS` must be treated as transient).
+  2. NFR-3 on MySQL — unmeasured (in-memory p95 ≈ 5 ms); proposed ≥ 200-pair check on `qadb`, undecided.
+  3. Resend after a take-over can send a second invitation email — accept and document, or not; undecided.
+  4. Replayed `data` key order differs from the first answer (MySQL `JSON` normalization) — accept, or store `response_body` as text; undecided.
+  5. Invitation deliverability to `custom` CGIAR `+alias` addresses — none arrived; owner back lead with the pool owner.
+  6. Follow-up: two identical `isDuplicateKeyError` copies; test user 1036 left in `qadb` and the Cognito pool.
+- **Pending for `staging` (shared-file discipline):** TRD § 5.1, § 6, § 7 items listed in the T-7 entry.
+

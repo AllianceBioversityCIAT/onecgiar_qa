@@ -150,7 +150,7 @@ Step 2.3 reversion challenge: **no DD removes, disables or inverts delivered beh
 
 ## 11. Premise Ledger
 
-Count: 11 verified · 3 UNVERIFIED (High: 1 · Low: 2)
+Count: 13 verified · 1 UNVERIFIED (Low: 1 — P-14, open) — updated at T-8, 2026-10-20
 Blast-radius triggers: `live-path` (11 users-admin write routes), `shared-state` (`AdminContext`, `UsersAdminRepositories`, the service's mutation path), `consumer` (error catalog, OpenAPI tests, the front's error and queue handling) — all three fired.
 
 | # | Claim | Class | Citation (as run) | Verified at | If false | Settled by |
@@ -166,6 +166,6 @@ Blast-radius triggers: `live-path` (11 users-admin write routes), `shared-state`
 | P-9 | A cold-cache create can take ~30 s | data-env | archived core `requirements.md` NFR-3 (two sequential catalog reads at `users-admin.service.ts:1021,1039`, then one 10 s Cognito budget) | `d858030` | Lease length (DD-3) — Low | — |
 | P-10 | The front sends `Idempotency-Key` on every write, reuses it on replays, retries only 0/502/503/504/429/401-signed-in, and marks any other status (409, 422) as permanently rejected during replay | consumer | `client/src/app/core/http/request-safety.interceptor.ts:55-57,64-73,86-90`; `client/src/app/core/http/unsent-queue.ts:10,35-36,208-217` | `d858030` | DD-4 front note changes — Low | — |
 | P-11 | Per-part logic: `applyRoles` and `insertExclusion` already take `(repos, …)`; edit, programs replace and exclusion removal are inline closures inside their public methods; each public method opens its own unit of work via `mutate`; `invalidate` only in `mutate` after commit | shared-state | `server/src/users/users-admin.service.ts:513-523` (`mutate`), `:542` (`applyRoles`), `:604` (`insertExclusion`), inline `:236-273`, `:307-320`, `:345-367` | `d858030` | T-5 extraction scope changes — Low | — |
-| P-12 | MySQL raises a duplicate-key error on a concurrent insert of the same PK and serializes the compare-and-set update, under READ COMMITTED, on `qadb` | data-env | UNVERIFIED — confirm at source before relying on it | — | Reservation race design (DD-3) — **High** | T-8 (HITL on `qadb`) |
-| P-13 | qatest uses the same database as `qadb` (so `0002` applied once covers both) | data-env | UNVERIFIED — confirm at source before relying on it | — | Migration must also run on the qatest DB — Low | T-8 (back lead / pool-infra owner) |
+| P-12 | MySQL raises a duplicate-key error on a concurrent insert of the same PK and serializes the compare-and-set update, under READ COMMITTED, on `qadb` | data-env | CONFIRMED on `qadb` (T-8, 2026-10-20): 20/20 concurrent reserves and take-over races had exactly one winner; a take-over blocks on the `markExecuted` row lock and loses after commit | — | Reservation race design (DD-3) — **High** | T-8 (HITL on `qadb`) |
+| P-13 | qatest uses the same database as `qadb` (so `0002` applied once covers both) | data-env | CONFIRMED by the back lead (T-8, 2026-10-20): qatest uses `qadb` | — | Migration must also run on the qatest DB — Low | T-8 (back lead / pool-infra owner) |
 | P-14 | The front lead accepts treating 409 `IDEMPOTENCY_IN_PROGRESS` as transient | consumer | UNVERIFIED — confirm at source before relying on it (user-stated: none) | — | Switch DD-4 to 503 — Low | T-7 (contract addendum review with the front lead) |

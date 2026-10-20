@@ -141,7 +141,7 @@ Serial boundaries: T-1 (`server/src/database/**`); T-4 and T-5 both edit `users-
 - **Skills:** nestjs-expert, api-design-principles, cognitive-doc-design
 
 ## T-8: HITL validation (shared DB)
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** S
 - **Depends on:** T-7; a human applies `0002` on `qadb`
 - **Requirements:** NFR-1 on real MySQL (P-12); P-13; FR-3/FR-5 on the running API
