@@ -16,3 +16,9 @@ Branch: `jp-design/mockup-completo`
 ## Update (same day)
 - Group headings use the sidebar eyebrow style (11px, uppercase, letter-spaced, muted); Coverage stays red. More space between groups (24px).
 - No divider between a group heading and its first row; lines only separate rows.
+
+## Where the work is (same rule)
+- Pace column: no icons. Only "At risk" keeps a color (`--danger`, semibold); "Behind" is dark grey and "On track" light grey.
+- "At risk" tab: no orange text; its count is muted like other counts.
+- Completion %: medium weight instead of bold.
+- Checked at 1440 (By result type, At risk) and 390. `npx ng build` passes.
