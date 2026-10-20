@@ -284,7 +284,14 @@
   - `markExecuted` inside a `READ COMMITTED` transaction vs a concurrent take-over: 5/5 rounds the take-over blocked on the row lock (≥ 500 ms) and lost after commit; the row stayed `executed` with the original owner;
   - stale `markExecuted` after a take-over: throws `IdempotencyFenceLostError`.
 - **P-13 (qatest shares `qadb`):** open — pending the back lead / infrastructure owner.
-- **API replays (FR-3/FR-5 on the running API):** pending — waiting for an admin session token supplied out-of-band (file outside the repo) and a test email the back lead owns.
+- **API replays (FR-3/FR-5 on the running API) — CONFIRMED** on the local API (`staging-center` build, `localhost:3400`, `qadb`, MySQL + DynamoDB startup checks green), with the back lead's admin session (token used in memory only, never stored). TEST was not touched (`AGENTS.md`). Test user: `j.delgado+t8-idem@cgiar.org` (`custom`), user id **1036** — persists in `qadb` and the Cognito pool (users are not deletable).
+  - `POST /users` with K1 twice → 201, then 201 `Idempotency-Replayed: true`, same id 1036, new `meta.requestId`; users with the test email: 0 → **1**.
+  - Same K1, different body → 422 `IDEMPOTENCY_KEY_REUSED`.
+  - `POST /users/1036/invitation` with K2 twice → 200, then 200 `Idempotency-Replayed: true`; audit rows added by both calls: **1** (one resend executed). **Email count to be confirmed by the back lead in the inbox:** expected one invitation from the create plus one from the first resend, none from the replay.
+  - Two identical `PATCH /users/1036` with K3 at once → one 200 and one 409 `IDEMPOTENCY_IN_PROGRESS`; audit rows added: **1**.
+  - No key twice → 200, 200, no replay header (FR-1). Malformed key → 400 `VALIDATION_FAILED`.
+  - Stored rows for K1/K2/K3: `completed` with statuses 201/200/200 and `target_user_id` 1036.
+- **Finding — replayed `data` key order (FR-3):** the replayed `data` is equal to the first answer in every value, but **not byte-equal**: MySQL's `JSON` column normalizes object key order (first: `id,email,firstName,…`; replay: `id,email,roles,status,lastName,…`). The e2e suite could not see it (the in-memory store keeps insertion order). JSON objects are unordered, so clients parsing JSON are unaffected; a client comparing raw bytes would see a difference. Raised to the back lead: accept, or store `response_body` as text in a follow-up.
 - **Open decisions carried:** NFR-3 on MySQL (T-8 amendment proposed, undecided); resend second-email risk after a take-over (undecided); P-14 (addendum to send).
 
 ## Budget Tripwire: after T-3 attempt 1
