@@ -12,3 +12,7 @@ Branch: `jp-design/mockup-completo`
 ## Tested
 - Browser at 1440 (light and dark) and 390.
 - `npx ng build` passes (only the existing bundle budget warning).
+
+## Update (same day)
+- Group headings use the sidebar eyebrow style (11px, uppercase, letter-spaced, muted); Coverage stays red. More space between groups (24px).
+- No divider between a group heading and its first row; lines only separate rows.

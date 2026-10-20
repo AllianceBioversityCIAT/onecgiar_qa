@@ -31,15 +31,16 @@ const VISIBLE = 5;
       </div>
 
       @if (count()) {
-        <div class="flex flex-col gap-[18px]">
+        <div class="flex flex-col gap-6">
           @for (g of groups(); track g.key) {
             @let shown = isOpen(g.key) ? g.rows : g.rows.slice(0, visible);
             @let more = g.rows.length > visible;
             <div class="flex flex-col">
-              <h4 class="m-0 flex min-h-8 items-baseline gap-2 border-b border-(--surface-4) px-[2px] pb-2">
+              <h4 class="m-0 flex items-baseline gap-2 px-[2px] pb-1">
                 <!-- Coverage is the only group that keeps a color: results there will not be reviewed at all. -->
-                <span class="text-(length:--fs-13) font-semibold" [class]="g.key === 'coverage' ? 'text-(--danger)' : 'text-(--text-2)'">{{ g.name }}</span>
-                <span class="text-(length:--fs-12) font-normal tabular-nums text-(--text-muted)">{{ g.rows.length }}</span>
+                <!-- Same eyebrow style as the sidebar group labels, so groups read as headings, not rows. -->
+                <span class="text-(length:--fs-11) font-semibold tracking-[0.08em] uppercase" [class]="g.key === 'coverage' ? 'text-(--danger)' : 'text-(--text-muted)'">{{ g.name }}</span>
+                <span class="text-(length:--fs-11) font-semibold tabular-nums text-(--text-muted)">{{ g.rows.length }}</span>
               </h4>
               <ul class="m-0 list-none p-0">
                 @for (r of shown; track r.text; let last = $last) {
