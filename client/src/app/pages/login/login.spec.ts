@@ -126,6 +126,31 @@ describe('LoginPage', () => {
     expect(button.textContent).toContain('Try again in 30 s');
   });
 
+  it('a 429 on SSO shows the countdown on the CGIAR button while the form is folded', async () => {
+    const { http, host, settle } = await setup();
+    host.querySelector<HTMLButtonElement>('[data-testid="sso"]')!.click();
+    http
+      .expectOne((r) => r.url === `${API}/auth/provider-url`)
+      .flush(
+        {
+          success: false,
+          error: {
+            status: 429,
+            code: 'TOO_MANY_REQUESTS',
+            message: 'Too many attempts.',
+            retryAfter: 30,
+          },
+          meta: { requestId: 'r', timestamp: 't' },
+        },
+        { status: 429, statusText: 'x' },
+      );
+    await settle();
+    const sso = host.querySelector<HTMLButtonElement>('[data-testid="sso"]')!;
+    expect(host.querySelector('#email')).toBeNull();
+    expect(sso.disabled).toBe(true);
+    expect(sso.textContent).toContain('Try again in 30 s');
+  });
+
   it('the CGIAR button asks the API for the provider URL with this origin callback', async () => {
     const { http, host } = await setup();
     host.querySelector<HTMLButtonElement>('[data-testid="sso"]')!.click();
