@@ -56,7 +56,7 @@ Serial boundaries: T-1 (`server/src/database/**`); T-4 and T-5 both edit `users-
 - **Skills:** nestjs-expert, nestjs-best-practices, tdd
 
 ## T-3: Idempotency interceptor and `@Idempotent()` decorator
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-2
 - **Requirements:** FR-1 (no header → untouched); FR-2 (Remembered success · Remembered refusal · Not remembered on a server failure); FR-3 (replay marker; BUT no re-execution — at interceptor level: handler not called); FR-4; FR-5 (in-flight → 409); FR-6 (malformed key → 400; 401/403 never reach it — P-1); NFR-2 (decision-line field), NFR-4 (store down → 503, handler not called)

@@ -120,6 +120,45 @@
 - **Budget:** T-2 ≈ 2,000 LOC (design estimated ≈ 600 for fingerprint + fakes). Cumulative ≈ 2,200 of ~3,600; Reviewer verdicts so far 5 of ~14.
 - **Final verification:** VERIFIED + Reviewer PASS.
 
+### T-3: Idempotency interceptor and `@Idempotent()` decorator — PASS (attempt 1)
+
+- **Date:** 2026-10-20
+- **Skills / effort:** nestjs-expert, error-handling-patterns, tdd · effort `xhigh`
+
+**Attempt 1 — PASS**
+- **Files changed:** `server/src/common/idempotency/{idempotency.context,idempotency.interceptor,idempotency.interceptor.spec,idempotent.decorator}.ts` (new) — 1,471 insertions.
+- **Implementer verification:** lint 0 warnings; build ok; `Test Files 39 passed (39)`, `Tests 1229 passed (1229)`; tsc 7 baseline only; e2e not run (no HTTP surface changed; task lists none).
+- **Red run:** pass-through interceptor → `Tests 45 failed | 13 passed (58)`, assertion failures (first red run invalid — helper sent no key — fixed and re-run).
+- **Falsifier 1** (handler subscribed before the store claim): 33 failed — `expected "vi.fn()" to not be called at all, but actually been called 1 times`. **Falsifier 2** (`isRefusal` bound `< 600`): 3 failed — `500: nothing remembered (release)…` `expected { Object (actorId, idemKey, ...) } to be undefined`. Both restored.
+- **Evidence re-run (Leader inline):** VERIFIED — `Test Files 39 passed (39)`, `Tests 1229 passed (1229)`, 0 non-baseline tsc errors, no `users/` import in `common/idempotency/`.
+- **Implementer notes for T-4/T-6:** fingerprint path = `request.originalUrl ?? request.url` (global prefix, ids kept, query stripped), pinned; success status from `response.statusCode`; interceptor needs `IDEMPOTENCY_STORE`, `IDEMPOTENCY_CLOCK`, `IDEMPOTENCY_REPLAY_READER` bound (T-6), `IDEMPOTENCY_TOKEN_FACTORY` unbound; purge before every keyed reserve, purge failure → 503; fence-lost goes through `release`; interceptor logs only `replayed`/`in_progress`/`reused` (`event:'idempotency'`), a taken-over or first run writes no interceptor line — **forward pointer → T-4:** the service decision line reads `handle.outcome` for `idempotency=`; **→ T-7:** the log-spy must count `event:'idempotency'` lines; no actor id on the request → 503. `@ApiHeader` is T-6/T-7.
+
+- **Lens A verdict (reliability + resilience):** PASS — "the interceptor matches design § 7 and FR-1…FR-6, NFR-2 and NFR-4"; all six T-2 forward pointers honored.
+- **Lens B verdict (risk + readability):** PASS — contract rendering, per-admin scope, privacy of decision lines, boundaries and test validity confirmed.
+- **runtime events:** none
+- **spawns:** Implementer not reported by host (38 tool calls, 193,346 tokens, ended complete); Reviewer A not reported by host, ended complete; Reviewer B not reported by host (13 tool calls, 66,917 tokens), ended complete
+- **Requirements covered:** FR-1, FR-2 (interceptor part), FR-3 (handler not called on replay), FR-4, FR-5, FR-6, NFR-2 (interceptor lines), NFR-4.
+- **ADVISORY (never gating):**
+  - RELIABILITY (lenses disagree): lens A says `replay()`'s `response.status(stored)` is overridden by Nest's `ExpressAdapter.reply` with the route status, so the unit test expecting a stored 201 over a route 200 certifies a `FakeResponse`-only behavior; lens B traced `createHandleResponseFn` without `httpStatusCode` and says the override holds. Harmless today (stored success status = route status). **Forward pointer → T-6:** the e2e replay must assert the real status.
+  - RISK: missing `request.user.id` answers 503, which the front retries forever (P-10); 500 `INTERNAL_ERROR` would describe a setup error.
+  - RISK/RESILIENCE: a reader failure (incl. a 4xx) on the crash path becomes a 503 repeated until retention ends; acceptable since users are not deletable.
+  - RESILIENCE: purge before every keyed reserve can block writes on a lock wait and adds to NFR-3 overhead — **forward pointer → T-7 (NFR-3 measurement) and T-8.**
+  - RELIABILITY: every handler 4xx is remembered 24 h (D3), incl. 408/429 — **forward pointer → T-4:** confirm upstream timeouts/throttling map to 5xx.
+  - RELIABILITY: a handler returning `undefined` replays as `data: null`; document on the decorator for DD-6 reuse.
+  - RISK: a refusal relying on a response header (429 `retryAfter`) is stored without it.
+  - RELIABILITY: a failed `release` leaves the key `in_progress` ≤ 120 s → 409; relies on the design § 8 front note shipping (T-7).
+  - READABILITY: `complete_lost` logged at `warn` with `outcome:'error'` vs `error` level siblings; the pipe-400 pipeline replay test needs a comment.
+- **Final verification:** VERIFIED + both lenses PASS.
+
+## Budget Tripwire: after T-3 attempt 1
+
+- **Budget (design § 2):** 8 tasks · ~3,600 LOC · ~14 Reviewer passes.
+- **Actual:** 3 of 8 tasks implemented; ≈ 3,670 LOC (T-1 ≈ 260, T-2 ≈ 2,000, T-3 ≈ 1,470 — tests ≈ 75 %); 5 Reviewer verdicts so far (T-3 review pending).
+- **Delta:** LOC budget exceeded with 5 tasks left (T-4, T-5, T-6 each sized M with large test tables). Projected total ≈ 7,000–8,000 LOC; Reviewer passes on track.
+- **Cause:** concurrency harness (SQL-executing driver + contract suite run against fake and adapter) and the interceptor decision table are far larger than the design's per-gate estimates (≈ 600 for T-2's pieces). Not scope growth: no task beyond the approved list; the size is in tests the defect-class gates require.
+- **Escalated to the back lead:** 2026-10-20, before the T-3 Reviewer spawn.
+- **Decision (back lead, 2026-10-20):** "Adelante, terminalo" — option 1: accept the larger size and continue; the LOC tripwire is re-baselined to the projection (≈ 8,000 LOC). Read as authorization to proceed through the remaining routine task gates; exceptions (HALT, Pivot, FATAL_FAIL, a further budget breach, the T-8 HITL step) still stop for the user.
+
 ## Constitution Impact: T-1
 
 - Shared schema gained `idempotency_keys` and migration `0002_idempotency_keys` (additive). `server/src/database/AGENTS.md` update is T-7 deliverable; TRD § 5.1 is a pending item for `staging`. Migration `0002` must be applied to `qadb` by a human (T-8) before the API runs against it with this code.
