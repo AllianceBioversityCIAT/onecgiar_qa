@@ -5,9 +5,22 @@ import { Observable, catchError, map, throwError } from 'rxjs';
  * Standard API response of the QA server (`server/src/common/api-response.ts`).
  * Copied by hand until a shared package exists (TRD ADR-007): keep it in sync.
  */
+export interface ApiPageMeta {
+  /** Opaque; send it back as `cursor` for the next page. `null` on the last page. */
+  readonly nextCursor: string | null;
+}
+
 export interface ApiMeta {
   readonly requestId: string;
   readonly timestamp: string;
+  /** Only on a paginated list. */
+  readonly page?: ApiPageMeta;
+}
+
+/** One page of a list plus the cursor of the next one. */
+export interface ApiPage<T> {
+  readonly items: readonly T[];
+  readonly nextCursor: string | null;
 }
 
 export interface ApiFieldError {
@@ -128,6 +141,23 @@ export function unwrap<T>() {
           throw new ApiError(body.error, body.meta?.requestId ?? null);
         }
         return body.data;
+      }),
+      catchError((error: unknown) => throwError(() => toApiError(error))),
+    );
+}
+
+/** Like `unwrap()` for a paginated list: keeps `meta.page.nextCursor` next to the items. */
+export function unwrapPage<T>() {
+  return (source: Observable<ApiEnvelope<readonly T[]> | null>): Observable<ApiPage<T>> =>
+    source.pipe(
+      map((body) => {
+        if (!isEnvelope(body)) {
+          throw new ApiError({ status: 200, code: CLIENT_ERROR.UNEXPECTED_RESPONSE, message: UNEXPECTED_MESSAGE });
+        }
+        if (!body.success) {
+          throw new ApiError(body.error, body.meta?.requestId ?? null);
+        }
+        return { items: body.data ?? [], nextCursor: body.meta.page?.nextCursor ?? null };
       }),
       catchError((error: unknown) => throwError(() => toApiError(error))),
     );

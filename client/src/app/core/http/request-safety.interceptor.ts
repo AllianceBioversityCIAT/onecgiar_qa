@@ -11,7 +11,7 @@ import { AuthSession } from '../auth/auth-session';
 import { isApiUrl, isAuthUrl } from '../auth/auth.interceptor';
 import { APP_CONFIG } from '../config/app-config';
 import { toApiError } from './api-envelope';
-import { QUEUE_REPLAY, SILENT_ERRORS, TIMEOUT_MS, isWrite } from './request-context';
+import { NO_QUEUE, QUEUE_REPLAY, SILENT_ERRORS, TIMEOUT_MS, isWrite } from './request-context';
 import { Toasts } from './toasts';
 import { IDEMPOTENCY_HEADER, UnsentQueue, actionSignature, isTransientStatus, newId } from './unsent-queue';
 
@@ -51,7 +51,7 @@ export const requestSafetyInterceptor: HttpInterceptorFn = (req, next) => {
   if (shared) return shared;
 
   const queue = () => injector.get(UnsentQueue);
-  const tracked = write && !auth && !replay;
+  const tracked = write && !auth && !replay && !req.context.get(NO_QUEUE);
   const prepared =
     write && !req.headers.has(IDEMPOTENCY_HEADER)
       ? req.clone({ setHeaders: { [IDEMPOTENCY_HEADER]: (tracked && queue().keyFor(key)) || newId() } })
