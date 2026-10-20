@@ -1,6 +1,7 @@
 // Shared QA Platform UI kit. Import from 'src/app/ui' (relative path, e.g. '../../ui').
 export * from './tokens/qa-tokens';
 export * from './drawer/qa-drawer';
+export * from './drawer/discard-guard';
 export * from './menu/qa-menu';
 export * from './switch/qa-switch';
 export * from './segmented/qa-segmented';
@@ -13,3 +14,4 @@ export * from './progress/qa-progress';
 export * from './date-picker/qa-date-picker';
 export * from './dialog/qa-dialog';
 export * from './button/qa-button';
+export * from './unsent/qa-unsent-center';
