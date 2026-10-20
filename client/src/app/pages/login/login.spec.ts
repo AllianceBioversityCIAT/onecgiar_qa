@@ -13,12 +13,18 @@ async function setup() {
   await fixture.whenStable();
   const host = fixture.nativeElement as HTMLElement;
 
+  const openPasswordSignIn = () => {
+    host.querySelector<HTMLButtonElement>('[data-testid="password-sign-in"]')?.click();
+    fixture.detectChanges();
+  };
   const type = (id: string, value: string) => {
+    openPasswordSignIn();
     const input = host.querySelector<HTMLInputElement>(`#${id}`)!;
     input.value = value;
     input.dispatchEvent(new Event('input'));
   };
   const submit = async () => {
+    openPasswordSignIn();
     host.querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
     await tick();
     fixture.detectChanges();
@@ -30,10 +36,22 @@ async function setup() {
   };
   const text = (selector: string) => host.querySelector(selector)?.textContent?.trim() ?? '';
 
-  return { fixture, host, http, navigate, type, submit, settle, text };
+  return { fixture, host, http, navigate, openPasswordSignIn, type, submit, settle, text };
 }
 
 describe('LoginPage', () => {
+  it('SSO comes first and the email form stays folded until asked for', async () => {
+    const { fixture, host, openPasswordSignIn } = await setup();
+    const buttons = [...host.querySelectorAll<HTMLButtonElement>('main button')];
+    expect(buttons[0].dataset['testid']).toBe('sso');
+    expect(host.querySelector('#email')).toBeNull();
+    openPasswordSignIn();
+    await fixture.whenStable();
+    expect(host.querySelector('#email')).not.toBeNull();
+    expect(host.querySelector('[data-testid="password-sign-in"]')).toBeNull();
+    expect(document.activeElement?.id).toBe('email');
+  });
+
   it('empty submit: no request, both fields required', async () => {
     const { http, submit, text } = await setup();
     await submit();
