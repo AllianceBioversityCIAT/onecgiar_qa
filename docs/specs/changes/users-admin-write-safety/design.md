@@ -7,7 +7,7 @@
 | Spec path | `docs/specs/changes/users-admin-write-safety` |
 | Requirements | `requirements.md` (FR-1…FR-10, NFR-1…NFR-5) |
 | Depth | Full |
-| Status | Draft |
+| Status | Approved (back lead, 2026-10-20) |
 | Base commit | `d858030` (branch `feat/users-admin-write-safety`, from `origin/staging-center` @ `21ca0ca`) |
 | Exploration | Delegated to a read-only scout (citations as run, below) |
 | Last updated | 2026-10-20 |

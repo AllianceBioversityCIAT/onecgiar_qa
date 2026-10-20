@@ -8,7 +8,7 @@
 | Type | Change |
 | Depth | Full (API contract, new persisted data, migration, concurrency) |
 | Approval Mode | gated |
-| Status | Draft |
+| Status | Approved (back lead, 2026-10-20) |
 | Source | `proposal.md` (2026-10-20); front lead request (Slack DM 2026-10-20) |
 | Builds on | `docs/specs/archive/2026-10-19-auth--user-management--core/` (cited below as *core*) |
 | Jira | none yet (story P2-3908 is the parent context) |
