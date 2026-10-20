@@ -5,7 +5,7 @@ import {
   provideBrnPopoverConfig,
   provideBrnPopoverDefaultOptions,
 } from '@spartan-ng/brain/popover';
-import { ROLE_OPTIONS, TeamMember, TeamRole } from './assessors.mock';
+import { ROLE_OPTIONS, TeamMember, TeamRole } from './assessors.models';
 
 /** Role cell of the team table: shows the role (+ Lead chip) and opens a radio list to change it. */
 @Component({
