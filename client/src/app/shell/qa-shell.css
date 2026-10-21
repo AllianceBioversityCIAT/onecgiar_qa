@@ -11,9 +11,21 @@
   -webkit-font-smoothing: antialiased;
 }
 
-/* Active nav item: tint and 600 weight, no side stripe. */
+/* Active nav item: tint, 600 weight and a short centered marker on the left edge (as in Jira). */
 .qa-nav-active {
   background: var(--tint-2);
   color: var(--accent);
   font-weight: 600;
+}
+
+.qa-nav-active::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 2px;
+  height: 16px;
+  border-radius: 2px;
+  background: var(--primary);
+  transform: translateY(-50%);
 }

@@ -3,16 +3,16 @@ import { OvAttention, AttentionGroupVm } from './ov-attention';
 import { OvLoadDrawer } from './ov-load-drawer';
 import { CycleHeroVm, OvCycleHero, RoundVm } from './ov-cycle-hero';
 import { QaStage, RESULTS, qaStage } from '../results/results.mock';
-import { OvStages, StageVm } from './ov-stages';
+import { OvStages, StageStatus, TimelineStagesVm } from './ov-stages';
 import { OvTimelineLanes, TimelineLaneVm } from './ov-timeline-lanes';
 import { OvWork, WorkRowVm, WorkTab } from './ov-work';
-import { TimelineInfo, daysFromToday, fmt, phaseState, timelineInfo } from './overview-calc';
+import { TimelineInfo, daysFromToday, fmt, parseDate, phaseState, shortDate, timelineInfo } from './overview-calc';
 import {
   ATTENTION,
+  MOCK_TODAY,
   PHASE_ELAPSED,
   PROGRAMS,
-  STAGES,
-  STAGE_BASE,
+  STAGE_CRITERIA,
   TIMELINES,
   Timeline,
   WORK_BASE,
@@ -112,7 +112,7 @@ export class OverviewView {
     const info = official ? timelineInfo(official) : null;
     const live = this.timelines.filter((b) => b.status === 'Live').length;
     return {
-      eyebrow: `2026 cycle, ${live} live ${live === 1 ? 'timeline' : 'timelines'}`,
+      eyebrow: `${official?.name ?? 'Cycle'}, ${live} live ${live === 1 ? 'timeline' : 'timelines'}`,
       total: this.totalText,
       step: info ? `Step ${info.step} of ${info.steps}: ${info.phase.name}` : '',
       stepWhen: info ? whenText(info) : '',
@@ -147,24 +147,35 @@ export class OverviewView {
     }),
   );
 
-  // ---------- Stage completion ----------
-  protected readonly stages = computed<StageVm[]>(() => {
-    const f = this.total / STAGE_BASE;
-    return STAGES.map((s, i) => {
-      const done = Math.round(s.done * f);
-      const of = Math.round(s.of * f);
-      const pct = of ? Math.round((done / of) * 100) : 0;
-      const status = s.closed ? 'Closed' : done === 0 ? 'Not started' : pct < (s.elapsed ?? 0) ? 'Behind' : 'In progress';
-      return {
-        n: i + 1, name: s.name, criterion: s.criterion, round: i < 2 ? 'QA round 1' : 'QA round 2',
-        pct, detail: ` (${fmt(done)}\u00a0of\u00a0${fmt(of)} ${s.word})`, left: of - done, leftText: fmt(of - done),
-        status, closed: s.closed, statuses: s.statuses,
-      };
-    });
-  });
-  protected readonly shortNote = computed(() => {
-    const short = this.stages().find((s) => s.closed && s.left > 0);
-    return short ? `Stage ${short.n} closed with ${short.leftText} results uncorrected. They stay as they were submitted.` : null;
+  // ---------- Stages of one timeline (pop-up) ----------
+  /** Timeline whose stages pop-up is open (kept while it animates out). */
+  private readonly stagesId = signal<string | null>(null);
+  protected readonly stagesOpen = signal(false);
+
+  protected readonly stagesData = computed<TimelineStagesVm | null>(() => {
+    const b = this.timelines.find((t) => t.id === this.stagesId());
+    if (!b) return null;
+    return {
+      name: b.name,
+      meta: `${b.kind}, ${fmt(b.results)} results`,
+      rows: b.phases.map((p, i) => {
+        const st = phaseState(p, b);
+        const start = parseDate(p.start);
+        const end = parseDate(p.end);
+        // Behind: less done than the share of the stage window already gone.
+        const elapsed = start && end && end > start ? ((MOCK_TODAY.getTime() - start.getTime()) / (end.getTime() - start.getTime())) * 100 : 0;
+        const status: StageStatus = st.kind === 'done' ? 'Closed' : st.kind === 'future' ? 'Not started' : st.pct < elapsed ? 'Behind' : 'In progress';
+        return {
+          n: i + 1,
+          name: p.name,
+          criterion: STAGE_CRITERIA[p.name] ?? '',
+          dates: p.end ? `${shortDate(p.start)} \u2013 ${shortDate(p.end)}` : `From ${shortDate(p.start)}`,
+          status,
+          progress: st.kind === 'active' && st.of > 0 ? { pct: st.pct, done: fmt(st.done), of: fmt(st.of), left: fmt(st.of - st.done) } : null,
+          summary: st.kind === 'done' ? (p.done ?? '') : '',
+        };
+      }),
+    };
   });
 
   // ---------- Needs attention ----------
@@ -228,6 +239,12 @@ export class OverviewView {
   });
 
   // ---------- Actions ----------
+  /** "View stages" on a timeline lane. */
+  protected openStages(id: string): void {
+    this.stagesId.set(id);
+    this.stagesOpen.set(true);
+  }
+
   /** A timeline row in "Where the work is": scroll to its lane and flash it. */
   protected pickTimeline(id: string): void {
     clearTimeout(this.highlightTimer);

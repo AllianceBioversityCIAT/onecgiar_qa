@@ -217,7 +217,7 @@ const STATUS_CLASS: Record<string, string> = {
   Closed: 'bg-(--surface-3) text-(--text-muted)',
 };
 
-export function timelineVM(t: Timeline, readOnly: boolean): TimelineVM {
+export function timelineVM(t: Timeline): TimelineVM {
   const n = t.steps.length;
   const closed = t.status === 'Closed';
   const states = t.steps.map((p) => stepState(p, t));
@@ -284,7 +284,7 @@ export function timelineVM(t: Timeline, readOnly: boolean): TimelineVM {
     range: first ? `${shortDate(first.start)} – ${last.end || last.start}` : '—',
     results: formatNumber(t.results),
     stepCount: n,
-    canEdit: !readOnly && !closed,
+    canEdit: !closed,
     progText: t.programs.length ? t.programs.join(', ') : 'All programs',
     typeText: t.types.length ? t.types.join(', ') : 'All result types',
     steps,

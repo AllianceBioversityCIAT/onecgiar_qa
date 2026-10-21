@@ -29,10 +29,11 @@ export interface WorkRowVm {
   readonly timelineId: string | null;
 }
 
-const PACE: Record<Pace, { color: string; icon: string }> = {
-  'On track': { color: 'text-(--text-3)', icon: 'M20 6L9 17l-5-5' },
-  Behind: { color: 'text-(--warning)', icon: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 6v6l4 2' },
-  'At risk': { color: 'text-(--danger)', icon: 'M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01' },
+/** Only "At risk" keeps a color, so the urgent rows stand out (same rule as Needs attention). */
+const PACE: Record<Pace, string> = {
+  'On track': 'text-(--text-4)',
+  Behind: 'text-(--text-2)',
+  'At risk': 'font-semibold text-(--danger)',
 };
 
 const TABS: readonly { value: WorkTab; label: string }[] = [
@@ -58,7 +59,6 @@ const TAB = '@max-2xl:h-10 @max-2xl:flex-auto @max-2xl:justify-center';
     <section aria-labelledby="overview-ww-title" class="flex flex-col gap-4 rounded-[12px] border border-(--border) bg-(--surface) p-5">
       <div class="flex flex-col gap-1">
         <h3 id="overview-ww-title" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">Where the work is</h3>
-        <p class="m-0 text-(length:--fs-13) font-normal text-(--text-3)">Least advanced first.</p>
       </div>
 
       <div qaTabs variant="segmented" [(value)]="tab" class="gap-4">
@@ -67,8 +67,8 @@ const TAB = '@max-2xl:h-10 @max-2xl:flex-auto @max-2xl:justify-center';
           <button qaTab="program" class="${TAB}">By science program</button>
           <button qaTab="assessor" class="${TAB}">By assessor</button>
           <span aria-hidden="true" class="mx-1 h-[18px] w-px flex-none self-center bg-(--border) @max-2xl:hidden"></span>
-          <button qaTab="risk" class="gap-[6px] text-(--warning)! hover:text-(--warning)! ${TAB}">
-            At risk<span class="text-(length:--fs-12) font-semibold tabular-nums">{{ riskCount() }}</span>
+          <button qaTab="risk" class="gap-[6px] ${TAB}">
+            At risk<span class="text-(length:--fs-12) font-normal tabular-nums text-(--text-muted)">{{ riskCount() }}</span>
           </button>
           <button qaTab="timeline" class="${TAB}">By timeline</button>
         </div>
@@ -124,7 +124,7 @@ const TAB = '@max-2xl:h-10 @max-2xl:flex-auto @max-2xl:justify-center';
                               <div class="h-full rounded-full bg-(--primary) transition-[width] duration-200" [style.width.%]="w.pct"></div>
                             </div>
                             <span class="truncate text-(length:--fs-12) font-normal text-(--text-3) @max-2xl:col-start-1 @max-2xl:row-start-3 @max-2xl:self-center @max-2xl:whitespace-normal"
-                              ><span class="font-bold whitespace-nowrap tabular-nums text-(--text)">{{ w.pct }}%</span
+                              ><span class="font-medium whitespace-nowrap tabular-nums text-(--text)">{{ w.pct }}%</span
                               ><span class="text-(--text-4)">{{ w.detail }}</span></span
                             >
                           </div>
@@ -133,9 +133,7 @@ const TAB = '@max-2xl:h-10 @max-2xl:flex-auto @max-2xl:justify-center';
                           {{ w.pending }}<span class="hidden font-sans text-(length:--fs-12) font-normal text-(--text-4) @max-2xl:inline"> pending</span>
                         </td>
                         <td class="pr-1 text-right align-middle @max-2xl:col-start-2 @max-2xl:row-start-1 @max-2xl:block @max-2xl:self-start @max-2xl:p-0">
-                          <span class="inline-flex items-center gap-[6px] text-(length:--fs-12) font-medium whitespace-nowrap" [class]="pace[w.pace].color">
-                            <svg class="flex-none" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path [attr.d]="pace[w.pace].icon"></path></svg>{{ w.pace }}
-                          </span>
+                          <span class="text-(length:--fs-13) font-normal whitespace-nowrap" [class]="pace[w.pace]">{{ w.pace }}</span>
                         </td>
                       </tr>
                     }

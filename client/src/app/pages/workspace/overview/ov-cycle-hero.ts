@@ -22,7 +22,7 @@ export interface RoundVm {
 }
 
 export interface CycleHeroVm {
-  /** "2026 cycle, 2 live timelines". */
+  /** "Annual report 2026, 2 live timelines". */
   readonly eyebrow: string;
   readonly total: string;
   /** Current step of the official timeline, e.g. "Step 5 of 5: QA platform open for PPU". */
