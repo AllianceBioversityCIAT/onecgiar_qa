@@ -235,3 +235,5 @@ Persona check: `akili doctor --agents` — no drift blocking (2026-10-21).
 - **→ T-10:** add a check of three or more concurrent activations with no cycle active (no 500), alongside the 20-activation check.
 
 **Final verification:** VERIFIED (see the evidence re-run above).
+
+**T-5 gate (2026-10-21):** the back lead approved the § 7.3 amendment. **Execute-time spec edit:** `design.md` § 7.3, Activate cycle row. It adds the none-active case: no row to lock, so the second activation gets 1062 on `uq_cycles_active_key`, rolls back fully and retries once with the same outcome. The "never fires" clause now reads "while an active row exists". Reason: the T-5 Reviewer A spec gap. Requirement meaning is unchanged (FR-3 / NFR-3 outcomes). This edit is carried as a named conformance check into the T-6 and T-7 Reviewer briefs.
