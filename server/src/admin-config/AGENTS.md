@@ -1,6 +1,6 @@
 # src/admin-config — Agent Guide
 
-Cycles and QA timelines: the admin API that says *when* QA runs, *for which* Science Programs and result types, and *who* works in each timeline. Spec: `docs/specs/admin-config/cycle-timelines/` (`design.md`, DD-1…DD-10). What the front may rely on: `front-contract.md` in the same folder. Root and `server/AGENTS.md` rules apply.
+Cycles and QA timelines: the admin API that says *when* QA runs, *for which* Science Programs and result types, and *who* works in each timeline. Spec (archived): `docs/specs/archive/2026-10-21-admin-config--cycle-timelines/` (`design.md`, DD-1…DD-10). What the front may rely on: `front-contract.md` in the same folder. Root and `server/AGENTS.md` rules apply.
 
 ## Model in one line
 
