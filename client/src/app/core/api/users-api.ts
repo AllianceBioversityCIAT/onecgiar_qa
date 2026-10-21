@@ -9,6 +9,7 @@ import {
   CreateUserBody,
   EditUserBody,
   ListUsersQuery,
+  ReplaceUserBody,
   RoleGrant,
   UserDetail,
   UserSummary,
@@ -22,10 +23,9 @@ const CREATE_TIMEOUT_MS = 60_000;
 /**
  * HTTP calls of the user-management API (`/api/v1/users`, ADMIN only). Only transport, no state.
  * Writes are silent (the drawer shows field errors and conflicts inline) and carry a label for the
- * Unsent list. Until the server honors `Idempotency-Key` (Juanda's spec `users-admin-write-safety`),
- * only the writes that are safe to repeat go to the unsent queue: PATCH, PUT roles / programs,
- * deactivate, activate. Create (a repeat answers 409 EMAIL_TAKEN), exclusions (409 / 404) and the
- * invitation (every repeat sends another Cognito email) are never replayed.
+ * Unsent list. The server honors `Idempotency-Key` on every write (spec `users-admin-write-safety`,
+ * 20-oct-2026): a repeat returns the first answer, so every write may be replayed from the unsent
+ * queue. Create alone stays out of it: the drawer keeps the form and shows the failure itself.
  */
 @Service()
 export class UsersApi {
@@ -61,6 +61,11 @@ export class UsersApi {
     return this.write('PATCH', `${this.base}/${id}`, body, `Edit ${who}`);
   }
 
+  /** The whole person in one transaction: any refusal changes nothing. */
+  replace(id: number, body: ReplaceUserBody, who: string): Observable<UserDetail> {
+    return this.write('PUT', `${this.base}/${id}`, body, `Save ${who}`);
+  }
+
   setRoles(id: number, roles: readonly RoleGrant[], who: string): Observable<UserDetail> {
     return this.write('PUT', `${this.base}/${id}/roles`, { roles }, `Roles of ${who}`);
   }
@@ -70,15 +75,15 @@ export class UsersApi {
   }
 
   addExclusion(id: number, programId: number, reason: string, who: string): Observable<UserDetail> {
-    return this.write('POST', `${this.base}/${id}/exclusions`, { programId, reason }, `Block a program for ${who}`, false);
+    return this.write('POST', `${this.base}/${id}/exclusions`, { programId, reason }, `Block a program for ${who}`);
   }
 
   removeExclusion(id: number, exclusionId: number, who: string): Observable<UserDetail> {
-    return this.write('DELETE', `${this.base}/${id}/exclusions/${exclusionId}`, null, `Unblock a program for ${who}`, false);
+    return this.write('DELETE', `${this.base}/${id}/exclusions/${exclusionId}`, null, `Unblock a program for ${who}`);
   }
 
   dismissExclusion(id: number, exclusionId: number, reason: string, who: string): Observable<UserDetail> {
-    return this.write('POST', `${this.base}/${id}/exclusions/${exclusionId}/dismiss`, { reason }, `Dismiss a block for ${who}`, false);
+    return this.write('POST', `${this.base}/${id}/exclusions/${exclusionId}/dismiss`, { reason }, `Dismiss a block for ${who}`);
   }
 
   deactivate(id: number, who: string): Observable<UserDetail> {
@@ -90,7 +95,7 @@ export class UsersApi {
   }
 
   resendInvitation(id: number, who: string): Observable<UserDetail> {
-    return this.write('POST', `${this.base}/${id}/invitation`, null, `Resend the invitation to ${who}`, false);
+    return this.write('POST', `${this.base}/${id}/invitation`, null, `Resend the invitation to ${who}`);
   }
 
   /** `replayable = false`: a lost answer is shown to the user instead of going to the unsent queue. */

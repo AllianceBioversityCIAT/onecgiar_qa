@@ -156,6 +156,28 @@ describe('UnsentQueue', () => {
     expect(queue.items()[0].state).toBe('pending');
   });
 
+  it('409 IDEMPOTENCY_IN_PROGRESS on replay waits for later with the same key; 422 KEY_REUSED is rejected', async () => {
+    await signIn();
+    const queue = TestBed.inject(UnsentQueue);
+    await failOffline();
+    queue.keepAwaiting();
+    const key = queue.items()[0].idempotencyKey;
+
+    void queue.sendPending();
+    await tick();
+    http.expectOne(`${API}/users`).flush(err(409, 'IDEMPOTENCY_IN_PROGRESS', 'Still running.'), { status: 409, statusText: 'x' });
+    await tick();
+    expect(queue.items()[0].state).toBe('pending');
+
+    void queue.sendPending();
+    await tick();
+    const again = http.expectOne(`${API}/users`);
+    expect(again.request.headers.get(IDEMPOTENCY_HEADER)).toBe(key);
+    again.flush(err(422, 'IDEMPOTENCY_KEY_REUSED', 'Start again.'), { status: 422, statusText: 'x' });
+    await tick();
+    expect(queue.items()[0].state).toBe('rejected');
+  });
+
   it('a rejected item can be tried again on purpose', async () => {
     await signIn();
     const queue = TestBed.inject(UnsentQueue);
