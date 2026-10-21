@@ -171,32 +171,16 @@ export const STATUS_COUNTS: readonly (readonly [status: ResultStatus, count: num
   ['Quality assessed', 357],
 ];
 
-// ---------- Stage completion ----------
+// ---------- Stages ----------
 
-export interface Stage {
-  readonly name: string;
-  readonly criterion: string;
-  /** Done / total for the July sub-timeline (216 results); the view scales them to the timeline. */
-  readonly done: number;
-  readonly of: number;
-  readonly word: string;
-  readonly closed: boolean;
-  /** Result statuses the row opens in Results. */
-  readonly statuses: readonly ResultStatus[];
-  /** % of the stage window already elapsed (below it the stage is "Behind"). */
-  readonly elapsed?: number;
-}
-
-/** Results the stage numbers above are based on. */
-export const STAGE_BASE = 216;
-
-export const STAGES: readonly Stage[] = [
-  { name: 'Assessor review', criterion: 'Closes when every assigned assessor has reviewed all of their results.', done: 216, of: 216, word: 'reviewed', closed: true, statuses: ['Pending', 'In review'] },
-  { name: 'Science program corrections', criterion: 'Closes when every returned result has been corrected in the reporting tool or the window ends.', done: 31, of: 38, word: 'corrected', closed: true, statuses: ['Awaiting response'] },
-  { name: 'Lead assessor review', criterion: 'Closes when every escalated case has a decision from a lead assessor.', done: 12, of: 12, word: 'decided', closed: true, statuses: ['Answered'] },
-  { name: 'Third-party broker decisions', criterion: 'Closes when every highlighted field has a final decision from a broker.', done: 12, of: 12, word: 'decided', closed: true, statuses: ['In review'] },
-  { name: 'PPU closure', criterion: 'Closes when PPU has closed every result in the timeline.', done: 134, of: 216, word: 'closed', closed: false, statuses: ['Answered'], elapsed: 55 },
-];
+/** What closes each stage, by stage name. Each timeline has its own stages; a stage not listed here shows no condition. */
+export const STAGE_CRITERIA: Readonly<Record<string, string>> = {
+  [PHASE_NAMES[0]]: 'Closes when every assigned assessor has reviewed all of their results.',
+  [PHASE_NAMES[1]]: 'Closes when every returned result has been corrected in the reporting tool or the window ends.',
+  [PHASE_NAMES[2]]: 'Closes when every escalated case has a decision from a lead assessor.',
+  [PHASE_NAMES[3]]: 'Closes when every highlighted field has a final decision from a broker.',
+  [PHASE_NAMES[4]]: 'Closes when PPU has closed every result in the timeline.',
+};
 
 // ---------- Needs attention ----------
 

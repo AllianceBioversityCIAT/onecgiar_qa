@@ -27,7 +27,6 @@ const VISIBLE = 5;
             <span class="text-(length:--fs-14) font-semibold tabular-nums text-(--text-muted)" [attr.aria-label]="count() + ' items'">{{ count() }}</span>
           }
         </div>
-        <p class="m-0 text-(length:--fs-13) font-normal text-(--text-3)">Issues in this cycle that need someone to act.</p>
       </div>
 
       @if (count()) {

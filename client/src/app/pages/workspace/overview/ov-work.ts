@@ -59,7 +59,6 @@ const TAB = '@max-2xl:h-10 @max-2xl:flex-auto @max-2xl:justify-center';
     <section aria-labelledby="overview-ww-title" class="flex flex-col gap-4 rounded-[12px] border border-(--border) bg-(--surface) p-5">
       <div class="flex flex-col gap-1">
         <h3 id="overview-ww-title" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">Where the work is</h3>
-        <p class="m-0 text-(length:--fs-13) font-normal text-(--text-3)">Least advanced first.</p>
       </div>
 
       <div qaTabs variant="segmented" [(value)]="tab" class="gap-4">
