@@ -173,11 +173,11 @@ export class TimelineUserModel implements TimelineUserResponse {
   @ApiProperty({ type: Number, example: 7 })
   userId!: number;
 
-  @ApiProperty({ type: String, example: 'Ada' })
-  firstName!: string;
+  @ApiProperty({ type: String, nullable: true, example: 'Ada' })
+  firstName!: string | null;
 
-  @ApiProperty({ type: String, example: 'Lovelace' })
-  lastName!: string;
+  @ApiProperty({ type: String, nullable: true, example: 'Lovelace' })
+  lastName!: string | null;
 
   @ApiProperty({ type: String, example: 'ada@cgiar.org' })
   email!: string;

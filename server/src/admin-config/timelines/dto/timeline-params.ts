@@ -17,3 +17,18 @@ export class TimelineIdParams {
   @Max(UNSIGNED_INT_MAX)
   id!: number;
 }
+
+/** `:id` and `:assignmentId` of `/timelines/:id/users/:assignmentId`; either one that is not a positive integer is a 400. */
+export class TimelineAssignmentParams extends TimelineIdParams {
+  @ApiProperty({
+    type: Number,
+    minimum: 1,
+    example: 12,
+    description: 'Assignment id',
+  })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(UNSIGNED_INT_MAX)
+  assignmentId!: number;
+}

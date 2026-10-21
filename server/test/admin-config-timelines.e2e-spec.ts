@@ -14,11 +14,12 @@ import {
 } from './support/admin-config-app.js';
 import { LogSpy } from './support/log-spy.js';
 
-// Timelines over the real app (cycle-timelines T-6 and T-7: the defaults, the
-// create, the list and the detail): FR-4 (defaults), FR-5 (official or
+// Timelines over the real app (cycle-timelines T-6, T-7 and T-8: the defaults,
+// the create, the list, the detail, and assigning and removing users): FR-4 (defaults), FR-5 (official or
 // additional, two at once, closed or unknown cycle, kind sent), FR-6 (name,
 // scope, catalog down), FR-11 (every problem at once), FR-12 (list and detail
-// by date, with the clock overridden), FR-13 (readiness), FR-16 (admin only),
+// by date, with the clock overridden), FR-13 (readiness), FR-14 (assign), FR-15
+// (remove), FR-16 (admin only),
 // FR-17 (safe retries), NFR-1, NFR-2, NFR-3, NFR-5, NFR-7. The guards, the pipe, the filter, the idempotency interceptor
 // and OpenAPI are real; the stores, the catalog sources and the clocks are the
 // in-memory world (today in Rome is 2026-10-20). Expected values are the
@@ -136,7 +137,25 @@ describe('Timelines routes: defaults, create, list and detail (e2e)', () => {
       w.world.steps,
       w.world.programs,
       w.world.resultTypes,
+      w.world.assignments,
     ]);
+  /** `users.id` of a seeded actor, by the sub it signs in with. */
+  const userIdOf = (sub: string) =>
+    w.db.users.find((u) => u.cognitoSub === sub)!.id;
+  const assign = (
+    timelineId: number,
+    userId: unknown,
+    role: unknown,
+    options: { token?: string | null } = {},
+  ) =>
+    w.send('post', `/timelines/${timelineId}/users`, {
+      body: { userId, role },
+      ...options,
+    });
+  const unassign = (
+    timelineId: number | string,
+    assignmentId: number | string,
+  ) => w.send('delete', `/timelines/${timelineId}/users/${assignmentId}`);
   const nothingRan = () => ({
     rows: rows(),
     begun: w.timelinesUnitOfWork.begun,
@@ -196,8 +215,8 @@ describe('Timelines routes: defaults, create, list and detail (e2e)', () => {
 
   describe('FR-16: access', () => {
     type Route = [
-      'defaults' | 'create' | 'list' | 'detail',
-      'get' | 'post',
+      'defaults' | 'create' | 'list' | 'detail' | 'assign' | 'remove',
+      'get' | 'post' | 'delete',
       string,
       object?,
     ];
@@ -206,6 +225,8 @@ describe('Timelines routes: defaults, create, list and detail (e2e)', () => {
       ['create', 'post', '/cycles/1/timelines', body()],
       ['list', 'get', '/cycles/1/timelines'],
       ['detail', 'get', '/timelines/1'],
+      ['assign', 'post', '/timelines/1/users', { userId: 1, role: 'ASSESSOR' }],
+      ['remove', 'delete', '/timelines/1/users/1'],
     ];
 
     it('has a 403 row for every grantable role (a new role without one fails here)', () => {
@@ -260,16 +281,27 @@ describe('Timelines routes: defaults, create, list and detail (e2e)', () => {
       const created = await createTimeline(cycleId);
       const list = await w.send('get', `/cycles/${cycleId}/timelines`);
       const detail = await w.send('get', `/timelines/${created.body.data.id}`);
+      const assigned = await assign(
+        created.body.data.id,
+        userIdOf('sub-multi_grant'),
+        'ASSESSOR',
+      );
+      const removed = await unassign(
+        created.body.data.id,
+        assigned.body.data.assignmentId,
+      );
 
       expect([
         defaults.status,
         created.status,
         list.status,
         detail.status,
-      ]).toEqual([200, 201, 200, 200]);
+        assigned.status,
+        removed.status,
+      ]).toEqual([200, 201, 200, 200, 201, 204]);
     });
 
-    it('declares ADMIN_ACCESS on each of its 4 routes and none as public', () => {
+    it('declares ADMIN_ACCESS on each of its 6 routes and none as public', () => {
       const reflector = new Reflector();
       const served = Object.getOwnPropertyNames(TimelinesController.prototype)
         .map((name) => TimelinesController.prototype[name as never] as unknown)
@@ -295,6 +327,11 @@ describe('Timelines routes: defaults, create, list and detail (e2e)', () => {
 
       expect(served).toEqual([
         {
+          route: 'DELETE timelines/:id/users/:assignmentId',
+          permission: 'ADMIN_ACCESS',
+          isPublic: undefined,
+        },
+        {
           route: 'GET cycles/:id/timelines',
           permission: 'ADMIN_ACCESS',
           isPublic: undefined,
@@ -311,6 +348,11 @@ describe('Timelines routes: defaults, create, list and detail (e2e)', () => {
         },
         {
           route: 'POST cycles/:id/timelines',
+          permission: 'ADMIN_ACCESS',
+          isPublic: undefined,
+        },
+        {
+          route: 'POST timelines/:id/users',
           permission: 'ADMIN_ACCESS',
           isPublic: undefined,
         },
@@ -430,7 +472,7 @@ describe('Timelines routes: defaults, create, list and detail (e2e)', () => {
       expectError(unknown, 404, 'CYCLES_NOT_FOUND');
       expectError(malformed, 400, 'VALIDATION_FAILED');
       expect(fieldsOf(malformed)).toEqual([['id', 'INVALID_TYPE']]);
-      expect(rows()).toBe(JSON.stringify([[], [], [], []]));
+      expect(rows()).toBe(JSON.stringify([[], [], [], [], []]));
     });
 
     it.each([
@@ -1101,27 +1143,22 @@ describe('Timelines routes: defaults, create, list and detail (e2e)', () => {
       const first = await createTimeline(cycleId);
       const second = await createTimeline(cycleId, { name: 'Second' });
       const [a, b] = [first.body.data.id, second.body.data.id] as number[];
-      // `roles.id` 3 is ASSESSOR, 2 is LEAD_ASSESSOR. No route assigns users yet.
-      w.world.assignments.push(
-        ...[
-          { timelineId: a, roleId: 3, removed: false },
-          { timelineId: a, roleId: 3, removed: false },
-          { timelineId: a, roleId: 2, removed: true },
-          { timelineId: b, roleId: 3, removed: true },
-        ].map((row, index) => ({
-          id: index + 1,
-          timelineId: row.timelineId,
-          userId: w.admin.id,
-          roleId: row.roleId,
-          assignedAt: new Date(ISO),
-          assignedBy: w.admin.id,
-          removedAt: row.removed ? new Date(ISO) : null,
-          removedBy: row.removed ? w.admin.id : null,
-          activeKey: row.removed
-            ? null
-            : `${row.timelineId}:${index}:${row.roleId}`,
-        })),
+      // Two ASSESSORs stay on `a`; a LEAD_ASSESSOR on `a` and an ASSESSOR on `b` are assigned, then removed.
+      const kept = [
+        await assign(a, userIdOf('sub-assessor'), 'ASSESSOR'),
+        await assign(a, userIdOf('sub-multi_grant'), 'ASSESSOR'),
+      ];
+      const lead = await assign(
+        a,
+        userIdOf('sub-lead_assessor'),
+        'LEAD_ASSESSOR',
       );
+      const gone = await assign(b, userIdOf('sub-assessor'), 'ASSESSOR');
+      expect([...kept, lead, gone].map((res) => res.status)).toEqual([
+        201, 201, 201, 201,
+      ]);
+      expect((await unassign(a, lead.body.data.assignmentId)).status).toBe(204);
+      expect((await unassign(b, gone.body.data.assignmentId)).status).toBe(204);
 
       const list = await listOf(cycleId);
 
@@ -1160,27 +1197,30 @@ describe('Timelines routes: defaults, create, list and detail (e2e)', () => {
         expect(res.status).toBe(201);
       }
       expect(w.world.timelines).toHaveLength(50);
-      for (let n = 0; n < 200; n++) {
-        const id = w.world.assignments.length + 1;
-        const timelineId = (n % 50) + 1;
-        w.world.assignments.push({
-          id,
-          timelineId,
-          userId: w.admin.id,
-          roleId: 3,
-          assignedAt: new Date(ISO),
-          assignedBy: w.admin.id,
-          removedAt: null,
-          removedBy: null,
-          activeKey: `${timelineId}:${id}:3`,
-        });
+      // Four assignments on each of the 50 timelines, through the route.
+      const staff: Array<[string, string]> = [
+        ['sub-assessor', 'ASSESSOR'],
+        ['sub-multi_grant', 'ASSESSOR'],
+        ['sub-multi_grant', 'TPB'],
+        ['sub-lead_assessor', 'LEAD_ASSESSOR'],
+      ];
+      for (let timelineId = 1; timelineId <= 50; timelineId++) {
+        for (const [sub, role] of staff) {
+          const res = await assign(timelineId, userIdOf(sub), role);
+          expect(res.status).toBe(201);
+        }
       }
+      expect(w.world.assignments).toHaveLength(200);
       const listMany = await statementsOf(`/cycles/${cycleId}/timelines`);
       const detailMany = await statementsOf(`/timelines/${firstId}`);
 
       expect(listOne.length).toBeGreaterThan(0);
       expect(listMany).toHaveLength(listOne.length);
       expect(detailMany).toHaveLength(detailOne.length);
+      // The users of the detail come in one statement, however many there are.
+      expect(detailMany.filter((q) => q.startsWith('users:'))).toHaveLength(1);
+      const detailBody = await w.send('get', `/timelines/${firstId}`);
+      expect(detailBody.body.data.users).toHaveLength(4);
       // One statement per table: the steps of all 50 come in a single one.
       expect(listMany.filter((s) => s.startsWith('steps:'))).toHaveLength(1);
       expect(
@@ -1334,6 +1374,461 @@ describe('Timelines routes: defaults, create, list and detail (e2e)', () => {
           /confidential|Another Aug|INNOVATION_DEV/i.test(l),
         ),
       ).toEqual([]);
+    });
+  });
+
+  // --- FR-14, FR-15: the users of a timeline ------------------------------------
+
+  describe('FR-14, FR-15: POST /timelines/:id/users and DELETE /timelines/:id/users/:assignmentId', () => {
+    /** Cycle 2026 with one timeline (steps for Assessors and Science Programs). */
+    const setup = async () => {
+      const cycleId = await createCycle(2026);
+      const created = await createTimeline(cycleId);
+      expect(created.status).toBe(201);
+      return { cycleId, timelineId: created.body.data.id as number };
+    };
+    const detailOf = async (timelineId: number) => {
+      const res = await w.send('get', `/timelines/${timelineId}`);
+      expect(res.status).toBe(200);
+      return res.body.data;
+    };
+    /** The cycle 2026 is closed by the activation of 2027. */
+    const closeCycle = async (cycleId: number) => {
+      await activateCycle(cycleId);
+      await activateCycle(await createCycle(2027));
+    };
+    /** A user with an ASSESSOR and a TPB grant, switched off. */
+    const inactiveUser = async () => {
+      const user = await w.users.create({
+        email: 'off@cgiar.org',
+        firstName: 'Off',
+        lastName: 'User',
+        authSource: 'custom',
+        nickname: null,
+      });
+      await w.assignments.create({
+        userId: user.id,
+        roleCode: 'ASSESSOR',
+        resultTypeKey: 'KP',
+      });
+      await w.assignments.create({ userId: user.id, roleCode: 'TPB' });
+      await w.users.update(user.id, { isActive: false });
+      return user;
+    };
+    const grantOf = (userId: number, roleCode: string) => {
+      const role = w.db.roles.find((r) => r.code === roleCode)!;
+      return w.db.assignments.find(
+        (a) => a.userId === userId && a.roleId === role.id,
+      )!;
+    };
+
+    it('assigns a live ASSESSOR who holds another role: 201 with the assignment, then a repeat is 200 with the same data and no second row', async () => {
+      const { timelineId } = await setup();
+      const userId = userIdOf('sub-multi_grant'); // ASSESSOR and TPB
+
+      const first = await assign(timelineId, userId, 'ASSESSOR');
+      const again = await assign(timelineId, userId, 'ASSESSOR');
+
+      expect(first.status).toBe(201);
+      expect(first.body).toMatchObject({
+        success: true,
+        meta: { requestId: first.headers['x-request-id'] },
+      });
+      expect(first.body.data).toEqual({
+        assignmentId: 1,
+        userId,
+        firstName: 'sub-multi_grant',
+        lastName: 'Actor',
+        email: 'sub-multi_grant@cgiar.org',
+        role: 'ASSESSOR',
+        assignedAt: ISO,
+      });
+      expect(again.status).toBe(200);
+      expect(again.body.data).toEqual(first.body.data);
+      expect(w.world.assignments).toHaveLength(1);
+      // The database key, not a read, refused the second row.
+      expect(w.world.assignmentKeyViolations).toBe(1);
+    });
+
+    it('the detail lists her, and `users`, `assignedCount` and `readiness` agree after the assign and again after the remove; the row is kept', async () => {
+      const { timelineId } = await setup();
+      expect((await detailOf(timelineId)).readiness).toEqual([
+        'NO_RESULTS_LOADED',
+        'NO_ASSESSOR_ASSIGNED',
+      ]);
+
+      const assigned = await assign(
+        timelineId,
+        userIdOf('sub-multi_grant'),
+        'ASSESSOR',
+      );
+      const afterAssign = await detailOf(timelineId);
+      const removed = await unassign(
+        timelineId,
+        assigned.body.data.assignmentId,
+      );
+      const afterRemove = await detailOf(timelineId);
+
+      expect(afterAssign.users).toEqual([assigned.body.data]);
+      expect(afterAssign.assignedCount).toEqual({
+        ASSESSOR: 1,
+        LEAD_ASSESSOR: 0,
+        TPB: 0,
+        PPU: 0,
+      });
+      expect(afterAssign.readiness).toEqual(['NO_RESULTS_LOADED']);
+      expect(removed.status).toBe(204);
+      expect(removed.text).toBe('');
+      expect(afterRemove.users).toEqual([]);
+      expect(afterRemove.assignedCount.ASSESSOR).toBe(0);
+      expect(afterRemove.readiness).toEqual([
+        'NO_RESULTS_LOADED',
+        'NO_ASSESSOR_ASSIGNED',
+      ]);
+      expect(w.world.assignments).toHaveLength(1);
+      expect(w.world.assignments[0]).toMatchObject({
+        removedAt: new Date(ISO),
+        removedBy: w.admin.id,
+        activeKey: null,
+      });
+    });
+
+    it('one user in two roles is two entries, and two users in one role are two entries', async () => {
+      const { timelineId } = await setup();
+      const multi = userIdOf('sub-multi_grant');
+
+      const a = await assign(timelineId, multi, 'ASSESSOR');
+      const b = await assign(timelineId, multi, 'TPB');
+      const c = await assign(timelineId, userIdOf('sub-assessor'), 'ASSESSOR');
+
+      expect([a.status, b.status, c.status]).toEqual([201, 201, 201]);
+      const detail = await detailOf(timelineId);
+      expect(detail.users.map((u: any) => [u.userId, u.role])).toEqual([
+        [multi, 'ASSESSOR'],
+        [multi, 'TPB'],
+        [userIdOf('sub-assessor'), 'ASSESSOR'],
+      ]);
+      expect(detail.assignedCount).toEqual({
+        ASSESSOR: 2,
+        LEAD_ASSESSOR: 0,
+        TPB: 1,
+        PPU: 0,
+      });
+    });
+
+    it.each([
+      ['ADMIN', { role: 'ADMIN' }],
+      ['PROGRAM', { role: 'PROGRAM' }],
+      ['an unknown role', { role: 'GUEST' }],
+      ['a role in lower case', { role: 'assessor' }],
+    ])(
+      '%s is 400 VALIDATION_FAILED on `role` before anything is read, written or looked up',
+      async (_label, over) => {
+        const { timelineId } = await setup();
+        const before = nothingRan();
+
+        const res = await w.send('post', `/timelines/${timelineId}/users`, {
+          body: { userId: userIdOf('sub-multi_grant'), ...over },
+        });
+
+        expectError(res, 400, 'VALIDATION_FAILED');
+        expect(fieldsOf(res)).toEqual([['role', 'INVALID']]);
+        expect(nothingRan()).toEqual(before);
+      },
+    );
+
+    it.each([
+      ['a missing userId', undefined],
+      ['zero', 0],
+      ['a negative number', -3],
+      ['a fraction', 1.5],
+      ['a string', '7'],
+      ['null', null],
+      ['more than an unsigned int', 4294967296],
+    ])(
+      '%s is 400 VALIDATION_FAILED on `userId` and nothing runs',
+      async (_label, userId) => {
+        const { timelineId } = await setup();
+        const before = nothingRan();
+
+        const res = await assign(timelineId, userId, 'ASSESSOR');
+
+        expectError(res, 400, 'VALIDATION_FAILED');
+        expect(new Set(fieldsOf(res).map(([field]) => field))).toEqual(
+          new Set(['userId']),
+        );
+        expect(nothingRan()).toEqual(before);
+      },
+    );
+
+    it('a body without a role, and a path id that is not a number, are 400 and nothing runs', async () => {
+      const { timelineId } = await setup();
+      const before = nothingRan();
+
+      const noRole = await w.send('post', `/timelines/${timelineId}/users`, {
+        body: { userId: 3 },
+      });
+      const badTimeline = await assign('abc' as never, 3, 'ASSESSOR');
+      const badAssignment = await unassign(timelineId, 'abc');
+
+      expectError(noRole, 400, 'VALIDATION_FAILED');
+      expect(fieldsOf(noRole).map(([field]) => field)).toEqual(['role']);
+      expectError(badTimeline, 400, 'VALIDATION_FAILED');
+      expectError(badAssignment, 400, 'VALIDATION_FAILED');
+      expect(nothingRan()).toEqual(before);
+    });
+
+    it('an unknown user is 404 USERS_NOT_FOUND and an unknown timeline 404 TIMELINES_NOT_FOUND, with nothing written', async () => {
+      const { timelineId } = await setup();
+      const before = rows();
+
+      const noUser = await assign(timelineId, 99999, 'ASSESSOR');
+      const noTimeline = await assign(
+        999,
+        userIdOf('sub-assessor'),
+        'ASSESSOR',
+      );
+
+      expectError(noUser, 404, 'USERS_NOT_FOUND');
+      expectError(noTimeline, 404, 'TIMELINES_NOT_FOUND');
+      expect(rows()).toBe(before);
+    });
+
+    it('refuses with 409 TIMELINES_USER_NOT_ELIGIBLE an inactive user, a user without the role, and a user whose grant was revoked; each of them holds another live role', async () => {
+      const { timelineId } = await setup();
+      const off = await inactiveUser();
+      const multi = userIdOf('sub-multi_grant');
+      await w.db.stores.assignments.revoke(
+        grantOf(multi, 'ASSESSOR').id,
+        w.admin.id,
+        new Date(ISO),
+      );
+      const before = rows();
+
+      const refused = [
+        await assign(timelineId, off.id, 'ASSESSOR'), // inactive; ASSESSOR and TPB grants
+        await assign(timelineId, userIdOf('sub-lead_assessor'), 'ASSESSOR'), // only LEAD_ASSESSOR
+        await assign(timelineId, userIdOf('sub-assessor'), 'PPU'), // only ASSESSOR
+        await assign(timelineId, multi, 'ASSESSOR'), // ASSESSOR revoked, TPB live
+      ];
+
+      for (const res of refused) {
+        expectError(res, 409, 'TIMELINES_USER_NOT_ELIGIBLE');
+      }
+      expect(rows()).toBe(before);
+      // Her live TPB grant still qualifies her for TPB.
+      expect((await assign(timelineId, multi, 'TPB')).status).toBe(201);
+    });
+
+    it('a closed cycle is 409 CYCLES_CLOSED for an assign and for a remove, and writes nothing', async () => {
+      const { cycleId, timelineId } = await setup();
+      const assigned = await assign(
+        timelineId,
+        userIdOf('sub-multi_grant'),
+        'ASSESSOR',
+      );
+      await closeCycle(cycleId);
+      const before = rows();
+
+      const late = await assign(
+        timelineId,
+        userIdOf('sub-assessor'),
+        'ASSESSOR',
+      );
+      const lateRemove = await unassign(
+        timelineId,
+        assigned.body.data.assignmentId,
+      );
+
+      expectError(late, 409, 'CYCLES_CLOSED');
+      expectError(lateRemove, 409, 'CYCLES_CLOSED');
+      expect(rows()).toBe(before);
+      expect(w.world.assignments[0]!.removedAt).toBeNull();
+    });
+
+    it('a second remove is 404 TIMELINES_ASSIGNMENT_NOT_FOUND, and so is an assignment of another timeline, an unknown one, and an unknown timeline', async () => {
+      const { cycleId, timelineId } = await setup();
+      const other = await createTimeline(cycleId, { name: 'Other' });
+      const otherId = other.body.data.id as number;
+      const mine = await assign(
+        timelineId,
+        userIdOf('sub-assessor'),
+        'ASSESSOR',
+      );
+      const theirs = await assign(
+        otherId,
+        userIdOf('sub-assessor'),
+        'ASSESSOR',
+      );
+      const myId = mine.body.data.assignmentId as number;
+      expect((await unassign(timelineId, myId)).status).toBe(204);
+      const before = rows();
+
+      const again = await unassign(timelineId, myId);
+      const elsewhere = await unassign(
+        timelineId,
+        theirs.body.data.assignmentId,
+      );
+      const unknown = await unassign(timelineId, 99999);
+      const noTimeline = await unassign(999, myId);
+
+      expectError(again, 404, 'TIMELINES_ASSIGNMENT_NOT_FOUND');
+      expectError(elsewhere, 404, 'TIMELINES_ASSIGNMENT_NOT_FOUND');
+      expectError(unknown, 404, 'TIMELINES_ASSIGNMENT_NOT_FOUND');
+      expectError(noTimeline, 404, 'TIMELINES_NOT_FOUND');
+      expect(rows()).toBe(before);
+      expect(
+        w.world.assignments.filter((a) => a.removedAt === null),
+      ).toHaveLength(1);
+    });
+
+    it('a re-assign after a removal is 201 with a new assignment id, and the detail lists only the new one', async () => {
+      const { timelineId } = await setup();
+      const userId = userIdOf('sub-multi_grant');
+      const first = await assign(timelineId, userId, 'ASSESSOR');
+      await unassign(timelineId, first.body.data.assignmentId);
+
+      const again = await assign(timelineId, userId, 'ASSESSOR');
+
+      expect(again.status).toBe(201);
+      expect(again.body.data.assignmentId).toBe(2);
+      expect((await detailOf(timelineId)).users).toEqual([again.body.data]);
+      expect(w.world.assignments).toHaveLength(2);
+      expect(w.world.assignmentKeyViolations).toBe(0);
+    });
+
+    it('two identical assigns sent at once leave one active row and the same assignment id in both answers', async () => {
+      const { timelineId } = await setup();
+      const userId = userIdOf('sub-multi_grant');
+
+      const [a, b] = await Promise.all([
+        assign(timelineId, userId, 'ASSESSOR'),
+        assign(timelineId, userId, 'ASSESSOR'),
+      ]);
+
+      expect([a.status, b.status].sort((x, y) => x - y)).toEqual([200, 201]);
+      expect(a.body.data.assignmentId).toBe(b.body.data.assignmentId);
+      expect(w.world.assignments).toHaveLength(1);
+      expect(w.world.assignments[0]!.removedAt).toBeNull();
+    });
+
+    it('every assign and remove logs exactly one line with ids and fixed words, and no name or email reaches any log', async () => {
+      const { timelineId } = await setup();
+      const multi = userIdOf('sub-multi_grant');
+      const assigned = await assign(timelineId, multi, 'ASSESSOR');
+      const repeated = await assign(timelineId, multi, 'ASSESSOR');
+      const refused = await assign(
+        timelineId,
+        userIdOf('sub-lead_assessor'),
+        'ASSESSOR',
+      );
+      const id = assigned.body.data.assignmentId as number;
+      const removed = await unassign(timelineId, id);
+      const removedAgain = await unassign(timelineId, id);
+
+      const lineOf = (res: request.Response, action: string) =>
+        spy
+          .eventsOf('admin_config', res.headers['x-request-id'] as string)
+          .filter((line) => line.action === action);
+      const base = {
+        event: 'admin_config',
+        actorId: w.admin.id,
+        idempotency: 'none',
+      };
+      expect(lineOf(assigned, 'timeline_user_assign')).toEqual([
+        {
+          ...base,
+          action: 'timeline_user_assign',
+          targetId: id,
+          outcome: 'ok',
+          requestId: assigned.headers['x-request-id'],
+        },
+      ]);
+      expect(lineOf(repeated, 'timeline_user_assign')).toMatchObject([
+        { targetId: id, outcome: 'ok' },
+      ]);
+      expect(lineOf(refused, 'timeline_user_assign')).toMatchObject([
+        {
+          targetId: null,
+          outcome: 'refused',
+          reason: 'TIMELINES_USER_NOT_ELIGIBLE',
+        },
+      ]);
+      expect(lineOf(removed, 'timeline_user_remove')).toEqual([
+        {
+          ...base,
+          action: 'timeline_user_remove',
+          targetId: id,
+          outcome: 'ok',
+          requestId: removed.headers['x-request-id'],
+        },
+      ]);
+      expect(lineOf(removedAgain, 'timeline_user_remove')).toMatchObject([
+        {
+          targetId: null,
+          outcome: 'refused',
+          reason: 'TIMELINES_ASSIGNMENT_NOT_FOUND',
+        },
+      ]);
+      expect(spy.lines.filter((l) => /@cgiar\.org|Actor/.test(l))).toEqual([]);
+    });
+
+    it('documents both routes in OpenAPI: the codes each can answer, the parameters, the body with its four roles, and no key header', () => {
+      const doc = buildOpenApiDocument(w.app);
+      const paths = doc.paths as Record<string, Record<string, any>>;
+      const post = paths['/api/v1/timelines/{id}/users']!.post;
+      const del = paths['/api/v1/timelines/{id}/users/{assignmentId}']!.delete;
+
+      expect(post.summary).toBeTruthy();
+      expect(Object.keys(post.responses)).toEqual(
+        expect.arrayContaining([
+          '200',
+          '201',
+          '400',
+          '401',
+          '403',
+          '404',
+          '409',
+        ]),
+      );
+      expect(post.parameters.map((p: { name: string }) => p.name)).toEqual([
+        'id',
+      ]);
+      expect(JSON.stringify(post.requestBody)).toContain(
+        '#/components/schemas/AssignTimelineUserDto',
+      );
+      expect(JSON.stringify(post.responses['201'])).toContain(
+        '#/components/schemas/TimelineUserModel',
+      );
+      expect(JSON.stringify(post.responses['200'])).toContain(
+        '#/components/schemas/TimelineUserModel',
+      );
+      expect(del.summary).toBeTruthy();
+      expect(Object.keys(del.responses)).toEqual(
+        expect.arrayContaining(['204', '401', '403', '404', '409']),
+      );
+      expect(Object.keys(del.responses)).not.toContain('200');
+      expect(del.parameters.map((p: { name: string }) => p.name)).toEqual([
+        'id',
+        'assignmentId',
+      ]);
+      const schemas = doc.components?.schemas as Record<string, any>;
+      expect(Object.keys(schemas.AssignTimelineUserDto.properties)).toEqual([
+        'userId',
+        'role',
+      ]);
+      expect(schemas.AssignTimelineUserDto.properties.role.enum).toEqual([
+        'ASSESSOR',
+        'LEAD_ASSESSOR',
+        'TPB',
+        'PPU',
+      ]);
+      expect(schemas.AssignTimelineUserDto.required).toEqual(
+        expect.arrayContaining(['userId', 'role']),
+      );
+      expect(schemas.TimelineUserModel.properties.firstName.nullable).toBe(
+        true,
+      );
     });
   });
 

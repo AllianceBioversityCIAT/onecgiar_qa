@@ -142,7 +142,7 @@ export async function buildAdminConfigApp() {
 
   /** One request; `key` adds an `Idempotency-Key`, `token: null` sends no credentials. */
   const send = (
-    method: 'get' | 'post',
+    method: 'get' | 'post' | 'delete',
     path: string,
     options: { token?: string | null; key?: string; body?: object } = {},
   ) => {

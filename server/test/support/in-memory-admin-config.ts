@@ -11,10 +11,14 @@ import type {
 } from '../../src/admin-config/cycles/cycles.unit-of-work.js';
 import type {
   Cycle,
+  CycleStatus,
   NewCycle,
 } from '../../src/database/drizzle/schema/cycles.js';
 import type {
+  ActiveAssignmentRow,
   AssignedCountRow,
+  AssignmentInsertOutcome,
+  NewAssignmentValues,
   NewStepValues,
   TimelineInsertOutcome,
   TimelinesStore,
@@ -84,7 +88,7 @@ export class InMemoryAdminConfigDatabase {
   readonly steps: TimelineStep[] = [];
   readonly programs: TimelineProgram[] = [];
   readonly resultTypes: TimelineResultType[] = [];
-  /** The rows of `timeline_users`; no route writes them yet (T-8), so tests seed them. */
+  /** The committed rows of `timeline_users`: the assign and remove routes write them, unit tests may seed them. */
   readonly assignments: TimelineUser[] = [];
   /** `roles.id` -> `roles.code`, as the seeded `roles` table maps them for the join of the counts. */
   readonly roleCodeById = new Map<number, string>([
@@ -127,6 +131,8 @@ export class InMemoryAdminConfigDatabase {
   officialKeyViolations = 0;
   /** Inserts refused by `uq_timelines_cycle_name`. */
   nameViolations = 0;
+  /** Inserts refused by `uq_timeline_users_active_key`: the backstop that makes two identical assigns one row (DD-10). */
+  assignmentKeyViolations = 0;
   /** Status writes in the order they were applied: `close:2`, `activate:3`. */
   readonly writeLog: string[] = [];
   readonly store: InMemoryCyclesStore;
@@ -134,6 +140,7 @@ export class InMemoryAdminConfigDatabase {
   private issued = 0;
   private issuedTimelines = 0;
   private issuedSteps = 0;
+  private issuedAssignments = 0;
 
   /** Pass the users world's database to share its row locks and idempotency rows. */
   constructor(readonly base: InMemoryDatabase = new InMemoryDatabase()) {
@@ -152,6 +159,13 @@ export class InMemoryAdminConfigDatabase {
     const highest = this.timelines.reduce((max, t) => Math.max(max, t.id), 0);
     this.issuedTimelines = Math.max(this.issuedTimelines, highest) + 1;
     return this.issuedTimelines;
+  }
+
+  /** A fresh `timeline_users` key, unique across transactions that insert at the same time. */
+  nextAssignmentId(): number {
+    const highest = this.assignments.reduce((max, a) => Math.max(max, a.id), 0);
+    this.issuedAssignments = Math.max(this.issuedAssignments, highest) + 1;
+    return this.issuedAssignments;
   }
 
   nextStepId(): number {
@@ -446,6 +460,7 @@ export class InMemoryTimelinesStore implements TimelinesStore {
     readonly stepRows: TimelineStep[] = world.steps,
     readonly programRows: TimelineProgram[] = world.programs,
     readonly resultTypeRows: TimelineResultType[] = world.resultTypes,
+    readonly assignmentRows: TimelineUser[] = world.assignments,
   ) {}
 
   async insert(values: NewTimeline): Promise<TimelineInsertOutcome> {
@@ -592,7 +607,7 @@ export class InMemoryTimelinesStore implements TimelinesStore {
   ): Promise<AssignedCountRow[]> {
     this.world.recordTimelineRead(`assigned:${timelineIds.join(',')}`);
     const counts = new Map<string, AssignedCountRow>();
-    for (const row of this.world.assignments) {
+    for (const row of this.assignmentRows) {
       if (row.removedAt !== null || !timelineIds.includes(row.timelineId)) {
         continue;
       }
@@ -607,6 +622,129 @@ export class InMemoryTimelinesStore implements TimelinesStore {
       counts.set(key, entry);
     }
     return [...counts.values()];
+  }
+
+  async listActiveAssignments(
+    timelineId: number,
+  ): Promise<ActiveAssignmentRow[]> {
+    this.world.recordTimelineRead(`users:${timelineId}`);
+    // INNER JOIN users, INNER JOIN roles: a row without its user or role is not listed.
+    return structuredClone(
+      this.assignmentRows
+        .filter((r) => r.timelineId === timelineId && r.removedAt === null)
+        .sort(
+          (a, b) =>
+            a.assignedAt.getTime() - b.assignedAt.getTime() || a.id - b.id,
+        )
+        .flatMap((r) => {
+          const user = this.world.base.users.find((u) => u.id === r.userId);
+          const roleCode = this.world.roleCodeById.get(r.roleId);
+          if (!user || roleCode === undefined) return [];
+          return [
+            {
+              assignmentId: r.id,
+              userId: user.id,
+              firstName: user.firstName,
+              lastName: user.lastName,
+              email: user.email,
+              roleCode,
+              assignedAt: r.assignedAt,
+            },
+          ];
+        }),
+    );
+  }
+
+  async lockCycleShared(cycleId: number): Promise<CycleStatus | undefined> {
+    this.world.recordTimelineRead(`cycle-status:${cycleId}`);
+    return this.world.cycles.find((c) => c.id === cycleId)?.status;
+  }
+
+  async findRoleId(roleCode: string): Promise<number | undefined> {
+    this.world.recordTimelineRead(`role:${roleCode}`);
+    for (const [id, code] of this.world.roleCodeById) {
+      if (code === roleCode) return id;
+    }
+    return undefined;
+  }
+
+  /**
+   * `uq_timeline_users_active_key`: the stored `active_key` is
+   * `timeline:user:role` while `removed_at` is NULL, NULL once removed, so a
+   * removed row never refuses a new one. The key is derived from the columns
+   * here, so a seeded row counts too.
+   */
+  async insertAssignment(
+    values: NewAssignmentValues,
+  ): Promise<AssignmentInsertOutcome> {
+    const key = `${values.timelineId}:${values.userId}:${values.roleId}`;
+    const taken = this.assignmentRows.some(
+      (r) =>
+        r.removedAt === null &&
+        `${r.timelineId}:${r.userId}:${r.roleId}` === key,
+    );
+    if (taken) {
+      this.world.assignmentKeyViolations++;
+      return { kind: 'duplicate' };
+    }
+    const row: TimelineUser = {
+      id: this.world.nextAssignmentId(),
+      timelineId: values.timelineId,
+      userId: values.userId,
+      roleId: values.roleId,
+      // `assigned_at` is a `datetime` without fractions: MySQL rounds a value
+      // with milliseconds to the nearest second when it stores it.
+      assignedAt: new Date(
+        Math.round(values.assignedAt.getTime() / 1000) * 1000,
+      ),
+      assignedBy: values.assignedBy,
+      removedAt: null,
+      removedBy: null,
+      activeKey: key,
+    };
+    this.world.recordTimelineWrite(`assign:${row.id}`);
+    this.assignmentRows.push(row);
+    return { kind: 'created', assignmentId: row.id };
+  }
+
+  async findActiveAssignment(
+    timelineId: number,
+    userId: number,
+    roleId: number,
+  ): Promise<TimelineUser | undefined> {
+    this.world.recordTimelineRead(
+      `assignment:${timelineId}:${userId}:${roleId}`,
+    );
+    return structuredClone(
+      this.assignmentRows.find(
+        (r) =>
+          r.timelineId === timelineId &&
+          r.userId === userId &&
+          r.roleId === roleId &&
+          r.removedAt === null,
+      ),
+    );
+  }
+
+  /** A removal keeps the row: only `removed_at`, `removed_by` and the generated key change (FR-15). */
+  async removeAssignment(change: {
+    timelineId: number;
+    assignmentId: number;
+    removedAt: Date;
+    removedBy: number;
+  }): Promise<boolean> {
+    const row = this.assignmentRows.find(
+      (r) =>
+        r.id === change.assignmentId &&
+        r.timelineId === change.timelineId &&
+        r.removedAt === null,
+    );
+    if (!row) return false;
+    row.removedAt = change.removedAt;
+    row.removedBy = change.removedBy;
+    row.activeKey = null;
+    this.world.recordTimelineWrite(`remove:${row.id}`);
+    return true;
   }
 }
 
@@ -626,8 +764,9 @@ class TransactionalTimelinesStore extends InMemoryTimelinesStore {
     stepRows: TimelineStep[],
     programRows: TimelineProgram[],
     resultTypeRows: TimelineResultType[],
+    assignmentRows: TimelineUser[],
   ) {
-    super(world, rows, stepRows, programRows, resultTypeRows);
+    super(world, rows, stepRows, programRows, resultTypeRows, assignmentRows);
   }
 
   private async statement<R>(
@@ -643,6 +782,7 @@ class TransactionalTimelinesStore extends InMemoryTimelinesStore {
           this.stepRows,
           this.programRows,
           this.resultTypeRows,
+          this.assignmentRows,
         ],
       },
       run,
@@ -688,6 +828,64 @@ class TransactionalTimelinesStore extends InMemoryTimelinesStore {
       super.insertSteps(timelineId, steps),
     );
   }
+
+  override findById(id: number) {
+    return this.statement({}, () => super.findById(id));
+  }
+
+  /** `SELECT ... FOR SHARE` of the cycle row: waits for an activation's exclusive lock, and holds the shared one to the commit. */
+  override lockCycleShared(cycleId: number) {
+    return this.statement(
+      { current: true, locks: [[`cycles:${cycleId}`, 'S']] },
+      () => super.lockCycleShared(cycleId),
+    );
+  }
+
+  override findRoleId(roleCode: string) {
+    return this.statement({}, () => super.findRoleId(roleCode));
+  }
+
+  /** An INSERT takes the unique entry of its `active_key`: an identical one waits for this transaction, then finds its row. */
+  override insertAssignment(values: NewAssignmentValues) {
+    return this.statement(
+      {
+        current: true,
+        locks: [
+          [
+            `timeline_users:active:${values.timelineId}:${values.userId}:${values.roleId}`,
+            'X',
+          ],
+        ],
+      },
+      () => super.insertAssignment(values),
+    );
+  }
+
+  override findActiveAssignment(
+    timelineId: number,
+    userId: number,
+    roleId: number,
+  ) {
+    return this.statement({ current: true }, () =>
+      super.findActiveAssignment(timelineId, userId, roleId),
+    );
+  }
+
+  /** The UPDATE locks the row it changes; a second removal waits, then finds `removed_at` set and matches nothing. */
+  override removeAssignment(change: {
+    timelineId: number;
+    assignmentId: number;
+    removedAt: Date;
+    removedBy: number;
+  }) {
+    return this.statement(
+      {
+        current: true,
+        locks: [[`timeline_users:${change.assignmentId}`, 'X']],
+      },
+      () => super.removeAssignment(change),
+    );
+  }
 }
 
 /**
@@ -724,6 +922,12 @@ export class InMemoryTimelinesUnitOfWork implements TimelinesUnitOfWork {
         this.world.resultTypes,
         (row) => `${row.timelineId}:${row.resultTypeKey}`,
       );
+      const assignments = tx.table(this.world.assignments, (row) =>
+        String(row.id),
+      );
+      // The users world's repositories, tx-bound: the user and her grants an
+      // assign reads are rows of this transaction, as on the Drizzle unit of work.
+      const base = tx.repositories();
       const result = await work({
         cycles: new TransactionalCyclesStore(tx, this.world, cycles.rows),
         timelines: new TransactionalTimelinesStore(
@@ -733,8 +937,11 @@ export class InMemoryTimelinesUnitOfWork implements TimelinesUnitOfWork {
           steps.rows,
           programs.rows,
           resultTypes.rows,
+          assignments.rows,
         ),
-        idempotency: tx.repositories().idempotency,
+        users: base.users,
+        grants: base.assignments,
+        idempotency: base.idempotency,
       });
       tx.commit();
       this.committed++;

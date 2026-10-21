@@ -374,3 +374,80 @@ Persona check: `akili doctor --agents` — no drift blocking (2026-10-21).
 **Final verification:** VERIFIED (see the attempt-2 evidence re-run above).
 
 **T-7 gate (2026-10-21):** the back lead approved the § 7.4 amendment. **Execute-time spec edit:** in `design.md` § 7.4, the timeline list now "runs six queries for a cycle: the cycle exists (FR-12 404), the timelines by `cycle_id`, then steps, programs, result types, and active assignment counts per role, each by the listed timeline ids". Reason: the T-7 Reviewer advisory (spec drift). NFR-5 meaning is unchanged (the count is still fixed). This edit is carried as a named conformance check into the T-8 and T-9 Reviewer briefs.
+
+### T-8: Timeline users — assign and remove — in progress
+
+- **Attempt 1 — FAIL (both lens Reviewers), 2026-10-21.**
+  - checkpoints: 1 (calls bound: 59 calls; production code written, no tests). A fresh worker was started with the original brief plus the checkpoint report verbatim.
+  - Files changed: `server/src/admin-config/timelines/{dto/timeline-params,models/timeline.model,timeline-response,timelines.controller,timelines.service,timelines.service.spec,timelines.store,timelines.unit-of-work.spec}.ts`, `timelines/dto/assign-timeline-user.dto.ts` (new), `server/test/admin-config-timelines.e2e-spec.ts`, `server/test/support/{admin-config-app,in-memory-admin-config}.ts`.
+  - Red run: the two handlers threw `NotImplementedException`; 10 tests failed, the first `AssertionError: expected 501 to be 201`.
+  - Falsifiers:
+    - (a) `isLiveAssignment` replaced by `grant.isActive`: 2 unit tests failed (`Error: expected a refusal, got a result`). The e2e stayed green, because the e2e revoke clears `is_active`.
+    - (b) grants check dropped: 6 unit and 2 e2e tests failed (`expected 201 to be 409`).
+    - (c1) the fake splices on remove: 12 unit and 2 e2e tests failed.
+    - (c2) `.delete` used in place of `.update`: 2 unit tests failed on the SQL regex.
+    - (d) no `FOR SHARE` lock in the fake: 3 unit tests failed (assign written after close).
+  - Evidence re-run (Leader inline): VERIFIED. Unit 49 / 1705 · tsc 7 baseline · `pnpm test:e2e` 13 / 715.
+  - **Reviewer B (risk / readability): FAIL** — verbatim issues:
+    1.  **Discovered Issue:** `assign` calls `this.clock()` twice: once for the inserted `assignedAt` (`timelines.service.ts:351`) and again for the response (`:356`). `assigned_at` is `datetime` with no fractional seconds (`timeline-users.ts:38`), so MySQL rounds the stored value to the second. The first answer carries a millisecond `Date`, possibly from a later tick. A repeat (DD-10 path) and `GET /timelines/:id` read the stored, rounded value. So the repeat does not answer "as the first assignment did", and the detail's `users[].assignedAt` differs from the 201 body. The fakes use a fixed clock with zero milliseconds, so no test can see this.
+        *   **Violated Rule:** `requirements.md` FR-14 *Already assigned*: "THEN the request changes nothing and answers as the first assignment did". Also `design.md` § 10 DD-10: "returns the existing row with 200".
+        *   **Remediation Suggestion:** Take `const now = this.clock()` once and truncate it to whole seconds (`setUTCMilliseconds(0)`) before the insert. Answer the created case with that same value, or re-read the inserted row. Add a unit test whose clock has milliseconds (e.g. `…T10:00:00.600Z`). It should assert that the first answer, the repeat and `detail.users[0]` all carry the same `assignedAt`.
+    2.  **Discovered Issue:** The e2e test "refuses with 409 TIMELINES_USER_NOT_ELIGIBLE … each of them holds another live role" includes `assign(timelineId, userIdOf('sub-guest'), 'TPB')`. `sub-guest` is seeded with no grants (`test/support/admin-config-app.ts:99`). That row is an eligibility fixture where the user holds no other role, which is the task's disqualifier word for word. A weak "has any live role" check would also refuse her, so the row proves nothing. It also makes the test title untrue.
+        *   **Violated Rule:** T-8 Disqualifier: "an eligibility fixture where the user holds no other role" (brief, Task block).
+        *   **Remediation Suggestion:** Drop the `sub-guest` row. Or replace it with a user who holds a live grant of a different role (e.g. `sub-lead_assessor` asked for TPB). The other four rows already cover the refusals.
+  - **Reviewer A (reliability / resilience): FAIL** — verbatim issue:
+    1. **Discovered Issue:** Assumption 4, my ruling: violation (not a spec gap, not acceptable). `UsersRepository.findById` and `RoleAssignmentsRepository.findActiveViewsByUserId` are the pool-bound singletons. They run while the transaction keeps its own connection open, so they are not inside the transaction, and every assign holds two connections at once. The mysql2 pool is created with only `connectionLimit` (`DATABASE_POOL_SIZE`, default 10), so `queueLimit` is 0 and there is no acquire timeout. Ten simultaneous assigns therefore deadlock the pool and hang forever: each holds a connection for its transaction and waits for a second one that never frees. Every other pool user stops with them, including auth lookups and reads. A front that assigns several assessors in parallel can trigger this. The Implementer's reason ("moving the reads before the transaction breaks the error order") does not hold up: the fix below keeps the order and moves nothing out of the transaction.
+       * **Violated Rule:** `docs/specs/admin-config/cycle-timelines/design.md` § 7.3. Its table lists "user by id" and "live grants of the user" in the column headed "Inside one transaction". It also says "The pattern is `DrizzleUsersAdminUnitOfWork`: READ COMMITTED, tx-bound stores".
+       * **Remediation Suggestion:** Copy `server/src/users/users-admin.unit-of-work.ts:166-169`. In `DrizzleTimelinesUnitOfWork.run`, add `users: new UsersRepository(new DrizzleUsersStore(tx))` and `grants: new RoleAssignmentsRepository(new DrizzleRoleAssignmentsStore(tx))` to `TimelinesRepositories`, typed read-only as `Pick<…,'findById'>` and `Pick<…,'findActiveViewsByUserId'>`. Both store classes are already exported, so this only adds imports and changes nothing under `users/`. Use them in `assign`, mirror them in `InMemoryTimelinesUnitOfWork`, and remove the two constructor injections from the service. Extend the stub-driver test at `timelines.unit-of-work.spec.ts:1673` so the `users` and `role_assignments` SELECTs appear `via: 'tx'`, between the `FOR SHARE` and the insert.
+  - **Lens adjudication:** all three issues are in scope (FR-14, the task disqualifier, § 7.3's tx-bound pattern). They consumed attempt 1.
+  - spawns: implementer (pre-checkpoint) 60 calls, 266,182 tokens, ended checkpoint · implementer (post-checkpoint) 48 calls, 260,736 tokens, ended complete · reviewer A 28 calls, 87,101 tokens, ended complete · reviewer B 15 calls, 102,164 tokens, ended complete.
+  - Effort for attempt 2: `xhigh`. That is the T2 ceiling; `max` would need a tier escalation, which was not taken for focused fixes.
+
+### T-8: Timeline users — assign and remove — PASS
+
+- **Date:** 2026-10-21
+- **Final status:** PASS (attempt 2)
+- **Implementer attempts:** 2 · checkpoints: 1 (calls bound: 59 calls, attempt 1)
+- **Skills / effort:** nestjs-expert, nestjs-best-practices, api-design-principles (attempt 1, as listed) · nestjs-expert, nestjs-best-practices (attempt 2; no route change) · effort `xhigh` both attempts (the T2 ceiling).
+
+**Attempt 1 — FAIL:** see "T-8 … in progress" above (both lens Reviewers' verbatim issues, checkpoint, falsifiers, re-run).
+
+**Attempt 2 — PASS**
+- **Files changed:** `server/src/admin-config/timelines/timelines.unit-of-work.ts` (new this attempt), `timelines.service.ts`, `timelines.service.spec.ts`, `timelines.unit-of-work.spec.ts`, `server/test/support/in-memory-admin-config.ts`, `server/test/admin-config-timelines.e2e-spec.ts`. Whole-task tree: 14 paths (whole-tree `git diff --stat` 2259+ / 67−). Nothing under `users/`, `auth/`, `common/`, `cycles/` or `database/` changed (Leader-confirmed).
+- **runtime events:** none.
+- **Fixes:**
+  - A1: `TimelinesRepositories` gains tx-bound `users` / `grants` (`DrizzleUsersStore(tx)`, `DrizzleRoleAssignmentsStore(tx)`), and the service's pool injections were removed. The stub-driver test pins 8 statements in order, all `via: 'tx'`.
+  - B1: a single `wholeSecond(this.clock())` value goes into every insert attempt and into the answer, and the fake rounds the way `datetime(0)` does. A new test with the clock at `10:00:00.600` checks the first answer, the repeat, the detail and the stored row.
+  - B2: the `sub-guest` e2e row was dropped.
+- **Falsifiers** (each reverted; `cmp` identical):
+  - (a) `grant.isActive`: `Tests 2 failed | 137 passed (139)` (revoked-flag-on, role-deactivated).
+  - (c) splice on remove: red, including `AssertionError: expected [ [ 2, false ] ] to deeply equal [ [ 1, true ], [ 2, false ] ]`.
+  - (e) reads bound to the pool in the unit of work: `AssertionError: expected [ 'tx', 'tx', 'tx', 'pool', …(4) ] to deeply equal [ 'tx', 'tx', 'tx', 'tx', 'tx', …(3) ]`.
+  - (f) a second clock read for the answer: `AssertionError: expected 2026-10-20T10:00:00.600Z to deeply equal 2026-10-20T10:00:00.000Z`.
+- **Implementer verification:** lint 0 · build OK · unit 49 / 1706 · tsc 7 baseline · e2e (run as `vitest --maxWorkers=2`, because the guard blocked `pnpm test:e2e` at 3430 MB; not bypassed) 13 / 715.
+- **Evidence re-run (Leader inline, non-author):** VERIFIED. Lint OK · build OK · unit 49 files / 1706 passed · tsc 7 errors, all in `token-verifier.service.spec.ts` · `pnpm test:e2e` 13 files / 715 passed.
+- **Reviewer verdict (single reviewer, all lenses):** PASS. A1 is fixed and matches § 7.3; falsifier (e) fails on the behaviour. B1 is fixed and matches FR-14 *Already assigned* and DD-10. B2 is fixed, and no fixture trips the disqualifier. The § 7.4 carry holds: the detail is 6 pool statements with one join, so NFR-5 holds. The remove path matches the spec, with no DELETE. The § 7.4 carry is now complete and drops.
+- **spawns:** implementer 49 calls, 168,321 tokens, ended complete · reviewer — not reported by host, ended complete.
+
+**ADVISORY (Reviewers, 4R — not gating)**
+- RELIABILITY: `detail` runs `get` and the users join as two separate pool reads, so a concurrent write can skew `assignedCount` against `users` for one response. This is consistent with DD-9 ("readers never lock").
+- RELIABILITY: `remove` writes an unrounded `removedAt` (never returned).
+- RESILIENCE: the 2-attempt duplicate loop ends in a bare `Error`, giving a 500.
+- READABILITY: `wholeSecond` belongs beside `rome-date.ts` if reused.
+- From attempt 1: NFR-2 is not asserted for the assign body; the deactivated-role case is unit-only; `assertCycleOpen`'s unreachable `CycleNotFoundError` needs a comment; the fake's `removeAssignment` does not lock the active-key entry; no concurrent remove-remove test.
+
+**Requirements covered:** FR-14 (assign; not eligible; a role outside the four gives 400; already assigned with no second active row, even concurrently; several roles), FR-15 (soft remove; re-assign), FR-13 (readiness after assign and remove), FR-16 (both routes), NFR-1, NFR-3 (fake part), NFR-7.
+
+**Decisions made:**
+- The cycle `FOR SHARE` lock goes through `TimelinesStore.lockCycleShared`.
+- The decision-line `targetId` is the assignment id on success, null on a refusal.
+- `TimelineUser` first and last names are nullable.
+- A repeat by a user who has lost the role gets 409 (eligibility is checked before the insert).
+- Roles are compared by code, so LEAD_ASSESSOR does not qualify for ASSESSOR.
+- POST answers 201 when created and 200 on a repeat, with no `@Idempotent` (DD-10).
+
+**Forward pointers**
+- **→ T-9:** `front-contract.md` must state that assign answers 201 (created) or 200 (existing), that remove answers 204, and that `assignedAt` is whole seconds.
+- **→ T-10:** the 20-concurrent-assign check on `qadb` also proves there is no pool starvation with tx-bound reads.
+
+**Final verification:** VERIFIED (see the attempt-2 evidence re-run above).

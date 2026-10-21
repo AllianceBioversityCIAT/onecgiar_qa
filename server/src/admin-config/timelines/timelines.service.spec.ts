@@ -11,18 +11,26 @@ import {
 import { IdempotencyFenceLostError } from '../../common/idempotency/idempotency.errors.js';
 import { CatalogService } from '../../users/catalogs/catalog.service.js';
 import { UpstreamUnavailableError } from '../../users/catalogs/catalogs.errors.js';
+import { UserNotFoundError } from '../../users/users.errors.js';
 import type { AdminConfigContext } from '../admin-config.context.js';
 import {
   CycleClosedError,
   CycleNotFoundError,
+  TimelineAssignmentNotFoundError,
   TimelineNameTakenError,
   TimelineNotFoundError,
+  TimelineUserNotEligibleError,
   TimelineValidationError,
 } from '../admin-config.errors.js';
 import { CyclesService } from '../cycles/cycles.service.js';
 import type { TimelineUser } from '../../database/drizzle/schema/timeline-users.js';
 import type { TimelineCreateInput } from './timeline-rules.js';
-import { TimelinesService } from './timelines.service.js';
+import {
+  TimelinesService,
+  type AssignResult,
+  type AssignUserCommand,
+} from './timelines.service.js';
+import type { TimelinesStore } from './timelines.store.js';
 import type { TimelinesUnitOfWork } from './timelines.unit-of-work.js';
 
 // Expected values come from FR-4 (default steps), FR-5 (official or additional,
@@ -150,6 +158,44 @@ function world() {
     }
     return id;
   };
+  /** The `roles` table as seeded: the ids the assignment rows and the join of the detail use. */
+  for (const [id, code] of db.roleCodeById) {
+    db.base.stores.assignments.addRole({
+      id,
+      code,
+      name: code,
+      scopeType: code === 'ADMIN' ? 'global' : 'result_type',
+      isActive: true,
+    });
+  }
+  const roleId = (code: string): number => {
+    for (const [id, known] of db.roleCodeById) if (known === code) return id;
+    throw new Error(`seed: no role ${code}`);
+  };
+  /** A committed user with live grants; the name is her first name and, in lower case, her email. */
+  const seedUser = async (
+    name: string,
+    held: Array<[string, string?]>,
+    over: { isActive?: boolean } = {},
+  ) => {
+    const created = await db.base.stores.users.insert({
+      email: `${name.toLowerCase()}@cgiar.org`,
+      firstName: name,
+      lastName: 'Tester',
+      authSource: 'custom',
+      isActive: over.isActive ?? true,
+    });
+    if (created.kind !== 'created') throw new Error('seed: email taken');
+    for (const [code, resultTypeKey] of held) {
+      await db.base.stores.assignments.insert({
+        userId: created.user.id,
+        roleId: roleId(code),
+        resultTypeKey: resultTypeKey ?? null,
+        programId: null,
+      });
+    }
+    return created.user;
+  };
   const kinds = () => db.timelines.map((t) => t.kind);
   const written = () =>
     JSON.stringify([
@@ -157,6 +203,7 @@ function world() {
       db.steps,
       db.programs,
       db.resultTypes,
+      db.assignments,
       db.timelineWriteLog,
     ]);
   return {
@@ -168,6 +215,8 @@ function world() {
     instance,
     ctx,
     seedCycle,
+    seedUser,
+    roleId,
     kinds,
     written,
     programSource,
@@ -437,6 +486,13 @@ describe('create: official or additional (FR-5)', () => {
               listPrograms: (ids) => t.listPrograms(ids),
               listResultTypes: (ids) => t.listResultTypes(ids),
               countAssigned: (ids) => t.countAssigned(ids),
+              listActiveAssignments: (id) => t.listActiveAssignments(id),
+              lockCycleShared: (id) => t.lockCycleShared(id),
+              findRoleId: (code) => t.findRoleId(code),
+              insertAssignment: (values) => t.insertAssignment(values),
+              findActiveAssignment: (...args) =>
+                t.findActiveAssignment(...args),
+              removeAssignment: (change) => t.removeAssignment(change),
             },
           });
         }),
@@ -1407,5 +1463,715 @@ describe('the timelines of a cycle and the detail (FR-12, FR-13, NFR-5)', () => 
 
     expect(w.written()).toBe(before);
     expect(w.db.history).toEqual(history);
+  });
+});
+
+// FR-14 (assign: who qualifies, repeat, several roles, closed cycle), FR-15
+// (remove keeps the row, re-assign), FR-13 (counts and readiness follow), NFR-3
+// (the database key holds under concurrency), NFR-7 and design 6, 7.3, 7.4,
+// DD-9, DD-10, as literals. Every user below holds OTHER roles than the one she
+// is assigned in, or she is refused for a reason other than "has no role", so a
+// check that only asks "has any live role" cannot pass these tests.
+describe('assign and remove users (FR-14, FR-15, FR-13, DD-10)', () => {
+  const AHEAD = [0, 1, 2, 3, 4, 5, 6, 7];
+  const ASSESSOR: AssignUserCommand['role'] = 'ASSESSOR';
+
+  // The writes log a decision line each; the decision-line tests below capture them.
+  beforeEach(() => {
+    for (const level of ['log', 'warn', 'error'] as const) {
+      vi.spyOn(Logger.prototype, level).mockImplementation(() => undefined);
+    }
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** A timeline in the active cycle 2026 with an assessors and a lead assessors step; Ana: ASSESSOR + TPB, Bea: LEAD_ASSESSOR only, Cris: ASSESSOR + LEAD_ASSESSOR. */
+  async function assigning() {
+    const w = world();
+    const cycleId = await w.seedCycle(2026, 'active');
+    const { timelineId } = await w.service.create(
+      w.ctx(),
+      cycleId,
+      request({ steps: [STEP_1, STEP_3] }),
+    );
+    const ana = await w.seedUser('Ana', [['ASSESSOR', 'KP'], ['TPB']]);
+    const bea = await w.seedUser('Bea', [['LEAD_ASSESSOR', '*']]);
+    const cris = await w.seedUser('Cris', [
+      ['ASSESSOR', 'KP'],
+      ['LEAD_ASSESSOR', '*'],
+    ]);
+    w.db.history.length = 0;
+    const assign = (
+      userId: number,
+      role: AssignUserCommand['role'] = ASSESSOR,
+      actorId = 7,
+    ) => w.service.assign(w.ctx(actorId), timelineId, { userId, role });
+    return { w, cycleId, timelineId, ana, bea, cris, assign };
+  }
+
+  /** The error is a 409 TIMELINES_USER_NOT_ELIGIBLE and says why, in `detail` (logs and tests only). */
+  async function notEligible(promise: Promise<unknown>, detail: string) {
+    const error = await refusal(promise);
+    expect(error).toBeInstanceOf(TimelineUserNotEligibleError);
+    expect(error).toMatchObject({ detail });
+    expect((error as TimelineUserNotEligibleError).getStatus()).toBe(409);
+  }
+
+  describe('assign: who qualifies (FR-14)', () => {
+    it('assigns a live ASSESSOR: the answer, the stored row, and a detail whose users, counts and readiness agree', async () => {
+      const { w, timelineId, ana, assign } = await assigning();
+
+      const result = await assign(ana.id);
+
+      expect(result).toEqual({
+        created: true,
+        assignment: {
+          assignmentId: 1,
+          userId: ana.id,
+          firstName: 'Ana',
+          lastName: 'Tester',
+          email: 'ana@cgiar.org',
+          role: 'ASSESSOR',
+          assignedAt: NOW,
+        },
+      });
+      // roles.id 3 = ASSESSOR; `assigned_by` is the acting ADMIN (ctx 7).
+      expect(w.db.assignments).toEqual([
+        {
+          id: 1,
+          timelineId,
+          userId: ana.id,
+          roleId: 3,
+          assignedAt: NOW,
+          assignedBy: 7,
+          removedAt: null,
+          removedBy: null,
+          activeKey: `${timelineId}:${ana.id}:3`,
+        },
+      ]);
+      const detail = await w.service.detail(timelineId);
+      expect(detail.users).toEqual([result.assignment]);
+      expect(detail.assignedCount).toEqual({
+        ASSESSOR: 1,
+        LEAD_ASSESSOR: 0,
+        TPB: 0,
+        PPU: 0,
+      });
+      expect(detail.readiness).toEqual([
+        'NO_RESULTS_LOADED',
+        'NO_LEAD_ASSESSOR_ASSIGNED',
+      ]);
+      expect(w.db.history).toEqual(['assign:1']);
+    });
+
+    it('refuses an unknown user with 404 USERS_NOT_FOUND and writes nothing', async () => {
+      const { w, assign } = await assigning();
+      const before = w.written();
+
+      const error = await refusal(assign(999));
+
+      expect(error).toBeInstanceOf(UserNotFoundError);
+      expect(error).toMatchObject({ response: { code: 'USERS_NOT_FOUND' } });
+      expect(w.written()).toBe(before);
+    });
+
+    it('refuses an inactive user with 409, although she holds a live ASSESSOR grant and another role', async () => {
+      const { w, assign } = await assigning();
+      const dan = await w.seedUser('Dan', [['ASSESSOR', 'KP'], ['TPB']], {
+        isActive: false,
+      });
+      const before = w.written();
+
+      await notEligible(assign(dan.id), 'user_inactive');
+
+      expect(w.written()).toBe(before);
+    });
+
+    it('refuses a user whose ASSESSOR grant was revoked, although she keeps a live TPB grant', async () => {
+      const { w, ana, assign } = await assigning();
+      const grant = w.db.base.assignments.find(
+        (a) => a.userId === ana.id && a.roleId === w.roleId('ASSESSOR'),
+      )!;
+      expect(
+        await w.db.base.stores.assignments.revoke(grant.id, 1, SEEDED_AT),
+      ).toBe(true);
+      const before = w.written();
+
+      await notEligible(assign(ana.id), 'role_not_held');
+      // The TPB grant she still holds is untouched and still qualifies her for TPB.
+      expect((await assign(ana.id, 'TPB')).created).toBe(true);
+      expect(w.written()).not.toBe(before);
+    });
+
+    it('refuses a grant that is flagged active but carries `revoked_at`: it is not live', async () => {
+      const { w, ana, assign } = await assigning();
+      const grant = w.db.base.assignments.find(
+        (a) => a.userId === ana.id && a.roleId === w.roleId('ASSESSOR'),
+      )!;
+      grant.revokedAt = SEEDED_AT;
+      grant.revokedBy = 1;
+      expect(grant.isActive).toBe(true);
+      const before = w.written();
+
+      await notEligible(assign(ana.id), 'role_not_held');
+
+      expect(w.written()).toBe(before);
+    });
+
+    it('refuses a grant of a role that was deactivated, and still accepts her live grant of another role', async () => {
+      const { w, ana, assign } = await assigning();
+      w.db.base.roles.find((r) => r.code === 'ASSESSOR')!.isActive = false;
+      const before = w.written();
+
+      await notEligible(assign(ana.id), 'role_not_held');
+      expect(w.written()).toBe(before);
+      expect((await assign(ana.id, 'TPB')).created).toBe(true);
+    });
+
+    it('refuses a role the user does not hold, whichever other roles she holds', async () => {
+      const { w, ana, bea, assign } = await assigning();
+      const before = w.written();
+
+      // Bea holds LEAD_ASSESSOR only; Ana holds ASSESSOR and TPB, not PPU or LEAD_ASSESSOR.
+      await notEligible(assign(bea.id, 'ASSESSOR'), 'role_not_held');
+      await notEligible(assign(ana.id, 'PPU'), 'role_not_held');
+      await notEligible(assign(ana.id, 'LEAD_ASSESSOR'), 'role_not_held');
+
+      expect(w.written()).toBe(before);
+    });
+
+    it('accepts each of the four roles for a user who holds them all', async () => {
+      const { w, timelineId, assign } = await assigning();
+      const eve = await w.seedUser('Eve', [
+        ['ASSESSOR', 'KP'],
+        ['LEAD_ASSESSOR', '*'],
+        ['TPB'],
+        ['PPU'],
+      ]);
+
+      for (const role of ['ASSESSOR', 'LEAD_ASSESSOR', 'TPB', 'PPU'] as const) {
+        expect((await assign(eve.id, role)).created).toBe(true);
+      }
+
+      expect((await w.service.get(timelineId)).assignedCount).toEqual({
+        ASSESSOR: 1,
+        LEAD_ASSESSOR: 1,
+        TPB: 1,
+        PPU: 1,
+      });
+    });
+
+    it('refuses a role that the roles table does not know, with 409', async () => {
+      const { w, ana, assign } = await assigning();
+      w.db.roleCodeById.delete(3);
+
+      await notEligible(assign(ana.id), 'role_unknown');
+      expect(w.db.assignments).toEqual([]);
+    });
+
+    it('answers 404 for an unknown timeline before it looks at the user', async () => {
+      const { w } = await assigning();
+
+      expect(
+        await refusal(
+          w.service.assign(w.ctx(), 999, { userId: 999, role: 'ASSESSOR' }),
+        ),
+      ).toBeInstanceOf(TimelineNotFoundError);
+    });
+
+    it('refuses a closed cycle with 409 CYCLES_CLOSED before it looks at the user, and writes nothing', async () => {
+      const { w, cycleId, ana, assign } = await assigning();
+      await w.db.store.markClosed(cycleId, { by: 1, at: SEEDED_AT });
+      const before = w.written();
+
+      expect(await refusal(assign(ana.id))).toBeInstanceOf(CycleClosedError);
+      expect(await refusal(assign(999))).toBeInstanceOf(CycleClosedError);
+
+      expect(w.written()).toBe(before);
+    });
+  });
+
+  describe('assign: repeat and several roles (FR-14, DD-10)', () => {
+    it('a repeat answers the same assignment id with created=false, adds no row, and is refused by the database key', async () => {
+      const { w, ana, assign } = await assigning();
+      const first = await assign(ana.id);
+      w.clock.advance(60_000);
+
+      const again = await assign(ana.id);
+
+      expect(again).toEqual({ created: false, assignment: first.assignment });
+      expect(again.assignment.assignedAt).toEqual(NOW);
+      expect(w.db.assignments).toHaveLength(1);
+      expect(w.db.assignmentKeyViolations).toBe(1);
+      expect(w.db.history).toEqual(['assign:1']);
+    });
+
+    it('the first answer, the repeat, the detail and the stored row carry the same second, whatever the milliseconds of the clock', async () => {
+      const { w, timelineId, ana, assign } = await assigning();
+      // The clock reads 10:00:00.600. `assigned_at` keeps whole seconds, and the
+      // fake rounds a fraction as MySQL does: a value stored with its
+      // milliseconds would come back as 10:00:01 and differ from the answer.
+      w.clock.advance(600);
+
+      const first = await assign(ana.id);
+      w.clock.advance(60_000);
+      const again = await assign(ana.id);
+      const detail = await w.service.detail(timelineId);
+
+      expect(first.assignment.assignedAt).toEqual(NOW);
+      expect(again.assignment.assignedAt).toEqual(first.assignment.assignedAt);
+      expect(detail.users[0]!.assignedAt).toEqual(first.assignment.assignedAt);
+      expect(w.db.assignments[0]!.assignedAt).toEqual(
+        first.assignment.assignedAt,
+      );
+      expect(w.db.assignments).toHaveLength(1);
+    });
+
+    it('a repeat by a user who has since lost the role is refused with 409: eligibility is judged before the insert', async () => {
+      const { w, ana, assign } = await assigning();
+      await assign(ana.id);
+      const grant = w.db.base.assignments.find(
+        (a) => a.userId === ana.id && a.roleId === w.roleId('ASSESSOR'),
+      )!;
+      await w.db.base.stores.assignments.revoke(grant.id, 1, SEEDED_AT);
+
+      await notEligible(assign(ana.id), 'role_not_held');
+
+      expect(w.db.assignments).toHaveLength(1);
+      expect(w.db.assignments[0]!.removedAt).toBeNull();
+    });
+
+    it('the same user as ASSESSOR and as LEAD_ASSESSOR is two entries, and two users in one role are two entries', async () => {
+      const { w, timelineId, ana, cris, assign } = await assigning();
+
+      const asAssessor = await assign(cris.id, 'ASSESSOR');
+      const asLead = await assign(cris.id, 'LEAD_ASSESSOR');
+      await assign(ana.id, 'ASSESSOR');
+
+      expect(asAssessor.created && asLead.created).toBe(true);
+      expect(asAssessor.assignment.assignmentId).not.toBe(
+        asLead.assignment.assignmentId,
+      );
+      const detail = await w.service.detail(timelineId);
+      expect(detail.users.map((u) => [u.userId, u.role])).toEqual([
+        [cris.id, 'ASSESSOR'],
+        [cris.id, 'LEAD_ASSESSOR'],
+        [ana.id, 'ASSESSOR'],
+      ]);
+      expect(detail.assignedCount).toEqual({
+        ASSESSOR: 2,
+        LEAD_ASSESSOR: 1,
+        TPB: 0,
+        PPU: 0,
+      });
+      expect(detail.readiness).toEqual(['NO_RESULTS_LOADED']);
+    });
+
+    it('a repeat whose existing row is removed between the refusal and the read inserts again, once', async () => {
+      const { w, timelineId, ana, assign } = await assigning();
+      const first = await assign(ana.id);
+      let removedByRival = false;
+      const racing: TimelinesUnitOfWork = {
+        run: (work) =>
+          w.unitOfWork.run((repositories) => {
+            const t = repositories.timelines;
+            const timelines = Object.create(t, {
+              findActiveAssignment: {
+                value: async (
+                  ...args: Parameters<TimelinesStore['findActiveAssignment']>
+                ) => {
+                  if (removedByRival) return t.findActiveAssignment(...args);
+                  removedByRival = true;
+                  await t.removeAssignment({
+                    timelineId,
+                    assignmentId: first.assignment.assignmentId,
+                    removedAt: NOW,
+                    removedBy: 1,
+                  });
+                  return undefined;
+                },
+              },
+            }) as TimelinesStore;
+            return work({ ...repositories, timelines });
+          }),
+      };
+      const service = new TimelinesService(
+        racing,
+        w.db.timelineStore,
+        new CatalogService(w.resultTypeSource, w.programSource, () =>
+          Date.now(),
+        ),
+        w.clock.now,
+      );
+
+      const result = await service.assign(w.ctx(), timelineId, {
+        userId: ana.id,
+        role: 'ASSESSOR',
+      });
+
+      expect(result.created).toBe(true);
+      expect(result.assignment.assignmentId).toBe(2);
+      expect(w.db.assignments.map((a) => [a.id, a.removedAt !== null])).toEqual(
+        [
+          [1, true],
+          [2, false],
+        ],
+      );
+      expect(w.db.assignmentKeyViolations).toBe(1);
+    });
+  });
+
+  describe('assign: two at once and an activation (NFR-3, DD-9, DD-10)', () => {
+    it.each(AHEAD)(
+      'two identical assigns started %i statements apart leave one active row, give both the same assignment id, and exactly one says created',
+      async (ahead) => {
+        const { w, timelineId, ana } = await assigning();
+        const command: AssignUserCommand = { userId: ana.id, role: 'ASSESSOR' };
+
+        const [a, b] = await staggered(
+          () => w.service.assign(w.ctx(7), timelineId, command),
+          ahead,
+          () => w.instance().assign(w.ctx(8), timelineId, command),
+        );
+
+        expect([a.status, b.status]).toEqual(['fulfilled', 'fulfilled']);
+        const answers = [a, b].map(
+          (r) => (r as PromiseFulfilledResult<AssignResult>).value,
+        );
+        expect(answers.map((r) => r.assignment.assignmentId)).toEqual([1, 1]);
+        expect(
+          answers.map((r) => r.created).sort((x, y) => Number(x) - Number(y)),
+        ).toEqual([false, true]);
+        expect(
+          w.db.assignments.filter((r) => r.removedAt === null),
+        ).toHaveLength(1);
+        expect(w.db.assignments).toHaveLength(1);
+        expect(w.db.history).toEqual(['assign:1']);
+        // The database key was the backstop that refused the second insert.
+        expect(w.db.assignmentKeyViolations).toBe(1);
+      },
+    );
+
+    const SWEEP = (['assign', 'activate'] as const).flatMap((first) =>
+      AHEAD.map((ahead) => [first, ahead] as const),
+    );
+    const ACTIVATION = ['close:1', 'activate:2'];
+
+    /** 2026 is active (id 1) and holds the timeline; 2027 is a draft (id 2) and its activation closes 2026. */
+    async function raceWithActivation(
+      first: 'assign' | 'activate',
+      ahead: number,
+    ) {
+      const w = world();
+      await w.seedCycle(2026, 'active');
+      await w.seedCycle(2027);
+      const { timelineId } = await w.service.create(w.ctx(), 1, request());
+      const ana = await w.seedUser('Ana', [['ASSESSOR', 'KP'], ['TPB']]);
+      w.db.history.length = 0;
+      const assign = () =>
+        w.service.assign(w.ctx(7), timelineId, {
+          userId: ana.id,
+          role: 'ASSESSOR',
+        });
+      const activate = () => w.cycles.activate(w.ctx(8), 2);
+      const [assigned, activated] =
+        first === 'assign'
+          ? await staggered(assign, ahead, activate).then(
+              ([a, b]) => [a, b] as const,
+            )
+          : await staggered(activate, ahead, assign).then(
+              ([a, b]) => [b, a] as const,
+            );
+      return { w, assigned, activated };
+    }
+
+    it.each(SWEEP)(
+      'an assign into the cycle that an activation closes, %s first and %i statements ahead: written before the close, or refused as closed, never written into a closed cycle',
+      async (first, ahead) => {
+        const { w, assigned, activated } = await raceWithActivation(
+          first,
+          ahead,
+        );
+
+        expect(activated.status).toBe('fulfilled');
+        expect(w.db.cycles.map((c) => [c.year, c.status])).toEqual([
+          [2026, 'closed'],
+          [2027, 'active'],
+        ]);
+        if (assigned.status === 'fulfilled') {
+          // Serial order: the assign, then the activation.
+          expect(w.db.history).toEqual(['assign:1', ...ACTIVATION]);
+          expect(w.db.assignments).toHaveLength(1);
+        } else {
+          // Serial order: the activation, then an assign that finds the cycle closed.
+          expect(assigned.reason).toBeInstanceOf(CycleClosedError);
+          expect(w.db.history).toEqual(ACTIVATION);
+          expect(w.db.assignments).toEqual([]);
+        }
+      },
+    );
+
+    it('the sweep reaches both outcomes of an assign into the cycle that is being closed', async () => {
+      const outcomes = new Set<string>();
+      for (const [first, ahead] of SWEEP) {
+        const { assigned } = await raceWithActivation(first, ahead);
+        outcomes.add(assigned.status);
+      }
+
+      expect([...outcomes].sort()).toEqual(['fulfilled', 'rejected']);
+    });
+  });
+
+  describe('remove (FR-15, FR-13)', () => {
+    it('keeps the row with `removed_at` and `removed_by`, drops the count, and brings NO_ASSESSOR_ASSIGNED back', async () => {
+      const { w, timelineId, ana, assign } = await assigning();
+      const { assignment } = await assign(ana.id);
+      expect((await w.service.get(timelineId)).readiness).not.toContain(
+        'NO_ASSESSOR_ASSIGNED',
+      );
+      w.clock.advance(60_000);
+
+      await expect(
+        w.service.remove(w.ctx(8), timelineId, assignment.assignmentId),
+      ).resolves.toBeUndefined();
+
+      expect(w.db.assignments).toHaveLength(1);
+      expect(w.db.assignments[0]).toMatchObject({
+        id: 1,
+        assignedAt: NOW,
+        assignedBy: 7,
+        removedAt: new Date(NOW.getTime() + 60_000),
+        removedBy: 8,
+        activeKey: null,
+      });
+      const detail = await w.service.detail(timelineId);
+      expect(detail.users).toEqual([]);
+      expect(detail.assignedCount.ASSESSOR).toBe(0);
+      expect(detail.readiness).toEqual([
+        'NO_RESULTS_LOADED',
+        'NO_ASSESSOR_ASSIGNED',
+        'NO_LEAD_ASSESSOR_ASSIGNED',
+      ]);
+      expect(w.db.history).toEqual(['assign:1', 'remove:1']);
+    });
+
+    it('a second remove of the same assignment is 404 TIMELINES_ASSIGNMENT_NOT_FOUND and leaves the first removal as it was', async () => {
+      const { w, timelineId, ana, assign } = await assigning();
+      const { assignment } = await assign(ana.id);
+      await w.service.remove(w.ctx(8), timelineId, assignment.assignmentId);
+      const before = w.written();
+
+      const error = await refusal(
+        w.service.remove(w.ctx(9), timelineId, assignment.assignmentId),
+      );
+
+      expect(error).toBeInstanceOf(TimelineAssignmentNotFoundError);
+      expect(error).toMatchObject({
+        response: { code: 'TIMELINES_ASSIGNMENT_NOT_FOUND' },
+      });
+      expect(w.written()).toBe(before);
+      expect(w.db.assignments[0]!.removedBy).toBe(8);
+    });
+
+    it('an assignment of another timeline, or one that does not exist, is 404 and nothing is removed', async () => {
+      const { w, cycleId, timelineId, ana, assign } = await assigning();
+      const other = await w.service.create(
+        w.ctx(),
+        cycleId,
+        request({ name: 'Other timeline' }),
+      );
+      const onOther = await w.service.assign(w.ctx(), other.timelineId, {
+        userId: ana.id,
+        role: 'ASSESSOR',
+      });
+      await assign(ana.id);
+      const before = w.written();
+
+      expect(
+        await refusal(
+          w.service.remove(
+            w.ctx(),
+            timelineId,
+            onOther.assignment.assignmentId,
+          ),
+        ),
+      ).toBeInstanceOf(TimelineAssignmentNotFoundError);
+      expect(
+        await refusal(w.service.remove(w.ctx(), timelineId, 999)),
+      ).toBeInstanceOf(TimelineAssignmentNotFoundError);
+      expect(await refusal(w.service.remove(w.ctx(), 999, 1))).toBeInstanceOf(
+        TimelineNotFoundError,
+      );
+
+      expect(w.written()).toBe(before);
+      expect(w.db.assignments.every((a) => a.removedAt === null)).toBe(true);
+    });
+
+    it('refuses a closed cycle with 409 CYCLES_CLOSED and keeps the assignment active', async () => {
+      const { w, cycleId, timelineId, ana, assign } = await assigning();
+      const { assignment } = await assign(ana.id);
+      await w.db.store.markClosed(cycleId, { by: 1, at: SEEDED_AT });
+      const before = w.written();
+
+      expect(
+        await refusal(
+          w.service.remove(w.ctx(), timelineId, assignment.assignmentId),
+        ),
+      ).toBeInstanceOf(CycleClosedError);
+
+      expect(w.written()).toBe(before);
+      expect(w.db.assignments[0]!.removedAt).toBeNull();
+    });
+
+    it.each(AHEAD)(
+      'two removes started %i statements apart give one success and one 404, and the row is removed once',
+      async (ahead) => {
+        const { w, timelineId, ana, assign } = await assigning();
+        const { assignment } = await assign(ana.id);
+        w.db.history.length = 0;
+
+        const [a, b] = await staggered(
+          () => w.service.remove(w.ctx(8), timelineId, assignment.assignmentId),
+          ahead,
+          () =>
+            w.instance().remove(w.ctx(9), timelineId, assignment.assignmentId),
+        );
+
+        expect([a.status, b.status].sort()).toEqual(['fulfilled', 'rejected']);
+        const loser = a.status === 'rejected' ? a : (b as typeof a);
+        expect((loser as PromiseRejectedResult).reason).toBeInstanceOf(
+          TimelineAssignmentNotFoundError,
+        );
+        expect(w.db.assignments).toHaveLength(1);
+        expect(w.db.assignments[0]!.removedBy).toBe(
+          a.status === 'fulfilled' ? 8 : 9,
+        );
+        expect(w.db.history).toEqual(['remove:1']);
+      },
+    );
+
+    it('a re-assign after a removal is a new active row next to the removed one, and the database key never fired', async () => {
+      const { w, timelineId, ana, assign } = await assigning();
+      const first = await assign(ana.id);
+      await w.service.remove(
+        w.ctx(8),
+        timelineId,
+        first.assignment.assignmentId,
+      );
+
+      const again = await assign(ana.id);
+
+      expect(again.created).toBe(true);
+      expect(again.assignment.assignmentId).toBe(2);
+      expect(w.db.assignments.map((a) => [a.id, a.removedAt !== null])).toEqual(
+        [
+          [1, true],
+          [2, false],
+        ],
+      );
+      expect(w.db.assignmentKeyViolations).toBe(0);
+      const detail = await w.service.detail(timelineId);
+      expect(detail.users.map((u) => u.assignmentId)).toEqual([2]);
+      expect(detail.assignedCount.ASSESSOR).toBe(1);
+    });
+  });
+
+  describe('the decision line (NFR-7)', () => {
+    const lines: Array<{ level: string; line: Record<string, unknown> }> = [];
+
+    beforeEach(() => {
+      lines.length = 0;
+      for (const level of ['log', 'warn', 'error'] as const) {
+        vi.spyOn(Logger.prototype, level).mockImplementation((message) => {
+          lines.push({
+            level,
+            line: JSON.parse(String(message)) as Record<string, unknown>,
+          });
+        });
+      }
+    });
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    const base = {
+      event: 'admin_config',
+      actorId: 7,
+      requestId: 'req-1',
+      idempotency: 'none',
+    };
+
+    it('an assign, a repeat and a remove each write one ok line with the assignment id, and never a name or an email', async () => {
+      const { w, timelineId, ana, assign } = await assigning();
+      lines.length = 0;
+
+      const { assignment } = await assign(ana.id);
+      await assign(ana.id);
+      await w.service.remove(w.ctx(), timelineId, assignment.assignmentId);
+
+      expect(lines).toEqual([
+        {
+          level: 'log',
+          line: {
+            ...base,
+            action: 'timeline_user_assign',
+            targetId: 1,
+            outcome: 'ok',
+          },
+        },
+        {
+          level: 'log',
+          line: {
+            ...base,
+            action: 'timeline_user_assign',
+            targetId: 1,
+            outcome: 'ok',
+          },
+        },
+        {
+          level: 'log',
+          line: {
+            ...base,
+            action: 'timeline_user_remove',
+            targetId: 1,
+            outcome: 'ok',
+          },
+        },
+      ]);
+      expect(JSON.stringify(lines)).not.toMatch(/Ana|Tester|cgiar\.org/);
+    });
+
+    it('a refused assign and a refused remove each write one warn line with the catalog code and no target', async () => {
+      const { w, timelineId, bea, assign } = await assigning();
+      lines.length = 0;
+
+      await refusal(assign(bea.id, 'ASSESSOR'));
+      await refusal(w.service.remove(w.ctx(), timelineId, 999));
+
+      expect(lines).toEqual([
+        {
+          level: 'warn',
+          line: {
+            ...base,
+            action: 'timeline_user_assign',
+            targetId: null,
+            outcome: 'refused',
+            reason: 'TIMELINES_USER_NOT_ELIGIBLE',
+          },
+        },
+        {
+          level: 'warn',
+          line: {
+            ...base,
+            action: 'timeline_user_remove',
+            targetId: null,
+            outcome: 'refused',
+            reason: 'TIMELINES_ASSIGNMENT_NOT_FOUND',
+          },
+        },
+      ]);
+      expect(JSON.stringify(lines)).not.toMatch(/Bea|Tester|cgiar\.org/);
+    });
   });
 });

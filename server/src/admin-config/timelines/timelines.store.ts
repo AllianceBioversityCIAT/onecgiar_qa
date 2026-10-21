@@ -2,7 +2,10 @@ import { Inject, Injectable } from '@nestjs/common';
 import { and, asc, count, eq, inArray, isNull } from 'drizzle-orm';
 import { DRIZZLE } from '../../database/drizzle/drizzle.constants.js';
 import type { DrizzleDB } from '../../database/drizzle/drizzle.module.js';
-import { cycles } from '../../database/drizzle/schema/cycles.js';
+import {
+  cycles,
+  type CycleStatus,
+} from '../../database/drizzle/schema/cycles.js';
 import { roles } from '../../database/drizzle/schema/roles.js';
 import {
   timelinePrograms,
@@ -17,18 +20,48 @@ import {
   type NewTimelineStep,
   type TimelineStep,
 } from '../../database/drizzle/schema/timeline-steps.js';
-import { timelineUsers } from '../../database/drizzle/schema/timeline-users.js';
+import {
+  timelineUsers,
+  type TimelineUser,
+} from '../../database/drizzle/schema/timeline-users.js';
 import {
   timelines,
   type NewTimeline,
   type Timeline,
 } from '../../database/drizzle/schema/timelines.js';
+import { users } from '../../database/drizzle/schema/users.js';
 
 export const TIMELINES_STORE = Symbol('TIMELINES_STORE');
 
 /** The unique keys of `timelines` an insert can hit (design 5). */
 export const TIMELINE_NAME_KEY = 'uq_timelines_cycle_name';
 export const TIMELINE_OFFICIAL_KEY = 'uq_timelines_official_key';
+/** The unique key of `timeline_users`: never a second active row for one user and role (FR-14). */
+export const TIMELINE_USER_ACTIVE_KEY = 'uq_timeline_users_active_key';
+
+/** How an insert of an assignment ended: written, or refused by `uq_timeline_users_active_key`. */
+export type AssignmentInsertOutcome =
+  { kind: 'created'; assignmentId: number } | { kind: 'duplicate' };
+
+/** The values of a new assignment (`assigned_by` is the acting ADMIN). */
+export interface NewAssignmentValues {
+  timelineId: number;
+  userId: number;
+  roleId: number;
+  assignedAt: Date;
+  assignedBy: number;
+}
+
+/** One active assignment with the user it names and the role code, for the detail (design 7.4). */
+export interface ActiveAssignmentRow {
+  assignmentId: number;
+  userId: number;
+  firstName: string | null;
+  lastName: string | null;
+  email: string;
+  roleCode: string;
+  assignedAt: Date;
+}
 
 /** How an insert of a timeline ended: written, or refused by one of the two unique keys. */
 export type TimelineInsertOutcome =
@@ -96,6 +129,40 @@ export interface TimelinesStore {
   ): Promise<TimelineResultType[]>;
   /** Active assignments per timeline and role code (`removed_at IS NULL`), in ONE statement. */
   countAssigned(timelineIds: readonly number[]): Promise<AssignedCountRow[]>;
+  /** The active assignments of one timeline joined with `users` and `roles`, oldest first, in ONE statement. */
+  listActiveAssignments(timelineId: number): Promise<ActiveAssignmentRow[]>;
+  /**
+   * `SELECT status FROM cycles WHERE id = ? FOR SHARE` (design 7.3): an assign or
+   * a remove holds the cycle row shared, so an activation that closes it (it takes
+   * `FOR UPDATE`) waits for the write or is seen by it. `undefined` = no such cycle.
+   */
+  lockCycleShared(cycleId: number): Promise<CycleStatus | undefined>;
+  /** `roles.id` of a role code. */
+  findRoleId(roleCode: string): Promise<number | undefined>;
+  /**
+   * `INSERT`; a second active row for the same timeline, user and role
+   * (`uq_timeline_users_active_key`, MySQL 1062) is `duplicate`. Any other
+   * failure is thrown.
+   */
+  insertAssignment(
+    values: NewAssignmentValues,
+  ): Promise<AssignmentInsertOutcome>;
+  /** The active row of this user and role in the timeline, if any (the answer to a repeat assign). */
+  findActiveAssignment(
+    timelineId: number,
+    userId: number,
+    roleId: number,
+  ): Promise<TimelineUser | undefined>;
+  /**
+   * `UPDATE ... SET removed_at, removed_by WHERE id AND timeline_id AND removed_at
+   * IS NULL`: the row is kept (FR-15). `false` = no active row matched.
+   */
+  removeAssignment(change: {
+    timelineId: number;
+    assignmentId: number;
+    removedAt: Date;
+    removedBy: number;
+  }): Promise<boolean>;
 }
 
 /**
@@ -121,7 +188,7 @@ function duplicateKeyText(error: unknown): string | undefined {
   return undefined;
 }
 
-type TimelinesDb = Pick<DrizzleDB, 'select' | 'insert'>;
+type TimelinesDb = Pick<DrizzleDB, 'select' | 'insert' | 'update'>;
 
 /** Drizzle adapter of `TimelinesStore`. `db` is the pool for reads or a transaction handle (`DrizzleTimelinesUnitOfWork`). */
 @Injectable()
@@ -246,5 +313,100 @@ export class DrizzleTimelinesStore implements TimelinesStore {
         ),
       )
       .groupBy(timelineUsers.timelineId, roles.code);
+  }
+
+  listActiveAssignments(timelineId: number): Promise<ActiveAssignmentRow[]> {
+    return this.db
+      .select({
+        assignmentId: timelineUsers.id,
+        userId: users.id,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        email: users.email,
+        roleCode: roles.code,
+        assignedAt: timelineUsers.assignedAt,
+      })
+      .from(timelineUsers)
+      .innerJoin(users, eq(users.id, timelineUsers.userId))
+      .innerJoin(roles, eq(roles.id, timelineUsers.roleId))
+      .where(
+        and(
+          eq(timelineUsers.timelineId, timelineId),
+          isNull(timelineUsers.removedAt),
+        ),
+      )
+      .orderBy(asc(timelineUsers.assignedAt), asc(timelineUsers.id));
+  }
+
+  async lockCycleShared(cycleId: number): Promise<CycleStatus | undefined> {
+    const [row] = await this.db
+      .select({ status: cycles.status })
+      .from(cycles)
+      .where(eq(cycles.id, cycleId))
+      .limit(1)
+      .for('share');
+    return row?.status;
+  }
+
+  async findRoleId(roleCode: string): Promise<number | undefined> {
+    const [row] = await this.db
+      .select({ id: roles.id })
+      .from(roles)
+      .where(eq(roles.code, roleCode))
+      .limit(1);
+    return row?.id;
+  }
+
+  async insertAssignment(
+    values: NewAssignmentValues,
+  ): Promise<AssignmentInsertOutcome> {
+    try {
+      const [header] = await this.db.insert(timelineUsers).values(values);
+      return { kind: 'created', assignmentId: header.insertId };
+    } catch (error) {
+      if (duplicateKeyText(error)?.includes(TIMELINE_USER_ACTIVE_KEY)) {
+        return { kind: 'duplicate' };
+      }
+      throw error;
+    }
+  }
+
+  async findActiveAssignment(
+    timelineId: number,
+    userId: number,
+    roleId: number,
+  ): Promise<TimelineUser | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(timelineUsers)
+      .where(
+        and(
+          eq(timelineUsers.timelineId, timelineId),
+          eq(timelineUsers.userId, userId),
+          eq(timelineUsers.roleId, roleId),
+          isNull(timelineUsers.removedAt),
+        ),
+      )
+      .limit(1);
+    return row;
+  }
+
+  async removeAssignment(change: {
+    timelineId: number;
+    assignmentId: number;
+    removedAt: Date;
+    removedBy: number;
+  }): Promise<boolean> {
+    const [header] = await this.db
+      .update(timelineUsers)
+      .set({ removedAt: change.removedAt, removedBy: change.removedBy })
+      .where(
+        and(
+          eq(timelineUsers.id, change.assignmentId),
+          eq(timelineUsers.timelineId, change.timelineId),
+          isNull(timelineUsers.removedAt),
+        ),
+      );
+    return header.affectedRows > 0;
   }
 }

@@ -2,7 +2,7 @@ import { RoleCode } from '../../users/permissions.js';
 import type { TimelineKind } from '../../database/drizzle/schema/timelines.js';
 import type { StepAudience } from './default-steps.js';
 import { viewTimeline, type TimelineStatus } from './timeline-view.js';
-import type { TimelineBundle } from './timelines.store.js';
+import type { ActiveAssignmentRow, TimelineBundle } from './timelines.store.js';
 
 /** The roles a step can need: Science Programs are never assigned here (D-3). */
 export const ASSIGNABLE_ROLES = [
@@ -50,8 +50,8 @@ export interface TimelineResponse {
 export interface TimelineUserResponse {
   assignmentId: number;
   userId: number;
-  firstName: string;
-  lastName: string;
+  firstName: string | null;
+  lastName: string | null;
   email: string;
   role: AssignableRole;
   assignedAt: Date;
@@ -108,5 +108,21 @@ export function toTimelineResponse(
     readiness: view.readiness,
     assignedCount,
     createdAt: timeline.createdAt,
+  };
+}
+
+/** One active assignment row as the API shows it (design 6, `TimelineUser`). */
+export function toTimelineUserResponse(
+  row: ActiveAssignmentRow,
+): TimelineUserResponse {
+  return {
+    assignmentId: row.assignmentId,
+    userId: row.userId,
+    firstName: row.firstName,
+    lastName: row.lastName,
+    email: row.email,
+    // The join is over `roles`; the store only holds the four assignable roles.
+    role: row.roleCode as AssignableRole,
+    assignedAt: row.assignedAt,
   };
 }

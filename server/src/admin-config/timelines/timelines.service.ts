@@ -5,6 +5,8 @@ import type {
   TimelineKind,
 } from '../../database/drizzle/schema/timelines.js';
 import { CatalogService } from '../../users/catalogs/catalog.service.js';
+import { isLiveAssignment } from '../../users/current-user.cache.js';
+import { UserNotFoundError } from '../../users/users.errors.js';
 import {
   ADMIN_CONFIG_CLOCK,
   type AdminConfigClock,
@@ -16,8 +18,10 @@ import type {
 import {
   CycleClosedError,
   CycleNotFoundError,
+  TimelineAssignmentNotFoundError,
   TimelineNameTakenError,
   TimelineNotFoundError,
+  TimelineUserNotEligibleError,
   TimelineValidationError,
 } from '../admin-config.errors.js';
 import { todayInRome } from '../rome-date.js';
@@ -28,9 +32,11 @@ import {
 } from './default-steps.js';
 import {
   toTimelineResponse,
+  toTimelineUserResponse,
   type AssignableRole,
   type TimelineDetailResponse,
   type TimelineResponse,
+  type TimelineUserResponse,
 } from './timeline-response.js';
 import {
   validateTimelineCreate,
@@ -53,6 +59,18 @@ export interface TimelineChange {
 
 /** The request as the pipe left it: the shape is right, the rules are not yet judged. */
 export type CreateTimelineCommand = TimelineCreateInput;
+
+/** The body of an assign, as the pipe left it: the role is one of the four. */
+export interface AssignUserCommand {
+  userId: number;
+  role: AssignableRole;
+}
+
+/** What an assign answers: the assignment, and whether this request created it (201) or found it (200). */
+export interface AssignResult {
+  created: boolean;
+  assignment: TimelineUserResponse;
+}
 
 /** A create request once cleaned: both scope lists are lists, whatever the client sent. */
 type NormalizedCreate = Omit<
@@ -78,6 +96,18 @@ function normalized(command: CreateTimelineCommand): NormalizedCreate {
 
 /** After the rules ran a date is a real date string; the type cannot know it. */
 const asDate = (value: string | null | undefined): string => value as string;
+
+/**
+ * A copy cut to the whole second. `timeline_users.assigned_at` is a `datetime`
+ * without fractions, so MySQL would round a millisecond value on its own; cut
+ * here, the value inserted, the value the first answer carries and the value
+ * every later read gives are the same one.
+ */
+function wholeSecond(date: Date): Date {
+  const cut = new Date(date);
+  cut.setUTCMilliseconds(0);
+  return cut;
+}
 
 /**
  * Timelines: the default steps and the create (cycle-timelines FR-4 to FR-6,
@@ -110,11 +140,16 @@ export class TimelinesService {
   }
 
   /**
-   * FR-12: `Timeline` plus its assigned users. The users part belongs to the
-   * assignment routes (T-8); until they exist the list is empty.
+   * FR-12: `Timeline` plus its active assignments joined with `users` (design
+   * 7.4): one more statement than `get`, whatever the number of users. The
+   * counts and readiness of `get` come from the same active rows (FR-13).
    */
   async detail(id: number): Promise<TimelineDetailResponse> {
-    return { ...(await this.get(id)), users: [] };
+    const [timeline, assigned] = await Promise.all([
+      this.get(id),
+      this.store.listActiveAssignments(id),
+    ]);
+    return { ...timeline, users: assigned.map(toTimelineUserResponse) };
   }
 
   /**
@@ -264,6 +299,141 @@ export class TimelinesService {
       },
       (result) => result.timelineId,
     );
+  }
+
+  // @akili-spec admin-config/cycle-timelines
+  /**
+   * FR-14, S-7: assign a user to a timeline in one of the four roles. Design
+   * 7.3, in one transaction: the cycle `FOR SHARE` (missing timeline 404, closed
+   * cycle 409), the user (unknown 404, inactive 409), her LIVE grants hold the
+   * role (409 otherwise), then the insert. The user and her grants are read
+   * through the unit of work, on the transaction's own connection: a read on
+   * the pool would hold a second connection per assign. A 1062 on
+   * `uq_timeline_users_active_key` is a repeat (DD-10): the existing active row
+   * is the answer, `created: false`. There is no read-then-insert race to lose:
+   * the database key decides. The clock is read once, to the whole second, so
+   * the first answer and the repeat carry what the table stores (FR-14).
+   */
+  assign(
+    ctx: AdminConfigContext,
+    timelineId: number,
+    command: AssignUserCommand,
+  ): Promise<AssignResult> {
+    return this.logged(
+      'timeline_user_assign',
+      ctx,
+      () =>
+        this.unitOfWork.run(async ({ timelines, users, grants }) => {
+          const timeline = await timelines.findById(timelineId);
+          if (!timeline) throw new TimelineNotFoundError(timelineId);
+          await this.assertCycleOpen(timelines, timeline.cycleId);
+
+          // @akili-spec admin-config/cycle-timelines
+          // Eligibility: the user exists, is active, and holds a LIVE grant of
+          // exactly this role (`isLiveAssignment`: not revoked, role active and
+          // known). Holding some other role never qualifies.
+          const user = await users.findById(command.userId);
+          if (!user) throw new UserNotFoundError(command.userId);
+          if (!user.isActive) {
+            throw new TimelineUserNotEligibleError('user_inactive');
+          }
+          const held = await grants.findActiveViewsByUserId(user.id);
+          if (
+            !held.some(
+              (grant) =>
+                grant.roleCode === command.role && isLiveAssignment(grant),
+            )
+          ) {
+            throw new TimelineUserNotEligibleError('role_not_held');
+          }
+
+          const roleId = await timelines.findRoleId(command.role);
+          if (roleId === undefined) {
+            throw new TimelineUserNotEligibleError('role_unknown');
+          }
+          // One read of the clock, whole seconds: the column keeps no fraction.
+          const assignedAt = wholeSecond(this.clock());
+          // A repeat finds the row that is there; if that row is removed between
+          // the refusal and the read, the next insert simply wins.
+          for (let attempt = 0; attempt < 2; attempt++) {
+            const outcome = await timelines.insertAssignment({
+              timelineId,
+              userId: user.id,
+              roleId,
+              assignedAt,
+              assignedBy: ctx.actorId,
+            });
+            let stored: { id: number; assignedAt: Date } | undefined;
+            if (outcome.kind === 'created') {
+              stored = { id: outcome.assignmentId, assignedAt };
+            } else {
+              stored = await timelines.findActiveAssignment(
+                timelineId,
+                user.id,
+                roleId,
+              );
+            }
+            if (stored === undefined) continue;
+            return {
+              created: outcome.kind === 'created',
+              assignment: {
+                assignmentId: stored.id,
+                userId: user.id,
+                firstName: user.firstName,
+                lastName: user.lastName,
+                email: user.email,
+                role: command.role,
+                assignedAt: stored.assignedAt,
+              },
+            };
+          }
+          throw new Error('An assignment refused as a duplicate was not found');
+        }),
+      (result) => result.assignment.assignmentId,
+    );
+  }
+
+  // @akili-spec admin-config/cycle-timelines
+  /**
+   * FR-15: remove an assignment. The row is KEPT: `removed_at` and `removed_by`
+   * are set where the id matches this timeline and the row is not removed yet.
+   * Zero rows (unknown, another timeline's, or already removed) is 404, so two
+   * removes at once give one 204 and one 404 (design 7.3).
+   */
+  async remove(
+    ctx: AdminConfigContext,
+    timelineId: number,
+    assignmentId: number,
+  ): Promise<void> {
+    await this.logged(
+      'timeline_user_remove',
+      ctx,
+      () =>
+        this.unitOfWork.run(async ({ timelines }) => {
+          const timeline = await timelines.findById(timelineId);
+          if (!timeline) throw new TimelineNotFoundError(timelineId);
+          await this.assertCycleOpen(timelines, timeline.cycleId);
+          const removed = await timelines.removeAssignment({
+            timelineId,
+            assignmentId,
+            removedAt: this.clock(),
+            removedBy: ctx.actorId,
+          });
+          if (!removed) throw new TimelineAssignmentNotFoundError(assignmentId);
+          return assignmentId;
+        }),
+      (id) => id,
+    );
+  }
+
+  /** The cycle row held shared until the transaction ends; a closed cycle takes no assignment change (FR-14, FR-15). */
+  private async assertCycleOpen(
+    timelines: Pick<TimelinesStore, 'lockCycleShared'>,
+    cycleId: number,
+  ): Promise<void> {
+    const status = await timelines.lockCycleShared(cycleId);
+    if (status === undefined) throw new CycleNotFoundError(cycleId);
+    if (status === 'closed') throw new CycleClosedError();
   }
 
   /**

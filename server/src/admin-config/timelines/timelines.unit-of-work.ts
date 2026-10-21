@@ -9,6 +9,14 @@ import {
 import { DRIZZLE } from '../../database/drizzle/drizzle.constants.js';
 import type { DrizzleDB } from '../../database/drizzle/drizzle.module.js';
 import {
+  DrizzleRoleAssignmentsStore,
+  RoleAssignmentsRepository,
+} from '../../users/role-assignments.repository.js';
+import {
+  DrizzleUsersStore,
+  UsersRepository,
+} from '../../users/users.repository.js';
+import {
   DrizzleCyclesStore,
   type CyclesStore,
 } from '../cycles/cycles.store.js';
@@ -24,6 +32,14 @@ export interface TimelinesRepositories {
   /** Only the locking read of the cycle row: the create decides under that lock (DD-3). */
   cycles: Pick<CyclesStore, 'findById'>;
   timelines: TimelinesStore;
+  /**
+   * Read-only use of the users module (P-9): the user row, read on THIS
+   * transaction's connection. A pool-bound read would take a second connection
+   * while this one is held, and enough assigns at once would starve the pool.
+   */
+  users: Pick<UsersRepository, 'findById'>;
+  /** The user's live grants (`findActiveViewsByUserId`), a plain read on this transaction's connection, as `users`. */
+  grants: Pick<RoleAssignmentsRepository, 'findActiveViewsByUserId'>;
   /**
    * The exactly-once fence (P-1): `markExecuted` bound to THIS transaction, so
    * the mark commits or rolls back with the timeline. Only that method is
@@ -41,8 +57,9 @@ export interface TimelinesUnitOfWork {
 /**
  * One MySQL transaction for a timelines write, in the shape of
  * `DrizzleCyclesUnitOfWork`: READ COMMITTED, repositories bound to the
- * transaction, and the idempotency store whose `markExecuted` commits with the
- * change.
+ * transaction (the users module's two reads of an assign included, as
+ * `DrizzleUsersAdminUnitOfWork` binds its own), and the idempotency store whose
+ * `markExecuted` commits with the change.
  *
  * Lock order (DD-9; design 7.3): the cycle row `FOR UPDATE` first, then the
  * writes. It is the same row an activation locks, so a create and an activation
@@ -67,6 +84,10 @@ export class DrizzleTimelinesUnitOfWork implements TimelinesUnitOfWork {
         work({
           cycles: new DrizzleCyclesStore(tx),
           timelines: new DrizzleTimelinesStore(tx),
+          users: new UsersRepository(new DrizzleUsersStore(tx)),
+          grants: new RoleAssignmentsRepository(
+            new DrizzleRoleAssignmentsStore(tx),
+          ),
           idempotency: new DrizzleIdempotencyStore(tx, this.clock),
         }),
       // READ COMMITTED, as the cycles and users units of work: the locking

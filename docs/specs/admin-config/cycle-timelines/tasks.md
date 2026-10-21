@@ -145,7 +145,7 @@ T-2 ─┼─▶ T-3 ───────────────────�
 - **Skills:** nestjs-expert, api-design-principles
 
 ## T-8: Timeline users — assign and remove
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-7
 - **Requirements:** FR-14 (Assign; Not eligible — BUT a role outside the four is 400; Already assigned — BUT no second active row, even concurrently; Several roles), FR-15 (Remove — BUT not deleted; Re-assign), FR-13 (readiness recomputed after assign / remove), FR-16 (these routes), NFR-1, NFR-3, NFR-7 (assign, remove)
