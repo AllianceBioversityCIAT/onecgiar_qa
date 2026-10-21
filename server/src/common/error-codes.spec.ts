@@ -21,6 +21,7 @@ import { UserNotAdmittedError } from '../auth/guards/auth.guard.js';
 import { PermissionDeniedError } from '../auth/guards/permission.guard.js';
 import { InvalidTokenError } from '../auth/token-verifier.service.js';
 import {
+  CycleActivationBusyError,
   CycleClosedError,
   CycleNotDraftError,
   CycleNotFoundError,
@@ -131,6 +132,7 @@ describe('domain errors declare a catalog code with the same status', () => {
     ['CycleNotFoundError', new CycleNotFoundError(1)],
     ['CycleYearTakenError', new CycleYearTakenError()],
     ['CycleNotDraftError', new CycleNotDraftError()],
+    ['CycleActivationBusyError', new CycleActivationBusyError()],
     ['CycleClosedError', new CycleClosedError()],
     ['TimelineNotFoundError', new TimelineNotFoundError(1)],
     ['TimelineNameTakenError', new TimelineNameTakenError()],
@@ -171,6 +173,7 @@ describe('cycle and timeline errors (cycle-timelines FR-11, DD-8)', () => {
     [new CycleNotFoundError(1), 404, 'CYCLES_NOT_FOUND'],
     [new CycleYearTakenError(), 409, 'CYCLES_YEAR_TAKEN'],
     [new CycleNotDraftError(), 409, 'CYCLES_NOT_DRAFT'],
+    [new CycleActivationBusyError(), 503, 'SERVICE_UNAVAILABLE'],
     [new CycleClosedError(), 409, 'CYCLES_CLOSED'],
     [new TimelineNotFoundError(1), 404, 'TIMELINES_NOT_FOUND'],
     [new TimelineNameTakenError(), 409, 'TIMELINES_NAME_TAKEN'],

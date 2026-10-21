@@ -119,7 +119,7 @@ export class CyclesController {
   @ApiOperation({
     summary: 'Activate a draft cycle',
     description:
-      'The cycle becomes the active one and the previously active cycle, if any, becomes `closed`, in one operation. Only a `draft` cycle can be activated.',
+      'The cycle becomes the active one and the previously active cycle, if any, becomes `closed`, in one operation. Only a `draft` cycle can be activated. When concurrent activations keep refusing this one, it answers 503 `SERVICE_UNAVAILABLE` and changes nothing: the request can be sent again.',
   })
   @ApiOkEnvelope(CycleModel)
   @ApiErrorResponses({
@@ -127,6 +127,7 @@ export class CyclesController {
     400: ['VALIDATION_FAILED'],
     404: ['CYCLES_NOT_FOUND'],
     409: ['CYCLES_NOT_DRAFT'],
+    503: ['SERVICE_UNAVAILABLE'],
   })
   @HttpCode(200)
   @Post(':id/activate')

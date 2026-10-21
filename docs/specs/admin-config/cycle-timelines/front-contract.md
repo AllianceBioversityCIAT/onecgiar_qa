@@ -25,7 +25,7 @@ Instants (`createdAt`, `assignedAt`) are ISO 8601 UTC; show them in the viewer's
 |---|---|---|---|---|
 | POST | `/cycles` (key) | `{ year }` | 201 `Cycle`, status `draft` | 400 `VALIDATION_FAILED`; 409 `CYCLES_YEAR_TAKEN` |
 | GET | `/cycles` | — | 200 `Cycle[]`, year descending | — |
-| POST | `/cycles/:id/activate` | — | 200 `Cycle` | 404 `CYCLES_NOT_FOUND`; 409 `CYCLES_NOT_DRAFT` |
+| POST | `/cycles/:id/activate` | — | 200 `Cycle` | 404 `CYCLES_NOT_FOUND`; 409 `CYCLES_NOT_DRAFT`; 503 `SERVICE_UNAVAILABLE` (retryable: concurrent activations kept refusing this one and nothing changed; send the request again) |
 | GET | `/timeline-defaults` | — | 200 `DefaultStep[]` | — |
 | POST | `/cycles/:id/timelines` (key) | `TimelineCreate` | 201 `Timeline` | 400 `VALIDATION_FAILED`; 404 `CYCLES_NOT_FOUND`; 409 `CYCLES_CLOSED`, `TIMELINES_NAME_TAKEN`; 503 `SERVICE_UNAVAILABLE` |
 | GET | `/cycles/:id/timelines` | — | 200 `Timeline[]`, official first, then newest first | 404 `CYCLES_NOT_FOUND` |
