@@ -1,6 +1,7 @@
 import { NgTemplateOutlet } from '@angular/common';
 import { Component, ElementRef, computed, effect, inject, signal, viewChild } from '@angular/core';
 import { HlmInputImports } from '@spartan/input';
+import { TableSort } from '../../../core/list/table-sort';
 import { QaButtonImports, QaMenuImports, QaMultiSelect, QaMultiSelectOption } from '../../../ui';
 import { AssessorDrawer, DrawerSession } from './assessor-drawer';
 import { AssessorsStore } from './assessors-store';
@@ -96,8 +97,9 @@ export class AssessorsView {
     },
   ]);
   protected readonly heads = HEADS;
-  protected readonly sortKey = signal<SortKey | null>(null);
-  protected readonly sortDir = signal<'asc' | 'desc'>('asc');
+  protected readonly sort = new TableSort<SortKey>();
+  protected readonly sortKey = this.sort.key;
+  protected readonly sortDir = this.sort.dir;
 
   // Drawer state
   protected readonly drawerOpen = signal(false);
@@ -167,11 +169,8 @@ export class AssessorsView {
     );
   });
 
-  private readonly sorted = computed(() => {
-    const list = this.filtered();
-    const k = this.sortKey();
-    if (!k) return list;
-    const val = (p: TeamMember): string | number => {
+  private readonly sorted = computed(() =>
+    this.sort.apply(this.filtered(), (p: TeamMember, k): string | number => {
       switch (k) {
         case 'person':
           return p.nick || p.name;
@@ -184,14 +183,8 @@ export class AssessorsView {
           return a ? reviewedOf(p) / a : -1;
         }
       }
-    };
-    const dir = this.sortDir() === 'asc' ? 1 : -1;
-    return [...list].sort((a, b) => {
-      const x = val(a);
-      const y = val(b);
-      return (x < y ? -1 : x > y ? 1 : 0) * dir;
-    });
-  });
+    }),
+  );
 
   protected readonly rows = computed(() =>
     this.sorted().map((p) => {
@@ -238,14 +231,11 @@ export class AssessorsView {
   }
 
   protected sortBy(key: SortKey): void {
-    const active = this.sortKey() === key;
-    this.sortDir.set(active && this.sortDir() === 'asc' ? 'desc' : 'asc');
-    this.sortKey.set(key);
+    this.sort.toggle(key);
   }
 
   protected ariaSort(key: SortKey): 'ascending' | 'descending' | 'none' {
-    if (this.sortKey() !== key) return 'none';
-    return this.sortDir() === 'asc' ? 'ascending' : 'descending';
+    return this.sort.ariaSort(key);
   }
 
   // Inline cell edits: the row shows what the server answers (errors go to a toast).
