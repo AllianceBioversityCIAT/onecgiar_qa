@@ -9,8 +9,8 @@ import { AssignableRole, Cycle, DefaultStep, Timeline, TimelineCreate, TimelineD
 /**
  * HTTP calls for cycles and QA timelines (ADMIN only). Only transport, no state.
  * Creates honor `Idempotency-Key` (the interceptor sends one per submit), so a lost answer may be
- * replayed from the Unsent list. Activate has no key: it closes the active cycle, so a lost answer
- * goes back to the screen, which refetches. Assign answers 200 when the user already holds that
+ * replayed from the Unsent list. Activate stays out of that list (the server ignores its key): it
+ * closes the active cycle, so a lost answer goes back to the screen, which refetches. Assign answers 200 when the user already holds that
  * role (nothing written), so replaying it is safe; remove is 404 once done.
  */
 @Service()
