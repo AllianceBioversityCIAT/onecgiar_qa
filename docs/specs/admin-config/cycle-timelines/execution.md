@@ -617,3 +617,5 @@ The design § 10 budget was exceeded. Execution stopped for the back lead's deci
   - The qadb/TEST collation check.
   - The `dev-merge-tmp` local branch, left for the owner to delete.
 - **Next:** `/akili-validate admin-config/cycle-timelines`, then PRs to `staging-center` (PR 1 = T-1…T-5, PR 2 = T-6…T-11).
+
+**Correction (Leader, 2026-10-21):** T-10 was flipped to `[x]` in `6c311e4` without a closing record (no Reviewer PASS, `REVIEW_WAIVED` or `REVIEW_SKIPPED`). That violated Step 3. It has been reverted to `[~]`, and a checklist Reviewer was spawned to audit the T-10 evidence recorded above.

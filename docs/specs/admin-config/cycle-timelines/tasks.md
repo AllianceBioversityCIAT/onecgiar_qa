@@ -179,7 +179,7 @@ T-2 ─┼─▶ T-3 ───────────────────�
 - **Skills:** api-design-principles
 
 ## T-10: HITL — migration on `qadb` and real-MySQL checks
-- **Status:** [x]
+- **Status:** [~]
 - **Size:** S
 - **Depends on:** T-9
 - **Requirements:** FR-1 / FR-3 / FR-5 / FR-14 (the AND IT MUST concurrency clauses on real MySQL), NFR-3, NFR-4 (DATE round-trip)
