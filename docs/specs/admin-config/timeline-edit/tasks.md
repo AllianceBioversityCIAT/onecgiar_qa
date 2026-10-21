@@ -211,7 +211,7 @@ T-3 ─────────────────────┘
 - **Skills:** nestjs-expert, nestjs-best-practices
 
 ## T-5: Service `update` flow
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-2, T-3, T-4
 - **Requirements:**

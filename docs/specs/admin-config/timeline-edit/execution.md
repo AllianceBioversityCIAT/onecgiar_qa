@@ -307,3 +307,54 @@ The back lead answered the T-4 gate with "Si, finaliza todo y toma las decisione
 - `requirements.md` § 7, NFR-5 row — amended 2026-10-21 as above (clarifies to the approved design; no approved behavior changes).
 - `requirements.md` § 9 Open Questions — new, OQ-TE-1.
 - Correction-closure sweep: `grep -rn -i "fixed number\|statement count\|NFR-5"` over the spec folder — remaining mentions (`tasks.md:182,192,412`, `design.md:163,176,217`) are consistent with the amended text.
+
+### T-5: Service `update` flow — PASS
+
+| | |
+|---|---|
+| Date | 2026-10-21 |
+| Final status | PASS (attempt 1) |
+| Attempts | 1 |
+| Skills | nestjs-expert, error-handling-patterns (as listed) |
+| Effort | `xhigh` (orchestrates every rule, the answer order and the transaction outcomes) |
+| Requirements covered | FR-1, FR-4/FR-5 through the service, FR-7, FR-8, FR-9, FR-10, FR-11, FR-12 (closed cycle, unknown timeline), NFR-5 (as amended), NFR-7 |
+| Mode | Delegated by the back lead at the T-4 gate (no per-task pause) |
+
+**Attempt 1**
+- Files changed (`git diff --stat`): `server/src/admin-config/timelines/timelines.service.ts` (+285: `update`, `UpdateTimelineCommand`, helpers `storedTimeline`, `changesAnInProgressStep`, `changedSteps`, private `read(id, now)`; `respond` takes an optional `now`), `server/src/admin-config/admin-config.context.ts` (+1: `timeline_update`), `server/src/admin-config/timelines/timelines.service.spec.ts` (+1126: 62 new cases, 207 in file).
+- Red run (`update` stubbed to reject): `Tests 62 failed | 145 skipped (207)`, e.g. `expected Error: T-5 red run: update is stubbed to be an instance of TimelineNotFoundError`.
+- Falsifiers (each observed red, reverted):
+  1. Confirmation before validation → `5. a rule problem is one 400, before the in-progress confirmation (DD-11)`: `expected TimelineInProgressUnconfirmedError … to be an instance of TimelineValidationError`.
+  2. No-op shortcut skipped → `7. a no-op answers the timeline as stored: no write, no version change, no audit row, no transaction (FR-11)` red (version raised).
+  3. Catalogs read on every edit → 4 red, incl. `a name and a date edit works while both catalogs are down, and asks neither` (503).
+- Statement pin (NFR-5 as amended): one changed step = 14 reads + 3 writes on a 2-step and a 5-step timeline; all 5 changed adds exactly 4 `step:update` writes.
+- Implementer verification: lint 0, build 0, unit `Tests 1953 passed (1953)`, service spec 207 passed under `TZ=UTC` and `TZ=America/Bogota`, `pnpm test:e2e --reporter=dot` `Tests 722 passed (722)`, tsc only the 7 `token-verifier.service.spec.ts` errors.
+- Evidence re-run (Leader-inline, non-author): **VERIFIED** — lint OK, build OK, unit `Tests 1953 passed (1953)`, e2e (vitest e2e config `--maxWorkers=2`) `Tests 722 passed (722)`, tsc 7 in `token-verifier.service.spec.ts`.
+- Reviewer (lens checklist, effort high; named conformance check: NFR-5 as amended 2026-10-21): **PASS** — "`TimelinesService.update` gives the answers in exactly the design § 6 order … Its transaction follows the § 7.2 step 8 order … and the answer is read after the commit with the same `now`." Every forward pointer honored; NFR-5 pin matches the amended text; Disqualifier avoided (every refusal asserts nothing written, unchanged audit log, begin/rollback counts).
+- runtime events: none.
+
+spawns: implementer 47 calls, 249499 tokens, ended partial (Not Done / Assumptions — judgment calls only, no owed item); reviewer not reported by host, ended complete.
+
+**Not Done / Assumptions (Implementer, in substance)**
+1. `update` returns `TimelineResponse` (design § 7.2 step 9), read after commit.
+2. The unlocked cycle-status read goes through the existing `assertCycleOpen` (`SELECT … FOR SHARE` on the pool in autocommit — no lock outlives the statement); a plain `cycleStatus(id)` would be exact. Reviewer: conformant.
+3. A no-op does not call `markExecuted`; the idempotency store's `complete` accepts `in_progress` (`idempotency.store.ts:251`), so a keyed no-op replays its 200. Reviewer: conformant with § 7.2 step 7 / § 7.6.
+4. `hasLoad` read once outside the transaction (seam for P2-3905).
+5. 1213 / 1205 surface as 500, no retry.
+6. `server/src/admin-config/AGENTS.md` lacks `timeline_update` — T-8.
+7. "Changed scope" derived from `diffTimeline` keys (`scopeChanged` not exported).
+
+Leader adjudication: no blocker, no owed item; closes on the PASS.
+
+**ADVISORY (Reviewer, 4R — recorded, not tasks)**
+- RESILIENCE: `hasLoad` is outside the version re-check; once P2-3905 adds a real adapter, re-read `withLoad` under the lock or bump the version on load.
+- READABILITY: `assertCycleOpen`'s doc says "held shared until the transaction ends", not true on the pool; can wait behind an activation X lock (1205).
+- RELIABILITY: 1213 / 1205 return 500 — keep visible for T-9.
+- TESTS: two cases await a refused edit without `refusedWithNoWrites`; the 21-offset sweep checks the loser via version/audit/applied count rather than `written()`.
+- RELIABILITY: `now` is not cut to whole seconds for `datetime` `updated_at` / audit `created_at`; both round the same way (DD-10 holds), but the stored value can differ from `now` by a second.
+
+**Forward pointers**
+- P2-3905 (outside this spec): re-check loads under the lock or bump the version on load (Reviewer advisory) — to be carried into the front/back contract note by T-8 and the Jira comment.
+- T-9: 1213 / 1205 behavior on MySQL.
+
+**Final verification:** VERIFIED.
