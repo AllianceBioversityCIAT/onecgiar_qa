@@ -427,7 +427,7 @@ Persona check: `akili doctor --agents` — no drift blocking (2026-10-21).
 - **Implementer verification:** lint 0 · build OK · unit 49 / 1706 · tsc 7 baseline · e2e (run as `vitest --maxWorkers=2`, because the guard blocked `pnpm test:e2e` at 3430 MB; not bypassed) 13 / 715.
 - **Evidence re-run (Leader inline, non-author):** VERIFIED. Lint OK · build OK · unit 49 files / 1706 passed · tsc 7 errors, all in `token-verifier.service.spec.ts` · `pnpm test:e2e` 13 files / 715 passed.
 - **Reviewer verdict (single reviewer, all lenses):** PASS. A1 is fixed and matches § 7.3; falsifier (e) fails on the behaviour. B1 is fixed and matches FR-14 *Already assigned* and DD-10. B2 is fixed, and no fixture trips the disqualifier. The § 7.4 carry holds: the detail is 6 pool statements with one join, so NFR-5 holds. The remove path matches the spec, with no DELETE. The § 7.4 carry is now complete and drops.
-- **spawns:** implementer 49 calls, 168,321 tokens, ended complete · reviewer — not reported by host, ended complete.
+- **spawns:** implementer 49 calls, 168,321 tokens, ended complete · reviewer 11 calls, 53,664 tokens, ended complete.
 
 **ADVISORY (Reviewers, 4R — not gating)**
 - RELIABILITY: `detail` runs `get` and the users join as two separate pool reads, so a concurrent write can skew `assignedCount` against `users` for one response. This is consistent with DD-9 ("readers never lock").
@@ -451,3 +451,23 @@ Persona check: `akili doctor --agents` — no drift blocking (2026-10-21).
 - **→ T-10:** the 20-concurrent-assign check on `qadb` also proves there is no pool starvation with tx-bound reads.
 
 **Final verification:** VERIFIED (see the attempt-2 evidence re-run above).
+
+## Budget Tripwire — after T-8 (2026-10-21)
+
+The design § 10 budget was exceeded. Execution stopped for the back lead's decision before T-9.
+
+| Measure | Budget (design § 10) | Actual after T-8 (T-1…T-8, `0a8ec19..1ec7db0`, `server/`) | Delta |
+|---|---|---|---|
+| Tasks | 10 | 8 of 10 closed | on plan |
+| LOC, total | ~2,600 | 13,982 insertions (54 files) | ≈ 5.4× |
+| LOC, source (non-test, including migration SQL and AGENTS.md) | ≈ 1,100 | 3,627 | ≈ 3.3× |
+| LOC, tests and fakes (`*.spec.ts` and `server/test/**`) | ≈ 1,300 | 8,804 | ≈ 6.8× |
+| LOC, generated drizzle snapshot (not estimated) | — | 1,551 | — |
+| Review rounds (Reviewer verdicts) | 14 | 13 (T-1 to T-4: 1 each; T-5: 2 lenses; T-6: 2 lenses + 1; T-7: 1; T-8: 2 lenses + 1) | projected 15–16 with T-9 and T-10 |
+
+**Cause:**
+- The test suites grew far past the estimate: concurrency sweeps, the lock-modelling fakes, full 401/403 matrices per route, OpenAPI assertions, and the stub-driver SQL pins.
+- The source also grew: Drizzle adapters, units of work, models and DTOs per module. The estimate assumed thinner layers.
+- Three reworks (T-6, T-7, T-8) added rounds. Each fixed a real defect: a misnamed race test; claimed e2e edits that were not in the tree; pool starvation and a clock mismatch.
+
+**Leader note:** the LOC overrun was already visible at T-5 (a 2,896-line diff) and should have triggered this stop then. It is recorded here late.
