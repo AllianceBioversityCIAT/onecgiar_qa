@@ -29,7 +29,7 @@ These documents are the constitution. Read them before proposing, specifying or 
 | Domain | Covers |
 |---|---|
 | `auth` | Cognito login/refresh, token verification, users and scoped roles |
-| `admin-config` | Cycles, windows, batches, field configuration per result type |
+| `admin-config` | Cycles and QA timelines (dated steps, rounds, scope, assigned users — `server/src/admin-config/`), field configuration per result type |
 | `ingestion` | Reporting API integration, snapshots, sync |
 | `evaluation` | Field-by-field review |
 | `comments` | Comment flow and state machine |

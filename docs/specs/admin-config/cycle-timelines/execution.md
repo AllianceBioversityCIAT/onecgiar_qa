@@ -626,3 +626,5 @@ The design § 10 budget was exceeded. Execution stopped for the back lead's deci
   - spawns: reviewer 12 calls, 43,962 tokens, ended complete.
 - **Reviewer coverage advisory acted on** (FR-1's concurrency clause is mapped to T-10 in the coverage table but had no check). The Leader ran 10 concurrent `POST /cycles` with year 2077 on TEST (`t10-dupyear.mjs`, `Promise.all`): `{ 201: 1, '409 CYCLES_YEAR_TAKEN': 9 }`, no 500, one row with year 2077. **PASS.** TEST data added: cycle 2077.
 - **Owed:** the back lead's one-line acknowledgment of the TEST run (Reviewer advisory 2), requested at the closing gate.
+
+**Guide sync (2026-10-21, at the back lead's request):** root `AGENTS.md` (the `admin-config` domain row now reads "Cycles and QA timelines …" in place of "Cycles, windows, batches") and `server/src/admin-config/AGENTS.md` (503 `CycleActivationBusyError` added to the typed-refusals row). The root-guide edit is made on the spec branch by explicit user instruction. This lifts the pending-for-`staging` item recorded at T-9.
