@@ -149,7 +149,13 @@ function stub({
       else if (sql.includes('from `timeline_result_types`'))
         rows = [[11, 'KP']];
       else if (sql.includes('from `timeline_users`')) rows = [];
-      else rows = [[11, 3, 'July 2026', 'official', 3, 0, 0, at, 1]];
+      // A `timelines` row in table order (id, cycle_id, name, kind, official_key,
+      // all_programs, all_result_types, created_at, created_by) plus the
+      // timeline-edit columns: version 1, never edited (updated_at, updated_by).
+      else
+        rows = [
+          [11, 3, 'July 2026', 'official', 3, 0, 0, at, 1, 1, null, null],
+        ];
       return Promise.resolve([rows, []]);
     },
   });

@@ -28,7 +28,7 @@ T-3 ─────────────────────┘
 ---
 
 ## T-1: Schema and migration `0004` (version, last edit, audit table)
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** none
 - **Requirements:** FR-9 (Two admins — the version column the conditional write relies on), FR-10 (Append-only — no update columns; One record per edit — the table), NFR-8 (storage)

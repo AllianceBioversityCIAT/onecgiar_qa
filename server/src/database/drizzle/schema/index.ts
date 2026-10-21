@@ -13,3 +13,4 @@ export * from './timeline-programs.js';
 export * from './timeline-result-types.js';
 export * from './timeline-steps.js';
 export * from './timeline-users.js';
+export * from './timeline-audit-events.js';
