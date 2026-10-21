@@ -124,7 +124,7 @@ T-3 ─────────────────────┘
 - **Skills:** nestjs-expert, api-design-principles
 
 ## T-3: Update rules, diff and catalog codes
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** none
 - **Requirements:**

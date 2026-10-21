@@ -116,7 +116,7 @@ Leader adjudication: no item names a blocker and none is an owed T-1 deliverable
 - Reviewer (lens checklist, effort high): **PASS** — "The diff covers every Scope item, and every cited scenario has a test that hits it. No spec violations found." Checked: lowest-position step as step 1 matches FR-6 / design § 7.1 wording; DD-8 marking is per test, not blanket; neither Disqualifier applies; NFR-5 (6 with `NoTimelineLoads`, 7 fixed with the fake) matches design § 7.4; FR-14 key sets written out.
 - runtime events: none.
 
-spawns: implementer 65 calls, 206347 tokens, ended partial (Not Done / Assumptions — assumptions only, no owed item); reviewer not reported by host, ended complete.
+spawns: implementer 65 calls, 206347 tokens, ended partial (Not Done / Assumptions — assumptions only, no owed item); reviewer 17 calls, 77157 tokens, ended complete.
 
 **Not Done / Assumptions (Implementer, carried in substance)**
 1. `timelines.unit-of-work.spec.ts` edited (import + `new NoTimelineLoads()`), because `TimelinesService` gained a 5th constructor argument.
@@ -147,3 +147,68 @@ Leader adjudication: no blocker, no owed item; closes on the PASS.
 - Front (outside this branch): the front lead was told by Slack DM on 2026-10-21 that `waiting_for_load`, step `state` and `version` are coming and that `cycles.models.ts` must accept them.
 
 **Final verification:** VERIFIED (substitute e2e command recorded above).
+
+### T-3: Update rules, diff and catalog codes — PASS
+
+| | |
+|---|---|
+| Date | 2026-10-21 |
+| Final status | PASS (attempt 1) |
+| Attempts | 1 |
+| Skills | nestjs-best-practices, error-handling-patterns, api-design-principles, **+ `tdd`** (Leader addition: a pure business-rule function where test-first pays) |
+| Effort | `high` (core business rules; catalog shared with users) |
+| Requirements covered | FR-1 (rules level), FR-3, FR-4, FR-5 (rules level), FR-10 (`changes` content), FR-11 (empty diff), NFR-4 (day boundaries) |
+
+**Attempt 1**
+- Files changed (`git diff --stat` + untracked):
+  - `server/src/admin-config/timelines/timeline-rules.ts` — `validateTimelineUpdate`, `mergeTimelineUpdate`, shared `checkMergedState` called by create and update (create order kept by hooks `afterScope`, `beforeDates`, `afterOpensOn`, `afterDates`).
+  - `server/src/admin-config/timelines/timeline-rules.spec.ts` — `numstat 725 0`: no create line removed.
+  - `server/src/admin-config/timelines/timeline-diff.ts`, `timeline-diff.spec.ts` (new).
+  - `server/src/common/error-codes.ts` — field code `LOCKED`; top-level `TIMELINES_VERSION_STALE`, `TIMELINES_IN_PROGRESS_UNCONFIRMED`.
+  - `server/src/admin-config/admin-config.errors.ts` — `TimelineVersionStaleError`, `TimelineInProgressUnconfirmedError`.
+  - `server/src/common/error-codes.spec.ts` — field codes 13 → 14; class lists extended.
+- Red run (stubs returning `[]` / `stored` / `{}`): `Tests 44 failed | 100 passed (144)` on assertions, e.g. `expected [] to deeply equal [ { field: 'steps[1].opensOn', …(1) } ]` ("names an unsent step when an edit to step 1 makes it overlap").
+- Falsifiers (each applied, observed red, reverted; file byte-identical to the clean copy by `diff -q`):
+  1. Locks on sent fields → 3 red, incl. `FR-3 Unchanged past date on hold: …`.
+  2. Request index for paths → 7 red, incl. `names an unsent step when an edit to step 1 makes it overlap`.
+  3. `hasLoad` dropped from the scope lock → `FR-4 Load done, step 1 not started: …` red.
+  4. **Not literal:** instead of reverting create to its own copy, the shared check was mutated (`<= 0` → `< 0`) → 2 create + 2 update cases red. Reviewer accepted it as proving the stronger property (create and update run the same function).
+- Implementer verification: lint clean; build 0; unit `Test Files 50 passed (50)`, `Tests 1878 passed (1878)`; `pnpm test:e2e --reporter=dot` `Tests 722 passed (722)`; tsc only the 7 `token-verifier.service.spec.ts` errors.
+- Evidence re-run (Leader-inline, non-author): **VERIFIED** — lint OK, build OK, unit `Tests 1878 passed (1878)`, e2e (`vitest --config ./vitest.config.e2e.ts --maxWorkers=2`) `Tests 722 passed (722)`, tsc only 7 in `token-verifier.service.spec.ts`, `numstat 725 0` on the rules spec.
+- Reviewer (lens checklist, effort high): **PASS** — "T-3 meets FR-1, FR-3, FR-4, FR-5, FR-10, FR-11 and design § 6, § 7.1, § 7.5, DD-4, DD-5, DD-7 and DD-11. Create's output is unchanged, the step state comes from `viewTimeline`, and the catalog pins are updated." Create check order traced old vs new; scope merge matches § 6; issue order matches § 7.1 steps 1–4; position issues at `steps[requestIndex].position` per § 7.1 item 1; double `LOCKED` + `INVALID` stays within catalog codes; `FIELD_ERRORS` readers in `server/src/users/` unaffected.
+- runtime events: none.
+
+spawns: implementer 37 calls, 172783 tokens, ended partial (Not Done / Assumptions — judgment calls only, no owed item); reviewer not reported by host, ended complete.
+
+**Not Done / Assumptions (Implementer, carried in substance)**
+1. `mergeTimelineUpdate(stored, request)` exported (not named in scope) for T-4/T-5's diff and write; returns `TimelineSnapshot` from `timeline-diff.ts`.
+2. `checkMergedState(known: ReadonlySet | null)`: update passes catalog sets only for a changed scope; an unchanged stored list is never checked, so the service may pass empty sets for it.
+3. Scope merge: flag on with no list empties the list; a list without its flag is judged against the stored flag; flag off with no list keeps the stored list, so `REQUIRED`; "changed" = flag change or a different set, ignoring order and repeats.
+4. Issue order: position issues (request order) → text checks → locks (steps by position, `programIds`, `resultTypeKeys`) → merged-state rules.
+5. A changed, malformed date on a closed step gives both `LOCKED` and `REQUIRED` / `INVALID`.
+6. `StoredTimeline` / `TimelineUpdateInput` typed in the rules; `version` and `confirmInProgress` left to the service.
+7. `server/src/admin-config/AGENTS.md` and `server/src/common/AGENTS.md` stale — not touched.
+8. NFR-4: rules take `today` as a string; coverage by day-boundary rows; no `TZ` variant runs of the rules suite.
+
+Leader adjudication: no blocker, no owed item; closes on the PASS.
+
+**ADVISORY (Reviewer, 4R — recorded, not tasks)**
+- RISK: on hold, step 1 is `upcoming` after its opening day, and the upcoming rule only checks a changed close against the open, so a hold edit can move step 1's close into the past. Follows FR-3 as written — raised to the user at the T-3 gate as a business question.
+- READABILITY: the hooks in `checkMergedState` capture create-only state; a comment on why they exist would help.
+- RELIABILITY: `scopeChanged` is computed four times per scope; one computation would leave one definition of "changed".
+- NFR-4: the rules compare date strings (`rome-date.ts:42` `compareDates`), so `TZ` cannot affect them; DST/two-`TZ` evidence belongs to T-2.
+- READABILITY: `server/src/admin-config/AGENTS.md:19,27` describe `timeline-rules.ts` as create-only and give the request-index path rule.
+- TESTS: no grid rows for an unchanged scope in the in-progress and hold states, or for an upcoming step's dates resent as stored.
+
+**Decisions made**
+- `tdd` added to the skill set (reason above).
+- Falsifier 4 non-literal form accepted on the Reviewer's reasoning.
+
+**Issues encountered**
+- The Implementer wrote one red-run output file to `/tmp/red1.txt` (outside the repo and the scratchpad) before moving to the scratchpad. No repository impact.
+
+**Forward pointers**
+- T-4 / T-5: use `mergeTimelineUpdate` for the merged state and `diffTimeline(stored, merged)`; pass catalog sets only for a changed scope (assumption 2).
+- T-8: `server/src/admin-config/AGENTS.md:19,27` (rules no longer create-only; path rule `steps[position − 1]`, request index only for position issues); `server/src/common/AGENTS.md` catalog counts.
+
+**Final verification:** VERIFIED.

@@ -27,10 +27,12 @@ import {
   CycleNotFoundError,
   CycleYearTakenError,
   TimelineAssignmentNotFoundError,
+  TimelineInProgressUnconfirmedError,
   TimelineNameTakenError,
   TimelineNotFoundError,
   TimelineUserNotEligibleError,
   TimelineValidationError,
+  TimelineVersionStaleError,
 } from '../admin-config/admin-config.errors.js';
 import {
   IdempotencyFenceLostError,
@@ -137,6 +139,11 @@ describe('domain errors declare a catalog code with the same status', () => {
     ['TimelineNotFoundError', new TimelineNotFoundError(1)],
     ['TimelineNameTakenError', new TimelineNameTakenError()],
     ['TimelineUserNotEligibleError', new TimelineUserNotEligibleError('x')],
+    ['TimelineVersionStaleError', new TimelineVersionStaleError()],
+    [
+      'TimelineInProgressUnconfirmedError',
+      new TimelineInProgressUnconfirmedError(),
+    ],
     ['TimelineAssignmentNotFoundError', new TimelineAssignmentNotFoundError(1)],
     [
       'TimelineValidationError',
@@ -178,6 +185,12 @@ describe('cycle and timeline errors (cycle-timelines FR-11, DD-8)', () => {
     [new TimelineNotFoundError(1), 404, 'TIMELINES_NOT_FOUND'],
     [new TimelineNameTakenError(), 409, 'TIMELINES_NAME_TAKEN'],
     [new TimelineUserNotEligibleError('x'), 409, 'TIMELINES_USER_NOT_ELIGIBLE'],
+    [new TimelineVersionStaleError(), 409, 'TIMELINES_VERSION_STALE'],
+    [
+      new TimelineInProgressUnconfirmedError(),
+      409,
+      'TIMELINES_IN_PROGRESS_UNCONFIRMED',
+    ],
     [
       new TimelineAssignmentNotFoundError(1),
       404,
@@ -216,7 +229,36 @@ describe('cycle and timeline errors (cycle-timelines FR-11, DD-8)', () => {
     for (const f of body.fields) expect(f.message).toMatch(/^[A-Z].*\.$/);
   });
 
-  it('has exactly the seven new field codes beside the six existing ones', () => {
+  it('says a locked field can no longer be changed (timeline-edit FR-3)', () => {
+    const error = new TimelineValidationError([
+      { field: 'steps[0].closesOn', code: 'LOCKED' },
+    ]);
+    const body = error.getResponse() as {
+      fields: Array<{ field: string; code: string; message: string }>;
+    };
+    expect(body.fields).toEqual([
+      {
+        field: 'steps[0].closesOn',
+        code: 'LOCKED',
+        message: 'This can no longer be changed.',
+      },
+    ]);
+  });
+
+  it('answers the stale and the unconfirmed edit with the user-facing texts (timeline-edit § 6)', () => {
+    expect(new TimelineVersionStaleError().getResponse()).toEqual({
+      code: 'TIMELINES_VERSION_STALE',
+      message:
+        'Someone else changed this timeline. Reload it and make your change again.',
+    });
+    expect(new TimelineInProgressUnconfirmedError().getResponse()).toEqual({
+      code: 'TIMELINES_IN_PROGRESS_UNCONFIRMED',
+      message:
+        'This change affects a step that is in progress. Confirm it to save.',
+    });
+  });
+
+  it('has exactly the eight new field codes beside the six existing ones', () => {
     expect(Object.keys(FIELD_ERRORS).sort()).toEqual(
       [
         'REQUIRED',
@@ -232,6 +274,7 @@ describe('cycle and timeline errors (cycle-timelines FR-11, DD-8)', () => {
         'AUDIENCE_ORDER',
         'ROUND_SEQUENCE',
         'FIRST_STEP_LOAD',
+        'LOCKED',
       ].sort(),
     );
   });
