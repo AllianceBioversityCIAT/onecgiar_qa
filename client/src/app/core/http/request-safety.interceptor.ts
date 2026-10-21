@@ -13,7 +13,7 @@ import { APP_CONFIG } from '../config/app-config';
 import { toApiError } from './api-envelope';
 import { NO_QUEUE, QUEUE_REPLAY, SILENT_ERRORS, TIMEOUT_MS, isWrite } from './request-context';
 import { Toasts } from './toasts';
-import { IDEMPOTENCY_HEADER, UnsentQueue, actionSignature, isTransientStatus, newId } from './unsent-queue';
+import { IDEMPOTENCY_HEADER, UnsentQueue, actionSignature, isRetryLater, newId } from './unsent-queue';
 
 /** Identical writes still in flight, shared so a second click never sends a second request. */
 @Service()
@@ -65,7 +65,7 @@ export const requestSafetyInterceptor: HttpInterceptorFn = (req, next) => {
     catchError((error: unknown) => {
       if (!(error instanceof HttpErrorResponse) || replay) return throwError(() => error);
       const lostRefresh = error.status === 401 && injector.get(AuthSession).isSignedIn();
-      if (tracked && (isTransientStatus(error.status) || lostRefresh)) {
+      if (tracked && (isRetryLater(error.status, toApiError(error).code) || lostRefresh)) {
         queue().offer(prepared);
       } else if (shouldToast(error, req, auth)) {
         toasts.error(toApiError(error).message);

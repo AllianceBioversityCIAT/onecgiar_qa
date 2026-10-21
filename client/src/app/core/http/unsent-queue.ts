@@ -36,6 +36,14 @@ export function isTransientStatus(status: number): boolean {
   return status === 0 || status === 502 || status === 503 || status === 504;
 }
 
+/** The server is still running this same key (idempotency lease): retry later with the SAME key. */
+export const IDEMPOTENCY_IN_PROGRESS = 'IDEMPOTENCY_IN_PROGRESS';
+
+/** Errors that are not a "no": the same action, with the same key, may still go through. */
+export function isRetryLater(status: number, code: string): boolean {
+  return isTransientStatus(status) || status === 429 || (status === 409 && code === IDEMPOTENCY_IN_PROGRESS);
+}
+
 /** Same method + URL + body = the same user action. Bodies that cannot be compared never match. */
 export function actionSignature(method: string, url: string, body: unknown): string | null {
   if (body instanceof FormData || body instanceof Blob || body instanceof ArrayBuffer) return null;
@@ -206,8 +214,9 @@ export class UnsentQueue {
       return 'sent';
     } catch (error) {
       const status = error instanceof HttpErrorResponse ? error.status : -1;
-      // 429 = the server asked to slow down: wait, it is not a "no".
-      if (isTransientStatus(status) || status === 429 || (status === 401 && this.session.isSignedIn())) {
+      // 429 = slow down; 409 IDEMPOTENCY_IN_PROGRESS = the server is still on it (Juanda, write-safety
+      // front contract). 422 IDEMPOTENCY_KEY_REUSED falls through: a client bug, never retried.
+      if (isRetryLater(status, toApiError(error).code) || (status === 401 && this.session.isSignedIn())) {
         this.replace(item.id, { ...item, state: 'pending', attempts: item.attempts + 1 });
         return 'unreachable';
       }
