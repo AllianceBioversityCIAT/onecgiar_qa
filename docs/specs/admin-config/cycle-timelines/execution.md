@@ -488,7 +488,7 @@ The design § 10 budget was exceeded. Execution stopped for the back lead's deci
 - **Red run:** n/a (docs, no test gate).
 - **Evidence re-run (Leader inline, non-author):** VERIFIED. The grep returns one hit (line 188), inside the "Superseded (cycle-timelines, DD-1)" note. The `0003` CREATE TABLEs (cycles, timelines, timeline_programs, timeline_result_types, timeline_steps, timeline_users) are all § 5.1 rows, and `timeline_loads` / `timeline_results` are marked reserved.
 - **Reviewer verdict:** PASS. § 5.1 follows the generated SQL (columns, generated keys, unique constraints, CHECKs), so the disqualifier does not apply. § 4 and § 6 match the 9 shipped routes. The contract matches the shipped code (statuses, shapes, rule codes, request-key paths, readiness codes, the `Europe/Rome` rule). All forward pointers landed (T-2, T-4, T-5, T-6, T-8, FR-11). Deviations judged acceptable: the § 3 QAS-AVL-2 rename is needed to meet the task's own grep gate; the `app.module.ts` row is a factual sync; "all" plus ids → `INVALID` matches `checkScope`.
-- **spawns:** implementer 27 calls, 140,630 tokens, ended partial (back-lead review owed) · reviewer — not reported by host, ended complete.
+- **spawns:** implementer 27 calls, 140,630 tokens, ended partial (back-lead review owed) · reviewer 21 calls, 75,220 tokens, ended complete.
 
 **Not Done / Assumptions (Implementer, verbatim)**
 - "Contract note reviewed by the back lead" is still open: it needs a human review.
@@ -507,3 +507,7 @@ The design § 10 budget was exceeded. Execution stopped for the back lead's deci
 **Pending shared-file item (for the apply-capable branch, not this spec branch):** root `AGENTS.md:32` still reads "Cycles, windows, batches, field configuration". Update it to the cycles/timelines model when applied on `staging`.
 
 **Requirements covered:** proposal R-1 / DD-1 (TRD delivered), NFR-6 (reserved tables documented), D-1 (Rome labeling rule), FR-17 (idempotency target-id reuse documented).
+
+**T-9 gate (2026-10-21):**
+- The back lead reviewed and approved `front-contract.md`. This discharges the owed "Done when" item, and T-9 closes `[x]` on the Reviewer PASS above.
+- **Execute-time spec edit (back lead approved):** in `design.md` § 8, "no dropped steps" became "no step silently dropped for a missing or malformed date". Reason: a T-9 Reviewer advisory found that the old wording read as conflicting with FR-7 (steps may be removed); it meant FR-8 "Missing or malformed — BUT not dropped silently". Meaning is unchanged. A sweep for "no dropped steps" over the spec folder, the TRD and the module guide found no other site.

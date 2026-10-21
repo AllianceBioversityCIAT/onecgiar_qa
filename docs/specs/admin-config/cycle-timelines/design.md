@@ -245,7 +245,7 @@ The services log one decision line per write, shaped like users' `logged()`: `{ 
 No front change in this spec (P2-3934). `front-contract.md` gives the front lead:
 
 - the routes and shapes of § 6;
-- the rules the server now owns: max 5 steps, step 1 load, explicit rounds, explicit "all" for every timeline (D-7), no dropped steps, no back-dated start;
+- the rules the server now owns: max 5 steps, step 1 load, explicit rounds, explicit "all" for every timeline (D-7), no step silently dropped for a missing or malformed date, no back-dated start;
 - the **timezone note (D-1)**: every displayed or picked step date is a Central European date (`Europe/Rome`, CET/CEST) and must be labeled as such, e.g. "Opens 06 Jul 2026, 00:00 CET (Rome)";
 - the field codes and their meaning;
 - what is not built yet (loads, edit, visibility, filter).
