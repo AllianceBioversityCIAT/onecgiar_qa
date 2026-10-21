@@ -600,11 +600,11 @@ The design § 10 budget was exceeded. Execution stopped for the back lead's deci
 | T-7 List and detail | PASS | 2 (1 implicit FAIL) | 1 |
 | T-8 Timeline users | PASS | 2 (1 checkpoint) | 3 |
 | T-9 Guides, TRD, front contract | PASS (+ back-lead review) | 1 | 1 |
-| T-10 HITL on TEST | PASS (finding → T-11) | — | — |
+| T-10 HITL on TEST | PASS (finding → T-11; + FR-1 dup-year check) | — | 1 (checklist) |
 | T-11 Activation retry (added) | PASS (+ TEST re-check) | 2 | 2 |
 
 - **Verification at close:** unit 49 files / 1722 · e2e 13 files / 715 · tsc 7 baseline errors (`token-verifier.service.spec.ts`) · lint and build clean.
-- **Budget:** exceeded and accepted by the back lead at the tripwire after T-8. Final count: 11 tasks (1 added), 17 Reviewer verdicts against 14 planned.
+- **Budget:** exceeded and accepted by the back lead at the tripwire after T-8. Final count: 11 tasks (1 added), 18 Reviewer verdicts against 14 planned.
 - **Execute-time spec amendments (all back-lead approved):**
   - FR-11 paths (`programIds`).
   - § 7.3 Activate: the none-active retry, later extended to up to 10 attempts and 503.
@@ -619,3 +619,10 @@ The design § 10 budget was exceeded. Execution stopped for the back lead's deci
 - **Next:** `/akili-validate admin-config/cycle-timelines`, then PRs to `staging-center` (PR 1 = T-1…T-5, PR 2 = T-6…T-11).
 
 **Correction (Leader, 2026-10-21):** T-10 was flipped to `[x]` in `6c311e4` without a closing record (no Reviewer PASS, `REVIEW_WAIVED` or `REVIEW_SKIPPED`). That violated Step 3. It has been reverted to `[~]`, and a checklist Reviewer was spawned to audit the T-10 evidence recorded above.
+
+**T-10 closing record (2026-10-21):**
+- **Reviewer (checklist, evidence audit): PASS.** All four counts are exactly one. The date reads back unshifted. Concurrency was real (`Promise.all`; 20 assigns in 156 ms; the 2a 500 itself proves contention). `0003` was applied (`GET /cycles` 200 `[]`; the live 1062 on `uq_cycles_active_key`).
+  - Deviations judged ADVISORY: TEST instead of `qadb` (still real InnoDB; the pipeline applied the migration); the requests run by the Leader with the back lead's token (the back lead should acknowledge in one line); counts read through the API (no truncation; the date column is string mode, so a read-side shift would show); the added none-active check belongs to T-11.
+  - spawns: reviewer 12 calls, 43,962 tokens, ended complete.
+- **Reviewer coverage advisory acted on** (FR-1's concurrency clause is mapped to T-10 in the coverage table but had no check). The Leader ran 10 concurrent `POST /cycles` with year 2077 on TEST (`t10-dupyear.mjs`, `Promise.all`): `{ 201: 1, '409 CYCLES_YEAR_TAKEN': 9 }`, no 500, one row with year 2077. **PASS.** TEST data added: cycle 2077.
+- **Owed:** the back lead's one-line acknowledgment of the TEST run (Reviewer advisory 2), requested at the closing gate.
