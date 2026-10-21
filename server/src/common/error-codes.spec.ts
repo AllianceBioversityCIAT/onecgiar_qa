@@ -21,6 +21,17 @@ import { UserNotAdmittedError } from '../auth/guards/auth.guard.js';
 import { PermissionDeniedError } from '../auth/guards/permission.guard.js';
 import { InvalidTokenError } from '../auth/token-verifier.service.js';
 import {
+  CycleClosedError,
+  CycleNotDraftError,
+  CycleNotFoundError,
+  CycleYearTakenError,
+  TimelineAssignmentNotFoundError,
+  TimelineNameTakenError,
+  TimelineNotFoundError,
+  TimelineUserNotEligibleError,
+  TimelineValidationError,
+} from '../admin-config/admin-config.errors.js';
+import {
   IdempotencyFenceLostError,
   IdempotencyInProgressError,
   IdempotencyKeyReusedError,
@@ -36,6 +47,7 @@ import {
 import {
   ERROR_CATALOG,
   ERROR_CODES,
+  FIELD_ERRORS,
   genericCodeFor,
   isErrorCode,
 } from './error-codes.js';
@@ -116,6 +128,18 @@ describe('domain errors declare a catalog code with the same status', () => {
     ['IdempotencyKeyReusedError', new IdempotencyKeyReusedError()],
     ['IdempotencyInProgressError', new IdempotencyInProgressError()],
     ['IdempotencyFenceLostError', new IdempotencyFenceLostError()],
+    ['CycleNotFoundError', new CycleNotFoundError(1)],
+    ['CycleYearTakenError', new CycleYearTakenError()],
+    ['CycleNotDraftError', new CycleNotDraftError()],
+    ['CycleClosedError', new CycleClosedError()],
+    ['TimelineNotFoundError', new TimelineNotFoundError(1)],
+    ['TimelineNameTakenError', new TimelineNameTakenError()],
+    ['TimelineUserNotEligibleError', new TimelineUserNotEligibleError('x')],
+    ['TimelineAssignmentNotFoundError', new TimelineAssignmentNotFoundError(1)],
+    [
+      'TimelineValidationError',
+      new TimelineValidationError([{ field: 'name', code: 'REQUIRED' }]),
+    ],
   ];
 
   it.each(errors)('%s', (_name, error) => {
@@ -138,6 +162,74 @@ describe('idempotency errors (users-admin-write-safety FR-4, FR-5)', () => {
     expect((error.getResponse() as { code: string }).code).toBe(code);
     expect(ERROR_CATALOG[code as keyof typeof ERROR_CATALOG].status).toBe(
       status,
+    );
+  });
+});
+
+describe('cycle and timeline errors (cycle-timelines FR-11, DD-8)', () => {
+  it.each([
+    [new CycleNotFoundError(1), 404, 'CYCLES_NOT_FOUND'],
+    [new CycleYearTakenError(), 409, 'CYCLES_YEAR_TAKEN'],
+    [new CycleNotDraftError(), 409, 'CYCLES_NOT_DRAFT'],
+    [new CycleClosedError(), 409, 'CYCLES_CLOSED'],
+    [new TimelineNotFoundError(1), 404, 'TIMELINES_NOT_FOUND'],
+    [new TimelineNameTakenError(), 409, 'TIMELINES_NAME_TAKEN'],
+    [new TimelineUserNotEligibleError('x'), 409, 'TIMELINES_USER_NOT_ELIGIBLE'],
+    [
+      new TimelineAssignmentNotFoundError(1),
+      404,
+      'TIMELINES_ASSIGNMENT_NOT_FOUND',
+    ],
+  ])('%s answers %i %s', (error, status, code) => {
+    expect(error.getStatus()).toBe(status);
+    expect((error.getResponse() as { code: string }).code).toBe(code);
+  });
+
+  it('lists every field with a catalog field code and its message', () => {
+    const error = new TimelineValidationError([
+      { field: 'steps[0].opensOn', code: 'BEFORE_TODAY' },
+      { field: 'steps[1].closesOn', code: 'CLOSES_BEFORE_OPENS' },
+      { field: 'steps[1].opensOn', code: 'OVERLAPS_PREVIOUS_STEP' },
+      { field: 'steps[2].audience', code: 'AUDIENCE_ORDER' },
+      { field: 'steps[2].round', code: 'ROUND_SEQUENCE' },
+      { field: 'steps[0].requiresLoad', code: 'FIRST_STEP_LOAD' },
+      { field: 'steps', code: 'OUT_OF_RANGE' },
+    ]);
+    expect(error.getStatus()).toBe(400);
+    const body = error.getResponse() as {
+      code: string;
+      fields: Array<{ field: string; code: string; message: string }>;
+    };
+    expect(body.code).toBe('VALIDATION_FAILED');
+    expect(body.fields.map((f) => f.code)).toEqual([
+      'BEFORE_TODAY',
+      'CLOSES_BEFORE_OPENS',
+      'OVERLAPS_PREVIOUS_STEP',
+      'AUDIENCE_ORDER',
+      'ROUND_SEQUENCE',
+      'FIRST_STEP_LOAD',
+      'OUT_OF_RANGE',
+    ]);
+    for (const f of body.fields) expect(f.message).toMatch(/^[A-Z].*\.$/);
+  });
+
+  it('has exactly the seven new field codes beside the six existing ones', () => {
+    expect(Object.keys(FIELD_ERRORS).sort()).toEqual(
+      [
+        'REQUIRED',
+        'INVALID_TYPE',
+        'INVALID_EMAIL',
+        'TOO_LONG',
+        'UNKNOWN_FIELD',
+        'INVALID',
+        'OUT_OF_RANGE',
+        'CLOSES_BEFORE_OPENS',
+        'OVERLAPS_PREVIOUS_STEP',
+        'BEFORE_TODAY',
+        'AUDIENCE_ORDER',
+        'ROUND_SEQUENCE',
+        'FIRST_STEP_LOAD',
+      ].sort(),
     );
   });
 });

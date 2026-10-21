@@ -1,0 +1,158 @@
+import { ApiProperty } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
+import {
+  IsArray,
+  IsBoolean,
+  IsInt,
+  IsOptional,
+  IsString,
+  ValidateNested,
+} from 'class-validator';
+import { stepAudiences } from '../../../database/drizzle/schema/timeline-steps.js';
+import type {
+  TimelineCreateInput,
+  TimelineStepInput,
+} from '../timeline-rules.js';
+
+/**
+ * One step of `POST /cycles/:id/timelines`. The pipe judges the shape only
+ * (types, unknown fields). Everything else is a rule of `timeline-rules.ts`, so
+ * that all of a request's problems come back together (FR-11, design 7.2): an
+ * empty name, a date that is missing or not real, an audience outside the five
+ * or out of order, a round that skips. That is why the audience is a plain
+ * string and the dates are optional here: a missing date must reach the rules
+ * to be named, never be dropped (FR-8).
+ */
+export class TimelineStepDto implements TimelineStepInput {
+  @ApiProperty({
+    type: String,
+    maxLength: 120,
+    example: 'QA Platform open for assessors',
+    description: 'Required; at most 120 characters after trimming',
+  })
+  @IsString()
+  name!: string;
+
+  @ApiProperty({
+    type: String,
+    enum: stepAudiences,
+    example: 'assessors',
+    description:
+      'Who works in this step. Each audience once, in workflow order: assessors, programs, lead_assessors, tpb, ppu',
+  })
+  @IsString()
+  audience!: string;
+
+  @ApiProperty({
+    type: String,
+    format: 'date',
+    example: '2026-11-02',
+    description:
+      'Rome calendar day, `YYYY-MM-DD`. Required; the first step cannot open before today in Rome, and a step opens after the closing day of the one before it',
+  })
+  @IsOptional()
+  @IsString()
+  opensOn?: string | null;
+
+  @ApiProperty({
+    type: String,
+    format: 'date',
+    example: '2026-11-06',
+    description:
+      'Rome calendar day, `YYYY-MM-DD`. Required; the same day as the opening is valid',
+  })
+  @IsOptional()
+  @IsString()
+  closesOn?: string | null;
+
+  @ApiProperty({
+    type: Number,
+    minimum: 1,
+    example: 1,
+    description:
+      'Round of this step: 1 on the first step, then the same as the step before or one more',
+  })
+  @IsInt()
+  round!: number;
+
+  @ApiProperty({
+    type: Boolean,
+    example: true,
+    description: 'Whether this step needs a load; the first step always does',
+  })
+  @IsBoolean()
+  requiresLoad!: boolean;
+}
+
+/**
+ * Body of `POST /cycles/:id/timelines` (design 6, `TimelineCreate`). There is
+ * no `kind`: the server decides official or additional, and an unknown field is
+ * a 400 (FR-5, NFR-2). The two scope lists are optional at the pipe, like the
+ * step dates: a list that is absent must reach the rules to be named
+ * `REQUIRED` in the same round as the other rule problems (FR-6, FR-11, design
+ * 7.2 step 1). A list that is present is still type-checked here.
+ */
+export class CreateTimelineDto implements TimelineCreateInput {
+  @ApiProperty({
+    type: String,
+    maxLength: 120,
+    example: 'July 2026',
+    description:
+      'Required; at most 120 characters after trimming; unique in the cycle whatever the letter case',
+  })
+  @IsString()
+  name!: string;
+
+  @ApiProperty({
+    type: Boolean,
+    example: false,
+    description:
+      'Every Science Program, also those added to the catalog later. Then `programIds` is empty',
+  })
+  @IsBoolean()
+  allPrograms!: boolean;
+
+  @ApiProperty({
+    type: [Number],
+    required: false,
+    example: [2, 5],
+    description:
+      'CLARISA ids when `allPrograms` is false; at least one, all in the catalog. Left out or empty is refused as REQUIRED (it never means "all"); with `allPrograms` true it may be left out',
+  })
+  @IsOptional()
+  @IsArray()
+  @IsInt({ each: true })
+  programIds?: number[] | null;
+
+  @ApiProperty({
+    type: Boolean,
+    example: false,
+    description:
+      'Every result type, also those added to the catalog later. Then `resultTypeKeys` is empty',
+  })
+  @IsBoolean()
+  allResultTypes!: boolean;
+
+  @ApiProperty({
+    type: [String],
+    required: false,
+    example: ['INNOVATION_DEV'],
+    description:
+      'Catalog keys when `allResultTypes` is false; at least one, all in the catalog. Left out or empty is refused as REQUIRED (it never means "all"); with `allResultTypes` true it may be left out',
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  resultTypeKeys?: string[] | null;
+
+  @ApiProperty({
+    type: [TimelineStepDto],
+    minItems: 1,
+    maxItems: 5,
+    description: 'One to five steps, in workflow order',
+  })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => TimelineStepDto)
+  steps!: TimelineStepDto[];
+}
