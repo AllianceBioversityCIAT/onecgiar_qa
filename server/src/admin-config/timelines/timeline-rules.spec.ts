@@ -81,6 +81,15 @@ function patch(
   return steps.map((s, i) => (i === index ? { ...s, ...changes } : s));
 }
 
+/** The request with a scope list left out altogether, as a body that never sent the key. */
+function without(
+  key: 'programIds' | 'resultTypeKeys',
+  request: TimelineCreateInput = valid(),
+): TimelineCreateInput {
+  const { [key]: _omitted, ...rest } = request;
+  return rest;
+}
+
 type Issue = { field: string; code: string; max?: number };
 type Row = [label: string, request: TimelineCreateInput, expected: Issue[]];
 
@@ -150,6 +159,26 @@ describe('programs scope (FR-6, DD-6)', () => {
       valid({ allPrograms: false, programIds: [2, 999] }),
       [{ field: 'programIds', code: 'INVALID' }],
     ],
+    [
+      'an absent list is missing, as an empty one is (FR-6, FR-11)',
+      without('programIds', valid({ allPrograms: false })),
+      [{ field: 'programIds', code: 'REQUIRED' }],
+    ],
+    [
+      'a null list is missing too',
+      valid({ allPrograms: false, programIds: null }),
+      [{ field: 'programIds', code: 'REQUIRED' }],
+    ],
+    [
+      'all programs with an absent list is fine',
+      without('programIds', valid({ allPrograms: true })),
+      [],
+    ],
+    [
+      'all programs with a null list is fine',
+      valid({ allPrograms: true, programIds: null }),
+      [],
+    ],
   ])('%s', (_label, request, expected) => {
     expect(validateTimelineCreate(request, context)).toEqual(expected);
   });
@@ -186,6 +215,26 @@ describe('result types scope (FR-6, DD-6)', () => {
       'a key the catalog does not have',
       valid({ allResultTypes: false, resultTypeKeys: ['KP', 'NOPE'] }),
       [{ field: 'resultTypeKeys', code: 'INVALID' }],
+    ],
+    [
+      'an absent list is missing, as an empty one is (FR-6, FR-11)',
+      without('resultTypeKeys', valid({ allResultTypes: false })),
+      [{ field: 'resultTypeKeys', code: 'REQUIRED' }],
+    ],
+    [
+      'a null list is missing too',
+      valid({ allResultTypes: false, resultTypeKeys: null }),
+      [{ field: 'resultTypeKeys', code: 'REQUIRED' }],
+    ],
+    [
+      'all result types with an absent list is fine',
+      without('resultTypeKeys', valid({ allResultTypes: true })),
+      [],
+    ],
+    [
+      'all result types with a null list is fine',
+      valid({ allResultTypes: true, resultTypeKeys: null }),
+      [],
     ],
   ])('%s', (_label, request, expected) => {
     expect(validateTimelineCreate(request, context)).toEqual(expected);
@@ -416,6 +465,22 @@ describe('all issues at once (FR-11)', () => {
       patch(2, { closesOn: undefined }, fiveSteps().slice(0, 3)),
       { name: '', allPrograms: false, programIds: [] },
     );
+    expect(validateTimelineCreate(request, context)).toEqual([
+      { field: 'name', code: 'REQUIRED' },
+      { field: 'programIds', code: 'REQUIRED' },
+      { field: 'steps[2].closesOn', code: 'REQUIRED' },
+    ]);
+  });
+
+  it('lists name, an ABSENT programs list and a missing closing date together: the list key is not in the request', () => {
+    const request = without(
+      'programIds',
+      withSteps(patch(2, { closesOn: undefined }, fiveSteps().slice(0, 3)), {
+        name: '',
+        allPrograms: false,
+      }),
+    );
+    expect('programIds' in request).toBe(false);
     expect(validateTimelineCreate(request, context)).toEqual([
       { field: 'name', code: 'REQUIRED' },
       { field: 'programIds', code: 'REQUIRED' },

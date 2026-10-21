@@ -13,8 +13,23 @@ import type {
   Cycle,
   NewCycle,
 } from '../../src/database/drizzle/schema/cycles.js';
+import type {
+  NewStepValues,
+  TimelineBundle,
+  TimelineInsertOutcome,
+  TimelinesStore,
+} from '../../src/admin-config/timelines/timelines.store.js';
+import type {
+  TimelinesRepositories,
+  TimelinesUnitOfWork,
+} from '../../src/admin-config/timelines/timelines.unit-of-work.js';
+import type { TimelineProgram } from '../../src/database/drizzle/schema/timeline-programs.js';
+import type { TimelineResultType } from '../../src/database/drizzle/schema/timeline-result-types.js';
 import type { TimelineStep } from '../../src/database/drizzle/schema/timeline-steps.js';
-import type { Timeline } from '../../src/database/drizzle/schema/timelines.js';
+import type {
+  NewTimeline,
+  Timeline,
+} from '../../src/database/drizzle/schema/timelines.js';
 import { roundTrip } from './in-memory-idempotency.js';
 import {
   InMemoryDatabase,
@@ -63,17 +78,62 @@ export function assertCycleChecks(row: Cycle): void {
 /** The committed tables of cycles, over the row locks and idempotency rows of one `InMemoryDatabase`. */
 export class InMemoryAdminConfigDatabase {
   readonly cycles: Cycle[] = [];
-  /** Seeded directly by the unit tests (the timelines routes arrive with T-6). */
+  /** The committed rows of the timeline tables; the timeline store writes them, unit tests may seed them. */
   readonly timelines: Timeline[] = [];
   readonly steps: TimelineStep[] = [];
+  readonly programs: TimelineProgram[] = [];
+  readonly resultTypes: TimelineResultType[] = [];
+  /**
+   * Timeline writes in the order the statements RAN: `timeline:official:1`,
+   * `programs:1`, `steps:1`. A rolled-back write stays in it, so an empty log
+   * proves that no statement ran at all.
+   */
+  readonly timelineWriteLog: string[] = [];
+  /**
+   * Every write of cycles AND timelines in the order the statements ran:
+   * `close:1`, `activate:2` (status writes) among `timeline:official:1`,
+   * `programs:1`, `result-types:1`, `steps:1`. It is how a test sees whether two
+   * transactions on the same cycle ran one after the other or interleaved: a
+   * lock held to the commit leaves one transaction's writes contiguous.
+   */
+  readonly history: string[] = [];
+  /** Reads of one timeline's rows (the read model), by any store of this world. */
+  timelineReads = 0;
+  /** Inserts refused by `uq_timelines_official_key`: the backstop the cycle lock must keep from firing (DD-3). */
+  officialKeyViolations = 0;
+  /** Inserts refused by `uq_timelines_cycle_name`. */
+  nameViolations = 0;
   /** Status writes in the order they were applied: `close:2`, `activate:3`. */
   readonly writeLog: string[] = [];
   readonly store: InMemoryCyclesStore;
+  readonly timelineStore: InMemoryTimelinesStore;
   private issued = 0;
+  private issuedTimelines = 0;
+  private issuedSteps = 0;
 
   /** Pass the users world's database to share its row locks and idempotency rows. */
   constructor(readonly base: InMemoryDatabase = new InMemoryDatabase()) {
     this.store = new InMemoryCyclesStore(this);
+    this.timelineStore = new InMemoryTimelinesStore(this);
+  }
+
+  /** One timeline write: in `timelineWriteLog` and in the cross-table `history`. */
+  recordTimelineWrite(entry: string): void {
+    this.timelineWriteLog.push(entry);
+    this.history.push(entry);
+  }
+
+  /** A fresh timeline key, unique across transactions that insert at the same time. */
+  nextTimelineId(): number {
+    const highest = this.timelines.reduce((max, t) => Math.max(max, t.id), 0);
+    this.issuedTimelines = Math.max(this.issuedTimelines, highest) + 1;
+    return this.issuedTimelines;
+  }
+
+  nextStepId(): number {
+    const highest = this.steps.reduce((max, s) => Math.max(max, s.id), 0);
+    this.issuedSteps = Math.max(this.issuedSteps, highest) + 1;
+    return this.issuedSteps;
   }
 
   /** A fresh primary key, unique across transactions that insert at the same time. */
@@ -163,6 +223,7 @@ export class InMemoryCyclesStore implements CyclesStore {
     }
     this.writes++;
     this.world.writeLog.push(`${op}:${id}`);
+    this.world.history.push(`${op}:${id}`);
     Object.assign(row, next);
   }
 
@@ -214,7 +275,7 @@ export class InMemoryCyclesStore implements CyclesStore {
  * - an UPDATE locks its row, and one that makes a row active also takes the
  *   unique `active_key` entry, so it waits for another activation's commit.
  */
-class TransactionalCyclesStore extends InMemoryCyclesStore {
+export class TransactionalCyclesStore extends InMemoryCyclesStore {
   constructor(
     private readonly tx: InMemoryTransaction,
     world: InMemoryAdminConfigDatabase,
@@ -306,6 +367,301 @@ export class InMemoryCyclesUnitOfWork implements CyclesUnitOfWork {
       const table = tx.table(this.world.cycles, (row) => String(row.id));
       const result = await work({
         cycles: new TransactionalCyclesStore(tx, this.world, table.rows),
+        idempotency: tx.repositories().idempotency,
+      });
+      tx.commit();
+      this.committed++;
+      return result;
+    } catch (error) {
+      tx.rollback();
+      this.rolledBack++;
+      throw error;
+    }
+  }
+}
+
+// --- timelines (cycle-timelines T-6) ----------------------------------------
+
+function duplicateEntry(key: string): never {
+  throw Object.assign(new Error(`Duplicate entry for key '${key}'`), {
+    code: 'ER_DUP_ENTRY',
+    errno: 1062,
+  });
+}
+
+/** `utf8mb4_0900_ai_ci`: names that differ only in case or accents are the same name (FR-6). */
+export function collateName(name: string): string {
+  return name.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+}
+
+/** The CHECKs of `timeline_steps` that one row can break (schema file), on the row as it would be stored. */
+function assertStepChecks(step: NewStepValues): void {
+  if (step.position < 1 || step.position > 5) {
+    checkFailed('chk_timeline_steps_position');
+  }
+  if (step.closesOn < step.opensOn) checkFailed('chk_timeline_steps_dates');
+  if (step.round < 1) checkFailed('chk_timeline_steps_round');
+  if (step.position === 1 && !step.requiresLoad) {
+    checkFailed('chk_timeline_steps_first_load');
+  }
+}
+
+/**
+ * Autocommit `TimelinesStore` over the committed rows (reads, seeding,
+ * inspection). It emulates what MySQL guarantees for the timeline tables:
+ * `uq_timelines_cycle_name` (case- and accent-insensitive), the generated
+ * `official_key` with `uq_timelines_official_key`, the step CHECKs, the unique
+ * position and audience of a step, and the primary keys of the scope tables. The
+ * two keys a create can hit come back as outcomes, as the Drizzle adapter
+ * returns them; the others raise 1062 / 3819 as the driver does.
+ */
+export class InMemoryTimelinesStore implements TimelinesStore {
+  constructor(
+    protected readonly world: InMemoryAdminConfigDatabase,
+    readonly rows: Timeline[] = world.timelines,
+    readonly stepRows: TimelineStep[] = world.steps,
+    readonly programRows: TimelineProgram[] = world.programs,
+    readonly resultTypeRows: TimelineResultType[] = world.resultTypes,
+  ) {}
+
+  async insert(values: NewTimeline): Promise<TimelineInsertOutcome> {
+    const row: Timeline = {
+      id: this.world.nextTimelineId(),
+      cycleId: values.cycleId,
+      name: values.name,
+      kind: values.kind,
+      officialKey: values.kind === 'official' ? values.cycleId : null,
+      allPrograms: values.allPrograms,
+      allResultTypes: values.allResultTypes,
+      createdAt: values.createdAt ?? new Date(),
+      createdBy: values.createdBy,
+    };
+    // InnoDB reports the first unique index that refuses the row, in the order
+    // the table declares them: the name, then the official key.
+    if (
+      this.rows.some(
+        (r) =>
+          r.cycleId === row.cycleId &&
+          collateName(r.name) === collateName(row.name),
+      )
+    ) {
+      this.world.nameViolations++;
+      return { kind: 'name_taken' };
+    }
+    if (
+      row.officialKey !== null &&
+      this.rows.some((r) => r.officialKey === row.officialKey)
+    ) {
+      this.world.officialKeyViolations++;
+      return { kind: 'official_taken' };
+    }
+    this.world.recordTimelineWrite(`timeline:${row.kind}:${row.id}`);
+    this.rows.push(row);
+    return { kind: 'created', timelineId: row.id };
+  }
+
+  async hasOfficial(cycleId: number): Promise<boolean> {
+    return this.rows.some((r) => r.officialKey === cycleId);
+  }
+
+  async insertPrograms(timelineId: number, programIds: readonly number[]) {
+    for (const programId of programIds) {
+      if (
+        this.programRows.some(
+          (r) => r.timelineId === timelineId && r.programId === programId,
+        )
+      ) {
+        duplicateEntry('timeline_programs.PRIMARY');
+      }
+      this.programRows.push({ timelineId, programId });
+    }
+    this.world.recordTimelineWrite(`programs:${timelineId}`);
+  }
+
+  async insertResultTypes(
+    timelineId: number,
+    resultTypeKeys: readonly string[],
+  ) {
+    for (const resultTypeKey of resultTypeKeys) {
+      if (
+        this.resultTypeRows.some(
+          (r) =>
+            r.timelineId === timelineId && r.resultTypeKey === resultTypeKey,
+        )
+      ) {
+        duplicateEntry('timeline_result_types.PRIMARY');
+      }
+      this.resultTypeRows.push({ timelineId, resultTypeKey });
+    }
+    this.world.recordTimelineWrite(`result-types:${timelineId}`);
+  }
+
+  async insertSteps(timelineId: number, steps: readonly NewStepValues[]) {
+    for (const step of steps) {
+      assertStepChecks(step);
+      const own = this.stepRows.filter((r) => r.timelineId === timelineId);
+      if (own.some((r) => r.position === step.position)) {
+        duplicateEntry('timeline_steps.uq_timeline_steps_position');
+      }
+      if (own.some((r) => r.audience === step.audience)) {
+        duplicateEntry('timeline_steps.uq_timeline_steps_audience');
+      }
+      this.stepRows.push({
+        id: this.world.nextStepId(),
+        timelineId,
+        position: step.position,
+        name: step.name,
+        audience: step.audience,
+        opensOn: step.opensOn,
+        closesOn: step.closesOn,
+        round: step.round,
+        requiresLoad: step.requiresLoad,
+      });
+    }
+    this.world.recordTimelineWrite(`steps:${timelineId}`);
+  }
+
+  async findBundle(id: number): Promise<TimelineBundle | undefined> {
+    this.world.timelineReads++;
+    const timeline = this.rows.find((r) => r.id === id);
+    if (!timeline) return undefined;
+    return structuredClone({
+      timeline,
+      steps: this.stepRows.filter((r) => r.timelineId === id),
+      programIds: this.programRows
+        .filter((r) => r.timelineId === id)
+        .map((r) => r.programId),
+      resultTypeKeys: this.resultTypeRows
+        .filter((r) => r.timelineId === id)
+        .map((r) => r.resultTypeKey),
+    });
+  }
+}
+
+/**
+ * `TimelinesStore` inside one transaction: every statement waits a round trip,
+ * takes its row locks first (they may wait for another transaction), then reads
+ * what is committed now. What each locks is what InnoDB locks: an INSERT of a
+ * timeline takes the unique entries of its name and, for an official one, of
+ * `official_key`, so it waits for the transaction that holds the same entry and
+ * then finds that transaction's row (or none, after a rollback).
+ */
+class TransactionalTimelinesStore extends InMemoryTimelinesStore {
+  constructor(
+    private readonly tx: InMemoryTransaction,
+    world: InMemoryAdminConfigDatabase,
+    rows: Timeline[],
+    stepRows: TimelineStep[],
+    programRows: TimelineProgram[],
+    resultTypeRows: TimelineResultType[],
+  ) {
+    super(world, rows, stepRows, programRows, resultTypeRows);
+  }
+
+  private async statement<R>(
+    options: StatementOptions,
+    run: () => R | Promise<R>,
+  ): Promise<R> {
+    await roundTrip();
+    return this.tx.statement(
+      {
+        ...options,
+        tables: [
+          this.rows,
+          this.stepRows,
+          this.programRows,
+          this.resultTypeRows,
+        ],
+      },
+      run,
+    );
+  }
+
+  override insert(values: NewTimeline) {
+    const name = [
+      `timelines:name:${values.cycleId}:${collateName(values.name)}`,
+      'X',
+    ] as const;
+    const official = [`timelines:official:${values.cycleId}`, 'X'] as const;
+    return this.statement(
+      {
+        current: true,
+        locks: values.kind === 'official' ? [name, official] : [name],
+      },
+      () => super.insert(values),
+    );
+  }
+
+  override hasOfficial(cycleId: number) {
+    return this.statement({}, () => super.hasOfficial(cycleId));
+  }
+
+  override insertPrograms(timelineId: number, programIds: readonly number[]) {
+    return this.statement({ current: true }, () =>
+      super.insertPrograms(timelineId, programIds),
+    );
+  }
+
+  override insertResultTypes(
+    timelineId: number,
+    resultTypeKeys: readonly string[],
+  ) {
+    return this.statement({ current: true }, () =>
+      super.insertResultTypes(timelineId, resultTypeKeys),
+    );
+  }
+
+  override insertSteps(timelineId: number, steps: readonly NewStepValues[]) {
+    return this.statement({ current: true }, () =>
+      super.insertSteps(timelineId, steps),
+    );
+  }
+}
+
+/**
+ * `TimelinesUnitOfWork` over `InMemoryAdminConfigDatabase`: commits when `work`
+ * resolves, rolls back (writes dropped, locks released) when it throws. READ
+ * COMMITTED by default, as the Drizzle unit of work pins it. The cycle row lock
+ * is the one an activation takes (`cycles:<id>`), so the two serialize here as
+ * they do on MySQL; the idempotency store is the users world's tx-bound one.
+ */
+export class InMemoryTimelinesUnitOfWork implements TimelinesUnitOfWork {
+  begun = 0;
+  committed = 0;
+  rolledBack = 0;
+
+  constructor(
+    private readonly world: InMemoryAdminConfigDatabase,
+    private readonly isolation: IsolationLevel = 'read committed',
+  ) {}
+
+  async run<T>(
+    work: (repositories: TimelinesRepositories) => Promise<T>,
+  ): Promise<T> {
+    this.begun++;
+    const tx = this.world.base.begin(this.isolation);
+    try {
+      const cycles = tx.table(this.world.cycles, (row) => String(row.id));
+      const timelines = tx.table(this.world.timelines, (row) => String(row.id));
+      const steps = tx.table(this.world.steps, (row) => String(row.id));
+      const programs = tx.table(
+        this.world.programs,
+        (row) => `${row.timelineId}:${row.programId}`,
+      );
+      const resultTypes = tx.table(
+        this.world.resultTypes,
+        (row) => `${row.timelineId}:${row.resultTypeKey}`,
+      );
+      const result = await work({
+        cycles: new TransactionalCyclesStore(tx, this.world, cycles.rows),
+        timelines: new TransactionalTimelinesStore(
+          tx,
+          this.world,
+          timelines.rows,
+          steps.rows,
+          programs.rows,
+          resultTypes.rows,
+        ),
         idempotency: tx.repositories().idempotency,
       });
       tx.commit();

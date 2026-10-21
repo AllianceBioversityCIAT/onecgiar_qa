@@ -31,9 +31,10 @@ export interface TimelineStepInput {
 export interface TimelineCreateInput {
   name: string;
   allPrograms: boolean;
-  programIds: readonly number[];
+  /** Absent or null counts as missing, like an empty list (FR-6, FR-11, design 7.2). */
+  programIds?: readonly number[] | null;
   allResultTypes: boolean;
-  resultTypeKeys: readonly string[];
+  resultTypeKeys?: readonly string[] | null;
   steps: readonly TimelineStepInput[];
 }
 
@@ -138,22 +139,24 @@ function checkText(value: string, field: string, issues: FieldIssue[]): void {
 }
 
 /**
- * "All" or an explicit list, never both and never neither (DD-6): an empty
- * list is missing, not "all". Ids are checked against the catalog only when
- * the list is the scope.
+ * "All" or an explicit list, never both and never neither (DD-6): an absent,
+ * null or empty list is missing, not "all" (the pipe lets an absent list
+ * through so that it is reported with the other problems, FR-11). Ids are
+ * checked against the catalog only when the list is the scope.
  */
 function checkScope<T>(
   all: boolean,
-  list: readonly T[],
+  list: readonly T[] | null | undefined,
   field: string,
   known: ReadonlySet<T>,
   issues: FieldIssue[],
 ): void {
+  const items = list ?? [];
   if (all) {
-    if (list.length > 0) issues.push({ field, code: 'INVALID' });
-  } else if (list.length === 0) {
+    if (items.length > 0) issues.push({ field, code: 'INVALID' });
+  } else if (items.length === 0) {
     issues.push({ field, code: 'REQUIRED' });
-  } else if (!list.every((item) => known.has(item))) {
+  } else if (!items.every((item) => known.has(item))) {
     issues.push({ field, code: 'INVALID' });
   }
 }

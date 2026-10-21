@@ -4,6 +4,8 @@ import request from 'supertest';
 import { ADMIN_CONFIG_CLOCK } from '../../src/admin-config/admin-config.clock.js';
 import { CYCLES_STORE } from '../../src/admin-config/cycles/cycles.store.js';
 import { CYCLES_UNIT_OF_WORK } from '../../src/admin-config/cycles/cycles.unit-of-work.js';
+import { TIMELINES_STORE } from '../../src/admin-config/timelines/timelines.store.js';
+import { TIMELINES_UNIT_OF_WORK } from '../../src/admin-config/timelines/timelines.unit-of-work.js';
 import { AppModule } from '../../src/app.module.js';
 import { JWKS_CACHE } from '../../src/auth/token-verifier.service.js';
 import { configureApp } from '../../src/common/configure-app.js';
@@ -11,16 +13,22 @@ import {
   IDEMPOTENCY_CLOCK,
   IDEMPOTENCY_STORE,
 } from '../../src/common/idempotency/idempotency.store.js';
+import { UpstreamUnavailableError } from '../../src/users/catalogs/catalogs.errors.js';
+import {
+  RESULT_TYPE_SOURCE,
+  SCIENCE_PROGRAM_SOURCE,
+} from '../../src/users/catalogs/catalogs.ports.js';
 import { ROLE_ASSIGNMENTS_STORE } from '../../src/users/role-assignments.repository.js';
 import { USER_PROGRAMS_STORE } from '../../src/users/user-programs.repository.js';
 import { USERS_STORE } from '../../src/users/users.repository.js';
 import {
   InMemoryAdminConfigDatabase,
   InMemoryCyclesUnitOfWork,
+  InMemoryTimelinesUnitOfWork,
 } from './in-memory-admin-config.js';
 import { FakeClock } from './in-memory-idempotency.js';
 import { localJwksCache, newKeyPair, signJwt } from './jwt-test-keys.js';
-import { adminWorld } from './users-admin-world.js';
+import { adminWorld, PROGRAMS, RESULT_TYPES } from './users-admin-world.js';
 
 // The real app over the in-memory admin-config world (pattern of
 // `users-admin-app.ts`): guards, pipe, filter, interceptors and OpenAPI are
@@ -55,6 +63,11 @@ export async function buildAdminConfigApp() {
   const w = adminWorld();
   const world = new InMemoryAdminConfigDatabase(w.db);
   const unitOfWork = new InMemoryCyclesUnitOfWork(world);
+  const timelinesUnitOfWork = new InMemoryTimelinesUnitOfWork(world);
+  // The two catalogs a timeline's scope is checked against. A test flips a
+  // switch BEFORE the first request (the catalog service keeps a copy of what
+  // it read) to make a source fail the way an unreachable one does.
+  const catalogs = { programsDown: false, resultTypesDown: false };
   // The cycles services read the time only through this clock (NFR-4).
   const adminClock = new FakeClock(new Date('2026-10-20T10:00:00.000Z'));
 
@@ -96,6 +109,24 @@ export async function buildAdminConfigApp() {
     .useValue(world.store)
     .overrideProvider(CYCLES_UNIT_OF_WORK)
     .useValue(unitOfWork)
+    .overrideProvider(TIMELINES_STORE)
+    .useValue(world.timelineStore)
+    .overrideProvider(TIMELINES_UNIT_OF_WORK)
+    .useValue(timelinesUnitOfWork)
+    .overrideProvider(SCIENCE_PROGRAM_SOURCE)
+    .useValue({
+      list: async () => {
+        if (catalogs.programsDown) throw new UpstreamUnavailableError();
+        return PROGRAMS;
+      },
+    })
+    .overrideProvider(RESULT_TYPE_SOURCE)
+    .useValue({
+      list: async () => {
+        if (catalogs.resultTypesDown) throw new UpstreamUnavailableError();
+        return RESULT_TYPES;
+      },
+    })
     .overrideProvider(IDEMPOTENCY_STORE)
     .useValue(w.idempotency)
     .overrideProvider(IDEMPOTENCY_CLOCK)
@@ -127,6 +158,8 @@ export async function buildAdminConfigApp() {
     ...w,
     world,
     unitOfWork,
+    timelinesUnitOfWork,
+    catalogs,
     adminClock,
     app,
     admin,

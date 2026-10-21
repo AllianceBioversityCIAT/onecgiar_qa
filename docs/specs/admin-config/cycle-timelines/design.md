@@ -172,7 +172,7 @@ All routes are under `/api/v1`. The class-level guard is `@RequirePermission(Per
 |---|---|
 | `Cycle` | `id`, `year`, `name` ("2026 cycle"), `status`, `timelineCount`, `startsOn` / `endsOn` (min opening / max closing over its steps, or null), `createdAt` |
 | `DefaultStep` | `position`, `name`, `audience`, `round`, `requiresLoad` |
-| `TimelineCreate` | `name`; `allPrograms` + `programIds[]`; `allResultTypes` + `resultTypeKeys[]`; `steps[]` of `{ name, audience, opensOn, closesOn, round, requiresLoad }`. Unknown fields → 400, so `kind` is refused (FR-5) |
+| `TimelineCreate` | `name`; `allPrograms` + `programIds[]` (optional at the pipe, § 7.2); `allResultTypes` + `resultTypeKeys[]` (optional at the pipe, § 7.2); `steps[]` of `{ name, audience, opensOn, closesOn, round, requiresLoad }`. Unknown fields → 400, so `kind` is refused (FR-5) |
 | `Timeline` | `id`, `cycleId`, `name`, `kind`, `allPrograms`, `programIds`, `allResultTypes`, `resultTypeKeys`, `steps[]` (as created, plus `position`), `status` (`scheduled` · `live` · `finished`), `currentStep` (position or null), `nextStep` (position or null), `readiness[]`, `assignedCount` per role, `createdAt` |
 | `TimelineDetail` | `Timeline` + `users[]` of `TimelineUser` |
 | `TimelineUser` | `assignmentId`, `userId`, `firstName`, `lastName`, `email`, `role`, `assignedAt` |
@@ -192,8 +192,8 @@ All routes are under `/api/v1`. The class-level guard is `@RequirePermission(Per
 
 ### 7.2 Validation flow (FR-11)
 
-1. The global `ValidationPipe` checks the shape: types, required keys, max lengths, unknown fields. A shape error returns 400 at once, as everywhere else (P-3). Shape problems and rule problems therefore come back in two rounds at most. One round is guaranteed for every **rule** problem, which covers everything AC 11 lists.
-2. The service reads both catalogs. A failure becomes 503 `SERVICE_UNAVAILABLE` (P-8). It then runs `timeline-rules.ts`. With one or more issues it throws `TimelineValidationError(issues)`: 400 `VALIDATION_FAILED` with `fields[]`, built the same way as users' `FieldValidationError` (P-4, DD-7).
+1. The global `ValidationPipe` checks the shape: types, required keys, max lengths, unknown fields. A shape error returns 400 at once, as everywhere else (P-3). Shape problems and rule problems therefore come back in two rounds at most. One round is guaranteed for every **rule** problem, which covers everything AC 11 lists. The scope lists (`programIds`, `resultTypeKeys`) and step dates are optional at the pipe, so a list that is absent reaches the rules and is reported as `REQUIRED` in the same round as the other rule problems (FR-6 "missing", FR-11).
+2. The service reads each catalog an explicit list needs (none when the request says "all" or the list is empty). A failure becomes 503 `SERVICE_UNAVAILABLE` (P-8). It then runs `timeline-rules.ts`. With one or more issues it throws `TimelineValidationError(issues)`: 400 `VALIDATION_FAILED` with `fields[]`, built the same way as users' `FieldValidationError` (P-4, DD-7).
 3. Only then does the transaction open.
 
 ### 7.3 Writes and concurrency

@@ -111,7 +111,7 @@ T-2 ─┼─▶ T-3 ───────────────────�
 - **Skills:** nestjs-expert, nestjs-best-practices, api-design-principles, error-handling-patterns
 
 ## T-6: Timelines — defaults and create
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-3, T-5
 - **Requirements:** FR-4 (route), FR-5 (First, Later, Two at once — AND IT MUST hold on any number of instances (fake part), Closed or unknown cycle, Kind sent), FR-6 (Catalog unreachable; Duplicate name — BUT another cycle allowed), FR-11 (Several problems — end to end; AND IT MUST use catalog codes, no free text), FR-16 (these routes), FR-17 (Replayed timeline create — BUT no second timeline and no official → additional), NFR-1, NFR-2, NFR-3, NFR-7 (timeline create)

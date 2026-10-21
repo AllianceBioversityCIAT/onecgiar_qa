@@ -237,3 +237,79 @@ Persona check: `akili doctor --agents` — no drift blocking (2026-10-21).
 **Final verification:** VERIFIED (see the evidence re-run above).
 
 **T-5 gate (2026-10-21):** the back lead approved the § 7.3 amendment. **Execute-time spec edit:** `design.md` § 7.3, Activate cycle row. It adds the none-active case: no row to lock, so the second activation gets 1062 on `uq_cycles_active_key`, rolls back fully and retries once with the same outcome. The "never fires" clause now reads "while an active row exists". Reason: the T-5 Reviewer A spec gap. Requirement meaning is unchanged (FR-3 / NFR-3 outcomes). This edit is carried as a named conformance check into the T-6 and T-7 Reviewer briefs.
+
+### T-6: Timelines — defaults and create — in progress (decisions recorded as made)
+
+- **2026-10-21, attempt 1 lens adjudication:** Reviewer A (reliability / resilience) returned FAIL (a misnamed concurrency test claims coverage of the § 7.3 carry check). Reviewer B (risk / readability) returned PASS. The Leader judged A's FAIL **in scope**: it is false evidence for a named conformance check in the task's own tests. It consumes attempt 1.
+- **Execute-time spec edits (back lead approved 2026-10-21):**
+  - `design.md` § 7.2 step 2: "reads both catalogs" became "reads each catalog an explicit list needs (none when the request says "all" or the list is empty)". Reason: both Reviewers ruled the conditional read conformant with FR-6 ("a catalog **needed** to check the scope"). Requirement meaning is unchanged.
+  - `design.md` § 7.2 step 1: added that `programIds` / `resultTypeKeys` and step dates are optional at the pipe, so an absent list reaches the rules as `REQUIRED` in one round (FR-6 "missing", FR-11). Reason: Reviewer A's spec gap. The back lead chose "lists reach the rules" over amending FR-11. This needs a code change, carried into attempt 2.
+  - Both edits are carried as named conformance checks into the attempt-2 and T-7 Reviewer briefs.
+- **Execute-time spec edit (follows the approved § 7.2 step 1 decision):** in the `design.md` § 6 `TimelineCreate` row, `programIds[]` and `resultTypeKeys[]` are now marked "optional at the pipe, § 7.2". This is a consistency edit flagged by the attempt-2 Implementer, with no new meaning.
+
+### T-6: Timelines — defaults and create — PASS
+
+- **Date:** 2026-10-21
+- **Final status:** PASS (attempt 2)
+- **Implementer attempts:** 2
+- **Skills / effort:** attempt 1 used nestjs-expert, nestjs-best-practices, api-design-principles and error-handling-patterns (as listed) at effort `xhigh`. Attempt 2 used nestjs-expert, nestjs-best-practices and tdd (tdd added because the rework was test-first evidence repair; api-design-principles was dropped because no route changed) at effort `xhigh`. That is not bumped: the next level, `max`, may not run on the T2 tier, and the narrow rework did not justify escalating the tier.
+
+**Attempt 1 — FAIL (lens A)**
+- **Files changed:** new `server/src/admin-config/timelines/{timelines.store,timelines.unit-of-work,timelines.service,timelines.controller,timelines.module,timeline-response}.ts`, `timelines/dto/create-timeline.dto.ts`, `timelines/models/timeline.model.ts`, `timelines/{timelines.service,timelines.unit-of-work}.spec.ts`, `server/test/admin-config-timelines.e2e-spec.ts`; modified `server/src/admin-config/admin-config.module.ts`, `server/test/support/{in-memory-admin-config,admin-config-app}.ts`.
+- **runtime events:** none.
+- **Red run:** the create handler was replaced with `NotImplementedException`, and 18 e2e create tests failed on the answer, for example `AssertionError: expected 501 to be 201` and `expected [ 501, 501 ] to deeply equal [ 201, 201 ]`.
+- **Falsifiers:**
+  - F1, kind decided before the cycle lock: unit `AssertionError: expected 1 to be +0` (`officialKeyViolations`), `expected 4 to be +0` (five instances); e2e `expected 1 to be +0`. Deviation: the retry-as-additional backstop masks "two officials", so the observable is that the unique key never fired. Both Reviewers ruled this meaningful (§ 7.3: the 1062 "should not happen while locked").
+  - F2, rules after opening the transaction: unit 7 failed, for example `expected '[[],[],[],[],["timeline:official:1"]]' to be '[[],[],[],[],[]]'`; e2e 6+ failed.
+- **Implementer verification:** lint 0 · build OK · unit 49 / 1588 · tsc 7 baseline · e2e 13 / 644.
+- **Evidence re-run (Leader inline):** VERIFIED. Unit 49 / 1588 · e2e 13 / 644 · tsc 7 baseline.
+- **Reviewer A (reliability / resilience): FAIL** (verbatim issue):
+  1. **Discovered Issue:** In `server/src/admin-config/timelines/timelines.service.spec.ts`, the test "a create racing an activation of the same cycle serializes on the cycle row and both succeed" creates two timelines in two *different* cycles. It runs no activation and shares no lock. It claims coverage of the brief's named carry check (create sharing the `cycles:<id>` lock with activation) that nothing exercises. A smaller instance of the same problem: in `timelines.unit-of-work.spec.ts`, the test "a request that breaks a rule, and a catalog that cannot be read, run no statement at all" only exercises the rule case.
+     * **Violated Rule:** `.agents/reviewer.md` § 2 Red Run & Mutation Trace ("a test named after a mutation is not evidence it exercises it") and § 3 (a presence claim is not behavioural proof). The behaviour is design.md § 7.3 "Create timeline" with the 2026-10-21 Activate amendment, and DD-9.
+     * **Remediation Suggestion:** Make the first test real. Use one `InMemoryAdminConfigDatabase`, and run `InMemoryCyclesUnitOfWork` activation of cycle X concurrently with a timeline create in X (and, separately, a create in the currently active cycle Y while X is activated). Assert both settle, the cycle states are right, there is one official, and no deadlock or timeout. Or rename it to what it actually checks ("creates in different cycles do not block each other"). For the second test, add a failing-catalog case with `log` equal to `[]`, or drop "and a catalog" from its name.
+  - Reviewer A also ruled: F1 deviation meaningful; assumption 1 (catalog reads) conforms to FR-6, so amend § 7.2; the § 7.3 carry is not broken; assumption 3 (absent list = two rounds) is a spec gap.
+- **Reviewer B (risk / readability): PASS.** FR-16 401/403 on both routes; `kind` → 400 `UNKNOWN_FIELD` (top level and in a step); errors only through `TimelineValidationError` (DD-7) with catalog messages; NFR-7 one line per write; OpenAPI matches § 6. Ruled assumption 1 conformant with FR-6 and recommended the § 7.2 amendment.
+- **Lens adjudication:** A's FAIL is in scope (false evidence for a named conformance check). It consumed attempt 1.
+- **spawns:** implementer 55 calls, 323,942 tokens, ended complete · reviewer A 13 calls, 123,739 tokens, ended complete · reviewer B 19 calls, 128,737 tokens, ended complete.
+
+**Attempt 2 — PASS**
+- **Files changed:** `server/src/admin-config/timelines/{timeline-rules,timeline-rules.spec,timelines.service,timelines.service.spec,timelines.unit-of-work.spec}.ts`, `timelines/dto/create-timeline.dto.ts`, `server/test/support/in-memory-admin-config.ts`, `server/test/admin-config-timelines.e2e-spec.ts`.
+- **runtime events:** none.
+- **What changed:**
+  - The race tests are now real. `CyclesService.activate` and `TimelinesService.create` run over one fake DB with shared row locks, in a staggered sweep (16 interleavings per scenario, both orders). The `history` log asserts that each transaction's writes stay together, aggregate tests prove both orders and both outcomes are reached, and a 2 s deadline catches hangs.
+  - The misnamed test was renamed "creates in different cycles do not block each other". The unit-of-work test was split, with catalog-down `it.each` cases (503, empty `log`).
+  - `programIds` / `resultTypeKeys` are optional at the pipe, and an absent list is reported as `REQUIRED` by the rules (8 rule rows plus an FR-11 omitted-key row). The e2e FR-11 request is sent with `programIds` omitted.
+- **Falsifiers:**
+  - NEW, the create's cycle `FOR UPDATE` removed: `pnpm test --reporter=dot --maxWorkers=2 src/admin-config/timelines/timelines.service.spec.ts` → 14 failed | 62 passed. The real catch is a timeline written into a closed cycle: "create in the active cycle that the activation closes, activate first and 3 statements ahead": `AssertionError: expected [ 'close:1', 'activate:2', …(4) ] to deeply equal [ 'timeline:official:1', …(5) ]`.
+  - F1 re-run: 3 failed. F2 re-run: 9 failed (the unit-of-work spec alone failed 3, including both catalog-down cases).
+- **Red-run gaps (recorded per the Reviewer):** the new absent-list rule rows were first red only as `TypeError: Cannot read properties of undefined (reading 'length')` at `timeline-rules.ts:153`, not on an assertion. The service absent-list tests were green immediately (`new Set(undefined)` is empty). The race tests were written against already-correct code, and their evidence is the new falsifier. The e2e omitted-key test was never run red; it would have failed on the attempt-1 DTO (pipe 400 on `programIds` only).
+- **Not Done / Assumptions (Implementer, verbatim):**
+  - The e2e run above is the only thing not done. If the new e2e expectations are wrong, they will show up there. The most likely suspect is the changed field list in the "shape problem" test.
+  - A `null` list is treated like an absent one, because `@IsOptional()` lets null through to the rules.
+  - T-5 (cycles) tests pass in the full unit run. I did not change cycles behaviour.
+  - Docs: design 6's `TimelineCreate` row does not mark the two lists optional. That is the Leader's docs to update.
+  - I used about 58 tool calls, under the 60-call bound. Nothing was committed, staged or stashed.
+  → **Owed item discharged:** the e2e was blocked for the Implementer by the local resource guard (RAM below 4500 MB) and was not bypassed. The Leader's non-author re-run then ran it green (below). The design § 6 row was updated by the Leader (see the decisions above).
+- **Implementer verification:** lint 0 · build OK · unit 49 / 1636 · tsc 7 baseline · prettier clean · e2e not run (resource guard).
+- **Evidence re-run (Leader inline, non-author, after all edits):** VERIFIED. Lint OK · build OK · unit 49 files / 1636 passed · tsc 7 errors, all in `token-verifier.service.spec.ts` · **e2e 13 files / 648 passed** (the first run of the new e2e expectations).
+- **Reviewer verdict (single reviewer, all lenses):** PASS. The attempt-1 FAIL is fixed: the race tests share the cycle lock, both orders and outcomes are reached, the old test is renamed, and the unit-of-work test is split. All five named conformance checks hold (§ 7.2 steps 1 and 2, the § 6 row, the § 7.3 carry, and FR-11 with `programIds` omitted). The race evidence is adequate through the new falsifier.
+  - Review mode deviation: a single all-lens Reviewer instead of parallel lenses for the rework. Lens B had already passed the unchanged parts in attempt 1, and the rework touched tests, the DTO and the rules only.
+- **spawns:** implementer 60 calls, 213,994 tokens, ended partial (the report carried the e2e as owed; discharged by the Leader re-run, so no continuation was spawned) · reviewer — not reported by host, ended complete.
+
+**ADVISORY (attempt-2 Reviewer, 4R — not gating)**
+- RELIABILITY: the red-run quality gaps listed above.
+- RISK: `null` lists are accepted and treated as missing, which is an unstated rule. Document it in design § 6 or refuse `null` at the pipe.
+- READABILITY (carried from attempt 1): the e2e 403 matrix assertion `expect(w.catalogs).toEqual(catalogCalls)` compares switches, not call counts, so it checks nothing. The private `logged()` copy and the OpenAPI optional dates remain.
+- RESILIENCE: "creates in different cycles do not block each other" relies on `history.slice(0,2)`, which depends on the fake's microtask timing.
+- From attempt 1: the unreachable `Error('An additional timeline was refused as official')` deserves a comment or a named class; the post-commit read failure path is tested only by seeding; the official-first 1062 order with a duplicate name is untested; the front must always send both lists (now relaxed by the absent-list change).
+
+**Requirements covered:** FR-4 (route), FR-5 (first, later, two at once on the fake with any number of instances, closed or unknown cycle, kind sent), FR-6 (catalog unreachable only when needed; duplicate name, another cycle allowed; missing list), FR-11 (several problems end to end with `programIds` omitted; catalog codes only), FR-16, FR-17 (replayed timeline create, no second, no official → additional), NFR-1, NFR-2, NFR-3 (fake part), NFR-7 (timeline create).
+
+**Decisions made:** see "T-6 … in progress" above (lens adjudication; the § 7.2 step 1 and step 2 amendments; the § 6 row consistency edit). Also: duplicate ids and keys are deduplicated before insert; `assignedCount` = `{ ASSESSOR, LEAD_ASSESSOR, TPB, PPU }`, all 0 until T-8; decision-log `targetId` is null on a refusal.
+
+**Forward pointers**
+- **→ T-7:** carry the § 7.2 step 1, § 7.2 step 2 and § 6 edits into the T-7 Reviewer brief (second and last carry). `assignedCount` and readiness must be filled from assignments in T-7 / T-8.
+- **→ T-9:** `front-contract.md` must say the lists may be omitted or empty (both `REQUIRED` when "all" is false) and that `null` is treated as absent.
+- **→ T-10:** the create-vs-activate interplay on real MySQL is covered by the existing concurrency checks; no addition needed.
+
+**Final verification:** VERIFIED (see the attempt-2 evidence re-run above).
