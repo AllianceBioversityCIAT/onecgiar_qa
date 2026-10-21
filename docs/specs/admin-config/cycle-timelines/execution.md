@@ -511,3 +511,27 @@ The design § 10 budget was exceeded. Execution stopped for the back lead's deci
 **T-9 gate (2026-10-21):**
 - The back lead reviewed and approved `front-contract.md`. This discharges the owed "Done when" item, and T-9 closes `[x]` on the Reviewer PASS above.
 - **Execute-time spec edit (back lead approved):** in `design.md` § 8, "no dropped steps" became "no step silently dropped for a missing or malformed date". Reason: a T-9 Reviewer advisory found that the old wording read as conflicting with FR-7 (steps may be removed); it meant FR-8 "Missing or malformed — BUT not dropped silently". Meaning is unchanged. A sweep for "no dropped steps" over the spec folder, the TRD and the module guide found no other site.
+
+### T-10: HITL — migration and real-MySQL checks (TEST) — `[~]`, one finding
+
+- **Date:** 2026-10-21
+- **Route:** the back lead chose TEST instead of `qadb`.
+  - Branch `feat/cycle-timelines` was pushed and merged with `--no-ff` into `dev` (`720ef52`), at the back lead's request. The `dev` push triggered the Jenkins job `qa-application-2026-dev` (GitHub run `39657910460`, success).
+  - The new API version was serving TEST at 19:08:13Z: the OpenAPI lists the 7 new routes and health returns 200.
+  - **Migration applied by the pipeline** (no agent ran `db:migrate`). The first authenticated `GET /api/v1/cycles` returned 200 with `[]`, so the tables exist and were empty.
+- **Who ran the checks:** the back lead supplied an admin access token for TEST in the conversation. The Leader ran the checks from a session-scratchpad script (`t10-checks.mjs`, Node `fetch`, `Promise.all` for real concurrency). The token was passed as an environment variable and never written to the repo.
+  - Counts were read back through the API (list and detail), not with direct SQL; no agent has DB access to TEST.
+  - Pre-state: TEST had 0 cycles, so no existing active cycle was closed.
+  - TEST data created, permanent because there is no delete route: cycles 2093–2099, 21 timelines, 1 assignment (user 1039 as ASSESSOR).
+
+| Check (tasks.md T-10) | Result |
+|---|---|
+| Step saved with `2026-11-02` reads back `2026-11-02` (and `2026-12-04` reads back `2026-12-04`) | **PASS** |
+| 20 concurrent first-timeline creates on a fresh cycle (2098) give exactly one official | **PASS**: 20 × 201; kinds `official: 1, additional: 19`; 20 stored |
+| 20 concurrent identical assigns give one active row | **PASS**: 1 × 201, 19 × 200, all with assignment id 1; detail has 1 active row and `assignedCount.ASSESSOR = 1`; done in 156 ms (no pool hang) |
+| 20 concurrent activations give exactly one active cycle (an active cycle present; 10 each on drafts 2094 and 2093) | **PASS**: 2 × 200, 18 × 409, no 500; exactly one active (2094) |
+| **Added at T-5 (Reviewer A advisory):** concurrent activations of different drafts with **no** active cycle give no 500 | **FAIL**: 5 concurrent activations (2099, 2098, 2097, 2096, 2095) returned `{ 200: 4, 500: 1 }`. The invariant held (exactly one active afterwards; 2099 stayed `draft`), but one caller got a 500 |
+
+**Finding:** this matches the T-5 Reviewer A advisory. On real InnoDB, a request waiting on `uq_cycles_active_key` can hit 1062 again on its single retry (`ACTIVATION_ATTEMPTS = 2`), and the error surfaces as 500. FR-3's outcome (never two active, never none) holds, and design § 7.3 (as amended) describes one retry. The 500 is an undefined answer to a legitimate concurrent request.
+- **Status:** T-10 stays `[~]` pending the back lead's decision: fix it now (a narrow change in `cycles.service.ts`: map a final-attempt 1062 to 409 or retry until the conflict clears), or accept it and record it as a follow-up.
+- **Pending checks:** the `SHOW FULL COLUMNS FROM users` collation check (T-1 advisory) needs direct DB access and was not run.
