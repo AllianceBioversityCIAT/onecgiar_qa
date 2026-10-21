@@ -565,5 +565,55 @@ The design § 10 budget was exceeded. Execution stopped for the back lead's deci
     - All reverted.
   - Evidence re-run (Leader inline, non-author): VERIFIED. Lint OK · build OK · unit 49 files / 1722 passed · tsc 7 baseline · `pnpm test:e2e` 13 / 715.
   - Reviewer: PASS. The attempt-1 issue is fixed (design § 7.5 / P-4). The design § 7.3 Activate row as amended is met: 10 attempts, retry only on 1062 `uq_cycles_active_key` or 1213, exhaustion → 503, never 500, one decision line per request. Scope is respected under the recorded widening.
-  - spawns: implementer 24 calls, 85,750 tokens, ended complete · reviewer — not reported by host, ended complete.
+  - spawns: implementer 24 calls, 85,750 tokens, ended complete · reviewer 6 calls, 38,614 tokens, ended complete.
   - **Status:** `[~]` until the "Done when" TEST re-check is recorded (merge to `dev`, deploy, 5 and 10 concurrent activations with none active).
+
+### T-11: Activation retry under real concurrency — PASS
+
+- **Date:** 2026-10-21
+- **Final status:** PASS (attempt 2; the Reviewer PASS is recorded above), with the TEST re-check done.
+- **Deploy:** commit `f5bffdb` was merged to `dev` (`306ae32`, `--no-ff`). TEST was serving the new version at 19:31:39Z (the activate route's OpenAPI now lists 503).
+- **TEST re-check** (script `t11-recheck.mjs` in the session scratchpad, admin token from the back lead, `Promise.all`):
+  - Because TEST already had an active cycle (2094) and no route closes one without activating another, the "none active" pre-state could not be recreated. The re-check used concurrent activations of **distinct** drafts with an active cycle present, which exercises the same retry path: waiters on the old active row see it closed and race on `uq_cycles_active_key`.
+  - Round A, 5 concurrent (2078–2082): `{ 200: 5 }`, no 500, exactly one active (2079). **PASS**
+  - Round B, 10 concurrent (2083–2092): `{ 200: 10 }`, no 500, exactly one active (2084). **PASS**
+  - TEST data added (permanent): cycles 2078–2092.
+- **Limit of the evidence:** the pre-fix code was not re-run in this exact with-active scenario on TEST. The pre-fix 500 was observed in the none-active scenario (T-10). The unit rows (k = 2, 5, exhaustion) plus falsifier F1 carry the 2-vs-10 proof.
+- **Requirements covered:** FR-3 (never two active or none, answered without a 500), NFR-3.
+
+### T-10: HITL — migration and real-MySQL checks — PASS
+
+- All four tasks.md checks passed on TEST (see the T-10 entry above): DATE round-trip; 20 concurrent creates give one official; 20 concurrent assigns give one active row; 20 concurrent activations give one active.
+- The added none-active check failed (one 500). That finding was fixed by T-11 and re-checked on TEST without a 500.
+- Still open, needing direct DB access (not available to agents on TEST): the `SHOW FULL COLUMNS FROM users` collation check from the T-1 advisory. This is recorded as a follow-up for the back lead, not a gate.
+
+## Summary (2026-10-21)
+
+| Task | Result | Attempts | Reviewer verdicts |
+|---|---|---|---|
+| T-1 Schema and `0003` | PASS | 1 | 1 |
+| T-2 Codes, Rome dates, defaults, clock | PASS | 1 | 1 |
+| T-3 Create rules | PASS | 1 | 1 |
+| T-4 View and readiness | PASS | 1 | 1 |
+| T-5 Cycles module | PASS | 1 | 2 (lenses) |
+| T-6 Timeline create | PASS | 2 | 3 |
+| T-7 List and detail | PASS | 2 (1 implicit FAIL) | 1 |
+| T-8 Timeline users | PASS | 2 (1 checkpoint) | 3 |
+| T-9 Guides, TRD, front contract | PASS (+ back-lead review) | 1 | 1 |
+| T-10 HITL on TEST | PASS (finding → T-11) | — | — |
+| T-11 Activation retry (added) | PASS (+ TEST re-check) | 2 | 2 |
+
+- **Verification at close:** unit 49 files / 1722 · e2e 13 files / 715 · tsc 7 baseline errors (`token-verifier.service.spec.ts`) · lint and build clean.
+- **Budget:** exceeded and accepted by the back lead at the tripwire after T-8. Final count: 11 tasks (1 added), 17 Reviewer verdicts against 14 planned.
+- **Execute-time spec amendments (all back-lead approved):**
+  - FR-11 paths (`programIds`).
+  - § 7.3 Activate: the none-active retry, later extended to up to 10 attempts and 503.
+  - § 7.2 steps 1–2 (absent lists reach the rules; catalogs read only when needed).
+  - § 6 `TimelineCreate` (lists optional).
+  - § 7.4 (six list queries).
+  - § 8 (wording of "no step silently dropped").
+- **Pending, outside this branch:**
+  - Root `AGENTS.md:32` domain row ("Cycles, windows, batches"), to apply on `staging`.
+  - The qadb/TEST collation check.
+  - The `dev-merge-tmp` local branch, left for the owner to delete.
+- **Next:** `/akili-validate admin-config/cycle-timelines`, then PRs to `staging-center` (PR 1 = T-1…T-5, PR 2 = T-6…T-11).

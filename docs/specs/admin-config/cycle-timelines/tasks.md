@@ -179,7 +179,7 @@ T-2 ─┼─▶ T-3 ───────────────────�
 - **Skills:** api-design-principles
 
 ## T-10: HITL — migration on `qadb` and real-MySQL checks
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** S
 - **Depends on:** T-9
 - **Requirements:** FR-1 / FR-3 / FR-5 / FR-14 (the AND IT MUST concurrency clauses on real MySQL), NFR-3, NFR-4 (DATE round-trip)
@@ -196,7 +196,7 @@ T-2 ─┼─▶ T-3 ───────────────────�
 - **Skills:** nestjs-expert
 
 ## T-11: Activation retry under real concurrency (T-10 finding)
-- **Status:** [~]
+- **Status:** [x]
 - **Size:** S
 - **Depends on:** T-10 (finding); added 2026-10-21 with back-lead approval
 - **Requirements:** FR-3 (Switch — AND IT MUST never two or none, answered without a 500), NFR-3
