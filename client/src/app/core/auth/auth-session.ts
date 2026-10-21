@@ -15,7 +15,7 @@ import {
   isChallenge,
 } from './auth.models';
 import { DeepLink, LOGIN_PATH } from './deep-link';
-import { DESIGN_SESSION_KEY, designSession, isDesignUser } from './design-user';
+import { DESIGN_SESSION_KEY, designSession, designUserAllowed, isDesignUser } from './design-user';
 import { TokenStore } from './token-store';
 
 /**
@@ -106,7 +106,7 @@ export class AuthSession {
   /** App start (browser only): one refresh with the cookie recovers the session after a reload. */
   async bootstrap(): Promise<void> {
     if (!this.isBrowser || this.state() !== 'unknown') return;
-    if (this.hasDesignSession()) {
+    if (this.designAllowed() && this.hasDesignSession()) {
       this.applyDesign();
       this.resolveReady();
       return;
@@ -135,7 +135,7 @@ export class AuthSession {
   /** One attempt at a time: a second call while one runs returns the same promise. */
   signIn(credentials: Credentials): Promise<LoginResult> {
     if (this.signInAttempt) return this.signInAttempt;
-    if (isDesignUser(credentials)) return Promise.resolve(this.applyDesign());
+    if (this.designAllowed() && isDesignUser(credentials)) return Promise.resolve(this.applyDesign());
     this.busy.set(true);
     this.signInAttempt = firstValueFrom(this.api.login(credentials))
       .then((result) => {
@@ -297,6 +297,10 @@ export class AuthSession {
     this.endReason.set(null);
     this.state.set('authenticated');
     this.scheduleRefresh(session.expiresIn);
+  }
+
+  private designAllowed(): boolean {
+    return this.isBrowser && designUserAllowed(globalThis.location?.hostname ?? '');
   }
 
   /** Signs in the hardcoded design user: no API call, no refresh timer. */
