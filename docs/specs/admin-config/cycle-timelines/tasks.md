@@ -25,7 +25,7 @@ T-2 ─┼─▶ T-3 ───────────────────�
 ---
 
 ## T-1: Schema and migration `0003` for the six tables
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** none
 - **Requirements:** FR-1 (Duplicate year — the unique key; AND IT MUST hold concurrently — DB part), FR-3 (AND IT MUST never two active — DB part), FR-5 (Two at once — `official_key` backstop), FR-6 (Duplicate name — unique per cycle, case-insensitive; BUT the same name in another cycle is allowed), FR-8 (Close before open — `chk_timeline_steps_dates`; BUT same day valid), FR-9 (BUT not silently switched on — CHECK refuses, never defaults), FR-14 (Already assigned — BUT no second active row), FR-15 (BUT the row is not deleted; Re-assign — the removed row does not block), NFR-3 (DB part), NFR-6
