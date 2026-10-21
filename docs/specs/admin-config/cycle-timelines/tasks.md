@@ -77,7 +77,7 @@ T-2 ─┼─▶ T-3 ───────────────────�
 - **Skills:** tdd, nestjs-best-practices
 
 ## T-4: Timeline view — status, current step, readiness (pure)
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** S
 - **Depends on:** T-2
 - **Requirements:** FR-12 (Two live at once — computation; Open and close by date — BUT no stored state may change; DST), FR-13 (Missing assessor — BUT no Science Programs item; Not blocking)

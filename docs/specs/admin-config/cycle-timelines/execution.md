@@ -111,7 +111,7 @@ Persona check: `akili doctor --agents` — no drift blocking (2026-10-21).
 - **Implementer verification:** lint clean · build OK · 44 files / 1479 tests passed · tsc 7 baseline errors (`token-verifier.service.spec.ts`).
 - **Evidence re-run (Leader inline, non-author):** VERIFIED. All counts matched.
 - **Reviewer verdict:** PASS. FR-6 to FR-11, § 7.1, § 7.2, § 7.5, DD-6, DD-8, S-1, S-2 and S-4 are met. No Implementer assumption contradicts a scenario. Boundary rows sit exactly on their boundaries, and each falsifier reddens its target row. The several-problems row conforms to FR-11 as amended.
-- **spawns:** implementer 17 calls, 108,371 tokens, ended partial (report carried assumptions only, no owed item, so no continuation was due) · reviewer — not reported by host, ended complete.
+- **spawns:** implementer 17 calls, 108,371 tokens, ended partial (report carried assumptions only, no owed item, so no continuation was due) · reviewer 11 calls, 52,611 tokens, ended complete.
 
 **Not Done / Assumptions (Implementer, verbatim)**
 1. **Field path conflict.** FR-11 literally says the 400 lists `name`, `programs` and `steps[2].closesOn`, but design § 6 names the request keys `allPrograms`/`programIds` and `allResultTypes`/`resultTypeKeys`. Design § 7.2 and § 7.5 name no path for either list, so I did not read this as a § 7.2 conflict and did not stop. I used the request keys `programIds` and `resultTypeKeys`, as with `steps[i].<key>`. If you want `programs` and `resultTypes` instead (as users does), the fix is two string literals in `timeline-rules.ts` plus the matching spec rows. T-6 and the DTO should settle which one it is.
@@ -140,6 +140,46 @@ Persona check: `akili doctor --agents` — no drift blocking (2026-10-21).
 - The codes for cases the requirements leave open (assumption 2) were accepted by the Reviewer against § 7.5 and DD-8.
 
 **Forward pointer → T-6:** the T-6 DTO must satisfy `TimelineCreateInput` / `TimelineStepInput` structurally (assumption 6), and its e2e three-problem request must expect `programIds` as the path.
+
+**Issues encountered:** none.
+
+**Final verification:** VERIFIED (see the evidence re-run above).
+
+### T-4: Timeline view — status, current step, readiness (pure) — PASS
+
+- **Date:** 2026-10-21
+- **Final status:** PASS (attempt 1)
+- **Implementer attempts:** 1
+- **Skills / effort:** tdd (as listed) · effort `medium`.
+- **Review intensity:** the task is not marked `skip-eligible` (Review: checklist), and override (g) applied because the FR-11 edit-carry needed a Reviewer brief. A conformance Reviewer was spawned. The 249-line diff was delivered as a scratchpad file rather than inline; the size rule allows inline delivery at that length, and the Reviewer keeps `Read`.
+
+**Attempt 1**
+- **Files changed:** `server/src/admin-config/timelines/timeline-view.ts` (new), `server/src/admin-config/timelines/timeline-view.spec.ts` (new, 18 tests).
+- **runtime events:** none.
+- **Red run:** run against a stub returning `scheduled`, null, null, `[]`. 16 of 18 tests failed on assertions; one example is `on 2026-11-07 the current step is null and the next is 2`, `expected [ null, null ] to deeply equal [ null, 2 ]`.
+- **Falsifiers** (run with `npx vitest run src/admin-config/timelines/timeline-view.spec.ts`, then restored from a backup):
+  - F1, `compareDates(today, step.closesOn) <= 0` changed to `< 0`: 3 failed, including `on 2026-11-06 the current step is 1 and the next is 2`, `expected [ null, 2 ] to deeply equal [ 1, 2 ]`.
+  - F2, as worded ("map `programs` to a role"): an equivalent mutant that stayed green, because `MISSING_ROLE_ITEM` has no `PROGRAM` entry and an `undefined` guard drops it. The stronger mutant maps `programs` to `'PROGRAM'` **and** adds `PROGRAM: 'NO_PROGRAM_ASSIGNED'`. It failed 4 readiness rows, including `lists the missing assessor and no Science Programs item`. The Reviewer ruled the falsifier meaningfully executed with the stronger mutant: the test's exact `toEqual` fails on any extra item, and the gap lies in the falsifier's wording, not in the test.
+- **Implementer verification:** lint and build OK · 45 files / 1497 tests passed · tsc 7 baseline errors (`token-verifier.service.spec.ts`).
+- **Evidence re-run (Leader inline, non-author):** VERIFIED. All counts matched.
+- **Reviewer verdict:** PASS. FR-12 status, current step and next step are correct at every boundary (25 Oct, 26 Oct, 6 Nov, 7 Nov, 9 Nov, 20 Nov, 21 Nov). The function is pure and stores nothing (DD-2). Readiness matches the FR-13 table and the design § 7.1 audience → role map, with `programs` mapped to none. The FR-11 carry does not apply to this diff: the `'programs'` string here is the step audience, not a request key.
+- **spawns:** implementer 12 calls, 74,900 tokens, ended complete · reviewer — not reported by host, ended complete.
+
+**ADVISORY (Reviewer, 4R — not gating)**
+- READABILITY / RELIABILITY: two guards (the `null` in `AUDIENCE_ROLE` and the `Partial` `MISSING_ROLE_ITEM`) both block a Science Programs item. Typing `MISSING_ROLE_ITEM` as a total record of the four roles would leave one point of control, and the F2 falsifier as written would then turn red.
+- RELIABILITY: readiness codes are typed `string[]`. A `ReadinessCode` union would give T-7 and T-8 compile-time checks.
+- READABILITY: `StepAudience` is duplicated in `default-steps.ts:2` and `schema/timeline-steps.ts:22` (also noted at T-2).
+- RELIABILITY: if two steps were open on the same day, the first in array order would win. S-1 and FR-8 rule this out at create time.
+
+**Requirements covered:** FR-12 (status, current step and next step; no stored change; DST date part in T-2), FR-13 (readiness table, no Science Programs item, not blocking).
+
+**Decisions made**
+- The readiness codes follow FR-13's `NO_<ROLE>_ASSIGNED` pattern: `NO_ASSESSOR_ASSIGNED`, `NO_LEAD_ASSESSOR_ASSIGNED`, `NO_TPB_ASSIGNED`, `NO_PPU_ASSIGNED`. They are plain strings, not error-catalog entries.
+- Readiness order: `NO_RESULTS_LOADED` first, then the missing roles in step order, with no duplicates.
+- `nextStep` is the earliest step whose `opensOn` is after today. Steps are used in the order given (by `position`).
+- The FR-11 edit-carry made its second and last appearance in this Reviewer brief, and now drops.
+
+**Forward pointer → T-9:** `front-contract.md` must list the exact readiness codes above, so the client takes them from the contract.
 
 **Issues encountered:** none.
 
