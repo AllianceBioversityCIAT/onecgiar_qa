@@ -471,3 +471,39 @@ The design § 10 budget was exceeded. Execution stopped for the back lead's deci
 - Three reworks (T-6, T-7, T-8) added rounds. Each fixed a real defect: a misnamed race test; claimed e2e edits that were not in the tree; pool starvation and a clock mismatch.
 
 **Leader note:** the LOC overrun was already visible at T-5 (a 2,896-line diff) and should have triggered this stop then. It is recorded here late.
+
+**Tripwire decision (back lead, 2026-10-21):** the overrun is accepted. Continue with T-9 (docs) and T-10 (HITL).
+
+### T-9: Guides, TRD and front contract — Reviewer PASS, awaiting back-lead review of the contract
+
+- **Date:** 2026-10-21
+- **Status:** `[~]`. The Reviewer passed it, but "Done when" includes "contract note reviewed by the back lead", which is a human item still owed.
+- **Implementer attempts:** 1
+- **Skills / effort:** api-design-principles (as listed) plus cognitive-doc-design (added for the guide and contract docs) · effort `medium`.
+
+**Attempt 1**
+- **Files changed:** `docs/trd/trd.md` (§ 3 QAS-AVL-2 wording, § 4 `admin-config` row, § 5.1 tables plus the superseded note, § 6 resource map), `server/AGENTS.md` (layout row; `AdminConfigModule` in the `app.module.ts` row), `server/src/common/AGENTS.md` (idempotency target id), `server/src/admin-config/AGENTS.md` (new), `docs/specs/admin-config/cycle-timelines/front-contract.md` (new).
+- **runtime events:** none.
+- **Falsifier:** a `windows` row was re-added to § 5.1, and `grep -n -iE "windows|window_id" docs/trd/trd.md` returned `181:| \`windows\` | id, cycle_id, name, opens_at, closes_at |`. The row was reverted.
+- **Red run:** n/a (docs, no test gate).
+- **Evidence re-run (Leader inline, non-author):** VERIFIED. The grep returns one hit (line 188), inside the "Superseded (cycle-timelines, DD-1)" note. The `0003` CREATE TABLEs (cycles, timelines, timeline_programs, timeline_result_types, timeline_steps, timeline_users) are all § 5.1 rows, and `timeline_loads` / `timeline_results` are marked reserved.
+- **Reviewer verdict:** PASS. § 5.1 follows the generated SQL (columns, generated keys, unique constraints, CHECKs), so the disqualifier does not apply. § 4 and § 6 match the 9 shipped routes. The contract matches the shipped code (statuses, shapes, rule codes, request-key paths, readiness codes, the `Europe/Rome` rule). All forward pointers landed (T-2, T-4, T-5, T-6, T-8, FR-11). Deviations judged acceptable: the § 3 QAS-AVL-2 rename is needed to meet the task's own grep gate; the `app.module.ts` row is a factual sync; "all" plus ids → `INVALID` matches `checkScope`.
+- **spawns:** implementer 27 calls, 140,630 tokens, ended partial (back-lead review owed) · reviewer — not reported by host, ended complete.
+
+**Not Done / Assumptions (Implementer, verbatim)**
+- "Contract note reviewed by the back lead" is still open: it needs a human review.
+- `front-contract.md` lists the reserved `timeline_loads` / `timeline_results` and the out-of-scope items (edit steps P2-3904, visibility P2-3909, pausing and reopening, the front P2-3934) from `requirements.md` line 54.
+- I stated in `front-contract.md` that a non-empty list with its "all" flag true is `INVALID`. That comes from `timeline-rules.ts` `checkScope`, not from the design text.
+- The front-contract has a minor heading nesting oddity: `## 6. Error codes` contains a `### Error codes` subsection.
+- I did not run lint, build or tests, since only docs changed.
+
+**ADVISORY (Reviewer, 4R — not gating)**
+- READABILITY: the repeated heading in front-contract § 6.
+- READABILITY: design § 8 lists "no dropped steps" among the rules the server owns, but FR-7 and the shipped rules allow dropping steps. A design erratum is proposed at the T-9 gate.
+- RELIABILITY: the `timelines.name` collation `utf8mb4_0900_ai_ci` also ignores accents, while the TRD and the contract say only "case".
+- READABILITY: the contract's § 5 "Cycle year" omits `year` `REQUIRED`.
+- READABILITY: the `admin-config/AGENTS.md` Files table omits `cycles.module.ts` / `timelines.module.ts`.
+
+**Pending shared-file item (for the apply-capable branch, not this spec branch):** root `AGENTS.md:32` still reads "Cycles, windows, batches, field configuration". Update it to the cycles/timelines model when applied on `staging`.
+
+**Requirements covered:** proposal R-1 / DD-1 (TRD delivered), NFR-6 (reserved tables documented), D-1 (Rome labeling rule), FR-17 (idempotency target-id reuse documented).

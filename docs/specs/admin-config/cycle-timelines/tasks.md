@@ -162,7 +162,7 @@ T-2 ─┼─▶ T-3 ───────────────────�
 - **Skills:** nestjs-expert, nestjs-best-practices, api-design-principles
 
 ## T-9: Guides, TRD and front contract
-- **Status:** [ ]
+- **Status:** [~]
 - **Size:** S
 - **Depends on:** T-8
 - **Requirements:** proposal R-1 / DD-1 (TRD as a named deliverable), NFR-6 (reserved tables documented), D-1 (front must label the zone), FR-17 (idempotency reuse documented)

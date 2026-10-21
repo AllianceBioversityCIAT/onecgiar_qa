@@ -131,7 +131,7 @@ Legend: rectangles = deployable containers owned by this repo · cylinders = dat
 | QAS-PERF-1 | Performance | Assessor → opens a result review page | API + MySQL + DynamoDB, normal load | Page data returned | p95 ≤ 800 ms for a result with ≤ 150 fields | One snapshot `get` by key, indexed MySQL queries, no N+1 |
 | QAS-PERF-2 | Performance | Admin → opens a batch | Ingestion, Reporting healthy | Results ready to evaluate | ≤ `[M2 target]` for `[batch size]` (PRD OQ-6) | Batched detail fetch, bounded concurrency, hash dedupe |
 | QAS-AVL-1 | Availability | Reporting → down or 5xx mid-ingestion | Ingestion run | Run pauses as `FAILED_RETRYABLE`, no partial result marked ready; resume continues from cursor | 0 results in an inconsistent state; resume needs no manual SQL | Retry with backoff, idempotent writes, run cursor |
-| QAS-AVL-2 | Availability | Users → normal working hours | API | Service up | ≥ 99.5 % monthly during an open window (proposed) | Health checks, graceful shutdown, restart policy |
+| QAS-AVL-2 | Availability | Users → normal working hours | API | Service up | ≥ 99.5 % monthly while a timeline is live (proposed) | Health checks, graceful shutdown, restart policy |
 | QAS-MOD-1 | Modifiability | Reporting → adds a field to the catalog | Admin config | Admin can show/configure it | No code change or deploy | Catalog-driven config by `field_key`, schemaless snapshots |
 | QAS-MOD-2 | Modifiability | Business → changes a comment rule | Comments module | Change isolated | One transition-table edit + its tests | State machine (ADR-006) |
 | QAS-OBS-1 | Observability | Admin/dev → "why is result X not in batch Y?" | Ingestion | Answer from the run record | Every run stores counts, rejected results with reasons, timings | Structured logs with `runId`, `IngestionRun` entity |
@@ -146,7 +146,7 @@ One NestJS module per row under `server/src/<module>/`; spec folders under `docs
 |---|---|---|---|
 | `auth` | Token verification guard, current user, Cognito client (login, new-password, SSO code exchange, refresh, revoke), session cookies, Origin check | — | users |
 | `users` | Users, roles and role assignments with scope (result type / program) | MySQL | — |
-| `admin-config` | Cycles, windows, batches, field configuration per result type and catalog version | MySQL | reporting |
+| `admin-config` | Cycles (one active at a time), timelines (one official + additional per cycle) with scope, dated steps and assigned users; field configuration per result type and catalog version (later spec). Admin only; dates are `Europe/Rome` calendar days | MySQL | users (permissions, catalogs → reporting, CLARISA) |
 | `reporting` | Anti-corruption client for the Reporting QA API (catalog, results, control lists, QA passed) | — | — |
 | `ingestion` | Ingestion runs, validation against catalog, snapshot writing, sync | DynamoDB (`Snapshot`, `IngestionRun`), MySQL (`results`) | reporting, admin-config |
 | `evaluation` | Field reviews (approve / comment) per result and batch | MySQL | ingestion, admin-config |
@@ -171,15 +171,21 @@ Patterns, each bound to a problem:
 | `users` | id, cognito_sub (unique, null until first login), cognito_username (set at login; needed for refresh), email (unique, lowercase), first_name, last_name, auth_source (`sso`, `custom`), is_active, last_login_at, created_by |
 | `roles` | id, code (ADMIN, ASSESSOR, LEAD_ASSESSOR, TPB, PPU, PROGRAM; unique), name, scope_type (global, result_type, program), is_active |
 | `role_assignments` | id, user_id, role_id, result_type_key, program_id (at most one set, matching the role's scope_type), is_active, created_at/by, revoked_at/by (active or revoked, history kept; no duplicate active assignment per user, role and scope) |
-| `cycles` | id, phase_year, name, status |
-| `windows` | id, cycle_id, name, opens_at, closes_at |
-| `batches` | id, window_id, name, status (DRAFT, OPEN, CLOSED), opened_at |
+| `cycles` | id, year (unique, 2020-2100), status (`draft`, `active`, `closed`), active_key (generated: 1 while `active`, unique → at most one active cycle), created_at/by, activated_at/by, closed_at/by (lifecycle CHECK: draft has none set, active has activated set, closed has closed set) |
+| `timelines` | id, cycle_id, name (varchar 120, case-insensitive collation, unique per cycle), kind (`official`, `additional`), official_key (generated: cycle_id while `official`, unique → one official per cycle), all_programs, all_result_types, created_at/by |
+| `timeline_programs` | timeline_id, program_id (CLARISA id); PK (timeline_id, program_id). Rows only while `all_programs` is false |
+| `timeline_result_types` | timeline_id, result_type_key; PK (timeline_id, result_type_key). Rows only while `all_result_types` is false |
+| `timeline_steps` | id, timeline_id, position (1-5), name, audience (`assessors`, `programs`, `lead_assessors`, `tpb`, `ppu`), opens_on, closes_on (`date`, Rome calendar days), round (≥ 1), requires_load; unique (timeline_id, position) and (timeline_id, audience); CHECKs: closes_on ≥ opens_on, first step requires a load |
+| `timeline_users` | id, timeline_id, user_id, role_id, assigned_at/by, removed_at/by (both set or both null; history kept), active_key (generated `timeline:user:role` while not removed, unique → no second active row) |
+| `timeline_loads` · `timeline_results` | **Reserved, not created** (P2-3905 / P2-3906): the loads per timeline step and the results each timeline holds. Migration `0003` leaves room for them without changing the six tables above |
 | `field_configs` | cycle_id, result_type, field_key, catalog_version, shown, core, commentable, ai_input |
 | `results` | id, reporting_result_id, code, result_type, program_id, batch_id, entry_snapshot_id, latest_snapshot_id, exit_snapshot_id, status, quality_assessed_at |
 | `field_reviews` | id, result_id, batch_id, field_key, assessor_id, decision (APPROVED, COMMENTED), snapshot_id |
 | `comments` | id, field_review_id, author_id, body, state, is_core |
 | `comment_events` | id, comment_id, actor_id, actor_role, from_state, to_state, body, created_at (append-only) |
 | `ai_suggestion_usage` | id, prediction_id, user_id, field_review_id, prompt_version, copied_at |
+
+> **Superseded (cycle-timelines, DD-1):** the earlier `cycles → windows → batches` model is replaced by `cycles → timelines → timeline_steps`; the old window and batch tables are not built and are no longer part of this model. Where `results`, `field_reviews`, `field_configs` and §§ 5.2, 7 still say `batch_id` / batch, the load specs (P2-3905 / P2-3906) rebind them to the reserved `timeline_loads`; those rows are unchanged until then.
 
 ### 5.2 DynamoDB single table `cgiar-qa-{env}` (ElectroDB, service `qa`)
 
@@ -204,7 +210,7 @@ Auth routes (`/api/v1/auth/*`): `POST login`, `POST complete-new-password`, `GET
 
 API documentation: an OpenAPI 3 document generated from the controllers (`@nestjs/swagger`) is the single reference for every endpoint. Swagger UI at `/api/v1/docs`, JSON at `/api/v1/docs/openapi.json` (YAML at `/api/v1/docs/openapi.yaml`); served outside the auth guards, on by default outside production and toggled with `OPENAPI_ENABLED` (off in PROD unless enabled on purpose). Every route declares its summary, success and error responses (shared error-envelope schema) and its security scheme (`access-token` bearer, or `session-cookie` for `/auth/session/*`); an e2e test keeps the document in step with the router.
 
-Initial resource map: `/auth/*`, `/users`, `/role-assignments`, `/cycles`, `/windows`, `/batches`, `/batches/:id/ingestion-runs`, `/field-configs`, `/results`, `/results/:id/fields`, `/field-reviews`, `/comments`, `/comments/:id/events`, `/results/:id/history`, `/dashboards/*`.
+Initial resource map: `/auth/*`, `/users`, `/role-assignments`, `/cycles`, `/cycles/:id/activate`, `/cycles/:id/timelines`, `/timeline-defaults`, `/timelines/:id`, `/timelines/:id/users`, `/timelines/:id/users/:assignmentId`, `/batches/:id/ingestion-runs` (to be rebound to timeline loads), `/field-configs`, `/results`, `/results/:id/fields`, `/field-reviews`, `/comments`, `/comments/:id/events`, `/results/:id/history`, `/dashboards/*`.
 
 ## 7. Backend Workflows & Business Rules
 
