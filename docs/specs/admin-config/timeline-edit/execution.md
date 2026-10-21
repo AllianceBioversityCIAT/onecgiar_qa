@@ -262,7 +262,7 @@ spawns: implementer 49 calls, 259793 tokens, ended complete; reviewer A 16 calls
 - Reviewer B (concurrency, re-review over the full T-4 diff): **PASS** — "The reshaped case does interleave. The create's `insert` is blocked on the name entry while the rename's transaction is still open. The event-order assertion proves that wait; it does not just reflect the order the test was written in. Attempt 1's FAIL is resolved." Reviewer A's transaction-scope PASS stands (attempt 2 changed no file in that lens's surface).
 - runtime events: none.
 
-spawns: implementer 42 calls, 158568 tokens, ended complete; reviewer B (re-review) not reported by host, ended complete.
+spawns: implementer 42 calls, 158568 tokens, ended complete; reviewer B (re-review) 12 calls, 44097 tokens, ended complete.
 
 **ADVISORY (attempt 2 — recorded, not tasks)**
 - RESILIENCE: only the rename-first order is exercised; a mirrored create-first case would cover the other direction and the fake's lock order.
@@ -292,3 +292,18 @@ Leader adjudication: no blocker, no owed item; closes on both lens PASSes.
 - T-8: fix the `timelines.unit-of-work.ts` doc comment (the key mark goes through `idempotency`) only if T-8's guide pass touches it — otherwise recorded here.
 
 **Final verification:** VERIFIED.
+
+### Gate after T-4 — decisions (2026-10-21)
+
+The back lead answered the T-4 gate with "Si, finaliza todo y toma las decisiones tu. Dejas el comment en la task": the Leader decides the open items, runs T-5…T-8 without per-task pauses, and posts a closing comment on Jira P2-3936. Exceptions (HALT, Pivot, budget overrun beyond the figure below, `FATAL_FAIL`) still stop. T-9 stays a human step (agents never run migrations on `qadb`).
+
+| Item | Decision (Leader, delegated) | Why |
+|---|---|---|
+| Budget tripwire | Continue. After T-4: 3,770 hand-written server LOC (excl. `drizzle/meta`) against ≈ 3,900 planned for 9 tasks; 6 of ≈ 13 review rounds. Projected finish ≈ 6,000–7,000 LOC | The overrun is tests the spec itself requires (Falsifier/Red-run pins); cutting them removes the rule protection. Review rounds are on plan |
+| NFR-5 vs design § 7.3 (spec tension) | Amend NFR-5: "fixed … whatever the number of steps the timeline has, plus one statement per changed step (at most 5)" | Both T-4 Reviewers found the implementation follows design § 7.3 `updateStep`; FR-1 bounds the extra statements at 5. A batched CASE UPDATE would reopen a closed task for no user-visible gain |
+| Hold edit can close step 1 in the past (T-3 advisory) | Keep FR-3 as written; record OQ-TE-1 in `requirements.md` § 9 for the business owner | It is a business rule, not a defect; nothing in this spec depends on the answer |
+
+**Execute-time spec edits** (carried to the next Reviewer brief as named conformance checks):
+- `requirements.md` § 7, NFR-5 row — amended 2026-10-21 as above (clarifies to the approved design; no approved behavior changes).
+- `requirements.md` § 9 Open Questions — new, OQ-TE-1.
+- Correction-closure sweep: `grep -rn -i "fixed number\|statement count\|NFR-5"` over the spec folder — remaining mentions (`tasks.md:182,192,412`, `design.md:163,176,217`) are consistent with the amended text.

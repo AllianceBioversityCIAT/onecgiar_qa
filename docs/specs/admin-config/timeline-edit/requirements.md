@@ -320,7 +320,7 @@ Timeline list and detail SHALL return, beside what *timelines* FR-12 returns: th
 | NFR-2 | Security | Any client → unknown or structural field (audience, round, kind…) → refused | 100 % → 400 | QAS-SEC-3 |
 | NFR-3 | Integrity | Two ADMINs → concurrent edits of one timeline, or an edit racing a create of the same name → no lost update, no duplicate name | Exactly one of two same-version edits applies; enforced in the database write, not only by a prior read; HITL on real MySQL (KZ-admin-config--cycle-timelines-1) | QAS-AVL-1 |
 | NFR-4 | Correctness | Clock → any instant, including both daylight-saving changes → step state, hold, locks | One injectable clock; tests at midnight boundaries and both DST changes; run with `TZ=UTC` and `TZ=America/Bogota` | *timelines* NFR-4 |
-| NFR-5 | Performance | ADMIN → edits a timeline; lists a cycle with up to 50 timelines | Edit: fixed number of queries whatever the number of steps; list: still a fixed number of queries (*timelines* NFR-5) after adding the load source | QAS-PERF-1 |
+| NFR-5 | Performance | ADMIN → edits a timeline; lists a cycle with up to 50 timelines | Edit: fixed number of queries whatever the number of steps the timeline has, plus one statement per changed step (at most 5) — amended 2026-10-21 at the T-4 gate to match design § 7.3 `updateStep`; list: still a fixed number of queries (*timelines* NFR-5) after adding the load source | QAS-PERF-1 |
 | NFR-6 | Modifiability | Load stories → provide "has a load" | One provider swapped; no change to the edit rules, the status rules or this spec's tables | QAS-MOD-1 |
 | NFR-7 | Observability | ADMIN edit → one decision line | Action `timeline_update`, ids, outcome, reason; no names, emails or bodies | *timelines* NFR-7 |
 | NFR-8 | Auditability | Any applied edit → retrievable record | 100 % of applied edits have exactly one audit record; 0 for refused ones | PRD P3 (history) |
@@ -375,3 +375,10 @@ Timeline list and detail SHALL return, beside what *timelines* FR-12 returns: th
 | 7 In-progress changes apply at once | FR-7 |
 | 8 Every change recorded | FR-10, NFR-8 |
 | 9 Confirm before changing an in-progress step | FR-8 |
+
+## 9. Open Questions
+
+| ID | Question | Raised | Owner | Blocks |
+|---|---|---|---|---|
+| OQ-TE-1 | While a timeline is on hold, step 1 reads `upcoming` even after its opening day, and the upcoming rule only checks a changed close against the open. So a hold edit can move step 1's closing date into the past (e.g. close on 3 Nov when today is 5 Nov). FR-3 allows it as written. Should a hold edit refuse a step-1 close before today? | 2026-10-21, T-3 Reviewer advisory; recorded by the back lead's decision at the T-4 gate | Business owner (Angel Jarrín) | Nothing in this spec — current behavior follows FR-3 |
+
