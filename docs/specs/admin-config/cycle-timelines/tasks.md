@@ -5,7 +5,7 @@
 | Spec path | `docs/specs/admin-config/cycle-timelines` |
 | Branch | `feat/cycle-timelines` (from `origin/staging-center` @ `204312e`) |
 | Commits | `[SPEC:admin-config/cycle-timelines] <emoji> <type>(cycle) P2-3933: …` |
-| Budget (design § 10) | 10 tasks (9 build + 1 HITL) · ~2,600 LOC · ~14 Reviewer passes |
+| Budget (design § 10) | 10 tasks (9 build + 1 HITL) · ~2,600 LOC · ~14 Reviewer passes — exceeded and accepted at the tripwire after T-8; T-11 added 2026-10-21 (11 tasks) |
 | Verification (server) | `cd server && pnpm lint && pnpm build && pnpm test --reporter=dot && npx tsc --noEmit -p tsconfig.json` (baseline: 7 pre-existing errors, all in `src/auth/token-verifier.service.spec.ts`, measured at `443a618`) — plus `pnpm test:e2e --reporter=dot` where stated |
 | PRs | PR 1 = T-1…T-5 (schema, rules, cycles) · PR 2 = T-6…T-10 (timelines, users, docs, HITL) |
 

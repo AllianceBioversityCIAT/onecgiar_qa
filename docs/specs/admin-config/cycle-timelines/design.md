@@ -156,7 +156,7 @@ All routes are under `/api/v1`. The class-level guard is `@RequirePermission(Per
 |---|---|---|---|---|
 | POST | `/cycles` 🔑 | `{ year }` | 201 `Cycle` | 400 `VALIDATION_FAILED`; 409 `CYCLES_YEAR_TAKEN` |
 | GET | `/cycles` | — | 200 `Cycle[]` (year desc) | — |
-| POST | `/cycles/:id/activate` | — | 200 `Cycle` | 404 `CYCLES_NOT_FOUND`; 409 `CYCLES_NOT_DRAFT` |
+| POST | `/cycles/:id/activate` | — | 200 `Cycle` | 404 `CYCLES_NOT_FOUND`; 409 `CYCLES_NOT_DRAFT`; 503 `SERVICE_UNAVAILABLE` (concurrent activations refused on every retry, § 7.3; retryable) |
 | GET | `/timeline-defaults` | — | 200 `DefaultStep[]` (FR-4) | — |
 | POST | `/cycles/:id/timelines` 🔑 | `TimelineCreate` | 201 `Timeline` | 400 `VALIDATION_FAILED`; 404 `CYCLES_NOT_FOUND`; 409 `CYCLES_CLOSED`, `TIMELINES_NAME_TAKEN`; 503 `SERVICE_UNAVAILABLE` |
 | GET | `/cycles/:id/timelines` | — | 200 `Timeline[]` (official first, then newest) | 404 `CYCLES_NOT_FOUND` |

@@ -628,3 +628,10 @@ The design § 10 budget was exceeded. Execution stopped for the back lead's deci
 - **Owed:** the back lead's one-line acknowledgment of the TEST run (Reviewer advisory 2), requested at the closing gate.
 
 **Guide sync (2026-10-21, at the back lead's request):** root `AGENTS.md` (the `admin-config` domain row now reads "Cycles and QA timelines …" in place of "Cycles, windows, batches") and `server/src/admin-config/AGENTS.md` (503 `CycleActivationBusyError` added to the typed-refusals row). The root-guide edit is made on the spec branch by explicit user instruction. This lifts the pending-for-`staging` item recorded at T-9.
+
+**Validation follow-up (2026-10-21):** `/akili-validate` returned WARN (9 PASS, 3 WARN, 0 FAIL). The Leader applied these fixes:
+- R-1: the `design.md` § 6 activate row now lists 503 `SERVICE_UNAVAILABLE`, an erratum aligning § 6 with the approved § 7.3 amendment.
+- R-3: the root `AGENTS.md` `## Module Guides` index now lists `server/src/admin-config/AGENTS.md`.
+- The `tasks.md` budget header now notes the accepted overrun and the added T-11.
+
+R-2 (the back lead's acknowledgment of the TEST run) is still owed.
