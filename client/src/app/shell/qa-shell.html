@@ -60,13 +60,22 @@
   </div>
 
   <nav class="flex-1 overflow-y-auto px-3 pt-1 pb-4 [scrollbar-color:var(--border-strong)_transparent] [scrollbar-width:thin]">
-    <div class="mb-4 flex flex-col gap-1 rounded-lg border border-(--nav-divider) bg-(--surface) px-3 py-2.5" [class.lg:hidden]="collapsed()">
-      <div class="flex items-baseline justify-between gap-2">
-        <span class="text-(length:--fs-14) font-semibold text-(--nav-fg)">2026 cycle</span>
-        <span class="text-(length:--fs-12) text-(--nav-fg-3)">Active</span>
-      </div>
-      <span class="text-(length:--fs-12) text-(--nav-fg-2)">Round 2, step 5 closes 19 Jul</span>
-    </div>
+    <!-- Active cycle: outlined panel on the nav background (no fill, no shadow), opens Cycle. Green only on the dot.
+         TODO(api): read the cycle and the official timeline's step. -->
+    <a
+      routerLink="/cycle"
+      (click)="mobileNavOpen.set(false)"
+      class="mb-4 flex flex-col gap-1 rounded-lg border border-(--nav-divider) px-3 py-2.5 no-underline hover:border-(--border-strong) focus-visible:shadow-(--focus-ring)"
+      [class.lg:hidden]="collapsed()"
+    >
+      <span class="flex items-baseline justify-between gap-2">
+        <span class="truncate text-(length:--fs-14) font-semibold text-(--nav-fg)">Annual report 2026</span>
+        <span class="flex flex-none items-center gap-1.5 text-(length:--fs-12) text-(--nav-fg-3)">
+          <span aria-hidden="true" class="size-1.5 rounded-full bg-(--success)"></span>Active
+        </span>
+      </span>
+      <span class="text-(length:--fs-12) tabular-nums text-(--nav-fg-3)">Step 5 of 5 · closes 19 Jul</span>
+    </a>
 
     <div class="px-1 py-2 text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--nav-eyebrow) uppercase" [class.lg:sr-only]="collapsed()">Assessment</div>
     <div class="flex flex-col gap-0.5">
