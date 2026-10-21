@@ -258,7 +258,7 @@ T-3 ─────────────────────┘
 - **Skills:** nestjs-expert, error-handling-patterns
 
 ## T-6: Controller route, DTO, OpenAPI, idempotency
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** S
 - **Depends on:** T-5
 - **Requirements:**

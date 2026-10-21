@@ -6,6 +6,7 @@ import {
   HttpCode,
   Inject,
   Param,
+  Patch,
   Post,
   Req,
   Res,
@@ -41,6 +42,7 @@ import {
   TimelineAssignmentParams,
   TimelineIdParams,
 } from './dto/timeline-params.js';
+import { UpdateTimelineDto } from './dto/update-timeline.dto.js';
 import {
   DefaultStepModel,
   TimelineDetailModel,
@@ -67,12 +69,12 @@ const listOf = (model: new () => unknown) => ({
 });
 
 /**
- * The timelines API (design 6; FR-4, FR-5, FR-6, FR-11, FR-16, FR-17).
+ * The timelines API (design 6; FR-4, FR-5, FR-6, FR-11, FR-16, FR-17; timeline-edit FR-1, FR-9, FR-12, FR-13).
  * `ADMIN_ACCESS` on the whole class: the global `PermissionGuard` refuses
  * everyone else before any handler, pipe or lookup runs. The paths are spelled
  * per route because they sit under `/cycles/:id`, `/timelines/:id` and
- * `/timeline-defaults`. Reads (FR-12) compute status on the fly and never write. Create is idempotent per `Idempotency-Key` and answers
- * the timeline as read after the commit.
+ * `/timeline-defaults`. Reads (FR-12) compute status on the fly and never write. Create and edit are idempotent per `Idempotency-Key`; create answers
+ * the timeline as read after the commit, edit answers the one the service read.
  */
 @ApiTags('timelines')
 @ApiBearerAuth(ACCESS_TOKEN_SCHEME)
@@ -172,6 +174,37 @@ export class TimelinesController {
   @Get('timelines/:id')
   detail(@Param() { id }: TimelineIdParams): Promise<TimelineDetailResponse> {
     return this.timelines.detail(id);
+  }
+
+  @ApiOperation({
+    summary: 'Edit a timeline',
+    description:
+      'A partial edit: a key left out keeps its stored value. `version` is required and must be the one the admin read; otherwise 409 `TIMELINES_VERSION_STALE` and nothing is written. Steps are addressed by position and only their name and dates can change; audience, round, load requirement and kind are fixed (an unknown key at any level is a 400). A change to a step in progress needs `confirmInProgress`. Every rule problem is listed in one 400. A request that changes nothing answers 200 with the timeline as stored and writes nothing. Allowed in a `draft` or `active` cycle. One audit row per applied edit.',
+  })
+  @ApiOkEnvelope(TimelineModel, { headers: IDEMPOTENCY_REPLAYED_HEADERS })
+  @ApiErrorResponses(
+    withIdempotencyErrors({
+      ...ACCESS,
+      400: ['VALIDATION_FAILED', 'MALFORMED_JSON'],
+      404: ['TIMELINES_NOT_FOUND'],
+      409: [
+        'CYCLES_CLOSED',
+        'TIMELINES_NAME_TAKEN',
+        'TIMELINES_VERSION_STALE',
+        'TIMELINES_IN_PROGRESS_UNCONFIRMED',
+      ],
+      503: ['SERVICE_UNAVAILABLE'],
+    }),
+  )
+  @Idempotent()
+  @Patch('timelines/:id')
+  async update(
+    @CurrentUser() actor: AuthenticatedUser,
+    @Req() request: RequestWithId,
+    @Param() { id }: TimelineIdParams,
+    @Body() dto: UpdateTimelineDto,
+  ): Promise<TimelineResponse> {
+    return this.timelines.update(this.context(actor, request), id, dto);
   }
 
   @ApiOperation({

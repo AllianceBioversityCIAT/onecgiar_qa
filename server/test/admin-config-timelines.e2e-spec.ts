@@ -301,7 +301,7 @@ describe('Timelines routes: defaults, create, list and detail (e2e)', () => {
       ]).toEqual([200, 201, 200, 200, 201, 204]);
     });
 
-    it('declares ADMIN_ACCESS on each of its 6 routes and none as public', () => {
+    it('declares ADMIN_ACCESS on each of its 7 routes and none as public', () => {
       const reflector = new Reflector();
       const served = Object.getOwnPropertyNames(TimelinesController.prototype)
         .map((name) => TimelinesController.prototype[name as never] as unknown)
@@ -343,6 +343,11 @@ describe('Timelines routes: defaults, create, list and detail (e2e)', () => {
         },
         {
           route: 'GET timelines/:id',
+          permission: 'ADMIN_ACCESS',
+          isPublic: undefined,
+        },
+        {
+          route: 'PATCH timelines/:id',
           permission: 'ADMIN_ACCESS',
           isPublic: undefined,
         },

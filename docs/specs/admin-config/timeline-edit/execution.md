@@ -333,7 +333,7 @@ The back lead answered the T-4 gate with "Si, finaliza todo y toma las decisione
 - Reviewer (lens checklist, effort high; named conformance check: NFR-5 as amended 2026-10-21): **PASS** — "`TimelinesService.update` gives the answers in exactly the design § 6 order … Its transaction follows the § 7.2 step 8 order … and the answer is read after the commit with the same `now`." Every forward pointer honored; NFR-5 pin matches the amended text; Disqualifier avoided (every refusal asserts nothing written, unchanged audit log, begin/rollback counts).
 - runtime events: none.
 
-spawns: implementer 47 calls, 249499 tokens, ended partial (Not Done / Assumptions — judgment calls only, no owed item); reviewer not reported by host, ended complete.
+spawns: implementer 47 calls, 249499 tokens, ended partial (Not Done / Assumptions — judgment calls only, no owed item); reviewer 18 calls, 88008 tokens, ended complete.
 
 **Not Done / Assumptions (Implementer, in substance)**
 1. `update` returns `TimelineResponse` (design § 7.2 step 9), read after commit.
@@ -356,5 +356,45 @@ Leader adjudication: no blocker, no owed item; closes on the PASS.
 **Forward pointers**
 - P2-3905 (outside this spec): re-check loads under the lock or bump the version on load (Reviewer advisory) — to be carried into the front/back contract note by T-8 and the Jira comment.
 - T-9: 1213 / 1205 behavior on MySQL.
+
+**Final verification:** VERIFIED.
+
+### T-6: Controller route, DTO, OpenAPI, idempotency — PASS
+
+| | |
+|---|---|
+| Date | 2026-10-21 |
+| Final status | PASS (attempt 1) |
+| Attempts | 1 |
+| Skills | nestjs-expert, api-design-principles (as listed) |
+| Effort | `medium` |
+| Requirements covered | FR-1 (unknown fields at the pipe), FR-9 (version missing), FR-12 (non-admin, class guard), FR-13 (wiring), NFR-1, NFR-2 |
+
+**Attempt 1**
+- Files changed: `server/src/admin-config/timelines/timelines.controller.ts` (+39: `@Patch('timelines/:id')`, `@Idempotent()`, `@ApiOperation`, `@ApiOkEnvelope(TimelineModel, { headers: IDEMPOTENCY_REPLAYED_HEADERS })`, `@ApiErrorResponses(withIdempotencyErrors({...}))`); `server/src/admin-config/timelines/dto/update-timeline.dto.ts` (new: `UpdateTimelineDto`, `TimelineStepUpdateDto`); `dto/update-timeline.dto.spec.ts` (new, 9 cases); `server/test/admin-config-timelines.e2e-spec.ts` (+7: FR-16 access matrix 6 → 7 routes — outside the stated scope, forced by the matrix test).
+- Red run (bare `@Patch` with no decorators): `FAIL ... gives every operation a summary, a success response and documented errors: AssertionError: PATCH /api/v1/timelines/:id: summary: expected undefined to be truthy` — `Tests 2 failed | 11 passed (13)`.
+- Router check: the OpenAPI suite derives routes from `router.stack`; it lists `PATCH /api/v1/timelines/:id`.
+- Falsifiers: `opensOn` made required → 5 of 9 DTO cases red incl. "accepts a rename-only request" (`expected [ { field: 'steps[0].opensOn', …(1) } ] to deeply equal []`). `@Idempotent()` removed → all existing suites stayed green (139/139): **deferred to T-7's replay case** (the task names that case as its falsifier).
+- Implementer verification: lint clean, build ok, unit `Tests 1962 passed (1962)`, `pnpm test:e2e` `Tests 722 passed (722)`, tsc only the 7 `token-verifier.service.spec.ts` errors.
+- Evidence re-run (Leader-inline): **VERIFIED** — lint OK, build OK, unit `Tests 1962 passed (1962)`, e2e (vitest e2e config `--maxWorkers=2`) `Tests 722 passed (722)`, tsc 7.
+- Reviewer (lens checklist, effort medium; named checks NFR-5 as amended and OQ-TE-1 — no impact): **PASS** — "The PATCH route matches design § 6, § 7.6, DD-1 and DD-9, and the DTO meets FR-1, FR-9, FR-12, FR-13, NFR-1 and NFR-2." Every § 6 code documented; unknown fields refused at the pipe; optional fields stay optional (FR-11 rule); no `models/` request model accepted (the repo's `models/` holds response models only; the create route documents its request on the DTO).
+- runtime events: none.
+
+spawns: implementer 24 calls, 103032 tokens, ended partial (Not Done / Assumptions — the deferred falsifier and judgment calls, no owed item); reviewer not reported by host, ended complete.
+
+**Not Done / Assumptions (Implementer, in substance)**
+- `@Idempotent()` falsifier deferred to T-7.
+- No separate request model in `models/` (pattern: `@ApiProperty` on the DTO).
+- `position` only `@IsInt` at the pipe; the rules name an unknown position (FR-11).
+
+**ADVISORY (Reviewer — recorded, not tasks)**
+- READABILITY: `position` documented `minimum: 1, maximum: 5` but the pipe only checks `@IsInt`.
+- READABILITY: `name` shows `maxLength: 120` with no `@MaxLength` at the pipe (matches create); `server/src/admin-config/AGENTS.md` says the pipe checks "max lengths" — T-8 may make that line precise.
+- RISK: no DTO test that `programIds: null` / `resultTypeKeys: null` passes the pipe.
+- READABILITY: class JSDoc wording ("edit answers the one the service read").
+
+**Forward pointers**
+- T-7: the replay case is the `@Idempotent()` falsifier — run it (remove the decorator → second audit row / non-replayed answer).
+- T-8: `server/src/admin-config/AGENTS.md` "max lengths" line.
 
 **Final verification:** VERIFIED.
