@@ -213,7 +213,7 @@ A grant revoked at the same moment as an assignment can leave a row whose user l
 ### 7.4 Reads (NFR-5)
 
 - The cycle list is one grouped query over `cycles` left-joined with `timelines` and `timeline_steps` (count, min, max).
-- The timeline list runs five queries for a cycle: timelines, steps, programs, result types, and active assignment counts per role, all by `cycle_id`. They are assembled in memory and passed to `timeline-view.ts`.
+- The timeline list runs six queries for a cycle: the cycle exists (FR-12 404), the timelines by `cycle_id`, then steps, programs, result types, and active assignment counts per role, each by the listed timeline ids. They are assembled in memory and passed to `timeline-view.ts`.
 - The detail runs the same queries for one id, plus the active assignments joined with `users`.
 - The query count does not depend on the number of timelines. The fake store counts calls, so a test pins this.
 

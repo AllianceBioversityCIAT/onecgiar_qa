@@ -372,3 +372,5 @@ Persona check: `akili doctor --agents` — no drift blocking (2026-10-21).
 - **→ T-8:** replace the `users: []` stub with the active assignments joined with `users` (design § 7.4, detail), and assert that `assignedCount` and `users` agree after assign and remove. Assignment seeding in the e2e must move to the T-8 routes where the disqualifier allows.
 
 **Final verification:** VERIFIED (see the attempt-2 evidence re-run above).
+
+**T-7 gate (2026-10-21):** the back lead approved the § 7.4 amendment. **Execute-time spec edit:** in `design.md` § 7.4, the timeline list now "runs six queries for a cycle: the cycle exists (FR-12 404), the timelines by `cycle_id`, then steps, programs, result types, and active assignment counts per role, each by the listed timeline ids". Reason: the T-7 Reviewer advisory (spec drift). NFR-5 meaning is unchanged (the count is still fixed). This edit is carried as a named conformance check into the T-8 and T-9 Reviewer briefs.
