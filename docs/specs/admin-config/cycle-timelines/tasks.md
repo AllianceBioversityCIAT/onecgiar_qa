@@ -60,7 +60,7 @@ T-2 ─┼─▶ T-3 ───────────────────�
 - **Skills:** nestjs-best-practices, error-handling-patterns, tdd
 
 ## T-3: Timeline create rules (pure)
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-2
 - **Requirements:** FR-6 (Explicit scope, All, Missing or unknown scope — BUT an empty list must NOT be read as "all"), FR-7 (Renamed and removed, Too many or too few, Audience rules), FR-8 (Valid, Close before open — BUT same day valid, Overlap or out of order, Missing or malformed — BUT not dropped silently, Back-dated), FR-9 (First step without a load — BUT not switched on), FR-10 (Regrouped, Invalid rounds), FR-11 (Several problems — BUT not stop at the first)

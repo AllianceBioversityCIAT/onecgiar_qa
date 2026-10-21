@@ -259,7 +259,7 @@ When a create request is invalid, the system SHALL refuse it with 400 and list *
 
 #### Scenario: Several problems
 - WHEN the name is empty, programs are missing and step 3 has no closing date
-- THEN one 400 lists `name`, `programs` and `steps[2].closesOn`
+- THEN one 400 lists `name`, `programIds` and `steps[2].closesOn` (field paths are the request keys of design § 6; result types report on `resultTypeKeys`)
 - BUT it must NOT stop at the first problem
 - AND IT MUST use only codes from the error catalog — no free text, no database text (TRD § 6)
 

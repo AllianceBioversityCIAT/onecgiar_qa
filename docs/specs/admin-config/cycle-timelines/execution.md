@@ -74,7 +74,7 @@ Persona check: `akili doctor --agents` — no drift blocking (2026-10-21).
 - **Implementer verification:** lint clean · build OK · 43 files / 1422 tests passed · tsc 7 baseline errors (`token-verifier.service.spec.ts`) · rome-date 34/34 in `TZ=UTC` and in `TZ=America/Bogota` · `pnpm test:e2e` 11 files / 538 passed.
 - **Evidence re-run (Leader inline, non-author):** VERIFIED. All of the counts above matched exactly.
 - **Reviewer verdict:** PASS. The § 7.5 codes and statuses match, and so do the seven field-code names. FR-4 is pinned literally. The catalog change is additive only, and `todayInRome` never reads the local zone. Expected values are literals. `TimelineValidationError` builds its messages only from `FIELD_ERRORS`. The `import type` of `FieldIssue` from `users/` is acceptable (P-11).
-- **spawns:** implementer 17 calls, 103,552 tokens, ended complete · reviewer — not reported by host, ended complete.
+- **spawns:** implementer 17 calls, 103,552 tokens, ended complete · reviewer 16 calls, 52,678 tokens, ended complete.
 
 **ADVISORY (Reviewer, 4R — not gating)**
 - READABILITY / RISK: `default-steps.ts` declares its own `StepAudience` union, which duplicates `stepAudiences` / `StepAudience` in `server/src/database/drizzle/schema/timeline-steps.ts:15-22`. The two can drift silently.
@@ -88,6 +88,58 @@ Persona check: `akili doctor --agents` — no drift blocking (2026-10-21).
 - The signature is `todayInRome(now: Date): string`; the design gives none.
 - The seven field-code messages were worded by the Implementer, because design § 7.5 gives names only. The Reviewer checked them against FR-8: "cannot be before" still allows the same day. They are surfaced to the back lead at the gate.
 - The `ADMIN_CONFIG_CLOCK` binding is left to T-5, the module task.
+
+**Issues encountered:** none.
+
+**Final verification:** VERIFIED (see the evidence re-run above).
+
+### T-3: Timeline create rules (pure) — PASS
+
+- **Date:** 2026-10-21
+- **Final status:** PASS (attempt 1)
+- **Implementer attempts:** 1
+- **Skills / effort:** tdd, nestjs-best-practices (as listed) · effort `high` (above default: every AC 4–11 rule lives here, and the boundaries must sit exactly on the boundary).
+
+**Attempt 1**
+- **Files changed:** `server/src/admin-config/timelines/timeline-rules.ts` (new), `server/src/admin-config/timelines/timeline-rules.spec.ts` (new, 57 tests).
+- **runtime events:** none.
+- **Red run:** the full table was run against a stub returning `[]`, and 37 tests failed on assertions. One example: `name (FR-6) > empty`, `AssertionError: expected [] to deeply equal [ { field: 'name', code: 'REQUIRED' } ]`.
+- **Falsifiers** (run with `pnpm test --reporter=dot src/admin-config/timelines/timeline-rules.spec.ts`, then restored from a backup and diffed):
+  - F1, `return issues.slice(0, 1)`: 4 failed, including `all issues at once (FR-11) > lists name, programs and a missing closing date, and nothing else`.
+  - F2, overlap `compareDates(opensOn, previousClose) <= 0` changed to `< 0`: 2 failed, including `the next step opens on the previous closing day`, `expected [] to deeply equal [ { field: 'steps[1].opensOn', …(1) } ]`. The day-after row stayed green.
+  - F3, the empty-list branch pushes no issue: 4 failed, including `an empty list is not "all"` (the `programIds` and `resultTypeKeys` rows).
+- **Implementer verification:** lint clean · build OK · 44 files / 1479 tests passed · tsc 7 baseline errors (`token-verifier.service.spec.ts`).
+- **Evidence re-run (Leader inline, non-author):** VERIFIED. All counts matched.
+- **Reviewer verdict:** PASS. FR-6 to FR-11, § 7.1, § 7.2, § 7.5, DD-6, DD-8, S-1, S-2 and S-4 are met. No Implementer assumption contradicts a scenario. Boundary rows sit exactly on their boundaries, and each falsifier reddens its target row. The several-problems row conforms to FR-11 as amended.
+- **spawns:** implementer 17 calls, 108,371 tokens, ended partial (report carried assumptions only, no owed item, so no continuation was due) · reviewer — not reported by host, ended complete.
+
+**Not Done / Assumptions (Implementer, verbatim)**
+1. **Field path conflict.** FR-11 literally says the 400 lists `name`, `programs` and `steps[2].closesOn`, but design § 6 names the request keys `allPrograms`/`programIds` and `allResultTypes`/`resultTypeKeys`. Design § 7.2 and § 7.5 name no path for either list, so I did not read this as a § 7.2 conflict and did not stop. I used the request keys `programIds` and `resultTypeKeys`, as with `steps[i].<key>`. If you want `programs` and `resultTypes` instead (as users does), the fix is two string literals in `timeline-rules.ts` plus the matching spec rows. T-6 and the DTO should settle which one it is.
+2. **Codes the requirements don't fix:**
+   - A missing, null or empty date is `REQUIRED`, and a malformed one such as `2026-02-30` or `02/11/2026` is `INVALID`.
+   - An empty scope list is `REQUIRED`.
+   - "All" together with ids is `INVALID` on the list, and the catalog is not also checked in that case.
+   - An unknown audience is `INVALID`; a repeated or out-of-order one is `AUDIENCE_ORDER` on the later step.
+   - A first step with `requiresLoad: false` is `FIRST_STEP_LOAD` on `steps[0].requiresLoad`.
+   - A bad first round, or a round that is neither the previous step's round nor that plus one, is `ROUND_SEQUENCE` on that step's `round`.
+3. **Count and per-step checks both run.** A request with 6 steps reports `steps OUT_OF_RANGE` and also `steps[5].audience AUDIENCE_ORDER`, because a sixth step can only repeat an audience. The spec pins this literally. It also runs the per-step checks (name, audience, dates, load, round) on out-of-range counts, since FR-11 says to collect everything.
+4. **Date comparisons.** The overlap check compares only with the immediately preceding step, and is skipped when that step's closing date is missing or invalid. The close-before-open check is skipped when either date is missing or invalid, so each bad date yields one issue.
+5. **Extra rules beyond your list.** I also check step names (`steps[i].name`: `REQUIRED`, or `TOO_LONG` with max 120 after trim), because FR-7 requires them. Names are trimmed before the length check.
+6. **Input shape.** `TimelineCreateInput` and `TimelineStepInput` are defined in `timeline-rules.ts`. Dates are typed optional and nullable so the "missing date" scenario is representable. The T-6 DTO should satisfy this structurally.
+
+**ADVISORY (Reviewer, 4R — not gating)**
+- RELIABILITY: overlap is skipped when the previous step's closing date is missing or invalid, so a real overlap surfaces only in a second round. FR-8 leaves this case undefined. A fallback to the previous step's opening date would keep it in one round.
+- READABILITY: `FieldIssue` is still imported from `users/` (same advisory as T-2).
+- READABILITY: no row uses the FR-10 "Regrouped rounds" fixture (`1,1,1,2,2`) literally.
+- RISK: the timeline name and the step name share one constant, `NAME_MAX = 120`.
+
+**Requirements covered:** FR-6 (scope; empty list is not "all"), FR-7, FR-8 (all scenarios, Rome date as an argument), FR-9 (rule; the input is never mutated), FR-10, FR-11 (every issue, catalog codes only).
+
+**Decisions made**
+- **Execute-time spec edit:** `requirements.md` → FR-11 "Scenario: Several problems", THEN line. `programs` was changed to `programIds`, with the note "field paths are the request keys of design § 6; result types report on `resultTypeKeys`". Reason: a spec tension between the FR-11 wording and the design § 6 `TimelineCreate` keys. The back lead chose `programIds` on 2026-10-21. The meaning is unchanged (same field, path aligned). The forward sweep for stale `programs` field paths over the spec folder found no hits (the remaining `programs` mentions are the audience). This edit is carried as a named conformance check into the T-4 Reviewer brief.
+- The codes for cases the requirements leave open (assumption 2) were accepted by the Reviewer against § 7.5 and DD-8.
+
+**Forward pointer → T-6:** the T-6 DTO must satisfy `TimelineCreateInput` / `TimelineStepInput` structurally (assumption 6), and its e2e three-problem request must expect `programIds` as the path.
 
 **Issues encountered:** none.
 
