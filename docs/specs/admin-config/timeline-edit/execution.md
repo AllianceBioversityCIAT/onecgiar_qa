@@ -178,7 +178,7 @@ Leader adjudication: no blocker, no owed item; closes on the PASS.
 - Reviewer (lens checklist, effort high): **PASS** — "T-3 meets FR-1, FR-3, FR-4, FR-5, FR-10, FR-11 and design § 6, § 7.1, § 7.5, DD-4, DD-5, DD-7 and DD-11. Create's output is unchanged, the step state comes from `viewTimeline`, and the catalog pins are updated." Create check order traced old vs new; scope merge matches § 6; issue order matches § 7.1 steps 1–4; position issues at `steps[requestIndex].position` per § 7.1 item 1; double `LOCKED` + `INVALID` stays within catalog codes; `FIELD_ERRORS` readers in `server/src/users/` unaffected.
 - runtime events: none.
 
-spawns: implementer 37 calls, 172783 tokens, ended partial (Not Done / Assumptions — judgment calls only, no owed item); reviewer not reported by host, ended complete.
+spawns: implementer 37 calls, 172783 tokens, ended partial (Not Done / Assumptions — judgment calls only, no owed item); reviewer 14 calls, 81764 tokens, ended complete.
 
 **Not Done / Assumptions (Implementer, carried in substance)**
 1. `mergeTimelineUpdate(stored, request)` exported (not named in scope) for T-4/T-5's diff and write; returns `TimelineSnapshot` from `timeline-diff.ts`.
@@ -210,5 +210,85 @@ Leader adjudication: no blocker, no owed item; closes on the PASS.
 **Forward pointers**
 - T-4 / T-5: use `mergeTimelineUpdate` for the merged state and `diffTimeline(stored, merged)`; pass catalog sets only for a changed scope (assumption 2).
 - T-8: `server/src/admin-config/AGENTS.md:19,27` (rules no longer create-only; path rule `steps[position − 1]`, request index only for position issues); `server/src/common/AGENTS.md` catalog counts.
+
+**Final verification:** VERIFIED.
+
+### T-4: Store and unit of work — lock, conditional update, scope replace, audit insert — PASS (attempt 2)
+
+| | |
+|---|---|
+| Date | 2026-10-21 |
+| Skills | nestjs-expert, nestjs-best-practices (as listed) |
+| Effort | attempt 1 `xhigh` (race-prone write path); attempt 2 stays `xhigh` — the bump to `max` on a T2 model is barred (*Effort dial*: never `max` a cheaper tier), and escalating the Implementer to `opus` would put it on the Reviewer's model (author ≠ auditor). The fix is narrow, so the tier stays T2 |
+| Review mode | parallel lens Reviewers: concurrency, transaction scope (task `Review: lenses`) |
+
+**Attempt 1 — FAIL (concurrency lens)**
+- Files changed: `server/src/admin-config/timelines/timelines.store.ts`, `timelines.unit-of-work.ts` (doc comment), `timelines.unit-of-work.spec.ts` (13 new cases), `timelines.service.spec.ts` (+7 delegating lines on a hand-written store, tsc-only break — outside the listed scope), `server/test/support/in-memory-admin-config.ts`.
+- Red run: `Tests 13 failed | 19 passed (32)`, e.g. `expected [ 'stale', 'stale' ] to deeply equal [ 'stale', 'updated' ]`.
+- Falsifiers: M1 (fake drops `AND version` and the X lock) → 2 red; M2 (version only) → 1 red; M3 (lock only) → 2 red after an audit INSERT was added to keep the transaction open; M4 (audit outside the transaction) → rollback case red; M5 (`eq(timelines.version, expectedVersion)` removed from the adapter) → SQL-shape case red.
+- Implementer verification: lint, build, unit `Tests 1891 passed (1891)`; e2e (vitest e2e config, `--maxWorkers=2`; `pnpm test:e2e` blocked by the RAM guard) `Tests 722 passed (722)`; tsc only the 7 `token-verifier.service.spec.ts` errors.
+- Evidence re-run (Leader-inline): **VERIFIED** — same counts.
+- Reviewer A (transaction scope): **PASS** — "Every write of the edit, the audit INSERT included, runs on the `tx` connection under READ COMMITTED." Found NFR-5 vs design § 7.3 to be a spec tension, not an implementation defect (see *Spec tension*).
+- Reviewer B (concurrency): **FAIL** —
+  1. **Discovered Issue:** The case "a rename racing a create of the same name" (timelines.unit-of-work.spec.ts, around diff line 887) never interleaves. Each transaction runs one statement (`updateTimeline` or `insert`), so the first commits before the second's statement starts. The name lock `timelines:name:<cycle>:<name>` in the fake's `updateTimeline` is never contended: removing it leaves the case green. It is the only fake coverage of NFR-3's clause "an edit racing a create of the same name → no duplicate name", which the coverage table maps to T-4 (fake).
+     - **Violated Rule:** tasks.md § T-4 Disqualifier: "A concurrency case run serially. It must interleave through the fake's round trips." Also requirements.md § 7 NFR-3.
+     - **Remediation Suggestion:** Keep both transactions open after their first write: `insertAuditEvent` after the rename, `insertSteps` after the create. Assert that the second one waited on the name entry. Run and record a falsifier: remove the name lock from `TransactionalTimelinesStore.updateTimeline`, and the case must go red with two rows named `race 2026`.
+- runtime events: none.
+
+spawns: implementer 49 calls, 259793 tokens, ended complete; reviewer A 16 calls, 64657 tokens, ended complete; reviewer B 25 calls, 80887 tokens, ended complete.
+
+**ADVISORY (attempt 1, both lenses — recorded, not tasks)**
+- RISK (T-5): `name_taken` / `stale` return as values; T-5 must throw so the transaction (and the key mark) rolls back.
+- RELIABILITY (T-5): `updateStep` returns `false` for a missing position; T-5 should throw on `false`.
+- READABILITY: the `timelines.unit-of-work.ts` doc comment says the key mark goes through `timelines`; it goes through `idempotency`.
+- RELIABILITY: the count tests leave out `markExecuted` and T-5's unlocked reads; T-5 should pin the full count.
+- RESILIENCE: the fake `insertAuditEvent` does not check the FKs (T-9 covers it).
+- RISK (P-12): InnoDB serialization of two conditional UPDATEs is unproven until T-9.
+- RESILIENCE: two concurrent edits swapping names can deadlock on unique-index entries in InnoDB (1213, likely a 500). Candidate T-9 check; T-5 may map 1213.
+- RELIABILITY: the fake's rename locks only the new name's entry; InnoDB also X-locks the old one (unreachable in the real flow because create's cycle FOR UPDATE serializes).
+- RELIABILITY: `updateStep` `affectedRows > 0` relies on mysql2 sending `FOUND_ROWS` by default.
+- READABILITY: the fake reads `cycleId` before taking the lock (harmless; comment it).
+
+**Spec tension (to present at the T-4 gate, per *Pivot Detection*)**
+- NFR-5 "Edit: fixed number of queries whatever the number of steps" vs design § 7.3 `updateStep(timelineId, position, values)` (one statement per changed step). Measured: 15 statements for a 1-step and a 5-step timeline with one change; 19 when all 5 change. Both Reviewers agree the implementation follows the design.
+
+**Attempt 2 — PASS (rework, override (e))**
+- Files changed: `server/src/admin-config/timelines/timelines.unit-of-work.spec.ts` only (the race case). Fake, store and the other files byte-identical to attempt 1 (fake `shasum` `1741437c530f8271243ecdbfe988747400995fd1`).
+- Change: the case is now `a rename racing a create of the same name: the create waits on the name entry until the rename commits, then the name key refuses it, so exactly one timeline holds the name`. Rename runs `updateTimeline` then `insertAuditEvent`; create runs `insert` then `insertSteps`. Asserts names `['Race 2026']`, event order `['rename updated','rename audited','create name_taken after 1 rename commits']`, commits/rollbacks `[1,0,0,1]`, one audit row, `nameViolations` 1.
+- Falsifier (name lock removed in `TransactionalTimelinesStore.updateTimeline`): the attempt-1 shape stayed green (`Tests 1 passed | 31 skipped (32)`); the reshaped case is red: `AssertionError: expected [ 'Race 2026', 'race 2026' ] to deeply equal [ 'Race 2026' ]`. Restored, sha identical.
+- M1 and M3 re-run on the final code: M1 → 2 red; M3 (both locks kept, version dropped) → 1 red; M3b → 2 red. (M1/M3 definitions reconstructed from attempt 1's one-line descriptions.)
+- Implementer verification: lint 0, build 0, unit `Tests 1891 passed (1891)`, e2e (vitest e2e config `--maxWorkers=2`; `pnpm test:e2e` blocked by the RAM guard) `Tests 722 passed (722)`, tsc only the 7 `token-verifier.service.spec.ts` errors.
+- Evidence re-run (Leader-inline, non-author): **VERIFIED** — lint OK, build OK, unit `Tests 1891 passed (1891)`, e2e `Tests 722 passed (722)`, tsc 7 in `token-verifier.service.spec.ts`.
+- Reviewer B (concurrency, re-review over the full T-4 diff): **PASS** — "The reshaped case does interleave. The create's `insert` is blocked on the name entry while the rename's transaction is still open. The event-order assertion proves that wait; it does not just reflect the order the test was written in. Attempt 1's FAIL is resolved." Reviewer A's transaction-scope PASS stands (attempt 2 changed no file in that lens's surface).
+- runtime events: none.
+
+spawns: implementer 42 calls, 158568 tokens, ended complete; reviewer B (re-review) not reported by host, ended complete.
+
+**ADVISORY (attempt 2 — recorded, not tasks)**
+- RESILIENCE: only the rename-first order is exercised; a mirrored create-first case would cover the other direction and the fake's lock order.
+- RELIABILITY: the interleaving relies on Node draining microtasks between `setImmediate` callbacks; worth a comment.
+- RISK: InnoDB unique-index locking on a name-changing UPDATE stays open until T-9 (P-12, KZ-admin-config--cycle-timelines-1).
+
+**Not Done / Assumptions (both attempts, in substance)**
+- The fake cannot show InnoDB re-reads, gap/next-key locks, deadlock detection or unique-index entry locking; P-12 unverified until T-9.
+- `updateStep` is per changed step (design § 7.3) — see *Spec tension*.
+- `updateStep` returns `affectedRows > 0` (mysql2 `FOUND_ROWS` default not checked by the Implementer).
+- The fake's `updateTimeline` returns `name_taken` without calling `duplicateEntry`; the 1062 → `name_taken` mapping is proven on the adapter over the stub driver. Reviewer B accepted it as a Scope wording deviation.
+- `findBundle` reads the row first, then steps, programs, result types (4 statements, unlocked, on the pool).
+- `insertAuditEvent` requires `createdAt` and `requestId: string | null`.
+
+Leader adjudication: no blocker, no owed item; closes on both lens PASSes.
+
+**Decisions made**
+- Attempt 2 effort kept at `xhigh` (reason in the header).
+- Re-review ran on the failed lens only; the other lens's PASS stands because attempt 2 touched one test.
+
+**Issues encountered**
+- Consumers gap: `timelines.service.spec.ts` (+7 delegating lines on a hand-written store) was not in T-4's Consumers; tsc-only break.
+
+**Forward pointers**
+- T-5: throw `TimelineNameTakenError` / `TimelineVersionStaleError` on the `name_taken` / `stale` outcomes so the transaction and the key mark roll back; throw on `updateStep` returning `false`; pass the same `now` to `updated_at` and the audit `createdAt`; pin the full statement count, `markExecuted` and the unlocked reads included; consider 1213 on this path.
+- T-9: add a two-edit name-swap check (possible 1213 deadlock); keep P-12 open until verified on MySQL.
+- T-8: fix the `timelines.unit-of-work.ts` doc comment (the key mark goes through `idempotency`) only if T-8's guide pass touches it — otherwise recorded here.
 
 **Final verification:** VERIFIED.

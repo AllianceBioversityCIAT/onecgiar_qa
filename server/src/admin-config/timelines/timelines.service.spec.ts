@@ -508,6 +508,13 @@ describe('create: official or additional (FR-5)', () => {
               findActiveAssignment: (...args) =>
                 t.findActiveAssignment(...args),
               removeAssignment: (change) => t.removeAssignment(change),
+              findBundle: (id) => t.findBundle(id),
+              findForUpdate: (id) => t.findForUpdate(id),
+              updateTimeline: (...args) => t.updateTimeline(...args),
+              updateStep: (...args) => t.updateStep(...args),
+              replacePrograms: (...args) => t.replacePrograms(...args),
+              replaceResultTypes: (...args) => t.replaceResultTypes(...args),
+              insertAuditEvent: (values) => t.insertAuditEvent(values),
             },
           });
         }),

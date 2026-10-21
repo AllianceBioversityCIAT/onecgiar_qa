@@ -172,7 +172,7 @@ T-3 ─────────────────────┘
 - **Skills:** nestjs-best-practices, error-handling-patterns, api-design-principles
 
 ## T-4: Store and unit of work — lock, conditional update, scope replace, audit insert
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-1
 - **Requirements:**

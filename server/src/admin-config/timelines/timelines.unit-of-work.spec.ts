@@ -1,5 +1,10 @@
 // @akili-spec admin-config/cycle-timelines
 import { drizzle } from 'drizzle-orm/mysql2';
+import {
+  InMemoryAdminConfigDatabase,
+  InMemoryTimelinesUnitOfWork,
+  collateName,
+} from '../../../test/support/in-memory-admin-config.js';
 import { IdempotencyFenceLostError } from '../../common/idempotency/idempotency.errors.js';
 import * as schema from '../../database/drizzle/schema/index.js';
 import { CatalogService } from '../../users/catalogs/catalog.service.js';
@@ -9,12 +14,17 @@ import {
   CycleClosedError,
   TimelineAssignmentNotFoundError,
   TimelineNameTakenError,
+  TimelineNotFoundError,
+  TimelineVersionStaleError,
 } from '../admin-config.errors.js';
 import type { TimelineCreateInput } from './timeline-rules.js';
 import { NoTimelineLoads } from './timeline-loads.js';
 import { TimelinesService } from './timelines.service.js';
 import { DrizzleTimelinesStore } from './timelines.store.js';
-import { DrizzleTimelinesUnitOfWork } from './timelines.unit-of-work.js';
+import {
+  DrizzleTimelinesUnitOfWork,
+  type TimelinesRepositories,
+} from './timelines.unit-of-work.js';
 
 // The real adapters over a stub MySQL driver: statements are asserted, as there
 // is no disposable MySQL (the shared qadb is never touched). Expected values
@@ -57,6 +67,12 @@ interface StubOptions {
   assignmentInsertError?: Error;
   /** Rows the UPDATE of `timeline_users` matches (default 1). */
   removeRows?: number;
+  /** Rows the UPDATE of `timelines` matches (default 1): 0 is a lost version race (timeline-edit DD-6). */
+  timelineUpdateRows?: number;
+  /** The UPDATE of `timelines` is refused with this error (1062 on the name key, or another). */
+  timelineUpdateError?: Error;
+  /** Steps the timeline has: the select of `timeline_steps` returns this many rows (default 1). */
+  stepCount?: number;
 }
 
 function stub({
@@ -67,6 +83,9 @@ function stub({
   cycleStatus = 'active',
   assignmentInsertError,
   removeRows = 1,
+  timelineUpdateRows = 1,
+  timelineUpdateError,
+  stepCount = 1,
 }: StubOptions = {}) {
   const log: Statement[] = [];
   let timelineInserts = 0;
@@ -84,6 +103,10 @@ function stub({
       }
       if (sql.startsWith('insert')) {
         return Promise.resolve([{ insertId: 0, affectedRows: 1 }, []]);
+      }
+      if (sql.startsWith('update `timelines`')) {
+        if (timelineUpdateError) return Promise.reject(timelineUpdateError);
+        return Promise.resolve([{ affectedRows: timelineUpdateRows }, []]);
       }
       if (!sql.startsWith('select')) {
         const affectedRows = sql.startsWith('update `idempotency_keys`')
@@ -133,19 +156,17 @@ function stub({
       } else if (sql.includes('from `cycles`')) rows = [draftCycle];
       else if (sql.includes('`official_key` = ?')) rows = official ? [[7]] : [];
       else if (sql.includes('from `timeline_steps`'))
-        rows = [
-          [
-            21,
-            11,
-            1,
-            'Assessors',
-            'assessors',
-            '2026-11-02',
-            '2026-11-06',
-            1,
-            1,
-          ],
-        ];
+        rows = Array.from({ length: stepCount }, (_, i) => [
+          21 + i,
+          11,
+          i + 1,
+          i === 0 ? 'Assessors' : `Step ${i + 1}`,
+          ['assessors', 'programs', 'lead_assessors', 'tpb', 'ppu'][i],
+          '2026-11-02',
+          '2026-11-06',
+          1,
+          i === 0 ? 1 : 0,
+        ]);
       else if (sql.includes('from `timeline_programs`')) rows = [[11, 2]];
       else if (sql.includes('from `timeline_result_types`'))
         rows = [[11, 'KP']];
@@ -187,7 +208,7 @@ function stub({
     () => FIXED,
     new NoTimelineLoads(),
   );
-  return { service, log };
+  return { service, log, db };
 }
 
 const request: TimelineCreateInput = {
@@ -571,5 +592,639 @@ describe('assign and remove over a stub MySQL driver (design 7.3, DD-9, DD-10)',
     expect(joins).toHaveLength(1);
     expect(joins[0]!.sql).toMatch(/`timeline_users`\.`removed_at` is null/);
     expect(joins[0]!.params).toContain(11);
+  });
+});
+
+// --- timeline edit: store and unit of work (timeline-edit T-4) ---------------
+// Expected values are design 5, 7.2 step 8 and 7.3, FR-9, FR-10 and NFR-3/5
+// written out. `editWork` is the store calls of the edit's transaction in the
+// order of design 7.2 step 8; the service's own flow is T-5, this is only what
+// the store and the unit of work must make safe. Both worlds run it: the real
+// adapters over the stub driver (statements), and the in-memory world (locks,
+// rollback, two transactions interleaved through the fake's round trips).
+
+interface EditPlan {
+  cycleId: number;
+  timelineId: number;
+  version: number;
+  name?: string;
+  allResultTypes?: boolean;
+  steps: Array<{ position: number; closesOn: string }>;
+  programIds?: number[];
+  resultTypeKeys?: string[];
+}
+
+interface EditOptions {
+  /** Re-read the row FOR UPDATE and compare the version, as the service does (default); false leaves the conditional UPDATE alone. */
+  relock?: boolean;
+  /** Called with the version `findForUpdate` returned, once the lock is held. */
+  onLocked?: (version: number) => void;
+}
+
+const editWork =
+  (plan: EditPlan, { relock = true, onLocked }: EditOptions = {}) =>
+  async ({ timelines }: TimelinesRepositories) => {
+    await timelines.lockCycleShared(plan.cycleId);
+    if (relock) {
+      const locked = await timelines.findForUpdate(plan.timelineId);
+      if (!locked) throw new TimelineNotFoundError(plan.timelineId);
+      onLocked?.(locked.version);
+      if (locked.version !== plan.version) {
+        throw new TimelineVersionStaleError();
+      }
+    }
+    const outcome = await timelines.updateTimeline(
+      plan.timelineId,
+      plan.version,
+      {
+        name: plan.name,
+        allResultTypes: plan.allResultTypes,
+        updatedAt: FIXED,
+        updatedBy: 9,
+      },
+    );
+    if (outcome.kind === 'name_taken') throw new TimelineNameTakenError();
+    if (outcome.kind === 'stale') throw new TimelineVersionStaleError();
+    for (const step of plan.steps) {
+      await timelines.updateStep(plan.timelineId, step.position, {
+        closesOn: step.closesOn,
+      });
+    }
+    if (plan.programIds) {
+      await timelines.replacePrograms(plan.timelineId, plan.programIds);
+    }
+    if (plan.resultTypeKeys) {
+      await timelines.replaceResultTypes(plan.timelineId, plan.resultTypeKeys);
+    }
+    await timelines.insertAuditEvent({
+      timelineId: plan.timelineId,
+      actorId: 9,
+      action: 'update',
+      changes: { name: { before: 'July 2026', after: plan.name ?? null } },
+      requestId: 'req-1',
+      createdAt: FIXED,
+    });
+    return 'updated' as const;
+  };
+
+describe('timeline edit over a stub MySQL driver (design 7.3, DD-6, DD-10, NFR-5)', () => {
+  const plan: EditPlan = {
+    cycleId: 3,
+    timelineId: 11,
+    version: 1,
+    name: 'August 2026',
+    allResultTypes: true,
+    steps: [{ position: 2, closesOn: '2026-11-14' }],
+    programIds: [2, 3],
+    resultTypeKeys: [],
+  };
+
+  it('an edit: READ COMMITTED, the cycle FOR SHARE, the timeline FOR UPDATE, the conditional UPDATE, the step by position, the scope DELETE then INSERT, the audit INSERT, commit, all on the transaction connection', async () => {
+    const { db, log } = stub();
+
+    const result = await new DrizzleTimelinesUnitOfWork(db).run(editWork(plan));
+
+    expect(result).toBe('updated');
+    expect(log.slice(0, 2).map((s) => s.sql)).toEqual([
+      'set transaction isolation level read committed',
+      'begin',
+    ]);
+    const inTx = inTransaction(log);
+    // Nothing of the edit, the audit row included, ran outside the transaction.
+    expect(inTx.map((s) => s.via)).toEqual(inTx.map(() => 'tx'));
+    expect(log.filter((s) => s.via === 'pool')).toEqual([]);
+    expect(inTx[1]!.sql).toMatch(
+      /from `cycles` where `cycles`\.`id` = \? limit \? for share$/,
+    );
+    expect(inTx[2]!.sql).toMatch(
+      /from `timelines` where `timelines`\.`id` = \? limit \? for update$/,
+    );
+    expect(inTx[2]!.params[0]).toBe(11);
+    // The version is in the WHERE of the UPDATE, and the UPDATE raises it by one.
+    const update = inTx[3]!;
+    expect(update.sql).toMatch(/^update `timelines` set /);
+    expect(update.sql).toMatch(/`version` = .*`version` \+ 1/);
+    expect(update.sql).toMatch(
+      /where \(`timelines`\.`id` = \? and `timelines`\.`version` = \?\)$/,
+    );
+    expect(update.params.slice(-2)).toEqual([11, 1]);
+    expect(update.params).toEqual(expect.arrayContaining(['August 2026', 9]));
+    const assignments = update.sql.split(' where ')[0]!;
+    expect(assignments).toContain('`name` = ?');
+    expect(assignments).toContain('`all_result_types` = ?');
+    expect(assignments).toContain('`updated_at` = ?');
+    expect(assignments).toContain('`updated_by` = ?');
+    // A field the edit did not send, and the fields no edit can change, are never written.
+    expect(assignments).not.toMatch(
+      /all_programs|`kind`|`cycle_id`|created_by|created_at/,
+    );
+    expect(inTx[4]!.sql).toBe(
+      'update `timeline_steps` set `closes_on` = ? where (`timeline_steps`.`timeline_id` = ? and `timeline_steps`.`position` = ?)',
+    );
+    expect(inTx[4]!.params).toEqual(['2026-11-14', 11, 2]);
+    expect(inTx[5]!.sql).toBe(
+      'delete from `timeline_programs` where `timeline_programs`.`timeline_id` = ?',
+    );
+    expect(inTx[5]!.params).toEqual([11]);
+    expect(inTx[6]!.sql).toMatch(/^insert into `timeline_programs`/);
+    expect(inTx[6]!.params).toEqual([11, 2, 11, 3]);
+    // An empty list (the "all" flag) is a DELETE and no INSERT.
+    expect(inTx[7]!.sql).toBe(
+      'delete from `timeline_result_types` where `timeline_result_types`.`timeline_id` = ?',
+    );
+    expect(insertsInto(log, 'timeline_result_types')).toEqual([]);
+    expect(inTx[8]!.sql).toMatch(/^insert into `timeline_audit_events`/);
+    expect(inTx[8]!.params).toEqual(
+      expect.arrayContaining([11, 9, 'update', 'req-1']),
+    );
+    expect(inTx[8]!.params).toContain(
+      JSON.stringify({ name: { before: 'July 2026', after: 'August 2026' } }),
+    );
+    expect(inTx.at(-1)!.sql).toBe('commit');
+    expect(inTx).toHaveLength(10);
+  });
+
+  it('the conditional UPDATE answers by its affected rows alone: 1 is updated, 0 is stale, and no read runs before it', async () => {
+    for (const [rows, kind] of [
+      [1, 'updated'],
+      [0, 'stale'],
+    ] as const) {
+      const { db, log } = stub({ timelineUpdateRows: rows });
+
+      const outcome = await new DrizzleTimelinesUnitOfWork(db).run(
+        ({ timelines }) =>
+          timelines.updateTimeline(11, 1, { updatedAt: FIXED, updatedBy: 9 }),
+      );
+
+      expect(outcome).toEqual({ kind });
+      expect(inTransaction(log).map((s) => s.sql.split(' ')[0])).toEqual([
+        'begin',
+        'update',
+        'commit',
+      ]);
+    }
+  });
+
+  it('a duplicate name (1062 on `uq_timelines_cycle_name`) on update is name_taken: rolled back, no step, scope or audit statement, no commit', async () => {
+    const { db, log } = stub({
+      timelineUpdateError: duplicate('timelines.uq_timelines_cycle_name'),
+    });
+
+    await expect(
+      new DrizzleTimelinesUnitOfWork(db).run(editWork(plan)),
+    ).rejects.toBeInstanceOf(TimelineNameTakenError);
+
+    const sqls = log.map((s) => s.sql);
+    expect(sqls.at(-1)).toBe('rollback');
+    expect(sqls).not.toContain('commit');
+    expect(sqls.filter((s) => s.startsWith('update `timeline_steps`'))).toEqual(
+      [],
+    );
+    expect(sqls.filter((s) => s.startsWith('delete from'))).toEqual([]);
+    expect(insertsInto(log, 'timeline_audit_events')).toEqual([]);
+  });
+
+  it('a duplicate key wrapped as the cause of another error is still name_taken; a 1062 on another key is thrown and rolled back', async () => {
+    const wrapped = Object.assign(new Error('Failed query'), {
+      cause: duplicate('timelines.uq_timelines_cycle_name'),
+    });
+    const named = stub({ timelineUpdateError: wrapped });
+    await expect(
+      new DrizzleTimelinesUnitOfWork(named.db).run(editWork(plan)),
+    ).rejects.toBeInstanceOf(TimelineNameTakenError);
+
+    const other = stub({
+      timelineUpdateError: duplicate('timelines.uq_timelines_official_key'),
+    });
+    // drizzle wraps the driver error: the 1062 on the other key is its `cause`.
+    const refused: unknown = await new DrizzleTimelinesUnitOfWork(other.db)
+      .run(editWork(plan))
+      .catch((error: unknown) => error);
+    expect(refused).toBeInstanceOf(Error);
+    expect(refused).not.toBeInstanceOf(TimelineNameTakenError);
+    expect(
+      (refused as { cause?: { sqlMessage?: string } }).cause?.sqlMessage,
+    ).toContain('uq_timelines_official_key');
+    expect(other.log.at(-1)!.sql).toBe('rollback');
+  });
+
+  it('findBundle is four statements on the pool, the row first, then steps, programs and result types, and maps the rows', async () => {
+    const { db, log } = stub();
+
+    const bundle = await new DrizzleTimelinesStore(db).findBundle(11);
+
+    expect(log.map((s) => [s.via, /from `(\w+)`/.exec(s.sql)![1]])).toEqual([
+      ['pool', 'timelines'],
+      ['pool', 'timeline_steps'],
+      ['pool', 'timeline_programs'],
+      ['pool', 'timeline_result_types'],
+    ]);
+    expect(bundle).toMatchObject({
+      timeline: { id: 11, version: 1 },
+      programIds: [2],
+      resultTypeKeys: ['KP'],
+    });
+    expect(bundle!.steps).toHaveLength(1);
+  });
+
+  it('the statements of an edit do not depend on how many steps the timeline has: each CHANGED step adds one UPDATE and nothing else grows', async () => {
+    const total = async (stepCount: number, changed: number[]) => {
+      const { db, log } = stub({ stepCount });
+      await new DrizzleTimelinesStore(db).findBundle(11);
+      await new DrizzleTimelinesUnitOfWork(db).run(
+        editWork({
+          ...plan,
+          version: 1,
+          steps: changed.map((position) => ({
+            position,
+            closesOn: '2026-11-14',
+          })),
+        }),
+      );
+      return {
+        statements: log.length,
+        stepUpdates: log.filter((s) =>
+          s.sql.startsWith('update `timeline_steps`'),
+        ).length,
+      };
+    };
+
+    const one = await total(1, [1]);
+    const five = await total(5, [1]);
+    const allFive = await total(5, [1, 2, 3, 4, 5]);
+
+    // 4 reads of the bundle + set isolation, begin, cycle, timeline, update,
+    // 1 step, 2 program statements, 1 result-type DELETE, audit, commit.
+    expect(one).toEqual({ statements: 15, stepUpdates: 1 });
+    expect(five).toEqual(one);
+    expect(allFive).toEqual({ statements: 19, stepUpdates: 5 });
+  });
+});
+
+describe('timeline edit over the in-memory world (FR-9, FR-10, NFR-3, NFR-5; the fake interleaves at every statement)', () => {
+  const plan: EditPlan = {
+    cycleId: 1,
+    timelineId: 11,
+    version: 4,
+    name: 'September 2026',
+    steps: [{ position: 2, closesOn: '2026-12-01' }],
+    programIds: [2, 3],
+    resultTypeKeys: [],
+  };
+
+  /** One cycle, the official timeline 11 at version 4 (steps, program 2, result type KP) and the additional 12 named August 2026. */
+  function seed(stepCount = 3) {
+    const db = new InMemoryAdminConfigDatabase();
+    const created = new Date('2026-10-01T09:00:00.000Z');
+    db.cycles.push({
+      id: 1,
+      year: 2026,
+      status: 'active',
+      activeKey: 1,
+      createdAt: created,
+      createdBy: 1,
+      activatedAt: created,
+      activatedBy: 1,
+      closedAt: null,
+      closedBy: null,
+    });
+    const timeline = {
+      cycleId: 1,
+      allPrograms: false,
+      allResultTypes: false,
+      createdAt: created,
+      createdBy: 1,
+      updatedAt: null,
+      updatedBy: null,
+    };
+    db.timelines.push(
+      {
+        ...timeline,
+        id: 11,
+        name: 'July 2026',
+        kind: 'official',
+        officialKey: 1,
+        version: 4,
+      },
+      {
+        ...timeline,
+        id: 12,
+        name: 'August 2026',
+        kind: 'additional',
+        officialKey: null,
+        version: 1,
+      },
+    );
+    const audiences = [
+      'assessors',
+      'programs',
+      'lead_assessors',
+      'tpb',
+      'ppu',
+    ] as const;
+    for (let position = 1; position <= stepCount; position++) {
+      const opens = position * 3;
+      db.steps.push({
+        id: position,
+        timelineId: 11,
+        position,
+        name: `Step ${position}`,
+        audience: audiences[position - 1]!,
+        opensOn: `2026-11-${String(opens).padStart(2, '0')}`,
+        closesOn: `2026-11-${String(opens + 2).padStart(2, '0')}`,
+        round: 1,
+        requiresLoad: position === 1,
+      });
+    }
+    db.programs.push({ timelineId: 11, programId: 2 });
+    db.resultTypes.push({ timelineId: 11, resultTypeKey: 'KP' });
+    return { db, uow: new InMemoryTimelinesUnitOfWork(db) };
+  }
+
+  const committed = (db: InMemoryAdminConfigDatabase) =>
+    structuredClone({
+      timelines: db.timelines,
+      steps: db.steps,
+      programs: db.programs,
+      resultTypes: db.resultTypes,
+      audit: db.auditEvents,
+    });
+
+  it('an applied edit commits the version, the step, the scope and exactly one audit row together', async () => {
+    const { db, uow } = seed();
+
+    await uow.run(editWork(plan));
+
+    expect(db.timelines.find((t) => t.id === 11)).toMatchObject({
+      name: 'September 2026',
+      version: 5,
+      updatedAt: FIXED,
+      updatedBy: 9,
+    });
+    const step = (position: number) =>
+      db.steps.find((s) => s.timelineId === 11 && s.position === position)!;
+    expect(step(2).closesOn).toBe('2026-12-01');
+    expect(step(1).closesOn).toBe('2026-11-05');
+    expect(
+      db.programs.filter((p) => p.timelineId === 11).map((p) => p.programId),
+    ).toEqual([2, 3]);
+    expect(db.resultTypes.filter((r) => r.timelineId === 11)).toEqual([]);
+    expect(db.auditEvents).toEqual([
+      expect.objectContaining({
+        timelineId: 11,
+        actorId: 9,
+        action: 'update',
+        requestId: 'req-1',
+        createdAt: FIXED,
+      }),
+    ]);
+    // The other timeline is untouched.
+    expect(db.timelines.find((t) => t.id === 12)).toMatchObject({
+      name: 'August 2026',
+      version: 1,
+    });
+  });
+
+  it('a rollback after every write leaves no timeline, step, scope or audit change', async () => {
+    const { db, uow } = seed();
+    const before = committed(db);
+
+    await expect(
+      uow.run(async (repositories) => {
+        await editWork(plan)(repositories);
+        throw new Error('the answer was lost');
+      }),
+    ).rejects.toThrow('the answer was lost');
+
+    // Every write really ran (the log keeps rolled-back statements) ...
+    expect(db.timelineWriteLog).toEqual([
+      'timeline:update:11',
+      'step:update:11:2',
+      'programs:delete:11',
+      'programs:11',
+      'result-types:delete:11',
+      'audit:11',
+    ]);
+    // ... and none of it is committed, the audit row included.
+    expect(committed(db)).toEqual(before);
+    expect(db.auditEvents).toHaveLength(0);
+    expect([uow.committed, uow.rolledBack]).toEqual([0, 1]);
+  });
+
+  it('a rename into a taken name, in any letter case, is name_taken: the transaction rolls back and nothing else is written', async () => {
+    const { db, uow } = seed();
+    const before = committed(db);
+
+    await expect(
+      uow.run(editWork({ ...plan, name: 'AUGUST 2026' })),
+    ).rejects.toBeInstanceOf(TimelineNameTakenError);
+
+    expect(committed(db)).toEqual(before);
+    expect(db.nameViolations).toBe(1);
+    expect(db.timelineWriteLog).toEqual([]);
+    expect([uow.committed, uow.rolledBack]).toEqual([0, 1]);
+  });
+
+  it('two edits on the same version run at once: one is updated, the other waits for the first commit, then finds the version moved and is stale', async () => {
+    const { db } = seed();
+    const first = new InMemoryTimelinesUnitOfWork(db);
+    const second = new InMemoryTimelinesUnitOfWork(db);
+    const commits = () => first.committed + second.committed;
+    const events: string[] = [];
+    const edit = (
+      who: string,
+      name: string,
+    ): ((r: TimelinesRepositories) => Promise<'updated'>) => {
+      return (repositories) => {
+        events.push(`${who} requested after ${commits()} commits`);
+        return editWork(
+          { ...plan, name },
+          {
+            onLocked: (version) =>
+              events.push(
+                `${who} locked v${version} after ${commits()} commits`,
+              ),
+          },
+        )(repositories);
+      };
+    };
+
+    const settled = await Promise.allSettled([
+      first.run(edit('Ana', 'Ana 2026')),
+      second.run(edit('Luis', 'Luis 2026')),
+    ]);
+
+    // Luis asked while Ana was in flight, and got the row only after her commit.
+    expect(events).toEqual([
+      'Ana requested after 0 commits',
+      'Luis requested after 0 commits',
+      'Ana locked v4 after 0 commits',
+      'Luis locked v5 after 1 commits',
+    ]);
+    expect(settled[0]).toEqual({ status: 'fulfilled', value: 'updated' });
+    expect(settled[1]).toMatchObject({
+      status: 'rejected',
+      reason: expect.any(TimelineVersionStaleError),
+    });
+    // Ana's edit is not merged into or overwritten by Luis's; one version, one audit row.
+    expect(db.timelines.find((t) => t.id === 11)).toMatchObject({
+      name: 'Ana 2026',
+      version: 5,
+    });
+    expect(db.auditEvents).toHaveLength(1);
+    expect([second.committed, second.rolledBack]).toEqual([0, 1]);
+  });
+
+  it('the conditional UPDATE alone refuses the second of two same-version writes: the version is checked under the row lock, which is held until the commit', async () => {
+    const { db } = seed();
+    // No FOR UPDATE read first. The audit INSERT after the UPDATE keeps the
+    // transaction open for another statement, as a real edit does, so the
+    // second UPDATE arrives while the first is still uncommitted.
+    const write = (name: string) => async (r: TimelinesRepositories) => {
+      const outcome = await r.timelines.updateTimeline(11, 4, {
+        name,
+        updatedAt: FIXED,
+        updatedBy: 9,
+      });
+      if (outcome.kind === 'updated') {
+        await r.timelines.insertAuditEvent({
+          timelineId: 11,
+          actorId: 9,
+          action: 'update',
+          changes: { name: { before: 'July 2026', after: name } },
+          requestId: 'req-1',
+          createdAt: FIXED,
+        });
+      }
+      return outcome;
+    };
+
+    const outcomes = await Promise.all([
+      new InMemoryTimelinesUnitOfWork(db).run(write('Ana 2026')),
+      new InMemoryTimelinesUnitOfWork(db).run(write('Luis 2026')),
+    ]);
+
+    expect(outcomes.map((o) => o.kind).sort()).toEqual(['stale', 'updated']);
+    const winner = outcomes[0]!.kind === 'updated' ? 'Ana 2026' : 'Luis 2026';
+    expect(db.timelines.find((t) => t.id === 11)).toMatchObject({
+      name: winner,
+      version: 5,
+    });
+    expect(db.auditEvents).toHaveLength(1);
+  });
+
+  it('a rename racing a create of the same name: the create waits on the name entry until the rename commits, then the name key refuses it, so exactly one timeline holds the name', async () => {
+    const { db } = seed();
+    const rename = new InMemoryTimelinesUnitOfWork(db);
+    const create = new InMemoryTimelinesUnitOfWork(db);
+    const events: string[] = [];
+    // Both transactions stay open after their first write (the audit INSERT of
+    // an edit, the steps INSERT of a create), as a real edit and a real create
+    // do. A transaction that ran one statement would commit before its rival's
+    // first statement started (a round trip is one `setImmediate`), and the
+    // name entry would never be contended.
+    const renamed = rename.run(async ({ timelines }) => {
+      const outcome = await timelines.updateTimeline(11, 4, {
+        name: 'Race 2026',
+        updatedAt: FIXED,
+        updatedBy: 9,
+      });
+      events.push(`rename ${outcome.kind}`);
+      await timelines.insertAuditEvent({
+        timelineId: 11,
+        actorId: 9,
+        action: 'update',
+        changes: { name: { before: 'July 2026', after: 'Race 2026' } },
+        requestId: 'req-1',
+        createdAt: FIXED,
+      });
+      events.push('rename audited');
+      return outcome;
+    });
+    const created = create.run(async ({ timelines }) => {
+      const outcome = await timelines.insert({
+        cycleId: 1,
+        name: 'race 2026',
+        kind: 'additional',
+        allPrograms: true,
+        allResultTypes: true,
+        createdBy: 9,
+      });
+      events.push(
+        `create ${outcome.kind} after ${rename.committed} rename commits`,
+      );
+      if (outcome.kind === 'name_taken') throw new TimelineNameTakenError();
+      if (outcome.kind !== 'created') throw new Error(outcome.kind);
+      await timelines.insertSteps(outcome.timelineId, [
+        {
+          position: 1,
+          name: 'Step 1',
+          audience: 'assessors',
+          opensOn: '2026-11-03',
+          closesOn: '2026-11-05',
+          round: 1,
+          requiresLoad: true,
+        },
+      ]);
+      events.push('create wrote its steps');
+      return outcome;
+    });
+
+    const settled = await Promise.allSettled([renamed, created]);
+
+    // NFR-3: one timeline holds the name (the rename's), never two.
+    expect(
+      db.timelines
+        .filter((t) => collateName(t.name) === 'race 2026')
+        .map((t) => t.name),
+    ).toEqual(['Race 2026']);
+    // The rename asked first and took the name entry. The create's INSERT sat
+    // on that entry past the rename's audit INSERT, answered only after the
+    // rename's commit, and found the name taken.
+    expect(events).toEqual([
+      'rename updated',
+      'rename audited',
+      'create name_taken after 1 rename commits',
+    ]);
+    expect(settled[0]).toEqual({
+      status: 'fulfilled',
+      value: { kind: 'updated' },
+    });
+    expect(settled[1]).toMatchObject({
+      status: 'rejected',
+      reason: expect.any(TimelineNameTakenError),
+    });
+    expect(db.timelines.find((t) => t.id === 11)).toMatchObject({
+      name: 'Race 2026',
+      version: 5,
+    });
+    // The refused create wrote nothing: no steps for a new timeline, one audit row.
+    expect(db.steps.filter((s) => s.timelineId !== 11)).toEqual([]);
+    expect(db.auditEvents).toHaveLength(1);
+    expect(db.nameViolations).toBe(1);
+    expect([
+      rename.committed,
+      rename.rolledBack,
+      create.committed,
+      create.rolledBack,
+    ]).toEqual([1, 0, 0, 1]);
+  });
+
+  it('the edit runs the same statements on a timeline of one step and on one of five', async () => {
+    const counts: Array<[number, number]> = [];
+    for (const stepCount of [1, 5]) {
+      const { db, uow } = seed(stepCount);
+      await uow.run(
+        editWork({ ...plan, steps: [{ position: 1, closesOn: '2026-12-01' }] }),
+      );
+      counts.push([db.timelineReadLog.length, db.timelineWriteLog.length]);
+    }
+
+    // Reads: the cycle FOR SHARE and the timeline FOR UPDATE. Writes: the
+    // timeline, one step, both scope tables, the audit row.
+    expect(counts).toEqual([
+      [2, 6],
+      [2, 6],
+    ]);
   });
 });
