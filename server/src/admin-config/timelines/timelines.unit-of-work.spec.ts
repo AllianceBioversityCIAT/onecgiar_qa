@@ -11,6 +11,7 @@ import {
   TimelineNameTakenError,
 } from '../admin-config.errors.js';
 import type { TimelineCreateInput } from './timeline-rules.js';
+import { NoTimelineLoads } from './timeline-loads.js';
 import { TimelinesService } from './timelines.service.js';
 import { DrizzleTimelinesStore } from './timelines.store.js';
 import { DrizzleTimelinesUnitOfWork } from './timelines.unit-of-work.js';
@@ -184,6 +185,7 @@ function stub({
     new DrizzleTimelinesStore(db),
     new CatalogService(sources.resultTypes, sources.programs, () => Date.now()),
     () => FIXED,
+    new NoTimelineLoads(),
   );
   return { service, log };
 }

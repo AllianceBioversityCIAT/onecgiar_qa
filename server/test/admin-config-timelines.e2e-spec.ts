@@ -380,8 +380,8 @@ describe('Timelines routes: defaults, create, list and detail (e2e)', () => {
         allResultTypes: false,
         resultTypeKeys: ['INNOVATION_DEV'],
         steps: [
-          { position: 1, ...STEP_1 },
-          { position: 2, ...STEP_2 },
+          { position: 1, ...STEP_1, state: 'upcoming' },
+          { position: 2, ...STEP_2, state: 'upcoming' },
         ],
         status: 'scheduled',
         currentStep: null,
@@ -389,6 +389,7 @@ describe('Timelines routes: defaults, create, list and detail (e2e)', () => {
         readiness: ['NO_RESULTS_LOADED', 'NO_ASSESSOR_ASSIGNED'],
         assignedCount: { ASSESSOR: 0, LEAD_ASSESSOR: 0, TPB: 0, PPU: 0 },
         createdAt: ISO,
+        version: 1,
       });
       expect(w.world.timelines[0]).toMatchObject({
         kind: 'official',
@@ -811,6 +812,13 @@ describe('Timelines routes: defaults, create, list and detail (e2e)', () => {
     const listOf = (cycleId: number) =>
       w.send('get', `/cycles/${cycleId}/timelines`);
     const detailOf = (id: number) => w.send('get', `/timelines/${id}`);
+    /**
+     * The tests that expect `live` or `finished` read a timeline that HAS a
+     * load (timeline-edit DD-8): without one it is `waiting_for_load` from its
+     * step 1 day on. The fake loads port is the only thing that says so.
+     */
+    const withLoads = () =>
+      w.world.loads.markLoaded(...w.world.timelines.map((t) => t.id));
     /** Every stored row and every write counter of the world, as one string: equal strings = nothing changed. */
     const stored = () =>
       JSON.stringify([
@@ -905,8 +913,8 @@ describe('Timelines routes: defaults, create, list and detail (e2e)', () => {
           allResultTypes: false,
           resultTypeKeys: ['INNOVATION_DEV'],
           steps: [
-            { position: 1, ...STEP_1 },
-            { position: 2, ...STEP_2 },
+            { position: 1, ...STEP_1, state: 'upcoming' },
+            { position: 2, ...STEP_2, state: 'upcoming' },
           ],
           status: 'scheduled',
           currentStep: null,
@@ -914,6 +922,7 @@ describe('Timelines routes: defaults, create, list and detail (e2e)', () => {
           readiness: ['NO_RESULTS_LOADED', 'NO_ASSESSOR_ASSIGNED'],
           assignedCount: { ASSESSOR: 0, LEAD_ASSESSOR: 0, TPB: 0, PPU: 0 },
           createdAt: ISO,
+          version: 1,
         },
       ]);
     });
@@ -950,6 +959,7 @@ describe('Timelines routes: defaults, create, list and detail (e2e)', () => {
       const cycleId = await createCycle(2026);
       const created = await createTimeline(cycleId);
       const id = created.body.data.id as number;
+      withLoads();
       const before = stored();
       const writes = w.world.history.length;
 
@@ -998,6 +1008,7 @@ describe('Timelines routes: defaults, create, list and detail (e2e)', () => {
       async (iso, status, current, next) => {
         const cycleId = await createCycle(2026);
         await createTimeline(cycleId);
+        withLoads();
         at(iso);
 
         const res = await listOf(cycleId);
@@ -1024,6 +1035,7 @@ describe('Timelines routes: defaults, create, list and detail (e2e)', () => {
           { ...STEP_2, opensOn: '2026-10-27', closesOn: '2026-10-30' },
         ],
       });
+      withLoads();
 
       at('2026-10-25T22:30:00.000Z');
       const night = await listOf(cycleId);
@@ -1049,6 +1061,7 @@ describe('Timelines routes: defaults, create, list and detail (e2e)', () => {
         steps: OFFICIAL_STEPS,
       });
       await createTimeline(cycleId, { name: 'Additional', steps: LATE_STEPS });
+      withLoads();
       at('2026-11-16T10:00:00.000Z');
 
       const res = await listOf(cycleId);
@@ -1109,6 +1122,181 @@ describe('Timelines routes: defaults, create, list and detail (e2e)', () => {
       expectError(badTimeline, 400, 'VALIDATION_FAILED');
       expect(fieldsOf(badTimeline)).toEqual([['id', 'INVALID_TYPE']]);
       expect(stored()).toBe(before);
+    });
+  });
+
+  // --- timeline-edit FR-2, FR-6, FR-14: the hold and the new fields ----------------
+
+  describe('timeline-edit FR-6, FR-2, FR-14: waiting for load, step state and version', () => {
+    const at = (iso: string) =>
+      w.adminClock.advance(
+        new Date(iso).getTime() - w.adminClock.now().getTime(),
+      );
+    const listOf = (cycleId: number) =>
+      w.send('get', `/cycles/${cycleId}/timelines`);
+    const detailOf = (id: number) => w.send('get', `/timelines/${id}`);
+    const stored = () =>
+      JSON.stringify([
+        rows(),
+        w.world.cycles,
+        w.world.assignments,
+        w.world.timelineWriteLog,
+        w.world.history,
+      ]);
+    // Rome is UTC+1 in November: 23:00Z on 1 Nov is 00:00 Rome on 2 Nov, step 1's opening day.
+    const STEP_1_DAY = '2026-11-01T23:00:00.000Z';
+
+    it('step 1 date arrives without a load: the list and the detail say waiting_for_load, no current step, next step 1, every step upcoming, and reading writes nothing', async () => {
+      const cycleId = await createCycle(2026);
+      const created = await createTimeline(cycleId);
+      const id = created.body.data.id as number;
+      at(STEP_1_DAY);
+      const before = stored();
+
+      const list = await listOf(cycleId);
+      const detail = await detailOf(id);
+
+      for (const read of [list.body.data[0], detail.body.data]) {
+        expect(read).toMatchObject({
+          status: 'waiting_for_load',
+          currentStep: null,
+          nextStep: 1,
+        });
+        expect(read.status).not.toBe('live');
+        expect(read.steps.map((step: { state: string }) => step.state)).toEqual(
+          ['upcoming', 'upcoming'],
+        );
+      }
+      expect(stored()).toBe(before);
+    });
+
+    it('one minute earlier the timeline is still scheduled, with or without a load', async () => {
+      const cycleId = await createCycle(2026);
+      const created = await createTimeline(cycleId);
+      const id = created.body.data.id as number;
+      at('2026-11-01T22:59:00.000Z'); // 23:59 Rome on 1 Nov
+
+      const without = await detailOf(id);
+      w.world.loads.markLoaded(id);
+      const withLoad = await detailOf(id);
+
+      for (const read of [without.body.data, withLoad.body.data]) {
+        expect(read).toMatchObject({
+          status: 'scheduled',
+          currentStep: null,
+          nextStep: 1,
+        });
+      }
+    });
+
+    it('all dates passed without a load: still waiting_for_load, not finished', async () => {
+      const cycleId = await createCycle(2026);
+      const created = await createTimeline(cycleId);
+      at('2027-01-15T10:00:00.000Z');
+
+      const detail = await detailOf(created.body.data.id);
+
+      expect(detail.body.data).toMatchObject({
+        status: 'waiting_for_load',
+        currentStep: null,
+        nextStep: 1,
+      });
+      expect(
+        detail.body.data.steps.map((step: { state: string }) => step.state),
+      ).toEqual(['upcoming', 'upcoming']);
+    });
+
+    it('a load present gives the delivered behavior: live, current step 1, step 1 in progress and step 2 upcoming; after the last day, finished with both closed', async () => {
+      const cycleId = await createCycle(2026);
+      const created = await createTimeline(cycleId);
+      const id = created.body.data.id as number;
+      w.world.loads.markLoaded(id);
+
+      at(STEP_1_DAY);
+      const running = await detailOf(id);
+      at('2026-11-13T23:00:00.000Z'); // 00:00 Rome on 14 Nov, after step 2 closed
+      const over = await detailOf(id);
+
+      expect(running.body.data).toMatchObject({
+        status: 'live',
+        currentStep: 1,
+        nextStep: 2,
+      });
+      expect(
+        running.body.data.steps.map((step: { state: string }) => step.state),
+      ).toEqual(['in_progress', 'upcoming']);
+      expect(over.body.data).toMatchObject({
+        status: 'finished',
+        currentStep: null,
+        nextStep: null,
+      });
+      expect(
+        over.body.data.steps.map((step: { state: string }) => step.state),
+      ).toEqual(['closed', 'closed']);
+    });
+
+    it('in one list only the timeline without a load is on hold', async () => {
+      const cycleId = await createCycle(2026);
+      const held = await createTimeline(cycleId, { name: 'Held' });
+      const loaded = await createTimeline(cycleId, { name: 'Loaded' });
+      w.world.loads.markLoaded(loaded.body.data.id);
+      at(STEP_1_DAY);
+
+      const list = await listOf(cycleId);
+
+      expect(
+        list.body.data.map((t: { id: number; status: string }) => [
+          t.id,
+          t.status,
+        ]),
+      ).toEqual([
+        [held.body.data.id, 'waiting_for_load'],
+        [loaded.body.data.id, 'live'],
+      ]);
+    });
+
+    it('the detail keeps every field the list returns and adds the users; each step has its state and the timeline its version', async () => {
+      const cycleId = await createCycle(2026);
+      const created = await createTimeline(cycleId);
+
+      const detail = await detailOf(created.body.data.id);
+
+      // Written out: the FR-12 fields of the delivered spec, plus `version`.
+      expect(Object.keys(detail.body.data).sort()).toEqual(
+        [
+          'allPrograms',
+          'allResultTypes',
+          'assignedCount',
+          'createdAt',
+          'currentStep',
+          'cycleId',
+          'id',
+          'kind',
+          'name',
+          'nextStep',
+          'programIds',
+          'readiness',
+          'resultTypeKeys',
+          'status',
+          'steps',
+          'users',
+          'version',
+        ].sort(),
+      );
+      expect(Object.keys(detail.body.data.steps[0]).sort()).toEqual(
+        [
+          'audience',
+          'closesOn',
+          'name',
+          'opensOn',
+          'position',
+          'requiresLoad',
+          'round',
+          'state',
+        ].sort(),
+      );
+      expect(detail.body.data.version).toBe(1);
+      expect(detail.body.data.steps[0].state).toBe('upcoming');
     });
   });
 
@@ -1217,6 +1405,15 @@ describe('Timelines routes: defaults, create, list and detail (e2e)', () => {
       expect(listOne.length).toBeGreaterThan(0);
       expect(listMany).toHaveLength(listOne.length);
       expect(detailMany).toHaveLength(detailOne.length);
+      // The app binds the fake loads port, which is a statement of its own:
+      // the count includes it (cycle, timelines, steps, programs, result types,
+      // assignment counts, loads), and it asked for the 50 ids in one call.
+      expect(listMany).toHaveLength(7);
+      expect(listMany.filter((s) => s.startsWith('loads:'))).toHaveLength(1);
+      expect(
+        listMany.find((s) => s.startsWith('loads:'))?.split(',').length,
+      ).toBe(50);
+      expect(detailMany.filter((s) => s.startsWith('loads:'))).toHaveLength(1);
       // The users of the detail come in one statement, however many there are.
       expect(detailMany.filter((q) => q.startsWith('users:'))).toHaveLength(1);
       const detailBody = await w.send('get', `/timelines/${firstId}`);
@@ -1875,6 +2072,31 @@ describe('Timelines routes: defaults, create, list and detail (e2e)', () => {
         'role',
         'assignedAt',
       ]);
+    });
+
+    it("documents the timeline-edit read additions: the waiting_for_load status, each step's state and the version (FR-14)", () => {
+      const doc = buildOpenApiDocument(w.app);
+      const schemas = doc.components?.schemas as Record<string, any>;
+
+      expect(schemas.TimelineModel.properties.status.enum).toEqual([
+        'scheduled',
+        'waiting_for_load',
+        'live',
+        'finished',
+      ]);
+      expect(schemas.TimelineModel.properties.version.type).toBe('number');
+      expect(schemas.TimelineModel.required).toContain('version');
+      expect(schemas.TimelineStepModel.properties.state.enum).toEqual([
+        'closed',
+        'in_progress',
+        'upcoming',
+      ]);
+      expect(schemas.TimelineStepModel.required).toContain('state');
+      // The detail carries them too, beside its users.
+      expect(schemas.TimelineDetailModel.properties.status.enum).toContain(
+        'waiting_for_load',
+      );
+      expect(schemas.TimelineDetailModel.required).toContain('version');
     });
 
     it('documents the create and the defaults routes: the key header on create only, the codes each can answer, the Timeline model, no `kind` in the body', () => {

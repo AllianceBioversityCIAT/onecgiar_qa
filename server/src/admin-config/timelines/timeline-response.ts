@@ -1,7 +1,11 @@
 import { RoleCode } from '../../users/permissions.js';
 import type { TimelineKind } from '../../database/drizzle/schema/timelines.js';
 import type { StepAudience } from './default-steps.js';
-import { viewTimeline, type TimelineStatus } from './timeline-view.js';
+import {
+  viewTimeline,
+  type TimelineStatus,
+  type TimelineStepState,
+} from './timeline-view.js';
 import type { ActiveAssignmentRow, TimelineBundle } from './timelines.store.js';
 
 /** The roles a step can need: Science Programs are never assigned here (D-3). */
@@ -22,6 +26,8 @@ export interface TimelineStepResponse {
   closesOn: string;
   round: number;
   requiresLoad: boolean;
+  /** From its dates, today and the hold; every step is `upcoming` during a hold (timeline-edit FR-2). */
+  state: TimelineStepState;
 }
 
 /** A timeline as the API shows it (design 6, `Timeline`; FR-12). Instants leave as ISO UTC. */
@@ -44,6 +50,8 @@ export interface TimelineResponse {
   /** Active assignments per assignable role. */
   assignedCount: Record<AssignableRole, number>;
   createdAt: Date;
+  /** Optimistic version, raised by one on each applied edit (timeline-edit FR-9, FR-14). */
+  version: number;
 }
 
 /** A user assigned to a timeline in a role (design 6, `TimelineUser`). */
@@ -65,33 +73,35 @@ export interface TimelineDetailResponse extends TimelineResponse {
 /**
  * The read model of one timeline from its rows and today's Rome date (FR-12).
  * `assigned` is the count of active assignments per role; a role missing from
- * it has none.
+ * it has none. `hasLoad` comes from the loads port (timeline-edit FR-6, FR-14).
  */
 export function toTimelineResponse(
   bundle: TimelineBundle,
   today: string,
-  assigned: Partial<Record<AssignableRole, number>> = {},
+  assigned: Partial<Record<AssignableRole, number>>,
+  hasLoad: boolean,
 ): TimelineResponse {
   const { timeline } = bundle;
-  const steps = [...bundle.steps]
-    .sort((a, b) => a.position - b.position)
-    .map((step): TimelineStepResponse => ({
-      position: step.position,
-      name: step.name,
-      audience: step.audience,
-      opensOn: step.opensOn,
-      closesOn: step.closesOn,
-      round: step.round,
-      requiresLoad: step.requiresLoad,
-    }));
+  const ordered = [...bundle.steps].sort((a, b) => a.position - b.position);
   const assignedCount = Object.fromEntries(
     ASSIGNABLE_ROLES.map((role) => [role, assigned[role] ?? 0]),
   ) as Record<AssignableRole, number>;
   const view = viewTimeline({
-    steps,
+    steps: ordered,
     assignedRoles: ASSIGNABLE_ROLES.filter((role) => assignedCount[role] > 0),
     today,
+    hasLoad,
   });
+  const steps = ordered.map((step): TimelineStepResponse => ({
+    position: step.position,
+    name: step.name,
+    audience: step.audience,
+    opensOn: step.opensOn,
+    closesOn: step.closesOn,
+    round: step.round,
+    requiresLoad: step.requiresLoad,
+    state: view.stepStates[step.position],
+  }));
   return {
     id: timeline.id,
     cycleId: timeline.cycleId,
@@ -108,6 +118,7 @@ export function toTimelineResponse(
     readiness: view.readiness,
     assignedCount,
     createdAt: timeline.createdAt,
+    version: timeline.version,
   };
 }
 

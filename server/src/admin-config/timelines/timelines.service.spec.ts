@@ -24,6 +24,7 @@ import {
 } from '../admin-config.errors.js';
 import { CyclesService } from '../cycles/cycles.service.js';
 import type { TimelineUser } from '../../database/drizzle/schema/timeline-users.js';
+import { NoTimelineLoads, type TimelineLoads } from './timeline-loads.js';
 import type { TimelineCreateInput } from './timeline-rules.js';
 import {
   TimelinesService,
@@ -103,7 +104,14 @@ function requestWithout(
   return full;
 }
 
-function world() {
+/**
+ * `loads` is the `TIMELINE_LOADS` port the service reads. The default is the
+ * world's fake, a real statement in the read log that a test marks as loaded
+ * (timeline-edit DD-8); pass `NoTimelineLoads` to read as production does today.
+ */
+function world(
+  options: { loads?: (db: InMemoryAdminConfigDatabase) => TimelineLoads } = {},
+) {
   const clock = new FakeClock(NOW);
   const db = new InMemoryAdminConfigDatabase();
   const unitOfWork = new InMemoryTimelinesUnitOfWork(db);
@@ -112,11 +120,13 @@ function world() {
   const catalogs = new CatalogService(resultTypeSource, programSource, () =>
     Date.now(),
   );
+  const loads = options.loads?.(db) ?? db.loads;
   const service = new TimelinesService(
     unitOfWork,
     db.timelineStore,
     catalogs,
     clock.now,
+    loads,
   );
   /** The cycles service of the same database and the same row locks: its activation takes the lock a create takes. */
   const cycles = new CyclesService(
@@ -131,6 +141,7 @@ function world() {
       db.timelineStore,
       catalogs,
       clock.now,
+      loads,
     );
   const ctx = (actorId = 7): AdminConfigContext => ({
     actorId,
@@ -341,6 +352,10 @@ describe('create: official or additional (FR-5)', () => {
         allResultTypes: false,
         createdAt: NOW,
         createdBy: 7,
+        // The column defaults of a new row (timeline-edit FR-9, FR-10).
+        version: 1,
+        updatedAt: null,
+        updatedBy: null,
       },
     ]);
   });
@@ -502,6 +517,7 @@ describe('create: official or additional (FR-5)', () => {
       w.db.timelineStore,
       new CatalogService(w.resultTypeSource, w.programSource, () => Date.now()),
       w.clock.now,
+      w.db.loads,
     );
 
     const result = await service.create(
@@ -1092,8 +1108,8 @@ describe('the timeline as read (FR-12 read model, P-1 replay)', () => {
       allResultTypes: false,
       resultTypeKeys: ['INNOVATION_DEV'],
       steps: [
-        { position: 1, ...STEP_1 },
-        { position: 2, ...STEP_2 },
+        { position: 1, ...STEP_1, state: 'upcoming' },
+        { position: 2, ...STEP_2, state: 'upcoming' },
       ],
       status: 'scheduled',
       currentStep: null,
@@ -1101,6 +1117,7 @@ describe('the timeline as read (FR-12 read model, P-1 replay)', () => {
       readiness: ['NO_RESULTS_LOADED', 'NO_ASSESSOR_ASSIGNED'],
       assignedCount: { ASSESSOR: 0, LEAD_ASSESSOR: 0, TPB: 0, PPU: 0 },
       createdAt: NOW,
+      version: 1,
     });
   });
 
@@ -1125,6 +1142,81 @@ describe('the timeline as read (FR-12 read model, P-1 replay)', () => {
 
     expect(error).toBeInstanceOf(TimelineNotFoundError);
     expect((error as TimelineNotFoundError).getStatus()).toBe(404);
+  });
+});
+
+describe('the hold, through the loads port (timeline-edit FR-6, FR-2, FR-14)', () => {
+  const read = async (w: ReturnType<typeof world>, timelineId: number) => {
+    const t = await w.service.get(timelineId);
+    return {
+      status: t.status,
+      currentStep: t.currentStep,
+      nextStep: t.nextStep,
+      states: t.steps.map((step) => step.state),
+    };
+  };
+
+  it('step 1 date arrives without a load: waiting for load, no current step, next step 1, every step upcoming', async () => {
+    const w = world();
+    const cycleId = await w.seedCycle(2026);
+    const { timelineId } = await w.service.create(w.ctx(), cycleId, request());
+    // 00:00 Rome on 2 Nov, step 1's opening day (CET, UTC+1)
+    w.clock.advance(Date.parse('2026-11-01T23:00:00Z') - NOW.getTime());
+
+    expect(await read(w, timelineId)).toEqual({
+      status: 'waiting_for_load',
+      currentStep: null,
+      nextStep: 1,
+      states: ['upcoming', 'upcoming'],
+    });
+  });
+
+  it('all dates passed without a load: still waiting for load, not finished', async () => {
+    const w = world();
+    const cycleId = await w.seedCycle(2026);
+    const { timelineId } = await w.service.create(w.ctx(), cycleId, request());
+    w.clock.advance(Date.parse('2026-12-01T00:00:00Z') - NOW.getTime());
+
+    expect((await read(w, timelineId)).status).toBe('waiting_for_load');
+  });
+
+  it('a load present gives the delivered behavior: live, current step 1, step states from the dates', async () => {
+    const w = world();
+    const cycleId = await w.seedCycle(2026);
+    const { timelineId } = await w.service.create(w.ctx(), cycleId, request());
+    w.db.loads.markLoaded(timelineId);
+    w.clock.advance(Date.parse('2026-11-01T23:00:00Z') - NOW.getTime());
+
+    expect(await read(w, timelineId)).toEqual({
+      status: 'live',
+      currentStep: 1,
+      nextStep: 2,
+      states: ['in_progress', 'upcoming'],
+    });
+  });
+
+  it('holds only the timeline without a load when two are read together', async () => {
+    const w = world();
+    const cycleId = await w.seedCycle(2026);
+    const first = await w.service.create(w.ctx(), cycleId, request());
+    const second = await w.service.create(
+      w.ctx(),
+      cycleId,
+      request({ name: 'August 2026' }),
+    );
+    w.db.loads.markLoaded(second.timelineId);
+    w.clock.advance(Date.parse('2026-11-01T23:00:00Z') - NOW.getTime());
+
+    const list = await w.service.listByCycle(cycleId);
+
+    expect(
+      list
+        .map((t) => [t.id, t.status])
+        .sort((a, b) => Number(a[0]) - Number(b[0])),
+    ).toEqual([
+      [first.timelineId, 'waiting_for_load'],
+      [second.timelineId, 'live'],
+    ]);
   });
 });
 
@@ -1330,15 +1422,16 @@ describe('the timelines of a cycle and the detail (FR-12, FR-13, NFR-5)', () => 
     activeKey: removed ? null : `${timelineId}:1:${roleId}`,
   });
 
-  it('runs the same number of statements for 1 timeline and for 50', async () => {
-    const one = world();
+  it('runs the same number of statements for 1 timeline and for 50, six with NoTimelineLoads (NFR-5)', async () => {
+    const noLoads = () => new NoTimelineLoads();
+    const one = world({ loads: noLoads });
     const oneCycle = await one.seedCycle(2026);
     await one.service.create(one.ctx(), oneCycle, request({ name: 'T0' }));
     one.db.timelineReadLog.length = 0;
     expect(await one.service.listByCycle(oneCycle)).toHaveLength(1);
     const forOne = one.db.timelineReadLog.length;
 
-    const many = world();
+    const many = world({ loads: noLoads });
     const manyCycle = await many.seedCycle(2026);
     for (let i = 0; i < 50; i++) {
       await many.service.create(
@@ -1357,6 +1450,59 @@ describe('the timelines of a cycle and the detail (FR-12, FR-13, NFR-5)', () => 
     expect(
       many.db.timelineReadLog.filter((q) => q.startsWith('steps:')),
     ).toHaveLength(1);
+    // NoTimelineLoads makes no query: nothing of the loads port reached the log.
+    expect(many.db.timelineReadLog.some((q) => q.startsWith('loads:'))).toBe(
+      false,
+    );
+  });
+
+  it('runs one more, fixed statement when the loads port is queried: 7 for 1 timeline and for 50 (NFR-5)', async () => {
+    // The default world binds the fake loads port, a real statement in the read
+    // log: a count that skipped it would read 6 here, and the checks on
+    // `calls` and on the `loads:` entry fail if it is bypassed.
+    const one = world();
+    const oneCycle = await one.seedCycle(2026);
+    await one.service.create(one.ctx(), oneCycle, request({ name: 'T0' }));
+    one.db.timelineReadLog.length = 0;
+    one.db.loads.calls = 0;
+    expect(await one.service.listByCycle(oneCycle)).toHaveLength(1);
+    const forOne = one.db.timelineReadLog.length;
+    expect(one.db.loads.calls).toBe(1);
+
+    const many = world();
+    const manyCycle = await many.seedCycle(2026);
+    for (let i = 0; i < 50; i++) {
+      await many.service.create(
+        many.ctx(),
+        manyCycle,
+        request({ name: `T${i}` }),
+      );
+    }
+    many.db.timelineReadLog.length = 0;
+    many.db.loads.calls = 0;
+    expect(await many.service.listByCycle(manyCycle)).toHaveLength(50);
+    const forMany = many.db.timelineReadLog.length;
+
+    // cycle, timelines, steps, programs, result types, assignment counts, loads
+    expect(forOne).toBe(7);
+    expect(forMany).toBe(7);
+    expect(many.db.loads.calls).toBe(1);
+    const asked = many.db.timelineReadLog.filter((q) => q.startsWith('loads:'));
+    expect(asked).toHaveLength(1);
+    expect(asked[0].slice('loads:'.length).split(',')).toHaveLength(50);
+  });
+
+  it('asks the loads port once for the detail, with the id of its timeline', async () => {
+    const w = world();
+    const cycleId = await w.seedCycle(2026);
+    const { timelineId } = await w.service.create(w.ctx(), cycleId, request());
+    w.db.timelineReadLog.length = 0;
+
+    await w.service.detail(timelineId);
+
+    expect(w.db.timelineReadLog.filter((q) => q.startsWith('loads:'))).toEqual([
+      `loads:${timelineId}`,
+    ]);
   });
 
   it('puts the official timeline first, then the additional ones newest first', async () => {
@@ -1451,6 +1597,8 @@ describe('the timelines of a cycle and the detail (FR-12, FR-13, NFR-5)', () => 
       const t = await w.service.get(timelineId);
       return [t.status, t.currentStep, t.nextStep];
     };
+    // The timeline has a load (DD-8): without one it would hold, not run.
+    w.db.loads.markLoaded(timelineId);
     // 23:59 Rome on 6 Nov (CET, UTC+1)
     w.clock.advance(Date.parse('2026-11-06T22:59:00Z') - NOW.getTime());
     expect(await view()).toEqual(['live', 1, 2]);
@@ -1803,6 +1951,7 @@ describe('assign and remove users (FR-14, FR-15, FR-13, DD-10)', () => {
           Date.now(),
         ),
         w.clock.now,
+        w.db.loads,
       );
 
       const result = await service.assign(w.ctx(), timelineId, {

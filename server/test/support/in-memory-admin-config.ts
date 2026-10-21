@@ -23,6 +23,7 @@ import type {
   TimelineInsertOutcome,
   TimelinesStore,
 } from '../../src/admin-config/timelines/timelines.store.js';
+import type { TimelineLoads } from '../../src/admin-config/timelines/timeline-loads.js';
 import type {
   TimelinesRepositories,
   TimelinesUnitOfWork,
@@ -137,6 +138,8 @@ export class InMemoryAdminConfigDatabase {
   readonly writeLog: string[] = [];
   readonly store: InMemoryCyclesStore;
   readonly timelineStore: InMemoryTimelinesStore;
+  /** The fake `TIMELINE_LOADS` port: which timelines "have a load" is settable (timeline-edit design 7.4). */
+  readonly loads: InMemoryTimelineLoads;
   private issued = 0;
   private issuedTimelines = 0;
   private issuedSteps = 0;
@@ -146,6 +149,7 @@ export class InMemoryAdminConfigDatabase {
   constructor(readonly base: InMemoryDatabase = new InMemoryDatabase()) {
     this.store = new InMemoryCyclesStore(this);
     this.timelineStore = new InMemoryTimelinesStore(this);
+    this.loads = new InMemoryTimelineLoads(this);
   }
 
   /** One timeline write: in `timelineWriteLog` and in the cross-table `history`. */
@@ -179,6 +183,33 @@ export class InMemoryAdminConfigDatabase {
     const highest = this.cycles.reduce((max, c) => Math.max(max, c.id), 0);
     this.issued = Math.max(this.issued, highest) + 1;
     return this.issued;
+  }
+}
+
+/**
+ * The fake `TIMELINE_LOADS` port (timeline-edit design 7.4, DD-8). Unlike
+ * `NoTimelineLoads` it is a real statement: each call is one entry of the
+ * world's `timelineReadLog` (`loads:1,2`), so the NFR-5 counts of a test that
+ * binds it include the loads query the P2-3905 adapter will run, and a count
+ * cannot pass by skipping it. A timeline "has a load" once `markLoaded` named
+ * it; nothing else sets it, as nothing else can record a load yet (P-8).
+ */
+export class InMemoryTimelineLoads implements TimelineLoads {
+  /** Timelines that have a load. */
+  readonly loaded = new Set<number>();
+  /** Calls answered, one per statement. */
+  calls = 0;
+
+  constructor(private readonly world: InMemoryAdminConfigDatabase) {}
+
+  markLoaded(...timelineIds: number[]): void {
+    for (const id of timelineIds) this.loaded.add(id);
+  }
+
+  async withLoad(timelineIds: readonly number[]): Promise<ReadonlySet<number>> {
+    this.calls++;
+    this.world.recordTimelineRead(`loads:${timelineIds.join(',')}`);
+    return new Set(timelineIds.filter((id) => this.loaded.has(id)));
   }
 }
 
@@ -474,6 +505,10 @@ export class InMemoryTimelinesStore implements TimelinesStore {
       allResultTypes: values.allResultTypes,
       createdAt: values.createdAt ?? new Date(),
       createdBy: values.createdBy,
+      // As the column defaults give a new row (timeline-edit FR-9, FR-10).
+      version: 1,
+      updatedAt: null,
+      updatedBy: null,
     };
     // InnoDB reports the first unique index that refuses the row, in the order
     // the table declares them: the name, then the official key.

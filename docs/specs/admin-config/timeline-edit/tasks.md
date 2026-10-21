@@ -68,7 +68,7 @@ T-3 ─────────────────────┘
 - **Skills:** nestjs-expert, nestjs-best-practices
 
 ## T-2: Read model — hold, step state, `waiting_for_load`, loads port
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** none
 - **Requirements:**

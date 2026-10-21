@@ -2,7 +2,11 @@ import type { RoleCode } from '../../users/permissions.js';
 import { compareDates } from '../rome-date.js';
 import type { StepAudience } from './default-steps.js';
 
-export type TimelineStatus = 'scheduled' | 'live' | 'finished';
+export type TimelineStatus =
+  'scheduled' | 'waiting_for_load' | 'live' | 'finished';
+
+/** A step's state on read (timeline-edit FR-2). */
+export type TimelineStepState = 'closed' | 'in_progress' | 'upcoming';
 
 export interface TimelineViewStep {
   position: number;
@@ -17,6 +21,8 @@ export interface TimelineViewInput {
   assignedRoles: readonly RoleCode[];
   /** Today's date in Europe/Rome, `YYYY-MM-DD`; never read from a clock here. */
   today: string;
+  /** Whether the timeline has a load (the `TIMELINE_LOADS` port, design 7.4). */
+  hasLoad: boolean;
 }
 
 export interface TimelineView {
@@ -24,6 +30,8 @@ export interface TimelineView {
   currentStep: number | null;
   nextStep: number | null;
   readiness: string[];
+  /** The state of each step, by position. */
+  stepStates: Record<number, TimelineStepState>;
 }
 
 /** The role a step's audience is assigned as; Science Programs are never assigned here (D-3). */
@@ -43,34 +51,60 @@ const MISSING_ROLE_ITEM: Readonly<Partial<Record<RoleCode, string>>> = {
 };
 
 /**
- * Status, current step, next step and readiness from the steps, the roles with
- * an active assignment and today's Rome date (design 7.1, FR-12, FR-13). A step
+ * Status, step states, current step, next step and readiness from the steps,
+ * the roles with an active assignment, whether the timeline has a load and
+ * today's Rome date (timeline-edit design 7.1; *timelines* FR-12, FR-13). A step
  * is open from `opensOn` to `closesOn`, both days included (S-1). Computed on
  * read; nothing is stored (DD-2).
+ *
+ * **Hold** (timeline-edit FR-6, DD-2): step 1 exists, its opening day has
+ * arrived and there is no load. The hold wins over the dates: status is
+ * `waiting_for_load` even after every step's closing day, every step is
+ * `upcoming`, there is no current step and the next one is step 1 (S-2).
  */
 export function viewTimeline(input: TimelineViewInput): TimelineView {
-  const { steps, assignedRoles, today } = input;
+  const { steps, assignedRoles, today, hasLoad } = input;
 
-  const current = steps.find(
-    (step) =>
-      compareDates(step.opensOn, today) <= 0 &&
-      compareDates(today, step.closesOn) <= 0,
+  const first = steps.reduce<TimelineViewStep | undefined>(
+    (lowest, step) =>
+      lowest === undefined || step.position < lowest.position ? step : lowest,
+    undefined,
   );
-  const next = steps
-    .filter((step) => compareDates(step.opensOn, today) > 0)
-    .sort((a, b) => compareDates(a.opensOn, b.opensOn))[0];
+  const onHold =
+    first !== undefined && compareDates(first.opensOn, today) <= 0 && !hasLoad;
 
-  const firstOpen = steps.map((s) => s.opensOn).sort(compareDates)[0];
+  const stepStates: Record<number, TimelineStepState> = {};
+  for (const step of steps) {
+    stepStates[step.position] = onHold
+      ? 'upcoming'
+      : compareDates(step.closesOn, today) < 0
+        ? 'closed'
+        : compareDates(step.opensOn, today) <= 0
+          ? 'in_progress'
+          : 'upcoming';
+  }
+
+  const current = onHold
+    ? undefined
+    : steps.find((step) => stepStates[step.position] === 'in_progress');
+  const next = onHold
+    ? first
+    : steps
+        .filter((step) => compareDates(step.opensOn, today) > 0)
+        .sort((a, b) => compareDates(a.opensOn, b.opensOn))[0];
+
   const lastClose = steps
     .map((s) => s.closesOn)
     .sort(compareDates)
     .at(-1);
   const status: TimelineStatus =
-    firstOpen === undefined || compareDates(today, firstOpen) < 0
+    first === undefined || compareDates(today, first.opensOn) < 0
       ? 'scheduled'
-      : lastClose !== undefined && compareDates(today, lastClose) > 0
-        ? 'finished'
-        : 'live';
+      : onHold
+        ? 'waiting_for_load'
+        : lastClose !== undefined && compareDates(today, lastClose) > 0
+          ? 'finished'
+          : 'live';
 
   const readiness = ['NO_RESULTS_LOADED'];
   for (const step of steps) {
@@ -85,5 +119,6 @@ export function viewTimeline(input: TimelineViewInput): TimelineView {
     currentStep: current?.position ?? null,
     nextStep: next?.position ?? null,
     readiness,
+    stepStates,
   };
 }

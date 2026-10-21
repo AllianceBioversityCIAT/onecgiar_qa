@@ -30,6 +30,7 @@ import {
   type DefaultStep,
   type StepAudience,
 } from './default-steps.js';
+import { TIMELINE_LOADS, type TimelineLoads } from './timeline-loads.js';
 import {
   toTimelineResponse,
   toTimelineUserResponse,
@@ -124,6 +125,7 @@ export class TimelinesService {
     @Inject(TIMELINES_STORE) private readonly store: TimelinesStore,
     @Inject(CatalogService) private readonly catalogs: CatalogService,
     @Inject(ADMIN_CONFIG_CLOCK) private readonly clock: AdminConfigClock,
+    @Inject(TIMELINE_LOADS) private readonly loads: TimelineLoads,
   ) {}
 
   /** FR-4: the steps every client proposes for a new timeline. */
@@ -177,11 +179,14 @@ export class TimelinesService {
     if (rows.length === 0) return [];
     const today = todayInRome(this.clock());
     const ids = rows.map((row) => row.id);
-    const [steps, programs, resultTypes, assigned] = await Promise.all([
+    const [steps, programs, resultTypes, assigned, loaded] = await Promise.all([
       this.store.listSteps(ids),
       this.store.listPrograms(ids),
       this.store.listResultTypes(ids),
       this.store.countAssigned(ids),
+      // One batched call for every timeline: the hold needs it (timeline-edit
+      // FR-6, design 7.4), and the list stays a fixed number of queries (NFR-5).
+      this.loads.withLoad(ids),
     ]);
     return rows.map((timeline) => {
       const counts: Partial<Record<AssignableRole, number>> = {};
@@ -203,6 +208,7 @@ export class TimelinesService {
         },
         today,
         counts,
+        loaded.has(timeline.id),
       );
     });
   }

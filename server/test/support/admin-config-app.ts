@@ -4,6 +4,7 @@ import request from 'supertest';
 import { ADMIN_CONFIG_CLOCK } from '../../src/admin-config/admin-config.clock.js';
 import { CYCLES_STORE } from '../../src/admin-config/cycles/cycles.store.js';
 import { CYCLES_UNIT_OF_WORK } from '../../src/admin-config/cycles/cycles.unit-of-work.js';
+import { TIMELINE_LOADS } from '../../src/admin-config/timelines/timeline-loads.js';
 import { TIMELINES_STORE } from '../../src/admin-config/timelines/timelines.store.js';
 import { TIMELINES_UNIT_OF_WORK } from '../../src/admin-config/timelines/timelines.unit-of-work.js';
 import { AppModule } from '../../src/app.module.js';
@@ -113,6 +114,9 @@ export async function buildAdminConfigApp() {
     .useValue(world.timelineStore)
     .overrideProvider(TIMELINES_UNIT_OF_WORK)
     .useValue(timelinesUnitOfWork)
+    // The fake loads port: a real statement in the read log, settable per timeline (DD-8).
+    .overrideProvider(TIMELINE_LOADS)
+    .useValue(world.loads)
     .overrideProvider(SCIENCE_PROGRAM_SOURCE)
     .useValue({
       list: async () => {
