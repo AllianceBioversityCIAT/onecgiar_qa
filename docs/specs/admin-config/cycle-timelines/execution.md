@@ -56,3 +56,39 @@ Persona check: `akili doctor --agents` — no drift blocking (2026-10-21).
 **Issues encountered:** the worker's first red-run attempt dropped two unrelated exports. It discarded that attempt and redid it correctly. Nothing was left in the tree.
 
 **Final verification:** VERIFIED, as in the evidence re-run above. `pnpm db:migrate` was never run (T-10 is a human step).
+
+### T-2: Error codes, field codes, Rome dates, default steps, clock — PASS
+
+- **Date:** 2026-10-21
+- **Final status:** PASS (attempt 1)
+- **Implementer attempts:** 1
+- **Skills / effort:** nestjs-best-practices, error-handling-patterns, tdd (as listed) · effort `medium`.
+
+**Attempt 1**
+- **Files changed:** `server/src/common/error-codes.ts`, `server/src/common/error-codes.spec.ts`, `server/src/admin-config/{rome-date,rome-date.spec,admin-config.clock,admin-config.errors}.ts` (new), `server/src/admin-config/timelines/{default-steps,default-steps.spec}.ts` (new).
+- **runtime events:** none.
+- **Red run:** `rome-date.spec` was run against a stub returning `toISOString().slice(0,10)`, and 23 tests failed on assertions. One example: `todayInRome > 25 Oct, 23:30Z is 00:30 Rome on 26 Oct`, `expected '2026-10-25' to be '2026-10-26'`.
+- **Falsifiers** (executed, then reverted):
+  - UTC (`toISOString().slice(0,10)`): `TZ=UTC pnpm exec vitest run src/admin-config/rome-date.spec.ts` had 7 failures, including the 25-Oct 23:30Z case.
+  - Local getters: `TZ=America/Bogota pnpm exec vitest run src/admin-config/rome-date.spec.ts` had 7 failures, including `summer, 22:00Z is the next Rome day`, `expected '2026-07-15' to be '2026-07-16'`.
+- **Implementer verification:** lint clean · build OK · 43 files / 1422 tests passed · tsc 7 baseline errors (`token-verifier.service.spec.ts`) · rome-date 34/34 in `TZ=UTC` and in `TZ=America/Bogota` · `pnpm test:e2e` 11 files / 538 passed.
+- **Evidence re-run (Leader inline, non-author):** VERIFIED. All of the counts above matched exactly.
+- **Reviewer verdict:** PASS. The § 7.5 codes and statuses match, and so do the seven field-code names. FR-4 is pinned literally. The catalog change is additive only, and `todayInRome` never reads the local zone. Expected values are literals. `TimelineValidationError` builds its messages only from `FIELD_ERRORS`. The `import type` of `FieldIssue` from `users/` is acceptable (P-11).
+- **spawns:** implementer 17 calls, 103,552 tokens, ended complete · reviewer — not reported by host, ended complete.
+
+**ADVISORY (Reviewer, 4R — not gating)**
+- READABILITY / RISK: `default-steps.ts` declares its own `StepAudience` union, which duplicates `stepAudiences` / `StepAudience` in `server/src/database/drizzle/schema/timeline-steps.ts:15-22`. The two can drift silently.
+- READABILITY: `FieldIssue` is now shared by two modules but still lives in `users/`.
+- RELIABILITY: `todayInRome` has no Invalid Date guard (it throws `RangeError`, so a broken clock gives a 500). Acceptable, because the clock is injected.
+- RELIABILITY: `isCalendarDate` accepts years 0100–0999, below the MySQL DATE range. The step rules make these unreachable.
+
+**Requirements covered:** FR-4 (table), FR-8 (Rome date for back-dated starts, date part), FR-11 (catalog codes only), FR-12 (DST date part), NFR-4.
+
+**Decisions made**
+- The signature is `todayInRome(now: Date): string`; the design gives none.
+- The seven field-code messages were worded by the Implementer, because design § 7.5 gives names only. The Reviewer checked them against FR-8: "cannot be before" still allows the same day. They are surfaced to the back lead at the gate.
+- The `ADMIN_CONFIG_CLOCK` binding is left to T-5, the module task.
+
+**Issues encountered:** none.
+
+**Final verification:** VERIFIED (see the evidence re-run above).

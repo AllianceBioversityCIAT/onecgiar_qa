@@ -43,7 +43,7 @@ T-2 ─┼─▶ T-3 ───────────────────�
 - **Skills:** nestjs-expert, nestjs-best-practices
 
 ## T-2: Error codes, field codes, Rome dates, default steps, clock
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** S
 - **Depends on:** none
 - **Requirements:** FR-4 (table), FR-8 (Back-dated — AND IT MUST use the Rome date, not the server's or the client's), FR-11 (AND IT MUST use only catalog codes), FR-12 (DST scenario — date part), NFR-4
