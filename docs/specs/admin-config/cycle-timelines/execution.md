@@ -535,3 +535,9 @@ The design § 10 budget was exceeded. Execution stopped for the back lead's deci
 **Finding:** this matches the T-5 Reviewer A advisory. On real InnoDB, a request waiting on `uq_cycles_active_key` can hit 1062 again on its single retry (`ACTIVATION_ATTEMPTS = 2`), and the error surfaces as 500. FR-3's outcome (never two active, never none) holds, and design § 7.3 (as amended) describes one retry. The 500 is an undefined answer to a legitimate concurrent request.
 - **Status:** T-10 stays `[~]` pending the back lead's decision: fix it now (a narrow change in `cycles.service.ts`: map a final-attempt 1062 to 409 or retry until the conflict clears), or accept it and record it as a follow-up.
 - **Pending checks:** the `SHOW FULL COLUMNS FROM users` collation check (T-1 advisory) needs direct DB access and was not run.
+
+**T-10 decision (back lead, 2026-10-21): fix now.** This is a scope change approved by the user (Pivot Record, light):
+- **Execute-time spec edit:** in `design.md` § 7.3, the Activate row now says that with no active cycle, a concurrent activation that gets 1062 on `uq_cycles_active_key` (or 1213) rolls back and retries, up to 10 attempts in total, then answers 503 `SERVICE_UNAVAILABLE`, never 500. The race-outcome cell notes the TEST evidence. FR-3's meaning is unchanged; the edit supersedes the earlier "retries once" amendment.
+- **New task T-11** was added to `tasks.md`: activation retry under real concurrency, with scope including the stale "retries once" bullet in `server/src/admin-config/AGENTS.md`.
+- **Sweep:** `retries once` / `retry once` over the spec docs, the TRD and the module guide. The only other hit is the Create-timeline `official_key` backstop, which is a different mechanism and stays.
+- T-10 stays `[~]` until T-11 lands and the TEST re-check passes.

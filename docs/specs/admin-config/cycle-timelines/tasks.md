@@ -195,6 +195,23 @@ T-2 ─┼─▶ T-3 ───────────────────�
 - **Done when:** four checks recorded; spec ready for `/akili-validate`.
 - **Skills:** nestjs-expert
 
+## T-11: Activation retry under real concurrency (T-10 finding)
+- **Status:** [ ]
+- **Size:** S
+- **Depends on:** T-10 (finding); added 2026-10-21 with back-lead approval
+- **Requirements:** FR-3 (Switch — AND IT MUST never two or none, answered without a 500), NFR-3
+- **Design refs:** § 7.3 Activate cycle row (amended 2026-10-21)
+- **Scope:** `server/src/admin-config/cycles/cycles.service.ts` (activation retry loop), its unit spec, the fake in `server/test/support/in-memory-admin-config.ts` only if needed to reproduce repeated refusals, and the "Activation retry" bullet in `server/src/admin-config/AGENTS.md` (it still says "retries once"), the activate route's OpenAPI error list in `cycles.controller.ts` (+503), and the activate row of `front-contract.md` (+503 `SERVICE_UNAVAILABLE`, retryable). Not touched: schema, other modules.
+- **Tests:** unit: a unit of work whose active-key insert is refused with 1062 on `uq_cycles_active_key` k times then succeeds → 200 and k+1 attempts (k = 1, 2, 5); refused on every attempt → 503 `SERVICE_UNAVAILABLE`, nothing committed, exactly 10 attempts; a 1213 deadlock is retried the same way; any other error (or 1062 on another key) is not retried; one decision line per request. Existing activation tests stay green.
+- **Verification:** server command + `pnpm test:e2e --reporter=dot`; then, after the merge to `dev` and deploy, re-run the T-10 "concurrent activations with none active" check on TEST (5 and 10 concurrent) → no 500, exactly one active.
+- **Falsifier:** set the attempt limit back to 2 → the k = 2 and k = 5 rows go red; map exhaustion to a thrown error instead of 503 → the exhaustion row goes red.
+- **Red run:** the new rows fail on assertions against the current 2-attempt code.
+- **Disqualifier:** a test that refuses only once (cannot tell 2 attempts from 10).
+- **Consumers:** none beyond the cycles routes.
+- **Review:** full — rework of delivered concurrency behaviour (override d).
+- **Done when:** all green with falsifiers executed; TEST re-check recorded.
+- **Skills:** nestjs-expert, error-handling-patterns
+
 ---
 
 ## Coverage (scenario and clause level)
