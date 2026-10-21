@@ -1,10 +1,7 @@
 import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { QaButtonImports, QaTabsImports } from '../../../ui';
 import {
-  ACTIVE_CYCLE,
   AUDIENCES,
-  CLOSED_EXTRA,
-  CYCLE_LIST,
   CycleStep,
   OFFICIAL_TIMELINE,
   RUN_TARGETS,
@@ -26,14 +23,13 @@ function mergeSteps(old: readonly CycleStep[], rows: readonly StepDraftRow[]): C
   return rows.map((p, i) => (old[i] ? { ...old[i], ...p } : { ...p, audience: AUDIENCES[i] ?? 'Assessors', ran: '' }));
 }
 
-/** "Cycle" view: active cycle, official timeline, live / closed timelines and their drawers. */
+/** "Cycle" view: official timeline, live / closed sub-timelines and their drawers. */
 @Component({
   selector: 'qa-cycle-view',
   imports: [QaButtonImports, QaTabsImports, TimelineSteps, TimelineCard, LoadDrawer, TimelineDrawer, StepDrawer, ProgressDrawer],
   templateUrl: './cycle-view.html',
 })
 export class CycleView {
-  protected readonly activeCycle = ACTIVE_CYCLE;
   protected readonly fmt = formatNumber;
 
   // ---- Data (mock; TODO(api): load the cycle and its timelines) ----
@@ -41,29 +37,19 @@ export class CycleView {
   protected readonly timelines = signal<Timeline[]>(TIMELINES);
 
   // ---- Page state ----
-  protected readonly cyclesOpen = signal(false);
-  /** Name of a closed cycle being viewed (read only), or null for the active one. */
-  protected readonly viewCycle = signal<string | null>(null);
   protected readonly tab = signal<string>('live');
   protected readonly closeConfirmId = signal<string | null>(null);
   /** "Loading results 120 of 1,200" counter shown in place of the load button. */
   protected readonly running = signal<{ done: number; total: number } | null>(null);
 
-  protected readonly readOnly = computed(() => !!this.viewCycle());
-  protected readonly pageTitle = computed(() => {
-    const v = this.viewCycle();
-    return v ? `${v.replace(' cycle', '')} assessment cycle` : '2026 assessment cycle';
-  });
-  protected readonly cycles = computed(() =>
-    CYCLE_LIST.map((c) => ({ ...c, results: formatNumber(c.results), canOpen: !c.active && this.viewCycle() !== c.name })),
-  );
-
-  protected readonly officialVM = computed(() => timelineVM(this.official(), this.readOnly()));
-  private readonly liveList = computed(() => this.timelines().filter((t) => t.status !== 'Closed').sort(byStartDesc));
-  private readonly closedList = computed(() => this.timelines().filter((t) => t.status === 'Closed').sort(byStartDesc));
-  protected readonly liveVMs = computed(() => this.liveList().map((t) => timelineVM(t, this.readOnly())));
-  protected readonly closedVMs = computed(() => this.closedList().map((t) => timelineVM(t, this.readOnly())));
-  protected readonly closedTotal = computed(() => (this.closedList().length ? this.closedList().length + CLOSED_EXTRA : 0));
+  protected readonly officialVM = computed(() => timelineVM(this.official()));
+  /** The Sub-timelines section lists sub-timelines only; the official timeline has its own card. */
+  private readonly subs = computed(() => this.timelines().filter((t) => t.kind === 'Sub-timeline'));
+  private readonly liveList = computed(() => this.subs().filter((t) => t.status !== 'Closed').sort(byStartDesc));
+  private readonly closedList = computed(() => this.subs().filter((t) => t.status === 'Closed').sort(byStartDesc));
+  protected readonly liveVMs = computed(() => this.liveList().map((t) => timelineVM(t)));
+  protected readonly closedVMs = computed(() => this.closedList().map((t) => timelineVM(t)));
+  protected readonly closedTotal = computed(() => this.closedList().length);
 
   // ---- Drawers ----
   protected readonly loadOpen = signal(false);
@@ -84,21 +70,6 @@ export class CycleView {
       clearInterval(this.runTimer);
       clearTimeout(this.runEndTimer);
     });
-  }
-
-  // ---- Cycles strip ----
-  protected openCycle(name: string): void {
-    // TODO(api): load the timelines of that cycle (read only).
-    this.viewCycle.set(name);
-    this.closeConfirmId.set(null);
-  }
-
-  protected backToActive(): void {
-    this.viewCycle.set(null);
-  }
-
-  protected newCycle(): void {
-    // TODO(api): create a new cycle (no flow in the mockup yet).
   }
 
   // ---- Lookups ----
@@ -186,9 +157,6 @@ export class CycleView {
     this.timelineOpen.set(true);
   }
 
-  /** Help tooltip of "New sub-timeline" (hover or keyboard focus on the ⓘ; Esc hides it). */
-  protected readonly subHelp = signal(false);
-
   protected newSubTimeline(): void {
     this.timelineRequest.set({ timeline: null });
     this.timelineOpen.set(true);
@@ -257,9 +225,5 @@ export class CycleView {
     // TODO(api): close the timeline (open steps end today).
     this.closeConfirmId.set(null);
     this.updateTimeline(id, (t) => ({ ...t, status: 'Closed' }));
-  }
-
-  protected loadMoreClosed(): void {
-    // TODO(api): page through the closed timelines.
   }
 }

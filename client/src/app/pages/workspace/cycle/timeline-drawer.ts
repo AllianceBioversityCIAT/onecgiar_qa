@@ -288,7 +288,7 @@ export class TimelineDrawer {
   );
   protected readonly subtitle = computed(() =>
     this.isOfficialEdit()
-      ? 'The official calendar for the 2026 cycle. Every program follows it unless you add a sub-timeline.'
+      ? 'The official calendar of the cycle. Every program follows it unless you add a sub-timeline.'
       : this.isMain()
         ? 'Covers the whole cycle for every program.'
         : 'Runs on its own calendar, alongside the official timeline.',
