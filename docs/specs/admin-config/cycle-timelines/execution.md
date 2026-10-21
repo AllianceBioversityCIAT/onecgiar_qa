@@ -163,7 +163,7 @@ Persona check: `akili doctor --agents` — no drift blocking (2026-10-21).
 - **Implementer verification:** lint and build OK · 45 files / 1497 tests passed · tsc 7 baseline errors (`token-verifier.service.spec.ts`).
 - **Evidence re-run (Leader inline, non-author):** VERIFIED. All counts matched.
 - **Reviewer verdict:** PASS. FR-12 status, current step and next step are correct at every boundary (25 Oct, 26 Oct, 6 Nov, 7 Nov, 9 Nov, 20 Nov, 21 Nov). The function is pure and stores nothing (DD-2). Readiness matches the FR-13 table and the design § 7.1 audience → role map, with `programs` mapped to none. The FR-11 carry does not apply to this diff: the `'programs'` string here is the step audience, not a request key.
-- **spawns:** implementer 12 calls, 74,900 tokens, ended complete · reviewer — not reported by host, ended complete.
+- **spawns:** implementer 12 calls, 74,900 tokens, ended complete · reviewer 7 calls, 32,218 tokens, ended complete.
 
 **ADVISORY (Reviewer, 4R — not gating)**
 - READABILITY / RELIABILITY: two guards (the `null` in `AUDIENCE_ROLE` and the `Partial` `MISSING_ROLE_ITEM`) both block a Science Programs item. Typing `MISSING_ROLE_ITEM` as a total record of the four roles would leave one point of control, and the F2 falsifier as written would then turn red.
@@ -182,5 +182,56 @@ Persona check: `akili doctor --agents` — no drift blocking (2026-10-21).
 **Forward pointer → T-9:** `front-contract.md` must list the exact readiness codes above, so the client takes them from the contract.
 
 **Issues encountered:** none.
+
+**Final verification:** VERIFIED (see the evidence re-run above).
+
+### T-5: Cycles module — create, list, activate — PASS
+
+- **Date:** 2026-10-21
+- **Final status:** PASS (attempt 1)
+- **Implementer attempts:** 1
+- **Skills / effort:** nestjs-expert, nestjs-best-practices, api-design-principles, error-handling-patterns (as listed) · effort `xhigh` (above default: first module, concurrency, idempotency wiring).
+- **Review mode:** parallel lens reviewers (effort `xhigh` plus an authorization surface). Reviewer A covered reliability and resilience; Reviewer B covered risk and readability. Both also checked baseline spec conformance, from a shared brief file in the session scratchpad. The diff was 2896 lines, delivered by file.
+
+**Attempt 1**
+- **Files changed:** `server/src/app.module.ts` (+2, additive); new: `server/src/admin-config/admin-config.module.ts`, `server/src/admin-config/admin-config.context.ts`, `server/src/admin-config/cycles/{cycles.module,cycles.controller,cycles.service,cycles.store,cycles.unit-of-work,cycle-view}.ts`, `server/src/admin-config/cycles/dto/{create-cycle.dto,cycle-params}.ts`, `server/src/admin-config/cycles/models/cycle.model.ts`, `server/src/admin-config/cycles/{cycles.service,cycles.unit-of-work}.spec.ts`, `server/test/support/{in-memory-admin-config,admin-config-app}.ts`, `server/test/admin-config-cycles.e2e-spec.ts`.
+- **runtime events:** none.
+- **Red run:** the service was stubbed and the controller had no routes. Unit: 39 failed / 3 passed, for example `AssertionError: expected { cycleId: +0 } to deeply equal { cycleId: 1 }`. e2e: 56 failed / 2 passed, for example `create 2026: expected 404 to be 201`.
+- **Falsifiers** (executed, then reverted from a backup; the diff against the backup was empty):
+  - F1, the two lines in `activateOnce` swapped (activate before close): `pnpm exec vitest run src/admin-config/cycles/cycles.service.spec.ts` had 6 failures, including `Error: Duplicate entry '1' for key 'cycles.uq_cycles_active_key'` and `activate (FR-3) > makes the draft active and closes the previous one in one transaction, closing first`. e2e had 4 failures, including `activate 2: expected 500 to be 200`.
+  - F2, `@RequirePermission(Permission.ADMIN_ACCESS)` removed: e2e had 55 failures, including `create 2026: expected 403 to be 201` and `FR-16: access > activate: ASSESSOR gets 403 ...`. The global guard fails closed for everyone, so the rows failed in their admin setup step. Reviewer B: this evidence is weak as recorded, but the suite is not. A reflection test pins `ADMIN_ACCESS` on every route, and a weaker permission would fail the 403 rows on their own assertion.
+- **Implementer verification:** lint 0 warnings · build OK · unit 47 files / 1539 · tsc 7 baseline errors · e2e 12 files / 596 (including openapi). Those totals were taken before a final type-only fix to the e2e spec; lint, tsc, build and the cycles e2e file were re-run after it.
+- **Evidence re-run (Leader inline, non-author, after the final fix):** VERIFIED. Lint OK · build OK · unit 47 files / 1539 passed · tsc 7 errors, all in `token-verifier.service.spec.ts` · e2e 12 files / 596 passed.
+- **Reviewer A (reliability / resilience) verdict:** PASS. FR-1, FR-2, FR-3, FR-16, FR-17, NFR-1/2/3/7, design § 6, § 7.3, § 7.5–7.7, DD-4 and DD-9 are met. The fake models row locks through the existing `RowLocks`, with every statement awaiting a round trip. The none-active test proves interleaving (`begun: 3, committed: 2, rolledBack: 1`; a serial run would show `begun: 2`), so the disqualifier does not apply. FR-17 replay returns the same 201, one row, and no new commit. On assumption 1 (the activation retry): **a spec gap, not a violation; the behavior conforms** to FR-3 and NFR-3 and to the § 7.3 race-outcome column.
+- **Reviewer B (risk / readability) verdict:** PASS. Every cycles route returns 401 / 403 (six non-admin roles, nothing read or written), and a reflection test checks the permission. Invalid years return 400 `VALIDATION_FAILED` on `year` with catalog codes. Writes log one line each with the § 7.6 fields, and no DB text reaches logs or responses. `app.module.ts` is additive only, and auth/users are untouched. OpenAPI matches § 6.
+- **spawns:** implementer 69 calls, 366,686 tokens, ended complete · reviewer A 22 calls, 94,701 tokens, ended complete · reviewer B 20 calls, 100,659 tokens, ended complete.
+
+**ADVISORY (Reviewers, 4R — not gating)**
+- RESILIENCE (A): one retry may not be enough on real InnoDB. With three or more concurrent activations and none active, the third can hit 1062 twice and answer 500. The invariant still holds because the change rolls back. Suggestion: map a final-attempt 1062 to 409, or loop. **Added to the T-10 HITL checks.**
+- RESILIENCE (A): deadlock (1213) and lock-wait timeout (1205) are not retried and surface as 500. No deadlock cycle is visible today. Revisit at T-6, when activate and timeline create contend for cycle rows.
+- RELIABILITY (A): the retry would mask the removal of the active-row `FOR UPDATE` in the fake. Only the stub-driver SQL assertion pins it. Suggestion: assert `rolledBack === 0` and that no `close:<id>` repeats in the with-active-row concurrency test.
+- RELIABILITY (A): the fake's `cycles:active_key` locking is coarser than InnoDB's. It is conservative; note it in the fake's comment.
+- RISK (B): F2 should be re-worded as "swap in a permission an ASSESSOR holds"; removing the decorator fails closed.
+- READABILITY (B): `FieldValidationError` is reused from `users/users.errors.ts` for the year error. DD-7 has admin-config own its validation error. The response is identical; consider an admin-config field-error class before T-6 copies the pattern.
+- READABILITY (B): `admin-config.context.ts` and `cycle-view.ts` are not in the design § 4 tree.
+- READABILITY (B): `validYear`'s `REQUIRED` / `INVALID_TYPE` branches cannot be reached over HTTP; the year constants are imported from the DTO file.
+- RISK (B): refusals by the pipe write no decision line. This matches users, and NFR-7 says "ADMIN action".
+
+**Requirements covered:** FR-1 (new cycle is a draft; duplicate year, including concurrently on the fake; invalid year), FR-2, FR-3 (switch; never two active or none; not a draft), FR-16 (cycles routes), FR-17 (cycle create replay), NFR-1, NFR-2, NFR-3 (fake part; MySQL at T-10), NFR-7 (cycle actions).
+
+**Decisions made**
+- The activation retry (`ACTIVATION_ATTEMPTS = 2`): with no active cycle there is no row to lock, so the second concurrent activation hits 1062 on `uq_cycles_active_key`. It rolls back fully and retries once, finding and closing the first. Reviewer A classed this as a spec gap in design § 7.3. **A one-line amendment to § 7.3 is proposed to the back lead at the T-5 gate**; the user's answer will be recorded here.
+- `findActive` locks through `WHERE active_key = 1 ... FOR UPDATE` (the unique index) rather than a `status` scan, to avoid waiting on target rows and deadlocks.
+- `ADMIN_CONFIG_CLOCK` is bound in `CyclesModule`, and `createdAt` / `activatedAt` / `closedAt` come from the clock (NFR-4).
+- `@Idempotent()` is on create only (design § 6). Activate is unkeyed and returns 200.
+- `admin-config.context.ts` was added outside the listed scope, for reuse by T-6 and T-8.
+
+**Issues encountered**
+- The Implementer made 69 tool calls, past the persona's 60-call checkpoint bound, without reporting a checkpoint. Its report came back complete and verified. This is recorded as a persona-compliance note: `akili doctor --agents` showed the persona current.
+
+**Forward pointers**
+- **→ T-6:** decide whether to replace the reused users `FieldValidationError` with the admin-config `TimelineValidationError` path (DD-7). Bind `ADMIN_CONFIG_CLOCK` in `TimelinesModule` with the same factory. `AdminConfigContext` is available for reuse.
+- **→ T-9:** document that `idempotency_keys.target_user_id` holds a cycle id for `POST /cycles` (and a timeline id later), and document the activation retry.
+- **→ T-10:** add a check of three or more concurrent activations with no cycle active (no 500), alongside the 20-activation check.
 
 **Final verification:** VERIFIED (see the evidence re-run above).

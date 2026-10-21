@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
+import { AdminConfigModule } from './admin-config/admin-config.module.js';
 import { AppController } from './app.controller.js';
 import { AuthGuard } from './auth/guards/auth.guard.js';
 import { AuthModule } from './auth/auth.module.js';
@@ -25,6 +26,7 @@ import { UsersModule } from './users/users.module.js';
     DynamoDbModule,
     UsersModule,
     AuthModule,
+    AdminConfigModule,
   ],
   controllers: [AppController],
   providers: [

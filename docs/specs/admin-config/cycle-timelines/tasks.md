@@ -94,7 +94,7 @@ T-2 ─┼─▶ T-3 ───────────────────�
 - **Skills:** tdd
 
 ## T-5: Cycles module — create, list, activate
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-1, T-2
 - **Requirements:** FR-1 (New cycle — BUT not active; Duplicate year — AND IT MUST hold concurrently; Invalid year), FR-2, FR-3 (Switch — AND IT MUST never two or none; Not a draft), FR-16 (cycles routes), FR-17 (cycle create), NFR-1, NFR-2, NFR-3, NFR-7 (cycle actions)
