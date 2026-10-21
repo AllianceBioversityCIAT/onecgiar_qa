@@ -1,9 +1,9 @@
 import { Component, computed, input, linkedSignal, model, output } from '@angular/core';
 import { FormField, form, required, validate } from '@angular/forms/signals';
 import { HlmInput } from '@spartan/input';
-import { QaButtonImports, QaDatePicker, QaDrawerImports, QaSegmented, QaSelect, QaSwitch, QaTooltipImports, discardGuard } from '../../../ui';
+import { QaButtonImports, QaDatePicker, QaDialogImports, QaDrawerImports, QaSegmented, QaSelect, QaSwitch, QaTooltipImports, discardGuard } from '../../../ui';
 import { AUDIENCES, CORRECTION_AUDIENCE, CycleStep, DEMO_ACCESS, PROGRAMS, ReopenMode, Timeline } from './cycle.mock';
-import { parseDate, stepState } from './cycle.logic';
+import { formatNumber, parseDate, stepState } from './cycle.logic';
 
 /** Which step the drawer edits (index) or which timeline gets a new step (index null). */
 export interface StepRequest {
@@ -38,7 +38,7 @@ interface StepDraft {
 /** "Edit step" / "New step" drawer (every step card and every "Add step" button). */
 @Component({
   selector: 'qa-cycle-step-drawer',
-  imports: [FormField, QaButtonImports, HlmInput, QaDatePicker, QaDrawerImports, QaSegmented, QaSelect, QaSwitch, QaTooltipImports],
+  imports: [FormField, QaButtonImports, HlmInput, QaDatePicker, QaDialogImports, QaDrawerImports, QaSegmented, QaSelect, QaSwitch, QaTooltipImports],
   template: `
     <qa-drawer [(open)]="open" [closeGuard]="discard.guard" [title]="title()" [subtitle]="request().timeline.name" width="720px">
       @if (open()) {
@@ -57,8 +57,8 @@ interface StepDraft {
             placeholder="QA platform open for assessors"
             [attr.aria-invalid]="nameError() ? true : null"
             [attr.aria-describedby]="nameError() ? 'cycle-step-name-err' : null"
-            [attr.data-invalid]="!!nameError()"
-            class="h-9 w-full rounded-[8px] border-(--border) bg-(--field-bg) px-3 py-0 text-(length:--fs-14) text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[invalid=true]:border-(--danger) md:text-(length:--fs-14) dark:bg-(--field-bg)"
+            [attr.data-error]="!!nameError()"
+            class="h-9 w-full rounded-[8px] border-(--border) bg-(--field-bg) px-3 py-0 text-(length:--fs-14) text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-14) dark:bg-(--field-bg)"
           />
           @if (nameError()) {
             <span id="cycle-step-name-err" class="text-(length:--fs-13) text-(--danger)">{{ nameError() }}</span>
@@ -78,6 +78,14 @@ interface StepDraft {
           }
         </div>
 
+        @if (locked()) {
+          <!-- Closed step: its dates are the record of the cycle, so they read as text. -->
+          <div class="flex flex-col items-start gap-[6px]">
+            <span id="cycle-step-dates" class="text-(length:--fs-13) font-semibold text-(--text-2)">Dates</span>
+            <span aria-labelledby="cycle-step-dates" class="font-(family-name:--qa-mono) text-(length:--fs-14) text-(--text) tabular-nums">{{ d.opens }} – {{ d.closes || 'no closing date' }}</span>
+            <span class="text-(length:--fs-13) leading-[1.5] font-normal text-pretty text-(--text-4)">This step closed{{ d.closes ? ' on ' + d.closes : '' }}. Its dates stay as the record of the cycle.</span>
+          </div>
+        } @else {
         <div class="flex flex-col items-start gap-[6px]">
           <div class="flex flex-wrap gap-3">
             <label class="flex flex-col gap-[6px]">
@@ -90,8 +98,8 @@ interface StepDraft {
                   placeholder="06 Jul 2026"
                   [attr.aria-invalid]="opensError() ? true : null"
                   [attr.aria-describedby]="opensError() ? 'cycle-step-opens-err' : null"
-                  [attr.data-invalid]="!!opensError()"
-                  class="h-9 w-[180px] rounded-[8px] border-(--border) bg-(--field-bg) py-0 pr-10 pl-3 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[invalid=true]:border-(--danger) md:text-(length:--fs-13) dark:bg-(--field-bg)"
+                  [attr.data-error]="!!opensError()"
+                  class="h-9 w-[180px] rounded-[8px] border-(--border) bg-(--field-bg) py-0 pr-10 pl-3 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) dark:bg-(--field-bg)"
                 />
                 <qa-date-picker [value]="stepForm.opens().value()" (valueChange)="stepForm.opens().value.set($event)" label="Pick the opening date" class="absolute top-1/2 right-1 -translate-y-1/2" />
               </span>
@@ -108,6 +116,7 @@ interface StepDraft {
             <span id="cycle-step-opens-err" class="text-(length:--fs-13) text-(--danger)">{{ opensError() }}</span>
           }
         </div>
+        }
 
         <div class="flex flex-col items-stretch gap-[6px]">
           <div class="flex min-h-[52px] items-center gap-4">
@@ -122,6 +131,8 @@ interface StepDraft {
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1zM4 22v-7" /></svg>
               <span>This step starts QA round {{ round() }}</span>
             </div>
+          } @else if (first()) {
+            <div role="status" class="-mt-[6px] rounded-[8px] bg-(--st-editing-bg) px-3 py-2 text-(length:--fs-13) leading-[1.5] text-(--st-editing-fg)">Step 1 doesn't load results, so this timeline starts with nothing to assess.</div>
           }
         </div>
 
@@ -178,7 +189,7 @@ interface StepDraft {
             <button hlmBtn qaBtn tone="danger" type="button" (click)="doRemove()">Remove</button>
           </div>
         } @else {
-          @if (isEdit()) {
+          @if (isEdit() && !locked()) {
             <button hlmBtn qaBtn tone="danger-quiet" type="button" (click)="confirmRemove.set(true)" class="mr-auto">Remove step</button>
           }
           @if (loadedNote()) {
@@ -191,6 +202,14 @@ interface StepDraft {
         }
       </div>
     </qa-drawer>
+
+    <qa-dialog [(open)]="confirmActive" title="Change a step in progress?" width="480px">
+      <p class="m-0 text-(length:--fs-14) leading-[1.55] font-normal text-pretty text-(--text-2)">{{ activeNote() }}</p>
+      <div qaDialogFooter class="contents">
+        <button hlmBtn qaBtn tone="secondary" type="button" (click)="confirmActive.set(false)">Keep editing</button>
+        <button hlmBtn qaBtn tone="primary" type="button" (click)="commit()">Save changes</button>
+      </div>
+    </qa-dialog>
   `,
 })
 export class StepDrawer {
@@ -218,6 +237,27 @@ export class StepDrawer {
     const p = this.existing();
     return !!p && stepState(p, this.request().timeline).kind === 'done';
   });
+  /** The step is running now: saving a change asks first (pop-up). */
+  private readonly activeState = computed(() => {
+    const p = this.existing();
+    const st = p ? stepState(p, this.request().timeline) : null;
+    return st?.kind === 'active' ? st : null;
+  });
+  protected readonly inProgress = computed(() => !!this.activeState());
+  protected readonly activeNote = computed(() => {
+    const st = this.activeState();
+    const who = this.existing()?.audience ?? 'Assessors';
+    if (who === CORRECTION_AUDIENCE) return 'Programs are correcting their results in this step right now. Your changes apply as soon as you save.';
+    const progress = st && st.of ? ` (${formatNumber(st.done)} of ${formatNumber(st.of)} results reviewed so far)` : '';
+    return `${who} are working in this step right now${progress}. Your changes apply as soon as you save.`;
+  });
+  private readonly changed = computed(() => {
+    const p = this.existing();
+    const d = this.draft();
+    return !!p && (d.name.trim() !== p.name || d.audience !== p.audience || d.opens.trim() !== p.start || d.closes.trim() !== p.end || d.batch !== p.batch);
+  });
+  protected readonly confirmActive = linkedSignal({ source: this.request, computation: () => false });
+
   protected readonly first = computed(() => {
     const r = this.request();
     return r.index === 0 || (r.index == null && !r.timeline.steps.length);
@@ -259,12 +299,12 @@ export class StepDrawer {
     );
   });
 
-  /** Errors show after a save attempt, as in the mockup. */
+  /** Errors show once a field is left or after a save attempt (same as Assessors). */
   private readonly tried = linkedSignal({ source: this.request, computation: () => false });
   protected readonly confirmRemove = linkedSignal({ source: this.request, computation: () => false });
 
-  protected readonly nameError = computed(() => (this.tried() ? (this.stepForm.name().errors()[0]?.message ?? '') : ''));
-  protected readonly opensError = computed(() => (this.tried() ? (this.stepForm.opens().errors()[0]?.message ?? '') : ''));
+  protected readonly nameError = computed(() => (this.tried() || this.stepForm.name().touched() ? (this.stepForm.name().errors()[0]?.message ?? '') : ''));
+  protected readonly opensError = computed(() => (this.tried() || this.stepForm.opens().touched() ? (this.stepForm.opens().errors()[0]?.message ?? '') : ''));
 
   protected readonly title = computed(() => this.draft().name.trim() || 'New step');
 
@@ -305,6 +345,15 @@ export class StepDrawer {
   protected save(): void {
     this.tried.set(true);
     if (this.stepForm().invalid()) return;
+    if (this.inProgress() && this.changed()) {
+      this.confirmActive.set(true);
+      return;
+    }
+    this.commit();
+  }
+
+  protected commit(): void {
+    this.confirmActive.set(false);
     const d = this.draft();
     const r = this.request();
     // TODO(api): PUT / POST the step of this timeline.

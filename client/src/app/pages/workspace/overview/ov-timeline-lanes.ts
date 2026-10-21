@@ -1,4 +1,5 @@
-import { Component, input } from '@angular/core';
+import { Component, input, output } from '@angular/core';
+import { QaButtonImports } from '../../../ui';
 import { TimelineStatus } from './overview.mock';
 
 export type LaneStepState = 'done' | 'active' | 'future';
@@ -26,17 +27,15 @@ const STATUS_CHIP: Record<TimelineStatus, string> = {
   Closed: 'bg-(--surface-3) text-(--text-muted)',
 };
 
-/** One lane per open timeline: where each one is in its 5 steps and how far the open step has gone. */
+/** One lane per open timeline: where each one is in its own steps and how far the open step has gone. */
 @Component({
   selector: 'qa-ov-timeline-lanes',
+  imports: [QaButtonImports],
   host: { class: 'block @container' },
   template: `
     <!-- Same card as the other Overview sections: title inside, lanes as full-width rows below it. -->
     <section aria-labelledby="overview-lanes-title" class="flex flex-col gap-4 overflow-hidden rounded-[12px] border border-(--border) bg-(--surface) pt-5">
-      <div class="flex flex-col gap-1 px-5">
-        <h3 id="overview-lanes-title" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">Timelines</h3>
-        <p class="m-0 text-(length:--fs-13) font-normal text-(--text-3)">Each timeline moves through the same 5 steps on its own dates.</p>
-      </div>
+      <h3 id="overview-lanes-title" class="m-0 px-5 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">Timelines</h3>
 
       <ol class="m-0 flex list-none flex-col p-0">
         @for (lane of lanes(); track lane.id) {
@@ -58,7 +57,7 @@ const STATUS_CHIP: Record<TimelineStatus, string> = {
               </div>
             </div>
 
-            <!-- Where: the 5 steps -->
+            <!-- Where: the timeline's own steps -->
             <div class="flex min-w-0 flex-col gap-2">
               <ol class="m-0 flex list-none items-center p-0" [attr.aria-label]="lane.name + ' steps'">
                 @for (step of lane.steps; track $index; let last = $last) {
@@ -94,6 +93,19 @@ const STATUS_CHIP: Record<TimelineStatus, string> = {
               } @else {
                 <span class="text-(length:--fs-13) text-(--text-muted)">Not started yet</span>
               }
+              <button
+                hlmBtn
+                qaBtn
+                tone="link"
+                size="sm"
+                flush="start"
+                type="button"
+                (click)="viewStages.emit(lane.id)"
+                [attr.aria-label]="'View stages of ' + lane.name"
+                class="self-start"
+              >
+                View stages
+              </button>
             </div>
           </li>
         }
@@ -103,6 +115,8 @@ const STATUS_CHIP: Record<TimelineStatus, string> = {
 })
 export class OvTimelineLanes {
   readonly lanes = input.required<readonly TimelineLaneVm[]>();
+  /** Timeline id whose stages pop-up should open. */
+  readonly viewStages = output<string>();
 
   protected readonly chip = STATUS_CHIP;
   protected readonly dot: Record<LaneStepState, string> = {

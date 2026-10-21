@@ -27,6 +27,8 @@
 - Batches y mini-batches con timelines; cada programa avanza a su ritmo.
 - Segunda ronda (round 2) confiable; aporte de IA automático; varios procesos en paralelo.
 *(Jira Discovery NOST-451, 5-oct-2026)*
+- Todo se configura desde QA, sobre la **fase activa**. No hace falta consultar fases de años pasados desde QA. *(Ángel, 21-oct-2026)*
+- Cada timeline (la oficial y las sub-timelines) tiene sus propias etapas; no todas tienen las mismas. *(Juanpa, 21-oct-2026)*
 
 ## Pantallas del mockup
 Overview · Results (+ detalle por campo con "AI match") · Cycle (fases + batches) · Fields (configuración por tipo de resultado) · Assessors. *(mockup de Juanpa, 5-oct-2026)*
@@ -43,3 +45,5 @@ Overview · Results (+ detalle por campo con "AI match") · Cycle (fases + batch
 - ¿Un usuario puede tener varios roles? El mockup asume uno.
 - ¿Módulo dentro de Reporting Tool o plataforma independiente?
 - El "AI match" del mockup no es igual al aporte de IA que existe hoy.
+- Al pasar al año siguiente (2027), ¿se crea una fase nueva o se reconfigura la activa (nombre y fechas de la timeline oficial)?
+- ¿Cómo llama negocio al ciclo atado a un año de reporte ("cycle", "phase", "Annual report 2026") y quién le pone el nombre? ¿Sirven "Official timeline" y "Sub-timelines"? (Pregunta a Ángel, 21-oct-2026.)

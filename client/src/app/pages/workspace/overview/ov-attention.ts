@@ -10,12 +10,6 @@ export interface AttentionGroupVm {
   readonly rows: readonly AttentionRow[];
 }
 
-const GROUP_STYLE: Record<AttentionGroupKey, { color: string; icon: string }> = {
-  coverage: { color: 'text-(--danger)', icon: 'M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01' },
-  pace: { color: 'text-(--warning)', icon: 'M12 14l4-4M3.34 19a10 10 0 1 1 17.32 0' },
-  waiting: { color: 'text-(--text-4)', icon: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 6v6l4 2' },
-};
-
 /** Groups show five rows, then "+N more". */
 const VISIBLE = 5;
 
@@ -30,32 +24,28 @@ const VISIBLE = 5;
         <div class="flex items-center gap-2">
           <h3 id="overview-attn-title" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">Needs attention</h3>
           @if (count()) {
-            <span
-              class="box-border flex h-5 min-w-5 items-center justify-center rounded-full px-[7px] text-(length:--fs-12) font-bold tabular-nums"
-              [class]="critical() ? 'bg-(--st-rejected-bg) text-(--st-rejected-fg)' : 'bg-(--st-editing-bg) text-(--st-editing-fg)'"
-              [attr.aria-label]="count() + ' items'"
-            >{{ count() }}</span>
+            <span class="text-(length:--fs-14) font-semibold tabular-nums text-(--text-muted)" [attr.aria-label]="count() + ' items'">{{ count() }}</span>
           }
         </div>
-        <p class="m-0 text-(length:--fs-13) font-normal text-(--text-3)">Everything that will not resolve on its own.</p>
       </div>
 
       @if (count()) {
-        <div class="flex flex-col gap-[18px]">
+        <div class="flex flex-col gap-6">
           @for (g of groups(); track g.key) {
             @let shown = isOpen(g.key) ? g.rows : g.rows.slice(0, visible);
             @let more = g.rows.length > visible;
             <div class="flex flex-col">
-              <h4 class="m-0 flex min-h-8 items-center gap-2 border-b border-(--surface-4) px-[2px] pb-2" [class]="style[g.key].color">
-                <svg class="flex-none" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path [attr.d]="style[g.key].icon"></path></svg>
-                <span class="text-(length:--fs-13) font-semibold">{{ g.name }}</span>
-                <span class="ml-auto text-(length:--fs-12) font-semibold tabular-nums text-(--text-muted)">{{ g.rows.length }}</span>
+              <h4 class="m-0 flex items-baseline gap-2 px-[2px] pb-1">
+                <!-- Coverage is the only group that keeps a color: results there will not be reviewed at all. -->
+                <!-- Same eyebrow style as the sidebar group labels, so groups read as headings, not rows. -->
+                <span class="text-(length:--fs-11) font-semibold tracking-[0.08em] uppercase" [class]="g.key === 'coverage' ? 'text-(--danger)' : 'text-(--text-muted)'">{{ g.name }}</span>
+                <span class="text-(length:--fs-11) font-semibold tabular-nums text-(--text-muted)">{{ g.rows.length }}</span>
               </h4>
               <ul class="m-0 list-none p-0">
                 @for (r of shown; track r.text; let last = $last) {
                   <!-- >= @2xl: text and action on one line. Narrower: text wraps, the action sits under it, left aligned. -->
                   <li
-                    class="grid min-h-12 grid-cols-1 items-center gap-1 border-(--surface-4) px-[2px] py-2 hover:bg-(--surface-2) @2xl:grid-cols-[minmax(0,1fr)_150px] @2xl:gap-4 @2xl:py-0"
+                    class="grid min-h-12 grid-cols-1 items-center gap-1 border-(--surface-4) px-[2px] py-2 @2xl:grid-cols-[minmax(0,1fr)_150px] @2xl:gap-4 @2xl:py-0"
                     [class.border-b]="!last || more"
                   >
                     <span [title]="r.text" class="min-w-0 text-(length:--fs-13) leading-[1.5] font-normal text-pretty text-(--text-2) @2xl:truncate"
@@ -97,12 +87,10 @@ export class OvAttention {
   /** "See SP09"…: key of the row to show in Where the work is ("program:SP09"). */
   readonly risk = output<string>();
 
-  protected readonly style = GROUP_STYLE;
   protected readonly visible = VISIBLE;
   private readonly expanded = signal<ReadonlySet<AttentionGroupKey>>(new Set());
 
   protected readonly count = computed(() => this.groups().reduce((a, g) => a + g.rows.length, 0));
-  protected readonly critical = computed(() => this.groups().some((g) => g.key === 'coverage'));
 
   protected isOpen(key: AttentionGroupKey): boolean {
     return this.expanded().has(key);
