@@ -1,3 +1,4 @@
+import { DEMO_PROGRAMS } from '../../../core/domain/demo-programs';
 // Mock data for the Review page (/results/:code), copied from the "QA Platform" mockup JS
 // (RESULTS, SECTIONS, FIELD_DEFS, TOC_0841, AI_MATCH_0841, QC_DEFAULT, DESC, buildReview).
 // TODO(api): replace with the review endpoint (result + fields + comments + AI matches).
@@ -85,16 +86,7 @@ export interface QuickComment {
   readonly text: string;
 }
 
-export const PROGRAMS: Readonly<Record<string, string>> = {
-  SP01: 'Breeding for Tomorrow',
-  SP02: 'Rice Agrifood Systems',
-  SP04: 'Climate Action',
-  SP05: 'Multifunctional Landscapes',
-  SP07: 'Genetic Innovation',
-  SP09: 'Sustainable Animal and Aquatic Foods',
-  SP11: 'Policy Innovations',
-  SP12: 'Scaling for Impact',
-};
+export const PROGRAMS = DEMO_PROGRAMS;
 
 export const CYCLE = {
   year: 2026,

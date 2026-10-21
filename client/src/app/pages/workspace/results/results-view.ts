@@ -3,6 +3,7 @@ import { Component, computed, inject, linkedSignal, signal } from '@angular/core
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { HlmInput } from '@spartan/input';
 import { QaButtonImports, QaMultiSelect, QaSelectImports, QaSelectOption } from '../../../ui';
+import { TableSort } from '../../../core/list/table-sort';
 import { ResultRowVm, ResultsTable, SortDir, SortKey } from './results-table';
 import {
   ASSESSOR_NAMES,
@@ -95,8 +96,9 @@ export class ResultsView {
       : 'All',
   );
   protected readonly showAuto = signal(false);
-  protected readonly sortKey = signal<SortKey | null>(null);
-  protected readonly sortDir = signal<SortDir>('asc');
+  protected readonly sort = new TableSort<SortKey>();
+  protected readonly sortKey = this.sort.key;
+  protected readonly sortDir = this.sort.dir;
 
   protected readonly resultTypes = RESULT_TYPES;
 
@@ -154,20 +156,13 @@ export class ResultsView {
     });
   });
 
-  private readonly sorted = computed(() => {
-    const key = this.sortKey();
-    const rows = this.filtered();
-    if (!key) return rows;
-    const val = (r: QaResult): string | number =>
+  private readonly sorted = computed(() =>
+    this.sort.apply(this.filtered(), (r: QaResult, key): string | number =>
       key === 'comments' ? (r.comments ? r.comments[0] / r.comments[1] + r.comments[1] / 1000 : -1)
         : key === 'status' ? STATUS_ORDER.indexOf(r.status)
-          : r[key];
-    const dir = this.sortDir() === 'asc' ? 1 : -1;
-    return [...rows].sort((a, b) => {
-      const x = val(a), y = val(b);
-      return (x < y ? -1 : x > y ? 1 : 0) * dir;
-    });
-  });
+          : r[key],
+    ),
+  );
 
   /** How many rows are rendered; back to one page whenever the list changes. */
   protected readonly pageSize = linkedSignal({ source: this.sorted, computation: () => PAGE_SIZE });
@@ -246,15 +241,12 @@ export class ResultsView {
   }
 
   protected sortBy(key: SortKey): void {
-    const active = this.sortKey() === key;
-    this.sortDir.set(active && this.sortDir() === 'asc' ? 'desc' : 'asc');
-    this.sortKey.set(key);
+    this.sort.toggle(key);
   }
 
   /** Card-mode "Sort by" picker: explicit field + direction, or back to the default order. */
   protected setSort(sort: { key: SortKey; dir: SortDir } | null): void {
-    this.sortKey.set(sort?.key ?? null);
-    this.sortDir.set(sort?.dir ?? 'asc');
+    this.sort.set(sort);
   }
 
   protected showMore(): void {

@@ -1,3 +1,4 @@
+import { DEMO_PROGRAMS } from '../../../core/domain/demo-programs';
 // Mock data for the Cycle view, copied from the "QA Platform" mockup (OFFICIAL0, CY_BATCHES,
 // RUN_TARGETS, DEMO_ACCESS, PROG_ROWS, PROGRAMS, TYPES, ST_DEFAULT.rtypes…).
 // TODO(api): replace with the cycle / timeline endpoints. PROGRAMS and RESULT_TYPES are local
@@ -69,16 +70,7 @@ export interface ResultTypeRule {
 /** Fixed "today" of the mockup, used to compute step states ("Opens in 44 days"). */
 export const TODAY = new Date(2026, 6, 19);
 
-export const PROGRAMS: Readonly<Record<string, string>> = {
-  SP01: 'Breeding for Tomorrow',
-  SP02: 'Rice Agrifood Systems',
-  SP04: 'Climate Action',
-  SP05: 'Multifunctional Landscapes',
-  SP07: 'Genetic Innovation',
-  SP09: 'Sustainable Animal and Aquatic Foods',
-  SP11: 'Policy Innovations',
-  SP12: 'Scaling for Impact',
-};
+export const PROGRAMS = DEMO_PROGRAMS;
 
 /** Result types with the number of results of each type in the cycle (1,114 in total). */
 export const RESULT_TYPES: readonly (readonly [string, number])[] = [
