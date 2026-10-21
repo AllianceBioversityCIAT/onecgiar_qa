@@ -14,11 +14,12 @@ import {
 } from './support/admin-config-app.js';
 import { LogSpy } from './support/log-spy.js';
 
-// Timelines over the real app (cycle-timelines T-6, the defaults and the
-// create): FR-4 (defaults), FR-5 (official or additional, two at once, closed
-// or unknown cycle, kind sent), FR-6 (name, scope, catalog down), FR-11 (every
-// problem at once), FR-16 (admin only), FR-17 (safe retries), NFR-1, NFR-2,
-// NFR-3, NFR-7. The guards, the pipe, the filter, the idempotency interceptor
+// Timelines over the real app (cycle-timelines T-6 and T-7: the defaults, the
+// create, the list and the detail): FR-4 (defaults), FR-5 (official or
+// additional, two at once, closed or unknown cycle, kind sent), FR-6 (name,
+// scope, catalog down), FR-11 (every problem at once), FR-12 (list and detail
+// by date, with the clock overridden), FR-13 (readiness), FR-16 (admin only),
+// FR-17 (safe retries), NFR-1, NFR-2, NFR-3, NFR-5, NFR-7. The guards, the pipe, the filter, the idempotency interceptor
 // and OpenAPI are real; the stores, the catalog sources and the clocks are the
 // in-memory world (today in Rome is 2026-10-20). Expected values are the
 // spec's, written out.
@@ -83,7 +84,7 @@ const fieldsOf = (res: request.Response): Array<[string, string]> =>
     ({ field, code }) => [field, code],
   );
 
-describe('Timelines routes: defaults and create (e2e)', () => {
+describe('Timelines routes: defaults, create, list and detail (e2e)', () => {
   let w: AdminConfigApp;
   let spy: LogSpy;
 
@@ -194,10 +195,17 @@ describe('Timelines routes: defaults and create (e2e)', () => {
   // --- FR-16, NFR-1: every route is admin only --------------------------------
 
   describe('FR-16: access', () => {
-    type Route = ['defaults' | 'create', 'get' | 'post', string, object?];
+    type Route = [
+      'defaults' | 'create' | 'list' | 'detail',
+      'get' | 'post',
+      string,
+      object?,
+    ];
     const ROUTES: Route[] = [
       ['defaults', 'get', '/timeline-defaults'],
       ['create', 'post', '/cycles/1/timelines', body()],
+      ['list', 'get', '/cycles/1/timelines'],
+      ['detail', 'get', '/timelines/1'],
     ];
 
     it('has a 403 row for every grantable role (a new role without one fails here)', () => {
@@ -250,11 +258,18 @@ describe('Timelines routes: defaults and create (e2e)', () => {
 
       const defaults = await w.send('get', '/timeline-defaults');
       const created = await createTimeline(cycleId);
+      const list = await w.send('get', `/cycles/${cycleId}/timelines`);
+      const detail = await w.send('get', `/timelines/${created.body.data.id}`);
 
-      expect([defaults.status, created.status]).toEqual([200, 201]);
+      expect([
+        defaults.status,
+        created.status,
+        list.status,
+        detail.status,
+      ]).toEqual([200, 201, 200, 200]);
     });
 
-    it('declares ADMIN_ACCESS on each of its 2 routes and none as public', () => {
+    it('declares ADMIN_ACCESS on each of its 4 routes and none as public', () => {
       const reflector = new Reflector();
       const served = Object.getOwnPropertyNames(TimelinesController.prototype)
         .map((name) => TimelinesController.prototype[name as never] as unknown)
@@ -280,7 +295,17 @@ describe('Timelines routes: defaults and create (e2e)', () => {
 
       expect(served).toEqual([
         {
+          route: 'GET cycles/:id/timelines',
+          permission: 'ADMIN_ACCESS',
+          isPublic: undefined,
+        },
+        {
           route: 'GET timeline-defaults',
+          permission: 'ADMIN_ACCESS',
+          isPublic: undefined,
+        },
+        {
+          route: 'GET timelines/:id',
           permission: 'ADMIN_ACCESS',
           isPublic: undefined,
         },
@@ -733,6 +758,437 @@ describe('Timelines routes: defaults and create (e2e)', () => {
     });
   });
 
+  // --- FR-12, FR-13, NFR-5: list and detail, read by date -----------------------
+
+  describe('FR-12: GET /cycles/:id/timelines and GET /timelines/:id', () => {
+    /** Moves the admin clock to this instant (UTC); a create happens before it, at the start of the world. */
+    const at = (iso: string) =>
+      w.adminClock.advance(
+        new Date(iso).getTime() - w.adminClock.now().getTime(),
+      );
+    const listOf = (cycleId: number) =>
+      w.send('get', `/cycles/${cycleId}/timelines`);
+    const detailOf = (id: number) => w.send('get', `/timelines/${id}`);
+    /** Every stored row and every write counter of the world, as one string: equal strings = nothing changed. */
+    const stored = () =>
+      JSON.stringify([
+        rows(),
+        w.world.cycles,
+        w.world.assignments,
+        w.world.timelineWriteLog,
+        w.world.history,
+        w.timelinesUnitOfWork.begun,
+        w.timelinesUnitOfWork.committed,
+        w.unitOfWork.begun,
+        w.unitOfWork.committed,
+      ]);
+
+    const OFFICIAL_STEPS = [
+      {
+        name: 'QA Platform open for assessors',
+        audience: 'assessors',
+        opensOn: '2026-11-02',
+        closesOn: '2026-11-03',
+        round: 1,
+        requiresLoad: true,
+      },
+      {
+        name: 'QA open for Science Programs',
+        audience: 'programs',
+        opensOn: '2026-11-04',
+        closesOn: '2026-11-05',
+        round: 1,
+        requiresLoad: false,
+      },
+      {
+        name: 'QA open for Lead Assessors',
+        audience: 'lead_assessors',
+        opensOn: '2026-11-06',
+        closesOn: '2026-11-09',
+        round: 2,
+        requiresLoad: true,
+      },
+      {
+        name: 'Third-Party Broker review',
+        audience: 'tpb',
+        opensOn: '2026-11-10',
+        closesOn: '2026-11-20',
+        round: 2,
+        requiresLoad: false,
+      },
+      {
+        name: 'PPU review',
+        audience: 'ppu',
+        opensOn: '2026-11-23',
+        closesOn: '2026-11-27',
+        round: 2,
+        requiresLoad: false,
+      },
+    ];
+    const LATE_STEPS = [
+      {
+        name: 'QA Platform open for assessors',
+        audience: 'assessors',
+        opensOn: '2026-11-10',
+        closesOn: '2026-11-20',
+        round: 1,
+        requiresLoad: true,
+      },
+      {
+        name: 'QA open for Science Programs',
+        audience: 'programs',
+        opensOn: '2026-11-23',
+        closesOn: '2026-11-27',
+        round: 1,
+        requiresLoad: false,
+      },
+    ];
+
+    it('lists a timeline whole: name, kind, scope, steps with their dates, status, current step and readiness', async () => {
+      const cycleId = await createCycle(2026);
+      await createTimeline(cycleId);
+
+      const res = await listOf(cycleId);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ success: true });
+      expect(res.body.data).toEqual([
+        {
+          id: 1,
+          cycleId,
+          name: 'July 2026',
+          kind: 'official',
+          allPrograms: false,
+          programIds: [2],
+          allResultTypes: false,
+          resultTypeKeys: ['INNOVATION_DEV'],
+          steps: [
+            { position: 1, ...STEP_1 },
+            { position: 2, ...STEP_2 },
+          ],
+          status: 'scheduled',
+          currentStep: null,
+          nextStep: 1,
+          readiness: ['NO_RESULTS_LOADED', 'NO_ASSESSOR_ASSIGNED'],
+          assignedCount: { ASSESSOR: 0, LEAD_ASSESSOR: 0, TPB: 0, PPU: 0 },
+          createdAt: ISO,
+        },
+      ]);
+    });
+
+    it('a cycle without timelines is an empty list, not a 404', async () => {
+      const cycleId = await createCycle(2026);
+
+      const res = await listOf(cycleId);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toEqual([]);
+    });
+
+    it('detail answers the same timeline as the list, plus its users, and a timeline of another cycle is not in the list', async () => {
+      const cycleId = await createCycle(2026);
+      const other = await createCycle(2027);
+      const created = await createTimeline(cycleId);
+      await createTimeline(other, { name: 'Elsewhere' });
+
+      const list = await listOf(cycleId);
+      const detail = await detailOf(created.body.data.id);
+
+      expect(list.body.data.map((t: { name: string }) => t.name)).toEqual([
+        'July 2026',
+      ]);
+      expect(detail.status).toBe(200);
+      expect(detail.body.data).toEqual({ ...list.body.data[0], users: [] });
+    });
+
+    // The three reads of the scenario, in order, over one timeline whose
+    // step 1 closes on 6 Nov and step 2 opens on 9 Nov. Rome is UTC+1 in
+    // November: 22:59Z is 23:59 on the 6th, 23:00Z is 00:00 on the 7th.
+    it('steps open and close by date: 23:59 Rome on 6 Nov step 1, 00:00 on 7 Nov none (next 2), 00:00 on 9 Nov step 2, and reading writes nothing', async () => {
+      const cycleId = await createCycle(2026);
+      const created = await createTimeline(cycleId);
+      const id = created.body.data.id as number;
+      const before = stored();
+      const writes = w.world.history.length;
+
+      const seen: Array<{ status: string; current: unknown; next: unknown }> =
+        [];
+      for (const iso of [
+        '2026-11-06T22:59:00.000Z',
+        '2026-11-06T23:00:00.000Z',
+        '2026-11-08T23:00:00.000Z',
+      ]) {
+        at(iso);
+        const list = await listOf(cycleId);
+        const detail = await detailOf(id);
+        expect(list.status).toBe(200);
+        expect(detail.status).toBe(200);
+        // The list and the detail say the same thing at the same instant.
+        expect(detail.body.data).toMatchObject({
+          status: list.body.data[0].status,
+          currentStep: list.body.data[0].currentStep,
+          nextStep: list.body.data[0].nextStep,
+        });
+        seen.push({
+          status: list.body.data[0].status,
+          current: list.body.data[0].currentStep,
+          next: list.body.data[0].nextStep,
+        });
+      }
+
+      expect(seen).toEqual([
+        { status: 'live', current: 1, next: 2 },
+        { status: 'live', current: null, next: 2 },
+        { status: 'live', current: 2, next: null },
+      ]);
+      // No stored state changed for any of this: no job, no hand.
+      expect(w.world.history.length).toBe(writes);
+      expect(stored()).toBe(before);
+    });
+
+    it.each([
+      ['2026-11-01T22:59:00.000Z', 'scheduled', null, 1],
+      ['2026-11-01T23:00:00.000Z', 'live', 1, 2],
+      ['2026-11-13T22:59:00.000Z', 'live', 2, null],
+      ['2026-11-13T23:00:00.000Z', 'finished', null, null],
+    ])(
+      'at %s (Rome) the timeline is %s, current step %s, next step %s',
+      async (iso, status, current, next) => {
+        const cycleId = await createCycle(2026);
+        await createTimeline(cycleId);
+        at(iso);
+
+        const res = await listOf(cycleId);
+
+        expect(res.body.data[0]).toMatchObject({
+          status,
+          currentStep: current,
+          nextStep: next,
+        });
+      },
+    );
+
+    // Rome leaves summer time at 03:00 on 25 Oct 2026 (01:00Z): from then on
+    // 22:30Z is 23:30 on the 25th and 23:30Z is 00:30 on the 26th.
+    it('daylight-saving change: a step that closes on 25 Oct is still open at 23:30 Rome that night, and over at 00:30 Rome on the 26th', async () => {
+      const cycleId = await createCycle(2026);
+      await createTimeline(cycleId, {
+        steps: [
+          {
+            ...STEP_1,
+            opensOn: '2026-10-21',
+            closesOn: '2026-10-25',
+          },
+          { ...STEP_2, opensOn: '2026-10-27', closesOn: '2026-10-30' },
+        ],
+      });
+
+      at('2026-10-25T22:30:00.000Z');
+      const night = await listOf(cycleId);
+      at('2026-10-25T23:30:00.000Z');
+      const after = await listOf(cycleId);
+
+      expect(night.body.data[0]).toMatchObject({
+        status: 'live',
+        currentStep: 1,
+        nextStep: 2,
+      });
+      expect(after.body.data[0]).toMatchObject({
+        status: 'live',
+        currentStep: null,
+        nextStep: 2,
+      });
+    });
+
+    it('two timelines are live at once, each with its own current step: the official one in step 4 and an additional one in step 1', async () => {
+      const cycleId = await createCycle(2026);
+      await createTimeline(cycleId, {
+        name: 'Official',
+        steps: OFFICIAL_STEPS,
+      });
+      await createTimeline(cycleId, { name: 'Additional', steps: LATE_STEPS });
+      at('2026-11-16T10:00:00.000Z');
+
+      const res = await listOf(cycleId);
+
+      expect(res.status).toBe(200);
+      expect(
+        res.body.data.map(
+          (t: {
+            name: string;
+            kind: string;
+            status: string;
+            currentStep: number;
+            nextStep: number;
+          }) => [t.name, t.kind, t.status, t.currentStep, t.nextStep],
+        ),
+      ).toEqual([
+        ['Official', 'official', 'live', 4, 5],
+        ['Additional', 'additional', 'live', 1, 2],
+      ]);
+    });
+
+    it('puts the official timeline first and then the additional ones newest first, whatever the order they were made in', async () => {
+      const cycleId = await createCycle(2026);
+      const names = ['July 2026', 'August 2026', 'September 2026'];
+      for (const name of names) {
+        await createTimeline(cycleId, { name });
+        // Each one is created later than the one before it.
+        w.adminClock.advance(60 * 60 * 1000);
+      }
+
+      const res = await listOf(cycleId);
+
+      expect(
+        res.body.data.map((t: { name: string; kind: string }) => [
+          t.name,
+          t.kind,
+        ]),
+      ).toEqual([
+        ['July 2026', 'official'],
+        ['September 2026', 'additional'],
+        ['August 2026', 'additional'],
+      ]);
+    });
+
+    it('unknown cycle: 404 CYCLES_NOT_FOUND; unknown timeline: 404 TIMELINES_NOT_FOUND; an id that is not a number: 400 on `id`', async () => {
+      await createCycle(2026);
+      const before = stored();
+
+      const noCycle = await listOf(99);
+      const noTimeline = await detailOf(99);
+      const badCycle = await w.send('get', '/cycles/abc/timelines');
+      const badTimeline = await w.send('get', '/timelines/abc');
+
+      expectError(noCycle, 404, 'CYCLES_NOT_FOUND');
+      expectError(noTimeline, 404, 'TIMELINES_NOT_FOUND');
+      expectError(badCycle, 400, 'VALIDATION_FAILED');
+      expect(fieldsOf(badCycle)).toEqual([['id', 'INVALID_TYPE']]);
+      expectError(badTimeline, 400, 'VALIDATION_FAILED');
+      expect(fieldsOf(badTimeline)).toEqual([['id', 'INVALID_TYPE']]);
+      expect(stored()).toBe(before);
+    });
+  });
+
+  // --- FR-13: readiness ---------------------------------------------------------
+
+  describe('FR-13: readiness in the list and the detail', () => {
+    const listOf = (cycleId: number) =>
+      w.send('get', `/cycles/${cycleId}/timelines`);
+
+    it('a timeline with steps for Assessors and Science Programs and nobody assigned lists NO_RESULTS_LOADED and NO_ASSESSOR_ASSIGNED, and no Science Programs item; it is created, listed and dated as usual', async () => {
+      const cycleId = await createCycle(2026);
+
+      const created = await createTimeline(cycleId);
+      const list = await listOf(cycleId);
+      const detail = await w.send('get', `/timelines/${created.body.data.id}`);
+
+      expect(created.status).toBe(201);
+      for (const read of [list.body.data[0], detail.body.data]) {
+        expect(read.readiness).toEqual([
+          'NO_RESULTS_LOADED',
+          'NO_ASSESSOR_ASSIGNED',
+        ]);
+        expect(read).toMatchObject({
+          status: 'scheduled',
+          nextStep: 1,
+        });
+      }
+    });
+
+    it('an active assignment of the role takes its item away and is counted; a removed one is neither', async () => {
+      const cycleId = await createCycle(2026);
+      const first = await createTimeline(cycleId);
+      const second = await createTimeline(cycleId, { name: 'Second' });
+      const [a, b] = [first.body.data.id, second.body.data.id] as number[];
+      // `roles.id` 3 is ASSESSOR, 2 is LEAD_ASSESSOR. No route assigns users yet.
+      w.world.assignments.push(
+        ...[
+          { timelineId: a, roleId: 3, removed: false },
+          { timelineId: a, roleId: 3, removed: false },
+          { timelineId: a, roleId: 2, removed: true },
+          { timelineId: b, roleId: 3, removed: true },
+        ].map((row, index) => ({
+          id: index + 1,
+          timelineId: row.timelineId,
+          userId: w.admin.id,
+          roleId: row.roleId,
+          assignedAt: new Date(ISO),
+          assignedBy: w.admin.id,
+          removedAt: row.removed ? new Date(ISO) : null,
+          removedBy: row.removed ? w.admin.id : null,
+          activeKey: row.removed
+            ? null
+            : `${row.timelineId}:${index}:${row.roleId}`,
+        })),
+      );
+
+      const list = await listOf(cycleId);
+
+      const byId = new Map<number, any>(
+        list.body.data.map((t: { id: number }) => [t.id, t]),
+      );
+      expect(byId.get(a)).toMatchObject({
+        readiness: ['NO_RESULTS_LOADED'],
+        assignedCount: { ASSESSOR: 2, LEAD_ASSESSOR: 0, TPB: 0, PPU: 0 },
+      });
+      expect(byId.get(b)).toMatchObject({
+        readiness: ['NO_RESULTS_LOADED', 'NO_ASSESSOR_ASSIGNED'],
+        assignedCount: { ASSESSOR: 0, LEAD_ASSESSOR: 0, TPB: 0, PPU: 0 },
+      });
+    });
+  });
+
+  // --- NFR-5: a fixed number of statements -------------------------------------
+
+  describe('NFR-5: the number of read statements does not depend on the number of timelines', () => {
+    it('the list and the detail run as many statements over 50 timelines with 200 assignments as over one', async () => {
+      const cycleId = await createCycle(2026);
+      const first = await createTimeline(cycleId, { name: 'Timeline 1' });
+      const firstId = first.body.data.id as number;
+      const statementsOf = async (path: string) => {
+        const from = w.world.timelineReadLog.length;
+        const res = await w.send('get', path);
+        expect(res.status).toBe(200);
+        return w.world.timelineReadLog.slice(from);
+      };
+      const listOne = await statementsOf(`/cycles/${cycleId}/timelines`);
+      const detailOne = await statementsOf(`/timelines/${firstId}`);
+
+      for (let n = 2; n <= 50; n++) {
+        const res = await createTimeline(cycleId, { name: `Timeline ${n}` });
+        expect(res.status).toBe(201);
+      }
+      expect(w.world.timelines).toHaveLength(50);
+      for (let n = 0; n < 200; n++) {
+        const id = w.world.assignments.length + 1;
+        const timelineId = (n % 50) + 1;
+        w.world.assignments.push({
+          id,
+          timelineId,
+          userId: w.admin.id,
+          roleId: 3,
+          assignedAt: new Date(ISO),
+          assignedBy: w.admin.id,
+          removedAt: null,
+          removedBy: null,
+          activeKey: `${timelineId}:${id}:3`,
+        });
+      }
+      const listMany = await statementsOf(`/cycles/${cycleId}/timelines`);
+      const detailMany = await statementsOf(`/timelines/${firstId}`);
+
+      expect(listOne.length).toBeGreaterThan(0);
+      expect(listMany).toHaveLength(listOne.length);
+      expect(detailMany).toHaveLength(detailOne.length);
+      // One statement per table: the steps of all 50 come in a single one.
+      expect(listMany.filter((s) => s.startsWith('steps:'))).toHaveLength(1);
+      expect(
+        listMany.find((s) => s.startsWith('steps:'))?.split(',').length,
+      ).toBe(50);
+    });
+  });
+
   // --- FR-17: safe retries -------------------------------------------------------
 
   describe('FR-17: Idempotency-Key on POST /cycles/:id/timelines', () => {
@@ -884,7 +1340,49 @@ describe('Timelines routes: defaults and create (e2e)', () => {
   // --- OpenAPI ----------------------------------------------------------------
 
   describe('OpenAPI', () => {
-    it('documents the two routes: the key header on create only, the codes each can answer, the Timeline model, no `kind` in the body', () => {
+    it('documents the list and the detail: no key header, the codes each can answer, the array of Timeline and the TimelineDetail with its users', () => {
+      const doc = buildOpenApiDocument(w.app);
+      const paths = doc.paths as Record<string, Record<string, any>>;
+      const list = paths['/api/v1/cycles/{id}/timelines']!.get;
+      const detail = paths['/api/v1/timelines/{id}']!.get;
+
+      for (const [operation, codes] of [
+        [list, ['200', '401', '403', '404']],
+        [detail, ['200', '401', '403', '404']],
+      ] as const) {
+        expect(operation.summary).toBeTruthy();
+        expect(Object.keys(operation.responses)).toEqual(
+          expect.arrayContaining([...codes]),
+        );
+        expect(Object.keys(operation.responses)).not.toContain('422');
+        expect(
+          operation.parameters.map((p: { name: string }) => p.name),
+        ).toEqual(['id']);
+      }
+      const dataOf = (operation: any) =>
+        operation.responses['200'].content['application/json'].schema;
+      expect(JSON.stringify(dataOf(list))).toContain(
+        '#/components/schemas/TimelineModel',
+      );
+      expect(JSON.stringify(dataOf(detail))).toContain(
+        '#/components/schemas/TimelineDetailModel',
+      );
+      const schemas = doc.components?.schemas as Record<string, any>;
+      expect(schemas.TimelineDetailModel.required).toEqual(
+        expect.arrayContaining(['users', 'status', 'currentStep', 'readiness']),
+      );
+      expect(Object.keys(schemas.TimelineUserModel.properties)).toEqual([
+        'assignmentId',
+        'userId',
+        'firstName',
+        'lastName',
+        'email',
+        'role',
+        'assignedAt',
+      ]);
+    });
+
+    it('documents the create and the defaults routes: the key header on create only, the codes each can answer, the Timeline model, no `kind` in the body', () => {
       const doc = buildOpenApiDocument(w.app);
       const paths = doc.paths as Record<string, Record<string, any>>;
       const create = paths['/api/v1/cycles/{id}/timelines']!.post;

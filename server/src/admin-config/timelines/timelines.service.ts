@@ -1,6 +1,9 @@
 import { HttpException, Inject, Injectable, Logger } from '@nestjs/common';
 import type { IdempotencyStore } from '../../common/idempotency/idempotency.store.js';
-import type { TimelineKind } from '../../database/drizzle/schema/timelines.js';
+import type {
+  Timeline,
+  TimelineKind,
+} from '../../database/drizzle/schema/timelines.js';
 import { CatalogService } from '../../users/catalogs/catalog.service.js';
 import {
   ADMIN_CONFIG_CLOCK,
@@ -25,6 +28,8 @@ import {
 } from './default-steps.js';
 import {
   toTimelineResponse,
+  type AssignableRole,
+  type TimelineDetailResponse,
   type TimelineResponse,
 } from './timeline-response.js';
 import {
@@ -98,9 +103,73 @@ export class TimelinesService {
 
   /** One timeline as the API shows it, with status and readiness from today in Rome (FR-12). */
   async get(id: number): Promise<TimelineResponse> {
-    const bundle = await this.store.findBundle(id);
-    if (!bundle) throw new TimelineNotFoundError(id);
-    return toTimelineResponse(bundle, todayInRome(this.clock()));
+    const row = await this.store.findById(id);
+    if (!row) throw new TimelineNotFoundError(id);
+    const [response] = await this.respond([row]);
+    return response;
+  }
+
+  /**
+   * FR-12: `Timeline` plus its assigned users. The users part belongs to the
+   * assignment routes (T-8); until they exist the list is empty.
+   */
+  async detail(id: number): Promise<TimelineDetailResponse> {
+    return { ...(await this.get(id)), users: [] };
+  }
+
+  /**
+   * FR-12: the timelines of a cycle, the official one first and then the
+   * additional ones newest first. A fixed number of statements however many
+   * timelines there are (NFR-5, design 7.4); nothing is written or locked (DD-2).
+   */
+  async listByCycle(cycleId: number): Promise<TimelineResponse[]> {
+    if (!(await this.store.cycleExists(cycleId))) {
+      throw new CycleNotFoundError(cycleId);
+    }
+    const rows = await this.store.listByCycle(cycleId);
+    return this.respond(
+      [...rows].sort(
+        (a, b) =>
+          Number(b.kind === 'official') - Number(a.kind === 'official') ||
+          b.createdAt.getTime() - a.createdAt.getTime() ||
+          b.id - a.id,
+      ),
+    );
+  }
+
+  /** The read models of these timelines, in this order: one statement per table, whatever the count. */
+  private async respond(rows: Timeline[]): Promise<TimelineResponse[]> {
+    if (rows.length === 0) return [];
+    const today = todayInRome(this.clock());
+    const ids = rows.map((row) => row.id);
+    const [steps, programs, resultTypes, assigned] = await Promise.all([
+      this.store.listSteps(ids),
+      this.store.listPrograms(ids),
+      this.store.listResultTypes(ids),
+      this.store.countAssigned(ids),
+    ]);
+    return rows.map((timeline) => {
+      const counts: Partial<Record<AssignableRole, number>> = {};
+      for (const row of assigned) {
+        if (row.timelineId === timeline.id) {
+          counts[row.roleCode as AssignableRole] = row.count;
+        }
+      }
+      return toTimelineResponse(
+        {
+          timeline,
+          steps: steps.filter((r) => r.timelineId === timeline.id),
+          programIds: programs
+            .filter((r) => r.timelineId === timeline.id)
+            .map((r) => r.programId),
+          resultTypeKeys: resultTypes
+            .filter((r) => r.timelineId === timeline.id)
+            .map((r) => r.resultTypeKey),
+        },
+        today,
+        counts,
+      );
+    });
   }
 
   // @akili-spec admin-config/cycle-timelines

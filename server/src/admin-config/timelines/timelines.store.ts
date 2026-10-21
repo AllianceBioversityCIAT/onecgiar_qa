@@ -1,14 +1,23 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { asc, eq } from 'drizzle-orm';
+import { and, asc, count, eq, inArray, isNull } from 'drizzle-orm';
 import { DRIZZLE } from '../../database/drizzle/drizzle.constants.js';
 import type { DrizzleDB } from '../../database/drizzle/drizzle.module.js';
-import { timelinePrograms } from '../../database/drizzle/schema/timeline-programs.js';
-import { timelineResultTypes } from '../../database/drizzle/schema/timeline-result-types.js';
+import { cycles } from '../../database/drizzle/schema/cycles.js';
+import { roles } from '../../database/drizzle/schema/roles.js';
+import {
+  timelinePrograms,
+  type TimelineProgram,
+} from '../../database/drizzle/schema/timeline-programs.js';
+import {
+  timelineResultTypes,
+  type TimelineResultType,
+} from '../../database/drizzle/schema/timeline-result-types.js';
 import {
   timelineSteps,
   type NewTimelineStep,
   type TimelineStep,
 } from '../../database/drizzle/schema/timeline-steps.js';
+import { timelineUsers } from '../../database/drizzle/schema/timeline-users.js';
 import {
   timelines,
   type NewTimeline,
@@ -38,6 +47,13 @@ export interface TimelineBundle {
   resultTypeKeys: string[];
 }
 
+/** Active assignments of one role in one timeline: the rows `removed_at IS NULL`, counted (FR-13). */
+export interface AssignedCountRow {
+  timelineId: number;
+  roleCode: string;
+  count: number;
+}
+
 /** The persistence port of timelines, steps and scope (design 3, 5, 7.3). Rules live in `TimelinesService`. */
 export interface TimelinesStore {
   /**
@@ -62,8 +78,24 @@ export interface TimelinesStore {
     timelineId: number,
     steps: readonly NewStepValues[],
   ): Promise<void>;
-  /** One timeline with its steps and scope, or `undefined`. */
-  findBundle(id: number): Promise<TimelineBundle | undefined>;
+  /**
+   * The read model is assembled from these, one statement each, so the number
+   * of statements does not depend on the number of timelines (NFR-5, design
+   * 7.4). Reads never lock and never write (DD-2).
+   */
+  findById(id: number): Promise<Timeline | undefined>;
+  /** Whether the cycle exists: the list of an unknown cycle is a 404, not an empty list (FR-12). */
+  cycleExists(cycleId: number): Promise<boolean>;
+  /** Every timeline of a cycle, in no particular order. */
+  listByCycle(cycleId: number): Promise<Timeline[]>;
+  /** The steps of all the given timelines, in ONE statement. `timelineIds` is never empty. */
+  listSteps(timelineIds: readonly number[]): Promise<TimelineStep[]>;
+  listPrograms(timelineIds: readonly number[]): Promise<TimelineProgram[]>;
+  listResultTypes(
+    timelineIds: readonly number[],
+  ): Promise<TimelineResultType[]>;
+  /** Active assignments per timeline and role code (`removed_at IS NULL`), in ONE statement. */
+  countAssigned(timelineIds: readonly number[]): Promise<AssignedCountRow[]>;
 }
 
 /**
@@ -147,33 +179,72 @@ export class DrizzleTimelinesStore implements TimelinesStore {
       .values(steps.map((step) => ({ ...step, timelineId })));
   }
 
-  async findBundle(id: number): Promise<TimelineBundle | undefined> {
-    const [timeline] = await this.db
+  async findById(id: number): Promise<Timeline | undefined> {
+    const [row] = await this.db
       .select()
       .from(timelines)
       .where(eq(timelines.id, id))
       .limit(1);
-    if (!timeline) return undefined;
-    const steps = await this.db
+    return row;
+  }
+
+  async cycleExists(cycleId: number): Promise<boolean> {
+    const rows = await this.db
+      .select({ id: cycles.id })
+      .from(cycles)
+      .where(eq(cycles.id, cycleId))
+      .limit(1);
+    return rows.length > 0;
+  }
+
+  listByCycle(cycleId: number): Promise<Timeline[]> {
+    return this.db
+      .select()
+      .from(timelines)
+      .where(eq(timelines.cycleId, cycleId));
+  }
+
+  listSteps(timelineIds: readonly number[]): Promise<TimelineStep[]> {
+    return this.db
       .select()
       .from(timelineSteps)
-      .where(eq(timelineSteps.timelineId, id))
+      .where(inArray(timelineSteps.timelineId, [...timelineIds]))
       .orderBy(asc(timelineSteps.position));
-    const programs = await this.db
-      .select({ programId: timelinePrograms.programId })
+  }
+
+  listPrograms(timelineIds: readonly number[]): Promise<TimelineProgram[]> {
+    return this.db
+      .select()
       .from(timelinePrograms)
-      .where(eq(timelinePrograms.timelineId, id))
+      .where(inArray(timelinePrograms.timelineId, [...timelineIds]))
       .orderBy(asc(timelinePrograms.programId));
-    const resultTypes = await this.db
-      .select({ resultTypeKey: timelineResultTypes.resultTypeKey })
+  }
+
+  listResultTypes(
+    timelineIds: readonly number[],
+  ): Promise<TimelineResultType[]> {
+    return this.db
+      .select()
       .from(timelineResultTypes)
-      .where(eq(timelineResultTypes.timelineId, id))
+      .where(inArray(timelineResultTypes.timelineId, [...timelineIds]))
       .orderBy(asc(timelineResultTypes.resultTypeKey));
-    return {
-      timeline,
-      steps,
-      programIds: programs.map((row) => row.programId),
-      resultTypeKeys: resultTypes.map((row) => row.resultTypeKey),
-    };
+  }
+
+  countAssigned(timelineIds: readonly number[]): Promise<AssignedCountRow[]> {
+    return this.db
+      .select({
+        timelineId: timelineUsers.timelineId,
+        roleCode: roles.code,
+        count: count(),
+      })
+      .from(timelineUsers)
+      .innerJoin(roles, eq(roles.id, timelineUsers.roleId))
+      .where(
+        and(
+          inArray(timelineUsers.timelineId, [...timelineIds]),
+          isNull(timelineUsers.removedAt),
+        ),
+      )
+      .groupBy(timelineUsers.timelineId, roles.code);
   }
 }

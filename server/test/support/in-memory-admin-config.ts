@@ -14,8 +14,8 @@ import type {
   NewCycle,
 } from '../../src/database/drizzle/schema/cycles.js';
 import type {
+  AssignedCountRow,
   NewStepValues,
-  TimelineBundle,
   TimelineInsertOutcome,
   TimelinesStore,
 } from '../../src/admin-config/timelines/timelines.store.js';
@@ -26,6 +26,7 @@ import type {
 import type { TimelineProgram } from '../../src/database/drizzle/schema/timeline-programs.js';
 import type { TimelineResultType } from '../../src/database/drizzle/schema/timeline-result-types.js';
 import type { TimelineStep } from '../../src/database/drizzle/schema/timeline-steps.js';
+import type { TimelineUser } from '../../src/database/drizzle/schema/timeline-users.js';
 import type {
   NewTimeline,
   Timeline,
@@ -83,6 +84,23 @@ export class InMemoryAdminConfigDatabase {
   readonly steps: TimelineStep[] = [];
   readonly programs: TimelineProgram[] = [];
   readonly resultTypes: TimelineResultType[] = [];
+  /** The rows of `timeline_users`; no route writes them yet (T-8), so tests seed them. */
+  readonly assignments: TimelineUser[] = [];
+  /** `roles.id` -> `roles.code`, as the seeded `roles` table maps them for the join of the counts. */
+  readonly roleCodeById = new Map<number, string>([
+    [1, 'ADMIN'],
+    [2, 'LEAD_ASSESSOR'],
+    [3, 'ASSESSOR'],
+    [4, 'TPB'],
+    [5, 'PPU'],
+    [6, 'PROGRAM'],
+  ]);
+  /**
+   * Read statements the timeline store ran, in order (`timelines:cycle:1`,
+   * `steps:1,2`): design 7.4 and NFR-5 count them, so a test that reads 1 and
+   * then 50 timelines sees the same number.
+   */
+  readonly timelineReadLog: string[] = [];
   /**
    * Timeline writes in the order the statements RAN: `timeline:official:1`,
    * `programs:1`, `steps:1`. A rolled-back write stays in it, so an empty log
@@ -97,8 +115,14 @@ export class InMemoryAdminConfigDatabase {
    * lock held to the commit leaves one transaction's writes contiguous.
    */
   readonly history: string[] = [];
-  /** Reads of one timeline's rows (the read model), by any store of this world. */
+  /** Read statements of the timeline tables, by any store of this world (the length of `timelineReadLog`). */
   timelineReads = 0;
+
+  /** One timeline read statement. */
+  recordTimelineRead(entry: string): void {
+    this.timelineReads++;
+    this.timelineReadLog.push(entry);
+  }
   /** Inserts refused by `uq_timelines_official_key`: the backstop the cycle lock must keep from firing (DD-3). */
   officialKeyViolations = 0;
   /** Inserts refused by `uq_timelines_cycle_name`. */
@@ -521,20 +545,68 @@ export class InMemoryTimelinesStore implements TimelinesStore {
     this.world.recordTimelineWrite(`steps:${timelineId}`);
   }
 
-  async findBundle(id: number): Promise<TimelineBundle | undefined> {
-    this.world.timelineReads++;
-    const timeline = this.rows.find((r) => r.id === id);
-    if (!timeline) return undefined;
-    return structuredClone({
-      timeline,
-      steps: this.stepRows.filter((r) => r.timelineId === id),
-      programIds: this.programRows
-        .filter((r) => r.timelineId === id)
-        .map((r) => r.programId),
-      resultTypeKeys: this.resultTypeRows
-        .filter((r) => r.timelineId === id)
-        .map((r) => r.resultTypeKey),
-    });
+  async findById(id: number): Promise<Timeline | undefined> {
+    this.world.recordTimelineRead(`timeline:${id}`);
+    return structuredClone(this.rows.find((r) => r.id === id));
+  }
+
+  async cycleExists(cycleId: number): Promise<boolean> {
+    this.world.recordTimelineRead(`cycle:${cycleId}`);
+    return this.world.cycles.some((c) => c.id === cycleId);
+  }
+
+  async listByCycle(cycleId: number): Promise<Timeline[]> {
+    this.world.recordTimelineRead(`timelines:cycle:${cycleId}`);
+    return structuredClone(this.rows.filter((r) => r.cycleId === cycleId));
+  }
+
+  async listSteps(timelineIds: readonly number[]): Promise<TimelineStep[]> {
+    this.world.recordTimelineRead(`steps:${timelineIds.join(',')}`);
+    return structuredClone(
+      this.stepRows
+        .filter((r) => timelineIds.includes(r.timelineId))
+        .sort((a, b) => a.position - b.position),
+    );
+  }
+
+  async listPrograms(
+    timelineIds: readonly number[],
+  ): Promise<TimelineProgram[]> {
+    this.world.recordTimelineRead(`programs:${timelineIds.join(',')}`);
+    return structuredClone(
+      this.programRows.filter((r) => timelineIds.includes(r.timelineId)),
+    );
+  }
+
+  async listResultTypes(
+    timelineIds: readonly number[],
+  ): Promise<TimelineResultType[]> {
+    this.world.recordTimelineRead(`result-types:${timelineIds.join(',')}`);
+    return structuredClone(
+      this.resultTypeRows.filter((r) => timelineIds.includes(r.timelineId)),
+    );
+  }
+
+  async countAssigned(
+    timelineIds: readonly number[],
+  ): Promise<AssignedCountRow[]> {
+    this.world.recordTimelineRead(`assigned:${timelineIds.join(',')}`);
+    const counts = new Map<string, AssignedCountRow>();
+    for (const row of this.world.assignments) {
+      if (row.removedAt !== null || !timelineIds.includes(row.timelineId)) {
+        continue;
+      }
+      const roleCode = this.world.roleCodeById.get(row.roleId) ?? '?';
+      const key = `${row.timelineId}:${roleCode}`;
+      const entry = counts.get(key) ?? {
+        timelineId: row.timelineId,
+        roleCode,
+        count: 0,
+      };
+      entry.count++;
+      counts.set(key, entry);
+    }
+    return [...counts.values()];
   }
 }
 

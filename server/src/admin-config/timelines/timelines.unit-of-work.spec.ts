@@ -90,8 +90,10 @@ function stub({
             1,
           ],
         ];
-      else if (sql.includes('from `timeline_programs`')) rows = [[2]];
-      else if (sql.includes('from `timeline_result_types`')) rows = [['KP']];
+      else if (sql.includes('from `timeline_programs`')) rows = [[11, 2]];
+      else if (sql.includes('from `timeline_result_types`'))
+        rows = [[11, 'KP']];
+      else if (sql.includes('from `timeline_users`')) rows = [];
       else rows = [[11, 3, 'July 2026', 'official', 3, 0, 0, at, 1]];
       return Promise.resolve([rows, []]);
     },
@@ -307,17 +309,24 @@ describe('DrizzleTimelinesUnitOfWork over a stub MySQL driver', () => {
     );
   });
 
-  it('reading one timeline is one statement per table, on the pool, and maps the rows', async () => {
+  it('reading one timeline is one statement per table (and one for the assignment counts), on the pool, and maps the rows', async () => {
     const { service, log } = stub();
 
     const timeline = await service.get(11);
 
-    expect(log.map((s) => s.via)).toEqual(['pool', 'pool', 'pool', 'pool']);
+    expect(log.map((s) => s.via)).toEqual([
+      'pool',
+      'pool',
+      'pool',
+      'pool',
+      'pool',
+    ]);
     expect(log.map((s) => /from `(\w+)`/.exec(s.sql)![1])).toEqual([
       'timelines',
       'timeline_steps',
       'timeline_programs',
       'timeline_result_types',
+      'timeline_users',
     ]);
     expect(timeline).toMatchObject({
       id: 11,

@@ -128,7 +128,7 @@ T-2 ─┼─▶ T-3 ───────────────────�
 - **Skills:** nestjs-expert, nestjs-best-practices, api-design-principles, error-handling-patterns
 
 ## T-7: Timelines — list and detail
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** S
 - **Depends on:** T-4, T-6
 - **Requirements:** FR-12 (Two live at once; Open and close by date — end to end with an overridden clock, BUT no stored state changes; DST; Unknown cycle or timeline → 404; ordering), FR-13 (in responses; Not blocking), FR-16 (these routes), NFR-1, NFR-5

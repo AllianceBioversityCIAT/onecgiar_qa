@@ -20,6 +20,7 @@ import {
   TimelineValidationError,
 } from '../admin-config.errors.js';
 import { CyclesService } from '../cycles/cycles.service.js';
+import type { TimelineUser } from '../../database/drizzle/schema/timeline-users.js';
 import type { TimelineCreateInput } from './timeline-rules.js';
 import { TimelinesService } from './timelines.service.js';
 import type { TimelinesUnitOfWork } from './timelines.unit-of-work.js';
@@ -429,7 +430,13 @@ describe('create: official or additional (FR-5)', () => {
               insertPrograms: (...args) => t.insertPrograms(...args),
               insertResultTypes: (...args) => t.insertResultTypes(...args),
               insertSteps: (...args) => t.insertSteps(...args),
-              findBundle: (id) => t.findBundle(id),
+              findById: (id) => t.findById(id),
+              cycleExists: (id) => t.cycleExists(id),
+              listByCycle: (id) => t.listByCycle(id),
+              listSteps: (ids) => t.listSteps(ids),
+              listPrograms: (ids) => t.listPrograms(ids),
+              listResultTypes: (ids) => t.listResultTypes(ids),
+              countAssigned: (ids) => t.countAssigned(ids),
             },
           });
         }),
@@ -1244,5 +1251,161 @@ describe('the decision line (NFR-7)', () => {
     service.defaultSteps();
 
     expect(lines).toEqual([]);
+  });
+});
+
+// FR-12 (list, detail, ordering, unknown ids, open and close by date), FR-13
+// (readiness from the active assignments), NFR-5 (a fixed number of statements)
+// and design 6, 7.4, 7.7, as literals.
+describe('the timelines of a cycle and the detail (FR-12, FR-13, NFR-5)', () => {
+  const assignment = (
+    timelineId: number,
+    roleId: number,
+    removed = false,
+  ): TimelineUser => ({
+    id: Math.floor(Math.random() * 1e9),
+    timelineId,
+    userId: 1,
+    roleId,
+    assignedAt: SEEDED_AT,
+    assignedBy: 1,
+    removedAt: removed ? SEEDED_AT : null,
+    removedBy: removed ? 1 : null,
+    activeKey: removed ? null : `${timelineId}:1:${roleId}`,
+  });
+
+  it('runs the same number of statements for 1 timeline and for 50', async () => {
+    const one = world();
+    const oneCycle = await one.seedCycle(2026);
+    await one.service.create(one.ctx(), oneCycle, request({ name: 'T0' }));
+    one.db.timelineReadLog.length = 0;
+    expect(await one.service.listByCycle(oneCycle)).toHaveLength(1);
+    const forOne = one.db.timelineReadLog.length;
+
+    const many = world();
+    const manyCycle = await many.seedCycle(2026);
+    for (let i = 0; i < 50; i++) {
+      await many.service.create(
+        many.ctx(),
+        manyCycle,
+        request({ name: `T${i}` }),
+      );
+    }
+    many.db.timelineReadLog.length = 0;
+    expect(await many.service.listByCycle(manyCycle)).toHaveLength(50);
+    const forMany = many.db.timelineReadLog.length;
+
+    // cycle, timelines, steps, programs, result types, assignment counts
+    expect(forOne).toBe(6);
+    expect(forMany).toBe(6);
+    expect(
+      many.db.timelineReadLog.filter((q) => q.startsWith('steps:')),
+    ).toHaveLength(1);
+  });
+
+  it('puts the official timeline first, then the additional ones newest first', async () => {
+    const w = world();
+    const cycleId = await w.seedCycle(2026);
+    for (const name of ['Official', 'Older', 'Newer']) {
+      await w.service.create(w.ctx(), cycleId, request({ name }));
+      w.clock.advance(60_000);
+    }
+
+    const list = await w.service.listByCycle(cycleId);
+
+    expect(list.map((t) => [t.name, t.kind])).toEqual([
+      ['Official', 'official'],
+      ['Newer', 'additional'],
+      ['Older', 'additional'],
+    ]);
+  });
+
+  it('answers an empty list for a cycle without timelines, and 404 for an unknown cycle', async () => {
+    const w = world();
+    const cycleId = await w.seedCycle(2026);
+
+    expect(await w.service.listByCycle(cycleId)).toEqual([]);
+    expect(await refusal(w.service.listByCycle(999))).toBeInstanceOf(
+      CycleNotFoundError,
+    );
+  });
+
+  it('refuses the detail of an unknown timeline with 404', async () => {
+    const w = world();
+
+    expect(await refusal(w.service.detail(999))).toBeInstanceOf(
+      TimelineNotFoundError,
+    );
+  });
+
+  it('the detail is the timeline of the list plus `users`', async () => {
+    const w = world();
+    const cycleId = await w.seedCycle(2026);
+    const { timelineId } = await w.service.create(w.ctx(), cycleId, request());
+
+    const [listed] = await w.service.listByCycle(cycleId);
+    const detail = await w.service.detail(timelineId);
+
+    expect(detail).toEqual({ ...listed, users: [] });
+  });
+
+  it('counts only active assignments per role and drops NO_<ROLE>_ASSIGNED for a role that has one', async () => {
+    const w = world();
+    const cycleId = await w.seedCycle(2026);
+    const { timelineId } = await w.service.create(
+      w.ctx(),
+      cycleId,
+      request({ steps: [STEP_1, STEP_3] }),
+    );
+    expect((await w.service.get(timelineId)).readiness).toEqual([
+      'NO_RESULTS_LOADED',
+      'NO_ASSESSOR_ASSIGNED',
+      'NO_LEAD_ASSESSOR_ASSIGNED',
+    ]);
+
+    // roles.id 3 = ASSESSOR (two active, one removed), 2 = LEAD_ASSESSOR (removed only)
+    w.db.assignments.push(
+      assignment(timelineId, 3),
+      assignment(timelineId, 3),
+      assignment(timelineId, 3, true),
+      assignment(timelineId, 2, true),
+    );
+    const read = await w.service.get(timelineId);
+
+    expect(read.assignedCount).toEqual({
+      ASSESSOR: 2,
+      LEAD_ASSESSOR: 0,
+      TPB: 0,
+      PPU: 0,
+    });
+    expect(read.readiness).toEqual([
+      'NO_RESULTS_LOADED',
+      'NO_LEAD_ASSESSOR_ASSIGNED',
+    ]);
+  });
+
+  it('opens and closes by date through the clock alone, and a read writes nothing', async () => {
+    const w = world();
+    const cycleId = await w.seedCycle(2026);
+    const { timelineId } = await w.service.create(w.ctx(), cycleId, request());
+    const before = w.written();
+    const history = [...w.db.history];
+
+    const view = async () => {
+      const t = await w.service.get(timelineId);
+      return [t.status, t.currentStep, t.nextStep];
+    };
+    // 23:59 Rome on 6 Nov (CET, UTC+1)
+    w.clock.advance(Date.parse('2026-11-06T22:59:00Z') - NOW.getTime());
+    expect(await view()).toEqual(['live', 1, 2]);
+    w.clock.advance(60_000); // 00:00 Rome, 7 Nov
+    expect(await view()).toEqual(['live', null, 2]);
+    w.clock.advance(
+      Date.parse('2026-11-08T23:00:00Z') - Date.parse('2026-11-06T23:00:00Z'),
+    ); // 00:00 Rome, 9 Nov
+    expect(await view()).toEqual(['live', 2, null]);
+
+    expect(w.written()).toBe(before);
+    expect(w.db.history).toEqual(history);
   });
 });

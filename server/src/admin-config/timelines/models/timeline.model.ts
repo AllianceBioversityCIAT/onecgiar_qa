@@ -8,10 +8,13 @@ import {
   type TimelineKind,
 } from '../../../database/drizzle/schema/timelines.js';
 import type { DefaultStep } from '../default-steps.js';
-import type {
-  AssignableRole,
-  TimelineResponse,
-  TimelineStepResponse,
+import {
+  ASSIGNABLE_ROLES,
+  type AssignableRole,
+  type TimelineDetailResponse,
+  type TimelineResponse,
+  type TimelineStepResponse,
+  type TimelineUserResponse,
 } from '../timeline-response.js';
 import type { TimelineStatus } from '../timeline-view.js';
 
@@ -160,4 +163,37 @@ export class TimelineModel implements TimelineResponse {
 
   @ApiProperty({ type: String, format: 'date-time' })
   createdAt!: Date;
+}
+
+/** OpenAPI model of a user assigned to a timeline in a role (design 6, `TimelineUser`). */
+export class TimelineUserModel implements TimelineUserResponse {
+  @ApiProperty({ type: Number, example: 12 })
+  assignmentId!: number;
+
+  @ApiProperty({ type: Number, example: 7 })
+  userId!: number;
+
+  @ApiProperty({ type: String, example: 'Ada' })
+  firstName!: string;
+
+  @ApiProperty({ type: String, example: 'Lovelace' })
+  lastName!: string;
+
+  @ApiProperty({ type: String, example: 'ada@cgiar.org' })
+  email!: string;
+
+  @ApiProperty({ type: String, enum: ASSIGNABLE_ROLES, example: 'ASSESSOR' })
+  role!: AssignableRole;
+
+  @ApiProperty({ type: String, format: 'date-time' })
+  assignedAt!: Date;
+}
+
+/** OpenAPI model of a timeline with its assigned users (design 6, `TimelineDetail`). */
+export class TimelineDetailModel
+  extends TimelineModel
+  implements TimelineDetailResponse
+{
+  @ApiProperty({ type: [TimelineUserModel] })
+  users!: TimelineUserModel[];
 }

@@ -31,8 +31,16 @@ import type { AdminConfigContext } from '../admin-config.context.js';
 import { CycleIdParams } from '../cycles/dto/cycle-params.js';
 import type { DefaultStep } from './default-steps.js';
 import { CreateTimelineDto } from './dto/create-timeline.dto.js';
-import { DefaultStepModel, TimelineModel } from './models/timeline.model.js';
-import type { TimelineResponse } from './timeline-response.js';
+import { TimelineIdParams } from './dto/timeline-params.js';
+import {
+  DefaultStepModel,
+  TimelineDetailModel,
+  TimelineModel,
+} from './models/timeline.model.js';
+import type {
+  TimelineDetailResponse,
+  TimelineResponse,
+} from './timeline-response.js';
 import { TimelinesService } from './timelines.service.js';
 
 // Codes shared by every route: the guard answers before anything else, so a
@@ -52,7 +60,7 @@ const listOf = (model: new () => unknown) => ({
  * `ADMIN_ACCESS` on the whole class: the global `PermissionGuard` refuses
  * everyone else before any handler, pipe or lookup runs. The paths are spelled
  * per route because they sit under `/cycles/:id`, `/timelines/:id` and
- * `/timeline-defaults`. Create is idempotent per `Idempotency-Key` and answers
+ * `/timeline-defaults`. Reads (FR-12) compute status on the fly and never write. Create is idempotent per `Idempotency-Key` and answers
  * the timeline as read after the commit.
  */
 @ApiTags('timelines')
@@ -122,5 +130,36 @@ export class TimelinesController {
       dto,
     );
     return this.timelines.get(timelineId);
+  }
+
+  @ApiOperation({
+    summary: 'List the timelines of a cycle',
+    description:
+      'The official timeline first, then the additional ones newest first. Status, current step and readiness are computed on read from today in Rome; nothing is stored or changed by reading.',
+  })
+  @ApiOkEnvelope(listOf(TimelineModel), { extraModels: [TimelineModel] })
+  @ApiErrorResponses({
+    ...ACCESS,
+    400: ['VALIDATION_FAILED'],
+    404: ['CYCLES_NOT_FOUND'],
+  })
+  @Get('cycles/:id/timelines')
+  list(@Param() { id }: CycleIdParams): Promise<TimelineResponse[]> {
+    return this.timelines.listByCycle(id);
+  }
+
+  @ApiOperation({
+    summary: 'Read one timeline',
+    description: 'The timeline as listed, plus the users assigned to it.',
+  })
+  @ApiOkEnvelope(TimelineDetailModel)
+  @ApiErrorResponses({
+    ...ACCESS,
+    400: ['VALIDATION_FAILED'],
+    404: ['TIMELINES_NOT_FOUND'],
+  })
+  @Get('timelines/:id')
+  detail(@Param() { id }: TimelineIdParams): Promise<TimelineDetailResponse> {
+    return this.timelines.detail(id);
   }
 }

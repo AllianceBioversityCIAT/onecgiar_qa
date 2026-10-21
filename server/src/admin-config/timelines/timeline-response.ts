@@ -46,10 +46,26 @@ export interface TimelineResponse {
   createdAt: Date;
 }
 
+/** A user assigned to a timeline in a role (design 6, `TimelineUser`). */
+export interface TimelineUserResponse {
+  assignmentId: number;
+  userId: number;
+  firstName: string;
+  lastName: string;
+  email: string;
+  role: AssignableRole;
+  assignedAt: Date;
+}
+
+/** `Timeline` plus its active assignments (design 6, `TimelineDetail`). */
+export interface TimelineDetailResponse extends TimelineResponse {
+  users: TimelineUserResponse[];
+}
+
 /**
  * The read model of one timeline from its rows and today's Rome date (FR-12).
- * `assigned` is the count of active assignments per role; none can exist
- * before the assignment routes do, so it defaults to zero everywhere.
+ * `assigned` is the count of active assignments per role; a role missing from
+ * it has none.
  */
 export function toTimelineResponse(
   bundle: TimelineBundle,
