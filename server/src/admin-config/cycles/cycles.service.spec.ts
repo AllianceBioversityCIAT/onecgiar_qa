@@ -1,4 +1,4 @@
-import { Logger } from '@nestjs/common';
+import { HttpException, Logger } from '@nestjs/common';
 import {
   InMemoryAdminConfigDatabase,
   InMemoryCyclesUnitOfWork,
@@ -17,7 +17,12 @@ import {
   CycleNotFoundError,
   CycleYearTakenError,
 } from '../admin-config.errors.js';
+import type { CyclesStore } from './cycles.store.js';
 import { CyclesService } from './cycles.service.js';
+import type {
+  CyclesRepositories,
+  CyclesUnitOfWork,
+} from './cycles.unit-of-work.js';
 
 // Expected values come from FR-1 (new cycle, duplicate year, invalid year),
 // FR-2 (list), FR-3 (switch, not a draft), NFR-3 (the database keys hold under
@@ -65,6 +70,24 @@ function world() {
   return { clock, db, unitOfWork, service, ctx, seed, activeCount };
 }
 
+/** How a promise ended, as data: what a test asserts on instead of letting a rejection abort it. */
+async function settle(
+  promise: Promise<unknown>,
+): Promise<{ resolved: unknown } | { rejected: unknown }> {
+  try {
+    return { resolved: await promise };
+  } catch (error) {
+    return { rejected: error };
+  }
+}
+
+/** The status and catalog code an HTTP refusal carries; `null` for anything else (a raw driver error is a 500). */
+function refusalOf(error: unknown): { status: number; code: unknown } | null {
+  if (!(error instanceof HttpException)) return null;
+  const body = error.getResponse() as { code?: unknown };
+  return { status: error.getStatus(), code: body.code };
+}
+
 /** The error a promise rejects with. */
 async function refusal(promise: Promise<unknown>): Promise<unknown> {
   try {
@@ -74,6 +97,66 @@ async function refusal(promise: Promise<unknown>): Promise<unknown> {
   }
   throw new Error('expected a refusal, got a result');
 }
+
+// --- refusals of the active key (cycle-timelines T-11) ------------------------
+
+/** MySQL's refusal of a second active row, as the driver raises it (MySQL 8 names the key with its table). */
+function activeKeyRefusal(): Error {
+  return Object.assign(
+    new Error("Duplicate entry '1' for key 'cycles.uq_cycles_active_key'"),
+    { code: 'ER_DUP_ENTRY', errno: 1062 },
+  );
+}
+
+/** What the query builder throws: its own error, the driver error as `cause`. */
+function wrapped(cause: Error): Error {
+  return new Error('Failed query: update `cycles` set ...', { cause });
+}
+
+function deadlock(): Error {
+  return Object.assign(new Error('Deadlock found when trying to get lock'), {
+    code: 'ER_LOCK_DEADLOCK',
+    errno: 1213,
+  });
+}
+
+/**
+ * A unit of work over the fake database whose Nth attempt raises `refusal(N)`
+ * from the write that activates the target (nothing is raised when it returns
+ * `undefined`). The fake rolls the attempt back as MySQL would, so what
+ * survives a refusal is exactly what survives on the database.
+ */
+function refusingUnitOfWork(
+  inner: InMemoryCyclesUnitOfWork,
+  refusal: (attempt: number) => unknown,
+) {
+  const unit = {
+    attempts: 0,
+    run<T>(work: (repositories: CyclesRepositories) => Promise<T>) {
+      const error = refusal(++unit.attempts);
+      return inner.run((repositories) => {
+        if (error === undefined) return work(repositories);
+        const cycles: CyclesStore = Object.create(repositories.cycles);
+        cycles.markActive = () => Promise.reject(error);
+        return work({ ...repositories, cycles });
+      });
+    },
+  } satisfies CyclesUnitOfWork & { attempts: number };
+  return unit;
+}
+
+/** `world()` with an activation that the database refuses as `refusal(attempt)` says. */
+function refusedWorld(refusal: (attempt: number) => unknown) {
+  const base = world();
+  const unit = refusingUnitOfWork(base.unitOfWork, refusal);
+  const service = new CyclesService(unit, base.db.store, base.clock.now);
+  return { ...base, service, unit };
+}
+
+/** Refused `times` times with `error()`, then let through. */
+const refusedTimes =
+  (times: number, error: () => Error) => (attempt: number) =>
+    attempt <= times ? error() : undefined;
 
 describe('create (FR-1)', () => {
   it('creates a draft with the display name, who created it and when', async () => {
@@ -367,6 +450,149 @@ describe('activate (FR-3)', () => {
     expect(unitOfWork).toMatchObject({ begun: 3, committed: 2, rolledBack: 1 });
   });
 
+  describe('under repeated refusals of the active key (T-11, design 7.3)', () => {
+    it.each([1, 2, 5])(
+      'refused %i time(s) by uq_cycles_active_key, then let through: 200 after one more attempt, one commit',
+      async (times) => {
+        const { service, ctx, db, seed, unit, unitOfWork, activeCount } =
+          refusedWorld(refusedTimes(times, activeKeyRefusal));
+        await seed(2027);
+
+        const result = await settle(service.activate(ctx(), 1));
+
+        expect(result).toEqual({ resolved: { cycleId: 1 } });
+        expect(unit.attempts).toBe(times + 1);
+        expect(unitOfWork).toMatchObject({
+          begun: times + 1,
+          committed: 1,
+          rolledBack: times,
+        });
+        expect(db.cycles[0]).toMatchObject({ status: 'active', activeKey: 1 });
+        expect(activeCount()).toBe(1);
+      },
+    );
+
+    it('reads the refusal through the query builder wrapper (the driver error as cause)', async () => {
+      const { service, ctx, seed, unit } = refusedWorld(
+        refusedTimes(3, () => wrapped(activeKeyRefusal())),
+      );
+      await seed(2027);
+
+      const result = await settle(service.activate(ctx(), 1));
+
+      expect(result).toEqual({ resolved: { cycleId: 1 } });
+      expect(unit.attempts).toBe(4);
+    });
+
+    it('is refused on every attempt: 503 SERVICE_UNAVAILABLE after exactly 10 attempts, nothing committed', async () => {
+      const { service, ctx, db, seed, unit, unitOfWork, activeCount } =
+        refusedWorld(() => activeKeyRefusal());
+      await seed(2027);
+
+      const error = await refusal(service.activate(ctx(), 1));
+
+      expect(refusalOf(error)).toEqual({
+        status: 503,
+        code: 'SERVICE_UNAVAILABLE',
+      });
+      expect(unit.attempts).toBe(10);
+      expect(unitOfWork).toMatchObject({
+        begun: 10,
+        committed: 0,
+        rolledBack: 10,
+      });
+      expect(db.cycles[0]).toMatchObject({ status: 'draft', activeKey: null });
+      expect(activeCount()).toBe(0);
+    });
+
+    it('retries a 1213 deadlock the same way: k = 4 then 200', async () => {
+      const { service, ctx, seed, unit, unitOfWork } = refusedWorld(
+        refusedTimes(4, deadlock),
+      );
+      await seed(2027);
+
+      const result = await settle(service.activate(ctx(), 1));
+
+      expect(result).toEqual({ resolved: { cycleId: 1 } });
+      expect(unit.attempts).toBe(5);
+      expect(unitOfWork).toMatchObject({ committed: 1, rolledBack: 4 });
+    });
+
+    it('a deadlock on every attempt is 503 SERVICE_UNAVAILABLE after exactly 10 attempts', async () => {
+      const { service, ctx, seed, unit } = refusedWorld(() => deadlock());
+      await seed(2027);
+
+      const error = await refusal(service.activate(ctx(), 1));
+
+      expect(refusalOf(error)).toEqual({
+        status: 503,
+        code: 'SERVICE_UNAVAILABLE',
+      });
+      expect(unit.attempts).toBe(10);
+    });
+
+    it('mixes both refusals in one request: 1062, 1213, 1062, 1213, then 200', async () => {
+      const { service, ctx, seed, unit } = refusedWorld((attempt) =>
+        attempt > 4
+          ? undefined
+          : attempt % 2 === 1
+            ? activeKeyRefusal()
+            : deadlock(),
+      );
+      await seed(2027);
+
+      const result = await settle(service.activate(ctx(), 1));
+
+      expect(result).toEqual({ resolved: { cycleId: 1 } });
+      expect(unit.attempts).toBe(5);
+    });
+
+    it.each([
+      [
+        '1062 on another key',
+        () =>
+          Object.assign(
+            new Error("Duplicate entry '2027' for key 'cycles.uq_cycles_year'"),
+            { code: 'ER_DUP_ENTRY', errno: 1062 },
+          ),
+      ],
+      ['an unrelated error', () => new Error('connection lost')],
+      [
+        'a lock wait timeout (1205)',
+        () =>
+          Object.assign(new Error('Lock wait timeout exceeded'), {
+            code: 'ER_LOCK_WAIT_TIMEOUT',
+            errno: 1205,
+          }),
+      ],
+    ])(
+      '%s is not retried and reaches the caller as it is',
+      async (_name, make) => {
+        const failure = make();
+        const { service, ctx, seed, unit, unitOfWork } = refusedWorld(
+          () => failure,
+        );
+        await seed(2027);
+
+        const error = await refusal(service.activate(ctx(), 1));
+
+        expect(error).toBe(failure);
+        expect(unit.attempts).toBe(1);
+        expect(unitOfWork).toMatchObject({ committed: 0, rolledBack: 1 });
+      },
+    );
+
+    it('a domain refusal is not retried either: 409 CYCLES_NOT_DRAFT after one attempt', async () => {
+      const { service, ctx, seed, unit } = refusedWorld(() => undefined);
+      await seed(2026, 'active');
+
+      const error = await refusal(service.activate(ctx(), 1));
+
+      expect(error).toBeInstanceOf(CycleNotDraftError);
+      expect(unit.attempts).toBe(1);
+    });
+  });
+
   it('the fake database refuses a second active row (1062): the backstop the lock order never reaches', async () => {
     const { db, seed } = world();
     await seed(2026, 'active');
@@ -613,6 +839,42 @@ describe('the decision line (NFR-7)', () => {
     expect(lines.map((l) => l.line)).toEqual([
       { ...base, action: 'cycle_activate', targetId: 1, outcome: 'ok' },
       { ...base, action: 'cycle_activate', targetId: 2, outcome: 'ok' },
+    ]);
+  });
+
+  it('an activation that the database refuses 5 times and then lets through writes one line', async () => {
+    const { service, ctx, seed } = refusedWorld(
+      refusedTimes(5, activeKeyRefusal),
+    );
+    await seed(2027);
+
+    await settle(service.activate(ctx(7), 1));
+
+    expect(lines).toEqual([
+      {
+        level: 'log',
+        line: { ...base, action: 'cycle_activate', targetId: 1, outcome: 'ok' },
+      },
+    ]);
+  });
+
+  it('an activation refused on all 10 attempts writes one error line with the reason SERVICE_UNAVAILABLE', async () => {
+    const { service, ctx, seed } = refusedWorld(() => activeKeyRefusal());
+    await seed(2027);
+
+    await refusal(service.activate(ctx(7), 1));
+
+    expect(lines).toEqual([
+      {
+        level: 'error',
+        line: {
+          ...base,
+          action: 'cycle_activate',
+          targetId: 1,
+          outcome: 'error',
+          reason: 'SERVICE_UNAVAILABLE',
+        },
+      },
     ]);
   });
 

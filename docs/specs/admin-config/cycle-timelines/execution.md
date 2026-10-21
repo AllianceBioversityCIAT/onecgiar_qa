@@ -541,3 +541,29 @@ The design § 10 budget was exceeded. Execution stopped for the back lead's deci
 - **New task T-11** was added to `tasks.md`: activation retry under real concurrency, with scope including the stale "retries once" bullet in `server/src/admin-config/AGENTS.md`.
 - **Sweep:** `retries once` / `retry once` over the spec docs, the TRD and the module guide. The only other hit is the Create-timeline `official_key` backstop, which is a different mechanism and stays.
 - T-10 stays `[~]` until T-11 lands and the TEST re-check passes.
+
+### T-11: Activation retry under real concurrency — in progress
+
+- **Attempt 1 — FAIL (Reviewer), 2026-10-21.**
+  - Files changed: `server/src/admin-config/cycles/{cycles.service,cycles.service.spec,cycles.controller}.ts`, `server/src/admin-config/admin-config.errors.ts`, `server/src/admin-config/AGENTS.md`, `docs/specs/admin-config/cycle-timelines/front-contract.md`.
+  - Red run (old 2-attempt code): 10 failed / 41 passed, for example `expected null to deeply equal { status: 503, code: 'SERVICE_UNAVAILABLE' }`.
+  - Falsifiers: F1 (limit back to 2) failed 8 tests (`AssertionError: expected 2 to be 10`); F2 (`throw error`) failed 3 tests.
+  - Evidence re-run (Leader inline): VERIFIED. Unit 49 / 1720 · tsc 7 baseline · `pnpm test:e2e` 13 / 715.
+  - **Reviewer FAIL** (verbatim):
+    1.  **Discovered Issue:** The new error class `CycleActivationBusyError` (`server/src/admin-config/admin-config.errors.ts`) was not added to the hand-listed array in `server/src/common/error-codes.spec.ts` (lines 101-143, "domain errors declare a catalog code with the same status"). It is also missing from the "cycle and timeline errors" table at lines 169-186. Every other admin-config error class is in both lists.
+        *   **Violated Rule:** `docs/specs/admin-config/cycle-timelines/design.md#7.5`: "Each error class joins the hand-listed array of `error-codes.spec.ts` (P-4)". P-4 (design.md L294) is the precedent that says `error-codes.spec.ts` hand-lists domain error classes. The service spec checks status 503 and the code, but it never checks that `ERROR_CATALOG.SERVICE_UNAVAILABLE.status` equals 503. That catalog/status check is exactly what the hand list is for.
+        *   **Remediation Suggestion:** Add `['CycleActivationBusyError', new CycleActivationBusyError()]` to the array at L101-143. Add `[new CycleActivationBusyError(), 503, 'SERVICE_UNAVAILABLE']` to the cycle/timeline `it.each` at L170-182. Import the class. The Leader should widen the task scope to include this one file. The task's scope list did not foresee a new error class, and its "Not touched: other modules" line is about production modules, not the shared catalog test that the design requires.
+  - **Leader:** in scope. The T-11 scope was widened to include `server/src/common/error-codes.spec.ts` (a test-only file the design § 7.5 rule requires). The fix is narrow, and effort goes from `high` to `xhigh` for attempt 2.
+  - spawns: implementer 27 calls, 135,281 tokens, ended complete · reviewer 9 calls, 44,587 tokens, ended complete.
+- **Attempt 2 — Reviewer PASS (2026-10-21).**
+  - Files changed: `server/src/common/error-codes.spec.ts` (+3: the import, the hand-listed row and the cycle/timeline `it.each` row).
+  - runtime events: none.
+  - Falsifiers:
+    - The `it.each` expectation changed from 503 to 409 gave `AssertionError: expected 503 to be 409` (`error-codes.spec.ts:187:31`).
+    - The class temporarily built with `errorBody('CYCLES_CLOSED')` gave `expected 409 to be 503` (`:150:70`).
+    - F1 re-run (limit 10 → 2) still failed 8 tests.
+    - All reverted.
+  - Evidence re-run (Leader inline, non-author): VERIFIED. Lint OK · build OK · unit 49 files / 1722 passed · tsc 7 baseline · `pnpm test:e2e` 13 / 715.
+  - Reviewer: PASS. The attempt-1 issue is fixed (design § 7.5 / P-4). The design § 7.3 Activate row as amended is met: 10 attempts, retry only on 1062 `uq_cycles_active_key` or 1213, exhaustion → 503, never 500, one decision line per request. Scope is respected under the recorded widening.
+  - spawns: implementer 24 calls, 85,750 tokens, ended complete · reviewer — not reported by host, ended complete.
+  - **Status:** `[~]` until the "Done when" TEST re-check is recorded (merge to `dev`, deploy, 5 and 10 concurrent activations with none active).

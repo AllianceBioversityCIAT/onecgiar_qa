@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { errorBody, FIELD_ERRORS } from '../common/error-codes.js';
 import type { FieldIssue } from '../users/users.errors.js';
@@ -25,6 +26,17 @@ export class CycleYearTakenError extends ConflictException {
 export class CycleNotDraftError extends ConflictException {
   constructor() {
     super(errorBody('CYCLES_NOT_DRAFT'));
+  }
+}
+
+/**
+ * Every attempt of an activation was refused by a concurrent one (design 7.3,
+ * NFR-3): 503 `SERVICE_UNAVAILABLE`, retryable. Nothing was committed. The
+ * last refusal travels as the `cause`; it is never part of the answer.
+ */
+export class CycleActivationBusyError extends ServiceUnavailableException {
+  constructor(cause?: unknown) {
+    super(errorBody('SERVICE_UNAVAILABLE'), { cause });
   }
 }
 

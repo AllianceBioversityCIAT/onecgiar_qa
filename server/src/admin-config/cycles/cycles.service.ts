@@ -1,9 +1,6 @@
 import { HttpException, Inject, Injectable, Logger } from '@nestjs/common';
 import type { IdempotencyStore } from '../../common/idempotency/idempotency.store.js';
-import {
-  FieldValidationError,
-  isDuplicateKeyError,
-} from '../../users/users.errors.js';
+import { FieldValidationError } from '../../users/users.errors.js';
 import {
   ADMIN_CONFIG_CLOCK,
   type AdminConfigClock,
@@ -13,6 +10,7 @@ import type {
   AdminConfigContext,
 } from '../admin-config.context.js';
 import {
+  CycleActivationBusyError,
   CycleNotDraftError,
   CycleNotFoundError,
   CycleYearTakenError,
@@ -37,13 +35,49 @@ export interface CreateCycleCommand {
 
 /**
  * Attempts of one activation. The lock order serializes activations only on
- * an active row; with none active two of them are not serialized, and
- * `uq_cycles_active_key` refuses the second with 1062 (design 7.3, NFR-3). The
- * retry then finds the first's cycle active and closes it, which is the
- * serial outcome. After a refusal there is always an active row, so one retry
- * is enough.
+ * an active row; with none active they are not serialized, and
+ * `uq_cycles_active_key` refuses the loser with 1062 (design 7.3, NFR-3), or
+ * InnoDB picks it as a deadlock victim (1213). The loser rolls back fully and
+ * starts over from the committed state, where it finds the winner's cycle
+ * active and closes it (the serial outcome). A retry can be refused again, by
+ * a third activation committing meanwhile: on TEST, 5 concurrent activations
+ * with one retry answered 4 times 200 and once 500. Ten attempts make an
+ * exhausted request a sign of sustained contention, answered 503
+ * `SERVICE_UNAVAILABLE` (retryable) instead of a 500. No wait between
+ * attempts: each one starts with a locking read that already waits for the
+ * transactions it conflicts with.
  */
-const ACTIVATION_ATTEMPTS = 2;
+const ACTIVATION_ATTEMPTS = 10;
+
+const ACTIVE_KEY = 'uq_cycles_active_key';
+
+/**
+ * True when `error` (or a `cause` up to two levels down, where the query
+ * builder wraps the driver error) is a refusal that a new attempt can resolve:
+ * MySQL 1062 on `uq_cycles_active_key` (named in the driver message), or 1213
+ * `ER_LOCK_DEADLOCK`. A 1062 on any other key is a different problem and is
+ * not retried.
+ */
+function isActivationRace(error: unknown): boolean {
+  for (
+    let current: unknown = error, depth = 0;
+    current instanceof Error && depth < 3;
+    current = (current as Error & { cause?: unknown }).cause, depth++
+  ) {
+    const { code, errno } = current as Error & {
+      code?: unknown;
+      errno?: unknown;
+    };
+    if (code === 'ER_LOCK_DEADLOCK' || errno === 1213) return true;
+    if (
+      (code === 'ER_DUP_ENTRY' || errno === 1062) &&
+      current.message.includes(ACTIVE_KEY)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
 
 /** FR-1: a missing, non-integer or out-of-range year is a 400 naming `year`. */
 function validYear(year: unknown): number {
@@ -131,12 +165,12 @@ export class CyclesService {
         try {
           return await this.activateOnce(ctx, cycleId);
         } catch (error) {
-          // The unique key refused a second active cycle: start over from the
+          // A concurrent activation won the race: start over from the
           // committed state (see ACTIVATION_ATTEMPTS).
-          if (attempt < ACTIVATION_ATTEMPTS && isDuplicateKeyError(error)) {
-            continue;
+          if (!isActivationRace(error)) throw error;
+          if (attempt >= ACTIVATION_ATTEMPTS) {
+            throw new CycleActivationBusyError(error);
           }
-          throw error;
         }
       }
     });
