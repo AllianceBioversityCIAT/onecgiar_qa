@@ -1,9 +1,9 @@
 import { Component, DestroyRef, computed, ElementRef, afterNextRender, inject, input, output, signal, viewChild } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { QaMenuImports, QaSelectImports, QaSelectOption } from '../../../ui';
-import { PreviousOutcome, ResultStatus } from './results.mock';
+import { ResultStage } from './results.mock';
 
-export type SortKey = 'code' | 'title' | 'type' | 'comments' | 'r1' | 'status';
+export type SortKey = 'code' | 'title' | 'type' | 'comments' | 'stage';
 export type SortDir = 'asc' | 'desc';
 
 export interface ResultRowVm {
@@ -15,10 +15,12 @@ export interface ResultRowVm {
   readonly comments: readonly [number, number] | null;
   /** Comments not published to the program yet. */
   readonly locked: boolean;
-  readonly r1: PreviousOutcome;
-  readonly r1Class: string;
-  readonly status: ResultStatus;
-  readonly statusClass: string;
+  /** "Round 1" / "Round 2" above the stage pill; empty once quality assessed. */
+  readonly round: string;
+  readonly stage: ResultStage;
+  /** Stage without the round: "In review", "Assessed by 2"… */
+  readonly stageLabel: string;
+  readonly stageClass: string;
   readonly isAuto: boolean;
 }
 
@@ -35,8 +37,7 @@ const COLUMNS: readonly Column[] = [
   { key: 'title', label: 'Title', right: false, secondary: false },
   { key: 'type', label: 'Result type', right: false, secondary: true },
   { key: 'comments', label: 'Comments', right: true, secondary: false },
-  { key: 'r1', label: 'Previous outcome', right: false, secondary: true },
-  { key: 'status', label: 'Status', right: true, secondary: false },
+  { key: 'stage', label: 'QA stage', right: true, secondary: false },
 ];
 
 /** Options of the card-mode "Sort by" picker: value = "key:dir", same state as the header sort. */
@@ -50,33 +51,31 @@ const SORT_OPTIONS: readonly QaSelectOption[] = [
   { value: 'type:desc', label: 'Result type (Z–A)' },
   { value: 'comments:desc', label: 'Comments (most resolved first)' },
   { value: 'comments:asc', label: 'Comments (least resolved first)' },
-  { value: 'r1:asc', label: 'Previous outcome (A–Z)' },
-  { value: 'r1:desc', label: 'Previous outcome (Z–A)' },
-  { value: 'status:asc', label: 'Status (workflow order)' },
-  { value: 'status:desc', label: 'Status (reverse order)' },
+  { value: 'stage:asc', label: 'QA stage (workflow order)' },
+  { value: 'stage:desc', label: 'QA stage (reverse order)' },
 ];
 
 /*
  * Layout by the table's own width (container queries on the host):
- * - < 640px   stacked card rows: code · status · ⋯ / title + meta / comments · previous outcome. No header row.
- * - 640–896   5 columns: Code | Title (meta · result type) | Comments | Status over Previous outcome | ⋯
- * - 896–1000  all 7 columns, compact widths.
- * - ≥ 1000px  all 7 columns with the mockup widths.
+ * - < 640px   stacked card rows: code · QA stage · ⋯ / title + meta / comments. No header row.
+ * - 640–896   5 columns: Code | Title (meta · result type) | Comments | QA stage | ⋯
+ * - 896–1000  all 6 columns, compact widths.
+ * - ≥ 1000px  all 6 columns with the mockup widths.
+ * The QA stage cell names the round above the pill ("Round 1" / Pending); Quality assessed has no round.
  */
 const GRID =
   'grid-cols-[minmax(0,1fr)_auto_40px] gap-x-3 gap-y-1.5 ' +
-  '@min-[640px]:grid-cols-[96px_minmax(0,1fr)_72px_172px_32px] @min-[640px]:gap-y-1 ' +
-  '@min-[896px]:grid-cols-[96px_minmax(0,1fr)_160px_84px_140px_130px_32px] @min-[896px]:gap-y-0 ' +
-  '@min-[1000px]:grid-cols-[96px_minmax(180px,1fr)_200px_84px_150px_140px_32px]';
+  '@min-[640px]:grid-cols-[96px_minmax(0,1fr)_72px_150px_32px] @min-[640px]:gap-y-1 ' +
+  '@min-[896px]:grid-cols-[96px_minmax(0,1fr)_180px_84px_150px_32px] @min-[896px]:gap-y-0 ' +
+  '@min-[1000px]:grid-cols-[96px_minmax(180px,1fr)_220px_84px_160px_32px]';
 
 const CELL = {
   code: 'col-start-1 row-start-1 @min-[640px]:row-span-2 @min-[896px]:row-span-1',
   title: 'col-span-3 row-start-2 @min-[640px]:col-span-1 @min-[640px]:col-start-2 @min-[640px]:row-start-1 @min-[640px]:row-span-2 @min-[896px]:row-span-1',
   type: 'hidden @min-[896px]:col-start-3 @min-[896px]:row-start-1 @min-[896px]:block',
   comments: 'col-start-1 row-start-3 justify-start @min-[640px]:col-start-3 @min-[640px]:row-start-1 @min-[640px]:row-span-2 @min-[640px]:justify-end @min-[896px]:col-start-4 @min-[896px]:row-span-1',
-  r1: 'col-span-2 col-start-2 row-start-3 justify-end @min-[640px]:col-span-1 @min-[640px]:col-start-4 @min-[640px]:row-start-2 @min-[640px]:self-start @min-[896px]:col-start-5 @min-[896px]:row-start-1 @min-[896px]:self-center @min-[896px]:justify-start',
-  status: 'col-start-2 row-start-1 justify-self-end @min-[640px]:col-start-4 @min-[640px]:row-start-1 @min-[896px]:col-start-6 @min-[896px]:self-center',
-  menu: 'col-start-3 row-start-1 justify-self-end @min-[640px]:col-start-5 @min-[640px]:row-span-2 @min-[896px]:col-start-7 @min-[896px]:row-span-1',
+  stage: 'col-start-2 row-start-1 justify-self-end @min-[640px]:col-start-4 @min-[640px]:row-start-1 @min-[640px]:row-span-2 @min-[640px]:self-center @min-[896px]:col-start-5 @min-[896px]:row-span-1',
+  menu: 'col-start-3 row-start-1 justify-self-end @min-[640px]:col-start-5 @min-[640px]:row-span-2 @min-[896px]:col-start-6 @min-[896px]:row-span-1',
 } as const;
 
 /** Results table: sticky sortable headers, rows that open the review page, and a ⋯ menu per row. */
@@ -161,26 +160,11 @@ const CELL = {
                 <span title="Not published to the program yet" class="inline-flex"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="flex-none"><path d="M5 11h14v10H5zM8 11V7a4 4 0 0 1 8 0v4" /></svg><span class="sr-only">Not published to the program yet</span></span>
               }
             </td>
-            <td class="flex min-w-0 items-center gap-1.5" [class]="cell.r1">
-              @if (r.r1) {
-                <span class="text-(length:--fs-11) whitespace-nowrap text-(--text-4) @min-[896px]:hidden">Previous</span>
+            <td class="flex flex-col items-end gap-0.5" [class]="cell.stage">
+              @if (r.round) {
+                <span class="text-(length:--fs-11) font-medium whitespace-nowrap text-(--text-4)">{{ r.round }}</span>
               }
-              @if (r.r1 === 'new') {
-                <span class="rounded-full bg-(--tint-2) px-2 py-0.5 text-(length:--fs-11) font-semibold whitespace-nowrap text-(--accent)">First assessment</span>
-              } @else if (r.r1) {
-                <span class="inline-flex items-center gap-[5px] rounded-full px-[10px] py-[3px] text-(length:--fs-11) font-semibold whitespace-nowrap" [class]="r.r1Class">{{ r.r1 }}</span>
-              }
-            </td>
-            <td
-              class="flex"
-              [class]="cell.status + (r.r1 ? ' @min-[640px]:self-end @min-[896px]:self-center' : ' @min-[640px]:row-span-2 @min-[640px]:self-center @min-[896px]:row-span-1')"
-            >
-              <span class="inline-flex items-center gap-[5px] rounded-full px-[10px] py-[3px] text-(length:--fs-11) font-semibold whitespace-nowrap" [class]="r.statusClass">
-                @if (r.isAuto) {
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="flex-none"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" /></svg>
-                }
-                {{ r.status }}
-              </span>
+              <span class="inline-flex items-center rounded-full px-[10px] py-[3px] text-(length:--fs-11) font-semibold whitespace-nowrap" [class]="r.stageClass">{{ r.stageLabel }}</span>
             </td>
             <td class="relative z-10" [class]="cell.menu">
               <button
