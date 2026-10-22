@@ -58,7 +58,7 @@ T-1 ─▶ T-2 (HITL)
 
 ## T-2: HITL on TEST — five same-version edits give one 200
 
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** S
 - **Depends on:** T-1, deployed to TEST
 - **Requirements:** NFR-2. FR-1 Scenario *Identical edit committed during the read* (AND IT MUST hold when both requests arrive at the same moment).
