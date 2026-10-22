@@ -70,4 +70,16 @@ describe('CyclesApi', () => {
     del.flush(null, { status: 204, statusText: 'No Content' });
     expect(await removed).toBeUndefined();
   });
+
+  it('edits with a PATCH of version + only what changed, silent and labelled', async () => {
+    const body = { version: 2, steps: [{ position: 3, closesOn: '2027-03-10' }] };
+    const edited = firstValueFrom(api.updateTimeline(9, 'July', body));
+    const req = http.expectOne(`${API}/timelines/9`);
+    expect(req.request.method).toBe('PATCH');
+    expect(req.request.body).toEqual(body);
+    expect(req.request.context.get(SILENT_ERRORS)).toBe(true);
+    expect(req.request.context.get(UNSENT_LABEL)).toBe('Edit the timeline July');
+    req.flush({ success: true, data: { id: 9, version: 3 }, meta });
+    expect((await edited).version).toBe(3);
+  });
 });

@@ -4,13 +4,24 @@ import { Observable } from 'rxjs';
 import { APP_CONFIG } from '../config/app-config';
 import { ApiEnvelope, unwrap } from '../http/api-envelope';
 import { NO_QUEUE, SILENT_ERRORS, UNSENT_LABEL } from '../http/request-context';
-import { AssignableRole, Cycle, DefaultStep, Timeline, TimelineCreate, TimelineDetail, TimelineUser } from './cycles.models';
+import {
+  AssignableRole,
+  Cycle,
+  DefaultStep,
+  Timeline,
+  TimelineCreate,
+  TimelineDetail,
+  TimelineUpdate,
+  TimelineUser,
+} from './cycles.models';
 
 /**
  * HTTP calls for cycles and QA timelines (ADMIN only). Only transport, no state.
  * Creates honor `Idempotency-Key` (the interceptor sends one per submit), so a lost answer may be
  * replayed from the Unsent list. Activate stays out of that list (the server ignores its key): it
- * closes the active cycle, so a lost answer goes back to the screen, which refetches. Assign answers 200 when the user already holds that
+ * closes the active cycle, so a lost answer goes back to the screen, which refetches. An edit replayed with
+ * its key gets its first answer back (never "stale"); a confirm or a redo is another body, so another key.
+ * Assign answers 200 when the user already holds that
  * role (nothing written), so replaying it is safe; remove is 404 once done.
  */
 @Service()
@@ -60,6 +71,13 @@ export class CyclesApi {
 
   timeline(id: number): Observable<TimelineDetail> {
     return this.http.get<ApiEnvelope<TimelineDetail>>(`${this.base}/timelines/${id}`).pipe(unwrap<TimelineDetail>());
+  }
+
+  /** 200 is the whole timeline with its new `version` (no `users`): replace the screen state with it. */
+  updateTimeline(id: number, name: string, body: TimelineUpdate): Observable<Timeline> {
+    return this.http
+      .patch<ApiEnvelope<Timeline>>(`${this.base}/timelines/${id}`, body, { context: this.silent(`Edit the timeline ${name}`) })
+      .pipe(unwrap<Timeline>());
   }
 
   /** 201 new or 200 already assigned: both are success. */
