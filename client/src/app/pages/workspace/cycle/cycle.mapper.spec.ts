@@ -1,6 +1,6 @@
 import { Timeline as ApiTimeline } from '../../../core/api/cycles.models';
 import { CycleCatalogs, OFFICIAL_ID, nextAudience, roundsOf, toApiDay, toCreateBody, toUpdateBody, toViewTimeline } from './cycle.mapper';
-import { daysFromToday, stepOrderErrors } from './cycle.logic';
+import { daysFromToday, officialRelative, stepOrderErrors } from './cycle.logic';
 
 const cat: CycleCatalogs = {
   programs: [
@@ -131,6 +131,22 @@ describe('cycle.logic on API rules', () => {
   it('two steps never share a day', () => {
     expect(stepOrderErrors([{ start: '06 Jul 2027', end: '07 Jul 2027' }, { start: '07 Jul 2027', end: '08 Jul 2027' }])).toEqual([false, true]);
     expect(stepOrderErrors([{ start: '06 Jul 2027', end: '07 Jul 2027' }, { start: '08 Jul 2027', end: '08 Jul 2027' }])).toEqual([false, false]);
+  });
+
+  it('"Reset to official timeline" keeps each step\'s audience (the official may skip one)', () => {
+    const official = toViewTimeline(
+      api({ kind: 'official', steps: [step(1, '2027-07-06', '2027-07-07'), { ...step(3, '2027-07-08', '2027-07-09'), position: 2 }] }),
+      cat,
+    );
+    expect(officialRelative('01 Sep 2027', official).map((r) => r.audience)).toEqual(['assessors', 'lead_assessors']);
+  });
+
+  it('"Reset to official timeline" shifts by whole days across a summer-time change', () => {
+    const official = toViewTimeline(api({ kind: 'official', steps: [step(1, '2027-03-01', '2027-03-02'), step(2, '2027-04-05', '2027-04-06')] }), cat);
+    expect(officialRelative('01 Oct 2027', official).map((r) => [r.start, r.end])).toEqual([
+      ['01 Oct 2027', '02 Oct 2027'],
+      ['05 Nov 2027', '06 Nov 2027'],
+    ]);
   });
 
   it('days until a step opens count from today in Rome', () => {

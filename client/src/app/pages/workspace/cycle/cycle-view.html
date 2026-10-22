@@ -43,7 +43,7 @@
   }
   @default {
   @if (store.missingCatalogs().length) {
-    <p role="status" class="m-0 rounded-[8px] bg-(--st-editing-bg) px-3 py-2 text-(length:--fs-13) text-(--st-editing-fg)">Some names could not be loaded ({{ store.missingCatalogs().join(', ') }}). Ids are shown instead; try again later to pick them.</p>
+    <p role="status" class="m-0 rounded-[8px] bg-(--st-editing-bg) px-3 py-2 text-(length:--fs-13) text-(--st-editing-fg)">Some lists could not be loaded ({{ store.missingCatalogs().join(', ') }}). Ids are shown instead of names and those pickers are empty; reload later.</p>
   }
 
   <!-- Official timeline -->
