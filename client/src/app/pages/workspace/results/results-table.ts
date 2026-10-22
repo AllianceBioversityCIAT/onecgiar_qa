@@ -1,10 +1,11 @@
 import { Component, DestroyRef, computed, ElementRef, afterNextRender, inject, input, output, signal, viewChild } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import type { SortDir } from '../../../core/list/table-sort';
 import { QaMenuImports, QaSelectImports, QaSelectOption } from '../../../ui';
 import { PreviousOutcome, ResultStatus } from './results.mock';
 
 export type SortKey = 'code' | 'title' | 'type' | 'comments' | 'r1' | 'status';
-export type SortDir = 'asc' | 'desc';
+export type { SortDir };
 
 export interface ResultRowVm {
   readonly code: string;

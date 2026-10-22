@@ -1,7 +1,8 @@
+import { DEMO_PROGRAMS } from '../../../core/domain/demo-programs';
 // Mock data for the Overview view (QA lead), copied from the "QA Platform" mockup JS.
 // TODO(api): replace every export here with data from the QA API. The view only reads these shapes.
-// Note: timelines, programs and result types are also used by the Cycle / Results views; each view
-// keeps its own copy for now (a dev will unify them behind an API).
+// Note: timelines and result types are also used by the Cycle / Results views; each view keeps its
+// own copy for now (a dev will unify them behind an API). Programs already share DEMO_PROGRAMS.
 
 /** "Today" in the mockup. Every relative date (closes in N days) is computed against it. */
 export const MOCK_TODAY = new Date(2026, 6, 19);
@@ -10,16 +11,7 @@ export const CYCLE_YEAR = 2026;
 
 // ---------- Science programs and result types ----------
 
-export const PROGRAMS: Readonly<Record<string, string>> = {
-  SP01: 'Breeding for Tomorrow',
-  SP02: 'Rice Agrifood Systems',
-  SP04: 'Climate Action',
-  SP05: 'Multifunctional Landscapes',
-  SP07: 'Genetic Innovation',
-  SP09: 'Sustainable Animal and Aquatic Foods',
-  SP11: 'Policy Innovations',
-  SP12: 'Scaling for Impact',
-};
+export const PROGRAMS = DEMO_PROGRAMS;
 
 /** Result types with the number of submitted results of each type (official timeline). */
 export const RESULT_TYPES: readonly (readonly [name: string, count: number])[] = [
