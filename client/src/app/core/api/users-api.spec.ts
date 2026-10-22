@@ -49,13 +49,22 @@ describe('UsersApi', () => {
     req.flush({ success: true, data: { id: 1 }, meta: meta() });
   });
 
-  it('invitation and exclusions are never queued (a repeat sends another email / answers 409)', () => {
+  it('with server idempotency every write but create can be replayed from the queue', () => {
     void firstValueFrom(api.resendInvitation(3, 'Ada'));
     void firstValueFrom(api.addExclusion(3, 441, 'Co-author', 'Ada'));
+    void firstValueFrom(api.replace(3, { roles: [], programs: 'all', exclusions: [] }, 'Ada'));
     for (const req of http.match(() => true)) {
-      expect(req.request.context.get(NO_QUEUE)).toBe(true);
+      expect(req.request.context.get(NO_QUEUE)).toBe(false);
       req.flush({ success: true, data: { id: 3 }, meta: meta() });
     }
+  });
+
+  it('PUT /users/:id sends the whole person', () => {
+    void firstValueFrom(api.replace(3, { nickname: 'Ada', roles: [{ role: 'ADMIN' }], programs: [441], exclusions: [{ programId: 442, reason: 'x' }] }, 'Ada'));
+    const req = http.expectOne(`${API}/users/3`);
+    expect(req.request.method).toBe('PUT');
+    expect(req.request.body).toEqual({ nickname: 'Ada', roles: [{ role: 'ADMIN' }], programs: [441], exclusions: [{ programId: 442, reason: 'x' }] });
+    req.flush({ success: true, data: { id: 3 }, meta: meta() });
   });
 
   it('other writes are silent and can be queued', () => {

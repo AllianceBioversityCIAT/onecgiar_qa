@@ -1,8 +1,8 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { firstValueFrom, forkJoin } from 'rxjs';
+import { Observable, catchError, firstValueFrom, forkJoin, of } from 'rxjs';
 import { CatalogsApi } from '../../../core/api/catalogs-api';
 import { UsersApi } from '../../../core/api/users-api';
-import { USERS_ERROR, UserDetail, UserSummary } from '../../../core/api/users.models';
+import { RoleGrant, USERS_ERROR, UserSummary } from '../../../core/api/users.models';
 import { CLIENT_ERROR, toApiError } from '../../../core/http/api-envelope';
 import { Toasts } from '../../../core/http/toasts';
 import { TeamMember, TeamRole } from './assessors.models';
@@ -73,10 +73,17 @@ export class AssessorsStore {
   private readonly toasts = inject(Toasts);
 
   private readonly members = signal<readonly TeamMember[]>([]);
+  /** The grants exactly as the server sent them, by member id (PUT replaces the whole set). */
+  private readonly grants = new Map<string, readonly RoleGrant[]>();
   private readonly removedMembers = signal<readonly TeamMember[] | null>(null);
   private readonly catalogState = signal<TeamCatalogs>({ types: [], programs: [] });
 
   readonly state = signal<LoadState>('loading');
+  /**
+   * Catalogs that failed while the team itself loaded (CLARISA or the Reporting Tool down, the server
+   * answers 503 after its 10 s wait): the team still shows; only what needs that list is turned off.
+   */
+  readonly missingCatalogs = signal<readonly ('types' | 'programs')[]>([]);
   readonly loadError = signal('');
   readonly team = this.members.asReadonly();
   /** People removed from the team (loaded on demand). */
@@ -97,10 +104,18 @@ export class AssessorsStore {
 
   async load(): Promise<void> {
     this.state.set('loading');
+    const missing: ('types' | 'programs')[] = [];
+    const optional = <T>(list: Observable<readonly T[]>, name: 'types' | 'programs') =>
+      list.pipe(catchError(() => (missing.push(name), of([] as readonly T[]))));
     try {
       const { types, programs, team } = await firstValueFrom(
-        forkJoin({ types: this.catalogsApi.resultTypes(), programs: this.catalogsApi.sciencePrograms(), team: this.users.listAll() }),
+        forkJoin({
+          types: optional(this.catalogsApi.resultTypes(), 'types'),
+          programs: optional(this.catalogsApi.sciencePrograms(), 'programs'),
+          team: this.users.listAll(),
+        }),
       );
+      this.missingCatalogs.set(missing);
       this.catalogState.set({ types, programs });
       this.members.set(this.toMembers(team));
       this.state.set('ready');
@@ -174,8 +189,9 @@ export class AssessorsStore {
   }
 
   /**
-   * Saves only what changed, in order, stopping at the first refusal (design D4: the API has no
-   * single edit call). The row always shows what the server holds after the last call that worked.
+   * Saves the whole person in ONE call (`PUT /users/:id`, one transaction: any refusal changes
+   * nothing). Nothing is sent when nothing changed. Roles are only rewritten when what the screen
+   * shows changed, so grants it cannot show (`otherRoles`) stay until someone edits the role on purpose.
    */
   async edit(id: string, input: PersonInput): Promise<SaveOutcome> {
     const before = this.find(id);
@@ -183,50 +199,52 @@ export class AssessorsStore {
     const noTypes = assessorWithoutTypes(input);
     if (noTypes) return noTypes;
     const cat = this.catalogState();
-    const num = Number(id);
-    const who = input.nick.trim() || before.name;
-    const steps: (() => Promise<UserDetail>)[] = [];
 
-    if (input.nick.trim() !== before.nick) {
-      steps.push(() => firstValueFrom(this.users.edit(num, { nickname: input.nick.trim() }, who)));
-    }
-    // Only when what the screen shows changed: a person with grants it cannot show (`otherRoles`)
-    // keeps them until someone edits their role on purpose (the drawer warns).
-    const roles = rolesFor(input.role, input.lead, input.role === 'Assessor' ? input.types : [], cat);
-    if (!sameGrants(roles, rolesFor(before.role, before.lead, before.types, cat))) {
-      steps.push(() => firstValueFrom(this.users.setRoles(num, roles, who)));
-    }
+    const nick = input.nick.trim();
+    const sameRoles = sameGrants(
+      rolesFor(input.role, input.lead, input.role === 'Assessor' ? input.types : [], cat),
+      rolesFor(before.role, before.lead, before.types, cat),
+    );
     const kept = input.blocked.filter((b) => b.code);
-    // Matched by id or program: after a partial save the drawer still holds new blocks without an id.
-    const removed = before.blocked.filter((b) => b.id !== undefined && !kept.some((k) => k.id === b.id || k.code === b.code));
-    const added = kept.filter((b) => b.id === undefined && !before.blocked.some((x) => x.code === b.code));
-    for (const b of removed) {
-      if (b.origin === 'reporting') continue; // dismissed with its own reason, not from this form
-      steps.push(() => firstValueFrom(this.users.removeExclusion(num, b.id as number, who)));
-    }
+    const manual = (list: readonly { code: string; reason: string }[]) =>
+      list.flatMap((b) => {
+        const programId = programIdOf(b.code, cat);
+        return programId === null ? [] : [{ programId, reason: b.reason.trim() }];
+      });
+    const beforeManual = manual(before.blocked.filter((b) => b.origin !== 'reporting'));
+    const afterManual = manual(kept.filter((b) => before.blocked.find((x) => x.code === b.code)?.origin !== 'reporting'));
+    const ids = (list: readonly { programId: number }[]) => JSON.stringify(list.map((x) => x.programId).sort());
+    const added = kept.filter((b) => !before.blocked.some((x) => x.code === b.code));
+
     // Never widen by accident: blocking their only program must not turn the limit into "all".
     if (before.programs.length && !input.programs.length && added.some((b) => before.programs.includes(b.code))) {
       return { ok: false, field: 'programs', message: 'Blocking that program leaves them none. Pick the programs they can assess.' };
     }
-    if (JSON.stringify(programsFor(input.programs, cat)) !== JSON.stringify(programsFor(before.programs, cat))) {
-      steps.push(() => firstValueFrom(this.users.setPrograms(num, programsFor(input.programs, cat), who)));
-    }
-    for (const b of added) {
-      const programId = programIdOf(b.code, cat);
-      if (programId !== null) steps.push(() => firstValueFrom(this.users.addExclusion(num, programId, b.reason.trim(), who)));
-    }
+    const samePrograms = JSON.stringify(programsFor(input.programs, cat)) === JSON.stringify(programsFor(before.programs, cat));
+    if (nick === before.nick && sameRoles && samePrograms && ids(afterManual) === ids(beforeManual)) return { ok: true };
 
-    for (const step of steps) {
-      try {
-        this.replace(await step());
-      } catch (error) {
-        return failure(error);
-      }
+    try {
+      const detail = await firstValueFrom(
+        this.users.replace(
+          Number(id),
+          {
+            ...(nick !== before.nick ? { nickname: nick } : {}),
+            // PUT replaces the whole role set: when the role on screen did not change, a person with
+            // grants the screen cannot show (`otherRoles`) gets the server's own grants back untouched.
+            roles: sameRoles && before.otherRoles ? this.rawRoles(id) : rolesFor(input.role, input.lead, input.role === 'Assessor' ? input.types : [], cat),
+            programs: programsFor(input.programs, cat),
+            exclusions: afterManual,
+          },
+          nick || before.name,
+        ),
+      );
+      this.replace(detail);
+      return { ok: true };
+    } catch (error) {
+      return failure(error);
     }
-    return { ok: true };
   }
 
-  /** Inline role / result-type edits from the table cells: the row shows the server answer, errors go to a toast. */
   /** Assessor needs result types: the caller opens the drawer instead of revoking every grant. */
   async setRole(id: string, role: TeamRole): Promise<void> {
     const m = this.find(id);
@@ -301,12 +319,20 @@ export class AssessorsStore {
     this.members.update((team) => team.map((p) => (p.id === next.id ? next : p)));
   }
 
+  private rawRoles(id: string): readonly RoleGrant[] {
+    return this.grants.get(id) ?? [];
+  }
+
   private toMember(u: UserSummary): TeamMember {
+    this.grants.set(String(u.id), u.roles);
     return toMember(u, this.catalogState(), Date.now());
   }
 
   private toMembers(list: readonly UserSummary[]): TeamMember[] {
     const now = Date.now();
-    return list.map((u) => toMember(u, this.catalogState(), now));
+    return list.map((u) => {
+      this.grants.set(String(u.id), u.roles);
+      return toMember(u, this.catalogState(), now);
+    });
   }
 }

@@ -11,7 +11,7 @@
     </p>
   </div>
   <div class="flex w-auto flex-none items-center gap-2 max-sm:w-full max-sm:flex-col-reverse max-sm:items-stretch">
-    <button hlmBtn qaBtn tone="primary" type="button" (click)="openInvite()" class="max-sm:w-full max-sm:justify-center">
+    <button hlmBtn qaBtn tone="primary" type="button" [disabled]="store.state() !== 'ready' || store.missingCatalogs().includes('types')" (click)="openInvite()" class="max-sm:w-full max-sm:justify-center">
       <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"></path></svg>
       Invite assessor
     </button>
@@ -58,6 +58,19 @@
     }
   </div>
 
+  @if (store.state() === 'ready' && store.missingCatalogs().length) {
+    <div role="status" class="flex flex-wrap items-center gap-3 rounded-lg border border-(--border) bg-(--surface-3) px-4 py-3 text-(length:--fs-13) text-(--text-2)">
+      <span class="min-w-0 flex-1">
+        @if (store.missingCatalogs().includes('programs')) {
+          Science programs could not load right now (CLARISA did not answer). People show program ids, and blocking a program is off until they load.
+        }
+        @if (store.missingCatalogs().includes('types')) {
+          Result types could not load right now (Reporting Tool did not answer). Inviting is off until they load.
+        }
+      </span>
+      <button hlmBtn qaBtn tone="secondary" size="sm" type="button" (click)="store.load()">Try again</button>
+    </div>
+  }
   @if (store.state() === 'loading') {
     <p class="m-0 text-(length:--fs-14) text-(--text-3)" role="status">Loading the team…</p>
   } @else if (store.state() === 'error') {

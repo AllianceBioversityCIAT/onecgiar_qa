@@ -85,6 +85,17 @@ export interface EditUserBody {
   readonly lastName?: string;
 }
 
+/** `PUT /users/:id`: the whole editable state in one transaction (all or nothing). */
+export interface ReplaceUserBody {
+  readonly nickname?: string;
+  readonly firstName?: string;
+  readonly lastName?: string;
+  readonly roles: readonly RoleGrant[];
+  readonly programs: AllOr<number>;
+  /** The complete MANUAL set; `reporting` exclusions are never touched by this call. */
+  readonly exclusions: readonly { readonly programId: number; readonly reason: string }[];
+}
+
 export interface ListUsersQuery {
   readonly q?: string;
   readonly role?: string;
@@ -128,4 +139,10 @@ export const USERS_ERROR = {
   EXCLUSION_NOT_MANUAL: 'USERS_EXCLUSION_NOT_MANUAL',
   EXCLUSION_NOT_REPORTING: 'USERS_EXCLUSION_NOT_REPORTING',
   INVITATION_NOT_APPLICABLE: 'USERS_INVITATION_NOT_APPLICABLE',
+} as const;
+
+/** Keyed-write codes (`docs/specs/changes/users-admin-write-safety/front-contract.md`). */
+export const IDEMPOTENCY_ERROR = {
+  IN_PROGRESS: 'IDEMPOTENCY_IN_PROGRESS',
+  KEY_REUSED: 'IDEMPOTENCY_KEY_REUSED',
 } as const;

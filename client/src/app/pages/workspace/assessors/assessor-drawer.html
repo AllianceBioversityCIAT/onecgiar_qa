@@ -243,7 +243,7 @@
         } @empty {
           <div class="px-3.5 pt-3.5 text-(length:--fs-13) text-(--text-3)">No conflicts recorded.</div>
         }
-        <div class="flex min-h-12 items-center px-3.5"><button hlmBtn qaBtn tone="link" size="sm" flush="start" type="button" (click)="addBlock()">Add a blocked program</button></div>
+        <div class="flex min-h-12 items-center px-3.5"><button hlmBtn qaBtn tone="link" size="sm" flush="start" type="button" [disabled]="!programsLoaded()" (click)="addBlock()">Add a blocked program</button></div>
       </div>
       @if (blockError()) {
         <span class="text-(length:--fs-13) text-(--danger)" role="alert">{{ blockError() }}</span>

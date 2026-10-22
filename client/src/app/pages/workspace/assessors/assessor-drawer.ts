@@ -150,6 +150,9 @@ export class AssessorDrawer {
   protected readonly typesError = computed(() => (this.serverField()?.field === 'types' ? this.serverField()?.message : ''));
   protected readonly programsError = computed(() => (this.serverField()?.field === 'programs' ? this.serverField()?.message : ''));
 
+  /** Blocking needs the program list (it can fail on its own when CLARISA is down). */
+  protected readonly programsLoaded = computed(() => this.store.programCodes().length > 0);
+
   protected readonly accountHint = computed(() =>
     accountTypeFor(this.draft().email) === 'sso'
       ? 'Signs in with their CGIAR account.'
