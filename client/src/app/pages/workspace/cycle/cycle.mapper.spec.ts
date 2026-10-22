@@ -1,6 +1,6 @@
 import { Timeline as ApiTimeline } from '../../../core/api/cycles.models';
 import { CycleCatalogs, OFFICIAL_ID, nextAudience, roundsOf, stepDateIssues, toApiDay, toCreateBody, toUpdateBody, toViewTimeline } from './cycle.mapper';
-import { daysFromToday, officialRelative, stepOrderErrors } from './cycle.logic';
+import { daysFromToday, officialRelative, stepOrderErrors, timelineVM } from './cycle.logic';
 
 const cat: CycleCatalogs = {
   programs: [
@@ -174,6 +174,16 @@ describe('stepDateIssues (live checks while typing)', () => {
     expect(stepDateIssues([{ start: '21 Oct 2026', end: '' }, { start: '', end: '' }], { today: '2026-10-22' })).toEqual([
       { start: "Can't open before today (22 Oct 2026)." },
       {},
+    ]);
+  });
+});
+
+describe('timeline cards on the hold', () => {
+  it('waiting_for_load: step 1 says "Waiting for results", not "Opens in 0 days"', () => {
+    const vm = timelineVM(toViewTimeline(api({ status: 'waiting_for_load', steps: [step(1, '2026-10-22', '2026-10-30'), step(2, '2026-10-31', '2026-11-01')] }), cat));
+    expect(vm.steps.map((s) => [s.state, s.waiting])).toEqual([
+      ['future', true],
+      ['future', false],
     ]);
   });
 });

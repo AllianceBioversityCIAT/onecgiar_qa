@@ -140,7 +140,13 @@ import { TimelineVM } from './cycle.logic';
                   }
                 }
                 @default {
-                  <span class="text-(length:--fs-12) text-(--text-muted)">Opens in <span class="font-(family-name:--qa-mono) tabular-nums">{{ s.days }}</span> {{ s.dayWord }}</span>
+                  @if (s.waiting) {
+                    <span class="rounded-full bg-(--st-editing-bg) px-2 py-[2px] text-(length:--fs-11) font-semibold text-(--st-editing-fg)">Waiting for results</span>
+                  } @else if (s.days === 0) {
+                    <span class="text-(length:--fs-12) text-(--text-muted)">Opens today</span>
+                  } @else {
+                    <span class="text-(length:--fs-12) text-(--text-muted)">Opens in <span class="font-(family-name:--qa-mono) tabular-nums">{{ s.days }}</span> {{ s.dayWord }}</span>
+                  }
                 }
               }
             </div>
