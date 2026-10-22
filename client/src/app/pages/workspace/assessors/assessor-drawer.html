@@ -20,10 +20,10 @@
           placeholder="First name"
           [formField]="personForm.firstName"
           (input)="onNameInput()"
-          [attr.data-invalid]="showError(personForm.firstName)"
+          [attr.data-error]="showError(personForm.firstName)"
           [attr.aria-invalid]="showError(personForm.firstName)"
           [attr.aria-describedby]="showError(personForm.firstName) ? 'assessor-drawer-first-name-error' : null"
-          class="h-9 w-full rounded-lg border-(--border) bg-(--field-bg) px-3 py-0 text-(length:--fs-14) text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 md:text-(length:--fs-14) dark:bg-(--field-bg) data-[invalid=true]:border-(--danger)"
+          class="h-9 w-full rounded-lg border-(--border) bg-(--field-bg) px-3 py-0 text-(length:--fs-14) text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 md:text-(length:--fs-14) dark:bg-(--field-bg) data-[error=true]:border-(--danger)"
         />
         @if (showError(personForm.firstName)) {
           <span id="assessor-drawer-first-name-error" class="text-(length:--fs-13) text-(--danger)">{{ errorOf(personForm.firstName) }}</span>
@@ -42,10 +42,10 @@
           placeholder="Last name"
           [formField]="personForm.lastName"
           (input)="onNameInput()"
-          [attr.data-invalid]="showError(personForm.lastName)"
+          [attr.data-error]="showError(personForm.lastName)"
           [attr.aria-invalid]="showError(personForm.lastName)"
           [attr.aria-describedby]="showError(personForm.lastName) ? 'assessor-drawer-last-name-error' : null"
-          class="h-9 w-full rounded-lg border-(--border) bg-(--field-bg) px-3 py-0 text-(length:--fs-14) text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 md:text-(length:--fs-14) dark:bg-(--field-bg) data-[invalid=true]:border-(--danger)"
+          class="h-9 w-full rounded-lg border-(--border) bg-(--field-bg) px-3 py-0 text-(length:--fs-14) text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 md:text-(length:--fs-14) dark:bg-(--field-bg) data-[error=true]:border-(--danger)"
         />
         @if (showError(personForm.lastName)) {
           <span id="assessor-drawer-last-name-error" class="text-(length:--fs-13) text-(--danger)">{{ errorOf(personForm.lastName) }}</span>
@@ -66,10 +66,10 @@
           placeholder="name&#64;cgiar.org"
           [formField]="personForm.email"
           (input)="confirmDiscard.set(false)"
-          [attr.data-invalid]="showError(personForm.email)"
+          [attr.data-error]="showError(personForm.email)"
           [attr.aria-invalid]="showError(personForm.email)"
           [attr.aria-describedby]="showError(personForm.email) ? 'assessor-drawer-email-error' : null"
-          class="h-9 w-full rounded-lg border-(--border) bg-(--field-bg) px-3 py-0 text-(length:--fs-14) text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 md:text-(length:--fs-14) dark:bg-(--field-bg) data-[invalid=true]:border-(--danger)"
+          class="h-9 w-full rounded-lg border-(--border) bg-(--field-bg) px-3 py-0 text-(length:--fs-14) text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 md:text-(length:--fs-14) dark:bg-(--field-bg) data-[error=true]:border-(--danger)"
         />
         @if (showError(personForm.email)) {
           <span id="assessor-drawer-email-error" class="text-(length:--fs-13) text-(--danger)">{{ errorOf(personForm.email) }}</span>
@@ -92,10 +92,10 @@
         placeholder="Assessor DD"
         [formField]="personForm.nick"
         (input)="onNickInput()"
-        [attr.data-invalid]="showError(personForm.nick)"
+        [attr.data-error]="showError(personForm.nick)"
         [attr.aria-invalid]="showError(personForm.nick)"
         [attr.aria-describedby]="showError(personForm.nick) ? 'assessor-drawer-nick-error' : null"
-        class="h-9 w-full rounded-lg border-(--border) bg-(--field-bg) px-3 py-0 text-(length:--fs-14) text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 md:text-(length:--fs-14) dark:bg-(--field-bg) max-w-[320px] data-[invalid=true]:border-(--danger)"
+        class="h-9 w-full rounded-lg border-(--border) bg-(--field-bg) px-3 py-0 text-(length:--fs-14) text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 md:text-(length:--fs-14) dark:bg-(--field-bg) max-w-[320px] data-[error=true]:border-(--danger)"
       />
       @if (showError(personForm.nick)) {
         <span id="assessor-drawer-nick-error" class="text-(length:--fs-13) text-(--danger)">{{ errorOf(personForm.nick) }}</span>

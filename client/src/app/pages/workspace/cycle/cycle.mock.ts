@@ -1,5 +1,5 @@
 // Mock data for the Cycle view, copied from the "QA Platform" mockup (OFFICIAL0, CY_BATCHES,
-// CYCLE_LIST, RUN_TARGETS, DEMO_ACCESS, PROG_ROWS, PROGRAMS, TYPES, ST_DEFAULT.rtypes…).
+// RUN_TARGETS, DEMO_ACCESS, PROG_ROWS, PROGRAMS, TYPES, ST_DEFAULT.rtypes…).
 // TODO(api): replace with the cycle / timeline endpoints. PROGRAMS and RESULT_TYPES are local
 // copies of data other views also use (Results, Assessors, Fields).
 
@@ -45,13 +45,6 @@ export interface Timeline {
   created?: boolean;
 }
 
-export interface CycleSummary {
-  name: string;
-  range: string;
-  results: number;
-  active?: boolean;
-}
-
 export interface RunTarget {
   /** "<timelineId>:<stepIndex>" */
   id: string;
@@ -75,8 +68,6 @@ export interface ResultTypeRule {
 
 /** Fixed "today" of the mockup, used to compute step states ("Opens in 44 days"). */
 export const TODAY = new Date(2026, 6, 19);
-
-export const ACTIVE_CYCLE = { name: '2026 cycle', range: '02 Mar – 19 Jul 2026', results: 1114 } as const;
 
 export const PROGRAMS: Readonly<Record<string, string>> = {
   SP01: 'Breeding for Tomorrow',
@@ -151,7 +142,7 @@ const step = (i: number, start: string, end: string, done?: string, batch?: bool
 
 export const OFFICIAL_TIMELINE: Timeline = {
   id: 'official',
-  name: 'Official timeline',
+  name: 'Annual report 2026',
   kind: 'Official',
   status: 'Live',
   results: 1114,
@@ -217,62 +208,21 @@ export const TIMELINES: Timeline[] = [
     ],
   },
   {
-    id: 'c25a',
-    name: 'Annual report 2025',
-    kind: 'Official timeline',
-    status: 'Closed',
-    results: 986,
-    programs: [],
-    types: [],
-    steps: [
-      step(0, '04 Mar 2025', '28 Mar 2025', '986 assessed · 371 returned', true),
-      step(1, '31 Mar 2025', '17 Apr 2025', '371 answered · 38 unchanged'),
-      step(2, '22 Apr 2025', '25 Apr 2025', '84 highlighted', true),
-      step(3, '28 Apr 2025', '06 May 2025', '84 corrected'),
-      step(4, '07 May 2025', '12 Jun 2025', '986 closed'),
-    ],
-  },
-  {
-    id: 'c25n',
-    name: 'May 2025 sub-timeline',
+    id: 'may',
+    name: 'May 2026 sub-timeline',
     kind: 'Sub-timeline',
     status: 'Closed',
     results: 142,
     programs: ['SP04', 'SP11'],
     types: [],
     steps: [
-      step(0, '12 May 2025', '16 May 2025', '142 assessed · 27 returned', true),
-      step(1, '19 May 2025', '22 May 2025', '27 answered · 2 unchanged'),
-      step(2, '23 May 2025', '26 May 2025', '9 highlighted', true),
-      step(3, '27 May 2025', '28 May 2025', '9 corrected'),
-      step(4, '29 May 2025', '30 May 2025', '142 closed'),
+      step(0, '11 May 2026', '15 May 2026', '142 assessed · 27 returned', true),
+      step(1, '18 May 2026', '21 May 2026', '27 answered · 2 unchanged'),
+      step(2, '22 May 2026', '25 May 2026', '9 highlighted', true),
+      step(3, '26 May 2026', '27 May 2026', '9 corrected'),
+      step(4, '28 May 2026', '29 May 2026', '142 closed'),
     ],
   },
-  {
-    id: 'c24a',
-    name: 'Annual report 2024',
-    kind: 'Official timeline',
-    status: 'Closed',
-    results: 874,
-    programs: [],
-    types: [],
-    steps: [
-      step(0, '26 Feb 2024', '22 Mar 2024', '874 assessed · 302 returned', true),
-      step(1, '25 Mar 2024', '12 Apr 2024', '302 answered · 31 unchanged'),
-      step(2, '15 Apr 2024', '18 Apr 2024', '70 highlighted', true),
-      step(3, '22 Apr 2024', '30 Apr 2024', '70 corrected'),
-      step(4, '02 May 2024', '30 May 2024', '874 closed'),
-    ],
-  },
-];
-
-/** Closed timelines that exist beyond the ones listed ("Showing 3 of 14 closed timelines"). */
-export const CLOSED_EXTRA = 11;
-
-export const CYCLE_LIST: readonly CycleSummary[] = [
-  { name: '2026 cycle', range: '02 Mar – 19 Jul 2026', results: 1114, active: true },
-  { name: '2025 cycle', range: '04 Mar – 12 Jun 2025', results: 986 },
-  { name: '2024 cycle', range: '26 Feb – 30 May 2024', results: 874 },
 ];
 
 export const RUN_TARGETS: readonly RunTarget[] = [

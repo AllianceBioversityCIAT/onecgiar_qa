@@ -1,9 +1,9 @@
 import { Component, computed, input, linkedSignal, model, output } from '@angular/core';
 import { FormField, applyEach, form, required, validate } from '@angular/forms/signals';
 import { HlmInput } from '@spartan/input';
-import { QaButtonImports, QaDatePicker, QaDrawerImports, QaMultiSelect, QaSwitch, QaTooltipImports, discardGuard } from '../../../ui';
-import { DEFAULT_STEP_DATES, STEP_NAMES, Timeline } from './cycle.mock';
-import { StepDraftRow, officialRelative, stepOrderErrors } from './cycle.logic';
+import { QaButtonImports, QaDatePicker, QaDialogImports, QaDrawerImports, QaMultiSelect, QaSwitch, QaTooltipImports, discardGuard } from '../../../ui';
+import { DEFAULT_STEP_DATES, PROGRAMS, STEP_NAMES, Timeline } from './cycle.mock';
+import { StepDraftRow, formatNumber, officialRelative, stepOrderErrors, stepState } from './cycle.logic';
 import { PROGRAM_OPTIONS, TYPE_OPTIONS } from './load-drawer';
 
 /** Edit an existing timeline (official or not) or create a new sub-timeline (timeline null). */
@@ -34,7 +34,7 @@ interface TimelineDraft {
 /** "Edit official timeline", "Edit timeline" and "New sub-timeline" drawers (steps table, validation). */
 @Component({
   selector: 'qa-cycle-timeline-drawer',
-  imports: [FormField, QaButtonImports, HlmInput, QaDatePicker, QaDrawerImports, QaSwitch, QaTooltipImports, QaMultiSelect],
+  imports: [FormField, QaButtonImports, HlmInput, QaDatePicker, QaDialogImports, QaDrawerImports, QaSwitch, QaTooltipImports, QaMultiSelect],
   template: `
     <qa-drawer [(open)]="open" [closeGuard]="discard.guard" [title]="title()" [subtitle]="subtitle()" width="720px">
       @if (open()) {
@@ -51,15 +51,27 @@ interface TimelineDraft {
               type="text"
               [formField]="tlForm.name"
               placeholder="September 2026 sub-timeline"
-              [attr.data-invalid]="!!nameError()"
+              [attr.data-error]="!!nameError()"
               [attr.aria-invalid]="nameError() ? true : null"
               [attr.aria-describedby]="nameError() ? 'cycle-tl-name-err' : null"
-              class="h-9 w-full rounded-[8px] border-(--border) bg-(--field-bg) px-3 py-0 text-(length:--fs-14) text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[invalid=true]:border-(--danger) md:text-(length:--fs-14) dark:bg-(--field-bg)"
+              class="h-9 w-full rounded-[8px] border-(--border) bg-(--field-bg) px-3 py-0 text-(length:--fs-14) text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-14) dark:bg-(--field-bg)"
             />
             @if (nameError()) {
               <span id="cycle-tl-name-err" class="text-(length:--fs-13) text-(--danger)">{{ nameError() }}</span>
             }
           </div>
+          @if (scopeSet()) {
+            <!-- Step 1 has started: the scope is set, shown as text with the way forward. -->
+            <div class="flex flex-col items-start gap-[6px]">
+              <span class="text-(length:--fs-13) font-semibold text-(--text-2)">Science programs</span>
+              <span class="text-(length:--fs-14) text-(--text)">{{ programsText() }}</span>
+            </div>
+            <div class="flex flex-col items-start gap-[6px]">
+              <span class="text-(length:--fs-13) font-semibold text-(--text-2)">Result types</span>
+              <span class="text-(length:--fs-14) text-(--text)">{{ d.types.length ? d.types.join(', ') : 'All result types' }}</span>
+              <span class="text-(length:--fs-13) leading-[1.5] font-normal text-pretty text-(--text-4)">Set when step 1 opened on {{ d.steps[0]?.start }}. To cover other programs or result types, create a new sub-timeline.</span>
+            </div>
+          } @else {
           <div class="flex flex-col items-start gap-[6px]">
             <div class="flex items-center gap-1">
               <label for="cycle-tl-programs" class="text-(length:--fs-13) font-semibold text-(--text-2)">Science programs</label>
@@ -91,6 +103,7 @@ interface TimelineDraft {
             <label for="cycle-tl-types" class="text-(length:--fs-13) font-semibold text-(--text-2)">Result types</label>
             <qa-multi-select triggerId="cycle-tl-types" [value]="d.types" (valueChange)="patch({ types: $event })" [options]="typeOptions" label="Result types" placeholder="All result types" searchPlaceholder="Search result types" appearance="field" summaryMax="99" panelWidth="300px" listMaxHeight="260px" />
           </div>
+          }
         }
 
         <div class="flex flex-col items-stretch gap-[6px] @container">
@@ -113,40 +126,64 @@ interface TimelineDraft {
                   <div class="grid grid-cols-[24px_minmax(0,1fr)_minmax(0,1fr)_40px] items-center gap-x-3 gap-y-2 px-[14px] py-3 @xl:min-h-[52px] @xl:grid-cols-[24px_minmax(0,1fr)_148px_148px_44px_22px] @xl:gap-y-0 @xl:py-0">
                     <span class="font-(family-name:--qa-mono) text-(length:--fs-12) font-semibold text-(--text-muted)">{{ i + 1 }}</span>
                     <span class="col-span-2 min-w-0 @xl:col-span-1">
-                      <input hlmInput type="text" [formField]="rf.name" [attr.aria-label]="'Step ' + (i + 1) + ' name'" [title]="row.name" placeholder="QA platform open for assessors" [attr.data-invalid]="tried() && !row.name.trim()" class="h-10 min-w-0 rounded-[8px] border-(--border) bg-(--field-bg) px-[10px] py-0 text-(length:--fs-13) text-ellipsis text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[invalid=true]:border-(--danger) md:text-(length:--fs-13) @xl:h-8 dark:bg-(--field-bg)" />
+                      <input hlmInput type="text" [formField]="rf.name" [attr.aria-label]="'Step ' + (i + 1) + ' name'" [title]="row.name" placeholder="QA platform open for assessors" [attr.data-error]="tried() && !row.name.trim()" class="h-10 min-w-0 rounded-[8px] border-(--border) bg-(--field-bg) px-[10px] py-0 text-(length:--fs-13) text-ellipsis text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) @xl:h-8 dark:bg-(--field-bg)" />
                     </span>
                     <span class="col-span-2 col-start-2 flex min-w-0 flex-col gap-1 @xl:col-span-1 @xl:col-start-auto">
                       <span aria-hidden="true" class="text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase @xl:hidden">Opens</span>
+                      @if (i < closedCount()) {
+                        <span class="flex min-h-10 items-center font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text-3) tabular-nums @xl:min-h-8">{{ row.start }}</span>
+                      } @else {
                       <span class="relative flex">
-                        <input hlmInput type="text" [formField]="rf.start" [attr.aria-label]="'Step ' + (i + 1) + ' opens'" placeholder="06 Jul 2026" [attr.data-invalid]="rowErrorShown(i)" [attr.aria-invalid]="rowErrorShown(i) || null" class="h-10 min-w-0 rounded-[8px] border-(--border) bg-(--field-bg) py-0 pr-9 pl-[10px] font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[invalid=true]:border-(--danger) md:text-(length:--fs-13) @xl:h-8 dark:bg-(--field-bg)" />
+                        <input hlmInput type="text" [formField]="rf.start" [attr.aria-label]="'Step ' + (i + 1) + ' opens'" placeholder="06 Jul 2026" [attr.data-error]="rowErrorShown(i)" [attr.aria-invalid]="rowErrorShown(i) || null" class="h-10 min-w-0 rounded-[8px] border-(--border) bg-(--field-bg) py-0 pr-9 pl-[10px] font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) @xl:h-8 dark:bg-(--field-bg)" />
                         <qa-date-picker [value]="rf.start().value()" (valueChange)="rf.start().value.set($event)" [label]="'Pick step ' + (i + 1) + ' opening date'" class="absolute top-1/2 right-1 -translate-y-1/2" />
                       </span>
+                      }
                     </span>
                     <span class="col-span-2 col-start-2 flex min-w-0 flex-col gap-1 @xl:col-span-1 @xl:col-start-auto">
                       <span aria-hidden="true" class="text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase @xl:hidden">Closes</span>
+                      @if (i < closedCount()) {
+                        <span class="flex min-h-10 items-center font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text-3) tabular-nums @xl:min-h-8">{{ row.end || '—' }}</span>
+                      } @else {
                       <span class="relative flex">
                         <input hlmInput type="text" [formField]="rf.end" [attr.aria-label]="'Step ' + (i + 1) + ' closes'" [placeholder]="last ? 'Optional' : '11 Jul 2026'" class="h-10 min-w-0 rounded-[8px] border-(--border) bg-(--field-bg) py-0 pr-9 pl-[10px] font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 md:text-(length:--fs-13) @xl:h-8 dark:bg-(--field-bg)" />
                         <qa-date-picker [value]="rf.end().value()" (valueChange)="rf.end().value.set($event)" [label]="'Pick step ' + (i + 1) + ' closing date'" class="absolute top-1/2 right-1 -translate-y-1/2" />
                       </span>
+                      }
                     </span>
                     <span class="col-span-3 col-start-2 flex min-h-10 items-center justify-between gap-3 @xl:col-span-1 @xl:col-start-auto @xl:min-h-0 @xl:justify-center">
                       <span aria-hidden="true" class="text-(length:--fs-13) font-medium text-(--text-2) @xl:hidden">Loads results</span>
-                      <qa-switch [checked]="row.batch" (checkedChange)="patchRow(i, { batch: $event })" [aria-label]="'Step ' + (i + 1) + ' loads results'" />
+                      @if (i < closedCount()) {
+                        <span class="text-(length:--fs-13) text-(--text-3)">{{ row.batch ? 'Yes' : 'No' }}</span>
+                      } @else {
+                        <qa-switch [checked]="row.batch" (checkedChange)="patchRow(i, { batch: $event })" [aria-label]="'Step ' + (i + 1) + ' loads results'" />
+                      }
                     </span>
                     <span class="col-start-4 row-start-1 flex justify-end @xl:col-start-auto @xl:row-start-auto @xl:block">
+                      @if (i >= closedCount()) {
                       <button type="button" (click)="confirmRow.set(i)" [attr.aria-label]="'Remove step ' + (i + 1)" class="flex size-10 cursor-pointer items-center justify-center rounded-[6px] border-0 bg-transparent p-0 text-(--text-3) outline-none hover:text-(--danger) focus-visible:shadow-(--focus-ring) @xl:size-[22px]"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12" /></svg></button>
+                      }
                     </span>
                   </div>
                 }
               </div>
+            } @empty {
+              <p class="m-0 px-[14px] py-4 text-(length:--fs-13) text-pretty text-(--text-3)">No steps yet. Add the first step, or start from the official timeline.</p>
             }
             <div class="flex min-h-11 flex-wrap items-center gap-x-4 gap-y-1 border-t border-(--surface-4) px-[6px] py-1 @xl:py-0">
               <button hlmBtn qaBtn tone="link" size="sm" type="button" (click)="addRow()">Add step</button>
-              <button hlmBtn qaBtn tone="link" size="sm" type="button" (click)="resetRows()">Reset to official timeline</button>
+              @if (!closedCount()) {
+                <button hlmBtn qaBtn tone="link" size="sm" type="button" (click)="resetRows()">Reset to official timeline</button>
+              }
             </div>
           </div>
           @if (orderError()) {
             <span role="alert" class="text-(length:--fs-13) text-(--danger)">{{ orderError() }}</span>
+          }
+          @if (closedCount()) {
+            <span class="text-(length:--fs-13) leading-[1.5] font-normal text-pretty text-(--text-4)">Closed steps keep their dates as the record of the cycle.</span>
+          }
+          @if (d.steps.length && !d.steps[0].batch) {
+            <div role="status" class="rounded-[8px] bg-(--st-editing-bg) px-3 py-2 text-(length:--fs-13) leading-[1.5] text-(--st-editing-fg)">Step 1 doesn't load results, so this timeline starts with nothing to assess.</div>
           }
         </div>
 
@@ -186,6 +223,14 @@ interface TimelineDraft {
         }
       </div>
     </qa-drawer>
+
+    <qa-dialog [(open)]="confirmActive" title="Change a step in progress?" width="480px">
+      <p class="m-0 text-(length:--fs-14) leading-[1.55] font-normal text-pretty text-(--text-2)">{{ activeNote() }}</p>
+      <div qaDialogFooter class="contents">
+        <button hlmBtn qaBtn tone="secondary" type="button" (click)="confirmActive.set(false)">Keep editing</button>
+        <button hlmBtn qaBtn tone="primary" type="button" (click)="commit()">Save changes</button>
+      </div>
+    </qa-dialog>
   `,
 })
 export class TimelineDrawer {
@@ -206,12 +251,44 @@ export class TimelineDrawer {
     return !!t && (t.id === 'official' || t.kind === 'Official timeline');
   });
 
+  /** State of each saved step, in order (empty for a new sub-timeline). */
+  private readonly states = computed(() => {
+    const t = this.request().timeline;
+    return t ? t.steps.map((p) => stepState(p, t)) : [];
+  });
+  /** Closed steps come first; their rows keep their dates. */
+  protected readonly closedCount = computed(() => {
+    const i = this.states().findIndex((s) => s.kind !== 'done');
+    return i < 0 ? this.states().length : i;
+  });
+  /** Once step 1 has opened, programs and result types are set. */
+  protected readonly scopeSet = computed(() => !this.isOfficialEdit() && !!this.states().length && this.states()[0].kind !== 'future');
+  protected readonly programsText = computed(() => {
+    const p = this.draft().programs;
+    return p.length ? p.map((c) => `${c} ${PROGRAMS[c] ?? ''}`.trim()).join(', ') : 'All programs';
+  });
+  /** The step running now: saving a change to it asks first (pop-up). */
+  private readonly activeIndex = computed(() => this.states().findIndex((s) => s.kind === 'active'));
+  protected readonly activeNote = computed(() => {
+    const i = this.activeIndex();
+    const st = this.states()[i];
+    const progress = st?.kind === 'active' && st.of ? ` (${formatNumber(st.done)} of ${formatNumber(st.of)} results reviewed so far)` : '';
+    return `Step ${i + 1} is running right now${progress}. Your changes apply as soon as you save.`;
+  });
+  private readonly activeChanged = computed(() => {
+    const i = this.activeIndex();
+    const p = this.request().timeline?.steps[i];
+    const r = this.draft().steps[i];
+    return !!p && (!r || r.name.trim() !== p.name || r.start.trim() !== p.start || r.end.trim() !== p.end || r.batch !== p.batch);
+  });
+  protected readonly confirmActive = linkedSignal({ source: this.request, computation: () => false });
+
   protected readonly title = computed(() =>
     this.isOfficialEdit() ? 'Edit official timeline' : this.isNew() ? 'New sub-timeline' : 'Edit timeline',
   );
   protected readonly subtitle = computed(() =>
     this.isOfficialEdit()
-      ? 'The official calendar for the 2026 cycle. Every program follows it unless you add a sub-timeline.'
+      ? 'The official calendar of the cycle. Every program follows it unless you add a sub-timeline.'
       : this.isMain()
         ? 'Covers the whole cycle for every program.'
         : 'Runs on its own calendar, alongside the official timeline.',
@@ -257,7 +334,7 @@ export class TimelineDrawer {
   protected readonly tried = linkedSignal({ source: this.request, computation: () => false });
   protected readonly confirmRow = linkedSignal<TimelineRequest, number | null>({ source: this.request, computation: () => null });
 
-  protected readonly nameError = computed(() => (this.tried() ? (this.tlForm.name().errors()[0]?.message ?? '') : ''));
+  protected readonly nameError = computed(() => (this.tried() || this.tlForm.name().touched() ? (this.tlForm.name().errors()[0]?.message ?? '') : ''));
   protected readonly programsError = computed(() =>
     this.tried() ? (this.tlForm.programs().errors()[0]?.message ?? '') : '',
   );
@@ -300,6 +377,15 @@ export class TimelineDrawer {
   protected save(): void {
     this.tried.set(true);
     if (this.tlForm().invalid() || this.orderErrors().some(Boolean)) return;
+    if (this.activeChanged()) {
+      this.confirmActive.set(true);
+      return;
+    }
+    this.commit();
+  }
+
+  protected commit(): void {
+    this.confirmActive.set(false);
     const d = this.draft();
     // TODO(api): PUT the timeline (or POST a new sub-timeline).
     this.saveTimeline.emit({

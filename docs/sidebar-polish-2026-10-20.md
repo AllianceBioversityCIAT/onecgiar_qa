@@ -18,3 +18,8 @@ Branch: `jp-design/mockup-completo`
 ## Follow-up check (same day)
 - Mobile 390: the sidebar drawer shows the cycle card and the active item correctly.
 - Dark mode at 1440: the cycle card and the active item read fine. Existing issue, not changed here: the "quality assurance" part of the logo has low contrast on the dark sidebar.
+
+## Update (same day): Jira-style active marker
+- Juanpa asked for a left marker again, but like Jira's instead of the old full-height stripe. Measured in Jira: 2px wide, about 12px tall, centered, on the left edge inside the tinted item.
+- `qa-shell.css`: `.qa-nav-active::before` draws a 2×16px rounded bar in `--primary`, centered on the item's left edge.
+- Checked: light, dark and collapsed sidebar at 1440.
