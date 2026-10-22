@@ -1428,7 +1428,7 @@ describe('Timelines routes: defaults, create, list and detail (e2e)', () => {
       expect(
         listMany.find((s) => s.startsWith('steps:'))?.split(',').length,
       ).toBe(50);
-    });
+    }, 30_000); // 50 timelines with 200 assignments: slower than the 5 s default on the CI machine
   });
 
   // --- FR-17: safe retries -------------------------------------------------------
