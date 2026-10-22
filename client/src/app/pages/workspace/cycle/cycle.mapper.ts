@@ -174,3 +174,32 @@ export function toUpdateBody(before: Timeline, d: CreateDraft, cat: CycleCatalog
   if (steps.length) body.steps = steps;
   return Object.keys(body).length > 1 ? body : null;
 }
+
+export interface StepDateIssue {
+  readonly start?: string;
+  readonly end?: string;
+}
+
+/**
+ * The server's date rules, checked while the admin types (so nothing waits for Save): real days,
+ * closing on or after opening, each step opening strictly after the previous one closes, and (for a
+ * new timeline) step 1 not before today in Rome. Empty dates are left to the required check on save.
+ */
+export function stepDateIssues(
+  rows: readonly Pick<StepDraftRow, 'start' | 'end'>[],
+  opts: { readonly today?: string } = {},
+): StepDateIssue[] {
+  const bad = 'Not a real date. Use the format 06 Jul 2026.';
+  return rows.map((r, i) => {
+    const start = toApiDay(r.start);
+    const end = toApiDay(r.end);
+    const issue: { start?: string; end?: string } = {};
+    if (r.start.trim() && !start) issue.start = bad;
+    if (r.end.trim() && !end) issue.end = bad;
+    if (start && end && end < start) issue.end = 'Closes before it opens.';
+    const prev = i > 0 ? toApiDay(rows[i - 1].end) : '';
+    if (start && prev && start <= prev) issue.start = `Must open after step ${i} closes (${toViewDay(prev)}).`;
+    if (i === 0 && start && opts.today && start < opts.today) issue.start = `Can't open before today (${toViewDay(opts.today)}).`;
+    return issue;
+  });
+}
