@@ -10,7 +10,7 @@
 | Started | 2026-10-22 |
 | Approval | The back lead (Juanda) ran `/akili-execute bugfix/timeline-edit-noop-stale` on 2026-10-22. That run is the approval of the Draft spec (proposal Q-1…Q-3 defaults kept) |
 | Leader | Claude Code, `opus` (T1) |
-| Status | T-1 done · T-2 pending (HITL, needs T-1 deployed to TEST) |
+| Status | Complete (T-1, T-2 PASS) |
 
 ## Task Execution History
 
@@ -95,7 +95,7 @@ FR-1 (reproduction, would be 400, would ask for confirmation, at unit level; "sa
 
 ### T-2: HITL on TEST — five same-version edits give one 200
 
-- **Status:** in progress (evidence recorded; the post-run audit count and the confirmation that TEST runs `b609fae` are still owed)
+- **Status:** PASS (run 2, below; run 1 does not count)
 - **Date:** 2026-10-22
 - **Run by:** the back lead, in his own terminal. The token was read from the clipboard (`QA_TOKEN="$(pbpaste)"`) and never passed through chat. Script: the session scratchpad `t2-hitl.mjs` (5 rounds, timeline 22, step 5 `closesOn` toggled 2026-12-26 ↔ 2026-12-27 so that every round is a real change).
 - **Baseline:** `SELECT COUNT(*) FROM timeline_audit_events WHERE timeline_id = 22` → 9 (before the run). Start version 10, which is consistent with 9 applied edits from version 1.
@@ -112,3 +112,44 @@ FR-1 (reproduction, would be 400, would ask for confirmation, at unit level; "sa
 Each round gave the other four answers as 409 `TIMELINES_VERSION_STALE`. Round 1's stale ids: `36d1409b…`, `6a42792e…`, `407aec99…`, `56cd52cd…`. In every round, the last send came before the first receive (sent 1792680480.226 – 1792680481.212).
 - **Post-run audit count:** `SELECT COUNT(*) FROM timeline_audit_events WHERE timeline_id = 22` → 14 (9 + 5). That is one audit row per applied edit and no extra row.
 - **Disqualifier check (TEST running a build without T-1): not cleared.** `git fetch origin && git branch -r --contains b609fae` returns no remote branch (2026-10-22), so the fix has not been pushed anywhere CI could deploy from. Before the fix the bug showed in 1 of 4 logged rounds, so 5 clean rounds on the old build happen about 24 % of the time ((3/4)^5). This run is therefore recorded as **not yet evidence for NFR-2**, unless the back lead confirms that TEST was deployed from this local commit. Otherwise, re-run after the fix is pushed and deployed.
+
+#### T-2 run 2 (after the deploy) — counts as evidence
+
+- **Deploy:** `b609fae` was pushed and merged into `staging-center` (`3565946`) and `dev` (`4b97466`). The back lead reported that TEST was deploying and ran the script after the deploy. The CI e2e job showed the known NFR-5 5 s timeout (`test/admin-config-timelines.e2e-spec.ts:1375`, list/detail reads, not touched by T-1; locally it passes in about 2.5 s). That job is separate from this check.
+- **Run:** same script and token handling (clipboard, never in chat). Start version 15, step 5 `closesOn` toggled 2026-12-27 ↔ 2026-12-28.
+- **Result:** 5/5 rounds OK. The end version is 20 (+5).
+
+| Round | Version | 200 request id | Sends within | Overlap |
+|---|---|---|---|---|
+| 1 | 15 → 16 | `82a8ea81-588a-451d-9804-df6cbbd86cd4` | 2.0 ms | yes |
+| 2 | 16 → 17 | `feb65f38-d768-4f9c-84b6-916f9cf08c1f` | 3.0 ms | yes |
+| 3 | 17 → 18 | `52cb98b3-6002-4f32-8a20-2d48c479e51b` | 0.0 ms | yes |
+| 4 | 18 → 19 | `57b97d93-26f3-4704-89ba-403cfa8e55f4` | 1.0 ms | yes |
+| 5 | 19 → 20 | `7b5c94b4-79ad-4fb0-980d-768c2d5b866d` | 0.0 ms | yes |
+
+Each round gave the other four answers as 409 `TIMELINES_VERSION_STALE`. In every round, the last send came before the first receive (sent 1792681462.621 – 1792681463.729).
+
+- **Audit count:** `SELECT COUNT(*) FROM timeline_audit_events WHERE timeline_id = 22` → 19 (14 + 5). That is one audit row per applied edit.
+- **Disqualifier check:**
+  - Requests overlapped: yes.
+  - Bodies were identical within each round: yes.
+  - The token never passed through chat.
+  - TEST ran the build with T-1: yes, the run came after the deploy of `b609fae`.
+- **Combined with run 1 (old build):** 10 rounds and 50 requests gave 10 × 200 and 40 × 409 stale. Audit rows rose 9 → 19, one per bump.
+- **Review:** checklist. The Leader checked the recorded evidence against the T-2 Verification, Falsifier and Disqualifier. **PASS.**
+- **Requirements covered:** NFR-2. FR-1 *Identical edit committed during the read* (AND IT MUST hold when both requests arrive at the same moment).
+- **For the parent spec:** *edit* T-9 can cite this run for P-12: "write path verified, answer fixed in `bugfix/timeline-edit-noop-stale`".
+
+## Summary
+
+| Task | Status | Evidence |
+|---|---|---|
+| T-1 | PASS (attempt 1, Reviewer PASS) | 3 regression tests red → green, falsifier per exit, 1965 unit / 779 e2e green |
+| T-2 | PASS (HITL, checklist) | 5/5 rounds on TEST after deploy, 1 × 200 + 4 × 409 stale each; audit 14 → 19 |
+
+Budget: 2/2 tasks and 1/1 review round. LOC over budget (src +40 vs ~25), accepted by the back lead.
+
+Open, out of scope:
+- The Reviewer's advisories (the 404 test for `confirmVersion`, comment trimming).
+- The AGENTS.md "Edit flow" note (pending for `staging`).
+- The CI NFR-5 e2e timeout.
