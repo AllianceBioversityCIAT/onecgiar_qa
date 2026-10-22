@@ -1,4 +1,4 @@
-import { Component, computed, input, linkedSignal, model, output } from '@angular/core';
+import { Component, computed, input, linkedSignal, model, output, untracked } from '@angular/core';
 import { DefaultStep } from '../../../core/api/cycles.models';
 import { ApiFieldError } from '../../../core/http/api-envelope';
 import { FormField, applyEach, form, required, validate } from '@angular/forms/signals';
@@ -6,7 +6,8 @@ import { HlmInput } from '@spartan/input';
 import { QaButtonImports, QaDatePicker, QaDialogImports, QaDrawerImports, QaMultiSelect, QaSelectOption, QaSwitch, QaTooltipImports, discardGuard } from '../../../ui';
 import { DEFAULT_STEP_DATES, PROGRAMS, STEP_NAMES, Timeline } from './cycle.mock';
 import { StepDraftRow, formatNumber, officialRelative, stepOrderErrors, stepState } from './cycle.logic';
-import { nextAudience, toApiDay } from './cycle.mapper';
+import { StepDateIssue, nextAudience, stepDateIssues, toApiDay } from './cycle.mapper';
+import { todayInRome } from '../../../core/domain/rome-date';
 import { PROGRAM_OPTIONS, TYPE_OPTIONS } from './load-drawer';
 
 /** Edit an existing timeline (official or not) or create a new sub-timeline (timeline null). */
@@ -54,7 +55,7 @@ interface TimelineDraft {
     <qa-drawer [(open)]="open" [closeGuard]="discard.guard" [title]="title()" [subtitle]="subtitle()" width="720px">
       @if (open()) {
         @let d = draft();
-        @if (feedback()?.message; as message) {
+        @if (feedbackMessage(); as message) {
           <div role="alert" class="rounded-[8px] bg-(--danger-bg) px-3 py-2 text-(length:--fs-13) leading-[1.5] text-(--danger)">{{ message }}</div>
         }
         @if (!isOfficialEdit()) {
@@ -155,7 +156,7 @@ interface TimelineDraft {
                         <span class="flex min-h-10 items-center font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text-3) tabular-nums @xl:min-h-8">{{ row.start }}</span>
                       } @else {
                       <span class="relative flex">
-                        <input hlmInput type="text" [formField]="rf.start" [attr.aria-label]="'Step ' + (i + 1) + ' opens'" placeholder="06 Jul 2026" [attr.data-error]="rowErrorShown(i)" [attr.aria-invalid]="rowErrorShown(i) || null" class="h-10 min-w-0 rounded-[8px] border-(--border) bg-(--field-bg) py-0 pr-9 pl-[10px] font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) @xl:h-8 dark:bg-(--field-bg)" />
+                        <input hlmInput type="text" [formField]="rf.start" [attr.aria-label]="'Step ' + (i + 1) + ' opens'" placeholder="06 Jul 2026" [attr.data-error]="!!issue(i, 'start')" [attr.aria-invalid]="!!issue(i, 'start') || null" class="h-10 min-w-0 rounded-[8px] border-(--border) bg-(--field-bg) py-0 pr-9 pl-[10px] font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) @xl:h-8 dark:bg-(--field-bg)" />
                         <qa-date-picker [value]="rf.start().value()" (valueChange)="rf.start().value.set($event)" [label]="'Pick step ' + (i + 1) + ' opening date'" class="absolute top-1/2 right-1 -translate-y-1/2" />
                       </span>
                       }
@@ -166,7 +167,7 @@ interface TimelineDraft {
                         <span class="flex min-h-10 items-center font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text-3) tabular-nums @xl:min-h-8">{{ row.end || '—' }}</span>
                       } @else {
                       <span class="relative flex">
-                        <input hlmInput type="text" [formField]="rf.end" [attr.aria-label]="'Step ' + (i + 1) + ' closes'" [placeholder]="last && !live() ? 'Optional' : '11 Jul 2026'" class="h-10 min-w-0 rounded-[8px] border-(--border) bg-(--field-bg) py-0 pr-9 pl-[10px] font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 md:text-(length:--fs-13) @xl:h-8 dark:bg-(--field-bg)" />
+                        <input hlmInput type="text" [formField]="rf.end" [attr.aria-label]="'Step ' + (i + 1) + ' closes'" [placeholder]="last && !live() ? 'Optional' : '11 Jul 2026'" [attr.data-error]="!!issue(i, 'end')" [attr.aria-invalid]="!!issue(i, 'end') || null" class="h-10 min-w-0 rounded-[8px] border-(--border) bg-(--field-bg) py-0 pr-9 pl-[10px] font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) @xl:h-8 dark:bg-(--field-bg)" />
                         <qa-date-picker [value]="rf.end().value()" (valueChange)="rf.end().value.set($event)" [label]="'Pick step ' + (i + 1) + ' closing date'" class="absolute top-1/2 right-1 -translate-y-1/2" />
                       </span>
                       }
@@ -206,9 +207,6 @@ interface TimelineDraft {
           </div>
           @if (stepsError()) {
             <span role="alert" class="text-(length:--fs-13) text-(--danger)">{{ stepsError() }}</span>
-          }
-          @if (orderError()) {
-            <span role="alert" class="text-(length:--fs-13) text-(--danger)">{{ orderError() }}</span>
           }
           @if (closedCount()) {
             <span class="text-(length:--fs-13) leading-[1.5] font-normal text-pretty text-(--text-4)">Closed steps keep their dates as the record of the cycle.</span>
@@ -401,16 +399,43 @@ export class TimelineDrawer {
 
   /** First server message on exactly this field (`name`, `programIds`…). */
   protected serverError(field: string): string {
+    if (this.feedbackDraft() !== JSON.stringify(this.draft())) return '';
     return this.feedback()?.fields.find((f) => f.field === field)?.message ?? '';
   }
 
-  /** Form errors of a row after a save attempt, then the server's ones (`steps[i].<key>`, i = place in the timeline). */
+  /** Date problems of every row, checked as the admin types (live data); the mock keeps its own order rule. */
+  private readonly dateIssues = computed((): readonly StepDateIssue[] => {
+    const rows = this.draft().steps;
+    if (!this.live()) return stepOrderErrors(rows).map((bad) => (bad ? { start: 'Starts before the previous step closes.' } : {}));
+    return stepDateIssues(rows, { today: this.isNew() ? todayInRome() : undefined });
+  });
+
+  protected issue(i: number, key: 'start' | 'end'): string {
+    if (i < this.closedCount()) return '';
+    return this.dateIssues()[i]?.[key] ?? '';
+  }
+
+  /** Rows as they were when the server answered: its row errors hide as soon as that row is edited. */
+  private readonly feedbackRows = linkedSignal({
+    source: this.feedback,
+    computation: () => untracked(() => this.draft().steps.map((r) => JSON.stringify(r))),
+  });
+  private readonly feedbackDraft = linkedSignal({ source: this.feedback, computation: () => untracked(() => JSON.stringify(this.draft())) });
+  /** The server's general message, only while the form is still as it was sent. */
+  protected readonly feedbackMessage = computed(() =>
+    this.feedbackDraft() === JSON.stringify(this.draft()) ? (this.feedback()?.message ?? '') : '',
+  );
+
+  /** Live date problem of the row, else a required date after a save attempt, else the server's (until the row changes). */
   protected rowServerError(i: number): string {
+    const live = this.issue(i, 'start') || this.issue(i, 'end');
+    if (live) return live;
     if (this.tried()) {
       const row = this.tlForm.steps[i];
       const local = row ? [...row.start().errors(), ...row.end().errors()][0]?.message : '';
       if (local) return local;
     }
+    if (this.feedbackRows()[i] !== JSON.stringify(this.draft().steps[i])) return '';
     return this.feedback()?.fields.find((f) => f.field.startsWith(`steps[${i}]`))?.message ?? '';
   }
 
@@ -419,18 +444,6 @@ export class TimelineDrawer {
     const first = this.draft().steps[0];
     if (this.live() && this.tried() && first && !first.batch) return 'Step 1 must load results.';
     return this.serverError('steps');
-  });
-  private readonly orderErrors = computed(() => stepOrderErrors(this.draft().steps));
-
-  /** A step that opens before the previous one closes: shown once its date was left (blur) or on save. */
-  protected rowErrorShown(i: number): boolean {
-    return !!this.orderErrors()[i] && (this.tried() || !!this.tlForm.steps[i]?.start().touched());
-  }
-
-  protected readonly orderError = computed(() => {
-    const steps = this.draft().steps;
-    const i = steps.findIndex((_, k) => this.rowErrorShown(k));
-    return i < 0 ? '' : `${steps[i].name.trim() || `Step ${i + 1}`} starts before the previous step closes.`;
   });
 
   protected patch(p: Partial<TimelineDraft>): void {
@@ -463,7 +476,7 @@ export class TimelineDrawer {
 
   protected save(): void {
     this.tried.set(true);
-    if (this.tlForm().invalid() || this.orderErrors().some(Boolean)) return;
+    if (this.tlForm().invalid() || this.draft().steps.some((_, i) => this.issue(i, 'start') || this.issue(i, 'end'))) return;
     if (this.live() && this.draft().steps[0] && !this.draft().steps[0].batch) return;
     if (this.activeChanged()) {
       this.confirmActive.set(true);
