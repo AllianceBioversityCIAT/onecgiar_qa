@@ -1,7 +1,7 @@
 /**
  * Cycles and QA timelines of the admin config API (`/api/v1/cycles`, `/timelines`, ADMIN only).
- * Copied by hand from the server contract (`docs/specs/admin-config/cycle-timelines/front-contract.md`,
- * Juanda 21-oct-2026): keep in sync.
+ * Copied by hand from the server contracts (`docs/specs/archive/2026-10-21-admin-config--cycle-timelines/front-contract.md`
+ * and `docs/specs/admin-config/timeline-edit/front-contract.md`, Juanda 21-oct-2026): keep in sync.
  *
  * Step dates (`opensOn`, `closesOn`, `startsOn`, `endsOn`) are `YYYY-MM-DD` Rome calendar days:
  * keep them as strings and format them with `core/domain/rome-date` (never `new Date('YYYY-MM-DD')`).
@@ -47,8 +47,12 @@ export interface TimelineStepInput {
   readonly requiresLoad: boolean;
 }
 
+/** From the step's dates and today in Rome, on every read. All `upcoming` while the timeline waits for its load. */
+export type StepState = 'closed' | 'in_progress' | 'upcoming';
+
 export interface TimelineStep extends TimelineStepInput {
   readonly position: number;
+  readonly state: StepState;
 }
 
 /**
@@ -66,7 +70,12 @@ export interface TimelineCreate {
 }
 
 export type TimelineKind = 'official' | 'additional';
-export type TimelineStatus = 'scheduled' | 'live' | 'finished';
+/**
+ * `waiting_for_load`: step 1 has opened and nothing is loaded yet. It wins over the dates (even after
+ * the last closing day), no step is in progress and `currentStep` is null. Show it as "waiting for
+ * results to be loaded", never as live or finished. Every TEST timeline reads it once step 1 opens.
+ */
+export type TimelineStatus = 'scheduled' | 'waiting_for_load' | 'live' | 'finished';
 
 /** Informational "still missing" items: show them as to-dos, never as errors. New codes may appear. */
 export const READINESS = {
@@ -94,7 +103,34 @@ export interface Timeline {
   readonly nextStep: number | null;
   readonly readiness: readonly string[];
   readonly assignedCount: Readonly<Record<AssignableRole, number>>;
+  /** Starts at 1, +1 per applied edit: send it back in the next `TimelineUpdate`. */
+  readonly version: number;
   readonly createdAt: string;
+}
+
+/** Only `name`, `opensOn` and `closesOn` of a step can change; it is picked by `position` (1 to 5). */
+export interface TimelineStepUpdate {
+  readonly position: number;
+  readonly name?: string;
+  readonly opensOn?: string;
+  readonly closesOn?: string;
+}
+
+/**
+ * `PATCH /timelines/:id`: `version` plus only what changed (a key left out keeps its value; `null`
+ * never clears). A scope change sends its flag and its list together. Steps cannot be added, dropped
+ * or reordered; `kind`, `audience`, `round`, `requiresLoad` and `state` are refused.
+ */
+export interface TimelineUpdate {
+  readonly version: number;
+  readonly name?: string;
+  readonly allPrograms?: boolean;
+  readonly programIds?: readonly number[];
+  readonly allResultTypes?: boolean;
+  readonly resultTypeKeys?: readonly string[];
+  readonly steps?: readonly TimelineStepUpdate[];
+  /** Asked by the screen first, or resent after `TIMELINES_IN_PROGRESS_UNCONFIRMED`. */
+  readonly confirmInProgress?: boolean;
 }
 
 export interface TimelineUser {
@@ -121,4 +157,8 @@ export const CYCLE_ERROR = {
   TIMELINES_NAME_TAKEN: 'TIMELINES_NAME_TAKEN',
   TIMELINES_USER_NOT_ELIGIBLE: 'TIMELINES_USER_NOT_ELIGIBLE',
   TIMELINES_ASSIGNMENT_NOT_FOUND: 'TIMELINES_ASSIGNMENT_NOT_FOUND',
+  /** Someone edited since it was read: reload, tell the admin and let them redo it (never auto-resend). */
+  TIMELINES_VERSION_STALE: 'TIMELINES_VERSION_STALE',
+  /** A question, not an error: confirm, then resend the same body with `confirmInProgress: true`. */
+  TIMELINES_IN_PROGRESS_UNCONFIRMED: 'TIMELINES_IN_PROGRESS_UNCONFIRMED',
 } as const;
