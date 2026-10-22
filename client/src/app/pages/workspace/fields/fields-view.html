@@ -6,51 +6,21 @@
     <h1 class="m-0 text-(length:--fs-26) leading-[1.2] font-bold tracking-[-0.02em] text-balance text-(--text)">Fields in QA</h1>
     <p class="m-0 text-(length:--fs-14) font-normal text-balance text-(--text-3)">Every reporting field is listed. Hidden fields never reach an assessor.</p>
   </div>
-  <div class="flex w-auto flex-none flex-wrap items-center justify-end gap-x-3 gap-y-2 max-md:w-full max-md:justify-start">
-    @if (changeCount() > 0) {
-      <span role="status" class="flex items-center gap-[7px] text-(length:--fs-13) font-medium text-(--text-3)">
-        <span aria-hidden="true" class="size-[7px] flex-none rounded-full bg-(--primary)"></span>
-        <span><span class="font-(family-name:--qa-mono) font-semibold tabular-nums text-(--text-2)">{{ changeCount() }}</span> unpublished {{ changeCount() === 1 ? 'change' : 'changes' }} {{ changeScope() }}</span>
-      </span>
-      <button
-        hlmBtn
-        qaBtn
-        tone="primary"
-        type="button"
-        (click)="openConfirm()"
-        aria-haspopup="dialog"
-        class="flex-none max-md:w-full"
-      >
-        Review &amp; publish
-        <span class="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-white/22 px-[5px] font-(family-name:--qa-mono) text-(length:--fs-11) font-semibold text-(--surface) tabular-nums">{{ changeCount() }}</span>
-      </button>
-    } @else {
-      <span role="status" class="flex items-center gap-[7px] text-(length:--fs-13) font-medium text-(--text-4)">
-        @if (lastAction() === 'discarded') {
-          <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6M21 17a9 9 0 0 0-15-6.7L3 13"></path></svg>
-          Changes discarded
-        } @else {
-          <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg>
-          All changes published
-        }
-      </span>
-    }
-  </div>
 </div>
 
 <div data-screen-label="Fields" class="flex flex-col items-stretch gap-5 px-8 pt-6 pb-8 max-lg:px-6 max-md:px-4">
-  <!-- Filter row: result type, then the table filters (counts computed from the draft). #summaryGrid also measures the content width. -->
-  <div #summaryGrid class="flex flex-wrap items-center gap-x-3 gap-y-2">
+  <!-- The result type being configured, as a line of text (same as "Viewing" in Results): it sets the whole table.
+       Below it, the table filters (counts computed from the draft). #summaryGrid also measures the content width. -->
+  <div #summaryGrid class="flex flex-col gap-3">
     <qa-select
       [value]="resultType()"
       (valueChange)="selectType($event)"
       [options]="typeOptions()"
-      label="Result type"
+      label="Configuring"
+      appearance="inline"
       panelWidth="300px"
-      emphasis
-      class="w-[260px] flex-none max-sm:w-full"
+      class="self-start"
     />
-    <span aria-hidden="true" class="h-5 w-px flex-none bg-(--border) max-xl:hidden"></span>
     <div class="flex flex-wrap items-center gap-2" role="group" aria-label="Show fields">
       @for (chip of stateFilters(); track chip.value) {
         @let on = stateFilter() === chip.value;
@@ -130,6 +100,45 @@
     </div>
   }
 </div>
+
+<!-- Publish bar: pinned to the bottom while there are unpublished changes (the action follows the edits in the table).
+     After publishing or discarding it says so for a few seconds, then goes away. -->
+@if (changeCount() > 0 || lastAction()) {
+  <div
+    role="region"
+    aria-label="Unpublished changes"
+    class="sticky bottom-0 z-20 flex min-h-16 flex-wrap items-center gap-x-4 gap-y-2.5 border-t border-(--border) bg-(--surface) px-8 py-3 max-lg:px-6 max-md:px-4"
+  >
+    @if (changeCount() > 0) {
+      <span role="status" class="flex min-w-0 flex-[1_1_16rem] items-center gap-[7px] text-(length:--fs-13) font-medium text-(--text-3)">
+        <span aria-hidden="true" class="size-[7px] flex-none rounded-full bg-(--primary)"></span>
+        <span><span class="font-(family-name:--qa-mono) font-semibold tabular-nums text-(--text-2)">{{ changeCount() }}</span> unpublished {{ changeCount() === 1 ? 'change' : 'changes' }} {{ changeScope() }}</span>
+      </span>
+      <button
+        hlmBtn
+        qaBtn
+        tone="primary"
+        type="button"
+        (click)="openConfirm()"
+        aria-haspopup="dialog"
+        class="flex-none max-sm:w-full"
+      >
+        Review &amp; publish
+        <span class="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-white/22 px-[5px] font-(family-name:--qa-mono) text-(length:--fs-11) font-semibold text-(--surface) tabular-nums">{{ changeCount() }}</span>
+      </button>
+    } @else {
+      <span role="status" class="flex items-center gap-[7px] text-(length:--fs-13) font-medium text-(--text-3)">
+        @if (lastAction() === 'discarded') {
+          <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6M21 17a9 9 0 0 0-15-6.7L3 13"></path></svg>
+          Changes discarded
+        } @else {
+          <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"></path></svg>
+          All changes published
+        }
+      </span>
+    }
+  </div>
+}
 
 <!-- Review & publish pop-up -->
 <qa-fields-publish-confirm [open]="showConfirm()" (openChange)="!$event && cancelConfirm()" [groups]="changeGroups()" [count]="changeCount()" (publish)="publish()" (undo)="undoChange($event)" (discard)="discard()" />

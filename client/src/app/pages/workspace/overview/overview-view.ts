@@ -164,7 +164,7 @@ export class OverviewView {
         const end = parseDate(p.end);
         // Behind: less done than the share of the stage window already gone.
         const elapsed = start && end && end > start ? ((MOCK_TODAY.getTime() - start.getTime()) / (end.getTime() - start.getTime())) * 100 : 0;
-        const status: StageStatus = st.kind === 'done' ? 'Closed' : st.kind === 'future' ? 'Not started' : st.pct < elapsed ? 'Behind' : 'In progress';
+        const status: StageStatus = st.kind === 'done' ? 'Completed' : st.kind === 'future' ? 'Not started' : st.pct < elapsed ? 'Behind' : 'In progress';
         return {
           n: i + 1,
           name: p.name,
