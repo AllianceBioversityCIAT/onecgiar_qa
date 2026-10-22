@@ -460,7 +460,7 @@ spawns: implementer 25 calls, 100348 tokens, ended complete; reviewer 4 calls, 4
 - Reviewer (checklist, effort high, independent sweep of every non-2xx in L1584-2839): **PASS** — "Every refusal is followed by a GET that compares the whole timeline and by a state check. No case checks only the status. Both items from attempt 2 are fixed." Named checks: NFR-5 as amended — no contradiction; OQ-TE-1 — no test fixes either answer.
 - runtime events: none.
 
-spawns: implementer 53 calls, 189229 tokens, ended complete; reviewer not reported by host, ended complete.
+spawns: implementer 53 calls, 189229 tokens, ended complete; reviewer 8 calls, 47375 tokens, ended complete.
 
 **ADVISORY (attempt 3 — recorded, not tasks)**
 - READABILITY: L1932 `toHaveLength(2)` repeats what `refused()` proves.
@@ -480,5 +480,66 @@ spawns: implementer 53 calls, 189229 tokens, ended complete; reviewer not report
 
 **Issues encountered**
 - Two FAILs on the same Disqualifier: the first list was partial, and attempt 2 fixed only the list (and misreported one case). Kaizen signal for the archive: a Disqualifier of the form "every X also Y" needs a sweep instruction in the first brief, not after a FAIL.
+
+**Final verification:** VERIFIED.
+
+**Execute-time spec edit (2026-10-21, before T-8):** `design.md` § 5 first line — "two `ALTER TABLE … ADD COLUMN`" corrected to three columns plus CHECK, FK and index, matching the generated `0004_timeline_edit.sql` (T-1 Reviewer advisory). No requirement meaning changes. Carried to the T-8 Reviewer as a named conformance check.
+
+### T-8: Docs — module guide, front contract, TRD pending item — PASS (attempt 2)
+
+| | |
+|---|---|
+| Date | 2026-10-21 |
+| Skills | **`cognitive-doc-design`** (Leader addition: the task lists none; review-facing docs) |
+| Effort | attempt 1 `medium`; attempt 2 `high` |
+
+**Attempt 1 — FAIL**
+- Files changed: `server/src/admin-config/AGENTS.md` (+21/−15 incl. status union, route count 7, files table, rules no longer create-only, path rule, `timeline_update`, name length by rules, audit FKs, lock order); `docs/specs/admin-config/timeline-edit/front-contract.md` (new).
+- Leader pre-review correction (brief defect, not an attempt): the first draft said `client/src/app/core/api/cycles.models.ts` "does not exist at HEAD". The brief had not said the file lives on `origin/staging-center` (P-11). Leader verified `git show origin/staging-center:client/src/app/core/api/cycles.models.ts` line 69 = `export type TimelineStatus = 'scheduled' | 'live' | 'finished';` and returned it to the same Implementer, which rewrote the paragraph citing `staging-center` (and `api-envelope.ts` lines 30-31 there).
+- Verification (task grep): `waiting_for_load` 5, `TIMELINES_VERSION_STALE` 3, `TIMELINES_IN_PROGRESS_UNCONFIRMED` 4, `LOCKED` 6 hits in `front-contract.md` — **VERIFIED** (Leader re-run).
+- Reviewer (checklist, effort high; named checks: design § 5 correction — PASS against `0004_timeline_edit.sql`; NFR-5 amended — PASS; OQ-TE-1 described as open — PASS): **FAIL** —
+  1. **Discovered Issue:** Contract line 101 says `null` on `name`, `allPrograms`, `allResultTypes`, `steps` or `confirmInProgress` answers `INVALID_TYPE`. At HEAD, `toFieldErrors` treats any `null` value as missing and returns `REQUIRED` (`server/src/common/validation.ts:43-51`). The DTO test at `update-timeline.dto.spec.ts:64-68` only checks the field, not the code, so nothing caught this.
+     * **Violated Rule:** tasks.md T-8 Verification ("the Reviewer reads each claim against the code at HEAD"). Also design § 8 ("the request shape").
+     * **Remediation Suggestion:** Change line 101 to say it is a 400 `VALIDATION_FAILED` with code `REQUIRED` on that key (a shape error from the pipe). Keep the existing sentences for the two lists and the two dates.
+  2. **Discovered Issue:** Contract line 206 says "A replay never answers 409 stale" with no condition. At HEAD the interceptor stores every 4xx refusal and replays it (DD-5, `idempotency.interceptor.ts:103-112, 316-322`). The e2e test `admin-config-timelines.e2e-spec.ts:2697-2718` proves it: a first 409 `TIMELINES_VERSION_STALE` replays as 409 stale with `Idempotency-Replayed: true`. FR-13 (requirements.md:298-304) only promises no 409 stale for the replay of an applied 200. This matters for the confirmation flow (contract § 6 steps 2–3 and § 8 "reuse it when retrying the same save"). The key's fingerprint is taken over the body (`interceptor.ts:172-178, 227`). So: resending the body plus `confirmInProgress: true` under the same key gets 422 `IDEMPOTENCY_KEY_REUSED`; resending the identical body under the same key replays the stored 409. The same applies to the redo after a stale reload. The guide's line 54, "a refusal or no-op marks nothing", is true of `markExecuted`, but it hides that the interceptor still stores the 4xx answer or the no-op 200 under the key.
+     * **Violated Rule:** tasks.md T-8 Scope ("the crash-window replay note"; "the two 409s and the confirmation flow"). FR-13 scenario. design § 8 bullet 5.
+     * **Remediation Suggestion:** Narrow the § 8 bullet to "a replay of an applied edit (200), crash window included, never answers 409 stale". Add that a refusal (4xx) is remembered under its key and replayed as the same refusal. In § 6, say that the confirmed resend and any redo after a stale reload must use a **fresh** `Idempotency-Key`. In the guide's line 54, add that the interceptor still stores the refusal or no-op answer under the key.
+  - ADVISORY: "reads without locks" → "holds no lock past its own statement" (`timelines.service.ts:442-445`); guide line 54 `target_user_id` should also name `PATCH /timelines/:id`; say outright that `confirmInProgress` may be sent up front after the drawer's own pop-up; a `null` date on a closed step gives `LOCKED` + `REQUIRED`; pin `REQUIRED` in `update-timeline.dto.spec.ts:64-68` (code, not in T-8 scope — recorded).
+- runtime events: none.
+
+spawns: implementer 32 calls, 127115 tokens (incl. the correction), ended complete; reviewer 37 calls, 100658 tokens, ended complete.
+
+**Pending (TRD, apply on `staging`; T-8, 2026-10-21)** — recorded by the Leader from the Implementer's HEAD-cited text:
+- **§ 5.1, `timelines` row** (`docs/trd/trd.md:175`) lists `id, cycle_id, name, kind, official_key, all_programs, all_result_types, created_at/by`. Add `version` (unsigned int, starts at 1, +1 per applied edit; `server/src/database/drizzle/schema/timelines.ts:68`), `updated_at` and `updated_by` (both set or both null, `chk_timelines_updated`, `timelines.ts:71-72`, `server/drizzle/0004_timeline_edit.sql`).
+- **§ 5.1, new row `timeline_audit_events`:** columns `id` (bigint), `timeline_id`, `actor_id`, `action` (enum `update`), `changes` (json `{ field: { before, after } }`), `request_id` (varchar 64), `created_at`; append-only, index on (`timeline_id`, `created_at`); both FKs `ON DELETE no action` (`schema/timeline-audit-events.ts`, `0004_timeline_edit.sql`).
+- **§ 5.1, `timeline_loads` · `timeline_results` row** (`trd.md:180`, reserved): the only seam in front of them is the `TIMELINE_LOADS` port (`server/src/admin-config/timelines/timeline-loads.ts`), bound to `NoTimelineLoads` in `timelines.module.ts`; P2-3905 swaps that one provider.
+- **§ 6, resource map** (`trd.md:213`): route `PATCH /timelines/:id` (ADMIN, idempotent, version-checked partial edit; `timelines.controller.ts:179-208`); codes `TIMELINES_VERSION_STALE`, `TIMELINES_IN_PROGRESS_UNCONFIRMED` (`server/src/common/error-codes.ts:255,260`), field code `LOCKED` (`error-codes.ts:341`); status value `waiting_for_load` (`timeline-view.ts:5-6`); step `state` and timeline `version` on the read model (`timeline-response.ts`).
+- **§ 7**, if it describes timeline workflows: the edit flow (stale → catalog → rules → in-progress confirmation → no-op → write under cycle `FOR SHARE`, timeline `FOR UPDATE`, conditional `UPDATE … WHERE id = ? AND version = ?`; `timelines.service.ts:407-584`) and the hold (`timeline-view.ts:60-74`).
+
+**Pending (outside T-8's named deliverables — shared-file discipline; apply on `staging` or in a follow-up)**
+- `server/src/common/AGENTS.md`: catalog counts — new codes `TIMELINES_VERSION_STALE`, `TIMELINES_IN_PROGRESS_UNCONFIRMED`, field code `LOCKED`.
+- `server/src/admin-config/timelines/timelines.unit-of-work.ts` doc comment: the key mark goes through `idempotency`, not `timelines` (`timelines.service.ts:513,577`).
+- `server/src/admin-config/timelines/dto/update-timeline.dto.spec.ts:64-68`: pin the `REQUIRED` code for `null` (T-8 Reviewer advisory).
+
+**Attempt 2 — PASS**
+- Files changed: `docs/specs/admin-config/timeline-edit/front-contract.md`, `server/src/admin-config/AGENTS.md` only.
+- Change: `null` on non-nullable keys → 400 `VALIDATION_FAILED` with `REQUIRED` (`validation.ts:43-51`); a `null` locked date → `LOCKED` + `REQUIRED`; replay wording narrowed — an applied edit's replay (stored 200 or crash window) never answers 409 stale, every 4xx is stored and replayed as-is, a 5xx frees the key; new § 8 key table (same key only for a lost answer / timeout / 5xx with the same body; fresh key for the confirmed resend, the stale redo and any fixed body); guide idempotency paragraph and lock clause ("holds no lock past its own statement") corrected; `target_user_id` also names `PATCH /timelines/:id`; `confirmInProgress: true` up front stated. Implementer ran the built DTO and `validateTimelineUpdate` to confirm the `null` / lock claims; phrase-family sweep over both files reported.
+- Verification (task grep, Leader re-run): **VERIFIED** — `waiting_for_load` 5, `TIMELINES_VERSION_STALE` 5, `TIMELINES_IN_PROGRESS_UNCONFIRMED` 5, `LOCKED` 7; the only remaining `INVALID_TYPE` is the wrong-type shape-code list.
+- Reviewer (checklist, effort high; independent sweep of every replay/key/null sentence against HEAD): **PASS** — "I checked both attempt-1 issues and every replay, key and null sentence … against the code at HEAD. They all match. The TRD pending item is recorded at `execution.md:512-517`." Named checks (design § 5 correction, NFR-5 amended, OQ-TE-1) pass; falsifier (request-index paths) does not fire.
+- runtime events: none.
+
+spawns: implementer 29 calls, 118399 tokens, ended complete; reviewer not reported by host, ended complete.
+
+**ADVISORY (attempt 2 — recorded, not tasks)**
+- READABILITY: the answer order in the contract and guide leaves out 409 `TIMELINES_NAME_TAKEN`, raised inside the write after the no-op check.
+- RELIABILITY: "only 5xx and unknown failures free the key" omits the lost-fence 409 (`interceptor.ts:110`).
+- READABILITY: keys are held per admin (`actorId`, `interceptor.ts:182-183`).
+
+**Decisions made**
+- `cognitive-doc-design` added; effort bumped to `high` on rework.
+- The TRD pending item is written by the Leader in this log (above), not by the Implementer.
+
+**Issues encountered**
+- A brief defect (client file location) caught before review; two contract claims written from expectation rather than code caught by the Reviewer.
 
 **Final verification:** VERIFIED.

@@ -66,7 +66,7 @@ docs/specs/admin-config/timeline-edit/front-contract.md    (new — deliverable)
 
 ## 5. Data Model
 
-Migration `0004_timeline_edit` is **additive**: two `ALTER TABLE … ADD COLUMN` and one `CREATE TABLE`. No drop, no rename, no data rewrite (`schema.spec.ts` additive check, pattern of 0001–0003).
+Migration `0004_timeline_edit` is **additive**: three `ALTER TABLE … ADD` columns on `timelines` (`version`, `updated_at`, `updated_by`) with their CHECK and foreign key, and one `CREATE TABLE` with its index (corrected 2026-10-21 against the generated SQL; T-1 Reviewer advisory). No drop, no rename, no data rewrite (`schema.spec.ts` additive check, pattern of 0001–0003).
 
 | Table | Column / key | Rule | Requirements |
 |---|---|---|---|

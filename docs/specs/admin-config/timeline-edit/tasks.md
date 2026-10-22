@@ -318,7 +318,7 @@ T-3 ─────────────────────┘
 - **Skills:** nestjs-expert
 
 ## T-8: Docs — module guide, front contract, TRD pending item
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** S
 - **Depends on:** T-7
 - **Requirements:** FR-14 (contract for the front), NFR-6 (the load seam documented for P2-3905)
