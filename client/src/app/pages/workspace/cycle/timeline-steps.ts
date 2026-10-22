@@ -119,6 +119,9 @@ import { TimelineVM } from './cycle.logic';
                   }
                 }
                 @case ('active') {
+                  @if (!s.hasProgress) {
+                    <span class="rounded-full bg-(--tint-2) px-2 py-[2px] text-(length:--fs-11) font-semibold text-(--accent)">In progress</span>
+                  } @else {
                   <qa-progress [value]="s.pct" [max]="100" [attr.aria-label]="'Step ' + s.n + ' reviewed'" />
                   <span class="text-(length:--fs-12) text-(--text-3)"><span class="font-(family-name:--qa-mono) font-semibold text-(--text) tabular-nums">{{ s.reviewed }}</span> of <span class="font-(family-name:--qa-mono) font-semibold text-(--text) tabular-nums">{{ s.of }}</span> reviewed</span>
                   @if (s.syncText) {
@@ -134,6 +137,7 @@ import { TimelineVM } from './cycle.logic';
                     (click)="viewProgress.emit($index)"
                     class="relative z-10"
                   >View progress</button>
+                  }
                 }
                 @default {
                   <span class="text-(length:--fs-12) text-(--text-muted)">Opens in <span class="font-(family-name:--qa-mono) tabular-nums">{{ s.days }}</span> {{ s.dayWord }}</span>
