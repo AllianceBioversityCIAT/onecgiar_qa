@@ -64,6 +64,14 @@ export interface TimelinesUnitOfWork {
  * Lock order (DD-9; design 7.3): the cycle row `FOR UPDATE` first, then the
  * writes. It is the same row an activation locks, so a create and an activation
  * of one cycle serialize. Readers never lock.
+ *
+ * An edit (timeline-edit design 7.2 step 8, 7.3) takes the cycle row `FOR SHARE`
+ * (`lockCycleShared`), then the timeline row `FOR UPDATE` (`findForUpdate`),
+ * then writes in this order: the conditional `updateTimeline`, `updateStep` per
+ * changed step, `replacePrograms`, `replaceResultTypes`, `insertAuditEvent`,
+ * and the key mark. All of it goes through `timelines` below, bound to the same
+ * transaction, so the audit row commits or rolls back with the edit (FR-10) and
+ * a lost version race writes nothing (FR-9).
  */
 @Injectable()
 export class DrizzleTimelinesUnitOfWork implements TimelinesUnitOfWork {

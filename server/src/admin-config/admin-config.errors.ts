@@ -58,6 +58,20 @@ export class TimelineNameTakenError extends ConflictException {
   }
 }
 
+/** An edit made on a version of the timeline that is no longer the stored one (timeline-edit FR-9). */
+export class TimelineVersionStaleError extends ConflictException {
+  constructor() {
+    super(errorBody('TIMELINES_VERSION_STALE'));
+  }
+}
+
+/** An edit that changes a step in progress, sent without the confirmation (timeline-edit FR-8). */
+export class TimelineInProgressUnconfirmedError extends ConflictException {
+  constructor() {
+    super(errorBody('TIMELINES_IN_PROGRESS_UNCONFIRMED'));
+  }
+}
+
 /** Why the user does not qualify stays in `detail`, for logs and tests only. */
 export class TimelineUserNotEligibleError extends ConflictException {
   constructor(readonly detail: string) {

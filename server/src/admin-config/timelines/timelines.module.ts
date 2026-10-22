@@ -11,6 +11,7 @@ import {
 import { DrizzleModule } from '../../database/drizzle/drizzle.module.js';
 import { UsersModule } from '../../users/users.module.js';
 import { ADMIN_CONFIG_CLOCK } from '../admin-config.clock.js';
+import { NoTimelineLoads, TIMELINE_LOADS } from './timeline-loads.js';
 import { TimelinesController } from './timelines.controller.js';
 import { TimelinesService } from './timelines.service.js';
 import { DrizzleTimelinesStore, TIMELINES_STORE } from './timelines.store.js';
@@ -31,6 +32,9 @@ import {
   providers: [
     { provide: TIMELINES_STORE, useClass: DrizzleTimelinesStore },
     { provide: TIMELINES_UNIT_OF_WORK, useClass: DrizzleTimelinesUnitOfWork },
+    // "Has a load" (timeline-edit DD-3): no load can exist until P2-3905, whose
+    // only change here is this binding (NFR-6).
+    { provide: TIMELINE_LOADS, useClass: NoTimelineLoads },
     TimelinesService,
     // The only time source of the services (NFR-4, design 7.7), the same factory
     // as `CyclesModule`. The e2e suites override it to pin "today in Rome".

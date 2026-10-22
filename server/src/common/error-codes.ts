@@ -252,6 +252,16 @@ export const ERROR_CATALOG = {
     message:
       'Another timeline in this cycle already has this name. Choose a different name.',
   },
+  TIMELINES_VERSION_STALE: {
+    status: 409,
+    message:
+      'Someone else changed this timeline. Reload it and make your change again.',
+  },
+  TIMELINES_IN_PROGRESS_UNCONFIRMED: {
+    status: 409,
+    message:
+      'This change affects a step that is in progress. Confirm it to save.',
+  },
   TIMELINES_USER_NOT_ELIGIBLE: {
     status: 409,
     message:
@@ -328,6 +338,7 @@ export const FIELD_ERRORS = {
   ROUND_SEQUENCE: () =>
     'Rounds start at 1 and either stay the same or go up by one.',
   FIRST_STEP_LOAD: () => 'The first step must require a load.',
+  LOCKED: () => 'This can no longer be changed.',
 } as const;
 
 export type FieldErrorCode = keyof typeof FIELD_ERRORS;

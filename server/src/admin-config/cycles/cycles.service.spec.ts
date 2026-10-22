@@ -616,6 +616,9 @@ describe('list and detail (FR-2, design 7.4)', () => {
     allResultTypes: true,
     createdAt: SEEDED_AT,
     createdBy: 1,
+    version: 1,
+    updatedAt: null,
+    updatedBy: null,
   });
   const step = (
     id: number,

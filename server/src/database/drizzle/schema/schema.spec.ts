@@ -300,8 +300,8 @@ describe('committed migrations', () => {
     .filter((f) => f.endsWith('.sql'))
     .sort();
 
-  it('are exactly four SQL files', () => {
-    expect(files).toHaveLength(4);
+  it('are exactly five SQL files', () => {
+    expect(files).toHaveLength(5);
   });
 
   const sql = readFileSync(`${migrationsDir}${files[0]}`, 'utf8');
@@ -650,6 +650,9 @@ describe('timelines schema (design 5, FR-5, FR-6)', () => {
       all_result_types: 'boolean NOT NULL',
       created_at: 'datetime NOT NULL',
       created_by: 'int unsigned NOT NULL',
+      version: 'int unsigned NOT NULL',
+      updated_at: 'datetime',
+      updated_by: 'int unsigned',
     });
   });
 
@@ -694,11 +697,40 @@ describe('timelines schema (design 5, FR-5, FR-6)', () => {
     });
   });
 
-  it('references cycles and the creator', () => {
+  it('references cycles, the creator and the last editor (timeline-edit FR-10)', () => {
     expect(foreignKeys(schema.timelines)).toEqual([
       'created_by -> users.id',
       'cycle_id -> cycles.id',
+      'updated_by -> users.id',
     ]);
+  });
+
+  it('carries a version that starts at 1 for every row, existing ones included (timeline-edit FR-9, design 5)', () => {
+    const version = columnOf(schema.timelines, 'version');
+    expect(version.getSQLType()).toBe('int unsigned');
+    expect(version.notNull).toBe(true);
+    expect(version.hasDefault).toBe(true);
+    expect(version.default).toBe(1);
+  });
+
+  it('keeps the last-edit columns nullable: a never-edited timeline has neither (timeline-edit FR-10)', () => {
+    for (const n of ['updated_at', 'updated_by']) {
+      expect(columnOf(schema.timelines, n).notNull, n).toBe(false);
+      expect(columnOf(schema.timelines, n).hasDefault, n).toBe(false);
+    }
+    expect(columnOf(schema.timelines, 'updated_at').getSQLType()).toBe(
+      'datetime',
+    );
+    expect(columnOf(schema.timelines, 'updated_by').getSQLType()).toBe(
+      'int unsigned',
+    );
+  });
+
+  it('declares exactly the last-edit CHECK: updated_at and updated_by both set or both NULL (timeline-edit FR-10)', () => {
+    expect(checkNames(schema.timelines)).toEqual(['chk_timelines_updated']);
+    expect(checkOf(schema.timelines, 'chk_timelines_updated')).toBe(
+      '(`updated_at` IS NULL AND `updated_by` IS NULL) OR (`updated_at` IS NOT NULL AND `updated_by` IS NOT NULL)',
+    );
   });
 });
 
@@ -880,6 +912,82 @@ describe('timeline_users schema (design 5, FR-14, FR-15)', () => {
   });
 });
 
+describe('timeline_audit_events schema (timeline-edit design 5, DD-10, FR-10, NFR-8)', () => {
+  it('has exactly these columns and types, and nothing mutable', () => {
+    expect(schema.timelineAuditEvents).toBeDefined();
+    expect(shape(schema.timelineAuditEvents)).toEqual({
+      id: 'bigint unsigned NOT NULL',
+      timeline_id: 'int unsigned NOT NULL',
+      actor_id: 'int unsigned NOT NULL',
+      action: "enum('update') NOT NULL",
+      changes: 'json NOT NULL',
+      request_id: 'varchar(64)',
+      created_at: 'datetime NOT NULL',
+    });
+  });
+
+  it('is append-only: no column that an update, a removal or a revocation would set (FR-10)', () => {
+    const cols = tableConfig(schema.timelineAuditEvents).columns.map(
+      (c) => c.name,
+    );
+    expect(
+      cols.filter((n) => /^(updated|ended|revoked|removed|deleted)_/.test(n)),
+    ).toEqual([]);
+    expect(cols).not.toContain('version');
+  });
+
+  it('records the one action an edit can have: update', () => {
+    expect(columnOf(schema.timelineAuditEvents, 'action').enumValues).toEqual([
+      'update',
+    ]);
+  });
+
+  it('keys the event by an auto-increment bigint and stamps the time by default', () => {
+    const config = tableConfig(schema.timelineAuditEvents);
+    const id = columnOf(schema.timelineAuditEvents, 'id');
+    expect(id.primary).toBe(true);
+    expect((id as unknown as { autoIncrement: boolean }).autoIncrement).toBe(
+      true,
+    );
+    expect(columnOf(schema.timelineAuditEvents, 'created_at').hasDefault).toBe(
+      true,
+    );
+    expect(config.primaryKeys).toHaveLength(0);
+  });
+
+  it('leaves only the request id optional (an event always names its timeline, actor, change and time)', () => {
+    const notNull = Object.fromEntries(
+      tableConfig(schema.timelineAuditEvents).columns.map((c) => [
+        c.name,
+        c.notNull,
+      ]),
+    );
+    expect(notNull).toEqual({
+      id: true,
+      timeline_id: true,
+      actor_id: true,
+      action: true,
+      changes: true,
+      request_id: false,
+      created_at: true,
+    });
+  });
+
+  it('indexes (timeline_id, created_at) for the history read, with no unique key', () => {
+    expect(plainIndexes(schema.timelineAuditEvents)).toEqual({
+      idx_timeline_audit_events_timeline_created: ['timeline_id', 'created_at'],
+    });
+    expect(uniqueKeys(schema.timelineAuditEvents)).toEqual({});
+  });
+
+  it('references timelines and users (the acting admin)', () => {
+    expect(foreignKeys(schema.timelineAuditEvents)).toEqual([
+      'actor_id -> users.id',
+      'timeline_id -> timelines.id',
+    ]);
+  });
+});
+
 describe('committed migration 0003 (cycle timelines)', () => {
   const files = readdirSync(migrationsDir)
     .filter((f) => f.endsWith('.sql'))
@@ -1014,5 +1122,99 @@ describe('committed migration 0003 (cycle timelines)', () => {
     expect(sql.match(/ADD CONSTRAINT `\w+_fk` FOREIGN KEY/g)).toHaveLength(13);
     expect(sql).toContain('FOREIGN KEY (`cycle_id`) REFERENCES `cycles`(`id`)');
     expect(sql).toContain('FOREIGN KEY (`role_id`) REFERENCES `roles`(`id`)');
+  });
+});
+
+describe('committed migration 0004 (timeline edit)', () => {
+  const files = readdirSync(migrationsDir)
+    .filter((f) => f.endsWith('.sql'))
+    .sort();
+  const sql = files[4]
+    ? readFileSync(`${migrationsDir}${files[4]}`, 'utf8')
+    : '';
+
+  it('is named 0004_timeline_edit and registered in the journal', () => {
+    expect(files[4]).toBe('0004_timeline_edit.sql');
+    const journal = JSON.parse(
+      readFileSync(`${migrationsDir}meta/_journal.json`, 'utf8'),
+    ) as { entries: { idx: number; tag: string }[] };
+    expect(journal.entries.map((e) => e.tag)).toEqual(
+      files.map((f) => f.replace(/\.sql$/, '')),
+    );
+    expect(journal.entries.map((e) => e.idx)).toEqual([0, 1, 2, 3, 4]);
+  });
+
+  it('is additive only: ALTER TABLE ... ADD on timelines and one CREATE TABLE, no rewrite (design 5)', () => {
+    expect(sql).not.toBe('');
+    expect(sql).not.toMatch(
+      /\bDROP\b|\bINSERT INTO\b|\bUPDATE `\w+` SET\b|\bDELETE FROM\b|\bTRUNCATE\b|\bMODIFY\b|\bRENAME\b/,
+    );
+    expect(sql).not.toMatch(/\bCHANGE\b/);
+    // Every ALTER adds something, to `timelines` or to the new table.
+    const alters = sql.match(/\bALTER TABLE [^;]*/g) ?? [];
+    expect(alters.length).toBeGreaterThan(0);
+    for (const a of alters) {
+      expect(a).toMatch(
+        /^ALTER TABLE `(timelines|timeline_audit_events)` ADD (`|CONSTRAINT )/,
+      );
+    }
+    // Statements are only ALTER TABLE and CREATE TABLE (plus CREATE INDEX on
+    // the new table); nothing else can reach an existing table.
+    const statements = sql
+      .split('--> statement-breakpoint')
+      .map((x) => x.trim())
+      .filter(Boolean);
+    for (const st of statements) {
+      expect(st).toMatch(/^(ALTER TABLE|CREATE TABLE|CREATE INDEX) /);
+    }
+    expect(sql.match(/\bCREATE TABLE\b/g) ?? []).toHaveLength(1);
+    expect(sql).toContain('CREATE TABLE `timeline_audit_events`');
+    for (const i of sql.match(/\bCREATE (?:UNIQUE )?INDEX [^;]*/g) ?? []) {
+      expect(i).toMatch(/ON `timeline_audit_events` /);
+    }
+  });
+
+  it('adds exactly version, updated_at, updated_by and the last-edit CHECK to timelines', () => {
+    const onTimelines = (sql.match(/\bALTER TABLE `timelines` [^;]*/g) ?? [])
+      .map((a) => a.replace(/\s+/g, ' ').trim())
+      .sort();
+    expect(onTimelines).toEqual(
+      [
+        'ALTER TABLE `timelines` ADD `version` int unsigned DEFAULT 1 NOT NULL',
+        'ALTER TABLE `timelines` ADD `updated_at` datetime',
+        'ALTER TABLE `timelines` ADD `updated_by` int unsigned',
+        'ALTER TABLE `timelines` ADD CONSTRAINT `timelines_updated_by_users_id_fk` FOREIGN KEY (`updated_by`) REFERENCES `users`(`id`) ON DELETE no action ON UPDATE no action',
+        'ALTER TABLE `timelines` ADD CONSTRAINT `chk_timelines_updated` CHECK ((`updated_at` IS NULL AND `updated_by` IS NULL) OR (`updated_at` IS NOT NULL AND `updated_by` IS NOT NULL))',
+      ].sort(),
+    );
+  });
+
+  it('gives existing rows version 1: NOT NULL with DEFAULT 1, so no data rewrite is needed (FR-9)', () => {
+    expect(sql).toContain('`version` int unsigned DEFAULT 1 NOT NULL');
+  });
+
+  it('creates timeline_audit_events with its columns, index and two foreign keys (FR-10, NFR-8)', () => {
+    expect(sql).toContain('`id` bigint unsigned AUTO_INCREMENT NOT NULL,');
+    expect(sql).toContain("`action` enum('update') NOT NULL,");
+    expect(sql).toContain('`changes` json NOT NULL,');
+    expect(sql).toContain('`request_id` varchar(64),');
+    expect(sql).toContain(
+      '`created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP',
+    );
+    expect(sql).toContain(
+      'CREATE INDEX `idx_timeline_audit_events_timeline_created` ON `timeline_audit_events` (`timeline_id`,`created_at`)',
+    );
+    expect(sql).toContain(
+      'FOREIGN KEY (`timeline_id`) REFERENCES `timelines`(`id`)',
+    );
+    expect(sql).toContain('FOREIGN KEY (`actor_id`) REFERENCES `users`(`id`)');
+    expect(sql.match(/ADD CONSTRAINT `\w+_fk` FOREIGN KEY/g)).toHaveLength(3);
+  });
+
+  it('gives the audit table no update columns (append-only, FR-10)', () => {
+    const create =
+      sql.match(/CREATE TABLE `timeline_audit_events` \([^;]*\);/)?.[0] ?? '';
+    expect(create).not.toBe('');
+    expect(create).not.toMatch(/`(updated|ended|revoked|removed|deleted)_\w+`/);
   });
 });
