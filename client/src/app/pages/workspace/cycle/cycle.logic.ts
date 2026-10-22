@@ -209,6 +209,11 @@ export interface StepCardVM {
   dayWord: string;
   /** Progress numbers exist (mock data; the API has no loads yet). Without them the card says until when it is open. */
   hasProgress: boolean;
+  /**
+   * The timeline is on hold: step 1's day came and nothing is loaded yet (`waiting_for_load`). Its first
+   * step shows "Waiting for results", never "Opens in 0 days" (timeline-edit front contract § 3).
+   */
+  waiting: boolean;
 }
 
 export interface TimelineVM {
@@ -272,6 +277,7 @@ export function timelineVM(t: Timeline): TimelineVM {
       days: st.kind === 'future' ? st.days : 0,
       dayWord: st.kind === 'future' && st.days === 1 ? 'day' : 'days',
       hasProgress: st.kind === 'active' && st.of > 0,
+      waiting: t.status === 'Waiting for results' && i === 0,
     };
   });
   const rail = states.map((s) => (closed ? 'done' : s.kind));
