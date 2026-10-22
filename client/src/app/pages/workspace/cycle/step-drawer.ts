@@ -1,10 +1,10 @@
-import { Component, computed, input, linkedSignal, model, output } from '@angular/core';
+import { Component, computed, input, linkedSignal, model, output, untracked } from '@angular/core';
 import { FormField, form, required, validate } from '@angular/forms/signals';
 import { HlmInput } from '@spartan/input';
 import { QaButtonImports, QaDatePicker, QaDialogImports, QaDrawerImports, QaSegmented, QaSelect, QaSwitch, QaTooltipImports, discardGuard } from '../../../ui';
 import { AUDIENCES, CORRECTION_AUDIENCE, CycleStep, DEMO_ACCESS, PROGRAMS, ReopenMode, Timeline } from './cycle.mock';
 import { formatNumber, parseDate, stepState } from './cycle.logic';
-import { toApiDay } from './cycle.mapper';
+import { stepDateIssues, toApiDay } from './cycle.mapper';
 import type { TimelineSaveFeedback } from './timeline-drawer';
 
 /** Which step the drawer edits (index) or which timeline gets a new step (index null). */
@@ -250,9 +250,12 @@ export class StepDrawer {
   readonly saving = input(false);
   readonly feedback = input<TimelineSaveFeedback | null>(null);
   /** One step has no row of its own to mark: show the server's first field message, else its message. */
+  private readonly feedbackDraft = linkedSignal({ source: this.feedback, computation: () => untracked(() => JSON.stringify(this.draft())) });
+  /** Hidden as soon as the step is edited again (it described the values that were sent). */
   protected readonly feedbackText = computed(() => {
     const fb = this.feedback();
-    return fb?.fields[0]?.message ?? fb?.message ?? '';
+    if (!fb || this.feedbackDraft() !== JSON.stringify(this.draft())) return '';
+    return fb.fields[0]?.message ?? fb.message ?? '';
   });
   readonly removeStep = output<void>();
   /** "Load results into this step" (sub-timeline steps that load results and have not run yet). */
@@ -350,10 +353,27 @@ export class StepDrawer {
   protected readonly confirmRemove = linkedSignal({ source: this.request, computation: () => false });
 
   protected readonly nameError = computed(() => (this.tried() || this.stepForm.name().touched() ? (this.stepForm.name().errors()[0]?.message ?? '') : ''));
-  protected readonly opensError = computed(() =>
-    this.tried() || this.stepForm.opens().touched() || this.stepForm.closes().touched()
-      ? (this.stepForm.opens().errors()[0]?.message ?? this.stepForm.closes().errors()[0]?.message ?? '')
-      : '',
+  /**
+   * Live data: the server's date rules against the steps around this one, checked as the admin types
+   * (closing before opening, opening on or before the previous step closes, closing on or after the next one opens).
+   */
+  protected readonly liveDateIssue = computed(() => {
+    const r = this.request();
+    if (!this.live() || r.index == null) return '';
+    const d = this.draft();
+    const rows = r.timeline.steps.map((p, i) => (i === r.index ? { start: d.opens, end: d.closes } : { start: p.start, end: p.end }));
+    const issues = stepDateIssues(rows);
+    const own = issues[r.index];
+    const next = issues[r.index + 1]?.start ? `Must close before step ${r.index + 2} opens (${rows[r.index + 1].start}).` : '';
+    return own.start ?? own.end ?? next;
+  });
+
+  protected readonly opensError = computed(
+    () =>
+      this.liveDateIssue() ||
+      (this.tried() || this.stepForm.opens().touched() || this.stepForm.closes().touched()
+        ? (this.stepForm.opens().errors()[0]?.message ?? this.stepForm.closes().errors()[0]?.message ?? '')
+        : ''),
   );
 
   protected readonly title = computed(() => this.draft().name.trim() || 'New step');
@@ -394,7 +414,7 @@ export class StepDrawer {
 
   protected save(): void {
     this.tried.set(true);
-    if (this.stepForm().invalid()) return;
+    if (this.stepForm().invalid() || this.liveDateIssue()) return;
     if (this.inProgress() && this.changed()) {
       this.confirmActive.set(true);
       return;

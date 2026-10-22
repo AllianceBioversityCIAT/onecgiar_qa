@@ -1,5 +1,5 @@
 import { Timeline as ApiTimeline } from '../../../core/api/cycles.models';
-import { CycleCatalogs, OFFICIAL_ID, nextAudience, roundsOf, toApiDay, toCreateBody, toUpdateBody, toViewTimeline } from './cycle.mapper';
+import { CycleCatalogs, OFFICIAL_ID, nextAudience, roundsOf, stepDateIssues, toApiDay, toCreateBody, toUpdateBody, toViewTimeline } from './cycle.mapper';
 import { daysFromToday, officialRelative, stepOrderErrors } from './cycle.logic';
 
 const cat: CycleCatalogs = {
@@ -152,5 +152,28 @@ describe('cycle.logic on API rules', () => {
   it('days until a step opens count from today in Rome', () => {
     expect(daysFromToday('25 Oct 2026', '2026-10-22')).toBe(3);
     expect(daysFromToday('01 Mar 2027', '2027-02-28')).toBe(1);
+  });
+});
+
+describe('stepDateIssues (live checks while typing)', () => {
+  it('flags the exact field: closing before opening, sharing a day, not a real date', () => {
+    expect(
+      stepDateIssues([
+        { start: '22 Oct 2026', end: '30 Oct 2026' },
+        { start: '30 Oct 2026', end: '01 Oct 2026' },
+        { start: '31 Feb 2027', end: '' },
+      ]),
+    ).toEqual([
+      {},
+      { start: 'Must open after step 1 closes (30 Oct 2026).', end: 'Closes before it opens.' },
+      { start: 'Not a real date. Use the format 06 Jul 2026.' },
+    ]);
+  });
+
+  it('step 1 cannot open before today; empty dates wait for the save check', () => {
+    expect(stepDateIssues([{ start: '21 Oct 2026', end: '' }, { start: '', end: '' }], { today: '2026-10-22' })).toEqual([
+      { start: "Can't open before today (22 Oct 2026)." },
+      {},
+    ]);
   });
 });
