@@ -42,7 +42,9 @@ export class CycleStore {
   readonly cycle = signal<Cycle | null>(null);
   readonly defaults = signal<readonly DefaultStep[]>([]);
   /** Catalogs that failed (CLARISA / Reporting down): names fall back to ids and their pickers turn off. */
-  readonly missingCatalogs = signal<readonly ('types' | 'programs')[]>([]);
+  readonly missingCatalogs = signal<readonly ('types' | 'programs' | 'step proposal')[]>([]);
+  /** Only the newest load writes its answer (a retry click or a quiet reload never lets an older one win). */
+  private loadSeq = 0;
   readonly catalogs = this.catalogState.asReadonly();
 
   readonly official = computed(() => this.all().find((t) => t.id === OFFICIAL_ID) ?? null);
@@ -59,7 +61,8 @@ export class CycleStore {
   /** `quiet`: refresh in place (after a stale edit) without the loading state. */
   async load(quiet = false): Promise<void> {
     if (!quiet) this.state.set('loading');
-    const missing: ('types' | 'programs')[] = [];
+    const seq = ++this.loadSeq;
+    const missing: ('types' | 'programs' | 'step proposal')[] = [];
     const optional = <T>(list: Observable<readonly T[]>, name: 'types' | 'programs') =>
       list.pipe(catchError(() => (missing.push(name), of([] as readonly T[]))));
     try {
@@ -68,9 +71,10 @@ export class CycleStore {
           cycles: this.api.list(),
           programs: optional(this.catalogsApi.sciencePrograms(), 'programs'),
           types: optional(this.catalogsApi.resultTypes(), 'types'),
-          defaults: this.api.defaults().pipe(catchError(() => of([] as readonly DefaultStep[]))),
+          defaults: this.api.defaults().pipe(catchError(() => (missing.push('step proposal'), of([] as readonly DefaultStep[])))),
         }),
       );
+      if (seq !== this.loadSeq) return;
       this.missingCatalogs.set(missing);
       this.catalogState.set({ programs, types });
       this.defaults.set(defaults);
@@ -82,9 +86,11 @@ export class CycleStore {
         return;
       }
       const timelines = await firstValueFrom(this.api.timelines(active.id));
+      if (seq !== this.loadSeq) return;
       this.all.set(timelines.map((t) => toViewTimeline(t, { programs, types })));
       this.state.set('ready');
     } catch (error) {
+      if (seq !== this.loadSeq) return;
       this.loadError.set(toApiError(error).message);
       this.state.set('error');
     }

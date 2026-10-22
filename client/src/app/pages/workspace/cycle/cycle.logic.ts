@@ -173,8 +173,13 @@ export interface StepDraftRow {
 export function officialRelative(startText: string, official: Timeline): StepDraftRow[] {
   const o0 = parseDate(official.steps[0]?.start);
   const base = parseDate(startText) ?? new Date(2026, 8, 1);
-  const at = (d: Date | null) => (d && o0 ? formatDate(new Date(base.getTime() + (d.getTime() - o0.getTime()))) : '');
-  return official.steps.map((p) => ({ name: p.name, start: at(parseDate(p.start)), end: at(parseDate(p.end)), batch: p.batch }));
+  // Whole days, never milliseconds: a summer-time change in between would land on 23:00 of the day before.
+  const at = (d: Date | null) => {
+    if (!d || !o0) return '';
+    const days = Math.round((Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) - Date.UTC(o0.getFullYear(), o0.getMonth(), o0.getDate())) / DAY);
+    return formatDate(new Date(base.getFullYear(), base.getMonth(), base.getDate() + days));
+  };
+  return official.steps.map((p) => ({ name: p.name, start: at(parseDate(p.start)), end: at(parseDate(p.end)), batch: p.batch, audience: p.audienceKey }));
 }
 
 /** Start time of a timeline, for sorting (newest first). */

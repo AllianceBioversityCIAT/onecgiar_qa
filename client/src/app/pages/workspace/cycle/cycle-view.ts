@@ -139,10 +139,11 @@ export class CycleView implements OnInit {
     const steps = before.steps.map((p, i) =>
       i === e.index ? { name: e.step.name, start: e.step.start, end: e.step.end, batch: p.batch } : { name: p.name, start: p.start, end: p.end, batch: p.batch },
     );
+    const asked = this.stepRequest();
     const outcome = await this.save(() =>
       this.store.update(before, { name: before.name, programs: before.programs, types: before.types, steps }, e.confirmed),
     );
-    this.settle(outcome, this.stepOpen, this.stepFeedback);
+    this.settle(outcome, asked === this.stepRequest() && this.stepOpen(), this.stepOpen, this.stepFeedback);
   }
 
 
@@ -173,9 +174,10 @@ export class CycleView implements OnInit {
     const draft = { name: e.name, programs: e.programs, types: e.types, steps: e.steps };
     const before = e.id ? this.timelineById(e.id) : undefined;
     if (e.id && !before) return;
+    const asked = this.timelineRequest();
     const outcome = await this.save(() => (before ? this.store.update(before, draft, e.confirmed) : this.store.create(draft)));
     if (outcome.ok && !before) this.tab.set('live');
-    this.settle(outcome, this.timelineOpen, this.timelineFeedback);
+    this.settle(outcome, asked === this.timelineRequest() && this.timelineOpen(), this.timelineOpen, this.timelineFeedback);
   }
 
   /** One save at a time (a second click while the first is in flight does nothing). */
@@ -188,8 +190,21 @@ export class CycleView implements OnInit {
     }
   }
 
-  /** Saved: close. Stale: close and say it was reloaded. Otherwise keep the drawer open with the server's answer. */
-  private settle(outcome: TimelineSaveOutcome, open: { set(v: boolean): void }, feedback: { set(v: TimelineSaveFeedback | null): void }): void {
+  /**
+   * Saved: close. Stale: close and say it was reloaded. Otherwise keep the drawer open with the server's
+   * answer. `same` is false when the admin closed the drawer, or opened another one, meanwhile: that one
+   * is left alone and a refusal is told as a toast so it is never lost.
+   */
+  private settle(
+    outcome: TimelineSaveOutcome,
+    same: boolean,
+    open: { set(v: boolean): void },
+    feedback: { set(v: TimelineSaveFeedback | null): void },
+  ): void {
+    if (!same) {
+      if (!outcome.ok && !outcome.needsConfirm) this.toasts.error(outcome.message);
+      return;
+    }
     if (outcome.ok) {
       feedback.set(null);
       open.set(false);
