@@ -5,6 +5,7 @@ export type AdminConfigAction =
   | 'cycle_create'
   | 'cycle_activate'
   | 'timeline_create'
+  | 'timeline_update'
   | 'timeline_user_assign'
   | 'timeline_user_remove';
 

@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, count, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, count, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { DRIZZLE } from '../../database/drizzle/drizzle.constants.js';
 import type { DrizzleDB } from '../../database/drizzle/drizzle.module.js';
 import {
@@ -7,6 +7,11 @@ import {
   type CycleStatus,
 } from '../../database/drizzle/schema/cycles.js';
 import { roles } from '../../database/drizzle/schema/roles.js';
+import {
+  timelineAuditEvents,
+  type TimelineAuditAction,
+  type TimelineAuditChanges,
+} from '../../database/drizzle/schema/timeline-audit-events.js';
 import {
   timelinePrograms,
   type TimelineProgram,
@@ -71,6 +76,42 @@ export type TimelineInsertOutcome =
 
 /** A step as the service hands it over; the timeline id is the one just inserted. */
 export type NewStepValues = Omit<NewTimelineStep, 'id' | 'timelineId'>;
+
+/**
+ * How the conditional UPDATE of a timeline ended (timeline-edit design 7.3,
+ * DD-6): applied, refused because the version moved (or the row is gone), or
+ * refused by `uq_timelines_cycle_name`.
+ */
+export type TimelineUpdateOutcome =
+  { kind: 'updated' } | { kind: 'stale' } | { kind: 'name_taken' };
+
+/**
+ * What an applied edit writes on the `timelines` row besides `version =
+ * version + 1` (FR-9, FR-10). A field left out is not written. Never `kind`,
+ * `cycle_id` or `created_*`: an edit cannot change them (S-4).
+ */
+export interface TimelineUpdateValues {
+  name?: string;
+  allPrograms?: boolean;
+  allResultTypes?: boolean;
+  updatedAt: Date;
+  updatedBy: number;
+}
+
+/** The step fields an edit can change (FR-1, S-4): never audience, round or `requires_load`. A field left out is not written. */
+export type StepUpdateValues = Partial<
+  Pick<NewTimelineStep, 'name' | 'opensOn' | 'closesOn'>
+>;
+
+/** One audit row of an applied edit (FR-10, DD-10): `createdAt` is the edit's instant, the same as `updated_at`. */
+export interface NewAuditEventValues {
+  timelineId: number;
+  actorId: number;
+  action: TimelineAuditAction;
+  changes: TimelineAuditChanges;
+  requestId: string | null;
+  createdAt: Date;
+}
 
 /** The rows of one timeline, as read (design 6, 7.4). Ordering is the mapper's job. */
 export interface TimelineBundle {
@@ -163,6 +204,53 @@ export interface TimelinesStore {
     removedAt: Date;
     removedBy: number;
   }): Promise<boolean>;
+  /**
+   * The row plus steps, programs and result types in a fixed four statements
+   * (timeline-edit design 7.3): the unlocked reads of the edit's step 2. The row
+   * is read FIRST, so an edit that commits between the statements has already
+   * moved the version the caller saw, and the locked re-check refuses it (DD-6).
+   * `undefined` = no such timeline.
+   */
+  findBundle(id: number): Promise<TimelineBundle | undefined>;
+  /**
+   * `SELECT ... FOR UPDATE` of the timeline row (DD-9: the cycle row first, then
+   * this one). The caller compares the version it returns with the one the
+   * request named. `undefined` = no such timeline.
+   */
+  findForUpdate(id: number): Promise<Timeline | undefined>;
+  /**
+   * `UPDATE timelines SET version = version + 1, updated_at, updated_by [, name,
+   * all_programs, all_result_types] WHERE id = ? AND version = ?` (DD-6). The
+   * affected-row count decides, never a read before it: 0 rows is `stale`, a
+   * 1062 on `uq_timelines_cycle_name` is `name_taken`, any other failure is
+   * thrown.
+   */
+  updateTimeline(
+    id: number,
+    expectedVersion: number,
+    values: TimelineUpdateValues,
+  ): Promise<TimelineUpdateOutcome>;
+  /**
+   * `UPDATE timeline_steps SET ... WHERE timeline_id = ? AND position = ?`: one
+   * statement per changed step. `false` = no step at that position.
+   */
+  updateStep(
+    timelineId: number,
+    position: number,
+    values: StepUpdateValues,
+  ): Promise<boolean>;
+  /** DELETE the timeline's program rows, then INSERT the new list (none while `all_programs` is true; DD-6 of *timelines*). */
+  replacePrograms(
+    timelineId: number,
+    programIds: readonly number[],
+  ): Promise<void>;
+  /** As `replacePrograms`, for the result-type rows. */
+  replaceResultTypes(
+    timelineId: number,
+    resultTypeKeys: readonly string[],
+  ): Promise<void>;
+  /** `INSERT` one audit row; append-only, written on the edit's transaction (FR-10, DD-10). */
+  insertAuditEvent(values: NewAuditEventValues): Promise<void>;
 }
 
 /**
@@ -188,7 +276,7 @@ function duplicateKeyText(error: unknown): string | undefined {
   return undefined;
 }
 
-type TimelinesDb = Pick<DrizzleDB, 'select' | 'insert' | 'update'>;
+type TimelinesDb = Pick<DrizzleDB, 'select' | 'insert' | 'update' | 'delete'>;
 
 /** Drizzle adapter of `TimelinesStore`. `db` is the pool for reads or a transaction handle (`DrizzleTimelinesUnitOfWork`). */
 @Injectable()
@@ -408,5 +496,108 @@ export class DrizzleTimelinesStore implements TimelinesStore {
         ),
       );
     return header.affectedRows > 0;
+  }
+
+  async findBundle(id: number): Promise<TimelineBundle | undefined> {
+    // The row first, then the rest: see the port (a version that moved in
+    // between is refused by the locked re-check). Four statements, whatever the
+    // number of steps.
+    const timeline = await this.findById(id);
+    if (!timeline) return undefined;
+    const steps = await this.listSteps([id]);
+    const programs = await this.listPrograms([id]);
+    const resultTypes = await this.listResultTypes([id]);
+    return {
+      timeline,
+      steps,
+      programIds: programs.map((row) => row.programId),
+      resultTypeKeys: resultTypes.map((row) => row.resultTypeKey),
+    };
+  }
+
+  async findForUpdate(id: number): Promise<Timeline | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(timelines)
+      .where(eq(timelines.id, id))
+      .limit(1)
+      .for('update');
+    return row;
+  }
+
+  async updateTimeline(
+    id: number,
+    expectedVersion: number,
+    values: TimelineUpdateValues,
+  ): Promise<TimelineUpdateOutcome> {
+    try {
+      // The version is in the WHERE, so the database decides (DD-6, KZ
+      // cycle-timelines-1): a row whose version moved matches nothing. A field
+      // left `undefined` is not written (drizzle drops it from the SET).
+      const [header] = await this.db
+        .update(timelines)
+        .set({
+          name: values.name,
+          allPrograms: values.allPrograms,
+          allResultTypes: values.allResultTypes,
+          version: sql`${timelines.version} + 1`,
+          updatedAt: values.updatedAt,
+          updatedBy: values.updatedBy,
+        })
+        .where(
+          and(eq(timelines.id, id), eq(timelines.version, expectedVersion)),
+        );
+      return header.affectedRows > 0 ? { kind: 'updated' } : { kind: 'stale' };
+    } catch (error) {
+      if (duplicateKeyText(error)?.includes(TIMELINE_NAME_KEY)) {
+        return { kind: 'name_taken' };
+      }
+      throw error;
+    }
+  }
+
+  async updateStep(
+    timelineId: number,
+    position: number,
+    values: StepUpdateValues,
+  ): Promise<boolean> {
+    const [header] = await this.db
+      .update(timelineSteps)
+      .set({
+        name: values.name,
+        opensOn: values.opensOn,
+        closesOn: values.closesOn,
+      })
+      .where(
+        and(
+          eq(timelineSteps.timelineId, timelineId),
+          eq(timelineSteps.position, position),
+        ),
+      );
+    return header.affectedRows > 0;
+  }
+
+  async replacePrograms(
+    timelineId: number,
+    programIds: readonly number[],
+  ): Promise<void> {
+    await this.db
+      .delete(timelinePrograms)
+      .where(eq(timelinePrograms.timelineId, timelineId));
+    await this.insertPrograms(timelineId, programIds);
+  }
+
+  async replaceResultTypes(
+    timelineId: number,
+    resultTypeKeys: readonly string[],
+  ): Promise<void> {
+    await this.db
+      .delete(timelineResultTypes)
+      .where(eq(timelineResultTypes.timelineId, timelineId));
+    await this.insertResultTypes(timelineId, resultTypeKeys);
+  }
+
+  async insertAuditEvent(values: NewAuditEventValues): Promise<void> {
+    await this.db.insert(timelineAuditEvents).values(values);
   }
 }

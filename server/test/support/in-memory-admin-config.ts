@@ -19,14 +19,21 @@ import type {
   AssignedCountRow,
   AssignmentInsertOutcome,
   NewAssignmentValues,
+  NewAuditEventValues,
   NewStepValues,
+  StepUpdateValues,
+  TimelineBundle,
   TimelineInsertOutcome,
+  TimelineUpdateOutcome,
+  TimelineUpdateValues,
   TimelinesStore,
 } from '../../src/admin-config/timelines/timelines.store.js';
+import type { TimelineLoads } from '../../src/admin-config/timelines/timeline-loads.js';
 import type {
   TimelinesRepositories,
   TimelinesUnitOfWork,
 } from '../../src/admin-config/timelines/timelines.unit-of-work.js';
+import type { TimelineAuditEvent } from '../../src/database/drizzle/schema/timeline-audit-events.js';
 import type { TimelineProgram } from '../../src/database/drizzle/schema/timeline-programs.js';
 import type { TimelineResultType } from '../../src/database/drizzle/schema/timeline-result-types.js';
 import type { TimelineStep } from '../../src/database/drizzle/schema/timeline-steps.js';
@@ -90,6 +97,8 @@ export class InMemoryAdminConfigDatabase {
   readonly resultTypes: TimelineResultType[] = [];
   /** The committed rows of `timeline_users`: the assign and remove routes write them, unit tests may seed them. */
   readonly assignments: TimelineUser[] = [];
+  /** The committed rows of `timeline_audit_events` (timeline-edit FR-10): inserted by an applied edit, never updated or deleted. */
+  readonly auditEvents: TimelineAuditEvent[] = [];
   /** `roles.id` -> `roles.code`, as the seeded `roles` table maps them for the join of the counts. */
   readonly roleCodeById = new Map<number, string>([
     [1, 'ADMIN'],
@@ -137,15 +146,19 @@ export class InMemoryAdminConfigDatabase {
   readonly writeLog: string[] = [];
   readonly store: InMemoryCyclesStore;
   readonly timelineStore: InMemoryTimelinesStore;
+  /** The fake `TIMELINE_LOADS` port: which timelines "have a load" is settable (timeline-edit design 7.4). */
+  readonly loads: InMemoryTimelineLoads;
   private issued = 0;
   private issuedTimelines = 0;
   private issuedSteps = 0;
   private issuedAssignments = 0;
+  private issuedAudit = 0;
 
   /** Pass the users world's database to share its row locks and idempotency rows. */
   constructor(readonly base: InMemoryDatabase = new InMemoryDatabase()) {
     this.store = new InMemoryCyclesStore(this);
     this.timelineStore = new InMemoryTimelinesStore(this);
+    this.loads = new InMemoryTimelineLoads(this);
   }
 
   /** One timeline write: in `timelineWriteLog` and in the cross-table `history`. */
@@ -168,6 +181,13 @@ export class InMemoryAdminConfigDatabase {
     return this.issuedAssignments;
   }
 
+  /** A fresh `timeline_audit_events` key, unique across transactions that insert at the same time. */
+  nextAuditEventId(): number {
+    const highest = this.auditEvents.reduce((max, e) => Math.max(max, e.id), 0);
+    this.issuedAudit = Math.max(this.issuedAudit, highest) + 1;
+    return this.issuedAudit;
+  }
+
   nextStepId(): number {
     const highest = this.steps.reduce((max, s) => Math.max(max, s.id), 0);
     this.issuedSteps = Math.max(this.issuedSteps, highest) + 1;
@@ -179,6 +199,33 @@ export class InMemoryAdminConfigDatabase {
     const highest = this.cycles.reduce((max, c) => Math.max(max, c.id), 0);
     this.issued = Math.max(this.issued, highest) + 1;
     return this.issued;
+  }
+}
+
+/**
+ * The fake `TIMELINE_LOADS` port (timeline-edit design 7.4, DD-8). Unlike
+ * `NoTimelineLoads` it is a real statement: each call is one entry of the
+ * world's `timelineReadLog` (`loads:1,2`), so the NFR-5 counts of a test that
+ * binds it include the loads query the P2-3905 adapter will run, and a count
+ * cannot pass by skipping it. A timeline "has a load" once `markLoaded` named
+ * it; nothing else sets it, as nothing else can record a load yet (P-8).
+ */
+export class InMemoryTimelineLoads implements TimelineLoads {
+  /** Timelines that have a load. */
+  readonly loaded = new Set<number>();
+  /** Calls answered, one per statement. */
+  calls = 0;
+
+  constructor(private readonly world: InMemoryAdminConfigDatabase) {}
+
+  markLoaded(...timelineIds: number[]): void {
+    for (const id of timelineIds) this.loaded.add(id);
+  }
+
+  async withLoad(timelineIds: readonly number[]): Promise<ReadonlySet<number>> {
+    this.calls++;
+    this.world.recordTimelineRead(`loads:${timelineIds.join(',')}`);
+    return new Set(timelineIds.filter((id) => this.loaded.has(id)));
   }
 }
 
@@ -461,6 +508,7 @@ export class InMemoryTimelinesStore implements TimelinesStore {
     readonly programRows: TimelineProgram[] = world.programs,
     readonly resultTypeRows: TimelineResultType[] = world.resultTypes,
     readonly assignmentRows: TimelineUser[] = world.assignments,
+    readonly auditRows: TimelineAuditEvent[] = world.auditEvents,
   ) {}
 
   async insert(values: NewTimeline): Promise<TimelineInsertOutcome> {
@@ -474,6 +522,10 @@ export class InMemoryTimelinesStore implements TimelinesStore {
       allResultTypes: values.allResultTypes,
       createdAt: values.createdAt ?? new Date(),
       createdBy: values.createdBy,
+      // As the column defaults give a new row (timeline-edit FR-9, FR-10).
+      version: 1,
+      updatedAt: null,
+      updatedBy: null,
     };
     // InnoDB reports the first unique index that refuses the row, in the order
     // the table declares them: the name, then the official key.
@@ -746,6 +798,135 @@ export class InMemoryTimelinesStore implements TimelinesStore {
     this.world.recordTimelineWrite(`remove:${row.id}`);
     return true;
   }
+
+  /** Four statements, the row first, as the adapter reads it, so a test counts them in the read log. */
+  async findBundle(id: number): Promise<TimelineBundle | undefined> {
+    const timeline = await this.findById(id);
+    if (!timeline) return undefined;
+    const steps = await this.listSteps([id]);
+    const programs = await this.listPrograms([id]);
+    const resultTypes = await this.listResultTypes([id]);
+    return {
+      timeline,
+      steps,
+      programIds: programs.map((row) => row.programId),
+      resultTypeKeys: resultTypes.map((row) => row.resultTypeKey),
+    };
+  }
+
+  async findForUpdate(id: number): Promise<Timeline | undefined> {
+    this.world.recordTimelineRead(`timeline:${id}:for-update`);
+    return structuredClone(this.rows.find((r) => r.id === id));
+  }
+
+  /**
+   * `UPDATE ... WHERE id = ? AND version = ?`: the version is judged on the row
+   * as it is NOW, so a transaction that waited for another one's lock sees that
+   * one's commit (timeline-edit DD-6). The name key is checked after the WHERE,
+   * as InnoDB checks a unique index only for a row the UPDATE matched, and
+   * refuses the whole statement: nothing of it is applied.
+   */
+  async updateTimeline(
+    id: number,
+    expectedVersion: number,
+    values: TimelineUpdateValues,
+  ): Promise<TimelineUpdateOutcome> {
+    const row = this.rows.find(
+      (r) => r.id === id && r.version === expectedVersion,
+    );
+    if (!row) return { kind: 'stale' };
+    const { name } = values;
+    if (
+      name !== undefined &&
+      this.rows.some(
+        (r) =>
+          r.id !== id &&
+          r.cycleId === row.cycleId &&
+          collateName(r.name) === collateName(name),
+      )
+    ) {
+      this.world.nameViolations++;
+      return { kind: 'name_taken' };
+    }
+    if (name !== undefined) row.name = name;
+    if (values.allPrograms !== undefined) row.allPrograms = values.allPrograms;
+    if (values.allResultTypes !== undefined) {
+      row.allResultTypes = values.allResultTypes;
+    }
+    row.version += 1;
+    row.updatedAt = values.updatedAt;
+    row.updatedBy = values.updatedBy;
+    this.world.recordTimelineWrite(`timeline:update:${id}`);
+    return { kind: 'updated' };
+  }
+
+  /** The step's CHECKs are judged on the row as it would be stored, before anything changes. */
+  async updateStep(
+    timelineId: number,
+    position: number,
+    values: StepUpdateValues,
+  ): Promise<boolean> {
+    const row = this.stepRows.find(
+      (r) => r.timelineId === timelineId && r.position === position,
+    );
+    if (!row) return false;
+    const next = { ...row };
+    if (values.name !== undefined) next.name = values.name;
+    if (values.opensOn !== undefined) next.opensOn = values.opensOn;
+    if (values.closesOn !== undefined) next.closesOn = values.closesOn;
+    assertStepChecks(next);
+    Object.assign(row, next);
+    this.world.recordTimelineWrite(`step:update:${timelineId}:${position}`);
+    return true;
+  }
+
+  /** DELETE, then INSERT (none for an empty list), as two statements like the adapter. */
+  async replacePrograms(timelineId: number, programIds: readonly number[]) {
+    await this.removePrograms(timelineId);
+    if (programIds.length > 0)
+      await this.insertPrograms(timelineId, programIds);
+  }
+
+  async replaceResultTypes(
+    timelineId: number,
+    resultTypeKeys: readonly string[],
+  ) {
+    await this.removeResultTypes(timelineId);
+    if (resultTypeKeys.length > 0) {
+      await this.insertResultTypes(timelineId, resultTypeKeys);
+    }
+  }
+
+  protected async removePrograms(timelineId: number): Promise<void> {
+    for (let i = this.programRows.length - 1; i >= 0; i--) {
+      if (this.programRows[i]!.timelineId === timelineId) {
+        this.programRows.splice(i, 1);
+      }
+    }
+    this.world.recordTimelineWrite(`programs:delete:${timelineId}`);
+  }
+
+  protected async removeResultTypes(timelineId: number): Promise<void> {
+    for (let i = this.resultTypeRows.length - 1; i >= 0; i--) {
+      if (this.resultTypeRows[i]!.timelineId === timelineId) {
+        this.resultTypeRows.splice(i, 1);
+      }
+    }
+    this.world.recordTimelineWrite(`result-types:delete:${timelineId}`);
+  }
+
+  async insertAuditEvent(values: NewAuditEventValues): Promise<void> {
+    this.auditRows.push({
+      id: this.world.nextAuditEventId(),
+      timelineId: values.timelineId,
+      actorId: values.actorId,
+      action: values.action,
+      changes: structuredClone(values.changes),
+      requestId: values.requestId,
+      createdAt: values.createdAt,
+    });
+    this.world.recordTimelineWrite(`audit:${values.timelineId}`);
+  }
 }
 
 /**
@@ -765,8 +946,17 @@ class TransactionalTimelinesStore extends InMemoryTimelinesStore {
     programRows: TimelineProgram[],
     resultTypeRows: TimelineResultType[],
     assignmentRows: TimelineUser[],
+    auditRows: TimelineAuditEvent[],
   ) {
-    super(world, rows, stepRows, programRows, resultTypeRows, assignmentRows);
+    super(
+      world,
+      rows,
+      stepRows,
+      programRows,
+      resultTypeRows,
+      assignmentRows,
+      auditRows,
+    );
   }
 
   private async statement<R>(
@@ -783,6 +973,7 @@ class TransactionalTimelinesStore extends InMemoryTimelinesStore {
           this.programRows,
           this.resultTypeRows,
           this.assignmentRows,
+          this.auditRows,
         ],
       },
       run,
@@ -886,6 +1077,73 @@ class TransactionalTimelinesStore extends InMemoryTimelinesStore {
       () => super.removeAssignment(change),
     );
   }
+
+  /** `SELECT ... FOR UPDATE`: the X lock on the timeline row, held to the commit; a second one waits and then reads what the first committed. */
+  override findForUpdate(id: number) {
+    return this.statement(
+      { current: true, locks: [[`timelines:${id}`, 'X']] },
+      () => super.findForUpdate(id),
+    );
+  }
+
+  /**
+   * The UPDATE locks its row (`timelines:<id>`) and, when it writes a name, the
+   * unique entry of that name (the one an INSERT takes), so a rename and a
+   * create of one name serialize. The version is checked AFTER the locks, on
+   * what is committed now (design 7.3, DD-6).
+   */
+  override updateTimeline(
+    id: number,
+    expectedVersion: number,
+    values: TimelineUpdateValues,
+  ) {
+    const cycleId = this.rows.find((r) => r.id === id)?.cycleId;
+    const locks: Array<readonly [string, 'S' | 'X']> = [
+      [`timelines:${id}`, 'X'],
+    ];
+    if (values.name !== undefined && cycleId !== undefined) {
+      locks.push([
+        `timelines:name:${cycleId}:${collateName(values.name)}`,
+        'X',
+      ]);
+    }
+    return this.statement({ current: true, locks }, () =>
+      super.updateTimeline(id, expectedVersion, values),
+    );
+  }
+
+  override updateStep(
+    timelineId: number,
+    position: number,
+    values: StepUpdateValues,
+  ) {
+    return this.statement(
+      {
+        current: true,
+        locks: [[`timeline_steps:${timelineId}:${position}`, 'X']],
+      },
+      () => super.updateStep(timelineId, position, values),
+    );
+  }
+
+  protected override removePrograms(timelineId: number) {
+    return this.statement({ current: true }, () =>
+      super.removePrograms(timelineId),
+    );
+  }
+
+  protected override removeResultTypes(timelineId: number) {
+    return this.statement({ current: true }, () =>
+      super.removeResultTypes(timelineId),
+    );
+  }
+
+  /** On the transaction's own rows: it commits or rolls back with the edit (FR-10). */
+  override insertAuditEvent(values: NewAuditEventValues) {
+    return this.statement({ current: true }, () =>
+      super.insertAuditEvent(values),
+    );
+  }
 }
 
 /**
@@ -925,6 +1183,7 @@ export class InMemoryTimelinesUnitOfWork implements TimelinesUnitOfWork {
       const assignments = tx.table(this.world.assignments, (row) =>
         String(row.id),
       );
+      const audit = tx.table(this.world.auditEvents, (row) => String(row.id));
       // The users world's repositories, tx-bound: the user and her grants an
       // assign reads are rows of this transaction, as on the Drizzle unit of work.
       const base = tx.repositories();
@@ -938,6 +1197,7 @@ export class InMemoryTimelinesUnitOfWork implements TimelinesUnitOfWork {
           programs.rows,
           resultTypes.rows,
           assignments.rows,
+          audit.rows,
         ),
         users: base.users,
         grants: base.assignments,

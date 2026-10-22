@@ -19,10 +19,12 @@ import {
   CycleClosedError,
   CycleNotFoundError,
   TimelineAssignmentNotFoundError,
+  TimelineInProgressUnconfirmedError,
   TimelineNameTakenError,
   TimelineNotFoundError,
   TimelineUserNotEligibleError,
   TimelineValidationError,
+  TimelineVersionStaleError,
 } from '../admin-config.errors.js';
 import { todayInRome } from '../rome-date.js';
 import {
@@ -30,6 +32,8 @@ import {
   type DefaultStep,
   type StepAudience,
 } from './default-steps.js';
+import { diffTimeline } from './timeline-diff.js';
+import { TIMELINE_LOADS, type TimelineLoads } from './timeline-loads.js';
 import {
   toTimelineResponse,
   toTimelineUserResponse,
@@ -39,12 +43,20 @@ import {
   type TimelineUserResponse,
 } from './timeline-response.js';
 import {
+  mergeTimelineUpdate,
   validateTimelineCreate,
+  validateTimelineUpdate,
+  type StoredTimeline,
   type TimelineCreateInput,
+  type TimelineUpdateInput,
 } from './timeline-rules.js';
+import { viewTimeline } from './timeline-view.js';
 import {
   TIMELINES_STORE,
+  type StepUpdateValues,
+  type TimelineBundle,
   type TimelineInsertOutcome,
+  type TimelineUpdateValues,
   type TimelinesStore,
 } from './timelines.store.js';
 import {
@@ -59,6 +71,17 @@ export interface TimelineChange {
 
 /** The request as the pipe left it: the shape is right, the rules are not yet judged. */
 export type CreateTimelineCommand = TimelineCreateInput;
+
+/**
+ * An edit as the pipe left it (shape only): the rules' `TimelineUpdateInput`
+ * plus the two keys that are the service's, not the rules' (timeline-edit
+ * design 7.1): the version the edit was made on and the in-progress
+ * confirmation.
+ */
+export interface UpdateTimelineCommand extends TimelineUpdateInput {
+  version: number;
+  confirmInProgress?: boolean;
+}
 
 /** The body of an assign, as the pipe left it: the role is one of the four. */
 export interface AssignUserCommand {
@@ -109,6 +132,73 @@ function wholeSecond(date: Date): Date {
   return cut;
 }
 
+/** The timeline as the edit rules overlay a request on it: the bundle's rows in the rules' shape. */
+function storedTimeline(bundle: TimelineBundle): StoredTimeline {
+  return {
+    name: bundle.timeline.name,
+    allPrograms: bundle.timeline.allPrograms,
+    programIds: bundle.programIds,
+    allResultTypes: bundle.timeline.allResultTypes,
+    resultTypeKeys: bundle.resultTypeKeys,
+    steps: bundle.steps.map((step) => ({
+      position: step.position,
+      name: step.name,
+      audience: step.audience,
+      opensOn: step.opensOn,
+      closesOn: step.closesOn,
+    })),
+  };
+}
+
+/** The `<position>` of a `steps.<position>.<field>` key of the diff, else undefined. */
+const stepPositionOf = (key: string): number | undefined => {
+  const match = /^steps\.(\d+)\./.exec(key);
+  return match === null ? undefined : Number(match[1]);
+};
+
+/**
+ * FR-8: whether the diff touches a step that is `in_progress` today. The state
+ * is `viewTimeline`'s over the STORED steps (the same one the locks use), so a
+ * hold, which makes every step `upcoming`, asks for no confirmation.
+ */
+function changesAnInProgressStep(
+  stored: StoredTimeline,
+  changes: ReturnType<typeof diffTimeline>,
+  today: string,
+  hasLoad: boolean,
+): boolean {
+  const { stepStates } = viewTimeline({
+    steps: stored.steps,
+    assignedRoles: [],
+    today,
+    hasLoad,
+  });
+  return Object.keys(changes).some((key) => {
+    const position = stepPositionOf(key);
+    return position !== undefined && stepStates[position] === 'in_progress';
+  });
+}
+
+/** The columns to write for each step the diff changed, in position order: one `UPDATE` per entry (NFR-5). */
+function changedSteps(
+  merged: ReturnType<typeof mergeTimelineUpdate>,
+  changes: ReturnType<typeof diffTimeline>,
+): Map<number, StepUpdateValues> {
+  const byPosition = new Map<number, StepUpdateValues>();
+  for (const step of merged.steps) {
+    const values: StepUpdateValues = {};
+    if (`steps.${step.position}.name` in changes) values.name = step.name;
+    if (`steps.${step.position}.opensOn` in changes) {
+      values.opensOn = asDate(step.opensOn);
+    }
+    if (`steps.${step.position}.closesOn` in changes) {
+      values.closesOn = asDate(step.closesOn);
+    }
+    if (Object.keys(values).length > 0) byPosition.set(step.position, values);
+  }
+  return byPosition;
+}
+
 /**
  * Timelines: the default steps and the create (cycle-timelines FR-4 to FR-6,
  * FR-11, FR-17; design 6, 7.2, 7.3). The create runs in
@@ -124,6 +214,7 @@ export class TimelinesService {
     @Inject(TIMELINES_STORE) private readonly store: TimelinesStore,
     @Inject(CatalogService) private readonly catalogs: CatalogService,
     @Inject(ADMIN_CONFIG_CLOCK) private readonly clock: AdminConfigClock,
+    @Inject(TIMELINE_LOADS) private readonly loads: TimelineLoads,
   ) {}
 
   /** FR-4: the steps every client proposes for a new timeline. */
@@ -132,10 +223,15 @@ export class TimelinesService {
   }
 
   /** One timeline as the API shows it, with status and readiness from today in Rome (FR-12). */
-  async get(id: number): Promise<TimelineResponse> {
+  get(id: number): Promise<TimelineResponse> {
+    return this.read(id, this.clock());
+  }
+
+  /** `get` for a given instant: an edit answers with the `today` it judged the request by (timeline-edit NFR-4). */
+  private async read(id: number, now: Date): Promise<TimelineResponse> {
     const row = await this.store.findById(id);
     if (!row) throw new TimelineNotFoundError(id);
-    const [response] = await this.respond([row]);
+    const [response] = await this.respond([row], now);
     return response;
   }
 
@@ -173,15 +269,21 @@ export class TimelinesService {
   }
 
   /** The read models of these timelines, in this order: one statement per table, whatever the count. */
-  private async respond(rows: Timeline[]): Promise<TimelineResponse[]> {
+  private async respond(
+    rows: Timeline[],
+    now: Date = this.clock(),
+  ): Promise<TimelineResponse[]> {
     if (rows.length === 0) return [];
-    const today = todayInRome(this.clock());
+    const today = todayInRome(now);
     const ids = rows.map((row) => row.id);
-    const [steps, programs, resultTypes, assigned] = await Promise.all([
+    const [steps, programs, resultTypes, assigned, loaded] = await Promise.all([
       this.store.listSteps(ids),
       this.store.listPrograms(ids),
       this.store.listResultTypes(ids),
       this.store.countAssigned(ids),
+      // One batched call for every timeline: the hold needs it (timeline-edit
+      // FR-6, design 7.4), and the list stays a fixed number of queries (NFR-5).
+      this.loads.withLoad(ids),
     ]);
     return rows.map((timeline) => {
       const counts: Partial<Record<AssignableRole, number>> = {};
@@ -203,6 +305,7 @@ export class TimelinesService {
         },
         today,
         counts,
+        loaded.has(timeline.id),
       );
     });
   }
@@ -298,6 +401,186 @@ export class TimelinesService {
         );
       },
       (result) => result.timelineId,
+    );
+  }
+
+  // @akili-spec admin-config/timeline-edit
+  /**
+   * FR-1, FR-4, FR-5, FR-7 to FR-12 (timeline-edit design 6, 7.2): edit a
+   * timeline in a `draft` or `active` cycle. The answer order is the design's
+   * (first that applies wins): 404, closed cycle 409, stale version 409, catalog
+   * 503, every rule problem in one 400, the in-progress confirmation 409, then
+   * a no-op answers the timeline as stored and writes nothing. Everything up to
+   * there reads without locks and opens no transaction, so a refusal writes
+   * nothing, not even an audit row (FR-10). The one write is one transaction
+   * (DD-6, *timelines* DD-9 order): the cycle `FOR SHARE`, the timeline `FOR
+   * UPDATE` with the version re-checked, the conditional `UPDATE` (the database
+   * decides a race), the changed steps, the scope, ONE audit row and the key
+   * mark. The clock is read once: the same `now` is the day the rules judge, the
+   * edit's `updated_at` and the audit row's time (DD-10), and the day the answer
+   * is read by.
+   */
+  update(
+    ctx: AdminConfigContext,
+    timelineId: number,
+    command: UpdateTimelineCommand,
+  ): Promise<TimelineResponse> {
+    return this.logged(
+      'timeline_update',
+      ctx,
+      async () => {
+        // 1. One read of the clock; a request that straddles midnight in Rome is
+        // judged by the instant it arrived (design 7.2).
+        const now = this.clock();
+        const today = todayInRome(now);
+        const { version, confirmInProgress, ...request } = command;
+
+        // 2. The unlocked reads: the bundle (404), the cycle (closed 409) and
+        // whether the timeline has a load, from the port the view's hold reads.
+        const bundle = await this.store.findBundle(timelineId);
+        if (!bundle) throw new TimelineNotFoundError(timelineId);
+        // No store method reads the cycle status without a lock. On the pool
+        // (no transaction) the `FOR SHARE` lasts only its own statement, so
+        // nothing stays held; the locked re-check is step 8's.
+        await this.assertCycleOpen(this.store, bundle.timeline.cycleId);
+        const hasLoad = (await this.loads.withLoad([timelineId])).has(
+          timelineId,
+        );
+
+        // 3. Stale before everything that can say "your values are wrong": an
+        // edit made on an old version is judged against nothing (FR-9).
+        if (version !== bundle.timeline.version) {
+          throw new TimelineVersionStaleError();
+        }
+
+        const stored = storedTimeline(bundle);
+        const merged = mergeTimelineUpdate(stored, request);
+        const changes = diffTimeline(stored, merged);
+
+        // 4. A catalog is read only for an explicit list that changes (FR-4,
+        // FR-5, DD-6 of *timelines*), so an edit of a name or a date works while
+        // CLARISA or Reporting is down; an unreachable one is a 503 before any
+        // rule is judged.
+        const knownProgramIds = new Set<number>();
+        if (
+          !merged.allPrograms &&
+          merged.programIds.length > 0 &&
+          (changes.programIds !== undefined ||
+            changes.allPrograms !== undefined)
+        ) {
+          for (const program of await this.catalogs.listSciencePrograms()) {
+            knownProgramIds.add(program.id);
+          }
+        }
+        const knownResultTypeKeys = new Set<string>();
+        if (
+          !merged.allResultTypes &&
+          merged.resultTypeKeys.length > 0 &&
+          (changes.resultTypeKeys !== undefined ||
+            changes.allResultTypes !== undefined)
+        ) {
+          for (const type of await this.catalogs.listResultTypes()) {
+            knownResultTypeKeys.add(type.key);
+          }
+        }
+
+        // 5. Every rule problem, in one 400 (FR-5).
+        const issues = validateTimelineUpdate(stored, request, {
+          today,
+          knownProgramIds,
+          knownResultTypeKeys,
+          hasLoad,
+        });
+        if (issues.length > 0) throw new TimelineValidationError(issues);
+
+        // 6. The confirmation is a question, not an error: it is asked only
+        // when everything else is valid (FR-8, DD-11). The step state is the
+        // view's, over the stored steps: a hold makes every step `upcoming`.
+        if (
+          changesAnInProgressStep(stored, changes, today, hasLoad) &&
+          confirmInProgress !== true
+        ) {
+          throw new TimelineInProgressUnconfirmedError();
+        }
+
+        // 7. Nothing changed: the stored timeline, no version, no audit row,
+        // no transaction and so no key mark (FR-11).
+        if (Object.keys(changes).length === 0) {
+          return this.read(timelineId, now);
+        }
+
+        // 8. The write.
+        await this.unitOfWork.run(async ({ timelines, idempotency }) => {
+          await this.assertCycleOpen(timelines, bundle.timeline.cycleId);
+          const locked = await timelines.findForUpdate(timelineId);
+          if (!locked) throw new TimelineNotFoundError(timelineId);
+          if (locked.version !== version) {
+            throw new TimelineVersionStaleError();
+          }
+
+          // `updated_at` and the audit time are the one `now` (DD-10).
+          const header: TimelineUpdateValues = {
+            updatedAt: now,
+            updatedBy: ctx.actorId,
+          };
+          if (changes.name !== undefined) header.name = merged.name;
+          if (changes.allPrograms !== undefined) {
+            header.allPrograms = merged.allPrograms;
+          }
+          if (changes.allResultTypes !== undefined) {
+            header.allResultTypes = merged.allResultTypes;
+          }
+          // The outcomes are values; the transaction rolls back only when
+          // they are thrown, and the key mark rolls back with it.
+          const outcome = await timelines.updateTimeline(
+            timelineId,
+            version,
+            header,
+          );
+          if (outcome.kind === 'name_taken') {
+            throw new TimelineNameTakenError();
+          }
+          if (outcome.kind === 'stale') throw new TimelineVersionStaleError();
+
+          for (const [position, values] of changedSteps(merged, changes)) {
+            if (!(await timelines.updateStep(timelineId, position, values))) {
+              throw new Error('A changed step of the timeline was not found');
+            }
+          }
+          // Flag false <=> rows (DD-6 of *timelines*): an "all" holds none.
+          if (
+            changes.programIds !== undefined ||
+            changes.allPrograms !== undefined
+          ) {
+            await timelines.replacePrograms(
+              timelineId,
+              merged.allPrograms ? [] : merged.programIds,
+            );
+          }
+          if (
+            changes.resultTypeKeys !== undefined ||
+            changes.allResultTypes !== undefined
+          ) {
+            await timelines.replaceResultTypes(
+              timelineId,
+              merged.allResultTypes ? [] : merged.resultTypeKeys,
+            );
+          }
+          await timelines.insertAuditEvent({
+            timelineId,
+            actorId: ctx.actorId,
+            action: 'update',
+            changes,
+            requestId: ctx.requestId,
+            createdAt: now,
+          });
+          await this.markExecuted(idempotency, ctx, timelineId);
+        });
+
+        // 9. The answer is the timeline as read after the commit.
+        return this.read(timelineId, now);
+      },
+      (result) => result.id,
     );
   }
 

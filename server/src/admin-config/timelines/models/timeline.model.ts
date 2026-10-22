@@ -16,7 +16,7 @@ import {
   type TimelineStepResponse,
   type TimelineUserResponse,
 } from '../timeline-response.js';
-import type { TimelineStatus } from '../timeline-view.js';
+import type { TimelineStatus, TimelineStepState } from '../timeline-view.js';
 
 /** OpenAPI model of a default step (design 6, `DefaultStep`; FR-4). */
 export class DefaultStepModel implements DefaultStep {
@@ -68,6 +68,15 @@ export class TimelineStepModel implements TimelineStepResponse {
 
   @ApiProperty({ type: Boolean, example: true })
   requiresLoad!: boolean;
+
+  @ApiProperty({
+    type: String,
+    enum: ['closed', 'in_progress', 'upcoming'],
+    example: 'upcoming',
+    description:
+      'From its dates and today in Rome, computed on read. Every step is `upcoming` while the timeline is `waiting_for_load`',
+  })
+  state!: TimelineStepState;
 }
 
 /** Active assignments per assignable role. */
@@ -129,9 +138,10 @@ export class TimelineModel implements TimelineResponse {
 
   @ApiProperty({
     type: String,
-    enum: ['scheduled', 'live', 'finished'],
+    enum: ['scheduled', 'waiting_for_load', 'live', 'finished'],
     example: 'scheduled',
-    description: 'From today in Rome, computed on read',
+    description:
+      'From today in Rome, computed on read. `waiting_for_load`: step 1 has opened and the timeline has no load, whatever the other dates say',
   })
   status!: TimelineStatus;
 
@@ -163,6 +173,13 @@ export class TimelineModel implements TimelineResponse {
 
   @ApiProperty({ type: String, format: 'date-time' })
   createdAt!: Date;
+
+  @ApiProperty({
+    type: Number,
+    example: 1,
+    description: 'Starts at 1 and rises by one on each applied edit',
+  })
+  version!: number;
 }
 
 /** OpenAPI model of a user assigned to a timeline in a role (design 6, `TimelineUser`). */
