@@ -288,7 +288,7 @@ T-3 ─────────────────────┘
 - **Skills:** nestjs-expert, api-design-principles
 
 ## T-7: e2e — the edit over HTTP
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-6
 - **Requirements:**

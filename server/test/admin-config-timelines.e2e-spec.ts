@@ -1579,6 +1579,1265 @@ describe('Timelines routes: defaults, create, list and detail (e2e)', () => {
     });
   });
 
+  // --- timeline-edit: PATCH /timelines/:id --------------------------------------
+
+  describe('timeline-edit: PATCH /timelines/:id', () => {
+    /** Moves the admin clock to this instant (UTC). Rome is UTC+1 in November. The clock only moves forward: call `at` with non-decreasing instants within a case. */
+    const at = (iso: string) =>
+      w.adminClock.advance(
+        new Date(iso).getTime() - w.adminClock.now().getTime(),
+      );
+    const patch = (
+      id: number | string,
+      payload: object,
+      options: { token?: string | null; key?: string } = {},
+    ) => {
+      const call = request(w.app.getHttpServer()).patch(
+        `/api/v1/timelines/${id}`,
+      );
+      const token =
+        options.token === undefined ? bearer('sub-admin') : options.token;
+      if (token !== null) call.set('Authorization', token);
+      if (options.key !== undefined) call.set('Idempotency-Key', options.key);
+      return call.send(payload);
+    };
+    const detailOf = (id: number) => w.send('get', `/timelines/${id}`);
+    /** Every stored row, audit row, write counter and committed transaction, as one string: equal strings = nothing changed (a refused write may begin and roll back). */
+    const stored = () =>
+      JSON.stringify([
+        rows(),
+        w.world.cycles,
+        w.world.assignments,
+        w.world.auditEvents,
+        w.world.timelineWriteLog,
+        w.world.history,
+        w.timelinesUnitOfWork.committed,
+      ]);
+    type Tables = Array<Array<Record<string, unknown>>>;
+    /** The stored rows as plain data: the timelines, then the steps, programs, result types and assignments. */
+    const tablesNow = () => JSON.parse(rows()) as Tables;
+    /** A timeline of cycle 2026: step 1 2 to 6 Nov, step 2 9 to 13 Nov; version 1. */
+    const setup = async (over: Record<string, unknown> = {}) => {
+      const cycleId = await createCycle(2026);
+      const created = await createTimeline(cycleId, over);
+      expect(created.status).toBe(201);
+      return { cycleId, id: created.body.data.id as number };
+    };
+    /** What a refusal must leave as it found it: the timeline read whole, and every stored row, audit row, write counter and committed transaction as one string. */
+    const snapshot = async (id: number) => ({
+      read: (await detailOf(id)).body.data,
+      state: stored(),
+    });
+    /** The timeline read again is, whole, the one in `before`, and the stored state is the same string (reading writes nothing, so this can run after each refusal of a case). */
+    const expectUnchanged = async (
+      id: number,
+      before: Awaited<ReturnType<typeof snapshot>>,
+    ) => {
+      expect((await detailOf(id)).body.data).toEqual(before.read);
+      expect(stored()).toBe(before.state);
+    };
+    /**
+     * A refusal: the answer, then the timeline read again is, whole, the one
+     * read before, and no row, audit row or write counter moved.
+     *
+     * It also asserts that there are 0 audit rows in the whole world, so it
+     * only fits before any applied edit in a case; after an applied edit, take
+     * a `snapshot` and call `expectUnchanged` instead.
+     */
+    const refused = async (
+      id: number,
+      payload: object,
+      status: number,
+      code: string,
+      options: { token?: string | null; key?: string } = {},
+    ) => {
+      const before = await snapshot(id);
+      const res = await patch(id, payload, options);
+      expectError(res, status, code);
+      await expectUnchanged(id, before);
+      expect(w.world.auditEvents).toHaveLength(0);
+      return res;
+    };
+    /** The PATCH answer is the Timeline as the list reads it: the detail read without its `users`. */
+    const withoutUsers = (read: { users?: unknown }) => {
+      const { users: _users, ...rest } = read;
+      return rest;
+    };
+    const byField = (a: string[], b: string[]) => a[0].localeCompare(b[0]);
+    const stepStatesOf = (res: request.Response) =>
+      (res.body.data.steps as Array<{ state: string }>).map((s) => s.state);
+
+    describe('FR-12, NFR-1: access', () => {
+      it('has a 403 row for every grantable role (a new role without one fails here)', () => {
+        const covered = new Set<string>(['ADMIN', ...NON_ADMINS]);
+        for (const { code } of GRANTABLE_ROLES) {
+          expect(covered.has(code), `no 403 row for ${code}`).toBe(true);
+        }
+      });
+
+      it('no token and a token that is not valid are 401 AUTH_TOKEN_INVALID before anything else', async () => {
+        const { id } = await setup();
+        const unchanged = await snapshot(id);
+
+        for (const token of [null, 'Bearer not-a-token']) {
+          const before = nothingRan();
+
+          const res = await patch(
+            id,
+            { version: 1, name: 'Hijack' },
+            { token },
+          );
+
+          expectError(res, 401, 'AUTH_TOKEN_INVALID');
+          expect(nothingRan()).toEqual(before);
+          await expectUnchanged(id, unchanged);
+        }
+      });
+
+      it.each(NON_ADMINS)(
+        '%s gets 403 AUTH_PERMISSION_DENIED, with nothing read or written and the timeline unchanged',
+        async (role) => {
+          const { id } = await setup();
+          const readBefore = await detailOf(id);
+          const before = nothingRan();
+          const stateBefore = stored();
+          const catalogCalls = { ...w.catalogs };
+
+          const res = await patch(
+            id,
+            { version: 1, name: 'Hijack' },
+            { token: bearer(`sub-${role.toLowerCase()}`) },
+          );
+
+          expectError(res, 403, 'AUTH_PERMISSION_DENIED');
+          expect(nothingRan()).toEqual(before);
+          expect(stored()).toBe(stateBefore);
+          expect(w.catalogs).toEqual(catalogCalls);
+          expect((await detailOf(id)).body.data).toEqual(readBefore.body.data);
+        },
+      );
+
+      it('an unknown timeline is 404 TIMELINES_NOT_FOUND; an id that is not a number is 400 on `id`; neither writes', async () => {
+        const { id } = await setup();
+        const unchanged = await snapshot(id);
+
+        const missing = await patch(999, { version: 1, name: 'X' });
+        expectError(missing, 404, 'TIMELINES_NOT_FOUND');
+        await expectUnchanged(id, unchanged);
+
+        const notNumber = await patch('abc', { version: 1, name: 'X' });
+        expectError(notNumber, 400, 'VALIDATION_FAILED');
+        expect(fieldsOf(notNumber)[0]![0]).toBe('id');
+        await expectUnchanged(id, unchanged);
+      });
+
+      it('a timeline in a closed cycle is 409 CYCLES_CLOSED, and it is read again unchanged', async () => {
+        const closed = await createCycle(2026);
+        await activateCycle(closed);
+        const created = await createTimeline(closed);
+        const id = created.body.data.id as number;
+        await activateCycle(await createCycle(2027));
+
+        const res = await refused(
+          id,
+          { version: 1, name: 'Late rename' },
+          409,
+          'CYCLES_CLOSED',
+        );
+
+        expect(res.body.error.fields).toBeUndefined();
+      });
+
+      it('a malformed JSON body is 400 MALFORMED_JSON and writes nothing', async () => {
+        const { id } = await setup();
+        const before = stored();
+        const readBefore = await detailOf(id);
+
+        const res = await request(w.app.getHttpServer())
+          .patch(`/api/v1/timelines/${id}`)
+          .set('Authorization', bearer('sub-admin'))
+          .set('Content-Type', 'application/json')
+          .send('{"version": 1,');
+
+        expectError(res, 400, 'MALFORMED_JSON');
+        expect(stored()).toBe(before);
+        expect((await detailOf(id)).body.data).toEqual(readBefore.body.data);
+      });
+    });
+
+    describe('FR-1, FR-14: the edit and its answer', () => {
+      it('extends step 1 only: its closing date changes, every other field keeps its value, the version moves, and the answer is the timeline as a GET reads it', async () => {
+        const { id } = await setup();
+        const before = (await detailOf(id)).body.data;
+
+        const res = await patch(id, {
+          version: 1,
+          steps: [{ position: 1, closesOn: '2026-11-07' }],
+        });
+
+        expect(res.status).toBe(200);
+        expect(res.body.success).toBe(true);
+        const expected = structuredClone(before);
+        expected.version = 2;
+        expected.steps[0].closesOn = '2026-11-07';
+        expect(res.body.data).toEqual(withoutUsers(expected));
+        expect((await detailOf(id)).body.data).toEqual(expected);
+        expect(w.world.auditEvents).toHaveLength(1);
+      });
+
+      it('a PATCH then a GET after the moved dates: with the step 1 day arrived and no load the timeline was waiting_for_load; moving step 1 to open later makes it scheduled', async () => {
+        const { id } = await setup();
+        at('2026-11-01T23:00:00.000Z'); // 00:00 Rome on 2 Nov
+        const held = await detailOf(id);
+
+        const res = await patch(id, {
+          version: 1,
+          steps: [{ position: 1, opensOn: '2026-11-03' }],
+        });
+        const read = await detailOf(id);
+
+        expect(held.body.data).toMatchObject({
+          status: 'waiting_for_load',
+          nextStep: 1,
+        });
+        expect(res.status).toBe(200);
+        for (const view of [res.body.data, read.body.data]) {
+          expect(view).toMatchObject({
+            status: 'scheduled',
+            currentStep: null,
+            nextStep: 1,
+            version: 2,
+          });
+          expect(view.steps[0].opensOn).toBe('2026-11-03');
+        }
+        expect(stepStatesOf(read)).toEqual(['upcoming', 'upcoming']);
+      });
+
+      it('renames the timeline and a step; with `confirmInProgress` sent for nothing in progress, it is accepted and ignored', async () => {
+        const { id } = await setup();
+
+        const res = await patch(id, {
+          version: 1,
+          name: 'July 2026 (revised)',
+          confirmInProgress: true,
+          steps: [{ position: 2, name: 'Programs review' }],
+        });
+
+        expect(res.status).toBe(200);
+        expect(res.body.data).toMatchObject({
+          name: 'July 2026 (revised)',
+          version: 2,
+        });
+        expect(res.body.data.steps[1].name).toBe('Programs review');
+        expect(res.body.data.steps[0].name).toBe(STEP_1.name);
+      });
+
+      it('reading never moves the version: two GETs after an edit show the same version', async () => {
+        const { id } = await setup();
+        await patch(id, { version: 1, name: 'Renamed' });
+
+        const first = await detailOf(id);
+        const second = await detailOf(id);
+
+        expect(first.body.data.version).toBe(2);
+        expect(second.body.data.version).toBe(2);
+      });
+    });
+
+    describe('FR-1, NFR-2: the structure is fixed', () => {
+      it.each([
+        ['audience', 'programs'],
+        ['round', 2],
+        ['requiresLoad', false],
+        ['kind', 'official'],
+      ])(
+        'a top-level `%s` is 400 UNKNOWN_FIELD on that key and nothing is written',
+        async (key, value) => {
+          const { id } = await setup();
+
+          const res = await refused(
+            id,
+            { version: 1, name: 'Changed', [key]: value },
+            400,
+            'VALIDATION_FAILED',
+          );
+
+          expect(res.body.error.fields).toEqual([
+            {
+              field: key,
+              code: 'UNKNOWN_FIELD',
+              message: 'This field is not allowed.',
+            },
+          ]);
+        },
+      );
+
+      it.each([
+        ['audience', 'programs'],
+        ['round', 2],
+        ['requiresLoad', false],
+        ['kind', 'official'],
+      ])(
+        '`%s` inside a step is 400 UNKNOWN_FIELD on that key of `steps[0]` and nothing is written',
+        async (key, value) => {
+          const { id } = await setup();
+
+          const res = await refused(
+            id,
+            { version: 1, steps: [{ position: 1, [key]: value }] },
+            400,
+            'VALIDATION_FAILED',
+          );
+
+          expect(fieldsOf(res)).toEqual([[`steps[0].${key}`, 'UNKNOWN_FIELD']]);
+        },
+      );
+
+      it('a step without a position is 400 and nothing is written', async () => {
+        const { id } = await setup();
+
+        const res = await refused(
+          id,
+          { version: 1, steps: [{ name: 'No position' }] },
+          400,
+          'VALIDATION_FAILED',
+        );
+
+        expect(fieldsOf(res)).toEqual([
+          ['steps[0].position', expect.any(String)],
+        ]);
+      });
+
+      it('a position the timeline does not have, and the same position twice, are each refused naming that step, in one 400', async () => {
+        const { id } = await setup();
+
+        const res = await refused(
+          id,
+          {
+            version: 1,
+            steps: [
+              { position: 3, name: 'A third step' },
+              { position: 1, name: 'First' },
+              { position: 1, name: 'First again' },
+            ],
+          },
+          400,
+          'VALIDATION_FAILED',
+        );
+
+        const paths = fieldsOf(res).map(([field]) => field);
+        expect(paths).toContain('steps[0].position');
+        expect(paths).toContain('steps[2].position');
+        expect(paths).not.toContain('steps[1].position');
+        expect((await detailOf(id)).body.data.steps).toHaveLength(2);
+      });
+
+      it('`programIds: null` passes the pipe and is read as no scope change: 200, version 1, the programs stay, and nothing is written (the rules decide, not the pipe)', async () => {
+        const { id } = await setup();
+        const before = stored();
+
+        const res = await patch(id, { version: 1, programIds: null });
+
+        expect(res.status).toBe(200);
+        expect(res.body.data).toMatchObject({ programIds: [2], version: 1 });
+        expect(stored()).toBe(before);
+      });
+    });
+
+    describe('FR-3: date locks by step state', () => {
+      it('a closed step: a new closing date is 400 LOCKED on that step, and a new name for it is accepted', async () => {
+        const { id } = await setup();
+        w.world.loads.markLoaded(id);
+        at('2026-11-07T10:00:00.000Z'); // step 1 closed, step 2 upcoming
+        expect(stepStatesOf(await detailOf(id))).toEqual([
+          'closed',
+          'upcoming',
+        ]);
+
+        const locked = await refused(
+          id,
+          { version: 1, steps: [{ position: 1, closesOn: '2026-11-08' }] },
+          400,
+          'VALIDATION_FAILED',
+        );
+        const renamed = await patch(id, {
+          version: 1,
+          steps: [{ position: 1, name: 'Assessors (done)' }],
+        });
+
+        expect(locked.body.error.fields).toEqual([
+          {
+            field: 'steps[0].closesOn',
+            code: 'LOCKED',
+            message: 'This can no longer be changed.',
+          },
+        ]);
+        expect(renamed.status).toBe(200);
+        expect(renamed.body.data.steps[0].name).toBe('Assessors (done)');
+        expect(renamed.body.data.steps[0].closesOn).toBe('2026-11-06');
+      });
+
+      it('an in-progress step: closing before today and moving the opening date are both refused in one 400; closing today is accepted', async () => {
+        const { id } = await setup();
+        w.world.loads.markLoaded(id);
+        at('2026-11-04T10:00:00.000Z'); // today in Rome is 4 Nov, step 1 in progress
+
+        const res = await refused(
+          id,
+          {
+            version: 1,
+            confirmInProgress: true,
+            steps: [
+              { position: 1, opensOn: '2026-11-03', closesOn: '2026-11-03' },
+            ],
+          },
+          400,
+          'VALIDATION_FAILED',
+        );
+        const today = await patch(id, {
+          version: 1,
+          confirmInProgress: true,
+          steps: [{ position: 1, closesOn: '2026-11-04' }],
+        });
+
+        expect(fieldsOf(res).sort(byField)).toEqual(
+          [
+            ['steps[0].closesOn', 'BEFORE_TODAY'],
+            ['steps[0].opensOn', 'LOCKED'],
+          ].sort(byField),
+        );
+        expect(today.status).toBe(200);
+        expect(today.body.data.steps[0].closesOn).toBe('2026-11-04');
+      });
+
+      it('an upcoming step: opening yesterday is refused as before today; opening today is accepted and the step is in progress at once', async () => {
+        const { id } = await setup();
+        w.world.loads.markLoaded(id);
+        at('2026-11-01T10:00:00.000Z'); // today in Rome is 1 Nov, step 1 upcoming
+
+        const res = await refused(
+          id,
+          { version: 1, steps: [{ position: 1, opensOn: '2026-10-31' }] },
+          400,
+          'VALIDATION_FAILED',
+        );
+        const today = await patch(id, {
+          version: 1,
+          steps: [{ position: 1, opensOn: '2026-11-01' }],
+        });
+        const read = await detailOf(id);
+
+        expect(fieldsOf(res)).toEqual([['steps[0].opensOn', 'BEFORE_TODAY']]);
+        expect(today.status).toBe(200);
+        expect(stepStatesOf(read)).toEqual(['in_progress', 'upcoming']);
+        expect(read.body.data).toMatchObject({
+          status: 'live',
+          currentStep: 1,
+        });
+      });
+
+      it('on hold with step 1 opening day in the past: a rename sending that stored date succeeds, and the past date is not reported', async () => {
+        const { id } = await setup();
+        at('2026-11-03T10:00:00.000Z'); // step 1 day passed, no load: waiting_for_load
+        expect((await detailOf(id)).body.data.status).toBe('waiting_for_load');
+
+        const res = await patch(id, {
+          version: 1,
+          name: 'Renamed on hold',
+          steps: [{ position: 1, opensOn: '2026-11-02' }],
+        });
+
+        expect(res.status).toBe(200);
+        expect(res.body.data).toMatchObject({
+          name: 'Renamed on hold',
+          status: 'waiting_for_load',
+        });
+        expect(res.body.data.steps[0].opensOn).toBe('2026-11-02');
+      });
+    });
+
+    describe('FR-4: scope lock', () => {
+      it('before step 1 and with no load: programs SP02 to SP01 and SP02 are accepted and a GET shows them', async () => {
+        const { id } = await setup();
+
+        const res = await patch(id, {
+          version: 1,
+          allPrograms: false,
+          programIds: [1, 2],
+        });
+        const read = await detailOf(id);
+
+        expect(res.status).toBe(200);
+        expect(read.body.data.programIds).toEqual([1, 2]);
+        expect(read.body.data.resultTypeKeys).toEqual(['INNOVATION_DEV']);
+        expect(read.body.data.version).toBe(2);
+      });
+
+      it('after step 1 started: a result types change is 400 LOCKED on `resultTypeKeys` and nothing is written', async () => {
+        const { id } = await setup();
+        w.world.loads.markLoaded(id);
+        at('2026-11-04T10:00:00.000Z');
+
+        const res = await refused(
+          id,
+          { version: 1, allResultTypes: false, resultTypeKeys: ['KP'] },
+          400,
+          'VALIDATION_FAILED',
+        );
+
+        expect(fieldsOf(res)).toEqual([['resultTypeKeys', 'LOCKED']]);
+      });
+
+      it('with a load and step 1 still upcoming: a programs change is 400 LOCKED on `programIds`', async () => {
+        const { id } = await setup();
+        w.world.loads.markLoaded(id);
+
+        const res = await refused(
+          id,
+          { version: 1, allPrograms: false, programIds: [1, 2] },
+          400,
+          'VALIDATION_FAILED',
+        );
+
+        expect(fieldsOf(res)).toEqual([['programIds', 'LOCKED']]);
+      });
+
+      it('a scope sent equal to the stored one is not a change, even after step 1 started', async () => {
+        const { id } = await setup();
+        w.world.loads.markLoaded(id);
+        at('2026-11-04T10:00:00.000Z');
+        const before = stored();
+
+        const res = await patch(id, {
+          version: 1,
+          allPrograms: false,
+          programIds: [2],
+        });
+
+        expect(res.status).toBe(200);
+        expect(res.body.data.version).toBe(1);
+        expect(stored()).toBe(before);
+      });
+    });
+
+    describe('FR-5: every creation rule still holds, every problem at once', () => {
+      it('an overlap introduced by an edit is named on the step whose opening date overlaps, though only step 1 was sent', async () => {
+        const { id } = await setup();
+
+        const res = await refused(
+          id,
+          { version: 1, steps: [{ position: 1, closesOn: '2026-11-12' }] },
+          400,
+          'VALIDATION_FAILED',
+        );
+
+        expect(res.body.error.fields).toEqual([
+          {
+            field: 'steps[1].opensOn',
+            code: 'OVERLAPS_PREVIOUS_STEP',
+            message: 'This step must open after the previous step closes.',
+          },
+        ]);
+      });
+
+      it('a step closing before it opens, an empty name and a too long step name are all listed, with catalog codes and messages and no free text', async () => {
+        const { id } = await setup();
+
+        const res = await refused(
+          id,
+          {
+            version: 1,
+            name: '',
+            steps: [
+              { position: 2, name: 'x'.repeat(121), closesOn: '2026-11-08' },
+            ],
+          },
+          400,
+          'VALIDATION_FAILED',
+        );
+
+        expect(fieldsOf(res)).toEqual([
+          ['name', 'REQUIRED'],
+          ['steps[1].name', 'TOO_LONG'],
+          ['steps[1].closesOn', 'CLOSES_BEFORE_OPENS'],
+        ]);
+        for (const field of res.body.error.fields as Array<{
+          message: string;
+        }>) {
+          expect(field.message).toMatch(/^[A-Z][^]*\.$/);
+          expect(field.message).not.toMatch(/sql|ER_|constraint|column/i);
+        }
+      });
+
+      it('an empty name, a closed step date changed and a scope change after step 1 started are one 400 listing all three', async () => {
+        const { id } = await setup();
+        w.world.loads.markLoaded(id);
+        at('2026-11-07T10:00:00.000Z');
+
+        const res = await refused(
+          id,
+          {
+            version: 1,
+            name: '',
+            allPrograms: false,
+            programIds: [1, 2],
+            steps: [{ position: 1, closesOn: '2026-11-08' }],
+          },
+          400,
+          'VALIDATION_FAILED',
+        );
+
+        expect(fieldsOf(res).sort(byField)).toEqual(
+          [
+            ['name', 'REQUIRED'],
+            ['steps[0].closesOn', 'LOCKED'],
+            ['programIds', 'LOCKED'],
+          ].sort(byField),
+        );
+        for (const field of res.body.error.fields as Array<{
+          message: string;
+        }>) {
+          expect(field.message.length).toBeGreaterThan(0);
+        }
+      });
+
+      it('a name equal to another timeline of the cycle in another letter case is 409 TIMELINES_NAME_TAKEN and nothing is written', async () => {
+        const { cycleId, id } = await setup();
+        await createTimeline(cycleId, { name: 'August 2026' });
+
+        await refused(
+          id,
+          { version: 1, name: 'AUGUST 2026' },
+          409,
+          'TIMELINES_NAME_TAKEN',
+        );
+      });
+    });
+
+    describe('FR-7, FR-8: in-progress steps and their confirmation', () => {
+      it('without confirmation an in-progress change is 409 TIMELINES_IN_PROGRESS_UNCONFIRMED and nothing is written; with it the change is saved', async () => {
+        const { id } = await setup();
+        w.world.loads.markLoaded(id);
+        at('2026-11-04T10:00:00.000Z');
+        const change = {
+          version: 1,
+          steps: [{ position: 1, closesOn: '2026-11-07' }],
+        };
+
+        const res = await refused(
+          id,
+          change,
+          409,
+          'TIMELINES_IN_PROGRESS_UNCONFIRMED',
+        );
+        const confirmed = await patch(id, {
+          ...change,
+          confirmInProgress: true,
+        });
+
+        expect(res.body.error.fields).toBeUndefined();
+        expect(confirmed.status).toBe(200);
+        expect(confirmed.body.data.steps[0].closesOn).toBe('2026-11-07');
+        expect(confirmed.body.data.version).toBe(2);
+      });
+
+      it('a rule problem answers first: an unconfirmed in-progress change that also breaks a rule is the 400, not the 409', async () => {
+        const { id } = await setup();
+        w.world.loads.markLoaded(id);
+        at('2026-11-04T10:00:00.000Z');
+
+        const res = await refused(
+          id,
+          {
+            version: 1,
+            name: '',
+            steps: [{ position: 1, closesOn: '2026-11-07' }],
+          },
+          400,
+          'VALIDATION_FAILED',
+        );
+
+        expect(fieldsOf(res)).toEqual([['name', 'REQUIRED']]);
+      });
+
+      it('extends an in-progress step that closes today, with confirmation: a later GET still shows it in progress past the old closing day, and the reads write nothing', async () => {
+        const { id } = await setup();
+        w.world.loads.markLoaded(id);
+        at('2026-11-06T10:00:00.000Z'); // step 1 closes today
+        expect(stepStatesOf(await detailOf(id))).toEqual([
+          'in_progress',
+          'upcoming',
+        ]);
+
+        const res = await patch(id, {
+          version: 1,
+          confirmInProgress: true,
+          steps: [{ position: 1, closesOn: '2026-11-08' }],
+        });
+        at('2026-11-07T10:00:00.000Z'); // past the old closing day
+        const writesBefore = [...w.world.timelineWriteLog];
+        const read = await detailOf(id);
+        const list = await w.send(
+          'get',
+          `/cycles/${(await detailOf(id)).body.data.cycleId}/timelines`,
+        );
+
+        expect(res.status).toBe(200);
+        expect(stepStatesOf(read)).toEqual(['in_progress', 'upcoming']);
+        expect(read.body.data).toMatchObject({
+          status: 'live',
+          currentStep: 1,
+        });
+        expect(list.body.data[0]).toMatchObject({
+          status: 'live',
+          currentStep: 1,
+        });
+        expect(w.world.timelineWriteLog).toEqual(writesBefore);
+      });
+    });
+
+    describe('FR-9, NFR-3: stale edits', () => {
+      it('a second edit made on the version both admins read is 409 TIMELINES_VERSION_STALE: the first edit stays, the second is not merged', async () => {
+        const { id } = await setup();
+        const before = (await detailOf(id)).body.data;
+        const ana = await patch(id, { version: 1, name: 'Ana name' });
+        const afterAna = await snapshot(id);
+
+        const luis = await patch(
+          id,
+          {
+            version: 1,
+            name: 'Luis name',
+            steps: [{ position: 2, name: 'Luis step' }],
+          },
+          { token: bearer('sub-admin2') },
+        );
+
+        expect(ana.status).toBe(200);
+        const expected = structuredClone(before);
+        expected.name = 'Ana name';
+        expected.version = 2;
+        expect(ana.body.data).toEqual(withoutUsers(expected));
+        expect(afterAna.read).toEqual(expected);
+        expectError(luis, 409, 'TIMELINES_VERSION_STALE');
+        await expectUnchanged(id, afterAna);
+        expect(w.world.auditEvents).toHaveLength(1);
+      });
+
+      it('a version ahead of the stored one is just as stale', async () => {
+        const { id } = await setup();
+
+        await refused(
+          id,
+          { version: 7, name: 'From the future' },
+          409,
+          'TIMELINES_VERSION_STALE',
+        );
+      });
+
+      it('a request without a version, with version 0 or with a version that is not an integer is 400 on `version`, and nothing is written', async () => {
+        const { id } = await setup();
+
+        for (const payload of [
+          { name: 'No version' },
+          { version: 0, name: 'Zero' },
+          { version: '1', name: 'Text' },
+          { version: 1.5, name: 'Fraction' },
+        ]) {
+          const res = await refused(id, payload, 400, 'VALIDATION_FAILED');
+          expect(fieldsOf(res).map(([field]) => field)).toContain('version');
+        }
+      });
+
+      it('two edits at the same moment on the same version: exactly one applies, one audit row, version 2', async () => {
+        const { id } = await setup();
+        const before = (await detailOf(id)).body.data;
+        const tablesBefore = tablesNow();
+        const writesBefore = w.world.timelineWriteLog.length;
+
+        const [a, b] = await Promise.all([
+          patch(id, { version: 1, name: 'Race A' }),
+          patch(
+            id,
+            { version: 1, name: 'Race B' },
+            { token: bearer('sub-admin2') },
+          ),
+        ]);
+        const settled = stored();
+
+        const statuses = [a.status, b.status].sort((x, y) => x - y);
+        expect(statuses).toEqual([200, 409]);
+        const loser = a.status === 409 ? a : b;
+        const winner = a.status === 200 ? a : b;
+        expectError(loser, 409, 'TIMELINES_VERSION_STALE');
+        // The timeline read again is, whole, the winner's edit on what was read before.
+        const expected = structuredClone(before);
+        expected.name = a.status === 200 ? 'Race A' : 'Race B';
+        expected.version = 2;
+        const read = (await detailOf(id)).body.data;
+        expect(read).toEqual(expected);
+        expect(winner.body.data).toEqual(withoutUsers(read));
+        // Exactly one edit ran a statement: the winner's update and its audit row.
+        expect(w.world.timelineWriteLog.slice(writesBefore)).toEqual([
+          `timeline:update:${id}`,
+          `audit:${id}`,
+        ]);
+        const winnerId = a.status === 200 ? w.admin.id : userIdOf('sub-admin2');
+        expect(w.world.auditEvents).toHaveLength(1);
+        expect(w.world.auditEvents[0]).toMatchObject({
+          timelineId: id,
+          actorId: winnerId,
+          requestId: winner.headers['x-request-id'],
+        });
+        // The stored rows: the timeline row carries the winner's name, version and author; no other table moved.
+        const [timelineRows, ...childRows] = tablesNow();
+        expect(timelineRows).toEqual([
+          {
+            ...tablesBefore[0]![0],
+            name: expected.name,
+            version: 2,
+            updatedAt: expect.any(String),
+            updatedBy: winnerId,
+          },
+        ]);
+        expect(childRows).toEqual(tablesBefore.slice(1));
+        expect(stored()).toBe(settled);
+      });
+
+      it('an edit racing a create of the same name: one timeline name wins, never two', async () => {
+        const { cycleId, id } = await setup();
+        const readBefore = (await detailOf(id)).body.data;
+        const tablesBefore = tablesNow();
+        const cyclesBefore = JSON.stringify(w.world.cycles);
+        const writesBefore = w.world.timelineWriteLog.length;
+
+        const [edit, create] = await Promise.all([
+          patch(id, { version: 1, name: 'Contested' }),
+          createTimeline(cycleId, { name: 'contested' }),
+        ]);
+        const settled = stored();
+
+        const names = w.world.timelines.map((t) => t.name.toLowerCase());
+        expect(names.filter((n) => n === 'contested')).toHaveLength(1);
+        const successes = [edit.status === 200, create.status === 201].filter(
+          Boolean,
+        );
+        expect(successes).toHaveLength(1);
+        expectError(
+          edit.status === 200 ? create : edit,
+          409,
+          'TIMELINES_NAME_TAKEN',
+        );
+        const readAfter = (await detailOf(id)).body.data;
+        const tablesAfter = tablesNow();
+        const writes = w.world.timelineWriteLog.slice(writesBefore);
+        expect(JSON.stringify(w.world.cycles)).toBe(cyclesBefore);
+        if (edit.status === 200) {
+          // The edit won: the timeline is the one read before with the new name,
+          // and the create that lost left no timeline, step, program or result type behind.
+          const expected = structuredClone(readBefore);
+          expected.name = 'Contested';
+          expected.version = 2;
+          expect(edit.body.data).toEqual(withoutUsers(expected));
+          expect(readAfter).toEqual(expected);
+          expect(
+            w.world.timelines.filter((t) => t.cycleId === cycleId),
+          ).toHaveLength(1);
+          expect(tablesAfter[0]).toEqual([
+            {
+              ...tablesBefore[0]![0],
+              name: 'Contested',
+              version: 2,
+              updatedAt: expect.any(String),
+              updatedBy: w.admin.id,
+            },
+          ]);
+          expect(tablesAfter.slice(1)).toEqual(tablesBefore.slice(1));
+          expect(writes).toEqual([`timeline:update:${id}`, `audit:${id}`]);
+          expect(w.world.auditEvents).toHaveLength(1);
+        } else {
+          // The create won: the losing edit left every row of the timeline as it was read.
+          expect(readAfter).toEqual(readBefore);
+          expect(
+            w.world.timelines.filter((t) => t.cycleId === cycleId),
+          ).toHaveLength(2);
+          const own: Tables = [
+            tablesAfter[0]!.filter((row) => row.id === id),
+            ...tablesAfter
+              .slice(1)
+              .map((table) => table.filter((row) => row.timelineId === id)),
+          ];
+          expect(own).toEqual(tablesBefore);
+          // Every statement that ran was the create's own: none touched this timeline.
+          const createdId = create.body.data.id as number;
+          expect(writes).toEqual([
+            `timeline:additional:${createdId}`,
+            `programs:${createdId}`,
+            `result-types:${createdId}`,
+            `steps:${createdId}`,
+          ]);
+          expect(w.world.auditEvents).toHaveLength(0);
+        }
+        expect(stored()).toBe(settled);
+      });
+    });
+
+    describe('answer order', () => {
+      it('a closed cycle wins over a stale version; a stale version wins over a rule problem; a catalog outage wins over a rule problem', async () => {
+        const closed = await createCycle(2026);
+        await activateCycle(closed);
+        const created = await createTimeline(closed, {
+          allPrograms: true,
+          programIds: [],
+          allResultTypes: true,
+          resultTypeKeys: [],
+        });
+        const id = created.body.data.id as number;
+        await activateCycle(await createCycle(2027));
+        await refused(id, { version: 9, name: '' }, 409, 'CYCLES_CLOSED');
+
+        const open = await createCycle(2028);
+        const second = await createTimeline(open, {
+          allPrograms: true,
+          programIds: [],
+          allResultTypes: true,
+          resultTypeKeys: [],
+        });
+        const openId = second.body.data.id as number;
+        await refused(
+          openId,
+          { version: 9, name: '' },
+          409,
+          'TIMELINES_VERSION_STALE',
+        );
+
+        const readBefore = await detailOf(openId);
+        w.catalogs.programsDown = true;
+        const before = stored();
+        const down = await patch(openId, {
+          version: 1,
+          name: '',
+          allPrograms: false,
+          programIds: [1],
+        });
+        expectError(down, 503, 'SERVICE_UNAVAILABLE');
+        expect(stored()).toBe(before);
+        expect((await detailOf(openId)).body.data).toEqual(
+          readBefore.body.data,
+        );
+        expect(readBefore.body.data).toMatchObject({
+          version: 1,
+          allPrograms: true,
+        });
+        expect(w.world.auditEvents).toHaveLength(0);
+      });
+    });
+
+    describe('FR-10, FR-11: the audit record and the no-op', () => {
+      it('one edit that changes the name and step 2 closing date stores exactly one audit row with those two fields, before and after, and nothing else', async () => {
+        const { id } = await setup();
+
+        const res = await patch(id, {
+          version: 1,
+          name: 'July 2026 v2',
+          steps: [
+            { position: 1, name: STEP_1.name },
+            { position: 2, closesOn: '2026-11-14' },
+          ],
+        });
+
+        expect(res.status).toBe(200);
+        expect(w.world.auditEvents).toHaveLength(1);
+        const [row] = w.world.auditEvents;
+        expect(row).toMatchObject({
+          timelineId: id,
+          actorId: w.admin.id,
+          action: 'update',
+          requestId: res.headers['x-request-id'],
+        });
+        expect(row!.changes).toEqual({
+          name: { before: 'July 2026', after: 'July 2026 v2' },
+          'steps.2.closesOn': { before: '2026-11-13', after: '2026-11-14' },
+        });
+      });
+
+      it('refusals of every kind (400, 404, 409) add no audit row', async () => {
+        const { id } = await setup();
+
+        const invalid = await refused(
+          id,
+          { version: 1, name: '' },
+          400,
+          'VALIDATION_FAILED',
+        );
+        expect(fieldsOf(invalid).map(([field]) => field)).toContain('name');
+        const stale = await refused(
+          id,
+          { version: 5, name: 'X' },
+          409,
+          'TIMELINES_VERSION_STALE',
+        );
+        expect(stale.body.error.fields).toBeUndefined();
+        const unknownField = await refused(
+          id,
+          { version: 1, audience: 'programs' },
+          400,
+          'VALIDATION_FAILED',
+        );
+        expect(fieldsOf(unknownField)).toEqual([['audience', 'UNKNOWN_FIELD']]);
+
+        // 404: no timeline to read back, so the whole stored state and the
+        // existing timeline are compared instead.
+        const readBefore = await detailOf(id);
+        const stateBefore = stored();
+        const missing = await patch(999, { version: 1, name: 'X' });
+        expectError(missing, 404, 'TIMELINES_NOT_FOUND');
+        expect(stored()).toBe(stateBefore);
+        expect((await detailOf(id)).body.data).toEqual(readBefore.body.data);
+
+        expect(w.world.auditEvents).toEqual([]);
+      });
+
+      it('an edit with every field equal to the stored one is 200 with the same version, and no audit row, no write and no transaction', async () => {
+        const { id } = await setup();
+        const read = (await detailOf(id)).body.data;
+        const before = stored();
+
+        const res = await patch(id, {
+          version: 1,
+          name: read.name,
+          allPrograms: false,
+          programIds: [2],
+          allResultTypes: false,
+          resultTypeKeys: ['INNOVATION_DEV'],
+          steps: [
+            {
+              position: 1,
+              name: STEP_1.name,
+              opensOn: '2026-11-02',
+              closesOn: '2026-11-06',
+            },
+          ],
+        });
+
+        expect(res.status).toBe(200);
+        expect(res.body.data).toEqual(withoutUsers(read));
+        expect(res.body.data.version).toBe(1);
+        expect(stored()).toBe(before);
+        expect(w.world.auditEvents).toHaveLength(0);
+      });
+    });
+
+    describe('FR-13: Idempotency-Key on PATCH /timelines/:id', () => {
+      it('a replay of an applied edit, version still 1, returns the first 200 marked as a replay: not 409 stale, no second audit row, nothing applied again', async () => {
+        const { id } = await setup();
+        const change = { version: 1, name: 'Edited once' };
+        const first = await patch(id, change, { key: 'edit-1' });
+        const committed = w.timelinesUnitOfWork.committed;
+        const afterFirst = stored();
+
+        const replay = await patch(id, change, { key: 'edit-1' });
+
+        expect(first.status).toBe(200);
+        expect(first.headers['idempotency-replayed']).toBeUndefined();
+        expect(first.body.data.version).toBe(2);
+        expect(replay.status).toBe(200);
+        expect(replay.headers['idempotency-replayed']).toBe('true');
+        expect(replay.body.data).toEqual(first.body.data);
+        expect(w.world.auditEvents).toHaveLength(1);
+        expect(w.timelinesUnitOfWork.committed).toBe(committed);
+        expect(stored()).toBe(afterFirst);
+        expect((await detailOf(id)).body.data.version).toBe(2);
+      });
+
+      it('the replay is the first answer even after another edit moved the timeline on', async () => {
+        const { id } = await setup();
+        const first = await patch(
+          id,
+          { version: 1, name: 'Edit A' },
+          { key: 'edit-a' },
+        );
+        await patch(id, { version: 2, name: 'Edit B' });
+
+        const replay = await patch(
+          id,
+          { version: 1, name: 'Edit A' },
+          { key: 'edit-a' },
+        );
+
+        expect(replay.status).toBe(200);
+        expect(replay.headers['idempotency-replayed']).toBe('true');
+        expect(replay.body.data).toEqual(first.body.data);
+        expect(w.world.auditEvents).toHaveLength(2);
+        expect((await detailOf(id)).body.data.name).toBe('Edit B');
+      });
+
+      it('the same key with another body is 422 IDEMPOTENCY_KEY_REUSED and applies nothing', async () => {
+        const { id } = await setup();
+        await patch(id, { version: 1, name: 'Edited' }, { key: 'k-1' });
+        const readBefore = await detailOf(id);
+        const stateBefore = stored();
+
+        const res = await patch(
+          id,
+          { version: 1, name: 'Different' },
+          { key: 'k-1' },
+        );
+
+        expectError(res, 422, 'IDEMPOTENCY_KEY_REUSED');
+        expect((await detailOf(id)).body.data).toEqual(readBefore.body.data);
+        expect(readBefore.body.data).toMatchObject({
+          name: 'Edited',
+          version: 2,
+        });
+        expect(stored()).toBe(stateBefore);
+        expect(w.world.auditEvents).toHaveLength(1);
+      });
+
+      it('a replayed refusal is the same refusal, marked as a replay, and writes nothing', async () => {
+        const { id } = await setup();
+        const unchanged = await snapshot(id);
+
+        const first = await patch(
+          id,
+          { version: 4, name: 'Late' },
+          { key: 'stale-1' },
+        );
+        expectError(first, 409, 'TIMELINES_VERSION_STALE');
+        await expectUnchanged(id, unchanged);
+
+        const replay = await patch(
+          id,
+          { version: 4, name: 'Late' },
+          { key: 'stale-1' },
+        );
+        expectError(replay, 409, 'TIMELINES_VERSION_STALE');
+        expect(replay.headers['idempotency-replayed']).toBe('true');
+        await expectUnchanged(id, unchanged);
+        expect(w.world.auditEvents).toHaveLength(0);
+      });
+
+      it('a key left executed without an answer (the crash window) replays the timeline as it is now: 200 marked as a replay, not 409 stale, no second audit row', async () => {
+        const { id } = await setup();
+        const change = { version: 1, name: 'Edited once' };
+        const first = await patch(id, change, { key: 'crash-1' });
+        // The process died after the commit and before the answer was stored.
+        const row = w.idempotency.peek(w.admin.id, 'crash-1')!;
+        w.idempotency.seed({
+          ...row,
+          state: 'executed',
+          responseStatus: null,
+          responseBody: null,
+        });
+        const afterFirst = stored();
+
+        const replay = await patch(id, change, { key: 'crash-1' });
+
+        expect(first.status).toBe(200);
+        expect(replay.status).toBe(200);
+        expect(replay.headers['idempotency-replayed']).toBe('true');
+        expect(replay.body.data).toMatchObject({
+          id,
+          name: 'Edited once',
+          version: 2,
+        });
+        expect(w.world.auditEvents).toHaveLength(1);
+        expect(stored()).toBe(afterFirst);
+      });
+
+      it('without a key the same repeat is the plain 409 stale, with no replay header and no key row', async () => {
+        const { id } = await setup();
+        await patch(id, { version: 1, name: 'Edited' });
+        const readBefore = await detailOf(id);
+        const stateBefore = stored();
+
+        const again = await patch(id, { version: 1, name: 'Edited' });
+
+        expectError(again, 409, 'TIMELINES_VERSION_STALE');
+        expect(again.headers['idempotency-replayed']).toBeUndefined();
+        expect(w.db.idempotency).toHaveLength(0);
+        expect((await detailOf(id)).body.data).toEqual(readBefore.body.data);
+        expect(readBefore.body.data).toMatchObject({
+          name: 'Edited',
+          version: 2,
+        });
+        expect(stored()).toBe(stateBefore);
+        expect(w.world.auditEvents).toHaveLength(1);
+      });
+    });
+
+    describe('NFR-7: the decision line', () => {
+      it('every edit logs exactly one `timeline_update` line with ids and fixed words, and no name, date or body reaches any log', async () => {
+        const { cycleId, id } = await setup();
+        await createTimeline(cycleId, { name: 'Taken Name' });
+        spy.lines.length = 0;
+        const ok = await patch(id, { version: 1, name: 'Confidential Rename' });
+        const afterOk = await snapshot(id);
+        expect(ok.status).toBe(200);
+        expect(afterOk.read).toMatchObject({
+          name: 'Confidential Rename',
+          version: 2,
+        });
+        // Each refusal leaves the timeline as the edit left it: the whole read and the stored state.
+        const stale = await patch(id, {
+          version: 1,
+          name: 'Confidential Stale',
+        });
+        expectError(stale, 409, 'TIMELINES_VERSION_STALE');
+        await expectUnchanged(id, afterOk);
+        const invalid = await patch(id, { version: 2, name: '' });
+        expectError(invalid, 400, 'VALIDATION_FAILED');
+        await expectUnchanged(id, afterOk);
+        const taken = await patch(id, { version: 2, name: 'TAKEN NAME' });
+        expectError(taken, 409, 'TIMELINES_NAME_TAKEN');
+        await expectUnchanged(id, afterOk);
+        const missing = await patch(999, {
+          version: 1,
+          name: 'Confidential Ghost',
+        });
+        expectError(missing, 404, 'TIMELINES_NOT_FOUND');
+        await expectUnchanged(id, afterOk);
+        expect(w.world.auditEvents).toHaveLength(1);
+
+        const lineOf = (res: request.Response) =>
+          spy
+            .eventsOf('admin_config', res.headers['x-request-id'] as string)
+            .filter((line) => line.action === 'timeline_update');
+        const base = {
+          event: 'admin_config',
+          action: 'timeline_update',
+          actorId: w.admin.id,
+          idempotency: 'none',
+        };
+        expect(lineOf(ok)).toEqual([
+          {
+            ...base,
+            targetId: id,
+            outcome: 'ok',
+            requestId: ok.headers['x-request-id'],
+          },
+        ]);
+        expect(lineOf(stale)).toMatchObject([
+          { ...base, outcome: 'refused', reason: 'TIMELINES_VERSION_STALE' },
+        ]);
+        expect(lineOf(invalid)).toMatchObject([
+          { outcome: 'refused', reason: 'VALIDATION_FAILED' },
+        ]);
+        expect(lineOf(taken)).toMatchObject([
+          { outcome: 'refused', reason: 'TIMELINES_NAME_TAKEN' },
+        ]);
+        expect(lineOf(missing)).toMatchObject([
+          { outcome: 'refused', reason: 'TIMELINES_NOT_FOUND' },
+        ]);
+        expect(
+          spy.lines.filter((l) =>
+            /confidential|taken name|2026-11|INNOVATION_DEV/i.test(l),
+          ),
+        ).toEqual([]);
+      });
+    });
+  });
+
   // --- FR-14, FR-15: the users of a timeline ------------------------------------
 
   describe('FR-14, FR-15: POST /timelines/:id/users and DELETE /timelines/:id/users/:assignmentId', () => {

@@ -380,7 +380,7 @@ Leader adjudication: no blocker, no owed item; closes on the PASS.
 - Reviewer (lens checklist, effort medium; named checks NFR-5 as amended and OQ-TE-1 — no impact): **PASS** — "The PATCH route matches design § 6, § 7.6, DD-1 and DD-9, and the DTO meets FR-1, FR-9, FR-12, FR-13, NFR-1 and NFR-2." Every § 6 code documented; unknown fields refused at the pipe; optional fields stay optional (FR-11 rule); no `models/` request model accepted (the repo's `models/` holds response models only; the create route documents its request on the DTO).
 - runtime events: none.
 
-spawns: implementer 24 calls, 103032 tokens, ended partial (Not Done / Assumptions — the deferred falsifier and judgment calls, no owed item); reviewer not reported by host, ended complete.
+spawns: implementer 24 calls, 103032 tokens, ended partial (Not Done / Assumptions — the deferred falsifier and judgment calls, no owed item); reviewer 15 calls, 55366 tokens, ended complete.
 
 **Not Done / Assumptions (Implementer, in substance)**
 - `@Idempotent()` falsifier deferred to T-7.
@@ -396,5 +396,89 @@ spawns: implementer 24 calls, 103032 tokens, ended partial (Not Done / Assumptio
 **Forward pointers**
 - T-7: the replay case is the `@Idempotent()` falsifier — run it (remove the decorator → second audit row / non-replayed answer).
 - T-8: `server/src/admin-config/AGENTS.md` "max lengths" line.
+
+**Final verification:** VERIFIED.
+
+### T-7: e2e — the edit over HTTP — PASS (attempt 3)
+
+| | |
+|---|---|
+| Date | 2026-10-21 |
+| Skills | nestjs-expert (as listed) |
+| Effort | attempt 1 `medium`; attempt 2 `high`; attempt 3 `xhigh` (one-level bump per rework) |
+
+**Attempt 1 — FAIL**
+- Files changed: `server/test/admin-config-timelines.e2e-spec.ts` (+1079, 0 existing lines deleted): `describe('timeline-edit: PATCH /timelines/:id')`, 57 cases; local `patch()` helper.
+- Red A (`@Patch` commented out): `Tests 54 failed | 3 passed | 126 skipped (183)`, e.g. `AssertionError: expected 404 to be 200`.
+- Falsifiers: B (replay reader throws `TimelineVersionStaleError`) → crash-window case `expected 503 to be 200` (Reviewer: a valid red — the intent is "a replay must not run the version check"; the error surfaces as 503, not the predicted 409); C (`forbidNonWhitelisted: false`) → 8 unknown-field cases `expected 200 to be 400`; D (`@Idempotent()` removed — T-6's deferred falsifier) → 5 FR-13 cases red, e.g. `expected 409 to be 200`.
+- Implementer verification: e2e `Tests 779 passed (779)`, unit `Tests 1962 passed (1962)`, lint 0, build ok, tsc only the 7 `token-verifier.service.spec.ts` errors.
+- Evidence re-run (Leader-inline): **VERIFIED** — same counts.
+- Reviewer (checklist, effort medium): **FAIL** —
+  1. **Discovered Issue:** Several refusals are not followed by a GET of the timeline asserting it is unchanged. Some check only the error envelope, and one checks no status at all. The ones that do use the `refused()` helper are fine; these do not:
+     - `answer order`: `closedStale` (409 CYCLES_CLOSED) and `staleInvalid` (409 TIMELINES_VERSION_STALE) are only `expectError(...)`. There is no GET and no `stored()` check. Only the third refusal (503) checks state.
+     - `FR-13 … without a key the same repeat is the plain 409 stale`: envelope and header only, no GET.
+     - `FR-13 … a replayed refusal is the same refusal`: `stored()` only, no GET.
+     - `FR-13 … same key with another body is 422`: the GET checks `name` only.
+     - `FR-12 … unknown timeline 404 / id 'abc' 400` and `malformed JSON 400 MALFORMED_JSON`: `stored()` only, no GET of the setup timeline.
+     - `FR-12 401` and the `403` matrix: the GET checks `.name` only, not the whole read.
+     - `FR-10 … refusals of every kind (400, 404, 409) add no audit row`: none of the four statuses is asserted and nothing is read back. It passes even if every call is a 404 from the router, which makes it a status-blind case.
+     - `FR-9 … an edit racing a create`: the losing edit is checked with `expectError` but the timeline is not read back.
+     - **Violated Rule:** `docs/specs/admin-config/timeline-edit/tasks.md` § T-7 **Disqualifier**: "a case that checks the status only; every refusal also GETs the timeline and asserts it is unchanged."
+     - **Remediation Suggestion:** Send each refusal above through `refused()`. If a case needs a custom envelope, take a `detailOf` read and `stored()` before the call, then assert `toEqual` on the second read and `toBe` on `stored()`. In the "refusals of every kind" case, assert each status and code (400 VALIDATION_FAILED, 404 TIMELINES_NOT_FOUND, 409 TIMELINES_VERSION_STALE, 400 UNKNOWN_FIELD) and do the read-back. In the 401/403 cases, compare the whole `detailOf(id).body.data` with a read taken before, not just `.name`. In the NFR-7 case, the refusals are there to produce log lines, so checking `stored()` once at the end is enough. Re-run the suite and confirm red A still fails these cases on their status.
+  - ADVISORY: falsifier B's red reads "non-200 (503)" — T-8's front contract must not suggest a crash-window replay answers 409; `programIds: null` is treated as "left out" (FR-1) — T-8's contract should say so; the `at()` clock helper only moves forward — comment it.
+- runtime events: none.
+
+spawns: implementer 32 calls, 139259 tokens, ended partial (assumptions only); reviewer 9 calls, 56095 tokens, ended complete.
+
+**Attempt 2 — FAIL**
+- Files changed: `server/test/admin-config-timelines.e2e-spec.ts` only (+1155 vs HEAD, additions only). All nine attempt-1 cases reworked; `at()` comment added.
+- Red A: `Tests 55 failed | 2 passed | 126 skipped (183)`, reworked cases fail on status (e.g. `expected 404 to be 401`, `expected 404 to be 422`). Falsifier D: `Tests 5 failed | 52 passed`. shasum restored identical.
+- Implementer verification: e2e `Tests 779 passed (779)`, unit `Tests 1962 passed (1962)`, lint 0, build 0, tsc 7 (`token-verifier.service.spec.ts`).
+- Evidence re-run (Leader-inline): **VERIFIED** — same counts.
+- Reviewer (checklist, effort high, swept every refusal in the PATCH describe): **FAIL** —
+  1. **Discovered Issue:** Two refusals still check only part of the timeline they read back. This is the same kind of problem attempt 1 flagged for the 422 and 403 cases ("the GET checks `name` only"):
+     - `FR-9 … a second edit made on the version both admins read` (diff lines 712–734): Luis's 409 is checked with `expectError` and `stored()`. But the GET checks only `toMatchObject({ name, version })` and `steps[1].name`, not the whole read.
+     - `FR-9 … two edits at the same moment` (lines 761–782): the losing 409 is followed by a GET that checks only `version` and `name`. There is no `stored()` and no full comparison with the winner's state.
+     - **Violated Rule:** `docs/specs/admin-config/timeline-edit/tasks.md:312`, Disqualifier: "a case that checks the status only; every refusal also GETs the timeline and asserts it is unchanged."
+     - **Remediation Suggestion:** In the first case, take `const afterAna = (await detailOf(id)).body.data` right after Ana's 200. After Luis's 409, assert `toEqual(afterAna)` next to the existing `stored()` check. In the race case, assert the full read equals `{ ...winner.body.data, users: <the read's users> }`, or equivalently `withoutUsers(read)` toEqual `winner.body.data`. That works because FR-14 makes the PATCH answer equal to the GET without `users`. Also add `stored()` snapshots taken after the race settles, or keep the audit and version asserts and add the full-read equality.
+  2. **Discovered Issue:** `NFR-7: the decision line` (lines 1109–1160) sends four refusals: stale 409, invalid 400, taken 409 and missing 404. None of them is followed by a read-back of the timeline or a state check. The attempt-1 remediation said "NFR-7 `stored()` once at the end", and it was not applied.
+     - **Violated Rule:** Same as issue 1, `tasks.md:312`, Disqualifier: "every refusal also GETs the timeline and asserts it is unchanged."
+     - **Remediation Suggestion:** After `ok`, capture `const afterOk = (await detailOf(id)).body.data` and `const stateAfterOk = stored()`. Then call `spy.lines` / `stored()` again after the four refusals. At the end, assert `stored()` toBe `stateAfterOk` and `(await detailOf(id)).body.data` toEqual `afterOk`. Keep in mind that the GET itself may log lines, so filter by request id as `lineOf` already does. Then re-run Red A to confirm the case still fails on status or behavior.
+  - ADVISORY: `an edit racing a create` (edit wins) has no `stored()` on the losing POST; `refused()` asserts 0 audit rows, so it cannot follow an applied edit — note it in its JSDoc.
+- Leader note: the attempt-2 Implementer reported the NFR-7 case as reworked ("`stored()` and the whole read equal those values") while the Reviewer found no read-back at diff lines 1109–1160 — a report/tree mismatch (KZ-admin-config--cycle-timelines-2 pattern). Attempt 3's brief requires a Leader-checkable grep of every refusal.
+- runtime events: none.
+
+spawns: implementer 25 calls, 100348 tokens, ended complete; reviewer 4 calls, 43154 tokens, ended complete.
+
+**Attempt 3 — PASS**
+- Files changed: `server/test/admin-config-timelines.e2e-spec.ts` only (+1259 vs HEAD, additions only; final sha `a4035f77ece93ecb6853f24736e610d38b0c57ca`).
+- Change: helpers `snapshot(id)` / `expectUnchanged(id, snap)` (whole-read `toEqual` at L1636, `stored()` `toBe` at L1637); `refused()` built on them, JSDoc notes it asserts 0 audit rows. Every non-2xx request in the PATCH describe swept — a 31-row table with proof lines; besides the two listed items the sweep also fixed the 401 loop and the 404/400-id pair (per request) and the first request of "a replayed refusal".
+- Leader check: the cited proof lines (L1636, 1637, 1693, 1726, 1731, 2323, 2404, 2481, 2707, 2716, 2787, 2790, 2793, 2799) grepped in the file — present as stated.
+- Red A (`@Patch` out): `Tests 55 failed | 2 passed | 126 skipped`; touched cases fail on status (e.g. `expected 404 to be 401`, `expected [ 404, 404 ] to deeply equal [ 200, 409 ]`). Falsifier D: `Tests 5 failed | 52 passed`. Restored shas identical.
+- Implementer verification: e2e `Tests 779 passed (779)`, unit `Tests 1962 passed (1962)`, lint 0, build 0, tsc 7 (`token-verifier.service.spec.ts`).
+- Evidence re-run (Leader-inline): **VERIFIED** — lint OK, build OK, unit `Tests 1962 passed (1962)`, e2e `Tests 779 passed (779)`, tsc 7.
+- Reviewer (checklist, effort high, independent sweep of every non-2xx in L1584-2839): **PASS** — "Every refusal is followed by a GET that compares the whole timeline and by a state check. No case checks only the status. Both items from attempt 2 are fixed." Named checks: NFR-5 as amended — no contradiction; OQ-TE-1 — no test fixes either answer.
+- runtime events: none.
+
+spawns: implementer 53 calls, 189229 tokens, ended complete; reviewer not reported by host, ended complete.
+
+**ADVISORY (attempt 3 — recorded, not tasks)**
+- READABILITY: L1932 `toHaveLength(2)` repeats what `refused()` proves.
+- READABILITY: in the edit-vs-edit race, the loser's no-write proof is the write-log slice (L2381) and row pins; `stored()` (L2404) only proves the reads wrote nothing — worth a comment.
+- RELIABILITY: the 403 and malformed-JSON cases repeat the helper pattern by hand.
+
+**Not Done / Assumptions (all attempts, in substance)**
+- Local `patch()` helper in the spec (the support `send` has none; scope was the e2e file).
+- `programIds: null` → 200, treated as "left out" (FR-1); Reviewer: no clause violated — T-8's front contract must state it.
+- The PATCH answer is the list-shaped Timeline without `users`.
+- NFR-3 concurrency on the fake only; MySQL in T-9.
+- Falsifier B's red is a 503, not the predicted 409 (the reader's thrown error surfaces as 503) — T-8's contract must not suggest a crash-window replay answers 409.
+
+**Decisions made**
+- Effort bumped one level per rework (medium → high → xhigh).
+- Attempt 3's brief required a Leader-checkable sweep table after attempt 2's report claimed a fix the tree did not hold.
+
+**Issues encountered**
+- Two FAILs on the same Disqualifier: the first list was partial, and attempt 2 fixed only the list (and misreported one case). Kaizen signal for the archive: a Disqualifier of the form "every X also Y" needs a sweep instruction in the first brief, not after a FAIL.
 
 **Final verification:** VERIFIED.
