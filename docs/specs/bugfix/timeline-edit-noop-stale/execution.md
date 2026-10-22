@@ -87,8 +87,28 @@ FR-1 (reproduction, would be 400, would ask for confirmation, at unit level; "sa
 
 #### Issues encountered
 
-- **Budget tripwire:** src LOC is +40 against ~25 (design § 10), and tests are +139 against ~120. Tasks (1 of 2) and review rounds (1 of 1) are within budget. Escalated to the back lead at the T-1 gate.
+- **Budget tripwire:** src LOC is +40 against ~25 (design § 10), and tests are +139 against ~120. Tasks (1 of 2) and review rounds (1 of 1) are within budget. Escalated to the back lead at the T-1 gate. The back lead answered "Sigue" (2026-10-22), which accepts the overrun and continues to T-2.
 
 #### Final verification
 
 `cd server && pnpm lint && pnpm build && pnpm test --reporter=dot && pnpm test:e2e --reporter=dot` → green (1965 unit, 779 e2e). Leader VERIFIED.
+
+### T-2: HITL on TEST — five same-version edits give one 200
+
+- **Status:** in progress (evidence recorded; the post-run audit count and the confirmation that TEST runs `b609fae` are still owed)
+- **Date:** 2026-10-22
+- **Run by:** the back lead, in his own terminal. The token was read from the clipboard (`QA_TOKEN="$(pbpaste)"`) and never passed through chat. Script: the session scratchpad `t2-hitl.mjs` (5 rounds, timeline 22, step 5 `closesOn` toggled 2026-12-26 ↔ 2026-12-27 so that every round is a real change).
+- **Baseline:** `SELECT COUNT(*) FROM timeline_audit_events WHERE timeline_id = 22` → 9 (before the run). Start version 10, which is consistent with 9 applied edits from version 1.
+- **Result:** 5/5 rounds OK. The end version is 15 (start 10, +5).
+
+| Round | Version | 200 request id | Sends within | Overlap |
+|---|---|---|---|---|
+| 1 | 10 → 11 | `0840c03f-4bce-4280-a381-8fa10df06932` | 2.0 ms | yes |
+| 2 | 11 → 12 | `ba2140a0-d3ef-4216-bf8b-381c4fd370fa` | 5.0 ms | yes |
+| 3 | 12 → 13 | `0f46605a-9e43-4201-b61d-ce66116d73ef` | 1.0 ms | yes |
+| 4 | 13 → 14 | `b8bdfe3f-6bbd-4720-bf12-b70dbab299e2` | 1.0 ms | yes |
+| 5 | 14 → 15 | `8e7898f5-da20-4cdc-ada0-98ba5b8a69d5` | 1.0 ms | yes |
+
+Each round gave the other four answers as 409 `TIMELINES_VERSION_STALE`. Round 1's stale ids: `36d1409b…`, `6a42792e…`, `407aec99…`, `56cd52cd…`. In every round, the last send came before the first receive (sent 1792680480.226 – 1792680481.212).
+- **Post-run audit count:** `SELECT COUNT(*) FROM timeline_audit_events WHERE timeline_id = 22` → 14 (9 + 5). That is one audit row per applied edit and no extra row.
+- **Disqualifier check (TEST running a build without T-1): not cleared.** `git fetch origin && git branch -r --contains b609fae` returns no remote branch (2026-10-22), so the fix has not been pushed anywhere CI could deploy from. Before the fix the bug showed in 1 of 4 logged rounds, so 5 clean rounds on the old build happen about 24 % of the time ((3/4)^5). This run is therefore recorded as **not yet evidence for NFR-2**, unless the back lead confirms that TEST was deployed from this local commit. Otherwise, re-run after the fix is pushed and deployed.
