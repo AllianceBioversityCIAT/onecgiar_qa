@@ -77,8 +77,9 @@ export class FieldsView {
     return groups.length === 1 ? 'in ' + groups[0].type : `in ${groups.length} result types`;
   });
   protected readonly showConfirm = computed(() => this.confirmRequested() && this.changeCount() > 0);
-  /** What the last bulk action did, for the header status once nothing is pending. Cleared by any edit. */
+  /** What the last bulk action did, shown in the publish bar for a few seconds once nothing is pending. Cleared by any edit. */
   protected readonly lastAction = signal<'published' | 'discarded' | null>(null);
+  private lastActionTimer: ReturnType<typeof setTimeout> | undefined;
 
   protected readonly typeOptions = computed<readonly QaSelectOption[]>(() =>
     RESULT_TYPES.map((t) => {
@@ -142,6 +143,7 @@ export class FieldsView {
 
   constructor() {
     const destroyRef = inject(DestroyRef);
+    destroyRef.onDestroy(() => clearTimeout(this.lastActionTimer));
     afterNextRender(() => {
       const el = this.summaryGrid().nativeElement;
       const observer = new ResizeObserver(() => this.contentWidth.set(el.clientWidth));
@@ -230,7 +232,7 @@ export class FieldsView {
     // on success keep the local copies as published.
     this.published.update((all) => ({ ...all, ...Object.fromEntries(types.map((t) => [t, this.draftOf(t)])) }));
     this.confirmRequested.set(false);
-    this.lastAction.set('published');
+    this.flash('published');
   }
 
   /** Undo one change from the review: the field goes back to its published configuration. */
@@ -244,7 +246,14 @@ export class FieldsView {
     const types = this.changeGroups().map((g) => g.type);
     this.drafts.update((all) => ({ ...all, ...Object.fromEntries(types.map((t) => [t, this.publishedOf(t)])) }));
     this.confirmRequested.set(false);
-    this.lastAction.set('discarded');
+    this.flash('discarded');
+  }
+
+  /** Shows the outcome in the publish bar, then hides the bar. */
+  private flash(action: 'published' | 'discarded'): void {
+    clearTimeout(this.lastActionTimer);
+    this.lastAction.set(action);
+    this.lastActionTimer = setTimeout(() => this.lastAction.set(null), 4000);
   }
 
   /** Empty state: copy the setup of another type (Innovation development, or Knowledge product from it). */

@@ -41,8 +41,9 @@ export interface QaSelectOption {
  * - `default`: page-level picker ("All timelines", "Role: Assessor").
  * - `field`: form field inside drawers (min 280px wide, shows the value like an input).
  * - `filter`: filter chip of the Results toolbar ("QA round" + count chip), as qa-multi-select.
+ * - `inline`: picker inside a line of text, no box ("Viewing All timelines ⌄"); `label` is the muted lead-in.
  */
-export type QaSelectAppearance = 'default' | 'field' | 'filter';
+export type QaSelectAppearance = 'default' | 'field' | 'filter' | 'inline';
 
 /** Row marker: check at the end (default) or a radio at the start (single-choice filters). */
 export type QaSelectIndicator = 'check' | 'radio';
@@ -109,6 +110,21 @@ export class QaSelectFooter {}
           }
           <svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flex-none"><path d="M6 9l6 6 6-6" /></svg>
         </button>
+      } @else if (appearance() === 'inline') {
+        <span class="flex min-w-0 items-center gap-1.5 text-(length:--fs-14) text-(--text-3)">
+          <span aria-hidden="true" class="flex-none">{{ label() }}</span>
+          <button
+            brnSelectTrigger
+            [attr.aria-label]="label() + ' ' + display()"
+            class="-mx-1.5 flex h-8 min-w-0 cursor-pointer items-center gap-1.5 rounded-md border-0 bg-transparent px-1.5 text-(length:--fs-14) font-semibold text-(--text) outline-none hover:bg-(--surface-3) focus-visible:shadow-(--focus-ring) disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <span class="min-w-0 truncate">{{ display() }}</span>
+            @if (selected()?.tag; as tag) {
+              <span class="flex-none rounded-full bg-(--surface-3) px-1.5 py-px text-(length:--fs-10) font-semibold text-(--text-muted)">{{ tag }}</span>
+            }
+            <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flex-none"><path d="M6 9l6 6 6-6" /></svg>
+          </button>
+        </span>
       } @else {
         <button
           brnSelectTrigger
@@ -127,7 +143,7 @@ export class QaSelectFooter {}
       <ng-template brnPopoverContent>
         <div
           brnSelectContent
-          class="qa-tokens box-border flex max-h-[360px] max-w-[calc(100vw-32px)] min-w-(--brn-select-width) flex-col overflow-hidden rounded-xl border border-(--border-raised) bg-(--surface-raised) shadow-(--shadow-pop) animate-in fade-in-0 zoom-in-95 duration-100"
+          class="qa-tokens box-border flex max-h-[min(440px,70dvh)] max-w-[calc(100vw-32px)] min-w-(--brn-select-width) flex-col overflow-hidden rounded-xl border border-(--border-raised) bg-(--surface-raised) shadow-(--shadow-pop) animate-in fade-in-0 zoom-in-95 duration-100"
           [class]="roomy() ? 'gap-2 p-3' : 'p-1.5'"
           [style.width]="panelWidth()"
         >

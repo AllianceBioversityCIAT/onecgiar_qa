@@ -1,7 +1,7 @@
 import { Component, input, model } from '@angular/core';
 import { QaDialogImports } from '../../../ui';
 
-export type StageStatus = 'Closed' | 'In progress' | 'Behind' | 'Not started';
+export type StageStatus = 'Completed' | 'In progress' | 'Behind' | 'Not started';
 
 export interface StageRowVm {
   readonly n: number;
@@ -12,7 +12,7 @@ export interface StageRowVm {
   readonly status: StageStatus;
   /** Open stage only: how far it has gone. */
   readonly progress: { readonly pct: number; readonly done: string; readonly of: string; readonly left: string } | null;
-  /** Closed stage: "214 assessed · 38 returned". */
+  /** Completed stage: "214 assessed · 38 returned". */
   readonly summary: string;
 }
 
@@ -25,7 +25,7 @@ export interface TimelineStagesVm {
 }
 
 const STAGE_CHIP: Record<StageStatus, string> = {
-  Closed: 'bg-(--surface-3) text-(--text-muted)',
+  Completed: 'bg-(--surface-3) text-(--text-muted)',
   'In progress': 'bg-(--st-indigo-bg) text-(--st-indigo-fg)',
   Behind: 'bg-(--st-editing-bg) text-(--st-editing-fg)',
   'Not started': 'bg-(--surface-3) text-(--text-muted) opacity-70',
