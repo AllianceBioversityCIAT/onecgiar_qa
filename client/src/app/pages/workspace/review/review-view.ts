@@ -14,6 +14,7 @@ import { form, requiredError, submit, validate } from '@angular/forms/signals';
 import { ActivatedRoute, Router } from '@angular/router';
 import { map } from 'rxjs';
 import { QaButtonImports, QaTooltipImports } from '../../../ui';
+import { RESULTS as QA_RESULTS, RESULT_STAGE_CLASSES, RESULT_STAGE_LABELS, resultStage } from '../results/results.mock';
 import { ReviewAside } from './review-aside';
 import { ReviewCodeInfo } from './review-code-info';
 import { CommentsDrawerVm, ReviewCommentsDrawer } from './review-comments-drawer';
@@ -176,12 +177,15 @@ export class ReviewView {
     const r = this.base();
     const status = this.status();
     const assessed = status !== 'Pending' && !!r.assessor;
+    // Same QA stage as Results and the Overview (the review mock has no round; it comes from the Results row).
+    const qa = QA_RESULTS.find((x) => x.code === r.code);
+    const stage = qa ? resultStage({ ...qa, status }) : null;
     return {
       code: r.code,
       title: fieldValue(FIELD_DEFS.find((d) => d.id === 'title')!, r),
       type: r.type,
-      status,
-      statusClass: STATUS_CLASSES[status],
+      status: stage ? RESULT_STAGE_LABELS[stage] : status,
+      statusClass: stage ? RESULT_STAGE_CLASSES[stage] : STATUS_CLASSES[status],
       isAuto: status === 'Automatic',
       assessor: r.assessor ?? '—',
       showAssessedBy: assessed,

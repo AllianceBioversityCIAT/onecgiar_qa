@@ -20,14 +20,7 @@ const VISIBLE = 5;
   host: { class: 'block @container' },
   template: `
     <section aria-labelledby="overview-attn-title" class="flex flex-col gap-4 rounded-[12px] border border-(--border) bg-(--surface) p-5">
-      <div class="flex flex-col gap-1">
-        <div class="flex items-center gap-2">
-          <h3 id="overview-attn-title" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">Needs attention</h3>
-          @if (count()) {
-            <span class="text-(length:--fs-14) font-semibold tabular-nums text-(--text-muted)" [attr.aria-label]="count() + ' items'">{{ count() }}</span>
-          }
-        </div>
-      </div>
+      <h3 id="overview-attn-title" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">Needs attention</h3>
 
       @if (count()) {
         <div class="flex flex-col gap-6">

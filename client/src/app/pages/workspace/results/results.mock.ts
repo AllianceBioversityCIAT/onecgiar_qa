@@ -109,8 +109,6 @@ export const ASSESSOR_NAMES: readonly string[] = [
   'N. Haddad',
 ];
 
-export const QA_ROUNDS: readonly QaRound[] = ['QA round 1', 'QA round 2'];
-
 export const ANNUAL = 'Annual report 2026';
 export const JULY = 'July 2026 sub-timeline';
 
@@ -120,11 +118,6 @@ export const TIMELINES: readonly QaTimeline[] = [
   { id: 'jul', name: JULY, kind: 'Sub-timeline', status: 'Live', step: 5, steps: 5, when: 'closes', date: '19 Jul' },
   { id: 'sep', name: 'September pilot', kind: 'Sub-timeline', status: 'Scheduled', step: 1, steps: 5, when: 'opens', date: '01 Sep' },
 ];
-
-/** Timeline names of the "Timeline" filter: the open timelines, official first. */
-export const BATCHES: readonly string[] = [...TIMELINES]
-  .sort((a, b) => Number(a.kind !== 'Official timeline') - Number(b.kind !== 'Official timeline'))
-  .map((t) => t.name);
 
 /** Programs whose comments are already published to them (mockup PUB_INIT). */
 export const PUBLISHED_PROGRAMS: readonly string[] = ['SP02', 'SP05', 'SP04'];
@@ -409,6 +402,38 @@ export const QA_STAGE_LABELS: Readonly<Record<QaStage, string>> = {
   'quality-assessed': 'Quality assessed',
 };
 
+/** A result's place in QA for the Results filter and table: its stage, or "automatic" (approved by the auto-check). */
+export type ResultStage = QaStage | 'automatic';
+
+/** Workflow order of the "QA stage" filter and of the stage sort. */
+export const RESULT_STAGES: readonly ResultStage[] = [...QA_STAGES, 'automatic'];
+
+export const RESULT_STAGE_LABELS: Readonly<Record<ResultStage, string>> = { ...QA_STAGE_LABELS, automatic: 'Automatic' };
+
+/** Stage without the round, for the table pill (the round has its own column). */
+export const RESULT_STAGE_SHORT: Readonly<Record<ResultStage, string>> = {
+  'r1-pending': 'Pending',
+  'r1-review': 'In review',
+  'r1-one': 'Assessed by 1',
+  'r1-two': 'Assessed by 2',
+  'r2-pending': 'Pending',
+  'r2-assessed': 'Assessed',
+  'quality-assessed': 'Quality assessed',
+  automatic: 'Automatic',
+};
+
+/** Stage pill colours: grey waiting, indigo in progress, blue a round done, green the final state. */
+export const RESULT_STAGE_CLASSES: Readonly<Record<ResultStage, string>> = {
+  'r1-pending': 'bg-(--surface-3) text-(--text-muted)',
+  'r1-review': 'bg-(--st-indigo-bg) text-(--st-indigo-fg)',
+  'r1-one': 'bg-(--st-indigo-bg) text-(--st-indigo-fg)',
+  'r1-two': 'bg-(--st-submitted-bg) text-(--st-submitted-fg)',
+  'r2-pending': 'bg-(--surface-3) text-(--text-muted)',
+  'r2-assessed': 'bg-(--st-submitted-bg) text-(--st-submitted-fg)',
+  'quality-assessed': 'bg-(--st-approved-bg) text-(--st-approved-fg)',
+  automatic: 'bg-(--surface-3) text-(--text-4)',
+};
+
 /** Result types that get a single check in round 1 (no second assessor). */
 export const SINGLE_CHECK_TYPES: readonly ResultType[] = ['Knowledge product', 'Other output'];
 
@@ -428,3 +453,6 @@ export function qaStage(r: QaResult): QaStage | null {
   }
   return r.status === 'Answered' ? 'r2-assessed' : 'r2-pending';
 }
+
+/** Stage of a result, "automatic" for the ones approved by the auto-check. */
+export const resultStage = (r: QaResult): ResultStage => qaStage(r) ?? 'automatic';

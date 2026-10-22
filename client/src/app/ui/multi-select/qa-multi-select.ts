@@ -9,6 +9,8 @@ export interface QaMultiSelectOption {
   readonly label: string;
   /** Right-aligned number in the row (mono, e.g. "214"). */
   readonly count?: string | number;
+  /** Optional group heading shown before the first option of each group (e.g. "Round 1"). */
+  readonly group?: string;
 }
 
 /**
@@ -84,8 +86,13 @@ export type QaMultiSelectAppearance = 'filter' | 'field';
             />
           }
           <div role="group" [attr.aria-label]="label()" class="flex flex-col gap-px overflow-y-auto" [style.max-height]="listMaxHeight()">
-            @for (option of filtered(); track option.value) {
+            @for (option of filtered(); track option.value; let i = $index) {
               @let on = isSelected(option.value);
+              @if (option.group && option.group !== filtered()[i - 1]?.group) {
+                <div role="presentation" class="flex-none px-2 pt-2 pb-1 text-(length:--fs-10) font-semibold tracking-[0.08em] text-(--text-muted) uppercase">
+                  {{ option.group }}
+                </div>
+              }
               <button
                 type="button"
                 role="checkbox"

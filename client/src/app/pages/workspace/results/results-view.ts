@@ -7,20 +7,18 @@ import { TableSort } from '../../../core/list/table-sort';
 import { ResultRowVm, ResultsTable, SortDir, SortKey } from './results-table';
 import {
   ASSESSOR_NAMES,
-  BATCHES,
   PROGRAMS,
   PROGRAM_CODES,
   PUBLISHED_PROGRAMS,
-  QA_ROUNDS,
   QA_STAGES,
-  QA_STAGE_LABELS,
   QaResult,
   QaStage,
-  QaTimeline,
   RESULTS,
+  RESULT_STAGES,
+  RESULT_STAGE_CLASSES,
+  RESULT_STAGE_LABELS,
+  RESULT_STAGE_SHORT,
   RESULT_TYPES,
-  ResultType,
-  STATUS_CLASSES,
   STATUS_ORDER,
   TIMELINES,
   qaStage,
@@ -28,23 +26,20 @@ import {
 
 const PAGE_SIZE = 50;
 
-/** A timeline with its non-automatic results (rows of the Timeline picker). */
-interface TimelineOption extends QaTimeline {
-  readonly count: number;
-}
+/** Group heading of a stage in the "QA stage" menu (the Overview's Round 1 / Round 2 columns, then the final state). */
+const stageGroup = (s: QaStage): string => (s.startsWith('r1-') ? 'Round 1' : s.startsWith('r2-') ? 'Round 2' : 'Final');
 
-type FilterKey = 'stage' | 'program' | 'status' | 'round' | 'assessor' | 'batch';
+type FilterKey = 'stage' | 'program' | 'type' | 'assessor' | 'status';
 
 const FILTER_LABELS: Readonly<Record<FilterKey, string>> = {
   stage: 'QA stage',
   program: 'Science program',
-  status: 'Status',
-  round: 'QA round',
+  type: 'Result type',
   assessor: 'Assessor',
-  batch: 'Timeline',
+  status: 'Status',
 };
 
-/** Comma-separated list from a query param (?status=Pending,In%20review). */
+/** Comma-separated list from a query param (?program=SP02,SP05). */
 function listParam(value: string | null, allowed: readonly string[]): readonly string[] {
   return (value ?? '')
     .split(',')
@@ -52,114 +47,98 @@ function listParam(value: string | null, allowed: readonly string[]): readonly s
     .filter((v) => allowed.includes(v));
 }
 
-/** "Results in QA": every result under assessment, with search, filters, type chips and sorting. */
+/**
+ * "Results in QA": every result under assessment, filtered by search, timeline (a picker, since sub-timelines can grow
+ * in number), QA stage (grouped by round), program, type and assessor, with sorting.
+ * Automatic results (approved by the knowledge product auto-check) are not under assessment, so they are not listed.
+ */
 @Component({
   selector: 'qa-results-view',
   templateUrl: './results-view.html',
-  imports: [
-    QaButtonImports,
-    HlmInput,
-    DecimalPipe,
-    RouterLink,
-    QaMultiSelect,
-    QaSelectImports,
-    ResultsTable,
-  ],
+  imports: [QaButtonImports, HlmInput, DecimalPipe, RouterLink, QaMultiSelect, QaSelectImports, ResultsTable],
 })
 export class ResultsView {
   private readonly params = inject(ActivatedRoute).snapshot.queryParamMap;
 
-  // Options of the filter menus (mockup FILTERS).
-  protected readonly programOptions = PROGRAM_CODES.map((c) => ({ value: c, label: `${c} ${PROGRAMS[c]}` }));
-  protected readonly statusOptions = STATUS_ORDER.map((s) => ({ value: s, label: s }));
-  protected readonly roundOptions: readonly QaSelectOption[] = [
-    { value: '', label: 'All rounds' },
-    ...QA_ROUNDS.map((r) => ({ value: r, label: r })),
-  ];
-  protected readonly assessorOptions = ASSESSOR_NAMES.map((a) => ({ value: a, label: a }));
-  protected readonly batchOptions = BATCHES.map((b) => ({ value: b, label: b }));
+  // Deep links (e.g. from the Overview): ?timeline=jul&stage=r1-one&program=…&type=…&assessor=…
+  // ?status=… is kept for the Overview's "waiting on a program" link; it has no menu and shows as an applied filter.
 
-  // Page state. Deep links (e.g. from Overview) can preset filters: ?stage=…&status=…&program=…&assessor=…&type=…
-  protected readonly stage = signal<QaStage | null>(
-    (QA_STAGES as readonly string[]).includes(this.params.get('stage') ?? '') ? (this.params.get('stage') as QaStage) : null,
-  );
-  protected readonly timelineId = signal('all');
-  protected readonly search = signal(this.params.get('q') ?? '');
-  protected readonly programs = signal(listParam(this.params.get('program'), PROGRAM_CODES));
-  protected readonly statuses = signal(listParam(this.params.get('status'), STATUS_ORDER));
-  protected readonly round = signal('');
-  protected readonly assessors = signal(listParam(this.params.get('assessor'), ASSESSOR_NAMES));
-  protected readonly batches = signal<readonly string[]>([]);
-  protected readonly typeChip = signal<ResultType | 'All'>(
-    (RESULT_TYPES as readonly string[]).includes(this.params.get('type') ?? '')
-      ? (this.params.get('type') as ResultType)
-      : 'All',
-  );
-  protected readonly showAuto = signal(false);
-  protected readonly sort = new TableSort<SortKey>();
-  protected readonly sortKey = this.sort.key;
-  protected readonly sortDir = this.sort.dir;
-
-  protected readonly resultTypes = RESULT_TYPES;
-
-  private readonly timeline = computed(() => TIMELINES.find((t) => t.id === this.timelineId()) ?? null);
-
-  /** Results of the selected timeline (all timelines when none is picked). */
-  private readonly inTimeline = computed(() => {
-    const t = this.timeline();
-    return t ? RESULTS.filter((r) => r.batch === t.name) : RESULTS;
-  });
-
-  /** Non-automatic results per timeline: the counts of the timeline picker. */
-  protected readonly timelineOptions = computed<readonly TimelineOption[]>(() =>
-    TIMELINES.map((t) => ({ ...t, count: RESULTS.filter((r) => r.batch === t.name && r.status !== 'Automatic').length })),
-  );
-  protected readonly allCount = RESULTS.filter((r) => r.status !== 'Automatic').length;
-  /** Timeline picker: "All timelines", then the official timeline and the sub-timelines. */
-  protected readonly timelinePickerOptions = computed<readonly QaSelectOption[]>(() => [
-    { value: 'all', label: 'All timelines' },
-    ...[...this.timelineOptions()]
+  // ---------- Timeline ----------
+  /** "All timelines", then the official timeline and the sub-timelines, each with its results under assessment. */
+  protected readonly timelineOptions: readonly QaSelectOption[] = [
+    { value: 'all', label: 'All timelines', count: RESULTS.filter((r) => qaStage(r)).length.toLocaleString('en-US') },
+    ...[...TIMELINES]
       .sort((a, b) => Number(a.kind !== 'Official timeline') - Number(b.kind !== 'Official timeline'))
       .map((t) => ({
         value: t.id,
         label: t.name,
         group: t.kind === 'Official timeline' ? 'Official timeline' : 'Sub-timelines',
         tag: t.kind === 'Official timeline' ? 'Official' : 'Sub',
+        count: RESULTS.filter((r) => r.batch === t.name && qaStage(r)).length.toLocaleString('en-US'),
       })),
-  ]);
-  protected readonly timelineById = computed(() => new Map(this.timelineOptions().map((t) => [t.id, t])));
-  protected readonly timelineTotal = computed(() => this.inTimeline().filter((r) => r.status !== 'Automatic').length);
-  protected readonly timelineSuffix = computed(() => (this.timeline() ? ' in ' + this.timeline()!.name : ''));
+  ];
+  protected readonly timelineId = signal(TIMELINES.some((t) => t.id === this.params.get('timeline')) ? this.params.get('timeline')! : 'all');
+  private readonly timeline = computed(() => TIMELINES.find((t) => t.id === this.timelineId()) ?? null);
+  /** Results of the selected timeline that are under assessment (automatic ones left out). */
+  private readonly inTimeline = computed(() => {
+    const t = this.timeline();
+    return RESULTS.filter((r) => qaStage(r) && (!t || r.batch === t.name));
+  });
+  protected readonly timelineEmpty = computed(() => this.inTimeline().length === 0);
 
-  /** Search + stage / program / assessor / timeline / round filters (everything except type and status). */
-  private readonly baseMatch = computed(() => {
+  // ---------- Menus ----------
+  protected readonly stages = signal(listParam(this.params.get('stage'), QA_STAGES));
+  protected readonly programOptions = PROGRAM_CODES.map((c) => ({ value: c, label: `${c} ${PROGRAMS[c]}` }));
+  protected readonly typeOptions = RESULT_TYPES.map((t) => ({ value: t, label: t }));
+  protected readonly assessorOptions = ASSESSOR_NAMES.map((a) => ({ value: a, label: a }));
+  protected readonly search = signal(this.params.get('q') ?? '');
+  protected readonly programs = signal(listParam(this.params.get('program'), PROGRAM_CODES));
+  protected readonly types = signal(listParam(this.params.get('type'), RESULT_TYPES));
+  protected readonly assessors = signal(listParam(this.params.get('assessor'), ASSESSOR_NAMES));
+  protected readonly statuses = signal(listParam(this.params.get('status'), STATUS_ORDER));
+
+  protected readonly sort = new TableSort<SortKey>();
+  protected readonly sortKey = this.sort.key;
+  protected readonly sortDir = this.sort.dir;
+
+  /** Results of the timeline that pass every menu except QA stage (the base of the stage counts). */
+  private readonly narrowed = computed(() => {
     const q = this.search().trim().toLowerCase();
-    const stage = this.stage(), programs = this.programs(), assessors = this.assessors(), batches = this.batches(), round = this.round();
-    return (r: QaResult) =>
-      (!q || r.code.toLowerCase().includes(q) || r.title.toLowerCase().includes(q)) &&
-      (!stage || qaStage(r) === stage) &&
-      (!programs.length || programs.includes(r.program)) &&
-      (!assessors.length || (r.assessor !== null && assessors.includes(r.assessor))) &&
-      (!batches.length || batches.includes(r.batch)) &&
-      (!round || r.round === round);
+    const programs = this.programs(), types = this.types(), assessors = this.assessors(), statuses = this.statuses();
+    return this.inTimeline().filter(
+      (r) =>
+        (!q || r.code.toLowerCase().includes(q) || r.title.toLowerCase().includes(q)) &&
+        (!programs.length || programs.includes(r.program)) &&
+        (!types.length || types.includes(r.type)) &&
+        (!assessors.length || (r.assessor !== null && assessors.includes(r.assessor))) &&
+        (!statuses.length || statuses.includes(r.status)),
+    );
   });
 
-  /** Filtering rules of the mockup: automatic results only show with the Automatic chip or status. */
+  /** "QA stage" menu: grouped by Round 1 / Round 2, then Quality assessed; counts follow the other filters. */
+  protected readonly stageOptions = computed(() => {
+    const counts = new Map<QaStage, number>();
+    for (const r of this.narrowed()) {
+      const s = qaStage(r)!;
+      counts.set(s, (counts.get(s) ?? 0) + 1);
+    }
+    return QA_STAGES.map((s) => ({
+      value: s,
+      label: RESULT_STAGE_SHORT[s],
+      group: stageGroup(s),
+      count: (counts.get(s) ?? 0).toLocaleString('en-US'),
+    }));
+  });
+
   private readonly filtered = computed(() => {
-    const match = this.baseMatch(), statuses = this.statuses(), type = this.typeChip(), autoOn = this.showAuto();
-    return this.inTimeline().filter((r) => {
-      const auto = r.status === 'Automatic';
-      if (auto && !(autoOn || statuses.includes('Automatic'))) return false;
-      if (!(auto && autoOn) && type !== 'All' && r.type !== type) return false;
-      if (statuses.length && !statuses.includes(r.status) && !(auto && autoOn)) return false;
-      return match(r);
-    });
+    const stages = this.stages();
+    return stages.length ? this.narrowed().filter((r) => stages.includes(qaStage(r)!)) : this.narrowed();
   });
 
   private readonly sorted = computed(() =>
     this.sort.apply(this.filtered(), (r: QaResult, key): string | number =>
       key === 'comments' ? (r.comments ? r.comments[0] / r.comments[1] + r.comments[1] / 1000 : -1)
-        : key === 'status' ? STATUS_ORDER.indexOf(r.status)
+        : key === 'stage' ? RESULT_STAGES.indexOf(qaStage(r)!)
           : r[key],
     ),
   );
@@ -170,74 +149,42 @@ export class ResultsView {
   protected readonly remaining = computed(() => Math.max(0, this.matchCount() - this.pageSize()));
 
   protected readonly visibleRows = computed<readonly ResultRowVm[]>(() =>
-    this.sorted().slice(0, this.pageSize()).map((r) => ({
-      code: r.code,
-      title: r.title,
-      meta: r.assessor && r.status !== 'Pending' ? `${r.program} · ${r.assessor}` : r.program,
-      type: r.type,
-      comments: r.comments,
-      locked: !!r.comments && r.status === 'In review' && !PUBLISHED_PROGRAMS.includes(r.program),
-      r1: r.r1,
-      r1Class: r.r1 && r.r1 !== 'new' ? STATUS_CLASSES[r.r1] : '',
-      status: r.status,
-      statusClass: STATUS_CLASSES[r.status],
-      isAuto: r.status === 'Automatic',
-    })),
+    this.sorted().slice(0, this.pageSize()).map((r) => {
+      const stage = qaStage(r)!;
+      const group = stageGroup(stage);
+      return {
+        code: r.code,
+        title: r.title,
+        meta: r.assessor && r.status !== 'Pending' ? `${r.program} · ${r.assessor}` : r.program,
+        type: r.type,
+        comments: r.comments,
+        locked: !!r.comments && r.status === 'In review' && !PUBLISHED_PROGRAMS.includes(r.program),
+        // The round sits above the stage pill; Quality assessed is past both rounds.
+        round: group === 'Final' ? '' : group,
+        stage,
+        stageLabel: RESULT_STAGE_SHORT[stage],
+        stageClass: RESULT_STAGE_CLASSES[stage],
+        isAuto: false,
+      };
+    }),
   );
 
-  /** Type chip counts follow the timeline, search and filters (but not the chip itself). */
-  protected readonly typeCounts = computed(() => {
-    const match = this.baseMatch(), statuses = this.statuses();
-    const counts = new Map<ResultType | 'All', number>([['All', 0]]);
-    for (const r of this.inTimeline()) {
-      if (r.status === 'Automatic' || (statuses.length && !statuses.includes(r.status)) || !match(r)) continue;
-      counts.set('All', (counts.get('All') ?? 0) + 1);
-      counts.set(r.type, (counts.get(r.type) ?? 0) + 1);
-    }
-    return counts;
-  });
-  /** Phone picker that replaces the type chips: same options and counts as the chips. */
-  protected readonly typeOptions = computed<readonly QaSelectOption[]>(() => {
-    const counts = this.typeCounts();
-    const label = (name: string, key: ResultType | 'All') => `${name} (${(counts.get(key) ?? 0).toLocaleString('en-US')})`;
-    return [
-      { value: 'All', label: label('All result types', 'All') },
-      ...RESULT_TYPES.map((t) => ({ value: t, label: label(t, t) })),
-    ];
-  });
-  protected readonly autoCount = computed(() => {
-    const match = this.baseMatch();
-    return this.inTimeline().filter((r) => r.status === 'Automatic' && match(r)).length;
-  });
-
   protected readonly applied = computed(() => {
-    const stage = this.stage();
     const values: Record<FilterKey, readonly string[]> = {
-      stage: stage ? [QA_STAGE_LABELS[stage]] : [],
+      // Workflow order, with the round ("Round 1 · Pending"), whatever order they were ticked in.
+      stage: QA_STAGES.filter((s) => this.stages().includes(s)).map((s) => RESULT_STAGE_LABELS[s]),
       program: this.programs(),
-      status: this.statuses(),
-      round: this.round() ? [this.round()] : [],
+      type: this.types(),
       assessor: this.assessors(),
-      batch: this.batches(),
+      status: this.statuses(),
     };
     return (Object.keys(FILTER_LABELS) as FilterKey[])
       .filter((k) => values[k].length > 0)
       .map((k) => ({ key: k, label: FILTER_LABELS[k], values: values[k].join(', ') }));
   });
 
-  /** The selected timeline has no results at all (e.g. a scheduled sub-timeline). */
-  protected readonly timelineEmpty = computed(() => this.inTimeline().length === 0);
-
   protected onSearch(event: Event): void {
     this.search.set((event.target as HTMLInputElement).value);
-  }
-
-  protected selectType(value: string | null): void {
-    this.typeChip.set((RESULT_TYPES as readonly string[]).includes(value ?? '') ? (value as ResultType) : 'All');
-  }
-
-  protected toggleAuto(): void {
-    this.showAuto.update((v) => !v);
   }
 
   protected sortBy(key: SortKey): void {
@@ -254,23 +201,21 @@ export class ResultsView {
   }
 
   protected clearFilter(key: FilterKey): void {
-    if (key === 'stage') this.stage.set(null);
+    if (key === 'stage') this.stages.set([]);
     else if (key === 'program') this.programs.set([]);
-    else if (key === 'status') this.statuses.set([]);
-    else if (key === 'round') this.round.set('');
+    else if (key === 'type') this.types.set([]);
     else if (key === 'assessor') this.assessors.set([]);
-    else this.batches.set([]);
+    else this.statuses.set([]);
   }
 
+  /** Clears search and menus; the timeline stays. */
   protected clearAll(): void {
-    this.stage.set(null);
+    this.stages.set([]);
     this.programs.set([]);
-    this.statuses.set([]);
-    this.round.set('');
+    this.types.set([]);
     this.assessors.set([]);
-    this.batches.set([]);
+    this.statuses.set([]);
     this.search.set('');
-    this.typeChip.set('All');
   }
 
   protected exportComments(code: string): void {
