@@ -491,7 +491,15 @@ export class TimelinesService {
           knownResultTypeKeys,
           hasLoad,
         });
-        if (issues.length > 0) throw new TimelineValidationError(issues);
+        if (issues.length > 0) {
+          // @akili-spec bugfix/timeline-edit-noop-stale
+          // The bundle is four reads, the row first, so an edit that committed
+          // between two of them leaves the old row (step 3 passed) with the new
+          // steps. The 400 is judged on that mix: confirm the version first
+          // (FR-1, DD-1), so a stale edit gets the 409, not a list of fields.
+          await this.confirmVersion(timelineId, version);
+          throw new TimelineValidationError(issues);
+        }
 
         // 6. The confirmation is a question, not an error: it is asked only
         // when everything else is valid (FR-8, DD-11). The step state is the
@@ -500,13 +508,24 @@ export class TimelinesService {
           changesAnInProgressStep(stored, changes, today, hasLoad) &&
           confirmInProgress !== true
         ) {
+          // @akili-spec bugfix/timeline-edit-noop-stale
+          // The same mixed bundle decides which step is in progress (FR-1, DD-1).
+          await this.confirmVersion(timelineId, version);
           throw new TimelineInProgressUnconfirmedError();
         }
 
         // 7. Nothing changed: the stored timeline, no version, no audit row,
         // no transaction and so no key mark (FR-11).
         if (Object.keys(changes).length === 0) {
-          return this.read(timelineId, now);
+          // @akili-spec bugfix/timeline-edit-noop-stale
+          // The "nothing changed" can come from the new steps of an edit that
+          // committed after the row was read (the identical edit of a second
+          // admin). The answer's own `findById` is the confirmation: its
+          // version must still be the one the request named (FR-1, DD-1), so
+          // no extra statement. A real no-op on the current version is 200.
+          const answer = await this.read(timelineId, now);
+          if (answer.version !== version) throw new TimelineVersionStaleError();
+          return answer;
         }
 
         // 8. The write.
@@ -707,6 +726,25 @@ export class TimelinesService {
         }),
       (id) => id,
     );
+  }
+
+  // @akili-spec bugfix/timeline-edit-noop-stale
+  /**
+   * FR-1, DD-1: the timeline is still at the version the edit named. One read
+   * of the row on the pool, asked only before an answer that writes nothing
+   * and was judged on the bundle (the 400, the 409 unconfirmed), never inside
+   * a transaction. Every applied edit raises the version in the same
+   * transaction as its step and scope writes, so an unchanged version proves
+   * that no edit committed since the bundle's row was read: the bundle was
+   * consistent. A row that is gone is a 404, as at the first read.
+   */
+  private async confirmVersion(
+    timelineId: number,
+    version: number,
+  ): Promise<void> {
+    const row = await this.store.findById(timelineId);
+    if (!row) throw new TimelineNotFoundError(timelineId);
+    if (row.version !== version) throw new TimelineVersionStaleError();
   }
 
   /** The cycle row held shared until the transaction ends; a closed cycle takes no assignment change (FR-14, FR-15). */

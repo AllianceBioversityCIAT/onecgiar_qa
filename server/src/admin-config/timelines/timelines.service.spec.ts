@@ -2447,6 +2447,52 @@ describe('update: the edit flow (timeline-edit design 6, 7.2)', () => {
     };
   }
 
+  /**
+   * A mixed read made deterministic (bugfix/timeline-edit-noop-stale DD-2): a
+   * service over a store whose `findBundle` reads the row, lets `rival` commit
+   * a whole edit through another instance (its own transaction, version + 1),
+   * and only then reads the steps and the scope, in the adapter's order (the
+   * row first: `findBundle` in `timelines.store.ts`). The request holds the OLD
+   * row and the NEW steps, which is what an edit that commits between two of
+   * the four statements leaves. The fake's own `findBundle` is not touched.
+   * The request's unit of work is its own, so `begun` counts its transactions
+   * only.
+   */
+  function mixedRead(w: EditWorld, rival: UpdateTimelineCommand) {
+    const unitOfWork = new InMemoryTimelinesUnitOfWork(w.db);
+    const real = w.db.timelineStore;
+    let afterRival: string | undefined;
+    const store = Object.assign(Object.create(real), {
+      findBundle: async (id: number) => {
+        const timeline = await real.findById(id);
+        if (!timeline) return undefined;
+        await w.instance().update(w.ctx(8), id, rival);
+        afterRival = w.written();
+        const steps = await real.listSteps([id]);
+        const programs = await real.listPrograms([id]);
+        const resultTypes = await real.listResultTypes([id]);
+        return {
+          timeline,
+          steps,
+          programIds: programs.map((row) => row.programId),
+          resultTypeKeys: resultTypes.map((row) => row.resultTypeKey),
+        };
+      },
+    }) as TimelinesStore;
+    return {
+      service: new TimelinesService(
+        unitOfWork,
+        store,
+        w.catalogs,
+        w.clock.now,
+        w.db.loads,
+      ),
+      unitOfWork,
+      /** The rows and write statements as the rival left them: the request must add none. */
+      afterRival: () => afterRival,
+    };
+  }
+
   describe('what an applied edit does (FR-1, FR-7, FR-10)', () => {
     it('extends step 1: its closing date changes, every other field keeps its value, and the answer is the timeline as read with the new version (FR-1)', async () => {
       const w = world();
@@ -2967,6 +3013,99 @@ describe('update: the edit flow (timeline-edit design 6, 7.2)', () => {
       );
 
       expect(error).toBeInstanceOf(CycleClosedError);
+    });
+  });
+
+  // bugfix/timeline-edit-noop-stale FR-1: an edit committed between the row
+  // read and the steps read leaves the request with the old row (version 1, so
+  // the early check passes) and the new steps. Each unlocked answer must still
+  // be 409 stale. The three tests read step 3 of the fixture (2026-11-16 to
+  // 2026-11-20); the rival edits it, and the request, judged against the
+  // rival's steps, would be a no-op, a 400 or a confirmation question.
+  describe('a stale edit on a mixed read (bugfix/timeline-edit-noop-stale FR-1, DD-2)', () => {
+    /** The rival committed (version 2, its ONE audit row, actor 8) and the request wrote nothing after it, not even a transaction. */
+    function expectOnlyTheRival(
+      w: EditWorld,
+      mixed: ReturnType<typeof mixedRead>,
+    ): void {
+      expect(w.db.timelines[0]).toMatchObject({ version: 2 });
+      expect(w.db.auditEvents).toHaveLength(1);
+      expect(w.db.auditEvents[0]).toMatchObject({ actorId: 8 });
+      expect(w.written()).toBe(mixed.afterRival());
+      expect(mixed.unitOfWork.begun).toBe(0);
+    }
+
+    it('no-op on a mixed read: the rival committed the identical edit after the row was read, so the answer is 409 stale, not a 200, and there is no second audit row', async () => {
+      const w = world();
+      const { timelineId } = await seeded(w);
+      const body = {
+        version: 1,
+        steps: [{ position: 3, closesOn: '2026-11-27' }],
+      };
+      const mixed = mixedRead(w, body);
+
+      await expect(
+        mixed.service.update(w.ctx(7), timelineId, body),
+      ).rejects.toBeInstanceOf(TimelineVersionStaleError);
+
+      expectOnlyTheRival(w, mixed);
+      expect(
+        w.db.steps.find((s) => s.timelineId === timelineId && s.position === 3),
+      ).toMatchObject({ closesOn: '2026-11-27' });
+    });
+
+    it('400 on a mixed read: values that break a rule only against the rival steps are 409 stale, not VALIDATION_FAILED, and nothing is written', async () => {
+      const w = world();
+      const { timelineId } = await seeded(w);
+      // Step 3 now opens on 2026-11-18, so a closing day of 2026-11-17 is a
+      // 400 against it; against the steps the request read (opens 2026-11-16)
+      // it is valid.
+      const mixed = mixedRead(w, {
+        version: 1,
+        steps: [{ position: 3, opensOn: '2026-11-18' }],
+      });
+
+      await expect(
+        mixed.service.update(w.ctx(7), timelineId, {
+          version: 1,
+          steps: [{ position: 3, closesOn: '2026-11-17' }],
+        }),
+      ).rejects.toBeInstanceOf(TimelineVersionStaleError);
+
+      expectOnlyTheRival(w, mixed);
+      expect(
+        w.db.steps.find((s) => s.timelineId === timelineId && s.position === 3),
+      ).toMatchObject({ opensOn: '2026-11-18', closesOn: STEP_3.closesOn });
+    });
+
+    it('unconfirmed on a mixed read: a step that is in progress only in the rival steps is 409 stale, not TIMELINES_IN_PROGRESS_UNCONFIRMED, and nothing is written', async () => {
+      const w = world();
+      const { timelineId } = await seeded(w);
+      // `startStepTwo` (2026-11-10, with a load), then four more days: today
+      // is 2026-11-14, steps 1 and 2 are closed and step 3 (opens 2026-11-16)
+      // is upcoming, so nothing is in progress and a closing-day change asks
+      // for no confirmation.
+      startStepTwo(w, timelineId);
+      w.clock.advance(4 * DAY);
+      // The rival opens step 3 today (an upcoming step may open today): in its
+      // steps step 3 is in progress, so a request that moves its closing day
+      // needs the confirmation it did not send.
+      const mixed = mixedRead(w, {
+        version: 1,
+        steps: [{ position: 3, opensOn: '2026-11-14' }],
+      });
+
+      await expect(
+        mixed.service.update(w.ctx(7), timelineId, {
+          version: 1,
+          steps: [{ position: 3, closesOn: '2026-11-21' }],
+        }),
+      ).rejects.toBeInstanceOf(TimelineVersionStaleError);
+
+      expectOnlyTheRival(w, mixed);
+      expect(
+        w.db.steps.find((s) => s.timelineId === timelineId && s.position === 3),
+      ).toMatchObject({ opensOn: '2026-11-14', closesOn: STEP_3.closesOn });
     });
   });
 
