@@ -25,9 +25,11 @@ import { TimelineSteps } from './timeline-steps';
         </div>
         @if (t.canEdit) {
           <div class="flex flex-none items-center gap-2 max-sm:w-full">
+            @if (canAddStep()) {
             <button hlmBtn qaBtn tone="secondary" type="button" (click)="addStep.emit()" class="gap-[7px] max-sm:flex-1">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>Add step
             </button>
+            }
             <button
               type="button"
               [qaMenuTrigger]="actions"
@@ -40,7 +42,12 @@ import { TimelineSteps } from './timeline-steps';
             <ng-template #actions>
               <qa-menu-panel width="220px" [attr.aria-label]="t.name + ' actions'">
                 @for (item of t.menu; track item.action) {
-                  <button qaMenuItem [variant]="item.danger ? 'danger' : 'default'" (triggered)="menuAction.emit(item.action)">{{ item.label }}</button>
+                  <button qaMenuItem [variant]="item.danger ? 'danger' : 'default'" [disabled]="item.soon" (triggered)="menuAction.emit(item.action)">
+                    {{ item.label }}
+                    @if (item.soon) {
+                      <span class="ml-auto pl-2 text-(length:--fs-11) font-semibold text-(--text-muted)">Coming soon</span>
+                    }
+                  </button>
                 }
               </qa-menu-panel>
             </ng-template>
@@ -61,6 +68,8 @@ import { TimelineSteps } from './timeline-steps';
 export class TimelineCard {
   readonly timeline = input.required<TimelineVM>();
   readonly confirmClose = input(false);
+  /** Off on live data: a timeline keeps its steps once created (spec S-4). */
+  readonly canAddStep = input(true);
 
   readonly addStep = output<void>();
   readonly menuAction = output<MenuAction>();

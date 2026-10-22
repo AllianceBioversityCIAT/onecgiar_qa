@@ -5,7 +5,7 @@ import { DEMO_PROGRAMS } from '../../../core/domain/demo-programs';
 // copies of data other views also use (Results, Assessors, Fields).
 
 export type TimelineKind = 'Official' | 'Official timeline' | 'Sub-timeline';
-export type TimelineStatus = 'Live' | 'Scheduled' | 'Closed';
+export type TimelineStatus = 'Live' | 'Scheduled' | 'Waiting for results' | 'Closed';
 export type ReopenMode = 'comments' | 'all';
 
 export interface ExtendedAccess {
@@ -31,6 +31,11 @@ export interface CycleStep {
   ran: string;
   reopen?: ReopenMode;
   access?: ExtendedAccess[];
+  /** From the API, computed by the server from today in Rome (replaces the mock's dates math). */
+  state?: 'closed' | 'in_progress' | 'upcoming';
+  round?: number;
+  /** Audience key on the server (the label above is what the view shows). */
+  audienceKey?: 'assessors' | 'programs' | 'lead_assessors' | 'tpb' | 'ppu';
 }
 
 export interface Timeline {
@@ -44,6 +49,9 @@ export interface Timeline {
   types: string[];
   steps: CycleStep[];
   created?: boolean;
+  /** Id and edit version on the server (absent on mock data). */
+  apiId?: number;
+  version?: number;
 }
 
 export interface RunTarget {
