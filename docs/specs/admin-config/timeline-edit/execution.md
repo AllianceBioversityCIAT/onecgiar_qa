@@ -528,7 +528,7 @@ spawns: implementer 32 calls, 127115 tokens (incl. the correction), ended comple
 - Reviewer (checklist, effort high; independent sweep of every replay/key/null sentence against HEAD): **PASS** — "I checked both attempt-1 issues and every replay, key and null sentence … against the code at HEAD. They all match. The TRD pending item is recorded at `execution.md:512-517`." Named checks (design § 5 correction, NFR-5 amended, OQ-TE-1) pass; falsifier (request-index paths) does not fire.
 - runtime events: none.
 
-spawns: implementer 29 calls, 118399 tokens, ended complete; reviewer not reported by host, ended complete.
+spawns: implementer 29 calls, 118399 tokens, ended complete; reviewer 17 calls, 64225 tokens, ended complete.
 
 **ADVISORY (attempt 2 — recorded, not tasks)**
 - READABILITY: the answer order in the contract and guide leaves out 409 `TIMELINES_NAME_TAKEN`, raised inside the write after the no-op check.
@@ -543,3 +543,34 @@ spawns: implementer 29 calls, 118399 tokens, ended complete; reviewer not report
 - A brief defect (client file location) caught before review; two contract claims written from expectation rather than code caught by the Reviewer.
 
 **Final verification:** VERIFIED.
+
+### T-9: HITL on MySQL — not started (human step)
+
+T-9 is the back lead's manual step; agents never run migrations on `qadb` (`server/AGENTS.md`). The Leader stops here. Checklist for the back lead, from `tasks.md` § T-9 plus the forward pointers recorded above:
+
+1. Apply `server/drizzle/0004_timeline_edit.sql` to `qadb` (MySQL copies the small `timelines` table for the new FK — T-1 note).
+2. Use one disposable timeline in a `draft` cycle. Keep the admin token in a shell variable from your own login; never paste it in chat or write it to a repo file (KZ-admin-config--cycle-timelines-3).
+3. Fire 5 concurrent `PATCH /api/v1/timelines/:id` with the same `version` and **distinct** `Idempotency-Key`s (or none). Record start/end timestamps to prove overlap. Expect exactly one 200, four 409 `TIMELINES_VERSION_STALE`, `version` + 1, one `timeline_audit_events` row. Record request ids.
+4. A timeline whose step 1 is today with no load reads `waiting_for_load`.
+5. Added from Reviewer advisories: two concurrent edits that swap names on two timelines (possible InnoDB 1213 → 500); note whether a 1205 appears behind a cycle activation.
+6. Record the evidence, the leftover rows (timeline id, audit row ids) here, then mark T-9 by the Step 3 rule. P-12 refuted → Pivot Protocol.
+
+## Summary (T-1…T-8 complete; T-9 pending the back lead)
+
+| Task | Result | Attempts | Commit |
+|---|---|---|---|
+| T-1 Schema and migration `0004` | PASS | 1 | `978e9ec` |
+| T-2 Read model — hold, step state, loads port | PASS | 1 | `d2e7c11` |
+| T-3 Update rules, diff, catalog codes | PASS | 1 | `e93ee65` |
+| T-4 Store and unit of work | PASS | 2 | `b8e70fc` |
+| — Gate decisions (NFR-5 amendment, OQ-TE-1) | — | — | `17588b7` |
+| T-5 Service `update` flow | PASS | 1 | `8177451` |
+| T-6 Controller route, DTO, OpenAPI | PASS | 1 | `fa16275` |
+| T-7 e2e over HTTP | PASS | 3 | `8c5568f` |
+| T-8 Docs — guide, front contract, TRD pending | PASS | 2 | `abc6800` |
+| T-9 HITL on MySQL | pending (human) | — | — |
+
+- **Budget:** 9 tasks as planned. ≈ 6,700 hand-written server LOC (excl. generated `drizzle/meta`) against ≈ 3,900 planned (×1.7, the overrun accepted at the T-4 gate). Review rounds: 13 Reviewer verdicts against ≈ 13 planned (T-9's Leader check will add one).
+- **Final gates (last re-run, T-7):** lint OK, build OK, unit `Tests 1962 passed (1962)`, e2e `Tests 779 passed (779)`, tsc only the 7 pre-existing `token-verifier.service.spec.ts` errors.
+- **Open:** T-9 (P-12 on InnoDB); OQ-TE-1 (business owner); the TRD and shared-guide pending items listed under T-8; P2-3905 must re-check loads under the lock or bump the version on load (T-5 advisory).
+- **Kaizen signals for `/akili-archive`:** a Disqualifier of the form "every X also Y" (T-7) needs a sweep instruction in the first brief, not after a FAIL; an Implementer report again claimed a fix the tree did not hold (T-7 attempt 2 — KZ-admin-config--cycle-timelines-2 recurrence); docs written from expectation rather than code (T-8 attempt 1); a cross-branch file location left out of a brief (T-8, P-11); one Implementer spawn ran past the 60-call checkpoint bound (T-2).
