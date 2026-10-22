@@ -4,6 +4,8 @@ import { HlmInput } from '@spartan/input';
 import { QaButtonImports, QaDatePicker, QaDialogImports, QaDrawerImports, QaSegmented, QaSelect, QaSwitch, QaTooltipImports, discardGuard } from '../../../ui';
 import { AUDIENCES, CORRECTION_AUDIENCE, CycleStep, DEMO_ACCESS, PROGRAMS, ReopenMode, Timeline } from './cycle.mock';
 import { formatNumber, parseDate, stepState } from './cycle.logic';
+import { toApiDay } from './cycle.mapper';
+import type { TimelineSaveFeedback } from './timeline-drawer';
 
 /** Which step the drawer edits (index) or which timeline gets a new step (index null). */
 export interface StepRequest {
@@ -17,6 +19,8 @@ export interface StepSaveEvent {
   isOfficial: boolean;
   index: number | null;
   step: Pick<CycleStep, 'name' | 'audience' | 'start' | 'end' | 'batch' | 'reopen' | 'access'>;
+  /** The admin already agreed to change a step in progress (live data: sent up front). */
+  confirmed: boolean;
 }
 
 interface AccessRow {
@@ -70,8 +74,8 @@ interface StepDraft {
           @if (d.audience === correctionAudience) {
             <div aria-labelledby="cycle-step-who" class="box-border w-full rounded-[8px] border border-(--border) bg-(--surface-3) px-3 py-[10px] text-(length:--fs-14) text-(--text)">Nobody works in QA during this step</div>
             <div class="text-(length:--fs-13) leading-[1.5] font-normal text-pretty text-(--text-4)">Programs correct their results in the reporting tool. QA picks up the changes automatically.</div>
-          } @else if (locked()) {
-            <!-- Read-only because the step is already completed. -->
+          } @else if (locked() || live()) {
+            <!-- Read-only: the step is completed, or (live data) the audience is fixed once the timeline exists. -->
             <div aria-labelledby="cycle-step-who" class="flex h-9 min-w-[280px] items-center rounded-[8px] border border-(--border) bg-(--surface-3) px-3 text-(length:--fs-14) text-(--text)">{{ d.audience }}</div>
           } @else {
             <qa-select [value]="d.audience || null" (valueChange)="patch({ audience: $event ?? '' })" [options]="audienceOptions" label="Who can work in this step" placeholder="Select who can work" class="w-[280px]" />
@@ -88,13 +92,17 @@ interface StepDraft {
         } @else {
         <div class="flex flex-col items-start gap-[6px]">
           <div class="flex flex-wrap gap-3">
-            <label class="flex flex-col gap-[6px]">
-              <span class="text-(length:--fs-13) font-semibold text-(--text-2)">Opens</span>
+            <div class="flex flex-col gap-[6px]">
+              <span id="cycle-step-opens" class="text-(length:--fs-13) font-semibold text-(--text-2)">Opens</span>
+              @if (opensLocked()) {
+                <span class="flex h-9 items-center font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text-3) tabular-nums">{{ d.opens }}</span>
+              } @else {
               <span class="relative flex">
                 <input
                   hlmInput
                   type="text"
                   [formField]="stepForm.opens"
+                  aria-labelledby="cycle-step-opens"
                   placeholder="06 Jul 2026"
                   [attr.aria-invalid]="opensError() ? true : null"
                   [attr.aria-describedby]="opensError() ? 'cycle-step-opens-err' : null"
@@ -103,7 +111,8 @@ interface StepDraft {
                 />
                 <qa-date-picker [value]="stepForm.opens().value()" (valueChange)="stepForm.opens().value.set($event)" label="Pick the opening date" class="absolute top-1/2 right-1 -translate-y-1/2" />
               </span>
-            </label>
+              }
+            </div>
             <label class="flex flex-col gap-[6px]">
               <span class="text-(length:--fs-13) font-semibold text-(--text-2)">Closes</span>
               <span class="relative flex">
@@ -115,6 +124,12 @@ interface StepDraft {
           @if (opensError()) {
             <span id="cycle-step-opens-err" class="text-(length:--fs-13) text-(--danger)">{{ opensError() }}</span>
           }
+          @if (opensLocked()) {
+            <span class="text-(length:--fs-13) leading-[1.5] font-normal text-pretty text-(--text-4)">This step is open, so its opening date stays. You can still move its closing date.</span>
+          }
+          @if (feedbackText(); as message) {
+            <span role="alert" class="text-(length:--fs-13) text-(--danger)">{{ message }}</span>
+          }
         </div>
         }
 
@@ -124,7 +139,11 @@ interface StepDraft {
               <span id="cycle-step-load" class="text-(length:--fs-14) font-medium text-(--text-2)">Load results when this step opens</span>
               <span class="text-(length:--fs-13) font-normal text-pretty text-(--text-4)">Brings in results submitted since the last load, plus anything the programs corrected.</span>
             </div>
-            <qa-switch [checked]="d.batch" (checkedChange)="patch({ batch: $event })" aria-labelledby="cycle-step-load" />
+            @if (live()) {
+              <span class="text-(length:--fs-13) text-(--text-3)">{{ d.batch ? 'Yes' : 'No' }}</span>
+            } @else {
+              <qa-switch [checked]="d.batch" (checkedChange)="patch({ batch: $event })" aria-labelledby="cycle-step-load" />
+            }
           </div>
           @if (d.batch) {
             <div class="-mt-[6px] flex items-center gap-1.5 text-(length:--fs-12) font-medium text-(--accent)">
@@ -136,6 +155,12 @@ interface StepDraft {
           }
         </div>
 
+        @if (live()) {
+          <div class="flex flex-col items-start gap-1 rounded-[8px] bg-(--surface-3) px-3 py-2">
+            <span class="text-(length:--fs-13) font-semibold text-(--text-2)">Reopened fields and extended access</span>
+            <span class="text-(length:--fs-13) text-(--text-4)">Coming soon.</span>
+          </div>
+        } @else {
         @if (d.batch && !first()) {
           <div class="flex flex-col items-start gap-[6px]">
             <span id="cycle-step-reopen" class="text-(length:--fs-13) font-semibold text-(--text-2)">Fields reopened in this step</span>
@@ -171,6 +196,7 @@ interface StepDraft {
             </div>
           </div>
         </div>
+        }
       }
 
       <div qaDrawerFooter class="contents">
@@ -189,16 +215,18 @@ interface StepDraft {
             <button hlmBtn qaBtn tone="danger" type="button" (click)="doRemove()">Remove</button>
           </div>
         } @else {
-          @if (isEdit() && !locked()) {
+          @if (isEdit() && !locked() && !live()) {
             <button hlmBtn qaBtn tone="danger-quiet" type="button" (click)="confirmRemove.set(true)" class="mr-auto">Remove step</button>
           }
           @if (loadedNote()) {
             <span class="flex items-center gap-1.5 text-(length:--fs-13) font-normal text-(--text-4)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M20 6L9 17l-5-5" /></svg>{{ loadedNote() }}</span>
-          } @else if (canLoad()) {
+          } @else if (canLoad() && !live()) {
             <button hlmBtn qaBtn tone="secondary" type="button" (click)="loadIntoStep.emit()" class="gap-[7px]"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M12 3v12M8 11l4 4 4-4M8 5H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-4" /></svg>Load results into this step</button>
           }
           <button hlmBtn qaBtn tone="secondary" type="button" (click)="discard.requestClose()">Cancel</button>
-          <button hlmBtn qaBtn tone="primary" type="button" (click)="save()">{{ isEdit() ? 'Save step' : 'Add step' }}</button>
+          @if (!locked()) {
+            <button hlmBtn qaBtn tone="primary" type="button" (click)="save()" [disabled]="saving()">{{ saving() ? 'Saving…' : isEdit() ? 'Save step' : 'Add step' }}</button>
+          }
         }
       </div>
     </qa-drawer>
@@ -207,7 +235,7 @@ interface StepDraft {
       <p class="m-0 text-(length:--fs-14) leading-[1.55] font-normal text-pretty text-(--text-2)">{{ activeNote() }}</p>
       <div qaDialogFooter class="contents">
         <button hlmBtn qaBtn tone="secondary" type="button" (click)="confirmActive.set(false)">Keep editing</button>
-        <button hlmBtn qaBtn tone="primary" type="button" (click)="commit()">Save changes</button>
+        <button hlmBtn qaBtn tone="primary" type="button" (click)="commit(true)">Save changes</button>
       </div>
     </qa-dialog>
   `,
@@ -217,6 +245,15 @@ export class StepDrawer {
   readonly request = input.required<StepRequest>();
 
   readonly saveStep = output<StepSaveEvent>();
+  /** Live data (API): name and dates only; the parent closes the drawer once the server saved it. */
+  readonly live = input(false);
+  readonly saving = input(false);
+  readonly feedback = input<TimelineSaveFeedback | null>(null);
+  /** One step has no row of its own to mark: show the server's first field message, else its message. */
+  protected readonly feedbackText = computed(() => {
+    const fb = this.feedback();
+    return fb?.fields[0]?.message ?? fb?.message ?? '';
+  });
   readonly removeStep = output<void>();
   /** "Load results into this step" (sub-timeline steps that load results and have not run yet). */
   readonly loadIntoStep = output<void>();
@@ -244,6 +281,8 @@ export class StepDrawer {
     return st?.kind === 'active' ? st : null;
   });
   protected readonly inProgress = computed(() => !!this.activeState());
+  /** Live data: an open step keeps its opening day (the server answers LOCKED otherwise). */
+  protected readonly opensLocked = computed(() => this.live() && this.inProgress());
   protected readonly activeNote = computed(() => {
     const st = this.activeState();
     const who = this.existing()?.audience ?? 'Assessors';
@@ -256,7 +295,11 @@ export class StepDrawer {
     const d = this.draft();
     return !!p && (d.name.trim() !== p.name || d.audience !== p.audience || d.opens.trim() !== p.start || d.closes.trim() !== p.end || d.batch !== p.batch);
   });
-  protected readonly confirmActive = linkedSignal({ source: this.request, computation: () => false });
+  /** Also opens when the server asks (409 TIMELINES_IN_PROGRESS_UNCONFIRMED). */
+  protected readonly confirmActive = linkedSignal({
+    source: () => ({ request: this.request(), feedback: this.feedback() }),
+    computation: ({ feedback }) => !!feedback?.needsConfirm,
+  });
 
   protected readonly first = computed(() => {
     const r = this.request();
@@ -294,8 +337,11 @@ export class StepDrawer {
 
   protected readonly stepForm = form(this.draft, (f) => {
     required(f.name, { message: 'Enter a name for the step.' });
+    validate(f.closes, ({ value }) =>
+      this.live() && !toApiDay(value()) ? { kind: 'date', message: 'Enter a closing date, for example 11 Jul 2026.' } : undefined,
+    );
     validate(f.opens, ({ value }) =>
-      parseDate(value()) ? undefined : { kind: 'date', message: 'Enter an opening date, for example 06 Jul 2026.' },
+      (this.live() ? toApiDay(value()) : parseDate(value())) ? undefined : { kind: 'date', message: 'Enter an opening date, for example 06 Jul 2026.' },
     );
   });
 
@@ -304,7 +350,11 @@ export class StepDrawer {
   protected readonly confirmRemove = linkedSignal({ source: this.request, computation: () => false });
 
   protected readonly nameError = computed(() => (this.tried() || this.stepForm.name().touched() ? (this.stepForm.name().errors()[0]?.message ?? '') : ''));
-  protected readonly opensError = computed(() => (this.tried() || this.stepForm.opens().touched() ? (this.stepForm.opens().errors()[0]?.message ?? '') : ''));
+  protected readonly opensError = computed(() =>
+    this.tried() || this.stepForm.opens().touched() || this.stepForm.closes().touched()
+      ? (this.stepForm.opens().errors()[0]?.message ?? this.stepForm.closes().errors()[0]?.message ?? '')
+      : '',
+  );
 
   protected readonly title = computed(() => this.draft().name.trim() || 'New step');
 
@@ -352,7 +402,7 @@ export class StepDrawer {
     this.commit();
   }
 
-  protected commit(): void {
+  protected commit(confirmed = false): void {
     this.confirmActive.set(false);
     const d = this.draft();
     const r = this.request();
@@ -370,8 +420,9 @@ export class StepDrawer {
         reopen: d.reopen,
         access: d.access.filter((a) => a.code.trim()).map((a) => ({ code: a.code.trim().toUpperCase(), range: a.range.trim() })),
       },
+      confirmed,
     });
-    this.open.set(false);
+    if (!this.live()) this.open.set(false);
   }
 
   protected doRemove(): void {

@@ -1,40 +1,40 @@
-import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
+import { Toasts } from '../../../core/http/toasts';
 import { QaButtonImports, QaTabsImports } from '../../../ui';
-import {
-  AUDIENCES,
-  CycleStep,
-  OFFICIAL_TIMELINE,
-  RUN_TARGETS,
-  TIMELINES,
-  Timeline,
-} from './cycle.mock';
-import { MenuAction, StepDraftRow, formatNumber, runEstimate, shortDate, stepState, timelineStart, timelineVM } from './cycle.logic';
-import { LoadDrawer, RunRequest } from './load-drawer';
+import { CycleStore, TimelineSaveOutcome } from './cycle-store';
+import { RUN_TARGETS, Timeline } from './cycle.mock';
+import { MenuAction, formatNumber, stepState, timelineStart, timelineVM } from './cycle.logic';
+import { RunRequest } from './load-drawer';
 import { ProgressDrawer, StepProgress } from './progress-drawer';
 import { StepDrawer, StepRequest, StepSaveEvent } from './step-drawer';
 import { TimelineCard } from './timeline-card';
-import { TimelineDrawer, TimelineRequest, TimelineSaveEvent } from './timeline-drawer';
+import { TimelineDrawer, TimelineRequest, TimelineSaveEvent, TimelineSaveFeedback } from './timeline-drawer';
 import { TimelineSteps } from './timeline-steps';
 
 const byStartDesc = (a: Timeline, b: Timeline) => timelineStart(b) - timelineStart(a);
 
-/** Keeps a step's progress data and adds defaults for new rows (audience by position). */
-function mergeSteps(old: readonly CycleStep[], rows: readonly StepDraftRow[]): CycleStep[] {
-  return rows.map((p, i) => (old[i] ? { ...old[i], ...p } : { ...p, audience: AUDIENCES[i] ?? 'Assessors', ran: '' }));
-}
+/** Placeholder for the step drawer before a step is picked. */
+const EMPTY_TIMELINE: Timeline = { id: '', name: '', kind: 'Sub-timeline', status: 'Scheduled', results: 0, programs: [], types: [], steps: [] };
 
-/** "Cycle" view: official timeline, live / closed sub-timelines and their drawers. */
+/**
+ * "Cycle" view: the active cycle's official timeline, its live / closed sub-timelines and their
+ * drawers, on the cycles API (P2-3934 create and view, P2-3937 edit). Loads, results, export, test
+ * timelines, close, reopen and extended access have no API yet: they show as "Coming soon".
+ */
 @Component({
   selector: 'qa-cycle-view',
-  imports: [QaButtonImports, QaTabsImports, TimelineSteps, TimelineCard, LoadDrawer, TimelineDrawer, StepDrawer, ProgressDrawer],
+  imports: [QaButtonImports, QaTabsImports, TimelineSteps, TimelineCard, TimelineDrawer, StepDrawer, ProgressDrawer],
+  providers: [CycleStore],
   templateUrl: './cycle-view.html',
 })
-export class CycleView {
+export class CycleView implements OnInit {
   protected readonly fmt = formatNumber;
+  protected readonly store = inject(CycleStore);
+  private readonly toasts = inject(Toasts);
 
-  // ---- Data (mock; TODO(api): load the cycle and its timelines) ----
-  protected readonly official = signal<Timeline>(OFFICIAL_TIMELINE);
-  protected readonly timelines = signal<Timeline[]>(TIMELINES);
+  // ---- Data ----
+  protected readonly official = this.store.official;
+  protected readonly timelines = this.store.subTimelines;
 
   // ---- Page state ----
   protected readonly tab = signal<string>('live');
@@ -42,7 +42,10 @@ export class CycleView {
   /** "Loading results 120 of 1,200" counter shown in place of the load button. */
   protected readonly running = signal<{ done: number; total: number } | null>(null);
 
-  protected readonly officialVM = computed(() => timelineVM(this.official()));
+  protected readonly officialVM = computed(() => {
+    const t = this.official();
+    return t ? timelineVM(t) : null;
+  });
   /** The Sub-timelines section lists sub-timelines only; the official timeline has its own card. */
   private readonly subs = computed(() => this.timelines().filter((t) => t.kind === 'Sub-timeline'));
   private readonly liveList = computed(() => this.subs().filter((t) => t.status !== 'Closed').sort(byStartDesc));
@@ -57,11 +60,13 @@ export class CycleView {
   protected readonly timelineOpen = signal(false);
   protected readonly timelineRequest = signal<TimelineRequest>({ timeline: null });
   protected readonly stepOpen = signal(false);
-  protected readonly stepRequest = signal<StepRequest>({ timeline: OFFICIAL_TIMELINE, isOfficial: true, index: null });
+  protected readonly stepRequest = signal<StepRequest>({ timeline: EMPTY_TIMELINE, isOfficial: true, index: null });
+  protected readonly saving = signal(false);
+  protected readonly timelineFeedback = signal<TimelineSaveFeedback | null>(null);
+  protected readonly stepFeedback = signal<TimelineSaveFeedback | null>(null);
   protected readonly progressOpen = signal(false);
   protected readonly progress = signal<StepProgress>({ title: '', subtitle: '', pct: 0, done: 0, of: 0 });
 
-  private createdCount = 0;
   private runTimer: ReturnType<typeof setInterval> | undefined;
   private runEndTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -72,9 +77,13 @@ export class CycleView {
     });
   }
 
+  ngOnInit(): void {
+    void this.store.load();
+  }
+
   // ---- Lookups ----
   private timelineById(id: string): Timeline | undefined {
-    return id === 'official' ? this.official() : this.timelines().find((t) => t.id === id);
+    return (id === 'official' ? this.official() : this.timelines().find((t) => t.id === id)) ?? undefined;
   }
 
   // ---- Load results ----
@@ -109,6 +118,7 @@ export class CycleView {
     const timeline = this.timelineById(timelineId);
     if (!timeline) return;
     this.stepRequest.set({ timeline, isOfficial: timelineId === 'official', index });
+    this.stepFeedback.set(null);
     this.stepOpen.set(true);
   }
 
@@ -122,26 +132,20 @@ export class CycleView {
     this.progressOpen.set(true);
   }
 
-  private updateTimeline(id: string, fn: (t: Timeline) => Timeline): void {
-    if (id === 'official') this.official.update(fn);
-    else this.timelines.update((list) => list.map((t) => (t.id === id ? fn(t) : t)));
+  /** One step's name and dates, saved as an edit of its timeline (the other steps stay as they are). */
+  protected async saveStep(e: StepSaveEvent): Promise<void> {
+    const before = this.timelineById(e.timelineId);
+    if (!before || e.index == null || this.saving()) return;
+    const steps = before.steps.map((p, i) =>
+      i === e.index ? { name: e.step.name, start: e.step.start, end: e.step.end, batch: p.batch } : { name: p.name, start: p.start, end: p.end, batch: p.batch },
+    );
+    const asked = this.stepRequest();
+    const outcome = await this.save(() =>
+      this.store.update(before, { name: before.name, programs: before.programs, types: before.types, steps }, e.confirmed),
+    );
+    this.settle(outcome, asked === this.stepRequest() && this.stepOpen(), this.stepOpen, this.stepFeedback);
   }
 
-  protected saveStep(e: StepSaveEvent): void {
-    this.updateTimeline(e.timelineId, (t) => {
-      const steps = [...t.steps];
-      if (e.index != null && steps[e.index]) steps[e.index] = { ...steps[e.index], ...e.step };
-      else steps.push({ ...e.step, ran: '' });
-      return { ...t, steps };
-    });
-  }
-
-  protected removeStep(): void {
-    const r = this.stepRequest();
-    if (r.index == null) return;
-    const idx = r.index;
-    this.updateTimeline(r.timeline.id, (t) => ({ ...t, steps: t.steps.filter((_, k) => k !== idx) }));
-  }
 
   protected loadIntoStep(): void {
     const r = this.stepRequest();
@@ -154,46 +158,64 @@ export class CycleView {
     const timeline = this.timelineById(id);
     if (!timeline) return;
     this.timelineRequest.set({ timeline });
+    this.timelineFeedback.set(null);
     this.timelineOpen.set(true);
   }
 
+  /** New sub-timeline, or the official timeline when the cycle has none yet (the first one is official). */
   protected newSubTimeline(): void {
     this.timelineRequest.set({ timeline: null });
+    this.timelineFeedback.set(null);
     this.timelineOpen.set(true);
   }
 
-  protected saveTimeline(e: TimelineSaveEvent): void {
-    if (e.id) {
-      const id = e.id;
-      this.updateTimeline(id, (t) =>
-        id === 'official'
-          ? { ...t, steps: mergeSteps(t.steps, e.steps) }
-          : { ...t, name: e.name, programs: e.programs, types: e.types, test: e.test, steps: mergeSteps(t.steps, e.steps) },
-      );
+  protected async saveTimeline(e: TimelineSaveEvent): Promise<void> {
+    if (this.saving()) return;
+    const draft = { name: e.name, programs: e.programs, types: e.types, steps: e.steps };
+    const before = e.id ? this.timelineById(e.id) : undefined;
+    if (e.id && !before) return;
+    const asked = this.timelineRequest();
+    const outcome = await this.save(() => (before ? this.store.update(before, draft, e.confirmed) : this.store.create(draft)));
+    if (outcome.ok && !before) this.tab.set('live');
+    this.settle(outcome, asked === this.timelineRequest() && this.timelineOpen(), this.timelineOpen, this.timelineFeedback);
+  }
+
+  /** One save at a time (a second click while the first is in flight does nothing). */
+  private async save(run: () => Promise<TimelineSaveOutcome>): Promise<TimelineSaveOutcome> {
+    this.saving.set(true);
+    try {
+      return await run();
+    } finally {
+      this.saving.set(false);
+    }
+  }
+
+  /**
+   * Saved: close. Stale: close and say it was reloaded. Otherwise keep the drawer open with the server's
+   * answer. `same` is false when the admin closed the drawer, or opened another one, meanwhile: that one
+   * is left alone and a refusal is told as a toast so it is never lost.
+   */
+  private settle(
+    outcome: TimelineSaveOutcome,
+    same: boolean,
+    open: { set(v: boolean): void },
+    feedback: { set(v: TimelineSaveFeedback | null): void },
+  ): void {
+    if (!same) {
+      if (!outcome.ok && !outcome.needsConfirm) this.toasts.error(outcome.message);
       return;
     }
-    const est = runEstimate(e.types, e.programs);
-    const created: Timeline = {
-      id: `new-${++this.createdCount}`,
-      created: true,
-      name: e.name,
-      kind: 'Sub-timeline',
-      status: 'Scheduled',
-      test: e.test,
-      results: e.runNow ? est.pulled : 0,
-      programs: e.programs,
-      types: e.types,
-      steps: e.steps.map((p, i) => ({
-        ...p,
-        audience: AUDIENCES[i] ?? 'Assessors',
-        ran: i === 0 && e.runNow ? `Results loaded on ${shortDate(p.start)} · ${formatNumber(est.pulled)} results` : '',
-      })),
-    };
-    if (created.steps.some((p) => stepState(p, created).kind === 'active')) created.status = 'Live';
-    this.timelines.update((list) => [created, ...list]);
-    this.tab.set('live');
-    // TODO(api): the server loads the results into step 1 when "Load results into step 1 now" is on.
-    if (e.runNow) this.startRun(est.matched);
+    if (outcome.ok) {
+      feedback.set(null);
+      open.set(false);
+    } else if (outcome.stale) {
+      feedback.set(null);
+      open.set(false);
+      this.toasts.error(outcome.message);
+    } else {
+      // The in-progress confirmation is a question (the drawer's pop-up), never shown as an error.
+      feedback.set({ message: outcome.needsConfirm ? '' : outcome.message, fields: outcome.fields, needsConfirm: outcome.needsConfirm });
+    }
   }
 
   protected onMenu(id: string, action: MenuAction): void {
@@ -212,8 +234,7 @@ export class CycleView {
         // TODO(api): export the comments of this timeline (.xlsx).
         break;
       case 'clear-test':
-        // TODO(api): delete the test results of this timeline.
-        this.updateTimeline(id, (x) => ({ ...x, results: 0 }));
+        // No API yet: the menu shows it greyed out ("Coming soon").
         break;
       case 'close':
         this.closeConfirmId.set(id);
@@ -221,9 +242,8 @@ export class CycleView {
     }
   }
 
-  protected closeTimeline(id: string): void {
-    // TODO(api): close the timeline (open steps end today).
+  protected closeTimeline(_id: string): void {
+    // No API yet (closing early is out of scope of the timelines spec): the menu item is greyed out.
     this.closeConfirmId.set(null);
-    this.updateTimeline(id, (t) => ({ ...t, status: 'Closed' }));
   }
 }
