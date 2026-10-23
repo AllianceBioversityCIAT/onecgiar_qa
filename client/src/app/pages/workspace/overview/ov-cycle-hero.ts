@@ -22,13 +22,9 @@ export interface RoundVm {
 }
 
 export interface CycleHeroVm {
-  /** "Annual report 2026, 2 live timelines". */
+  /** "2 live timelines". */
   readonly eyebrow: string;
   readonly total: string;
-  /** Current step of the official timeline, e.g. "Step 5 of 5: QA platform open for PPU". */
-  readonly step: string;
-  /** "closes today" / "closes in 3 days". */
-  readonly stepWhen: string;
   readonly rounds: readonly RoundVm[];
   /** Results that finished every QA step (the only place "Quality assessed" is used). */
   readonly final: { readonly count: string; readonly pct: number };
@@ -55,13 +51,10 @@ const STAGE_COLOR: Record<QaStage, string> = {
       aria-labelledby="overview-hero-title"
       class="relative flex flex-col gap-6 overflow-hidden rounded-[16px] bg-(--surface-3) p-5 @2xl:p-7"
     >
-      <!-- Context row: cycle on the left, current step + link on the right (same small text, same line). Then the total. -->
+      <!-- Context row: cycle on the left, link on the right. The current step is in the page header line, so it is not repeated here. Then the total. -->
       <div class="flex flex-wrap items-center justify-between gap-x-8 gap-y-1">
         <span class="text-(length:--fs-13) font-medium text-(--text-3)">{{ data().eyebrow }}</span>
-        <span class="flex min-w-0 flex-wrap items-center gap-x-3 text-(length:--fs-13) text-pretty text-(--text-3)">
-          <span><span class="font-medium text-(--text-2)">{{ data().step }}</span>, {{ data().stepWhen }}</span>
-          <a hlmBtn qaBtn tone="link" size="sm" routerLink="/cycle" class="-ml-2.5 @2xl:-mr-2.5 @2xl:ml-0">See the full cycle</a>
-        </span>
+        <a hlmBtn qaBtn tone="link" size="sm" routerLink="/cycle" class="-ml-2.5 @2xl:-mr-2.5 @2xl:ml-0">See the full cycle</a>
       </div>
 
       <h2 id="overview-hero-title" class="m-0 -mt-3 flex flex-wrap items-baseline gap-x-3">

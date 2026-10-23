@@ -20,7 +20,13 @@ const VISIBLE = 5;
   host: { class: 'block @container' },
   template: `
     <section aria-labelledby="overview-attn-title" class="flex flex-col gap-4 rounded-[12px] border border-(--border) bg-(--surface) p-5">
-      <h3 id="overview-attn-title" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">Needs attention</h3>
+      <!-- Wording as on the PRMS home ("Needs your attention"), with a plain gray counter; the title stays inside the card. -->
+      <h3 id="overview-attn-title" class="m-0 flex items-baseline gap-2 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">
+        Needs your attention
+        @if (count()) {
+          <span class="text-(length:--fs-13) font-semibold tabular-nums text-(--text-muted)">{{ count() }}</span>
+        }
+      </h3>
 
       @if (count()) {
         <div class="flex flex-col gap-6">

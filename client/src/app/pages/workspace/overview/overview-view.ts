@@ -1,4 +1,5 @@
 import { Component, DestroyRef, ElementRef, computed, inject, signal, viewChild } from '@angular/core';
+import { AuthSession } from '../../../core/auth/auth-session';
 import { OvAttention, AttentionGroupVm } from './ov-attention';
 import { OvLoadDrawer } from './ov-load-drawer';
 import { CycleHeroVm, OvCycleHero, RoundVm } from './ov-cycle-hero';
@@ -75,6 +76,28 @@ function whenText(info: TimelineInfo): string {
   host: { class: 'block' },
 })
 export class OverviewView {
+  private readonly session = inject(AuthSession);
+
+  /** Page title: greets the signed-in user by first name, or plainly when the profile has none. */
+  protected readonly greeting = computed(() => {
+    const name = this.session.user()?.firstName?.trim();
+    return name ? `Welcome back, ${name}` : 'Welcome back';
+  });
+
+  /** Line under the greeting, as on the PRMS home: "Annual report 2026 · Step 5 of 5 · closes **today**". */
+  protected readonly context = computed(() => {
+    const official = this.officials[0];
+    if (!official) return null;
+    const info = timelineInfo(official);
+    const when = whenText(info);
+    // The number of days (or "today") is the part worth a glance; it is the only bold bit.
+    const m = /\d+(?= days?)|today/.exec(when);
+    const head = `${official.name} · Step ${info.step} of ${info.steps} · `;
+    return m
+      ? { lead: head + when.slice(0, m.index), key: m[0], tail: when.slice(m.index + m[0].length) }
+      : { lead: head + when, key: '', tail: '' };
+  });
+
   // ---------- State ----------
   protected readonly workTab = signal<WorkTab>('type');
   /** Row briefly highlighted: a "Where the work is" row ("type:…") or a timeline lane ("lane:…"). */
@@ -108,14 +131,11 @@ export class OverviewView {
   protected readonly hero = computed<CycleHeroVm>(() => {
     const sum = [...STAGE_COUNTS.values()].reduce((a, n) => a + n, 0) || 1;
     const qa = STAGE_COUNTS.get('quality-assessed') ?? 0;
-    const official = this.officials[0];
-    const info = official ? timelineInfo(official) : null;
     const live = this.timelines.filter((b) => b.status === 'Live').length;
     return {
-      eyebrow: `${official?.name ?? 'Cycle'}, ${live} live ${live === 1 ? 'timeline' : 'timelines'}`,
+      // The cycle name is already in the page header line, so the hero only counts live timelines.
+      eyebrow: `${live} live ${live === 1 ? 'timeline' : 'timelines'}`,
       total: this.totalText,
-      step: info ? `Step ${info.step} of ${info.steps}: ${info.phase.name}` : '',
-      stepWhen: info ? whenText(info) : '',
       rounds: ROUNDS.map((r) => {
         const stages = r.stages.map((s) => {
           const n = STAGE_COUNTS.get(s.stage) ?? 0;

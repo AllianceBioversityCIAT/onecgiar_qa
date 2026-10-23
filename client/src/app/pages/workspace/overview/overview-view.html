@@ -3,8 +3,10 @@
 <!-- Page header -->
 <div class="flex scroll-mt-6 flex-wrap items-start gap-4 px-4 pt-8 sm:px-6 lg:px-8">
   <div class="flex min-w-0 flex-1 flex-col gap-1">
-    <h1 class="m-0 text-(length:--fs-26) font-bold leading-[1.2] tracking-[-0.02em] text-(--text)">Overview</h1>
-    <p class="m-0 text-(length:--fs-14) font-normal text-(--text-3)">Where Annual report 2026 stands today.</p>
+    <h1 class="m-0 text-(length:--fs-26) font-bold leading-[1.2] tracking-[-0.02em] text-(--text)">{{ greeting() }}</h1>
+    @if (context(); as c) {
+      <p class="m-0 text-(length:--fs-14) font-normal text-(--text-3)">{{ c.lead }}<span class="font-semibold text-(--text)">{{ c.key }}</span>{{ c.tail }}</p>
+    }
   </div>
 
   <div class="flex flex-none items-center gap-2 max-sm:w-full">
