@@ -1,6 +1,6 @@
-import { Component, DestroyRef, computed, ElementRef, afterNextRender, inject, input, output, signal, viewChild } from '@angular/core';
+import { Component, DestroyRef, computed, contentChild, ElementRef, afterNextRender, inject, input, output, signal, viewChild } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { QaMenuImports, QaSelectImports, QaSelectOption } from '../../../ui';
+import { QaMenuImports, QaPagination, QaSelectImports, QaSelectOption } from '../../../ui';
 import { ResultStage } from './results.mock';
 
 export type SortKey = 'code' | 'title' | 'type' | 'comments' | 'stage';
@@ -135,13 +135,13 @@ const CELL = {
         @for (r of rows(); track r.code; let last = $last) {
           <tr
             class="relative grid items-center border-b border-(--surface-4) bg-(--surface) px-4 py-3 hover:bg-(--surface-2) @min-[640px]:min-h-[72px] @min-[640px]:px-5 @min-[640px]:py-2"
-            [class]="grid + (last ? ' rounded-b-[11px]' : '')"
+            [class]="grid + (last && !footer() ? ' rounded-b-[11px]' : '')"
           >
             <td class="flex items-center self-stretch" [class]="cell.code">
               <a
                 [routerLink]="['/results', r.code]"
                 class="font-(family-name:--qa-mono) tabular-nums text-(length:--fs-13) font-semibold whitespace-nowrap text-(--accent) outline-none after:absolute after:inset-0 focus-visible:after:inset-ring-2 focus-visible:after:inset-ring-(--primary)"
-                [class]="last ? 'after:rounded-b-[11px]' : ''"
+                [class]="last && !footer() ? 'after:rounded-b-[11px]' : ''"
               >{{ r.code }}</a>
             </td>
             <td class="flex min-w-0 flex-col justify-center gap-0.5 self-stretch" [class]="cell.title">
@@ -182,6 +182,12 @@ const CELL = {
         }
       </tbody>
     </table>
+    <!-- Optional footer inside the card (the paginator). Rows keep their bottom border above it. -->
+    @if (footer()) {
+      <div class="px-4 py-3 @min-[640px]:px-5">
+        <ng-content select="[qaTableFooter]" />
+      </div>
+    }
 
     <ng-template #rowMenu let-r>
       <qa-menu-panel width="220px" [attr.aria-label]="'Actions for ' + r.code">
@@ -204,6 +210,9 @@ export class ResultsTable {
   readonly sortSet = output<{ key: SortKey; dir: SortDir } | null>();
   readonly exportComments = output<string>();
   readonly reassign = output<string>();
+
+  /** A paginator projected with `qaTableFooter` (squares the last row, it is no longer the card's bottom). */
+  protected readonly footer = contentChild(QaPagination);
 
   protected readonly columns = COLUMNS;
   protected readonly grid = GRID;

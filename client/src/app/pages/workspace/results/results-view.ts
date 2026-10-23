@@ -1,8 +1,7 @@
-import { DecimalPipe } from '@angular/common';
-import { Component, computed, inject, linkedSignal, signal } from '@angular/core';
+import { Component, ElementRef, computed, inject, linkedSignal, signal, viewChild } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { HlmInput } from '@spartan/input';
-import { QaButtonImports, QaMultiSelect, QaSelectImports, QaSelectOption } from '../../../ui';
+import { QaButtonImports, QaMultiSelect, QaPagination, QaSelectImports, QaSelectOption } from '../../../ui';
 import { ResultRowVm, ResultsTable, SortDir, SortKey } from './results-table';
 import {
   ASSESSOR_NAMES,
@@ -23,7 +22,7 @@ import {
   qaStage,
 } from './results.mock';
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 25;
 
 /** Group heading of a stage in the "QA stage" menu (the Overview's Round 1 / Round 2 columns, then the final state). */
 const stageGroup = (s: QaStage): string => (s.startsWith('r1-') ? 'Round 1' : s.startsWith('r2-') ? 'Round 2' : 'Final');
@@ -54,7 +53,7 @@ function listParam(value: string | null, allowed: readonly string[]): readonly s
 @Component({
   selector: 'qa-results-view',
   templateUrl: './results-view.html',
-  imports: [QaButtonImports, HlmInput, DecimalPipe, RouterLink, QaMultiSelect, QaSelectImports, ResultsTable],
+  imports: [QaButtonImports, HlmInput, RouterLink, QaMultiSelect, QaSelectImports, ResultsTable, QaPagination],
 })
 export class ResultsView {
   private readonly params = inject(ActivatedRoute).snapshot.queryParamMap;
@@ -148,13 +147,14 @@ export class ResultsView {
     });
   });
 
-  /** How many rows are rendered; back to one page whenever the list changes. */
-  protected readonly pageSize = linkedSignal({ source: this.sorted, computation: () => PAGE_SIZE });
+  /** Rows per page ("25 per page"); the page goes back to 1 whenever the list or the size changes. */
+  protected readonly pageSize = signal(PAGE_SIZE);
+  protected readonly page = linkedSignal({ source: () => [this.sorted(), this.pageSize()] as const, computation: () => 1 });
   protected readonly matchCount = computed(() => this.sorted().length);
-  protected readonly remaining = computed(() => Math.max(0, this.matchCount() - this.pageSize()));
+  private readonly table = viewChild(ResultsTable, { read: ElementRef });
 
   protected readonly visibleRows = computed<readonly ResultRowVm[]>(() =>
-    this.sorted().slice(0, this.pageSize()).map((r) => {
+    this.sorted().slice((this.page() - 1) * this.pageSize(), this.page() * this.pageSize()).map((r) => {
       const stage = qaStage(r)!;
       const group = stageGroup(stage);
       return {
@@ -204,8 +204,11 @@ export class ResultsView {
     this.sortDir.set(sort?.dir ?? 'asc');
   }
 
-  protected showMore(): void {
-    this.pageSize.update((n) => n + PAGE_SIZE);
+  /** New page: bring the top of the table back into view if it was scrolled past. */
+  protected onPage(): void {
+    const el: HTMLElement | undefined = this.table()?.nativeElement;
+    const top = el?.closest('main')?.getBoundingClientRect().top ?? 0;
+    if (el && el.getBoundingClientRect().top < top) el.scrollIntoView({ block: 'start' });
   }
 
   protected clearFilter(key: FilterKey): void {

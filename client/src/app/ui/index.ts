@@ -15,3 +15,4 @@ export * from './date-picker/qa-date-picker';
 export * from './dialog/qa-dialog';
 export * from './button/qa-button';
 export * from './unsent/qa-unsent-center';
+export * from './pagination/qa-pagination';
