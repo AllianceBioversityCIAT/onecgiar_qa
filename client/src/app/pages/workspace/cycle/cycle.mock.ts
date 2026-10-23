@@ -71,13 +71,18 @@ export const TODAY = new Date(2026, 6, 19);
 
 export const PROGRAMS: Readonly<Record<string, string>> = {
   SP01: 'Breeding for Tomorrow',
-  SP02: 'Rice Agrifood Systems',
-  SP04: 'Climate Action',
-  SP05: 'Multifunctional Landscapes',
-  SP07: 'Genetic Innovation',
-  SP09: 'Sustainable Animal and Aquatic Foods',
-  SP11: 'Policy Innovations',
-  SP12: 'Scaling for Impact',
+  SP02: 'Sustainable Farming',
+  SP03: 'Sustainable Animal and Aquatic Foods',
+  SP04: 'Multifunctional Landscapes',
+  SP05: 'Better Diets and Nutrition',
+  SP06: 'Climate Action',
+  SP07: 'Policy Innovations',
+  SP08: 'Food Frontiers and Security',
+  SP09: 'Scaling for Impact',
+  SP10: 'Gender Equality and Inclusion',
+  SP11: 'Capacity Sharing',
+  SP12: 'Digital Transformation',
+  SP13: 'Genebank',
 };
 
 /** Result types with the number of results of each type in the cycle (1,114 in total). */

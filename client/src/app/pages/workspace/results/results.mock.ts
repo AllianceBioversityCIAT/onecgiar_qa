@@ -65,13 +65,18 @@ export interface DownloadProgram {
 
 export const PROGRAMS: Readonly<Record<string, string>> = {
   SP01: 'Breeding for Tomorrow',
-  SP02: 'Rice Agrifood Systems',
-  SP04: 'Climate Action',
-  SP05: 'Multifunctional Landscapes',
-  SP07: 'Genetic Innovation',
-  SP09: 'Sustainable Animal and Aquatic Foods',
-  SP11: 'Policy Innovations',
-  SP12: 'Scaling for Impact',
+  SP02: 'Sustainable Farming',
+  SP03: 'Sustainable Animal and Aquatic Foods',
+  SP04: 'Multifunctional Landscapes',
+  SP05: 'Better Diets and Nutrition',
+  SP06: 'Climate Action',
+  SP07: 'Policy Innovations',
+  SP08: 'Food Frontiers and Security',
+  SP09: 'Scaling for Impact',
+  SP10: 'Gender Equality and Inclusion',
+  SP11: 'Capacity Sharing',
+  SP12: 'Digital Transformation',
+  SP13: 'Genebank',
 };
 
 export const PROGRAM_CODES: readonly string[] = Object.keys(PROGRAMS);
@@ -132,14 +137,19 @@ export const PUBLISHED_PROGRAMS: readonly string[] = ['SP02', 'SP05', 'SP04'];
 
 /** "Download comments" drawer: results and comments per program (mockup DL_PROGS). */
 export const DL_PROGRAMS: readonly DownloadProgram[] = [
-  { code: 'SP02', name: 'Rice Agrifood Systems', results: 214, comments: 41 },
-  { code: 'SP04', name: 'Climate Action', results: 96, comments: 7 },
-  { code: 'SP05', name: 'Multifunctional Landscapes', results: 147, comments: 28 },
-  { code: 'SP07', name: 'Genetic Innovation', results: 132, comments: 12 },
-  { code: 'SP09', name: 'Sustainable Animal and Aquatic Foods', results: 188, comments: 63 },
-  { code: 'SP11', name: 'Policy Innovations', results: 121, comments: 19 },
   { code: 'SP01', name: 'Breeding for Tomorrow', results: 108, comments: 0 },
-  { code: 'SP12', name: 'Scaling for Impact', results: 108, comments: 0 },
+  { code: 'SP02', name: 'Sustainable Farming', results: 150, comments: 41 },
+  { code: 'SP03', name: 'Sustainable Animal and Aquatic Foods', results: 64, comments: 0 },
+  { code: 'SP04', name: 'Multifunctional Landscapes', results: 96, comments: 7 },
+  { code: 'SP05', name: 'Better Diets and Nutrition', results: 110, comments: 28 },
+  { code: 'SP06', name: 'Climate Action', results: 58, comments: 0 },
+  { code: 'SP07', name: 'Policy Innovations', results: 110, comments: 12 },
+  { code: 'SP08', name: 'Food Frontiers and Security', results: 37, comments: 0 },
+  { code: 'SP09', name: 'Scaling for Impact', results: 130, comments: 63 },
+  { code: 'SP10', name: 'Gender Equality and Inclusion', results: 48, comments: 0 },
+  { code: 'SP11', name: 'Capacity Sharing', results: 121, comments: 19 },
+  { code: 'SP12', name: 'Digital Transformation', results: 60, comments: 0 },
+  { code: 'SP13', name: 'Genebank', results: 22, comments: 0 },
 ];
 
 /** Non-automatic results per type in the official timeline (mockup TYPES). */
