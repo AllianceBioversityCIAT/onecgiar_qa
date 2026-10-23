@@ -51,16 +51,17 @@ const STAGE_COLOR: Record<QaStage, string> = {
       aria-labelledby="overview-hero-title"
       class="relative flex flex-col gap-6 overflow-hidden rounded-[16px] bg-(--surface-3) p-5 @2xl:p-7"
     >
-      <!-- Context row: cycle on the left, link on the right. The current step is in the page header line, so it is not repeated here. Then the total. -->
-      <div class="flex flex-wrap items-center justify-between gap-x-8 gap-y-1">
-        <span class="text-(length:--fs-13) font-medium text-(--text-3)">{{ data().eyebrow }}</span>
+      <!-- The total with the cycle link on its right, then the live timelines under it (the current step is in the page header line). -->
+      <!-- One sentence: "1,330 results in QA, from 2 live timelines", with the cycle link on the same line (wraps under it on narrow cards). -->
+      <div class="flex flex-wrap items-baseline justify-between gap-x-8 gap-y-1">
+        <h2 id="overview-hero-title" class="m-0 flex flex-wrap items-baseline gap-x-3">
+          <span class="text-[2rem] leading-[1.05] font-bold tracking-[-0.02em] tabular-nums text-(--text) @2xl:text-[2.75rem]">{{ data().total }}</span>
+          <span class="text-(length:--fs-16) font-semibold text-(--text-2)"
+            >results in QA<span class="font-normal text-(--text-3)">, from {{ data().eyebrow }}</span></span
+          >
+        </h2>
         <a hlmBtn qaBtn tone="link" size="sm" routerLink="/cycle" class="-ml-2.5 @2xl:-mr-2.5 @2xl:ml-0">See the full cycle</a>
       </div>
-
-      <h2 id="overview-hero-title" class="m-0 -mt-3 flex flex-wrap items-baseline gap-x-3">
-        <span class="text-[2rem] leading-[1.05] font-bold tracking-[-0.02em] tabular-nums text-(--text) @2xl:text-[2.75rem]">{{ data().total }}</span>
-        <span class="text-(length:--fs-16) font-semibold text-(--text-2)">results in QA</span>
-      </h2>
 
       <!-- Round 1 and Round 2 side by side (stacked on narrow screens). Every row opens Results filtered by that stage. -->
       <div class="-mt-1 grid grid-cols-1 gap-3 @3xl:grid-cols-2">

@@ -13,3 +13,6 @@
 ## Pending
 - Not checked at 768 / 1024 or in dark mode.
 - The sidebar item is still called "Overview" on purpose.
+
+## Update — cycle hero total
+- The total now reads as one sentence: "1,330 **results in QA**, from 2 live timelines", with "See the full cycle" on the same line (it wraps under it on narrow cards). A big number with a small gray label stacked under it read as a generic KPI tile.
