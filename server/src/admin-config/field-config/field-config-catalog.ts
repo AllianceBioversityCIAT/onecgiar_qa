@@ -28,6 +28,8 @@ export interface CatalogField {
   resultTypes: string[];
   requirement: FieldRequirement;
   isNew: boolean;
+  /** Reporting's help text; the key is absent when the row has none. */
+  description?: string;
 }
 
 export interface FieldCatalog {
@@ -117,6 +119,9 @@ export function shapeCatalog(raw: unknown): FieldCatalog {
     if (r.is_new !== undefined && typeof r.is_new !== 'boolean') {
       malformed(`${at}.is_new`);
     }
+    if (r.description !== undefined && typeof r.description !== 'string') {
+      malformed(`${at}.description`);
+    }
     return {
       key: str(r, 'key', at),
       label: str(r, 'label', at),
@@ -130,6 +135,7 @@ export function shapeCatalog(raw: unknown): FieldCatalog {
           ? 'conditional'
           : 'optional',
       isNew: r.is_new === true,
+      ...(r.description === undefined ? {} : { description: r.description }),
     };
   });
 
