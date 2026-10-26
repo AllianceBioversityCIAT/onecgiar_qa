@@ -258,7 +258,7 @@ T-4 ─────────────────────────�
 - **Skills:** nestjs-expert, api-design-principles
 
 ## T-7: Service write flows — draft edit, discard, publish
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-6
 - **Requirements:**

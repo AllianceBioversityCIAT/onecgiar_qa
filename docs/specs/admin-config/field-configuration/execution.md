@@ -298,7 +298,7 @@ Task entry Reviewer field: **PASS (degraded-pair: opus/fable)**.
 - Reviewer (lens checklist, effort high): **PASS**. Quote: "`view`, `preview` and `effectiveFor` cover every scenario in FR-2, FR-3, FR-7, FR-10 and FR-13 through the service… The view shape, including `description?`, matches design § 6 field by field." Named checks: the § 7.2 *Discard* amendment is not contradicted; the § 7.3 row needs no amendment for `name` (the row does not list returned fields).
 - runtime events: none.
 
-spawns: implementer 52 calls, 194164 tokens, ended complete (after continuation 1; the first report ended partial); reviewer not reported by host, ended complete.
+spawns: implementer 52 calls, 194164 tokens, ended complete (after continuation 1; the first report ended partial); reviewer 15 calls, 71795 tokens, ended complete.
 
 **Not Done / Assumptions (Implementer; owed item #3 closed by the continuation; the rest ruled conformant)**
 1. `NamedTimelineStart` (T-5 store edit, a demonstrated need).
@@ -323,3 +323,47 @@ spawns: implementer 52 calls, 194164 tokens, ended complete (after continuation 
 - Forward pointers carried: from T-2, the cache uses `ADMIN_CONFIG_CLOCK`, so the module must provide it. From T-4, a not-started timeline with no versions resolves to `'none'`; the Leader narrowed that the effective query answers `FieldConfigNoVersionError` for it, as for a started timeline with none (no version exists to resolve to). From T-5, § 7.2 *Discard* step 4 and the § 7.3 ports row amendments are carried as named checks.
 - Skills: nestjs-expert, api-design-principles (as listed). Effort `medium`.
 - continuations: 1 (field `description` in the view, design § 6: Implementer Not Done #3 was an owed item, with no blocker; gated mode → re-spawn for the remainder, the same worker resumed by message).
+
+### T-7: Service write flows — draft edit, discard, publish — PASS
+
+| | |
+|---|---|
+| Date | 2026-10-26 |
+| Final status | PASS (attempt 1) |
+| Attempts | 1 |
+| Skills | nestjs-expert, error-handling-patterns (as listed) |
+| Effort | `high` |
+| Requirements covered | FR-4 (Switching off, stored; S-14), FR-5 (all four scenarios), FR-6, FR-8 (Publish, Stale, Nothing to publish, Two admins on the service side), FR-11, FR-12, FR-13 (writes), NFR-7 |
+
+**Attempt 1**
+- Files changed: `server/src/admin-config/field-config/field-config.service.ts` (+496: `updateDraft`, `discardDraft`, `publish`, `logged()`, `FieldConfigBusyError` 503 for 1213/1205; the view was refactored into `viewOf`, and the lists into `describeLists`), `field-config.service.spec.ts` (+1234), `server/src/admin-config/admin-config.context.ts` (+3 actions), `server/src/database/drizzle/schema/field-config-audit-events.ts` (type only: `keep[].version: number | null`).
+- Red run (methods stubbed to reject): `50 failed | 26 passed (76)`, on `{ status, code }` deep-equal assertions. The 26 passing cases are the T-6 cases.
+- Falsifiers (post-change, restored): no-op shortcut skipped → 1 red (`expected 8 to be 7`); only classified fields published → 3 red (504 vs 3); "nothing to publish" checked before stale → 3 red; conditional UPDATE dropped → 2 red (`[ 'fulfilled', 'fulfilled' ]`).
+- Refusals: every refusal asserts `expectNothingWritten` (snapshot, `writeLog` empty, no transaction begun) or `expectRolledBack`. The spec lines are in the Implementer's table; the Reviewer spot-checked nine.
+- Implementer verification: unit `2281 passed`, e2e `779 passed`, `admin-config` under Bogota `817 passed`, field-config under UTC `265 passed`.
+- Evidence re-run (Leader-inline, non-author): **VERIFIED**. Lint clean, build 0, `2281 passed`, e2e `779 passed`, Bogota `817 passed`.
+- Reviewer (lens checklist, effort high): **PASS**, `ISSUES: none`. Quote: "The race test's `[committed, rolledBack] = [1,1]` shows the loser got past the pre-check and lost to the conditional UPDATE." All seven Leader points were ruled conformant, and S-14 was re-confirmed (`isCore ?? false`).
+- runtime events: none.
+
+spawns: implementer 44 calls, 253620 tokens, ended complete; reviewer 19 calls, 91766 tokens, ended complete.
+
+**Decisions / spec edits**
+- The T-1 schema type was widened (`keep[].version: number | null`). It is a demonstrated defect, accepted by the Reviewer: DD-7 requires the audit to hold what the ADMIN saw. No migration.
+- **Execute-time spec edit (Leader, at the Reviewer's request):** the `design.md` § 6 DELETE row now lists 409 `FIELD_CONFIG_CATALOG_MISSING` and 503, because discard answers with the view. Carried to the T-8 Reviewer as a named check, and T-8's OpenAPI must list both.
+
+**ADVISORY (Reviewer — recorded, not tasks)**
+- RISK: 1213/1205 → 503 with no retry rests on fakes only. A concurrent first `ensureDraft` is the likeliest real deadlock. **Forward pointer to T-11.**
+- READABILITY: `server/src/admin-config/AGENTS.md` still says six logged writes, and its error list lacks `FieldConfigBusyError`. **Forward pointer to T-8** (move the class into `admin-config.errors.ts`) and **T-10** (guide).
+- READABILITY: `(current?.number ?? 0) + 1` is computed twice in `publish`.
+- RELIABILITY: publish skips `ensureDraft`; a non-empty diff with no draft row cannot occur today. A comment is suggested.
+- RESILIENCE: the edit's no-op check reads the items unlocked, so a 200 may show a slightly stale draft. **Forward pointer to T-10** (`front-contract.md`).
+
+**Budget:** 8,538 non-JSON LOC added under `server/` since `0b62fd1`, after 7 of 10 build tasks. That is 1.22× the ≈ 7,000 LOC budget, driven by tests (the T-5 and T-7 specs alone are about 2,600 lines). Review rounds: 12 of ≈ 18. Over the ≈ 7,000 LOC budget; the back lead lifted the tripwire for the rest of the run.
+
+**Final verification:** VERIFIED.
+
+**Decisions made (recorded as they happen)**
+- Gate answer "Si" (2026-10-26): continue with T-7. No new budget was given, so the Budget Tripwire stands: stop when actual work passes about 7,000 LOC (about 6,830 non-JSON LOC at the T-6 close).
+- Forward pointers carried into the brief: S-14 (an omitted flag is stored false; *Same values* compares after normalising); truncate `now` to the second once, for both the lists and the insert (T-5 A); the conditional UPDATE stays the deciding guard, with a service-level conditional-alone falsifier (T-5 A); publishing a cycle with no draft row answers `NOTHING_TO_PUBLISH`, not stale (T-5 A, DD-10); a 1213 or 1205 is never an unmapped 500 [advisory-grade] (T-5 Opus); the edit and discard paths never see `stale` (T-5 Opus); discard deletes the items before copying the version (T-5 fable); two admins editing the same field are tested explicitly (T-5 Opus); the unit of work is injected (T-6).
+- Skills: nestjs-expert, error-handling-patterns (as listed). Effort `high`, above the T2 default: it orchestrates every write rule, the answer order and the concurrency guard.
+- **Back lead, 2026-10-26 ("Adelante no pares, termina todo"):** the budget tripwire and the per-task continue gates are lifted for the rest of the run. They had already been told the overrun would come at T-7 (about 6,830 of about 7,000 LOC). The overrun is still recorded at each task close. A HALT, a Pivot, a FATAL_FAIL or a waiver still stops the run. T-11 is a human step (applying `0005` to `qadb` and the concurrent publish on MySQL), so the run stops before it.
