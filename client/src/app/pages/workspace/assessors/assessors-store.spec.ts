@@ -216,6 +216,54 @@ describe('AssessorsStore', () => {
     expect(store.isBusy('7')).toBe(false);
   });
 
+  it('a person who never signed in can have their name fixed: only the changed names are sent, trimmed', async () => {
+    await store.edit('7', input({ lastName: '  Byron ' }));
+    expect(users['replace']).toHaveBeenCalledOnce();
+    const body = users['replace'].mock.calls[0][1];
+    expect(body.lastName).toBe('Byron');
+    expect(body).not.toHaveProperty('firstName');
+    expect(body).not.toHaveProperty('nickname');
+  });
+
+  it('after the first sign-in the names are locked: a name in the form is never sent', async () => {
+    users['listAll'].mockReturnValueOnce(of([u({ lastSignInAt: '2026-10-20T10:00:00Z' })]));
+    await store.load();
+    await store.edit('7', input({ firstName: 'Augusta', lastName: 'King' }));
+    expect(users['replace']).not.toHaveBeenCalled();
+  });
+
+  it('"name locked" (they signed in meanwhile) comes back on the first name field', async () => {
+    users['replace'].mockReturnValueOnce(throwError(() => new ApiError({ status: 409, code: 'USERS_NAME_LOCKED', message: 'Locked.' })));
+    expect(await store.edit('7', input({ firstName: 'Augusta' }))).toEqual({ ok: false, message: 'Locked.', field: 'firstName' });
+  });
+
+  it('"last admin" comes back on the role field with the server message', async () => {
+    users['listAll'].mockReturnValueOnce(of([u({ roles: [{ role: 'ADMIN' }] })]));
+    await store.load();
+    users['replace'].mockReturnValueOnce(
+      throwError(() => new ApiError({ status: 409, code: 'USERS_LAST_ADMIN', message: 'QA needs at least one admin.' })),
+    );
+    expect(await store.edit('7', input({ role: 'Assessor', types: ['Knowledge product'] }))).toEqual({
+      ok: false,
+      message: 'QA needs at least one admin.',
+      field: 'role',
+    });
+    expect(store.team()[0].role).toBe('QA lead');
+  });
+
+  it('resend invitation: one call, a success toast with the email; a refusal shows the server message', async () => {
+    const toasts = TestBed.inject(Toasts) as unknown as Record<string, ReturnType<typeof vi.fn>>;
+    users['resendInvitation'] = vi.fn(() => of(detail({ accountType: 'custom', invitation: 'sent' })));
+    await store.resendInvitation('7');
+    expect(users['resendInvitation']).toHaveBeenCalledOnce();
+    expect(toasts['success']).toHaveBeenCalledWith('Invitation sent again to ada@cgiar.org.');
+    users['resendInvitation'].mockReturnValueOnce(
+      throwError(() => new ApiError({ status: 409, code: 'USERS_INVITATION_NOT_APPLICABLE', message: 'They already signed in.' })),
+    );
+    await store.resendInvitation('7');
+    expect(toasts['error']).toHaveBeenCalledWith('They already signed in.');
+  });
+
   it('nothing changed: no call at all', async () => {
     await store.edit('7', input());
     for (const fn of Object.values(users)) if (fn !== users['listAll']) expect(fn).not.toHaveBeenCalled();
