@@ -259,7 +259,7 @@ spawns: implementer (`opus`) 41 calls, 142043 tokens, ended complete; reviewer (
   - ADVISORY RESILIENCE: three or more concurrent first-ever draft edits, and a 1213 inside publish, are the deadlock-prone paths the fake cannot show. **Forward pointer to T-11** (HITL) and **T-7** (answer a 1213 by rethrowing, no retry, never an unmapped 500).
   - ADVISORY RELIABILITY: the fake computes item lock keys before the refresh; harmless under the draft X lock. A comment is suggested.
   - ADVISORY READABILITY: without `expectedRevision`, a 0-row bump returns `stale` ("row gone"). **Forward pointer to T-7:** assert that the edit and discard paths never see `stale`.
-  - spawns: reviewer (`opus`) not reported by host, ended complete.
+  - spawns: reviewer (`opus`) 17 calls, 105435 tokens, ended complete.
 
 ## REVIEW_WAIVED: T-5
 
