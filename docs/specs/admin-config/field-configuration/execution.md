@@ -542,3 +542,8 @@ spawns (T-9 total): implementer 1 worker, resumed twice. The host reported 39 ca
 | PI-6 | **Open question for the business owner (Angel Jarrín):** after the first publication and a discard, every field has a draft row, so no field can read "unclassified" again (DD-2 + FR-6). Is that intended? | Business owner; `front-contract.md` § 10 |
 | PI-7 | T-11 checks on MySQL: the driver `timezone` and the `published_at` round-trip; a concurrent first `ensureDraft`; a 1213 during publish; the `findPublication` join | Back lead (T-11) |
 | PI-8 | S-1 for the comments spec: a comment covers the field with all its sub-options, never one subfield | comments spec |
+
+## Integration after T-10 (2026-10-26)
+- `feat/field-configuration` pushed. Merged with `--no-ff` into `staging-center` (`5b0f547`) and `dev` (`81c6f77`), both pushed. Jenkins trigger run 40372208291 succeeded.
+- The Leader verified the merged `dev` before pushing: server lint 0 warnings, build 0, unit `2299 passed`, e2e `862 passed` (14 files), client `ng build` 0.
+- The run stops before **T-11** (a human step: apply `0005` to `qadb`, then the concurrent publish on MySQL). The Leader prepared the commands for the back lead; no token or key passes through chat.
