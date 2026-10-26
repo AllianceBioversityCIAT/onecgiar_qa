@@ -45,3 +45,13 @@
 - **Today** (validated in `docs/specs/auth/user-management/core`, T-10): Cognito's default template — sender `no-reply@verificationemail.com`, subject "Your temporary password", one line with the username (the email) and the temporary password. No QA or PRMS name, no link. The user pool is shared with other applications, so its templates are shared too.
 - **Verdict:** 🟡. Needs the pool owner (Cris): a `CustomMessage` Lambda trigger on the shared pool that brands the message only for QA. QA would send `ClientMetadata` (e.g. `{ app: 'qa' }`) in `AdminCreateUser` so the trigger can tell QA's invitations apart — a small change in `CognitoAdminClient`.
 - **What is needed:** agreement with the pool owner on the trigger (infrastructure); the email copy (QA product); then a small server change plus a real-pool smoke test.
+
+## 2026-10-22 · Juanpa · Notifications for the QA Admin (review updates)
+
+- **Idea:** a bell in the top bar and a Notifications page where María Julia (QA Admin) gets every update on the review of results: stages reached, program responses, escalations, TPB and PPU decisions, results that became Quality assessed, long waits, steps at risk and loads. In-app only; no email for now.
+- **Done** (branch `jp-design/mockup-completo`): mockup in Claude Design (project "QA Platform", `notifications/Notifications.dc.html`) and the proposal `docs/specs/notifications/review-updates/proposal.md`. No app code yet.
+- **Verdict:** 🟡 as a front-only screen on mock data; 🔴 for real data (needs a server module, the `comments` / `escalation` / `ingestion` specs, and a change to PRD § 5, which keeps notifications out of v1).
+- **What is needed:**
+  1. Business (Santi / Ángel): decide whether in-app notifications for the ADMIN enter v1.
+  2. María Julia: pick the panel layout (newest first vs "Needs you" first) and confirm the event list and the grouping.
+  3. Juanda: a `notifications` server module and the new `notifications` domain in the `AGENTS.md` spec taxonomy, once the source specs exist.
