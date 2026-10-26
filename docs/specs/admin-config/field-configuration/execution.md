@@ -539,7 +539,7 @@ spawns (T-9 total): implementer 1 worker, resumed twice. The host reported 39 ca
 | PI-3 | Reporting RC-5 / S-6: a per-field "new" flag. QA reads `is_new` as a boolean; any other type makes the catalog malformed (503, `field-config-catalog.ts:119-121`). The name and type need confirming. Today it is never sent, so `isNew` is always `false` | Back lead + Reporting |
 | PI-4 | `upsertDraftItems` uses `VALUES()`, deprecated since MySQL 8.0.20 (`field-config.store.ts:397`) | TRD pending; revisit on a MySQL upgrade |
 | PI-5 | `server/src/common/AGENTS.md:28`: add the third replay reader, whose stored target id is a **version id** | `staging` (shared guide) |
-| PI-6 | **Open question for the business owner (Angel Jarrín):** after the first publication and a discard, every field has a draft row, so no field can read "unclassified" again (DD-2 + FR-6). Is that intended? | Business owner; `front-contract.md` § 10 |
+| PI-6 | ~~Open question~~ **Answered by the back lead, 2026-10-26 ("Si"):** after the first publication and a discard, no field reads "unclassified" again (DD-2 + FR-6). This is intended. `front-contract.md` § 10 is updated | Closed |
 | PI-7 | T-11 checks on MySQL: the driver `timezone` and the `published_at` round-trip; a concurrent first `ensureDraft`; a 1213 during publish; the `findPublication` join | Back lead (T-11) |
 | PI-8 | S-1 for the comments spec: a comment covers the field with all its sub-options, never one subfield | comments spec |
 

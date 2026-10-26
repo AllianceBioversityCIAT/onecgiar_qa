@@ -69,7 +69,7 @@ Body: `{ items: [{ resultTypeKey, fieldKey, visibility, isCore?, isAiInput? }] }
 - The other codes use `items[i].<field>` paths: `INVALID` for an unknown result type (`items[i].resultTypeKey`), for a field that does not apply to the type, and for a repeated pair (`items[i].fieldKey`) (`field-config-rules.ts:43-55`). `null` on a flag is a shape error (`dto:21-23`). Every problem comes in one 400 and nothing is written.
 - **Same values** (nothing differs from the stored rows, and every listed field already has a row) answers 200 with no write and no new `revision` (`field-config.service.ts:399-408`). That read is unlocked, so a concurrent edit can make this 200 show a slightly stale draft: reload on the next `revision` you see.
 - A first edit that sets a field to `hidden` is a change: the field stops being `unclassified`.
-- `DELETE .../draft` resets the draft to the latest published version, or to nothing classified when there is none (`field-config.service.ts:432-452`). Every field then has a draft row after the first publication, so none reads `unclassified` again (open question, section 10).
+- `DELETE .../draft` resets the draft to the latest published version, or to nothing classified when there is none (`field-config.service.ts:432-452`). Every field then has a draft row after the first publication, so none reads `unclassified` again (intended, section 10).
 - Edit and discard are repeatable and take no `Idempotency-Key`. Both always win: they never answer stale.
 
 ## 5. Mock states: `third` and `conditional`
@@ -156,8 +156,8 @@ Stale is judged first, so an old `revision` never reads as nothing-to-publish.
 - **`is_new`** (S-6): QA passes the flag through when Reporting sends a boolean. Today it sends none, so `isNew` is `false` everywhere. A non-boolean `is_new` makes the whole catalog malformed, so a 503 (`field-config-catalog.ts:119-121`). Do not build UI that depends on `isNew` yet.
 - **S-1:** only top-level fields are configured; subfields follow their field. A comment covers the field with all its sub-options, never one subfield (carried to the comments spec).
 
-## 10. Open question and not built
+## 10. Decision and not built
 
-- **For the business owner (Angel Jarrín):** after the first publication and a discard, every field has a draft row, so no field can read `unclassified` again (DD-2 with FR-6). Is that wanted?
+- **Decided (back lead, 2026-10-26):** after the first publication and a discard, every field has a draft row, so no field reads `unclassified` again (DD-2 with FR-6). This is intended. The front shows `unclassified` only before a field's first classification.
 - **Not built:** applying a configuration in the review screens (only the query `FIELD_CONFIG_EFFECTIVE` exists, server-side), a route to read the audit history, copying a previous cycle's configuration.
 - **What the server writes:** one audit row per publication in `field_config_audit_events` (the changed fields and the receive and keep lists). Draft edits are not audited (S-8).
