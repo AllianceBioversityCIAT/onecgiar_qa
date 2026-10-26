@@ -30,7 +30,7 @@ T-4 ─────────────────────────�
 ---
 
 ## T-1: Schema and migration `0005` (five tables)
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** none
 - **Requirements:**
