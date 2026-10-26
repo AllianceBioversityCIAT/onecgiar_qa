@@ -154,7 +154,7 @@ All dates are Rome `YYYY-MM-DD` strings from `rome-date.ts` (`server/src/admin-c
 1. In one transaction: cycle `FOR SHARE`, then lock the draft.
 2. Delete the draft items.
 3. Copy the latest version's items as draft items (an empty draft if there is no version).
-4. Revision + 1.
+4. Revision + 1, with `updated_at/by` (the discard is a draft write, § 7.3; amended 2026-10-26 at T-5).
 
 **Preview** (FR-7):
 - read the catalog, the draft, the latest version and the cycle's timelines (DD-7);
@@ -185,7 +185,7 @@ Subfields are not stored, so they follow their field (S-1).
 ### 7.3 Store and unit of work
 
 - **Ports:**
-  - `FieldConfigStore`: reads `findCycle`, `findDraft`, `listDraftItems`, `latestVersion`, `listVersions(cycleId)`, `listVersionItems(versionId, type?)`, `listTimelineStarts(cycleId)`; writes `ensureDraft`, `lockDraft`, `upsertDraftItems`, `bumpRevision(cycleId, expected?)` (`updated` / `stale`), `deleteDraftItems`, `copyVersionToDraft`, `insertVersion`, `insertVersionItems`, `insertAuditEvent`.
+  - `FieldConfigStore`: reads `findCycle`, `findDraft`, `listDraftItems`, `latestVersion`, `listVersions(cycleId)`, `listVersionItems(versionId, type?)`, `listTimelineStarts(cycleId)`; writes `lockCycleShared`, `ensureDraft`, `lockDraft`, `upsertDraftItems`, `bumpRevision(cycleId, change?, expected?)` (`updated` / `stale`; `change` is `{ updatedAt, updatedBy }`: the draft edit and the discard pass it, and the publish does not, so a publish leaves `updated_*` as the last draft write set them, § 7.2 *Publish* step 3) *(amended 2026-10-26 at T-5)*, `deleteDraftItems`, `copyVersionToDraft`, `insertVersion`, `insertVersionItems`, `insertAuditEvent`.
   - `listTimelineStarts` composes a fixed set of three queries: timelines of the cycle, their steps (min position and max `closes_on`), and their scope rows. It mirrors `TimelinesService.respond()` (`timelines.service.ts:272-285`).
 - **Unit of work:** follows `timelines.unit-of-work.ts:90-105`, with READ COMMITTED and stores built on `tx`, plus `idempotency` (`Pick<IdempotencyStore,'markExecuted'>`).
 - **Cycle lock:** `lockCycleShared` is `FOR SHARE`, the same as `timelines.store.ts:429-435`.
@@ -241,6 +241,7 @@ No `client/` change (S-12). `front-contract.md` (FR-14) covers:
 | DD-6 | Publish concurrency: lock order cycle `FOR SHARE` → draft `FOR UPDATE`, conditional `UPDATE … WHERE revision = ?` decides by affected rows; UNIQUE (`cycle_id`, `number`) as a backstop | A pre-read check only; serializing on cycle `FOR UPDATE` (would block timeline edits, assign and remove) | Same guard as *edit* DD-6, not a retry loop (KZ-admin-config--cycle-timelines-1); HITL on MySQL proves it | FR-8, NFR-3 |
 | DD-7 | The preview and the publish compute receive and keep with the same pure function, from data read before the transaction | Recompute under the lock | The lists in the audit row are what the ADMIN saw. A timeline starting between preview and publish is caught by the clock read at publish, not the preview's | FR-7, FR-11 |
 | DD-8 | Finished timelines and timelines not covering a changed type are in neither list | List every timeline | The dialog shows only timelines the change could matter to | FR-7 |
+| DD-8a | "Finished" for receive / keep is dates only: today in Rome after the last step's `closes_on`. The load hold is ignored, by the § 7.3 `listTimelineStarts` input (dates and scope, no load) | Follow `viewTimeline`, where a held timeline never reads finished (needs a load signal in `TimelineStart`) | A started timeline on load hold past its last close is in neither list while the timelines screen shows `waiting_for_load`. Only the lists change, never a resolved version. **Revisit when timeline loads land (P2-3905 / P2-3906).** *Back lead, 2026-10-26, T-4 gate (option A)* | FR-7, FR-11 |
 | DD-9 | Idempotent publish; the replay re-reads the version and its audit row | Store the full answer | A replay cannot report a different receive/keep than the publication did | FR-8 *Replay* |
 | DD-10 | The draft row is created on the first write (upsert), not with the cycle | Create it in the cycle-create flow | `cycles` is untouched. A cycle with no draft reads as an empty draft | FR-3, FR-5 |
 | DD-11 | One new field code, `NOT_ASSESSED`; unknown or non-applicable keys reuse `INVALID` | One code per case | The pin moves 14 → 15; the shared `FieldIssue` readers are unchanged (P-8) | FR-4, FR-5 |

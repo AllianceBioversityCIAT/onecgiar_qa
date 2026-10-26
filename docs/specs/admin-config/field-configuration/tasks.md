@@ -187,7 +187,7 @@ T-4 ─────────────────────────�
 - **Skills:** nestjs-best-practices, tdd
 
 ## T-5: Store and unit of work — draft lock, conditional revision, version insert, audit
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-1
 - **Requirements:**

@@ -202,3 +202,77 @@ Leader adjudication: no blocker, no owed item.
 - Skills: nestjs-best-practices, tdd (as listed). Effort `high`, above the T2 default: the date-boundary rule is what P2-3907 AC 13–14 depend on (Rome midnight, DST, two TZ).
 
 **Final verification:** VERIFIED.
+
+### T-5: Store and unit of work — draft lock, conditional revision, version insert, audit — PASS (attempt 2, degraded-pair: opus/fable)
+
+**Decisions made (recorded as they happen)**
+- **Execute-time spec edit (2026-10-26), approved by the back lead ("A"):** `design.md` § 10 gains **DD-8a** ("finished" for receive / keep is dates only; the load hold is ignored; revisit when loads land). This closes the T-4 Reviewer spec-gap advisory. `TimelineStart` needs no load signal, so T-5's `listTimelineStarts` stays at dates and scope. Carried to the T-5 Reviewer as a named check, together with the § 7.1 `versionFor` signature edit.
+- Skills: nestjs-expert, nestjs-best-practices (as listed). Effort `xhigh` (Effort dial: concurrency on a race-prone write path). Review: parallel lens reviewers (concurrency/transaction scope, per tasks.md + xhigh).
+
+**Attempt 1 — FAIL (parallel lens reviewers)**
+- Files changed: new `server/src/admin-config/field-config/field-config.store.ts` (443), `field-config.unit-of-work.ts` (82), `field-config.unit-of-work.spec.ts` (1338), `server/test/support/in-memory-field-config.ts` (676).
+- Red run: `26 failed | 1 passed (27)`, on outcome assertions (e.g. `expected [ 'updated', 'updated' ] to deeply equal [ 'updated', 'stale' ]`).
+- Falsifiers: fake F1, F1a, F2, F3, F4 and adapter/UoW A1–A5, each red against the post-change code and then restored. Statement counts: adapter publish 20 for 13 and 40 fields (fake 16); draft edit 8 (adapter) / 5 (fake) for 3 and 2,000 items; `listTimelineStarts` 3 for 0 / 1 / 50.
+- Implementer verification: lint clean, build 0, `Tests 2201 passed (2201)`.
+- Evidence re-run (Leader-inline): **VERIFIED**: `2201 passed`, e2e `779 passed`.
+- Reviewer A (concurrency / transaction scope): **PASS**. No wait cycle (P-11); a 1062 inside the transaction rolls back cleanly; the conditional-alone case keeps DD-6 pinned.
+- Reviewer B (conformance / readability / risk): **FAIL**, verbatim issue:
+  > 1. Discovered Issue: `bumpRevision(cycleId, change: DraftWrite, expectedRevision?)` and the added `lockCycleShared` in the `FieldConfigStore` port differ from the port list in § 7.3, and no amendment was written. The new required `change` argument also makes every bump, including a publish, overwrite `updated_at`/`updated_by`. § 7.2 Publish step 3 shows only `SET revision = revision + 1`, and the in-memory test asserts that a publish leaves `updatedBy: 9`. So the spec now encodes a "publisher becomes last writer" behavior that T-7 never decided. The stated reason ("needed by the both-or-none CHECK") does not force this: leaving both columns untouched also satisfies `chk_field_config_drafts_updated`. T-6 and T-7 implement from § 7.3, so the drift will spread.
+  > Violated Rule: design.md § 7.3 Ports; § 7.2 Publish step 3; TRD § 2.3.
+  > Remediation Suggestion: amend the § 7.3 ports row the way the § 7.1 `versionFor` row was amended ("amended 2026-10-26 at T-5"), with the actual signature `bumpRevision(cycleId, { updatedAt, updatedBy }, expected?)` and `lockCycleShared` added to the write list, and state in one clause whether a publish's bump sets `updated_*` (on § 7.2 Publish step 3 as well). If the answer is "no", make `change` optional and have the publish path omit it; the CHECK holds either way.
+- Leader adjudication: in scope. The port is T-5's deliverable, and § 7.2 *Publish* step 3 already answers "no". **Execute-time spec edit (Leader, clarification of § 7.2):** § 7.3 ports row amended with `lockCycleShared` and `bumpRevision(cycleId, change?, expected?)`: the edit and the discard pass `change`, and the publish does not. Carried to the attempt-2 Reviewer as a named check.
+- runtime events: none.
+- Note: the implementer ran 86 tool calls, past the persona's 60-call checkpoint bound, without reporting a checkpoint.
+
+spawns: implementer 86 calls, 380220 tokens, ended complete; reviewer A 12 calls, 71896 tokens, ended complete; reviewer B 20 calls, 89972 tokens, ended complete.
+
+**ADVISORY (attempt 1, recorded, not tasks)**
+- A RELIABILITY (forward pointer to T-7): `datetime` rounds to the second, so 23:59:59.6 Rome can store as the opening day. T-7 must truncate `now` to the second once and use that value for both the lists and the insert.
+- A RESILIENCE (forward pointer to T-7): keep the conditional UPDATE as the deciding guard in the service, with its own conditional-alone falsifier; the locked re-check is defence in depth.
+- A RELIABILITY (forward pointer to T-7): with no draft row, publish matches 0 rows and is always stale. Confirm this, or call `ensureDraft` first (DD-10).
+- A READABILITY: the fake locks absent draft keys, which InnoDB under RC does not. Say so in its comment.
+- A RISK: `isDuplicateKeyError` is imported from `users/users.errors.ts` (cross-module).
+- B READABILITY: the `listTimelineStarts` comment says the reads do not wait on each other, but they are awaited serially (`respond()` uses `Promise.all`).
+- B RISK: `VALUES()` is deprecated since MySQL 8.0.20 → TRD pending item at T-10; T-11 runs the upsert on MySQL.
+- B RISK: no driver `timezone` is set, so `published_at` round-trips in the process's zone → T-11 check.
+- B READABILITY: the adapter cases pin drizzle SQL text with regexes; the "fake refuses what the schema refuses" case tests the fake; `publishWork` must stay in sync with T-7's service.
+- B READABILITY: the `listTimelineStarts` mapping is duplicated between the adapter and the fake.
+- Attempt 2: effort xhigh → max is not allowed on T2 (registry *Effort dial*), so the tier is escalated instead: Implementer on `opus` (T1/T3 model), effort `xhigh`. Reason: rework after a lens FAIL; the fix is small but sits on the race-prone write path.
+
+**Attempt 2 — PASS (degraded-pair: opus/fable)**
+- Files changed: `field-config.store.ts` (443 → 449), `field-config.unit-of-work.spec.ts` (1338 → 1371), `in-memory-field-config.ts` (676 → 679); `field-config.unit-of-work.ts` unchanged. `change` is optional in the port, the adapter and the fake, and the publish omits it.
+- Red run (test edits only): `2 failed | 26 passed (28)`. The publish SET still carried `updated_at = ?, updated_by = ?`, and the publication case got `updatedBy: 9` instead of the seeded `1`.
+- Falsifiers (final code, restored with `cmp`): fix falsifier (the publish passes `change` again) → the same 2 red; F1 → 4 red (`[ 'updated', 'updated' ]`); A1 → 2 red.
+- Implementer verification: lint clean, build 0, `Tests 2202 passed (2202)`. Statement counts are unchanged (adapter publish 20, fake 16, draft edit 8). Four attempt-1 assertions that encoded the old behavior were removed and replaced by the exact-SET case.
+- Evidence re-run (Leader-inline, non-author): **VERIFIED**: lint clean, build 0, `2202 passed (2202)`.
+- Reviewer (`fable`, all four lenses, effort high): **PASS**. Quote: "Attempt 2 fixes the attempt-1 FAIL exactly as the amended `design.md` § 7.3 ports row reads… Concurrency guards from attempt 1 are intact." The three named checks passed (§ 7.3 row, DD-8a, § 7.1 `publishedAt`).
+- runtime events: none.
+
+spawns: implementer (`opus`) 41 calls, 142043 tokens, ended complete; reviewer (`fable`) 29 calls, 127310 tokens, ended complete.
+
+**ADVISORY (attempt 2, recorded)**
+- RISK: § 7.2 *Discard* step 4 did not match the amended § 7.3 → **amended**: the Leader edited § 7.2 step 4 to "Revision + 1, with `updated_at/by`", a clarification. Carried to the T-6 Reviewer as a named check.
+- READABILITY: the positional `bumpRevision(cycleId, undefined, expected)`; an options object would read better if the row is revisited.
+- RELIABILITY: `copyVersionToDraft` must follow `deleteDraftItems`. **Forward pointer to T-7** (discard order).
+- Extra review requested by the back lead (T-5 gate, "Revisión extra con Opus"): reviewer (`opus`, same model as the attempt-2 Implementer) **PASS**, `ISSUES: 0`. Quote: "It conforms to the spec." All four named checks passed (§ 7.3 row, § 7.2 *Discard* step 4, DD-8a, § 7.1 `publishedAt`). It also traced the two falsifiers that attempt 1 executed (audit outside the transaction; draft lock dropped only) against the attempt-2 code. Both stay red as the task's list requires.
+  - ADVISORY RELIABILITY: no T-5 case runs two edits of the same (type, field) (FR-5 *Two admins edit*); its Tests list does not ask for one. **Forward pointer to T-7 / T-9:** run it explicitly.
+  - ADVISORY RESILIENCE: three or more concurrent first-ever draft edits, and a 1213 inside publish, are the deadlock-prone paths the fake cannot show. **Forward pointer to T-11** (HITL) and **T-7** (answer a 1213 by rethrowing, no retry, never an unmapped 500).
+  - ADVISORY RELIABILITY: the fake computes item lock keys before the refresh; harmless under the draft X lock. A comment is suggested.
+  - ADVISORY READABILITY: without `expectedRevision`, a 0-row bump returns `stale` ("row gone"). **Forward pointer to T-7:** assert that the edit and discard paths never see `stale`.
+  - spawns: reviewer (`opus`) not reported by host, ended complete.
+
+## REVIEW_WAIVED: T-5
+
+| Field | Content |
+|---|---|
+| flag | `degraded-pair` |
+| cause | Attempt 2 is a rework after a lens FAIL. The effort bump xhigh → max is not allowed on T2 (registry *Effort dial*), so the Implementer tier was escalated to `opus`, the T3 Reviewer model. To keep author ≠ auditor, the gate Reviewer ran on `fable`, a different model outside the registry's T3 entry. The back lead then asked for an additional `opus` review (same model), which also returned PASS. |
+| approved by | the back lead, 2026-10-26, at the T-5 gate ("Revisión extra con Opus": close after an extra Opus review). The Opus review passed. |
+| verification that stood in | `cd server && pnpm lint && pnpm build && pnpm test --reporter=dot` → exit 0, `2202 passed (2202)`, re-run by the Leader (non-author) |
+| models | Implementer attempt 1 `sonnet`, attempt 2 `opus` / auditors: attempt 1 `opus` (lens A PASS, lens B FAIL); attempt 2 `fable` PASS (gate), `opus` PASS (extra, same-model) |
+
+Task entry Reviewer field: **PASS (degraded-pair: opus/fable)**.
+
+**Requirements covered (T-5):** FR-5 (Two admins edit: last write wins at the store level), FR-8 (Stale revision; Two admins publish at once, database side), FR-11 (audit in the transaction; a refused publication leaves none), NFR-3 (fake part), NFR-5.
+
+**Final verification:** VERIFIED.
