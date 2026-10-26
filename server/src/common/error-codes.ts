@@ -271,6 +271,21 @@ export const ERROR_CATALOG = {
     status: 404,
     message: 'This assignment does not exist or was already removed.',
   },
+
+  // --- Field configuration -------------------------------------------------
+  FIELD_CONFIG_CATALOG_MISSING: {
+    status: 409,
+    message: "No Reporting catalog exists for this cycle's year.",
+  },
+  FIELD_CONFIG_REVISION_STALE: {
+    status: 409,
+    message:
+      'The draft changed after you reviewed it. Reload and review the changes again.',
+  },
+  FIELD_CONFIG_NOTHING_TO_PUBLISH: {
+    status: 409,
+    message: 'There are no changes to publish.',
+  },
 } as const satisfies Record<string, { status: number; message: string }>;
 
 export type ErrorCode = keyof typeof ERROR_CATALOG;
@@ -339,6 +354,7 @@ export const FIELD_ERRORS = {
     'Rounds start at 1 and either stay the same or go up by one.',
   FIRST_STEP_LOAD: () => 'The first step must require a load.',
   LOCKED: () => 'This can no longer be changed.',
+  NOT_ASSESSED: () => 'Core and AI input can only be set on an assessed field.',
 } as const;
 
 export type FieldErrorCode = keyof typeof FIELD_ERRORS;

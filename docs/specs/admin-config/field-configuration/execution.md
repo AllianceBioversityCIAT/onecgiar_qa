@@ -118,3 +118,44 @@ Leader adjudication: no blocker, no owed item.
 - Skills as listed (nestjs-expert, error-handling-patterns, tdd). Effort `medium` (T2 default).
 
 **Final verification:** VERIFIED.
+
+### T-3: Draft rules, diff and catalog codes — PASS
+
+| | |
+|---|---|
+| Date | 2026-10-26 |
+| Final status | PASS (attempt 1) |
+| Attempts | 1 |
+| Skills | nestjs-best-practices, error-handling-patterns, api-design-principles, tdd (as listed) |
+| Effort | `medium` |
+| Requirements covered | FR-4 (Explicit contradiction; Switching off, rules side), FR-5 (Several problems), FR-7/FR-8 (Nothing to publish = empty diff), FR-11 (BUT only changed items), S-7 |
+
+**Attempt 1**
+- Files changed: new `server/src/admin-config/field-config/field-config-rules.ts` + spec, `field-config-diff.ts` + spec; edited `server/src/common/error-codes.ts` (+16), `error-codes.spec.ts` (+47: pin 14 → 15, title "eight" → "nine", appended class entries), `server/src/admin-config/admin-config.errors.ts` (+49: `FieldConfigCatalogMissingError` 409, `FieldConfigRevisionStaleError`, `FieldConfigNothingToPublishError`, plain-`Error` `FieldConfigTypeNotInTimelineError`, `FieldConfigNoVersionError`), `field-config/field-catalog.ports.ts` (re-exports `FieldCatalogMissingError`).
+- Red run (stubs returning `[]`): `25 failed | 27 passed`, on assertions (`expected [] to deeply equal [ { field: 'items[0].isCore', …} ]`). The error-code spec additions had no separate red: they were written with the classes, and a missing export is not a red.
+- Falsifiers (post-change, restored, `cmp` identical): isCore check disabled → 11 red; stop at the first issue → 3 red; unclassified as `null` → 13 red (`expected [ Array(504) ] to deeply equal []`).
+- Implementer verification: lint clean, build OK, unit `2114 passed`, e2e `779 passed` (13 files). Consumers green: error-codes.spec, openapi e2e, `src/common src/users src/admin-config` 1667 passed.
+- Evidence re-run (Leader-inline, non-author): **VERIFIED**: lint clean, build 0, unit `2114 passed (2114)`, e2e `779 passed (779)`.
+- Reviewer (lens checklist, effort high): **PASS**. Quote: "The three top-level codes match § 7.5 word for word… `NOT_ASSESSED` is added, the field-code pin moves 14 → 15 and new entries are only appended." It ruled all five Leader questions conformant; FR-4 storing omitted flags as false is a T-7 obligation (tasks.md T-7 "Switching off (stored)"). The named check (504 amendment) passed.
+- runtime events: none.
+
+spawns: implementer 25 calls, 136364 tokens, ended partial (Not Done / Assumptions: judgment calls only, no owed item); reviewer 19 calls, 65343 tokens, ended complete.
+
+**Not Done / Assumptions (Implementer, in substance)**
+1. Fixtures derive from the T-2 JSON via `shapeCatalog` / `applicableFields`; non-applicable fields are found by search.
+2. Normalising omitted flags is the service's job (it cited T-5; the owner is T-7); `validateDraftEdit` only reports contradictions.
+3. An unknown type reports `resultTypeKey` only (its field cannot be judged); flags are still judged. Repeats are flagged on later occurrences only.
+4. The effective-query errors are plain `Error` subclasses (§ 7.5, "no HTTP route yet"), and the spec asserts they are not `HttpException`.
+
+Leader adjudication: no blocker, no owed item.
+
+**ADVISORY (Reviewer — recorded, not tasks)**
+- RELIABILITY: FR-4 *Switching off* does not say what to store for an `assessed` item sent with the flags omitted: false, or the stored flags? The comment at `field-config-rules.ts:460` assumes false. **Forward pointer to T-7:** settle and pin it (it also decides FR-5 *Same values*). The Leader raised it to the back lead at the T-3 gate.
+- READABILITY: the comment at `field-config-rules.ts:448-449` ("no second code") is inexact for a repeated unknown-type pair.
+- READABILITY: `server/src/admin-config/AGENTS.md` does not list the new error classes yet. That is T-10's deliverable (the Reviewer cited T-11).
+- RISK: `FieldCatalogMissingError.message` is now the HttpException text; logs that need the year should use `.year`.
+
+**Final verification:** VERIFIED.
+
+**Decisions made (recorded as they happen)**
+- Forward pointer from T-2 carried in the brief: bind `FieldCatalogMissingError` to 409 `FIELD_CONFIG_CATALOG_MISSING`. The Leader narrowed how: the class moves to `admin-config.errors.ts` (keeping `.year`), and `field-catalog.ports.ts` re-exports it, so T-2's client and tests stay unchanged and green.

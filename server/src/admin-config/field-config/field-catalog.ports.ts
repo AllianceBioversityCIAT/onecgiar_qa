@@ -8,13 +8,8 @@ export interface FieldCatalogSource {
 }
 
 /**
- * Reporting has no catalog for the year (it answered 404). Plain typed error:
- * the HTTP binding (409 `FIELD_CONFIG_CATALOG_MISSING`) belongs to T-3. The
- * year is for logs only.
+ * Reporting has no catalog for the year (it answered 404). Defined in
+ * `admin-config.errors.ts` (409 `FIELD_CONFIG_CATALOG_MISSING`); re-exported so
+ * the catalog client keeps importing it from its port.
  */
-export class FieldCatalogMissingError extends Error {
-  constructor(readonly year: number) {
-    super(`No Reporting catalog exists for phase_year ${year}`);
-    this.name = 'FieldCatalogMissingError';
-  }
-}
+export { FieldConfigCatalogMissingError as FieldCatalogMissingError } from '../admin-config.errors.js';

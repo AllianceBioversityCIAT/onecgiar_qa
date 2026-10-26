@@ -112,7 +112,7 @@ T-4 ─────────────────────────�
 - **Skills:** nestjs-expert, error-handling-patterns, tdd
 
 ## T-3: Draft rules, diff and catalog codes
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** none
 - **Requirements:**
