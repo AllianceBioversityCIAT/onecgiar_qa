@@ -45,7 +45,7 @@
 - Reviewer (lens checklist, effort high): **PASS** — "The five tables match design § 5 column by column… Migration `0005` is additive only… These are behavioural pins on the generated DDL, not checks that a table merely exists."
 - runtime events: none.
 
-spawns: implementer 38 calls, 156736 tokens, ended partial (Not Done / Assumptions — judgment calls only, no owed item); reviewer not reported by host, ended complete.
+spawns: implementer 38 calls, 156736 tokens, ended partial (Not Done / Assumptions — judgment calls only, no owed item); reviewer 10 calls, 59888 tokens, ended complete.
 
 **Not Done / Assumptions (Implementer, in substance)**
 1. Hand-named constraints: `field_config_version_items_version_fk` (the generated name is 65 characters, over MySQL's 64), PKs `field_config_draft_items_pk`, `field_config_version_items_pk`; a new pin keeps every identifier in `0005` ≤ 64.
@@ -65,5 +65,56 @@ Leader adjudication: no blocker, no owed item; Reviewer accepted all six.
 **Decisions made**
 - Effort `high`.
 - **Execute-time spec edit (2026-10-26):** `design.md` § 5, `field_config_audit_events` row — `cycle_id` now drawn as `→ cycles.id`, matching the migration. Clarification only; no requirement changes. Carried to the T-2 Reviewer as a named conformance check.
+
+**Final verification:** VERIFIED.
+
+### T-2: Catalog reader per year — client, keyed cache, shaping — PASS
+
+| | |
+|---|---|
+| Date | 2026-10-26 |
+| Final status | PASS (attempt 1) |
+| Attempts | 1 |
+| Skills | nestjs-expert, error-handling-patterns, tdd (as listed) |
+| Effort | `medium` |
+| Requirements covered | FR-2 (Grouping and order; Year comes from the cycle; Catalog missing or down), NFR-6 |
+
+**Attempt 1**
+- Files changed: `server/src/users/catalogs/catalog-http.ts` (+16 -1: opt-in `notFound: 'outcome'` → `CATALOG_NOT_FOUND`), `catalog-http.spec.ts` (+33 -1, one `describe` added); new `server/src/admin-config/field-config/field-catalog.ports.ts` (`FIELD_CATALOG_SOURCE`, `FieldCatalogSource`, `FieldCatalogMissingError`), `field-config-catalog.ts` + spec, `reporting-qa-catalog.client.ts` + spec, `fixtures/reporting-qa-catalog-2026.json` (Leader-fetched, byte-unchanged).
+- Red run (stubs first): `42 failed | 7 passed (49)`, all on assertions, e.g. `expected [] to have a length of 70 but got +0`, `expected { catalogVersion: '', …(3) } to be an instance of FieldCatalogMissingError`.
+- Falsifiers (each red against the finished code, then restored, `diff` identical):
+  - F1 year from the clock → 3 red (`…phase_year=2027` URL; `expected '2026.30' to be '2027.1'`).
+  - F2 404 → 503 → 3 red (`expected UpstreamUnavailableError … to be an instance of FieldCatalogMissingError`).
+  - F3 section ties by key → `expected [ 'capacity_sharing', …(4) ] to deeply equal [ 'knowledge_product', …(4) ]`.
+  - F4 skip `"*"` → 10 red (`have a length of 50 but got 20`, …).
+- Implementer verification: lint clean, build 0, `Tests 2053 passed (2053)`. Consumer suites (catalog-http, clarisa-science-programs, reporting-result-types) 30 passed, importer sources unmodified.
+- Evidence re-run (Leader-inline, non-author): **VERIFIED**: lint OK, build OK, `Tests 2053 passed (2053)`, `src/users/catalogs` `46 passed`.
+- Reviewer (lens checklist, effort high): **PASS**. Quote: "`catalog-http.ts` only gains an opt-in branch placed before `!res.ok`, so the three importers keep 'every non-2xx → 503' (P-7)… The count amendment is internally consistent… F3 genuinely goes red." Both named checks passed.
+- runtime events: none.
+
+spawns: implementer 24 calls, 132690 tokens, ended partial (Not Done / Assumptions: judgment calls only, no owed item); reviewer 20 calls, 64639 tokens, ended complete.
+
+**Not Done / Assumptions (Implementer, in substance; Reviewer ruled each conformant)**
+1. Per-field flag name `is_new` (boolean); a non-boolean value → malformed → 503.
+2. Strict shaping: unknown type or section, or a missing `order` / `required` / `catalog_version` → typed 503, never skipped.
+3. The "no subfield" test counts 249 nested subfields (the doc's 217 are direct children).
+4. The cache reads `ADMIN_CONFIG_CLOCK`, not `CATALOG_CLOCK`. **Forward pointer to T-6/T-8:** provide it when wiring.
+5. `getJson` logs `upstream_not_found source=reporting` on an opted-in 404 (no URL or key).
+
+Leader adjudication: no blocker, no owed item.
+
+**ADVISORY (Reviewer — recorded, not tasks)**
+- RISK: a future non-boolean `is_new` or new Reporting field shape turns the whole catalog into 503; confirm the flag name/type with Reporting (S-6 request, T-10 pending item).
+- RELIABILITY: `expandTypes` accepts `["*", "bogus"]` as all types; duplicate section/field keys are not detected (would collide on the (type, field) PK at publish).
+- RELIABILITY: requirement uses truthiness of `required_when` (`{}` → conditional, `null` → optional); harmless on the fixture.
+- READABILITY: `malformed()` builds a `new Logger` per call.
+- RESILIENCE: the e2e fake clock is fixed (P-10), so the per-year cache never expires in an e2e run. **Forward pointer to T-8/T-9 briefs.**
+
+
+**Decisions made (recorded as they happen)**
+- **Fixture source (2026-10-26):** the back lead authorized the fetch and gave the TEST URL and key in chat. The Leader downloaded `GET https://prtest-back.ciat.cgiar.org/api/qa/catalog?phase_year=2026` into `server/src/admin-config/field-config/fixtures/reporting-qa-catalog-2026.json`: response body only, no key or headers (`grep -c cl_test` → 0). Checked: `catalog_version` `2026.30`, 9 result types, 25 sections, 161 fields, 30 fields with `"*"`.
+- **Execute-time spec edit (2026-10-26), approved by the back lead ("Sí, corrige"):** the `docs/reporting-catalog.md` § 2.3 per-type counts leave out the 30 `"*"` fields. With `"*"` expanded as FR-2 requires, the counts on the fixture are policy_change 50, innovation_use 70, other_outcome 43, capacity_sharing 51, knowledge_product 69, innovation_development 70, other_output 43, impact_contribution 43, innovation_package 65. Edited: `tasks.md` T-2 *Tests* and *Done when*; `design.md` § 5 *Size check* and DD-2 (234 → 504 rows per version). This corrects a number and does not change any requirement. Without the edit, T-2's falsifier (skip `"*"` expansion) would have turned the counts green instead of red. It is carried to the T-2 Reviewer as a named conformance check.
+- **Brief narrowing (2026-10-26):** `FieldCatalogMissingError` is defined in `admin-config/field-config/` as a plain typed error with no HTTP status and no catalog code, because `error-codes.ts` and `admin-config.errors.ts` belong to T-3 (serial boundary). **Forward pointer to T-3:** bind `FieldCatalogMissingError` to 409 `FIELD_CONFIG_CATALOG_MISSING`. Module wiring stays with T-6/T-8.
+- Skills as listed (nestjs-expert, error-handling-patterns, tdd). Effort `medium` (T2 default).
 
 **Final verification:** VERIFIED.

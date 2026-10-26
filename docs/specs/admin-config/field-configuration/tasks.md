@@ -65,7 +65,7 @@ T-4 ─────────────────────────�
 - **Skills:** nestjs-expert, nestjs-best-practices
 
 ## T-2: Catalog reader per year — client, keyed cache, shaping
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** none
 - **Requirements:**
@@ -79,7 +79,7 @@ T-4 ─────────────────────────�
   - New fixture `field-config/fixtures/reporting-qa-catalog-2026.json`: the TEST catalog `2026.30`, with the body only and no key or headers (the existing fixture has 1 field, P-5).
 - **Tests:**
   - `field-config-catalog.spec.ts` over the full fixture:
-    - per-type counts (`policy_change` 20, `innovation_use` 40, `other_outcome` 13, `capacity_sharing` 21, `knowledge_product` 39, `innovation_development` 40, `other_output` 13, `impact_contribution` 13, `innovation_package` 35);
+    - per-type counts of applicable fields, `"*"` expanded (`policy_change` 50, `innovation_use` 70, `other_outcome` 43, `capacity_sharing` 51, `knowledge_product` 69, `innovation_development` 70, `other_output` 43, `impact_contribution` 43, `innovation_package` 65; *edit* 2026-10-26: each is the `docs/reporting-catalog.md` § 2.3 count plus the 30 `"*"` fields, which that table leaves out);
     - `"*"` expanded;
     - the five order-50 sections ordered by array position;
     - fields grouped by section although interleaved in the payload;
@@ -108,7 +108,7 @@ T-4 ─────────────────────────�
   - Any change to `ReportingResultTypesClient` or `RESULT_TYPE_SOURCE` (S-11).
 - **Consumers:** `catalog-http.ts` importers `clarisa-science-programs.client.ts`, `reporting-result-types.client.ts`, `catalog-http.spec.ts` (P-7).
 - **Review:** full. It touches a shared HTTP helper and is the source of every field the spec shows.
-- **Done when:** the per-type counts match `docs/reporting-catalog.md` § 2.3; the three importers' tests are unchanged and green.
+- **Done when:** the per-type counts match the fixture with `"*"` expanded (§ 2.3 count + 30 per type); the three importers' tests are unchanged and green.
 - **Skills:** nestjs-expert, error-handling-patterns, tdd
 
 ## T-3: Draft rules, diff and catalog codes

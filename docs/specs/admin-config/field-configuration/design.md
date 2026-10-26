@@ -86,7 +86,7 @@ Migration `0005_field_configuration` is **additive**: five `CREATE TABLE` and th
   - `changes` is `{ "<resultTypeKey>.<fieldKey>": { before: OptionSet | null, after: OptionSet } }`.
   - `timelines` is `{ receive: [id], keep: [{ id, version }] }`.
 - **No delete paths.** Every FK uses `ON DELETE no action`, as in `0004`. Nothing deletes cycles, versions or users.
-- **Size check:** a version of the 2026 catalog has 234 rows. That is the sum of fields per type, a count from `docs/reporting-catalog.md` § 2.3.
+- **Size check:** a version of the 2026 catalog has 504 rows: the sum of applicable fields per type, `"*"` expanded (the `docs/reporting-catalog.md` § 2.3 per-type counts, 234, plus the 30 `"*"` fields under each of the 9 types). *Amended 2026-10-26 at T-2: the earlier 234 left out the `"*"` fields; measured on the TEST catalog fixture.*
 
 ## 6. API Design
 
@@ -234,7 +234,7 @@ No `client/` change (S-12). `front-contract.md` (FR-14) covers:
 | ID | Decision | Alternatives rejected | Consequence | Requirements |
 |---|---|---|---|---|
 | DD-1 | New module `admin-config/field-config` with its own store, reading the timelines tables through its own three-query read | Export `TimelinesStore` from `TimelinesModule` (it has no `exports`; this would couple field-config to timelines internals) | Small, duplicated read SQL for timeline starts; the timelines module is untouched | FR-7, FR-9 |
-| DD-2 | A version stores an option set for **every applicable field** at publish, unclassified as hidden | Store classified fields only and fill hidden from the catalog at read time | The effective query needs no catalog call, and a later catalog change cannot alter a published version (FR-12). About 234 rows per version | FR-8, FR-10, FR-12 |
+| DD-2 | A version stores an option set for **every applicable field** at publish, unclassified as hidden | Store classified fields only and fill hidden from the catalog at read time | The effective query needs no catalog call, and a later catalog change cannot alter a published version (FR-12). About 504 rows per version (amended 2026-10-26 at T-2) | FR-8, FR-10, FR-12 |
 | DD-3 | Full snapshot per version (proposal option A) | Deltas, or one JSON document | One indexed read for the effective query; the CHECK enforces FR-4 on every row | FR-4, FR-10 |
 | DD-4 | A new catalog port and client per year, with a keyed cache. `catalog-http.ts` gains an optional "not found" outcome; existing callers keep "every non-2xx → 503" | Change `ReportingResultTypesClient` to take a year (its consumers rely on the current-year rule, S-11); widen `CachedCatalog` (one slot, `catalog.service.ts:27`) | The 404 for a missing year becomes a typed 409 instead of 503 (FR-2). Every `catalog-http` caller is a consumer (P-7) | FR-2, NFR-6 |
 | DD-5 | Version per timeline compares the **Rome date** of `published_at` with step 1's `opens_on` (`romeDate(publishedAt) < opensOn`) | Store the version on the timeline at its start (needs a job, or a write on read); compare UTC instants | No job and no write, and the answer for a started timeline never changes (published versions are immutable; *edit* FR-3 locks a started step 1). The opening day falls to the old version (S-5) | FR-9, NFR-4 |
