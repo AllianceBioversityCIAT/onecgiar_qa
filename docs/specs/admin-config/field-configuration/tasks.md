@@ -359,7 +359,7 @@ T-4 ─────────────────────────�
 - **Skills:** nestjs-expert
 
 ## T-10: Docs — module guide, front contract, TRD pending item
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** S
 - **Depends on:** T-9
 - **Requirements:** FR-14; S-1 (comment unit, noted for the comments spec); S-6 (Reporting "new" flag request)

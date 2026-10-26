@@ -482,3 +482,63 @@ spawns (T-9 total): implementer 1 worker, resumed twice. The host reported 39 ca
 **Requirements covered (T-9):** the HTTP side of FR-1…FR-8 and FR-11…FR-13, NFR-1, NFR-2, NFR-3 (fake), NFR-7, NFR-8.
 
 **Final verification:** VERIFIED.
+
+### T-10: Docs — module guide, front contract, TRD pending item — PASS (attempt 2)
+
+**Decisions made (recorded as they happen)**
+- Forward pointers carried into the brief:
+  - Guide (`server/src/admin-config/AGENTS.md`): nine logged actions, `FieldConfigBusyError`, the field-config module (T-7).
+  - Front contract:
+    - `keep[].version` may be null (T-6).
+    - In a replay, a timeline deleted after the publication shows `name: ''` and `opensOn: null` (T-8).
+    - S-14: send both flags to keep them on (T-3/T-4).
+    - The edit's no-op answer may show a slightly stale draft (T-7).
+    - DELETE can answer 409 `FIELD_CONFIG_CATALOG_MISSING` / 503 (T-7).
+    - Publish answers 201 (T-8).
+  - Pending items for `staging` / owners:
+    - TRD § 5.1 and § 6.
+    - Reporting RC-5 (the per-field flag name `is_new`, boolean).
+    - `VALUES()` deprecated, a TRD pending item (T-5).
+    - `server/src/common/AGENTS.md:28`: the third replay reader stores a version id (T-8; a shared guide, so it is a pending item, not edited here).
+    - The open question on unclassified-after-discard (T-9), for the business owner.
+    - Driver `timezone` and the deadlock paths, for T-11 (T-5).
+- The client file is cited from `origin/staging-center`: `client/src/app/pages/workspace/fields/fields-publish-confirm.ts:11` (`subtitle="Applies to results loaded from now on…"`), checked by the Leader.
+- Skills: cognitive-doc-design (as listed). Effort `medium`.
+
+**Attempt 1: FAIL (Reviewer)**
+- Files changed: `server/src/admin-config/AGENTS.md` (+40 -6), new `docs/specs/admin-config/field-configuration/front-contract.md` (162 lines).
+- Five-code grep (Leader re-run): all five present (4/4/6/1/3). Falsifier check: contract § 7 line 111 matches `versionFor` (`field-config-versions.ts:96-117`).
+- Reviewer (lens checklist, effort high): **FAIL**. Issues, verbatim:
+  > 1. Contract line 3 says client files are "on branch `staging-center`, never on this branch". That is false. `client/src/app/pages/workspace/fields/*` is tracked on `feat/field-configuration`: the branch was cut from staging-center and git status shows those files as neither modified nor untracked. A front lead who opens this branch will find the files and doubt the contract. — Violated Rule: `tasks.md` T-10 Scope "Every claim is written from the code at HEAD", and Disqualifier (branch naming). — Remediation: "client files and line numbers are cited from `staging-center` (this branch carries them unchanged from `0b62fd1`; check `staging-center` for later edits)".
+  > 2. In contract § 8, the row "Lost answer, timeout or 5xx, same body → Same key: the first answer comes back with `Idempotency-Replayed: true` and nothing runs again" is wrong for 5xx. The interceptor stores only 4xx refusals. A 5xx frees the key (`idempotency.interceptor.ts:108-112, 316-325`)… A retry after a 503 busy runs the publish again and has no `Idempotency-Replayed` header. — Violated Rule: T-10 Scope (claims from code at HEAD); FR-14. — Remediation: split the row: (a) answer lost or timed out after a commit → same key, stored answer replayed with `Idempotency-Replayed: true`; (b) 5xx (incl. 503 busy) → same key, nothing stored, the request runs again; a concurrent duplicate may get 409 `IDEMPOTENCY_IN_PROGRESS`.
+- ADVISORY: § 2's answer order should say "after the request shape is checked" (pipe 400s come first); cite the `bumpRevision` WHERE range; name migration `0005` in the guide.
+- spawns: implementer 26 calls, 149997 tokens, ended complete.
+- Attempt 2: effort medium → high, the same worker resumed with the FAIL verbatim.
+
+**Attempt 2: PASS**
+- Files changed: `front-contract.md`:
+  - line 3 now names both branches;
+  - § 8 is split into a "replayed after commit" row and a "5xx frees the key" row;
+  - § 2 lists pipe 400s first.
+- `server/src/admin-config/AGENTS.md`: the `bumpRevision` range is cited, and migration `0005` is named.
+- Evidence (Leader-inline): the five-code grep finds all five; `idempotency.interceptor.ts:103-111` is `isRefusal` (4xx only); `server/drizzle/0005_field_configuration.sql` exists.
+- Reviewer (resumed): **PASS**. Quote: "Both issues from attempt 1 are fixed, the new sentences match the code at HEAD, and nothing regressed." Named checks hold: publish 201; DELETE lists 409 `FIELD_CONFIG_CATALOG_MISSING` and 503. The falsifier holds: § 7 and the guide agree with `versionFor`.
+- ADVISORY: § 8 cites the interceptor with two slightly different ranges (use `:103-112, 309-325`); the guide's `:412-440` could be `:412-439`.
+- spawns: implementer resumed, 7 calls, 159611 tokens cumulative, ended complete; reviewer 30 calls, 100594 tokens (attempt 1), resumed for attempt 2 (not reported by host), ended complete.
+
+**Requirements covered (T-10):** FR-14; S-1 (noted for the comments spec); S-6 (Reporting request).
+
+**Final verification:** VERIFIED.
+
+## Pending items (recorded at T-10; to apply on `staging` or hand to their owners)
+
+| # | Item | Owner / where |
+|---|---|---|
+| PI-1 | TRD § 5.1: five tables replace the single `field_configs` row (`field_config_drafts`, `field_config_draft_items`, `field_config_versions`, `field_config_version_items`, `field_config_audit_events`) | `staging`, TRD sync at `/akili-archive` |
+| PI-2 | TRD § 6: five routes under `/cycles/:id/field-config`; three codes `FIELD_CONFIG_CATALOG_MISSING`, `FIELD_CONFIG_REVISION_STALE`, `FIELD_CONFIG_NOTHING_TO_PUBLISH`; field code `NOT_ASSESSED` | `staging`, TRD sync |
+| PI-3 | Reporting RC-5 / S-6: a per-field "new" flag. QA reads `is_new` as a boolean; any other type makes the catalog malformed (503, `field-config-catalog.ts:119-121`). The name and type need confirming. Today it is never sent, so `isNew` is always `false` | Back lead + Reporting |
+| PI-4 | `upsertDraftItems` uses `VALUES()`, deprecated since MySQL 8.0.20 (`field-config.store.ts:397`) | TRD pending; revisit on a MySQL upgrade |
+| PI-5 | `server/src/common/AGENTS.md:28`: add the third replay reader, whose stored target id is a **version id** | `staging` (shared guide) |
+| PI-6 | **Open question for the business owner (Angel Jarrín):** after the first publication and a discard, every field has a draft row, so no field can read "unclassified" again (DD-2 + FR-6). Is that intended? | Business owner; `front-contract.md` § 10 |
+| PI-7 | T-11 checks on MySQL: the driver `timezone` and the `published_at` round-trip; a concurrent first `ensureDraft`; a 1213 during publish; the `findPublication` join | Back lead (T-11) |
+| PI-8 | S-1 for the comments spec: a comment covers the field with all its sub-options, never one subfield | comments spec |
