@@ -201,6 +201,9 @@ export class AssessorsStore {
     const cat = this.catalogState();
 
     const nick = input.nick.trim();
+    // Names change only until the first sign-in (the server answers NAME_LOCKED after it).
+    const firstName = before.namesLocked ? before.firstName : input.firstName.trim();
+    const lastName = before.namesLocked ? before.lastName : input.lastName.trim();
     const sameRoles = sameGrants(
       rolesFor(input.role, input.lead, input.role === 'Assessor' ? input.types : [], cat),
       rolesFor(before.role, before.lead, before.types, cat),
@@ -221,7 +224,8 @@ export class AssessorsStore {
       return { ok: false, field: 'programs', message: 'Blocking that program leaves them none. Pick the programs they can assess.' };
     }
     const samePrograms = JSON.stringify(programsFor(input.programs, cat)) === JSON.stringify(programsFor(before.programs, cat));
-    if (nick === before.nick && sameRoles && samePrograms && ids(afterManual) === ids(beforeManual)) return { ok: true };
+    const sameNames = firstName === before.firstName && lastName === before.lastName;
+    if (nick === before.nick && sameNames && sameRoles && samePrograms && ids(afterManual) === ids(beforeManual)) return { ok: true };
 
     try {
       const detail = await firstValueFrom(
@@ -229,6 +233,8 @@ export class AssessorsStore {
           Number(id),
           {
             ...(nick !== before.nick ? { nickname: nick } : {}),
+            ...(firstName !== before.firstName ? { firstName } : {}),
+            ...(lastName !== before.lastName ? { lastName } : {}),
             // PUT replaces the whole role set: when the role on screen did not change, a person with
             // grants the screen cannot show (`otherRoles`) gets the server's own grants back untouched.
             roles: sameRoles && before.otherRoles ? this.rawRoles(id) : rolesFor(input.role, input.lead, input.role === 'Assessor' ? input.types : [], cat),

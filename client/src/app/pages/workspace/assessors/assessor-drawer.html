@@ -4,8 +4,8 @@
     <span qaDrawerHeader aria-hidden="true" class="flex size-9 items-center justify-center rounded-full bg-(--tint-2) font-(family-name:--qa-mono) text-(length:--fs-13) font-semibold text-(--accent) tabular-nums">{{ initialsOf(p.name) }}</span>
   }
   @if (session() && (isNew() || person())) {
-    @if (isNew()) {
-      <!-- The API keeps first and last name apart; the list shows them joined. -->
+    @if (namesEditable()) {
+      <!-- The API keeps first and last name apart; the list shows them joined. Editable until the first sign-in. -->
       <div class="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
       <div class="flex flex-col items-stretch gap-1.5">
         <div class="flex items-center gap-1">
@@ -52,6 +52,8 @@
         }
       </div>
       </div>
+    }
+    @if (isNew()) {
       <div class="flex flex-col items-stretch gap-1.5">
         <div class="flex items-center gap-1">
           <label for="assessor-drawer-email" class="text-(length:--fs-13) font-semibold text-(--text-2)">Email address</label>
