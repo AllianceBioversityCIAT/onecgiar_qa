@@ -159,3 +159,46 @@ Leader adjudication: no blocker, no owed item.
 
 **Decisions made (recorded as they happen)**
 - Forward pointer from T-2 carried in the brief: bind `FieldCatalogMissingError` to 409 `FIELD_CONFIG_CATALOG_MISSING`. The Leader narrowed how: the class moves to `admin-config.errors.ts` (keeping `.year`), and `field-catalog.ports.ts` re-exports it, so T-2's client and tests stay unchanged and green.
+
+### T-4: Version resolution and receive / keep — PASS
+
+| | |
+|---|---|
+| Date | 2026-10-26 |
+| Final status | PASS (attempt 1) |
+| Attempts | 1 |
+| Skills | nestjs-best-practices, tdd (as listed) |
+| Effort | `high` (see decisions) |
+| Requirements covered | FR-9 (all six scenarios), FR-7 *Changes and timelines* (receive / keep / neither, DD-8), NFR-4 |
+
+**Attempt 1**
+- Files changed: new `server/src/admin-config/field-config/field-config-versions.ts` (`versionFor`, `receiveAndKeep`; exported `TimelineStart`, `PublishedVersion`, `VersionResolution`, `ReceiveAndKeep`), `field-config-versions.spec.ts` (60 table-driven cases).
+- Red run (stubs with the final types): `53 failed | 7 passed (60)`, all `AssertionError` (e.g. `expected 'none' to deeply equal { number: 1, provisional: false }`). The 7 passing cases expect the stub's own answer.
+- Falsifiers (post-change, `TZ=UTC`, restored, `diff` identical): `<` → `<=` 13 red (opening day 09:00 Rome; 00:00 winter/summer; 00:30 Rome = 23:30Z); UTC dates 22 red; fall back to latest 2 red (`expected { number: 1, provisional: false } to be 'none'`); start `<= 0` → `< 0` 10 red; finished `> 0` → `>= 0` 3 red.
+- Implementer verification: lint 0 warnings, build 0, `Tests 2174 passed (2174)`; the spec under `TZ=UTC` and `TZ=America/Bogota` gives `60 passed` each.
+- Evidence re-run (Leader-inline, non-author): **VERIFIED**: lint clean, build 0, `2174 passed (2174)`, `60 passed (60)` under both TZ.
+- Reviewer (lens checklist, effort high): **PASS**. Quote: "Every Tests bullet and Falsifier in tasks.md § T-4 is covered by an instant that crosses midnight in Rome, and the suite runs under both `TZ` values." The named checks passed: S-14 is consistent with FR-4, FR-5 and `field-config-rules.ts:60-64`, and the 504 amendment is untouched. All four Leader points were ruled conformant: finished is dates-only per the § 7.3 input; the `now` parameter is required by the design's own rule; not started with no versions gives `none`; empty `changedTypes` gives empty lists.
+- runtime events: none.
+
+spawns: implementer 24 calls, 125113 tokens, ended partial (Not Done / Assumptions: judgment calls only, no owed item); reviewer 13 calls, 51111 tokens, ended complete.
+
+**Not Done / Assumptions (Implementer, in substance)**
+1. "Finished" is dates-only (today in Rome after the last `closes_on`). `viewTimeline` lets the load hold win, so the timelines screen shows a held timeline past its close as `waiting_for_load`.
+2. The signature adds `now: Date`, and `publishedAt` is an instant (Rome day derived inside).
+3. `'none'` is a string literal; `receive` holds ids only (T-6 joins names). *On hold* is covered by the rule that `opensOn` alone decides.
+
+Leader adjudication: no blocker, no owed item.
+
+**ADVISORY (Reviewer — recorded, not tasks)**
+- RISK (spec gap): a started timeline on load hold past its last `closes_on` is left out of the preview/audit lists while the timelines screen still shows it as `waiting_for_load`. Until loads exist, every started timeline is held in the view. **Raised to the back lead at the T-4 gate as a one-line amendment proposal (DD-8a).**
+- READABILITY: design § 7.1 `versionFor` signature outdated → **amended** (below).
+- RELIABILITY: a not-started timeline with no versions resolves to `'none'` without a provisional marker. **Forward pointer to T-6:** decide whether the effective query (FR-10) treats it as the same "no configuration" error.
+- RELIABILITY (S-14): **forward pointer to T-7:** FR-5 *Same values* must compare items after normalising omitted flags to false.
+
+
+**Decisions made (recorded as they happen)**
+- **Execute-time spec edit (2026-10-26), approved by the back lead ("La A"):** this resolves the T-3 Reviewer advisory on FR-4. `requirements.md` gains decision **S-14** ("an omitted flag is false", also for `assessed`) and an AND line in FR-4 *Switching off*. It fills a gap and does not reverse an approved clause. Carried to the T-4 Reviewer as a named conformance check and **forward pointer to T-7** (store and pin it; FR-5 *Same values* compares against the normalised item) and T-10 (`front-contract.md`: send both flags to keep them on).
+- **Execute-time spec edit (2026-10-26, Leader, clarification):** `design.md` § 7.1 `versionFor` row now reads `(timeline, versions, now)` with `publishedAt` an instant. It matches the code and does not change the rule. Carried to the T-5 Reviewer as a named check.
+- Skills: nestjs-best-practices, tdd (as listed). Effort `high`, above the T2 default: the date-boundary rule is what P2-3907 AC 13–14 depend on (Rome midnight, DST, two TZ).
+
+**Final verification:** VERIFIED.

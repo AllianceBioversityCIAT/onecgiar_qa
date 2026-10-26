@@ -32,6 +32,7 @@
 | S-11 | `GET /catalogs/result-types` keeps its current year rule | Q-11 |
 | S-12 | Back only; `front-contract.md` tells the front how to replace its mock | Q-12 |
 | S-13 | **A timeline that has started keeps the version it started with until it finishes.** A later version reaches only timelines that have not started (P2-3907 AC 14). *Accepted at the requirements gate (2026-10-26) over the Q-8 wording "fields are removed or added on results when batches are on-going"* | Q-14 |
+| S-14 | **An omitted flag is false.** Each draft-edit item describes the whole option set: `isCore` or `isAiInput` left out is stored `false`, also when `visibility` is `assessed`. *Back lead, 2026-10-26, during `/akili-execute` (T-3 gate, option A)* | T-3 Reviewer advisory |
 
 ## 2. Executive Summary
 
@@ -163,6 +164,7 @@ An option set SHALL have `is_core` or `is_ai_input` true only when `visibility` 
 - GIVEN a field stored `assessed`, core and AI input
 - WHEN the ADMIN sets it to `hidden` without sending the two flags
 - THEN it is stored `hidden` with `is_core = false` and `is_ai_input = false`
+- AND an `assessed` item sent without the flags is stored with both `false` (S-14)
 - AND IT MUST be impossible to store the contradiction even by a direct database write (constraint)
 
 ### FR-5: Edit the draft

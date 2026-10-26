@@ -154,7 +154,7 @@ T-4 ─────────────────────────�
 - **Skills:** nestjs-best-practices, error-handling-patterns, api-design-principles, tdd
 
 ## T-4: Version resolution and receive / keep
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** none
 - **Requirements:**
