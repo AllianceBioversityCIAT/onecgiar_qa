@@ -328,7 +328,7 @@ T-4 ─────────────────────────�
 - **Skills:** nestjs-expert, api-design-principles
 
 ## T-9: e2e — field configuration over HTTP
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-8
 - **Requirements:** the HTTP side of FR-1…FR-13 and NFR-1, NFR-2, NFR-3 (fake), NFR-7, NFR-8.

@@ -396,7 +396,7 @@ spawns: implementer 44 calls, 253620 tokens, ended complete; reviewer 19 calls, 
   - DTOs and `admin-config-app.ts` conform.
 - runtime events: none.
 
-spawns: implementer 50 calls, 164755 tokens, ended checkpoint; implementer (respawn 1) 6 calls, 62568 tokens, ended checkpoint; implementer (respawn 2) 8 calls, 65850 tokens, ended complete; reviewer not reported by host, ended complete.
+spawns: implementer 50 calls, 164755 tokens, ended checkpoint; implementer (respawn 1) 6 calls, 62568 tokens, ended checkpoint; implementer (respawn 2) 8 calls, 65850 tokens, ended complete; reviewer 23 calls, 69434 tokens, ended complete.
 
 **Decisions / spec edits**
 - **Execute-time spec edit (Leader, at the Reviewer's request):** `tasks.md` T-9 *Tests* replay line "the first 200" becomes "the first answer (201, the publish route's status)". FR-8 says "the first answer", and the interceptor replays the route status. Carried to the T-9 brief and Reviewer.
@@ -415,3 +415,70 @@ spawns: implementer 50 calls, 164755 tokens, ended checkpoint; implementer (resp
 - Skills: nestjs-expert, api-design-principles (as listed). Effort `medium`.
 - checkpoints: 1 (resource-guard blocked `pnpm test:e2e` five times; about 48 calls). The remaining work was the full e2e run and the router listing. The Leader started a fresh Implementer with the checkpoint report verbatim. The attempt counter did not change.
 - checkpoints: 2 (the respawn was blocked by resource-guard on 3 e2e attempts: 3.3–4.1 GB free against 4.5 GB required, swap 2.2 GB). No code change and no failure. One checkpoint is left before the cap HALTs the task; the Leader asked the back lead about RAM / `RG_FORCE` before respawning.
+
+### T-9: e2e — field configuration over HTTP — PASS (attempt 3)
+
+**Decisions made (recorded as they happen)**
+- Carried into the brief:
+  - the `@Idempotent()` falsifier (owed from T-8);
+  - the replay asserts the first answer, 201 (the T-8 edit);
+  - the catalog fake hooks `fieldCatalogs.missingYears` / `down`;
+  - the fake clock is fixed (P-10).
+- [advisory-grade] items, tagged in the brief:
+  - assert one catalog read per preview request (T-6);
+  - two admins editing the same field over HTTP (T-5 Opus).
+- Skills: nestjs-expert (as listed). Effort `medium`.
+
+**Attempt 1: implicit FAIL (evidence re-run MISMATCH)**
+- Files changed: new `server/test/admin-config-field-config.e2e-spec.ts` (1408 lines, 81 cases). Harness untouched.
+- Red run (with `FieldConfigModule` unmounted): `80 failed | 1 passed (81)` (`whole view: expected 404 to be 200`). Restored, `shasum` OK.
+- Falsifiers:
+  - `@Idempotent()` removed → 2 red, `expected 409 to be 201`. The replay became a stale 409, not a second version; still red.
+  - `forbidNonWhitelisted` dropped → 2 red, `expected 200 to be 400`.
+  - Both restored, `shasum` OK.
+- Implementer verification: new file `81 passed`, full e2e `860 passed` (14 files). It reported "`oxlint` on the new file is clean".
+- Evidence re-run (Leader-inline): **MISMATCH**.
+  - `pnpm lint` printed `test/admin-config-field-config.e2e-spec.ts:1116:24: warning typescript(require-array-sort-compare): Require 'compare' argument.` (exit 0).
+  - `server/AGENTS.md` § Verification: "`pnpm lint` … must print 0 warnings".
+  - Build 0, unit `2299 passed` and e2e `860 passed` matched.
+- No Reviewer ran (MISMATCH → FAIL). Attempt 2: effort medium → high; the same worker resumed by message with the mismatch verbatim.
+- Note: the e2e world's timeline result-type keys (`KP`, `INNOVATION_DEV`) are not catalog keys, so the FR-7 timelines were seeded directly. The Leader checked production: timeline result types come from the same Reporting catalog `result_types[].key` (`reporting-result-types.client.ts:25-50`), so no integration gap exists. This is test-fixture drift only.
+- spawns: implementer 39 calls, 173470 tokens, ended complete.
+
+**Attempt 2: FAIL (Reviewer)**
+- Files changed: `server/test/admin-config-field-config.e2e-spec.ts` line 1116 (`.sort((x, y) => x - y)`).
+- Implementer verification: `pnpm lint` printed no warnings; build OK; unit `2299 passed`; e2e `860 passed`.
+- Evidence re-run (Leader-inline): **VERIFIED**: lint clean, build 0, e2e `860 passed`. The sampled sweep lines all call `refused(`.
+- Reviewer (lens checklist, effort high): **FAIL**. The issue, verbatim:
+  > 1. Discovered Issue: FR-7 *Nothing to publish* is never tested in its stated case, a draft equal to an existing latest version. The test at lines 923–940 is titled "reports no changes when the draft equals the latest version", but it asserts that the closed cycle has **one** change (line 930). Its only no-changes check is a fresh cycle with no version at all (`basedOn: null`, line 936). No test calls `preview(` after a publish has left the draft equal to the version. The only `preview(` calls are at 896, 926 and 933. The test name claims coverage the assertions do not give.
+  > Violated Rule: `requirements.md` § FR-7, Scenario *Nothing to publish*: "GIVEN the draft equals the latest version … THEN it reports no changes". `requirements.md` § 8 maps FR-7 *Nothing to publish* to T-9. `tasks.md` § T-9 *Done when*: "every FR scenario listed has an HTTP case".
+  > Remediation Suggestion: In a draft or active cycle, run `edit(id, [item('policy_change','general.title')])`, then call `preview(id)`. Assert `toEqual({ revision: <current>, basedOn: 1, changes: [], timelines: { receive: [], keep: [] } })`, and assert that `stored()` and the write log are unchanged. Then rename the line-923 test, or split it, so its title matches what it asserts (a closed cycle still previews; a fresh cycle has no changes).
+- Reviewer rulings:
+  - The replay falsifier is adequate. The corrected symptom is a stale 409, not a second version: without the interceptor, the stale check refuses the repeat first.
+  - The 2,001-item boundary stays in the DTO unit spec (413 comes first over HTTP).
+  - After a discard every field has a draft row, so `unclassified: false` is conformant (DD-2, FR-6). **Open question for the business owner:** once a version is published and then discarded, no field can read as unclassified again.
+  - The FR-7 seeding is fixture drift only.
+- ADVISORY (recorded): the [advisory-grade] items are confirmed (one catalog read per preview at line 918; two admins at lines 681–707). Also suggested: pin `unclassified: false` after discard; e2e rows for `isNew: true`, subfields and ties; a 2,001-items→413 / 2,000-accepted HTTP pair; and readability at lines 1182–1208.
+- Attempt 3 (last): effort high → xhigh, the same worker resumed with the FAIL verbatim.
+
+**Attempt 3: PASS**
+- Files changed: `server/test/admin-config-field-config.e2e-spec.ts`. A new case at 923 covers FR-7 *Nothing to publish* with the draft equal to version 1: full object, write log and `stored()` unchanged. The overclaiming test was split (944, 958), and three more titles were narrowed (368, 836, ~1346).
+- Falsifier: the preview's diff computed against `null` gives `3 failed | 80 passed (83)`, the new case included. Restored, `shasum` OK.
+- Implementer verification: `pnpm lint` shows 0 warnings, build OK, unit `2299 passed`, e2e `862 passed` (14 files; this spec 83).
+- Evidence re-run (Leader-inline, non-author): **VERIFIED**: lint shows no warnings, build 0, unit `2299 passed`, e2e `862 passed`.
+- Reviewer (lens checklist, effort high; resumed reviewer of attempt 2): **PASS**. Quote: "my issue 1 from attempt 2 is fixed, and every refusal still goes through `refused`." The Disqualifier holds: `expectError(` appears only inside `refused` (line 198) and in the inline race loser (line 1154). The named check (replay 201 + `Idempotency-Replayed`, one version, one audit row) passes.
+- runtime events: none.
+
+spawns (T-9 total): implementer 1 worker, resumed twice. The host reported 39 calls / 173470 tokens (attempt 1), 4 calls / 176106 tokens cumulative (attempt 2) and 5 calls / 185510 tokens cumulative (attempt 3); the token counts are cumulative context, and every run ended complete. Reviewer: 1 worker, resumed once (12 calls / 61306 tokens, then not reported by host); it ended complete.
+
+**Corrected falsifier record (T-8 → T-9):** with `@Idempotent()` removed, the replay answers a stale 409, not a second version: the stale check refuses the repeat first. The case still goes red (`expected 409 to be 201`).
+
+**ADVISORY (Reviewer — recorded, not tasks)**
+- RELIABILITY: the discard-to-version case does not assert `unclassified: false`. **Open question for the business owner (recorded here, carried to T-10's pending list):** after the first publish and a discard, every field has a draft row, so no field can read "unclassified" again (DD-2 + FR-6). Is that intended?
+- RESILIENCE: no HTTP pair of 2,000 items accepted / 2,001 → 413.
+- RELIABILITY: FR-2 `isNew: true`, the subfield exclusion and the tie-break are covered at T-2 and T-6 only.
+- READABILITY: an unused `first` in the "replay after version 2" case.
+
+**Requirements covered (T-9):** the HTTP side of FR-1…FR-8 and FR-11…FR-13, NFR-1, NFR-2, NFR-3 (fake), NFR-7, NFR-8.
+
+**Final verification:** VERIFIED.
