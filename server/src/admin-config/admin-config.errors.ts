@@ -102,3 +102,52 @@ export class TimelineValidationError extends BadRequestException {
     });
   }
 }
+
+/**
+ * Reporting has no catalog for the cycle's year (it answered 404): 409
+ * `FIELD_CONFIG_CATALOG_MISSING` (field-configuration design 7.5). The year is
+ * for logs only, never part of the answer.
+ */
+export class FieldConfigCatalogMissingError extends ConflictException {
+  constructor(readonly year: number) {
+    super(errorBody('FIELD_CONFIG_CATALOG_MISSING'));
+  }
+}
+
+/** A publish made on a draft revision that is no longer the stored one (FR-8). */
+export class FieldConfigRevisionStaleError extends ConflictException {
+  constructor() {
+    super(errorBody('FIELD_CONFIG_REVISION_STALE'));
+  }
+}
+
+/** A publish whose draft equals the latest version (FR-8, S-9). */
+export class FieldConfigNothingToPublishError extends ConflictException {
+  constructor() {
+    super(errorBody('FIELD_CONFIG_NOTHING_TO_PUBLISH'));
+  }
+}
+
+/**
+ * Effective-query errors (design 7.5): thrown to in-process callers only, with
+ * no HTTP route yet, so they are plain errors with no catalog code.
+ */
+export class FieldConfigTypeNotInTimelineError extends Error {
+  constructor(
+    readonly timelineId: number,
+    readonly resultTypeKey: string,
+  ) {
+    super(
+      `Timeline ${timelineId} does not cover the result type ${resultTypeKey}`,
+    );
+    this.name = 'FieldConfigTypeNotInTimelineError';
+  }
+}
+
+/** The timeline resolves to no published version of the field configuration. */
+export class FieldConfigNoVersionError extends Error {
+  constructor(readonly timelineId: number) {
+    super(`Timeline ${timelineId} resolves to no field configuration version`);
+    this.name = 'FieldConfigNoVersionError';
+  }
+}

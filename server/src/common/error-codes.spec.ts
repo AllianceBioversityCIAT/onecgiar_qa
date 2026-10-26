@@ -26,6 +26,11 @@ import {
   CycleNotDraftError,
   CycleNotFoundError,
   CycleYearTakenError,
+  FieldConfigCatalogMissingError,
+  FieldConfigNoVersionError,
+  FieldConfigNothingToPublishError,
+  FieldConfigRevisionStaleError,
+  FieldConfigTypeNotInTimelineError,
   TimelineAssignmentNotFoundError,
   TimelineInProgressUnconfirmedError,
   TimelineNameTakenError,
@@ -149,6 +154,15 @@ describe('domain errors declare a catalog code with the same status', () => {
       'TimelineValidationError',
       new TimelineValidationError([{ field: 'name', code: 'REQUIRED' }]),
     ],
+    [
+      'FieldConfigCatalogMissingError',
+      new FieldConfigCatalogMissingError(2030),
+    ],
+    ['FieldConfigRevisionStaleError', new FieldConfigRevisionStaleError()],
+    [
+      'FieldConfigNothingToPublishError',
+      new FieldConfigNothingToPublishError(),
+    ],
   ];
 
   it.each(errors)('%s', (_name, error) => {
@@ -258,7 +272,37 @@ describe('cycle and timeline errors (cycle-timelines FR-11, DD-8)', () => {
     });
   });
 
-  it('has exactly the eight new field codes beside the six existing ones', () => {
+  it('answers the field-configuration refusals with the texts of design 7.5', () => {
+    expect(new FieldConfigCatalogMissingError(2030).getStatus()).toBe(409);
+    expect(new FieldConfigCatalogMissingError(2030).getResponse()).toEqual({
+      code: 'FIELD_CONFIG_CATALOG_MISSING',
+      message: "No Reporting catalog exists for this cycle's year.",
+    });
+    expect(new FieldConfigCatalogMissingError(2030).year).toBe(2030);
+    expect(new FieldConfigRevisionStaleError().getResponse()).toEqual({
+      code: 'FIELD_CONFIG_REVISION_STALE',
+      message:
+        'The draft changed after you reviewed it. Reload and review the changes again.',
+    });
+    expect(new FieldConfigNothingToPublishError().getResponse()).toEqual({
+      code: 'FIELD_CONFIG_NOTHING_TO_PUBLISH',
+      message: 'There are no changes to publish.',
+    });
+  });
+
+  it('keeps the effective-query errors in-process: no HTTP status, no catalog code (design 7.5)', () => {
+    const notInTimeline = new FieldConfigTypeNotInTimelineError(7, 'KP');
+    const noVersion = new FieldConfigNoVersionError(7);
+    expect(notInTimeline).not.toBeInstanceOf(HttpException);
+    expect(noVersion).not.toBeInstanceOf(HttpException);
+    expect(notInTimeline).toBeInstanceOf(Error);
+    expect(noVersion).toBeInstanceOf(Error);
+    expect(notInTimeline.timelineId).toBe(7);
+    expect(notInTimeline.resultTypeKey).toBe('KP');
+    expect(noVersion.timelineId).toBe(7);
+  });
+
+  it('has exactly the nine new field codes beside the six existing ones', () => {
     expect(Object.keys(FIELD_ERRORS).sort()).toEqual(
       [
         'REQUIRED',
@@ -275,6 +319,7 @@ describe('cycle and timeline errors (cycle-timelines FR-11, DD-8)', () => {
         'ROUND_SEQUENCE',
         'FIRST_STEP_LOAD',
         'LOCKED',
+        'NOT_ASSESSED',
       ].sort(),
     );
   });

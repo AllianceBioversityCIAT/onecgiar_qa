@@ -14,3 +14,8 @@ export * from './timeline-result-types.js';
 export * from './timeline-steps.js';
 export * from './timeline-users.js';
 export * from './timeline-audit-events.js';
+export * from './field-config-drafts.js';
+export * from './field-config-draft-items.js';
+export * from './field-config-versions.js';
+export * from './field-config-version-items.js';
+export * from './field-config-audit-events.js';

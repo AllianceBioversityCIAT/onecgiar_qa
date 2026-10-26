@@ -36,6 +36,13 @@
       "when": 1792614697831,
       "tag": "0004_timeline_edit",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1793024411607,
+      "tag": "0005_field_configuration",
+      "breakpoints": true
     }
   ]
 }

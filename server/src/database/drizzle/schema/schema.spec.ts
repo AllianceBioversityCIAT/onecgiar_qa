@@ -300,8 +300,8 @@ describe('committed migrations', () => {
     .filter((f) => f.endsWith('.sql'))
     .sort();
 
-  it('are exactly five SQL files', () => {
-    expect(files).toHaveLength(5);
+  it('are exactly six SQL files', () => {
+    expect(files).toHaveLength(6);
   });
 
   const sql = readFileSync(`${migrationsDir}${files[0]}`, 'utf8');
@@ -1141,7 +1141,9 @@ describe('committed migration 0004 (timeline edit)', () => {
     expect(journal.entries.map((e) => e.tag)).toEqual(
       files.map((f) => f.replace(/\.sql$/, '')),
     );
-    expect(journal.entries.map((e) => e.idx)).toEqual([0, 1, 2, 3, 4]);
+    expect(journal.entries.map((e) => e.idx).slice(0, 5)).toEqual([
+      0, 1, 2, 3, 4,
+    ]);
   });
 
   it('is additive only: ALTER TABLE ... ADD on timelines and one CREATE TABLE, no rewrite (design 5)', () => {
@@ -1216,5 +1218,480 @@ describe('committed migration 0004 (timeline edit)', () => {
       sql.match(/CREATE TABLE `timeline_audit_events` \([^;]*\);/)?.[0] ?? '';
     expect(create).not.toBe('');
     expect(create).not.toMatch(/`(updated|ended|revoked|removed|deleted)_\w+`/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// field-configuration (design 5): five tables, migration 0005.
+// ---------------------------------------------------------------------------
+
+// Every column that an update, a removal or a revocation would set. Versions,
+// version items and audit events are append-only (FR-12, NFR-8): none of these
+// exists on them, so nothing in the schema can record a change to a row.
+const mutationColumns = (table: AnyTable) =>
+  tableConfig(table)
+    .columns.map((c) => c.name)
+    .filter((n) => /^(updated|ended|revoked|removed|deleted)_/.test(n));
+const primaryKeyOf = (table: AnyTable) =>
+  tableConfig(table).primaryKeys.map((pk) => ({
+    name: pk.getName(),
+    columns: names(pk.columns),
+  }));
+const notNullOf = (table: AnyTable) =>
+  Object.fromEntries(
+    tableConfig(table).columns.map((c) => [c.name, c.notNull]),
+  );
+
+const FLAGS_CHECK =
+  "(`is_core` = 0 AND `is_ai_input` = 0) OR `visibility` = 'assessed'";
+
+describe('field_config_drafts schema (field-configuration design 5, FR-5, FR-8, DD-10)', () => {
+  it('has exactly these columns and types', () => {
+    expect(shape(schema.fieldConfigDrafts)).toEqual({
+      cycle_id: 'int unsigned NOT NULL',
+      revision: 'int unsigned NOT NULL',
+      updated_at: 'datetime',
+      updated_by: 'int unsigned',
+    });
+  });
+
+  it('is keyed by the cycle: one draft per cycle, created on the first write (DD-10)', () => {
+    const cycle = columnOf(schema.fieldConfigDrafts, 'cycle_id');
+    expect(cycle.primary).toBe(true);
+    expect(primaryKeyOf(schema.fieldConfigDrafts)).toEqual([]);
+  });
+
+  it('starts the revision at 0 for a draft created by its first write (FR-8)', () => {
+    const revision = columnOf(schema.fieldConfigDrafts, 'revision');
+    expect(revision.hasDefault).toBe(true);
+    expect(revision.default).toBe(0);
+  });
+
+  it('keeps the last-edit columns nullable with no default: a never-edited draft has neither', () => {
+    for (const n of ['updated_at', 'updated_by']) {
+      expect(columnOf(schema.fieldConfigDrafts, n).notNull, n).toBe(false);
+      expect(columnOf(schema.fieldConfigDrafts, n).hasDefault, n).toBe(false);
+    }
+  });
+
+  it('declares exactly the last-edit CHECK: updated_at and updated_by both set or both NULL', () => {
+    expect(checkNames(schema.fieldConfigDrafts)).toEqual([
+      'chk_field_config_drafts_updated',
+    ]);
+    expect(
+      checkOf(schema.fieldConfigDrafts, 'chk_field_config_drafts_updated'),
+    ).toBe(
+      '(`updated_at` IS NULL AND `updated_by` IS NULL) OR (`updated_at` IS NOT NULL AND `updated_by` IS NOT NULL)',
+    );
+  });
+
+  it('references cycles and the last editor, and has no other key or index', () => {
+    expect(foreignKeys(schema.fieldConfigDrafts)).toEqual([
+      'cycle_id -> cycles.id',
+      'updated_by -> users.id',
+    ]);
+    expect(uniqueKeys(schema.fieldConfigDrafts)).toEqual({});
+    expect(plainIndexes(schema.fieldConfigDrafts)).toEqual({});
+  });
+});
+
+describe('field_config_draft_items schema (design 5, FR-4, FR-5)', () => {
+  it('has exactly these columns and types', () => {
+    expect(shape(schema.fieldConfigDraftItems)).toEqual({
+      cycle_id: 'int unsigned NOT NULL',
+      result_type_key: 'varchar(64) NOT NULL',
+      field_key: 'varchar(128) NOT NULL',
+      visibility: "enum('hidden','view_only','assessed') NOT NULL",
+      is_core: 'boolean NOT NULL',
+      is_ai_input: 'boolean NOT NULL',
+    });
+  });
+
+  it('is keyed by (cycle_id, result_type_key, field_key): one option set per field', () => {
+    expect(primaryKeyOf(schema.fieldConfigDraftItems)).toEqual([
+      {
+        name: 'field_config_draft_items_pk',
+        columns: ['cycle_id', 'result_type_key', 'field_key'],
+      },
+    ]);
+  });
+
+  it('has no default on the flags: a missing flag is refused, never read as false', () => {
+    for (const n of ['is_core', 'is_ai_input', 'visibility']) {
+      expect(columnOf(schema.fieldConfigDraftItems, n).hasDefault, n).toBe(
+        false,
+      );
+      expect(columnOf(schema.fieldConfigDraftItems, n).notNull, n).toBe(true);
+    }
+  });
+
+  it('names the visibility enum with exactly hidden, view_only and assessed', () => {
+    expect(
+      columnOf(schema.fieldConfigDraftItems, 'visibility').enumValues,
+    ).toEqual(['hidden', 'view_only', 'assessed']);
+  });
+
+  it('CHECK: core and AI input are possible only when assessed, so the contradiction cannot be stored (FR-4)', () => {
+    expect(checkNames(schema.fieldConfigDraftItems)).toEqual([
+      'chk_field_config_draft_items_flags',
+    ]);
+    expect(
+      checkOf(
+        schema.fieldConfigDraftItems,
+        'chk_field_config_draft_items_flags',
+      ),
+    ).toBe(FLAGS_CHECK);
+  });
+
+  it('references cycles only, with no other key or index', () => {
+    expect(foreignKeys(schema.fieldConfigDraftItems)).toEqual([
+      'cycle_id -> cycles.id',
+    ]);
+    expect(uniqueKeys(schema.fieldConfigDraftItems)).toEqual({});
+    expect(plainIndexes(schema.fieldConfigDraftItems)).toEqual({});
+  });
+});
+
+describe('field_config_versions schema (design 5, FR-8, FR-9, FR-12, DD-6)', () => {
+  it('has exactly these columns and types', () => {
+    expect(shape(schema.fieldConfigVersions)).toEqual({
+      id: 'int unsigned NOT NULL',
+      cycle_id: 'int unsigned NOT NULL',
+      number: 'smallint unsigned NOT NULL',
+      catalog_version: 'varchar(32) NOT NULL',
+      published_at: 'datetime NOT NULL',
+      published_by: 'int unsigned NOT NULL',
+      request_id: 'varchar(64)',
+    });
+  });
+
+  it('keys a version by an auto-increment unsigned id', () => {
+    const id = columnOf(schema.fieldConfigVersions, 'id');
+    expect(id.primary).toBe(true);
+    expect((id as unknown as { autoIncrement: boolean }).autoIncrement).toBe(
+      true,
+    );
+  });
+
+  it('backstops the publish race: one version number per cycle (FR-8, DD-6)', () => {
+    expect(uniqueKeys(schema.fieldConfigVersions)).toEqual({
+      uq_field_config_versions_cycle_number: ['cycle_id', 'number'],
+    });
+  });
+
+  it('indexes (cycle_id, published_at) for the latest-version read', () => {
+    expect(plainIndexes(schema.fieldConfigVersions)).toEqual({
+      idx_field_config_versions_cycle_published: ['cycle_id', 'published_at'],
+    });
+  });
+
+  it('references cycles and the publisher', () => {
+    expect(foreignKeys(schema.fieldConfigVersions)).toEqual([
+      'cycle_id -> cycles.id',
+      'published_by -> users.id',
+    ]);
+  });
+
+  it('is append-only: no update columns and no revision (FR-12)', () => {
+    expect(mutationColumns(schema.fieldConfigVersions)).toEqual([]);
+    const cols = tableConfig(schema.fieldConfigVersions).columns.map(
+      (c) => c.name,
+    );
+    expect(cols).not.toContain('revision');
+    expect(cols).not.toContain('version');
+  });
+
+  it('leaves only the request id optional', () => {
+    expect(notNullOf(schema.fieldConfigVersions)).toEqual({
+      id: true,
+      cycle_id: true,
+      number: true,
+      catalog_version: true,
+      published_at: true,
+      published_by: true,
+      request_id: false,
+    });
+    expect(tableConfig(schema.fieldConfigVersions).checks).toEqual([]);
+  });
+});
+
+describe('field_config_version_items schema (design 5, DD-2, DD-3, FR-4, FR-12)', () => {
+  it('has exactly these columns and types', () => {
+    expect(shape(schema.fieldConfigVersionItems)).toEqual({
+      version_id: 'int unsigned NOT NULL',
+      result_type_key: 'varchar(64) NOT NULL',
+      field_key: 'varchar(128) NOT NULL',
+      visibility: "enum('hidden','view_only','assessed') NOT NULL",
+      is_core: 'boolean NOT NULL',
+      is_ai_input: 'boolean NOT NULL',
+    });
+  });
+
+  it('is keyed by (version_id, result_type_key, field_key): one row per applicable field', () => {
+    expect(primaryKeyOf(schema.fieldConfigVersionItems)).toEqual([
+      {
+        name: 'field_config_version_items_pk',
+        columns: ['version_id', 'result_type_key', 'field_key'],
+      },
+    ]);
+  });
+
+  it('CHECK: core and AI input are possible only when assessed, on every published row too (FR-4, DD-3)', () => {
+    expect(checkNames(schema.fieldConfigVersionItems)).toEqual([
+      'chk_field_config_version_items_flags',
+    ]);
+    expect(
+      checkOf(
+        schema.fieldConfigVersionItems,
+        'chk_field_config_version_items_flags',
+      ),
+    ).toBe(FLAGS_CHECK);
+  });
+
+  it('references the version it belongs to, with a name inside the 64-character identifier limit', () => {
+    expect(foreignKeys(schema.fieldConfigVersionItems)).toEqual([
+      'version_id -> field_config_versions.id',
+    ]);
+    const [fk] = tableConfig(schema.fieldConfigVersionItems).foreignKeys;
+    expect(fk.getName().length).toBeLessThanOrEqual(64);
+    expect(uniqueKeys(schema.fieldConfigVersionItems)).toEqual({});
+    expect(plainIndexes(schema.fieldConfigVersionItems)).toEqual({});
+  });
+
+  it('has no default on the flags and is append-only: no update columns (FR-12)', () => {
+    for (const n of ['is_core', 'is_ai_input', 'visibility']) {
+      expect(columnOf(schema.fieldConfigVersionItems, n).hasDefault, n).toBe(
+        false,
+      );
+    }
+    expect(mutationColumns(schema.fieldConfigVersionItems)).toEqual([]);
+  });
+});
+
+describe('field_config_audit_events schema (design 5, FR-11, NFR-8)', () => {
+  it('has exactly these columns and types', () => {
+    expect(shape(schema.fieldConfigAuditEvents)).toEqual({
+      id: 'bigint unsigned NOT NULL',
+      cycle_id: 'int unsigned NOT NULL',
+      version_id: 'int unsigned NOT NULL',
+      actor_id: 'int unsigned NOT NULL',
+      action: "enum('publish') NOT NULL",
+      changes: 'json NOT NULL',
+      timelines: 'json NOT NULL',
+      request_id: 'varchar(64)',
+      created_at: 'datetime NOT NULL',
+    });
+  });
+
+  it('keys the event by an auto-increment bigint and stamps the time by default', () => {
+    const id = columnOf(schema.fieldConfigAuditEvents, 'id');
+    expect(id.primary).toBe(true);
+    expect((id as unknown as { autoIncrement: boolean }).autoIncrement).toBe(
+      true,
+    );
+    expect(
+      columnOf(schema.fieldConfigAuditEvents, 'created_at').hasDefault,
+    ).toBe(true);
+  });
+
+  it('records the one action a publication has: publish', () => {
+    expect(
+      columnOf(schema.fieldConfigAuditEvents, 'action').enumValues,
+    ).toEqual(['publish']);
+  });
+
+  it('allows exactly one record per publication: UNIQUE (version_id) (FR-11, NFR-8)', () => {
+    expect(uniqueKeys(schema.fieldConfigAuditEvents)).toEqual({
+      uq_field_config_audit_events_version: ['version_id'],
+    });
+  });
+
+  it('indexes (cycle_id, created_at) for the history read', () => {
+    expect(plainIndexes(schema.fieldConfigAuditEvents)).toEqual({
+      idx_field_config_audit_events_cycle_created: ['cycle_id', 'created_at'],
+    });
+  });
+
+  it('references the cycle, the version it records and the publisher', () => {
+    expect(foreignKeys(schema.fieldConfigAuditEvents)).toEqual([
+      'actor_id -> users.id',
+      'cycle_id -> cycles.id',
+      'version_id -> field_config_versions.id',
+    ]);
+  });
+
+  it('leaves only the request id optional: a record always names its changes and timelines', () => {
+    expect(notNullOf(schema.fieldConfigAuditEvents)).toEqual({
+      id: true,
+      cycle_id: true,
+      version_id: true,
+      actor_id: true,
+      action: true,
+      changes: true,
+      timelines: true,
+      request_id: false,
+      created_at: true,
+    });
+  });
+
+  it('is append-only: no update columns (FR-12, NFR-8)', () => {
+    expect(mutationColumns(schema.fieldConfigAuditEvents)).toEqual([]);
+    const cols = tableConfig(schema.fieldConfigAuditEvents).columns.map(
+      (c) => c.name,
+    );
+    expect(cols).not.toContain('revision');
+    expect(cols).not.toContain('version');
+  });
+});
+
+describe('committed migration 0005 (field configuration)', () => {
+  const files = readdirSync(migrationsDir)
+    .filter((f) => f.endsWith('.sql'))
+    .sort();
+  const sql = files[5]
+    ? readFileSync(`${migrationsDir}${files[5]}`, 'utf8')
+    : '';
+  const newTables = [
+    'field_config_drafts',
+    'field_config_draft_items',
+    'field_config_versions',
+    'field_config_version_items',
+    'field_config_audit_events',
+  ];
+  const statements = sql
+    .split('--> statement-breakpoint')
+    .map((x) => x.trim())
+    .filter(Boolean);
+
+  it('is named 0005_field_configuration and registered in the journal', () => {
+    expect(files[5]).toBe('0005_field_configuration.sql');
+    const journal = JSON.parse(
+      readFileSync(`${migrationsDir}meta/_journal.json`, 'utf8'),
+    ) as { entries: { idx: number; tag: string }[] };
+    expect(journal.entries.map((e) => e.tag)).toEqual(
+      files.map((f) => f.replace(/\.sql$/, '')),
+    );
+    expect(journal.entries.map((e) => e.idx)).toEqual([0, 1, 2, 3, 4, 5]);
+  });
+
+  it('is additive only: it creates exactly the five new tables and touches no existing one (design 5)', () => {
+    expect(sql).not.toBe('');
+    expect(sql).not.toMatch(
+      /\bDROP\b|\bINSERT INTO\b|\bUPDATE `\w+` SET\b|\bDELETE FROM\b|\bTRUNCATE\b|\bMODIFY\b|\bRENAME\b/,
+    );
+    expect(sql).not.toMatch(/\bCHANGE\b/);
+    expect(
+      [...sql.matchAll(/CREATE TABLE `(\w+)`/g)].map((m) => m[1]).sort(),
+    ).toEqual([...newTables].sort());
+    // Every statement is a CREATE TABLE, a CREATE INDEX or an ALTER TABLE ...
+    // ADD CONSTRAINT (the foreign keys), and each one names one of the five
+    // new tables. The CHECKs and keys are inside their CREATE TABLE.
+    const tables = newTables.join('|');
+    for (const st of statements) {
+      expect(st).toMatch(
+        new RegExp(
+          `^(CREATE TABLE \`(${tables})\` |CREATE (UNIQUE )?INDEX \`\\w+\` ON \`(${tables})\` |ALTER TABLE \`(${tables})\` ADD CONSTRAINT \`\\w+\` FOREIGN KEY )`,
+        ),
+      );
+    }
+    // Nothing else can reach an existing table: no ALTER names one.
+    for (const a of sql.match(/\bALTER TABLE `\w+`/g) ?? []) {
+      expect(a).toMatch(new RegExp(`^ALTER TABLE \`(${tables})\`$`));
+    }
+  });
+
+  it('carries the two flag CHECKs and the draft last-edit CHECK verbatim', () => {
+    expect(sql).toContain(
+      `CONSTRAINT \`chk_field_config_draft_items_flags\` CHECK(${FLAGS_CHECK})`,
+    );
+    expect(sql).toContain(
+      `CONSTRAINT \`chk_field_config_version_items_flags\` CHECK(${FLAGS_CHECK})`,
+    );
+    expect(sql).toContain(
+      'CONSTRAINT `chk_field_config_drafts_updated` CHECK((`updated_at` IS NULL AND `updated_by` IS NULL) OR (`updated_at` IS NOT NULL AND `updated_by` IS NOT NULL))',
+    );
+    expect(sql.match(/CONSTRAINT `\w+` CHECK\(/g)).toHaveLength(3);
+  });
+
+  it('carries the two unique keys and the two plain indexes', () => {
+    expect(sql).toContain(
+      'CONSTRAINT `uq_field_config_versions_cycle_number` UNIQUE(`cycle_id`,`number`)',
+    );
+    expect(sql).toContain(
+      'CONSTRAINT `uq_field_config_audit_events_version` UNIQUE(`version_id`)',
+    );
+    expect(sql.match(/\bUNIQUE\(/g)).toHaveLength(2);
+    expect(sql).toContain(
+      'CREATE INDEX `idx_field_config_versions_cycle_published` ON `field_config_versions` (`cycle_id`,`published_at`)',
+    );
+    expect(sql).toContain(
+      'CREATE INDEX `idx_field_config_audit_events_cycle_created` ON `field_config_audit_events` (`cycle_id`,`created_at`)',
+    );
+    expect(sql.match(/\bCREATE (?:UNIQUE )?INDEX\b/g)).toHaveLength(2);
+  });
+
+  it('carries the composite primary keys, the keyed tables and the column definitions', () => {
+    expect(sql).toContain(
+      'CONSTRAINT `field_config_draft_items_pk` PRIMARY KEY(`cycle_id`,`result_type_key`,`field_key`)',
+    );
+    expect(sql).toContain(
+      'CONSTRAINT `field_config_version_items_pk` PRIMARY KEY(`version_id`,`result_type_key`,`field_key`)',
+    );
+    expect(sql).toContain(
+      'CONSTRAINT `field_config_drafts_cycle_id` PRIMARY KEY(`cycle_id`)',
+    );
+    expect(sql).toContain(
+      'CONSTRAINT `field_config_versions_id` PRIMARY KEY(`id`)',
+    );
+    expect(sql).toContain(
+      'CONSTRAINT `field_config_audit_events_id` PRIMARY KEY(`id`)',
+    );
+    expect(sql).toContain('`revision` int unsigned NOT NULL DEFAULT 0,');
+    expect(sql).toContain('`number` smallint unsigned NOT NULL,');
+    expect(sql).toContain(
+      "`visibility` enum('hidden','view_only','assessed') NOT NULL,",
+    );
+    expect(sql).toContain('`is_core` boolean NOT NULL,');
+    expect(sql).toContain('`is_ai_input` boolean NOT NULL');
+    expect(sql).toContain("`action` enum('publish') NOT NULL,");
+    expect(sql).toContain('`timelines` json NOT NULL,');
+    expect(sql).toContain(
+      '`created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP',
+    );
+  });
+
+  it('carries the nine foreign keys, every one ON DELETE no action ON UPDATE no action', () => {
+    const fks = sql.match(/ADD CONSTRAINT `\w+` FOREIGN KEY [^;]*/g) ?? [];
+    expect(fks).toHaveLength(9);
+    for (const fk of fks) {
+      expect(fk).toMatch(/ON DELETE no action ON UPDATE no action$/);
+    }
+    // 2 (drafts) + 1 (draft items) + 2 (versions) + 1 (version items) + 3 (audit)
+    expect(sql.match(/REFERENCES `cycles`\(`id`\)/g)).toHaveLength(4);
+    expect(sql.match(/REFERENCES `users`\(`id`\)/g)).toHaveLength(3);
+    expect(
+      sql.match(/REFERENCES `field_config_versions`\(`id`\)/g),
+    ).toHaveLength(2);
+  });
+
+  it("keeps every identifier within MySQL's 64-character limit (a longer one is refused only when applied)", () => {
+    const identifiers = [...sql.matchAll(/`(\w+)`/g)].map((m) => m[1]);
+    expect(identifiers.length).toBeGreaterThan(0);
+    expect(identifiers.filter((i) => i.length > 64)).toEqual([]);
+  });
+
+  it('gives the append-only tables no update columns (FR-12, NFR-8)', () => {
+    for (const t of [
+      'field_config_versions',
+      'field_config_version_items',
+      'field_config_audit_events',
+    ]) {
+      const create =
+        sql.match(new RegExp(`CREATE TABLE \`${t}\` \\([^;]*\\);`))?.[0] ?? '';
+      expect(create, t).not.toBe('');
+      expect(create, t).not.toMatch(
+        /`(updated|ended|revoked|removed|deleted)_\w+`/,
+      );
+    }
   });
 });
