@@ -1,9 +1,15 @@
+import { readFileSync } from 'node:fs';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { ADMIN_CONFIG_CLOCK } from '../../src/admin-config/admin-config.clock.js';
 import { CYCLES_STORE } from '../../src/admin-config/cycles/cycles.store.js';
 import { CYCLES_UNIT_OF_WORK } from '../../src/admin-config/cycles/cycles.unit-of-work.js';
+import { FIELD_CATALOG_SOURCE } from '../../src/admin-config/field-config/field-catalog.ports.js';
+import { shapeCatalog } from '../../src/admin-config/field-config/field-config-catalog.js';
+import { FIELD_CONFIG_STORE } from '../../src/admin-config/field-config/field-config.store.js';
+import { FIELD_CONFIG_UNIT_OF_WORK } from '../../src/admin-config/field-config/field-config.unit-of-work.js';
+import { FieldConfigCatalogMissingError } from '../../src/admin-config/admin-config.errors.js';
 import { TIMELINE_LOADS } from '../../src/admin-config/timelines/timeline-loads.js';
 import { TIMELINES_STORE } from '../../src/admin-config/timelines/timelines.store.js';
 import { TIMELINES_UNIT_OF_WORK } from '../../src/admin-config/timelines/timelines.unit-of-work.js';
@@ -22,6 +28,10 @@ import {
 import { ROLE_ASSIGNMENTS_STORE } from '../../src/users/role-assignments.repository.js';
 import { USER_PROGRAMS_STORE } from '../../src/users/user-programs.repository.js';
 import { USERS_STORE } from '../../src/users/users.repository.js';
+import {
+  InMemoryFieldConfigDatabase,
+  InMemoryFieldConfigUnitOfWork,
+} from './in-memory-field-config.js';
 import {
   InMemoryAdminConfigDatabase,
   InMemoryCyclesUnitOfWork,
@@ -69,6 +79,31 @@ export async function buildAdminConfigApp() {
   // switch BEFORE the first request (the catalog service keeps a copy of what
   // it read) to make a source fail the way an unreachable one does.
   const catalogs = { programsDown: false, resultTypesDown: false };
+  // The field configuration over the same world: its rows share the cycles,
+  // timelines, row locks and idempotency rows (field-configuration P-10).
+  const fieldConfigWorld = new InMemoryFieldConfigDatabase(world);
+  const fieldConfigUnitOfWork = new InMemoryFieldConfigUnitOfWork(
+    fieldConfigWorld,
+  );
+  // The Reporting catalog of every year is the T-2 fixture. A test names a year
+  // Reporting has no catalog for (`missingYears`, 409), or sets `down` (503).
+  const fieldCatalog = shapeCatalog(
+    JSON.parse(
+      readFileSync(
+        new URL(
+          '../../src/admin-config/field-config/fixtures/reporting-qa-catalog-2026.json',
+          import.meta.url,
+        ),
+        'utf8',
+      ),
+    ),
+  );
+  const fieldCatalogs = {
+    down: false,
+    missingYears: new Set<number>(),
+    /** Years asked for, in order: one entry per catalog read. */
+    requested: [] as number[],
+  };
   // The cycles services read the time only through this clock (NFR-4).
   const adminClock = new FakeClock(new Date('2026-10-20T10:00:00.000Z'));
 
@@ -117,6 +152,21 @@ export async function buildAdminConfigApp() {
     // The fake loads port: a real statement in the read log, settable per timeline (DD-8).
     .overrideProvider(TIMELINE_LOADS)
     .useValue(world.loads)
+    .overrideProvider(FIELD_CONFIG_STORE)
+    .useValue(fieldConfigWorld.store)
+    .overrideProvider(FIELD_CONFIG_UNIT_OF_WORK)
+    .useValue(fieldConfigUnitOfWork)
+    .overrideProvider(FIELD_CATALOG_SOURCE)
+    .useValue({
+      forYear: async (year: number) => {
+        fieldCatalogs.requested.push(year);
+        if (fieldCatalogs.down) throw new UpstreamUnavailableError();
+        if (fieldCatalogs.missingYears.has(year)) {
+          throw new FieldConfigCatalogMissingError(year);
+        }
+        return fieldCatalog;
+      },
+    })
     .overrideProvider(SCIENCE_PROGRAM_SOURCE)
     .useValue({
       list: async () => {
@@ -146,7 +196,7 @@ export async function buildAdminConfigApp() {
 
   /** One request; `key` adds an `Idempotency-Key`, `token: null` sends no credentials. */
   const send = (
-    method: 'get' | 'post' | 'delete',
+    method: 'get' | 'post' | 'patch' | 'delete',
     path: string,
     options: { token?: string | null; key?: string; body?: object } = {},
   ) => {
@@ -163,6 +213,9 @@ export async function buildAdminConfigApp() {
     world,
     unitOfWork,
     timelinesUnitOfWork,
+    fieldConfigWorld,
+    fieldConfigUnitOfWork,
+    fieldCatalogs,
     catalogs,
     adminClock,
     app,

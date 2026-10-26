@@ -223,7 +223,7 @@ T-4 ─────────────────────────�
 - **Skills:** nestjs-expert, nestjs-best-practices
 
 ## T-6: Service read flows — view, preview, effective query
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-2, T-3, T-4, T-5
 - **Requirements:**
@@ -258,7 +258,7 @@ T-4 ─────────────────────────�
 - **Skills:** nestjs-expert, api-design-principles
 
 ## T-7: Service write flows — draft edit, discard, publish
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-6
 - **Requirements:**
@@ -300,7 +300,7 @@ T-4 ─────────────────────────�
 - **Skills:** nestjs-expert, error-handling-patterns
 
 ## T-8: Controller, DTOs, OpenAPI, module wiring, idempotency
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** S
 - **Depends on:** T-7
 - **Requirements:**
@@ -328,7 +328,7 @@ T-4 ─────────────────────────�
 - **Skills:** nestjs-expert, api-design-principles
 
 ## T-9: e2e — field configuration over HTTP
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-8
 - **Requirements:** the HTTP side of FR-1…FR-13 and NFR-1, NFR-2, NFR-3 (fake), NFR-7, NFR-8.
@@ -344,7 +344,7 @@ T-4 ─────────────────────────�
   - The preview for the FR-7 timelines.
   - Publish, then a GET showing the version.
   - Stale revision; nothing to publish; two concurrent publishes (one 200, one 409, one version).
-  - Replay with the same key → the first 200 with `Idempotency-Replayed` and one version and audit row.
+  - Replay with the same key → the first answer (201, the publish route's status; *edit* 2026-10-26 at T-8, was "200") with `Idempotency-Replayed` and one version and audit row.
   - A closed cycle refuses writes and allows reads.
   - The log lines.
 - **Verification:** `cd server && pnpm test:e2e --reporter=dot`.
@@ -359,7 +359,7 @@ T-4 ─────────────────────────�
 - **Skills:** nestjs-expert
 
 ## T-10: Docs — module guide, front contract, TRD pending item
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** S
 - **Depends on:** T-9
 - **Requirements:** FR-14; S-1 (comment unit, noted for the comments spec); S-6 (Reporting "new" flag request)

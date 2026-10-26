@@ -132,6 +132,18 @@ describe('shapeCatalog over the TEST catalog 2026.30', () => {
     ]);
   });
 
+  it('passes the description through when the row has one and leaves the key out otherwise', () => {
+    const withText = catalog.fields.find((f) => f.key === 'general.title')!;
+    expect(withText.description).toMatch(
+      /^Provide a clear, informative name of the output/,
+    );
+    const without = catalog.fields.find(
+      (f) => f.key === 'general.result_level',
+    )!;
+    expect('description' in without).toBe(false);
+    expect(catalog.fields.filter((f) => 'description' in f)).toHaveLength(55);
+  });
+
   it('lists no subfield', () => {
     const sub: string[] = [];
     const walk = (rows: unknown): void => {
@@ -161,6 +173,13 @@ describe('shapeCatalog on a malformed catalog', () => {
   const broken: [string, (raw: ReturnType<typeof clone>) => unknown][] = [
     ['a body that is not an object', () => []],
     ['no catalog_version', (r) => ({ ...r, catalog_version: undefined })],
+    [
+      'a field with a description that is not a string',
+      (r) => {
+        r.fields[3].description = 7;
+        return r;
+      },
+    ],
     ['no sections array', (r) => ({ ...r, sections: 'x' })],
     [
       'a field without a key',

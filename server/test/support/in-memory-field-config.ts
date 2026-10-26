@@ -1,9 +1,11 @@
 import type {
   DraftWrite,
+  NamedTimelineStart,
   FieldConfigCycle,
   FieldConfigStore,
   NewFieldConfigAuditValues,
   NewVersionValues,
+  Publication,
   RevisionOutcome,
   VersionInsertOutcome,
 } from '../../src/admin-config/field-config/field-config.store.js';
@@ -12,7 +14,6 @@ import type {
   FieldConfigUnitOfWork,
 } from '../../src/admin-config/field-config/field-config.unit-of-work.js';
 import type { ConfigItem } from '../../src/admin-config/field-config/field-config-diff.js';
-import type { TimelineStart } from '../../src/admin-config/field-config/field-config-versions.js';
 import type { CycleStatus } from '../../src/database/drizzle/schema/cycles.js';
 import type { FieldConfigAuditEvent } from '../../src/database/drizzle/schema/field-config-audit-events.js';
 import type { FieldConfigDraftItem } from '../../src/database/drizzle/schema/field-config-draft-items.js';
@@ -228,6 +229,16 @@ export class InMemoryFieldConfigStore implements FieldConfigStore {
     );
   }
 
+  findPublication(versionId: number): Promise<Publication | undefined> {
+    return this.statement('read', `publication:${versionId}`, {}, () => {
+      const version = this.rows.versions.find((v) => v.id === versionId);
+      const audit = this.rows.audit.find((e) => e.versionId === versionId);
+      return version && audit
+        ? structuredClone({ version, timelines: audit.timelines })
+        : undefined;
+    });
+  }
+
   latestVersion(cycleId: number): Promise<FieldConfigVersion | undefined> {
     return this.statement('read', `version:latest:${cycleId}`, {}, () => {
       const own = this.rows.versions.filter((v) => v.cycleId === cycleId);
@@ -268,7 +279,7 @@ export class InMemoryFieldConfigStore implements FieldConfigStore {
   }
 
   /** Three statements, as the adapter: the timelines of the cycle, then the steps and the scope rows keyed by the cycle. */
-  async listTimelineStarts(cycleId: number): Promise<TimelineStart[]> {
+  async listTimelineStarts(cycleId: number): Promise<NamedTimelineStart[]> {
     const { world } = this.db;
     const timelines = await this.statement(
       'read',
@@ -311,6 +322,7 @@ export class InMemoryFieldConfigStore implements FieldConfigStore {
       );
       return {
         id: timeline.id,
+        name: timeline.name,
         opensOn: first?.opensOn ?? null,
         closesOn: last,
         allResultTypes: timeline.allResultTypes,

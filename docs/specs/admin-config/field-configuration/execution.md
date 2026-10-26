@@ -276,3 +276,269 @@ Task entry Reviewer field: **PASS (degraded-pair: opus/fable)**.
 **Requirements covered (T-5):** FR-5 (Two admins edit: last write wins at the store level), FR-8 (Stale revision; Two admins publish at once, database side), FR-11 (audit in the transaction; a refused publication leaves none), NFR-3 (fake part), NFR-5.
 
 **Final verification:** VERIFIED.
+
+### T-6: Service read flows — view, preview, effective query — PASS
+
+| | |
+|---|---|
+| Date | 2026-10-26 |
+| Final status | PASS (attempt 1, 1 continuation) |
+| Attempts | 1 |
+| Skills | nestjs-expert, api-design-principles (as listed) |
+| Effort | `medium` |
+| Requirements covered | FR-2 (through the service), FR-3, FR-7, FR-10, FR-13 (reads), NFR-5 (view/preview/effective statement counts) |
+
+**Attempt 1**
+- Files changed: new `server/src/admin-config/field-config/field-config.service.ts` + spec, `field-config.module.ts` + spec (DI, the only export is `FIELD_CONFIG_EFFECTIVE`). Edited: `field-config.store.ts` (`NamedTimelineStart` adds `name`, read in the same first select, still 3 statements), `field-config.unit-of-work.spec.ts` (3 `toEqual` gain `name`), `server/test/support/in-memory-field-config.ts`. Continuation: `field-config-catalog.ts` + spec (`description` pass-through).
+- Red run (methods stubbed to throw): `26 failed`. 7 failed on their own assertions; 19 failed on the stub's throw. The Reviewer accepted this as the predicted red. Continuation red: `3 failed`.
+- Falsifiers (post-change, restored): F1 catalog read for the clock's year → 3 red (`expected "vi.fn()" to be called with arguments: [ 2027 ]`); F2 unclassified read as null → 1 red; F3 every type treated as changed → 4 red (C in receive; 50 vs 25); description pass-through dropped → 1 red.
+- Statement counts: view 5; preview 8 for 1 and 50 timelines (scope alternates, 25 receive); effective 5, with 0 catalog reads.
+- Implementer verification: lint clean, build OK, `Tests 2231 passed (2231)`; the field-config folder also passes under `TZ=America/Bogota`.
+- Evidence re-run (Leader-inline, non-author): **VERIFIED**: lint clean, build 0, `2231 passed`, Bogota `215 passed`, e2e `779 passed`.
+- Reviewer (lens checklist, effort high): **PASS**. Quote: "`view`, `preview` and `effectiveFor` cover every scenario in FR-2, FR-3, FR-7, FR-10 and FR-13 through the service… The view shape, including `description?`, matches design § 6 field by field." Named checks: the § 7.2 *Discard* amendment is not contradicted; the § 7.3 row needs no amendment for `name` (the row does not list returned fields).
+- runtime events: none.
+
+spawns: implementer 52 calls, 194164 tokens, ended complete (after continuation 1; the first report ended partial); reviewer 15 calls, 71795 tokens, ended complete.
+
+**Not Done / Assumptions (Implementer; owed item #3 closed by the continuation; the rest ruled conformant)**
+1. `NamedTimelineStart` (T-5 store edit, a demonstrated need).
+2. `effectiveFor(cycleId, timelineId, resultTypeKey)` → `{ timelineId, resultTypeKey, version, provisional, items }`. An unknown timeline or one in another cycle gives `TimelineNotFoundError`.
+3. ~~Field `description` missing~~ → done in continuation 1.
+4. Sections with no applicable fields are left out.
+5. Preview `keep[].version` is `number | null`. **Forward pointer to T-10:** document the null in `front-contract.md`.
+6. `latestVersion.publishedAt` is a `Date`, which T-8 serializes.
+7. The unit of work is not injected yet. **Forward pointer to T-7.** The module binds `IDEMPOTENCY_CLOCK`.
+
+**ADVISORY (Reviewer — recorded, not tasks)**
+- RISK: `description: null` makes the whole catalog malformed (503); treating it as absent would be more tolerant (RC-1…RC-4 drift).
+- READABILITY: the effective-port types live in `field-config.module.ts` and the service imports them back; a `field-config.ports.ts` would remove the cycle.
+- READABILITY: the effective test's version fixture holds one item, against DD-2; the `items` docstring describes a guarantee that the publish path provides.
+- RELIABILITY: `effectiveFor` loads every timeline of the cycle to pick one (count fixed, but § 7.2 step 1 reads one).
+- RELIABILITY: "one catalog read per request" is not asserted for the preview. **Forward pointer to T-9.**
+
+**Final verification:** VERIFIED.
+
+**Decisions made (recorded as they happen)**
+- Integration (2026-10-26, back lead's request): T-1…T-5 merged with `--no-ff` into `staging-center` (`ac16b01`) and into `dev` (`7a82c27`, pushed; Jenkins trigger run 40356052489 succeeded). Before the `dev` push, the Leader verified the merged `dev`: server lint clean, build 0, `2202` unit and `779` e2e passed, client `ng build` 0. Migration `0005` is **not** applied to `qadb`; that stays a human step (T-11). There is no HTTP route yet (T-8).
+- Forward pointers carried: from T-2, the cache uses `ADMIN_CONFIG_CLOCK`, so the module must provide it. From T-4, a not-started timeline with no versions resolves to `'none'`; the Leader narrowed that the effective query answers `FieldConfigNoVersionError` for it, as for a started timeline with none (no version exists to resolve to). From T-5, § 7.2 *Discard* step 4 and the § 7.3 ports row amendments are carried as named checks.
+- Skills: nestjs-expert, api-design-principles (as listed). Effort `medium`.
+- continuations: 1 (field `description` in the view, design § 6: Implementer Not Done #3 was an owed item, with no blocker; gated mode → re-spawn for the remainder, the same worker resumed by message).
+
+### T-7: Service write flows — draft edit, discard, publish — PASS
+
+| | |
+|---|---|
+| Date | 2026-10-26 |
+| Final status | PASS (attempt 1) |
+| Attempts | 1 |
+| Skills | nestjs-expert, error-handling-patterns (as listed) |
+| Effort | `high` |
+| Requirements covered | FR-4 (Switching off, stored; S-14), FR-5 (all four scenarios), FR-6, FR-8 (Publish, Stale, Nothing to publish, Two admins on the service side), FR-11, FR-12, FR-13 (writes), NFR-7 |
+
+**Attempt 1**
+- Files changed: `server/src/admin-config/field-config/field-config.service.ts` (+496: `updateDraft`, `discardDraft`, `publish`, `logged()`, `FieldConfigBusyError` 503 for 1213/1205; the view was refactored into `viewOf`, and the lists into `describeLists`), `field-config.service.spec.ts` (+1234), `server/src/admin-config/admin-config.context.ts` (+3 actions), `server/src/database/drizzle/schema/field-config-audit-events.ts` (type only: `keep[].version: number | null`).
+- Red run (methods stubbed to reject): `50 failed | 26 passed (76)`, on `{ status, code }` deep-equal assertions. The 26 passing cases are the T-6 cases.
+- Falsifiers (post-change, restored): no-op shortcut skipped → 1 red (`expected 8 to be 7`); only classified fields published → 3 red (504 vs 3); "nothing to publish" checked before stale → 3 red; conditional UPDATE dropped → 2 red (`[ 'fulfilled', 'fulfilled' ]`).
+- Refusals: every refusal asserts `expectNothingWritten` (snapshot, `writeLog` empty, no transaction begun) or `expectRolledBack`. The spec lines are in the Implementer's table; the Reviewer spot-checked nine.
+- Implementer verification: unit `2281 passed`, e2e `779 passed`, `admin-config` under Bogota `817 passed`, field-config under UTC `265 passed`.
+- Evidence re-run (Leader-inline, non-author): **VERIFIED**. Lint clean, build 0, `2281 passed`, e2e `779 passed`, Bogota `817 passed`.
+- Reviewer (lens checklist, effort high): **PASS**, `ISSUES: none`. Quote: "The race test's `[committed, rolledBack] = [1,1]` shows the loser got past the pre-check and lost to the conditional UPDATE." All seven Leader points were ruled conformant, and S-14 was re-confirmed (`isCore ?? false`).
+- runtime events: none.
+
+spawns: implementer 44 calls, 253620 tokens, ended complete; reviewer 19 calls, 91766 tokens, ended complete.
+
+**Decisions / spec edits**
+- The T-1 schema type was widened (`keep[].version: number | null`). It is a demonstrated defect, accepted by the Reviewer: DD-7 requires the audit to hold what the ADMIN saw. No migration.
+- **Execute-time spec edit (Leader, at the Reviewer's request):** the `design.md` § 6 DELETE row now lists 409 `FIELD_CONFIG_CATALOG_MISSING` and 503, because discard answers with the view. Carried to the T-8 Reviewer as a named check, and T-8's OpenAPI must list both.
+
+**ADVISORY (Reviewer — recorded, not tasks)**
+- RISK: 1213/1205 → 503 with no retry rests on fakes only. A concurrent first `ensureDraft` is the likeliest real deadlock. **Forward pointer to T-11.**
+- READABILITY: `server/src/admin-config/AGENTS.md` still says six logged writes, and its error list lacks `FieldConfigBusyError`. **Forward pointer to T-8** (move the class into `admin-config.errors.ts`) and **T-10** (guide).
+- READABILITY: `(current?.number ?? 0) + 1` is computed twice in `publish`.
+- RELIABILITY: publish skips `ensureDraft`; a non-empty diff with no draft row cannot occur today. A comment is suggested.
+- RESILIENCE: the edit's no-op check reads the items unlocked, so a 200 may show a slightly stale draft. **Forward pointer to T-10** (`front-contract.md`).
+
+**Budget:** 8,538 non-JSON LOC added under `server/` since `0b62fd1`, after 7 of 10 build tasks. That is 1.22× the ≈ 7,000 LOC budget, driven by tests (the T-5 and T-7 specs alone are about 2,600 lines). Review rounds: 12 of ≈ 18. Over the ≈ 7,000 LOC budget; the back lead lifted the tripwire for the rest of the run.
+
+**Final verification:** VERIFIED.
+
+**Decisions made (recorded as they happen)**
+- Gate answer "Si" (2026-10-26): continue with T-7. No new budget was given, so the Budget Tripwire stands: stop when actual work passes about 7,000 LOC (about 6,830 non-JSON LOC at the T-6 close).
+- Forward pointers carried into the brief: S-14 (an omitted flag is stored false; *Same values* compares after normalising); truncate `now` to the second once, for both the lists and the insert (T-5 A); the conditional UPDATE stays the deciding guard, with a service-level conditional-alone falsifier (T-5 A); publishing a cycle with no draft row answers `NOTHING_TO_PUBLISH`, not stale (T-5 A, DD-10); a 1213 or 1205 is never an unmapped 500 [advisory-grade] (T-5 Opus); the edit and discard paths never see `stale` (T-5 Opus); discard deletes the items before copying the version (T-5 fable); two admins editing the same field are tested explicitly (T-5 Opus); the unit of work is injected (T-6).
+- Skills: nestjs-expert, error-handling-patterns (as listed). Effort `high`, above the T2 default: it orchestrates every write rule, the answer order and the concurrency guard.
+- **Back lead, 2026-10-26 ("Adelante no pares, termina todo"):** the budget tripwire and the per-task continue gates are lifted for the rest of the run. They had already been told the overrun would come at T-7 (about 6,830 of about 7,000 LOC). The overrun is still recorded at each task close. A HALT, a Pivot, a FATAL_FAIL or a waiver still stops the run. T-11 is a human step (applying `0005` to `qadb` and the concurrent publish on MySQL), so the run stops before it.
+
+### T-8: Controller, DTOs, OpenAPI, module wiring, idempotency — PASS
+
+| | |
+|---|---|
+| Date | 2026-10-26 |
+| Final status | PASS (attempt 1, 2 checkpoints) |
+| Attempts | 1 |
+| Skills | nestjs-expert, api-design-principles (as listed) |
+| Effort | `medium`, then `low` for the two verification-only respawns |
+| Requirements covered | FR-1 (class guard), FR-8 *Replay* (wiring), FR-13 *Unknown cycle*, NFR-1, NFR-2 |
+
+**Attempt 1**
+- Files changed:
+  - New: `server/src/admin-config/field-config/field-config.controller.ts` (5 routes, class-level `ADMIN_ACCESS`, full OpenAPI, `@Idempotent()` on publish), `dto/` (+ spec, 18 cases), `models/field-config.model.ts`.
+  - Modified: `field-config.module.ts` (controller, `IDEMPOTENCY_STORE`, `IDEMPOTENCY_REPLAY_READER`), `admin-config.module.ts` (imports `FieldConfigModule`), `server/test/support/admin-config-app.ts` (store, UoW and catalog fake with `missingYears` / `down`; `send('patch')`).
+  - Gap edits for DD-9: `field-config.store.ts` `findPublication`, the matching fake method, and `field-config.service.ts` `replayPublish`.
+- Red run: `test/openapi.e2e-spec.ts` `3 failed | 10 passed` (`DELETE …/draft: expected [] to include 'access-token'`; summary undefined; 200 response undefined).
+- Falsifiers: `isCore` made required → 9 red at the pipe, restored. `@Idempotent()` removed → **owed to T-9**.
+- Router listing (temporary spec, deleted): `GET /api/v1/cycles/:id/field-config`, `PATCH …/draft`, `DELETE …/draft`, `GET …/publish-preview`, `POST …/publish`, matching `toHaveLength(5)`.
+- Implementer verification: e2e `779 passed` (13 files), unit `2299 passed`, lint and build clean.
+- Evidence re-run (Leader-inline, non-author): **VERIFIED**. Lint clean, build 0, unit `2299 passed`, e2e `779 passed`.
+- Reviewer (lens checklist, effort high): **PASS**. Quote: "All five routes are mounted under a class-level `ADMIN_ACCESS` guard… Publish has `@Idempotent()`, `withIdempotencyErrors` and `IDEMPOTENCY_REPLAYED_HEADERS`." Named check (the § 6 DELETE row): both codes are documented. Rulings:
+  - The DD-9 gap edits are a demonstrated need and conformant.
+  - 201 on publish conforms (FR-8 says "the first answer").
+  - The plain `Error` in `replayPublish` is unreachable.
+  - DTOs and `admin-config-app.ts` conform.
+- runtime events: none.
+
+spawns: implementer 50 calls, 164755 tokens, ended checkpoint; implementer (respawn 1) 6 calls, 62568 tokens, ended checkpoint; implementer (respawn 2) 8 calls, 65850 tokens, ended complete; reviewer 23 calls, 69434 tokens, ended complete.
+
+**Decisions / spec edits**
+- **Execute-time spec edit (Leader, at the Reviewer's request):** `tasks.md` T-9 *Tests* replay line "the first 200" becomes "the first answer (201, the publish route's status)". FR-8 says "the first answer", and the interceptor replays the route status. Carried to the T-9 brief and Reviewer.
+
+**ADVISORY (Reviewer — recorded, not tasks)**
+- RELIABILITY: no test reaches `replayPublish` / Drizzle `findPublication`, because the T-9 replay case uses the `completed` path, which replays the stored body. A crash-window case (`executed` with no stored answer) would exercise the reader. Recorded; T-11 checks the join on MySQL.
+- RELIABILITY: in the replay, a timeline deleted since the publication shows `name: ''` and `opensOn: null`. **Forward pointer to T-10** (`front-contract.md`).
+- READABILITY: the `replayPublish` JSDoc says "One read", but it runs two statements.
+- RISK/DOCS: `server/src/common/AGENTS.md:28` says admin-config has two replay readers storing cycle or timeline ids; there is now a third, whose target is a **version id**. T-10 names only `server/src/admin-config/AGENTS.md`, so this shared-guide line is a **pending item for `staging`** (shared-file write discipline).
+- RISK (known gap, for T-11): replay names and `opensOn` reflect timelines as they are at replay time, not at publication time (DD-9 trade-off against FR-8 "the first answer").
+
+**Final verification:** VERIFIED.
+
+**Decisions made (recorded as they happen)**
+- Forward pointers carried: the § 6 DELETE row as amended at T-7 (OpenAPI lists 409 `FIELD_CONFIG_CATALOG_MISSING` and 503); 503 `SERVICE_UNAVAILABLE` (busy) on PATCH, DELETE and publish; `latestVersion.publishedAt` serialised as an ISO string (T-6); the e2e fake clock is fixed, so the per-year catalog cache never expires within a run (T-2, also T-9); the preview `keep[].version` is nullable in the response model (T-6). Moving `FieldConfigBusyError` into `admin-config.errors.ts` is not in T-8's scope (narrow-never-widen) and stays an advisory for T-10's guide.
+- Skills: nestjs-expert, api-design-principles (as listed). Effort `medium`.
+- checkpoints: 1 (resource-guard blocked `pnpm test:e2e` five times; about 48 calls). The remaining work was the full e2e run and the router listing. The Leader started a fresh Implementer with the checkpoint report verbatim. The attempt counter did not change.
+- checkpoints: 2 (the respawn was blocked by resource-guard on 3 e2e attempts: 3.3–4.1 GB free against 4.5 GB required, swap 2.2 GB). No code change and no failure. One checkpoint is left before the cap HALTs the task; the Leader asked the back lead about RAM / `RG_FORCE` before respawning.
+
+### T-9: e2e — field configuration over HTTP — PASS (attempt 3)
+
+**Decisions made (recorded as they happen)**
+- Carried into the brief:
+  - the `@Idempotent()` falsifier (owed from T-8);
+  - the replay asserts the first answer, 201 (the T-8 edit);
+  - the catalog fake hooks `fieldCatalogs.missingYears` / `down`;
+  - the fake clock is fixed (P-10).
+- [advisory-grade] items, tagged in the brief:
+  - assert one catalog read per preview request (T-6);
+  - two admins editing the same field over HTTP (T-5 Opus).
+- Skills: nestjs-expert (as listed). Effort `medium`.
+
+**Attempt 1: implicit FAIL (evidence re-run MISMATCH)**
+- Files changed: new `server/test/admin-config-field-config.e2e-spec.ts` (1408 lines, 81 cases). Harness untouched.
+- Red run (with `FieldConfigModule` unmounted): `80 failed | 1 passed (81)` (`whole view: expected 404 to be 200`). Restored, `shasum` OK.
+- Falsifiers:
+  - `@Idempotent()` removed → 2 red, `expected 409 to be 201`. The replay became a stale 409, not a second version; still red.
+  - `forbidNonWhitelisted` dropped → 2 red, `expected 200 to be 400`.
+  - Both restored, `shasum` OK.
+- Implementer verification: new file `81 passed`, full e2e `860 passed` (14 files). It reported "`oxlint` on the new file is clean".
+- Evidence re-run (Leader-inline): **MISMATCH**.
+  - `pnpm lint` printed `test/admin-config-field-config.e2e-spec.ts:1116:24: warning typescript(require-array-sort-compare): Require 'compare' argument.` (exit 0).
+  - `server/AGENTS.md` § Verification: "`pnpm lint` … must print 0 warnings".
+  - Build 0, unit `2299 passed` and e2e `860 passed` matched.
+- No Reviewer ran (MISMATCH → FAIL). Attempt 2: effort medium → high; the same worker resumed by message with the mismatch verbatim.
+- Note: the e2e world's timeline result-type keys (`KP`, `INNOVATION_DEV`) are not catalog keys, so the FR-7 timelines were seeded directly. The Leader checked production: timeline result types come from the same Reporting catalog `result_types[].key` (`reporting-result-types.client.ts:25-50`), so no integration gap exists. This is test-fixture drift only.
+- spawns: implementer 39 calls, 173470 tokens, ended complete.
+
+**Attempt 2: FAIL (Reviewer)**
+- Files changed: `server/test/admin-config-field-config.e2e-spec.ts` line 1116 (`.sort((x, y) => x - y)`).
+- Implementer verification: `pnpm lint` printed no warnings; build OK; unit `2299 passed`; e2e `860 passed`.
+- Evidence re-run (Leader-inline): **VERIFIED**: lint clean, build 0, e2e `860 passed`. The sampled sweep lines all call `refused(`.
+- Reviewer (lens checklist, effort high): **FAIL**. The issue, verbatim:
+  > 1. Discovered Issue: FR-7 *Nothing to publish* is never tested in its stated case, a draft equal to an existing latest version. The test at lines 923–940 is titled "reports no changes when the draft equals the latest version", but it asserts that the closed cycle has **one** change (line 930). Its only no-changes check is a fresh cycle with no version at all (`basedOn: null`, line 936). No test calls `preview(` after a publish has left the draft equal to the version. The only `preview(` calls are at 896, 926 and 933. The test name claims coverage the assertions do not give.
+  > Violated Rule: `requirements.md` § FR-7, Scenario *Nothing to publish*: "GIVEN the draft equals the latest version … THEN it reports no changes". `requirements.md` § 8 maps FR-7 *Nothing to publish* to T-9. `tasks.md` § T-9 *Done when*: "every FR scenario listed has an HTTP case".
+  > Remediation Suggestion: In a draft or active cycle, run `edit(id, [item('policy_change','general.title')])`, then call `preview(id)`. Assert `toEqual({ revision: <current>, basedOn: 1, changes: [], timelines: { receive: [], keep: [] } })`, and assert that `stored()` and the write log are unchanged. Then rename the line-923 test, or split it, so its title matches what it asserts (a closed cycle still previews; a fresh cycle has no changes).
+- Reviewer rulings:
+  - The replay falsifier is adequate. The corrected symptom is a stale 409, not a second version: without the interceptor, the stale check refuses the repeat first.
+  - The 2,001-item boundary stays in the DTO unit spec (413 comes first over HTTP).
+  - After a discard every field has a draft row, so `unclassified: false` is conformant (DD-2, FR-6). **Open question for the business owner:** once a version is published and then discarded, no field can read as unclassified again.
+  - The FR-7 seeding is fixture drift only.
+- ADVISORY (recorded): the [advisory-grade] items are confirmed (one catalog read per preview at line 918; two admins at lines 681–707). Also suggested: pin `unclassified: false` after discard; e2e rows for `isNew: true`, subfields and ties; a 2,001-items→413 / 2,000-accepted HTTP pair; and readability at lines 1182–1208.
+- Attempt 3 (last): effort high → xhigh, the same worker resumed with the FAIL verbatim.
+
+**Attempt 3: PASS**
+- Files changed: `server/test/admin-config-field-config.e2e-spec.ts`. A new case at 923 covers FR-7 *Nothing to publish* with the draft equal to version 1: full object, write log and `stored()` unchanged. The overclaiming test was split (944, 958), and three more titles were narrowed (368, 836, ~1346).
+- Falsifier: the preview's diff computed against `null` gives `3 failed | 80 passed (83)`, the new case included. Restored, `shasum` OK.
+- Implementer verification: `pnpm lint` shows 0 warnings, build OK, unit `2299 passed`, e2e `862 passed` (14 files; this spec 83).
+- Evidence re-run (Leader-inline, non-author): **VERIFIED**: lint shows no warnings, build 0, unit `2299 passed`, e2e `862 passed`.
+- Reviewer (lens checklist, effort high; resumed reviewer of attempt 2): **PASS**. Quote: "my issue 1 from attempt 2 is fixed, and every refusal still goes through `refused`." The Disqualifier holds: `expectError(` appears only inside `refused` (line 198) and in the inline race loser (line 1154). The named check (replay 201 + `Idempotency-Replayed`, one version, one audit row) passes.
+- runtime events: none.
+
+spawns (T-9 total): implementer 1 worker, resumed twice. The host reported 39 calls / 173470 tokens (attempt 1), 4 calls / 176106 tokens cumulative (attempt 2) and 5 calls / 185510 tokens cumulative (attempt 3); the token counts are cumulative context, and every run ended complete. Reviewer: 1 worker, resumed once (12 calls / 61306 tokens, then not reported by host); it ended complete.
+
+**Corrected falsifier record (T-8 → T-9):** with `@Idempotent()` removed, the replay answers a stale 409, not a second version: the stale check refuses the repeat first. The case still goes red (`expected 409 to be 201`).
+
+**ADVISORY (Reviewer — recorded, not tasks)**
+- RELIABILITY: the discard-to-version case does not assert `unclassified: false`. **Open question for the business owner (recorded here, carried to T-10's pending list):** after the first publish and a discard, every field has a draft row, so no field can read "unclassified" again (DD-2 + FR-6). Is that intended?
+- RESILIENCE: no HTTP pair of 2,000 items accepted / 2,001 → 413.
+- RELIABILITY: FR-2 `isNew: true`, the subfield exclusion and the tie-break are covered at T-2 and T-6 only.
+- READABILITY: an unused `first` in the "replay after version 2" case.
+
+**Requirements covered (T-9):** the HTTP side of FR-1…FR-8 and FR-11…FR-13, NFR-1, NFR-2, NFR-3 (fake), NFR-7, NFR-8.
+
+**Final verification:** VERIFIED.
+
+### T-10: Docs — module guide, front contract, TRD pending item — PASS (attempt 2)
+
+**Decisions made (recorded as they happen)**
+- Forward pointers carried into the brief:
+  - Guide (`server/src/admin-config/AGENTS.md`): nine logged actions, `FieldConfigBusyError`, the field-config module (T-7).
+  - Front contract:
+    - `keep[].version` may be null (T-6).
+    - In a replay, a timeline deleted after the publication shows `name: ''` and `opensOn: null` (T-8).
+    - S-14: send both flags to keep them on (T-3/T-4).
+    - The edit's no-op answer may show a slightly stale draft (T-7).
+    - DELETE can answer 409 `FIELD_CONFIG_CATALOG_MISSING` / 503 (T-7).
+    - Publish answers 201 (T-8).
+  - Pending items for `staging` / owners:
+    - TRD § 5.1 and § 6.
+    - Reporting RC-5 (the per-field flag name `is_new`, boolean).
+    - `VALUES()` deprecated, a TRD pending item (T-5).
+    - `server/src/common/AGENTS.md:28`: the third replay reader stores a version id (T-8; a shared guide, so it is a pending item, not edited here).
+    - The open question on unclassified-after-discard (T-9), for the business owner.
+    - Driver `timezone` and the deadlock paths, for T-11 (T-5).
+- The client file is cited from `origin/staging-center`: `client/src/app/pages/workspace/fields/fields-publish-confirm.ts:11` (`subtitle="Applies to results loaded from now on…"`), checked by the Leader.
+- Skills: cognitive-doc-design (as listed). Effort `medium`.
+
+**Attempt 1: FAIL (Reviewer)**
+- Files changed: `server/src/admin-config/AGENTS.md` (+40 -6), new `docs/specs/admin-config/field-configuration/front-contract.md` (162 lines).
+- Five-code grep (Leader re-run): all five present (4/4/6/1/3). Falsifier check: contract § 7 line 111 matches `versionFor` (`field-config-versions.ts:96-117`).
+- Reviewer (lens checklist, effort high): **FAIL**. Issues, verbatim:
+  > 1. Contract line 3 says client files are "on branch `staging-center`, never on this branch". That is false. `client/src/app/pages/workspace/fields/*` is tracked on `feat/field-configuration`: the branch was cut from staging-center and git status shows those files as neither modified nor untracked. A front lead who opens this branch will find the files and doubt the contract. — Violated Rule: `tasks.md` T-10 Scope "Every claim is written from the code at HEAD", and Disqualifier (branch naming). — Remediation: "client files and line numbers are cited from `staging-center` (this branch carries them unchanged from `0b62fd1`; check `staging-center` for later edits)".
+  > 2. In contract § 8, the row "Lost answer, timeout or 5xx, same body → Same key: the first answer comes back with `Idempotency-Replayed: true` and nothing runs again" is wrong for 5xx. The interceptor stores only 4xx refusals. A 5xx frees the key (`idempotency.interceptor.ts:108-112, 316-325`)… A retry after a 503 busy runs the publish again and has no `Idempotency-Replayed` header. — Violated Rule: T-10 Scope (claims from code at HEAD); FR-14. — Remediation: split the row: (a) answer lost or timed out after a commit → same key, stored answer replayed with `Idempotency-Replayed: true`; (b) 5xx (incl. 503 busy) → same key, nothing stored, the request runs again; a concurrent duplicate may get 409 `IDEMPOTENCY_IN_PROGRESS`.
+- ADVISORY: § 2's answer order should say "after the request shape is checked" (pipe 400s come first); cite the `bumpRevision` WHERE range; name migration `0005` in the guide.
+- spawns: implementer 26 calls, 149997 tokens, ended complete.
+- Attempt 2: effort medium → high, the same worker resumed with the FAIL verbatim.
+
+**Attempt 2: PASS**
+- Files changed: `front-contract.md`:
+  - line 3 now names both branches;
+  - § 8 is split into a "replayed after commit" row and a "5xx frees the key" row;
+  - § 2 lists pipe 400s first.
+- `server/src/admin-config/AGENTS.md`: the `bumpRevision` range is cited, and migration `0005` is named.
+- Evidence (Leader-inline): the five-code grep finds all five; `idempotency.interceptor.ts:103-111` is `isRefusal` (4xx only); `server/drizzle/0005_field_configuration.sql` exists.
+- Reviewer (resumed): **PASS**. Quote: "Both issues from attempt 1 are fixed, the new sentences match the code at HEAD, and nothing regressed." Named checks hold: publish 201; DELETE lists 409 `FIELD_CONFIG_CATALOG_MISSING` and 503. The falsifier holds: § 7 and the guide agree with `versionFor`.
+- ADVISORY: § 8 cites the interceptor with two slightly different ranges (use `:103-112, 309-325`); the guide's `:412-440` could be `:412-439`.
+- spawns: implementer resumed, 7 calls, 159611 tokens cumulative, ended complete; reviewer 30 calls, 100594 tokens (attempt 1), resumed for attempt 2 (not reported by host), ended complete.
+
+**Requirements covered (T-10):** FR-14; S-1 (noted for the comments spec); S-6 (Reporting request).
+
+**Final verification:** VERIFIED.
+
+## Pending items (recorded at T-10; to apply on `staging` or hand to their owners)
+
+| # | Item | Owner / where |
+|---|---|---|
+| PI-1 | TRD § 5.1: five tables replace the single `field_configs` row (`field_config_drafts`, `field_config_draft_items`, `field_config_versions`, `field_config_version_items`, `field_config_audit_events`) | `staging`, TRD sync at `/akili-archive` |
+| PI-2 | TRD § 6: five routes under `/cycles/:id/field-config`; three codes `FIELD_CONFIG_CATALOG_MISSING`, `FIELD_CONFIG_REVISION_STALE`, `FIELD_CONFIG_NOTHING_TO_PUBLISH`; field code `NOT_ASSESSED` | `staging`, TRD sync |
+| PI-3 | Reporting RC-5 / S-6: a per-field "new" flag. QA reads `is_new` as a boolean; any other type makes the catalog malformed (503, `field-config-catalog.ts:119-121`). The name and type need confirming. Today it is never sent, so `isNew` is always `false` | Back lead + Reporting |
+| PI-4 | `upsertDraftItems` uses `VALUES()`, deprecated since MySQL 8.0.20 (`field-config.store.ts:397`) | TRD pending; revisit on a MySQL upgrade |
+| PI-5 | `server/src/common/AGENTS.md:28`: add the third replay reader, whose stored target id is a **version id** | `staging` (shared guide) |
+| PI-6 | **Open question for the business owner (Angel Jarrín):** after the first publication and a discard, every field has a draft row, so no field can read "unclassified" again (DD-2 + FR-6). Is that intended? | Business owner; `front-contract.md` § 10 |
+| PI-7 | T-11 checks on MySQL: the driver `timezone` and the `published_at` round-trip; a concurrent first `ensureDraft`; a 1213 during publish; the `findPublication` join | Back lead (T-11) |
+| PI-8 | S-1 for the comments spec: a comment covers the field with all its sub-options, never one subfield | comments spec |

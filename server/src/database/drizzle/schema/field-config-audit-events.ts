@@ -34,9 +34,11 @@ export type FieldConfigAuditChanges = Record<
 
 // The timelines the publication reached (design 5, DD-7): those that receive
 // the new version, and those that keep theirs with the version they keep.
+// `version` is null for a started timeline that resolves to no version, as the
+// preview lists it (DD-7: the record is what the ADMIN saw).
 export type FieldConfigAuditTimelines = {
   receive: number[];
-  keep: { id: number; version: number }[];
+  keep: { id: number; version: number | null }[];
 };
 
 // Append-only record of every publication (field-configuration FR-11, NFR-8),

@@ -96,7 +96,7 @@ All routes are under `/api/v1`, admin-only, documented in OpenAPI and wrapped in
 |---|---|---|---|---|
 | GET | `/cycles/:id/field-config` | — | View (below) | 401, 403, 400 id, 404 `CYCLES_NOT_FOUND`, 409 `FIELD_CONFIG_CATALOG_MISSING`, 503 `SERVICE_UNAVAILABLE` |
 | PATCH | `/cycles/:id/field-config/draft` | `{ items: [{ resultTypeKey, fieldKey, visibility, isCore?, isAiInput? }] }`, 1–2,000 items | View | 400 `VALIDATION_FAILED` (all issues), 404, 409 `CYCLES_CLOSED`, 409 `FIELD_CONFIG_CATALOG_MISSING`, 503 |
-| DELETE | `/cycles/:id/field-config/draft` | — | View | 404, 409 `CYCLES_CLOSED` |
+| DELETE | `/cycles/:id/field-config/draft` | — | View | 404, 409 `CYCLES_CLOSED`, 409 `FIELD_CONFIG_CATALOG_MISSING`, 503 *(amended 2026-10-26 at T-7: the answer is the view, so answer-order step 3 applies)* |
 | GET | `/cycles/:id/field-config/publish-preview` | — | `{ revision, basedOn: number \| null, changes: [{ resultTypeKey, fieldKey, before, after }], timelines: { receive: [{ id, name, opensOn }], keep: [{ id, name, opensOn, version }] } }` | 404, 409 `FIELD_CONFIG_CATALOG_MISSING`, 503 |
 | POST | `/cycles/:id/field-config/publish` | `{ revision }`, `@Idempotent()` | `{ version: { number, publishedAt, catalogVersion }, timelines: { receive, keep } }` | 400, 404, 409 `CYCLES_CLOSED`, 409 `FIELD_CONFIG_REVISION_STALE`, 409 `FIELD_CONFIG_NOTHING_TO_PUBLISH`, 409 `FIELD_CONFIG_CATALOG_MISSING`, 503, idempotency codes |
 
