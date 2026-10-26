@@ -367,3 +367,51 @@ spawns: implementer 44 calls, 253620 tokens, ended complete; reviewer 19 calls, 
 - Forward pointers carried into the brief: S-14 (an omitted flag is stored false; *Same values* compares after normalising); truncate `now` to the second once, for both the lists and the insert (T-5 A); the conditional UPDATE stays the deciding guard, with a service-level conditional-alone falsifier (T-5 A); publishing a cycle with no draft row answers `NOTHING_TO_PUBLISH`, not stale (T-5 A, DD-10); a 1213 or 1205 is never an unmapped 500 [advisory-grade] (T-5 Opus); the edit and discard paths never see `stale` (T-5 Opus); discard deletes the items before copying the version (T-5 fable); two admins editing the same field are tested explicitly (T-5 Opus); the unit of work is injected (T-6).
 - Skills: nestjs-expert, error-handling-patterns (as listed). Effort `high`, above the T2 default: it orchestrates every write rule, the answer order and the concurrency guard.
 - **Back lead, 2026-10-26 ("Adelante no pares, termina todo"):** the budget tripwire and the per-task continue gates are lifted for the rest of the run. They had already been told the overrun would come at T-7 (about 6,830 of about 7,000 LOC). The overrun is still recorded at each task close. A HALT, a Pivot, a FATAL_FAIL or a waiver still stops the run. T-11 is a human step (applying `0005` to `qadb` and the concurrent publish on MySQL), so the run stops before it.
+
+### T-8: Controller, DTOs, OpenAPI, module wiring, idempotency — PASS
+
+| | |
+|---|---|
+| Date | 2026-10-26 |
+| Final status | PASS (attempt 1, 2 checkpoints) |
+| Attempts | 1 |
+| Skills | nestjs-expert, api-design-principles (as listed) |
+| Effort | `medium`, then `low` for the two verification-only respawns |
+| Requirements covered | FR-1 (class guard), FR-8 *Replay* (wiring), FR-13 *Unknown cycle*, NFR-1, NFR-2 |
+
+**Attempt 1**
+- Files changed:
+  - New: `server/src/admin-config/field-config/field-config.controller.ts` (5 routes, class-level `ADMIN_ACCESS`, full OpenAPI, `@Idempotent()` on publish), `dto/` (+ spec, 18 cases), `models/field-config.model.ts`.
+  - Modified: `field-config.module.ts` (controller, `IDEMPOTENCY_STORE`, `IDEMPOTENCY_REPLAY_READER`), `admin-config.module.ts` (imports `FieldConfigModule`), `server/test/support/admin-config-app.ts` (store, UoW and catalog fake with `missingYears` / `down`; `send('patch')`).
+  - Gap edits for DD-9: `field-config.store.ts` `findPublication`, the matching fake method, and `field-config.service.ts` `replayPublish`.
+- Red run: `test/openapi.e2e-spec.ts` `3 failed | 10 passed` (`DELETE …/draft: expected [] to include 'access-token'`; summary undefined; 200 response undefined).
+- Falsifiers: `isCore` made required → 9 red at the pipe, restored. `@Idempotent()` removed → **owed to T-9**.
+- Router listing (temporary spec, deleted): `GET /api/v1/cycles/:id/field-config`, `PATCH …/draft`, `DELETE …/draft`, `GET …/publish-preview`, `POST …/publish`, matching `toHaveLength(5)`.
+- Implementer verification: e2e `779 passed` (13 files), unit `2299 passed`, lint and build clean.
+- Evidence re-run (Leader-inline, non-author): **VERIFIED**. Lint clean, build 0, unit `2299 passed`, e2e `779 passed`.
+- Reviewer (lens checklist, effort high): **PASS**. Quote: "All five routes are mounted under a class-level `ADMIN_ACCESS` guard… Publish has `@Idempotent()`, `withIdempotencyErrors` and `IDEMPOTENCY_REPLAYED_HEADERS`." Named check (the § 6 DELETE row): both codes are documented. Rulings:
+  - The DD-9 gap edits are a demonstrated need and conformant.
+  - 201 on publish conforms (FR-8 says "the first answer").
+  - The plain `Error` in `replayPublish` is unreachable.
+  - DTOs and `admin-config-app.ts` conform.
+- runtime events: none.
+
+spawns: implementer 50 calls, 164755 tokens, ended checkpoint; implementer (respawn 1) 6 calls, 62568 tokens, ended checkpoint; implementer (respawn 2) 8 calls, 65850 tokens, ended complete; reviewer not reported by host, ended complete.
+
+**Decisions / spec edits**
+- **Execute-time spec edit (Leader, at the Reviewer's request):** `tasks.md` T-9 *Tests* replay line "the first 200" becomes "the first answer (201, the publish route's status)". FR-8 says "the first answer", and the interceptor replays the route status. Carried to the T-9 brief and Reviewer.
+
+**ADVISORY (Reviewer — recorded, not tasks)**
+- RELIABILITY: no test reaches `replayPublish` / Drizzle `findPublication`, because the T-9 replay case uses the `completed` path, which replays the stored body. A crash-window case (`executed` with no stored answer) would exercise the reader. Recorded; T-11 checks the join on MySQL.
+- RELIABILITY: in the replay, a timeline deleted since the publication shows `name: ''` and `opensOn: null`. **Forward pointer to T-10** (`front-contract.md`).
+- READABILITY: the `replayPublish` JSDoc says "One read", but it runs two statements.
+- RISK/DOCS: `server/src/common/AGENTS.md:28` says admin-config has two replay readers storing cycle or timeline ids; there is now a third, whose target is a **version id**. T-10 names only `server/src/admin-config/AGENTS.md`, so this shared-guide line is a **pending item for `staging`** (shared-file write discipline).
+- RISK (known gap, for T-11): replay names and `opensOn` reflect timelines as they are at replay time, not at publication time (DD-9 trade-off against FR-8 "the first answer").
+
+**Final verification:** VERIFIED.
+
+**Decisions made (recorded as they happen)**
+- Forward pointers carried: the § 6 DELETE row as amended at T-7 (OpenAPI lists 409 `FIELD_CONFIG_CATALOG_MISSING` and 503); 503 `SERVICE_UNAVAILABLE` (busy) on PATCH, DELETE and publish; `latestVersion.publishedAt` serialised as an ISO string (T-6); the e2e fake clock is fixed, so the per-year catalog cache never expires within a run (T-2, also T-9); the preview `keep[].version` is nullable in the response model (T-6). Moving `FieldConfigBusyError` into `admin-config.errors.ts` is not in T-8's scope (narrow-never-widen) and stays an advisory for T-10's guide.
+- Skills: nestjs-expert, api-design-principles (as listed). Effort `medium`.
+- checkpoints: 1 (resource-guard blocked `pnpm test:e2e` five times; about 48 calls). The remaining work was the full e2e run and the router listing. The Leader started a fresh Implementer with the checkpoint report verbatim. The attempt counter did not change.
+- checkpoints: 2 (the respawn was blocked by resource-guard on 3 e2e attempts: 3.3–4.1 GB free against 4.5 GB required, swap 2.2 GB). No code change and no failure. One checkpoint is left before the cap HALTs the task; the Leader asked the back lead about RAM / `RG_FORCE` before respawning.

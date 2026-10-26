@@ -182,6 +182,18 @@ export interface FieldConfigStore {
   ): Promise<void>;
   /** `INSERT` one audit row; append-only, written on the publication's transaction (FR-11, DD-10). */
   insertAuditEvent(values: NewFieldConfigAuditValues): Promise<void>;
+  /**
+   * A publication as recorded: the version and the receive / keep lists of its
+   * audit row (DD-9), ONE statement through the unique `version_id`. Added at
+   * T-8 for the idempotency replay reader. `undefined` = no such version.
+   */
+  findPublication(versionId: number): Promise<Publication | undefined>;
+}
+
+/** What a replay needs of a publication: its version and the lists stored in its audit row. */
+export interface Publication {
+  version: FieldConfigVersion;
+  timelines: FieldConfigAuditTimelines;
 }
 
 type FieldConfigDb = Pick<DrizzleDB, 'select' | 'insert' | 'update' | 'delete'>;
@@ -228,6 +240,22 @@ export class DrizzleFieldConfigStore implements FieldConfigStore {
         asc(fieldConfigDraftItems.resultTypeKey),
         asc(fieldConfigDraftItems.fieldKey),
       );
+  }
+
+  async findPublication(versionId: number): Promise<Publication | undefined> {
+    const [row] = await this.db
+      .select({
+        version: fieldConfigVersions,
+        timelines: fieldConfigAuditEvents.timelines,
+      })
+      .from(fieldConfigVersions)
+      .innerJoin(
+        fieldConfigAuditEvents,
+        eq(fieldConfigAuditEvents.versionId, fieldConfigVersions.id),
+      )
+      .where(eq(fieldConfigVersions.id, versionId))
+      .limit(1);
+    return row;
   }
 
   async latestVersion(

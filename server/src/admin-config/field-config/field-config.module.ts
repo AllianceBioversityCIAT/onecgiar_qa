@@ -1,11 +1,20 @@
 // @akili-spec admin-config/field-configuration
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { IDEMPOTENCY_CLOCK } from '../../common/idempotency/idempotency.store.js';
+import {
+  IDEMPOTENCY_REPLAY_READER,
+  type IdempotencyReplayReader,
+} from '../../common/idempotency/idempotency.interceptor.js';
+import {
+  DrizzleIdempotencyStore,
+  IDEMPOTENCY_CLOCK,
+  IDEMPOTENCY_STORE,
+} from '../../common/idempotency/idempotency.store.js';
 import { catalogsConfig } from '../../config/catalogs.config.js';
 import { DrizzleModule } from '../../database/drizzle/drizzle.module.js';
 import { ADMIN_CONFIG_CLOCK } from '../admin-config.clock.js';
 import { FIELD_CATALOG_SOURCE } from './field-catalog.ports.js';
+import { FieldConfigController } from './field-config.controller.js';
 import { FieldConfigService } from './field-config.service.js';
 import {
   DrizzleFieldConfigStore,
@@ -48,12 +57,14 @@ export interface FieldConfigEffective {
 
 /**
  * Field configuration per cycle (design 3, 4). `ConfigModule` is global, but the
- * catalog config is registered per module, as `UsersModule` does (P-6). The
- * controller and the import from `AdminConfigModule` arrive with T-8. The one
- * export is the effective-configuration port (FR-10).
+ * catalog config is registered per module, as `UsersModule` does (P-6).
+ * `AdminConfigModule` imports it. The one export is the effective-configuration
+ * port (FR-10). Its own Nest module so the replay reader below answers a
+ * publication (DD-9); the cycles and timelines modules bind theirs.
  */
 @Module({
   imports: [DrizzleModule, ConfigModule.forFeature(catalogsConfig)],
+  controllers: [FieldConfigController],
   providers: [
     { provide: FIELD_CONFIG_STORE, useClass: DrizzleFieldConfigStore },
     {
@@ -65,7 +76,20 @@ export interface FieldConfigEffective {
     { provide: ADMIN_CONFIG_CLOCK, useValue: () => new Date() },
     // The clock of the idempotency store the unit of work builds on its transaction.
     { provide: IDEMPOTENCY_CLOCK, useValue: () => new Date() },
+    // The idempotency interceptor of the publish (FR-8, DD-9). The token factory
+    // stays unbound: the store generates owner tokens with randomUUID.
+    { provide: IDEMPOTENCY_STORE, useClass: DrizzleIdempotencyStore },
     FieldConfigService,
+    {
+      // The crash window: a key left `executed` without an answer is replayed
+      // with the publication re-read from its version and audit row. The stored
+      // target id is a version id here (design 7.6).
+      provide: IDEMPOTENCY_REPLAY_READER,
+      useFactory: (service: FieldConfigService): IdempotencyReplayReader => ({
+        read: (versionId) => service.replayPublish(versionId),
+      }),
+      inject: [FieldConfigService],
+    },
     { provide: FIELD_CONFIG_EFFECTIVE, useExisting: FieldConfigService },
   ],
   exports: [FIELD_CONFIG_EFFECTIVE],

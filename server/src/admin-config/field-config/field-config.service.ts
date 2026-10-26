@@ -591,6 +591,47 @@ export class FieldConfigService implements FieldConfigEffective {
     });
   }
 
+  /**
+   * The answer of a publication as recorded (DD-9), for the idempotency replay
+   * reader: the version and the receive / keep lists AS STORED in its audit row,
+   * never recomputed. Names and `opensOn` are joined from the timelines now (the
+   * audit row keeps ids and version numbers only). One read, no lock, no write.
+   * The version and its audit row commit together with the key mark, so a
+   * missing one is a bug: it throws, and the interceptor answers 503.
+   */
+  async replayPublish(versionId: number): Promise<PublishResult> {
+    const publication = await this.store.findPublication(versionId);
+    if (publication === undefined) {
+      throw new Error(`Publication ${versionId} has no version or audit row`);
+    }
+    const { version, timelines: stored } = publication;
+    const named = new Map(
+      (await this.store.listTimelineStarts(version.cycleId)).map((t) => [
+        t.id,
+        t,
+      ]),
+    );
+    const entry = (id: number): PreviewTimeline => ({
+      id,
+      name: named.get(id)?.name ?? '',
+      opensOn: named.get(id)?.opensOn ?? null,
+    });
+    return {
+      version: {
+        number: version.number,
+        publishedAt: version.publishedAt,
+        catalogVersion: version.catalogVersion,
+      },
+      timelines: {
+        receive: stored.receive.map(entry),
+        keep: stored.keep.map((kept) => ({
+          ...entry(kept.id),
+          version: kept.version,
+        })),
+      },
+    };
+  }
+
   /** The cycle, or 404; a closed cycle refuses every write (FR-13); then the catalog of ITS year (design 6, steps 1 to 3). Nothing is locked. */
   private async writableCycle(
     cycleId: number,

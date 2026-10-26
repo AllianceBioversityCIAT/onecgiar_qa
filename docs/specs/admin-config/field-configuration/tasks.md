@@ -300,7 +300,7 @@ T-4 ─────────────────────────�
 - **Skills:** nestjs-expert, error-handling-patterns
 
 ## T-8: Controller, DTOs, OpenAPI, module wiring, idempotency
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** S
 - **Depends on:** T-7
 - **Requirements:**
@@ -344,7 +344,7 @@ T-4 ─────────────────────────�
   - The preview for the FR-7 timelines.
   - Publish, then a GET showing the version.
   - Stale revision; nothing to publish; two concurrent publishes (one 200, one 409, one version).
-  - Replay with the same key → the first 200 with `Idempotency-Replayed` and one version and audit row.
+  - Replay with the same key → the first answer (201, the publish route's status; *edit* 2026-10-26 at T-8, was "200") with `Idempotency-Replayed` and one version and audit row.
   - A closed cycle refuses writes and allows reads.
   - The log lines.
 - **Verification:** `cd server && pnpm test:e2e --reporter=dot`.

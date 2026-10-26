@@ -5,6 +5,7 @@ import type {
   FieldConfigStore,
   NewFieldConfigAuditValues,
   NewVersionValues,
+  Publication,
   RevisionOutcome,
   VersionInsertOutcome,
 } from '../../src/admin-config/field-config/field-config.store.js';
@@ -226,6 +227,16 @@ export class InMemoryFieldConfigStore implements FieldConfigStore {
         .map(asItem)
         .sort(byItem),
     );
+  }
+
+  findPublication(versionId: number): Promise<Publication | undefined> {
+    return this.statement('read', `publication:${versionId}`, {}, () => {
+      const version = this.rows.versions.find((v) => v.id === versionId);
+      const audit = this.rows.audit.find((e) => e.versionId === versionId);
+      return version && audit
+        ? structuredClone({ version, timelines: audit.timelines })
+        : undefined;
+    });
   }
 
   latestVersion(cycleId: number): Promise<FieldConfigVersion | undefined> {
