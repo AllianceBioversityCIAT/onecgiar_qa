@@ -277,9 +277,49 @@ Task entry Reviewer field: **PASS (degraded-pair: opus/fable)**.
 
 **Final verification:** VERIFIED.
 
-### T-6: Service read flows — view, preview, effective query — in progress
+### T-6: Service read flows — view, preview, effective query — PASS
+
+| | |
+|---|---|
+| Date | 2026-10-26 |
+| Final status | PASS (attempt 1, 1 continuation) |
+| Attempts | 1 |
+| Skills | nestjs-expert, api-design-principles (as listed) |
+| Effort | `medium` |
+| Requirements covered | FR-2 (through the service), FR-3, FR-7, FR-10, FR-13 (reads), NFR-5 (view/preview/effective statement counts) |
+
+**Attempt 1**
+- Files changed: new `server/src/admin-config/field-config/field-config.service.ts` + spec, `field-config.module.ts` + spec (DI, the only export is `FIELD_CONFIG_EFFECTIVE`). Edited: `field-config.store.ts` (`NamedTimelineStart` adds `name`, read in the same first select, still 3 statements), `field-config.unit-of-work.spec.ts` (3 `toEqual` gain `name`), `server/test/support/in-memory-field-config.ts`. Continuation: `field-config-catalog.ts` + spec (`description` pass-through).
+- Red run (methods stubbed to throw): `26 failed`. 7 failed on their own assertions; 19 failed on the stub's throw. The Reviewer accepted this as the predicted red. Continuation red: `3 failed`.
+- Falsifiers (post-change, restored): F1 catalog read for the clock's year → 3 red (`expected "vi.fn()" to be called with arguments: [ 2027 ]`); F2 unclassified read as null → 1 red; F3 every type treated as changed → 4 red (C in receive; 50 vs 25); description pass-through dropped → 1 red.
+- Statement counts: view 5; preview 8 for 1 and 50 timelines (scope alternates, 25 receive); effective 5, with 0 catalog reads.
+- Implementer verification: lint clean, build OK, `Tests 2231 passed (2231)`; the field-config folder also passes under `TZ=America/Bogota`.
+- Evidence re-run (Leader-inline, non-author): **VERIFIED**: lint clean, build 0, `2231 passed`, Bogota `215 passed`, e2e `779 passed`.
+- Reviewer (lens checklist, effort high): **PASS**. Quote: "`view`, `preview` and `effectiveFor` cover every scenario in FR-2, FR-3, FR-7, FR-10 and FR-13 through the service… The view shape, including `description?`, matches design § 6 field by field." Named checks: the § 7.2 *Discard* amendment is not contradicted; the § 7.3 row needs no amendment for `name` (the row does not list returned fields).
+- runtime events: none.
+
+spawns: implementer 52 calls, 194164 tokens, ended complete (after continuation 1; the first report ended partial); reviewer not reported by host, ended complete.
+
+**Not Done / Assumptions (Implementer; owed item #3 closed by the continuation; the rest ruled conformant)**
+1. `NamedTimelineStart` (T-5 store edit, a demonstrated need).
+2. `effectiveFor(cycleId, timelineId, resultTypeKey)` → `{ timelineId, resultTypeKey, version, provisional, items }`. An unknown timeline or one in another cycle gives `TimelineNotFoundError`.
+3. ~~Field `description` missing~~ → done in continuation 1.
+4. Sections with no applicable fields are left out.
+5. Preview `keep[].version` is `number | null`. **Forward pointer to T-10:** document the null in `front-contract.md`.
+6. `latestVersion.publishedAt` is a `Date`, which T-8 serializes.
+7. The unit of work is not injected yet. **Forward pointer to T-7.** The module binds `IDEMPOTENCY_CLOCK`.
+
+**ADVISORY (Reviewer — recorded, not tasks)**
+- RISK: `description: null` makes the whole catalog malformed (503); treating it as absent would be more tolerant (RC-1…RC-4 drift).
+- READABILITY: the effective-port types live in `field-config.module.ts` and the service imports them back; a `field-config.ports.ts` would remove the cycle.
+- READABILITY: the effective test's version fixture holds one item, against DD-2; the `items` docstring describes a guarantee that the publish path provides.
+- RELIABILITY: `effectiveFor` loads every timeline of the cycle to pick one (count fixed, but § 7.2 step 1 reads one).
+- RELIABILITY: "one catalog read per request" is not asserted for the preview. **Forward pointer to T-9.**
+
+**Final verification:** VERIFIED.
 
 **Decisions made (recorded as they happen)**
 - Integration (2026-10-26, back lead's request): T-1…T-5 merged with `--no-ff` into `staging-center` (`ac16b01`) and into `dev` (`7a82c27`, pushed; Jenkins trigger run 40356052489 succeeded). Before the `dev` push, the Leader verified the merged `dev`: server lint clean, build 0, `2202` unit and `779` e2e passed, client `ng build` 0. Migration `0005` is **not** applied to `qadb`; that stays a human step (T-11). There is no HTTP route yet (T-8).
 - Forward pointers carried: from T-2, the cache uses `ADMIN_CONFIG_CLOCK`, so the module must provide it. From T-4, a not-started timeline with no versions resolves to `'none'`; the Leader narrowed that the effective query answers `FieldConfigNoVersionError` for it, as for a started timeline with none (no version exists to resolve to). From T-5, § 7.2 *Discard* step 4 and the § 7.3 ports row amendments are carried as named checks.
 - Skills: nestjs-expert, api-design-principles (as listed). Effort `medium`.
+- continuations: 1 (field `description` in the view, design § 6: Implementer Not Done #3 was an owed item, with no blocker; gated mode → re-spawn for the remainder, the same worker resumed by message).

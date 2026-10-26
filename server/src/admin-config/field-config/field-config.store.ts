@@ -33,6 +33,13 @@ import type { TimelineStart } from './field-config-versions.js';
 
 export const FIELD_CONFIG_STORE = Symbol('FIELD_CONFIG_STORE');
 
+/**
+ * A timeline as the preview lists it: the dates and scope the pure rules read,
+ * plus its `name` for the receive and keep lists (FR-7). Added at T-6: the same
+ * first statement of `listTimelineStarts` carries it, so the count stays three.
+ */
+export type NamedTimelineStart = TimelineStart & { name: string };
+
 /** The cycle as the module reads it: the catalog is read for its `year`, and a closed cycle refuses writes (FR-13). */
 export type FieldConfigCycle = Pick<Cycle, 'id' | 'year' | 'status'>;
 
@@ -113,7 +120,7 @@ export interface FieldConfigStore {
    * `closes_on`, both `null` for a timeline with no steps. No load signal is read
    * (DD-8a). Ordered by timeline id. It mirrors `TimelinesService.respond()`.
    */
-  listTimelineStarts(cycleId: number): Promise<TimelineStart[]>;
+  listTimelineStarts(cycleId: number): Promise<NamedTimelineStart[]>;
 
   /**
    * `SELECT status FROM cycles WHERE id = ? FOR SHARE` (design 7.3, P-11): the
@@ -264,12 +271,16 @@ export class DrizzleFieldConfigStore implements FieldConfigStore {
       );
   }
 
-  async listTimelineStarts(cycleId: number): Promise<TimelineStart[]> {
+  async listTimelineStarts(cycleId: number): Promise<NamedTimelineStart[]> {
     // Three statements whatever the number of timelines, even none: the steps
     // and the scope rows are keyed by the cycle through a subquery, so no
     // statement waits for the ids of the one before it and none is skipped.
     const rows = await this.db
-      .select({ id: timelines.id, allResultTypes: timelines.allResultTypes })
+      .select({
+        id: timelines.id,
+        name: timelines.name,
+        allResultTypes: timelines.allResultTypes,
+      })
       .from(timelines)
       .where(eq(timelines.cycleId, cycleId))
       .orderBy(asc(timelines.id));
@@ -311,6 +322,7 @@ export class DrizzleFieldConfigStore implements FieldConfigStore {
       );
       return {
         id: row.id,
+        name: row.name,
         opensOn: first?.opensOn ?? null,
         closesOn: last,
         allResultTypes: row.allResultTypes,

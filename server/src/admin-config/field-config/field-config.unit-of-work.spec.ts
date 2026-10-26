@@ -224,9 +224,10 @@ function stub({
               : [[31, 3, latestNumber, '2026.29', at, 1, null]];
           break;
         case 'timelines':
-          // id, all_result_types: the odd ones are for every type.
+          // id, name, all_result_types: the odd ones are for every type.
           rows = Array.from({ length: timelineCount }, (_, i) => [
             100 + i,
+            `Timeline ${100 + i}`,
             i % 2,
           ]);
           break;
@@ -600,6 +601,7 @@ describe('DrizzleFieldConfigUnitOfWork over a stub MySQL driver (design 7.2, 7.3
     expect(one.starts).toEqual([
       {
         id: 100,
+        name: 'Timeline 100',
         // Step 1's opening and the latest closing, whatever the order the rows come in.
         opensOn: '2026-11-02',
         closesOn: '2026-11-13',
@@ -610,6 +612,7 @@ describe('DrizzleFieldConfigUnitOfWork over a stub MySQL driver (design 7.2, 7.3
     expect(fifty.starts).toHaveLength(50);
     expect(fifty.starts[1]).toEqual({
       id: 101,
+      name: 'Timeline 101',
       opensOn: '2026-11-02',
       closesOn: '2026-11-13',
       allResultTypes: true,
@@ -1288,6 +1291,7 @@ describe('the field configuration over the in-memory world (FR-5, FR-8, FR-11, N
     expect(startsOfOne).toEqual([
       {
         id: 1,
+        name: 'Timeline 1',
         opensOn: '2026-11-02',
         closesOn: '2026-11-13',
         allResultTypes: false,
@@ -1297,6 +1301,7 @@ describe('the field configuration over the in-memory world (FR-5, FR-8, FR-11, N
     expect(startsOfFifty).toHaveLength(50);
     expect(startsOfFifty[1]).toEqual({
       id: 2,
+      name: 'Timeline 2',
       opensOn: '2026-11-02',
       closesOn: '2026-11-13',
       allResultTypes: true,
@@ -1324,6 +1329,7 @@ describe('the field configuration over the in-memory world (FR-5, FR-8, FR-11, N
     expect(await db.store.listTimelineStarts(1)).toEqual([
       {
         id: 1,
+        name: 'Bare',
         opensOn: null,
         closesOn: null,
         allResultTypes: true,

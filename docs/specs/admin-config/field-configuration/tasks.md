@@ -223,7 +223,7 @@ T-4 ─────────────────────────�
 - **Skills:** nestjs-expert, nestjs-best-practices
 
 ## T-6: Service read flows — view, preview, effective query
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-2, T-3, T-4, T-5
 - **Requirements:**
