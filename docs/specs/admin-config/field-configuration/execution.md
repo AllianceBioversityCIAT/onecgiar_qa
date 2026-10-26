@@ -547,3 +547,38 @@ spawns (T-9 total): implementer 1 worker, resumed twice. The host reported 39 ca
 - `feat/field-configuration` pushed. Merged with `--no-ff` into `staging-center` (`5b0f547`) and `dev` (`81c6f77`), both pushed. Jenkins trigger run 40372208291 succeeded.
 - The Leader verified the merged `dev` before pushing: server lint 0 warnings, build 0, unit `2299 passed`, e2e `862 passed` (14 files), client `ng build` 0.
 - The run stops before **T-11** (a human step: apply `0005` to `qadb`, then the concurrent publish on MySQL). The Leader prepared the commands for the back lead; no token or key passes through chat.
+
+### T-11: HITL on MySQL — migration, concurrent publish, version resolution — evidence recorded, open (`[~]`)
+
+**Run (2026-10-26, Leader, at the back lead's explicit request: "HAz la prueba tu")**
+- Target: TEST API `https://qatest-serv.ciat.cgiar.org/api/v1`, deployed from `dev` @ `81c6f77`. The four field-config paths are listed in `/docs/openapi.json`.
+- Migration `0005`: the tables exist in the TEST database. Edits and publishes wrote rows and returned 200/201, so the deploy or the back lead applied it. The Leader did not run a migration.
+- Smoke checks:
+  - no token → 401;
+  - cycle 999 → 404 `CYCLES_NOT_FOUND`;
+  - cycle 1 (year 2099) → 409 `FIELD_CONFIG_CATALOG_MISSING` (Reporting's real 404).
+- Disposable cycle: the back lead approved creating it (TEST had no 2026 cycle). `POST /cycles {year: 2026}` returned **cycle id 34**, `draft`, requestId `8294f86f-6617-473b-8a03-29603c283b93`. It permanently occupies year 2026 in the TEST database.
+- View: `2026`, catalog `2026.30`, 9 types, **504 fields** (matches the amended § 5 size check), revision 0.
+- PATCH of 3 items → revision 1. Preview revision 1.
+- **Five concurrent publishes, revision 1, distinct keys:**
+
+| # | HTTP | Start (UTC) | End (UTC) | requestId | Result |
+|---|---|---|---|---|---|
+| 1 | 201 | 21:20:51.556823 | 21:20:51.939240 | 02abffd3-d6c9-4401-9142-20445cbeb5f9 | version 1 |
+| 2 | 409 | 21:20:51.557048 | 21:20:51.939457 | 21b02242-d833-4cdf-9303-db246c188a3a | FIELD_CONFIG_REVISION_STALE |
+| 3 | 409 | 21:20:51.556916 | 21:20:51.943212 | 6572a8e0-c6df-456b-8a14-a550bb7bd976 | FIELD_CONFIG_REVISION_STALE |
+| 4 | 409 | 21:20:51.556782 | 21:20:51.937082 | 79362827-0d80-4633-afdf-890a6434f945 | FIELD_CONFIG_REVISION_STALE |
+| 5 | 409 | 21:20:51.556772 | 21:20:51.936311 | 0e741229-bbbd-451a-a601-5c710680189b | FIELD_CONFIG_REVISION_STALE |
+
+  All five windows overlap: they started within 0.3 ms and ended about 0.38 s later. There were no 500s and no 503s.
+- After the race:
+  - the view shows revision 2 and `latestVersion { number: 1, publishedAt: 2026-10-26T21:20:51.000Z }` (whole second, PI-7). No version 2 exists.
+  - preview: `basedOn 1`, 0 changes.
+  - a further publish with revision 2 → 409 `FIELD_CONFIG_NOTHING_TO_PUBLISH`.
+- **Finding (to investigate):** the very first `GET /cycles/34/field-config` (cold catalog for 2026) hung for more than 45 s on two concurrent clients, without the 503 that NFR-6 bounds at 10 s. The next calls answered in 0.1–0.3 s. Possible causes: the per-year in-flight fetch, a slow Reporting body read, or the TEST proxy. Server logs are needed (requestIds unavailable, because the clients timed out).
+- Leftover data on TEST: cycle 34 (2026, draft), draft revision 2 with 3 items, version 1 (504 items), one audit row expected.
+
+**Why T-11 stays `[~]`**
+1. **Disqualifier:** "a token or key that passed through chat". The admin token was pasted in chat by the back lead, who explicitly asked the Leader to run the test. Closing T-11 needs the back lead to waive this, or to re-run with a token from their own shell.
+2. **Not verified over HTTP:** exactly **one** audit row for cycle 34. The back lead should check with `SELECT COUNT(*) FROM field_config_audit_events WHERE cycle_id = 34;` (expected 1), and `SELECT number FROM field_config_versions WHERE cycle_id = 34;` (expected only 1).
+3. PI-7 MySQL checks are still open: the driver `timezone` round-trip; a concurrent first `ensureDraft`; the 1213 path.

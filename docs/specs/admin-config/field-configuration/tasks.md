@@ -387,7 +387,7 @@ T-4 ─────────────────────────�
 - **Skills:** cognitive-doc-design
 
 ## T-11: HITL on MySQL — migration, concurrent publish, version resolution
-- **Status:** [ ]
+- **Status:** [~]
 - **Size:** S
 - **Depends on:** T-10
 - **Requirements:** NFR-3 (real-database part); FR-8 (two admins publish at once, on InnoDB); FR-11 (one audit row per publication, on MySQL); FR-2 (the real catalog for the cycle's year)
