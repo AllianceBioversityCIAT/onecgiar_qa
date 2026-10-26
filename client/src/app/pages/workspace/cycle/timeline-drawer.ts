@@ -1,4 +1,4 @@
-import { Component, computed, input, linkedSignal, model, output, untracked } from '@angular/core';
+import { Component, computed, effect, input, linkedSignal, model, output, untracked } from '@angular/core';
 import { DefaultStep } from '../../../core/api/cycles.models';
 import { ApiFieldError } from '../../../core/http/api-envelope';
 import { FormField, applyEach, form, required, validate } from '@angular/forms/signals';
@@ -386,6 +386,14 @@ export class TimelineDrawer {
       validate(s.end, ({ value }) => (this.live() && !toApiDay(value()) ? { kind: 'date', message: 'Enter a closing date, for example 11 Jul 2026.' } : undefined));
     });
   });
+
+  constructor() {
+    // Each opening starts with a clean form (no touched fields from the last timeline).
+    effect(() => {
+      this.request();
+      untracked(() => this.tlForm().reset());
+    });
+  }
 
   protected readonly tried = linkedSignal({ source: this.request, computation: () => false });
   protected readonly confirmRow = linkedSignal<TimelineRequest, number | null>({ source: this.request, computation: () => null });
