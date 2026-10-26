@@ -1,6 +1,6 @@
-import { Component, input } from '@angular/core';
+import { Component, input, model } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { QaButtonImports } from '../../../ui';
+import { QaButtonImports, QaSelectImports, QaSelectOption } from '../../../ui';
 import { QaStage } from '../results/results.mock';
 
 export interface RoundStageVm {
@@ -22,8 +22,10 @@ export interface RoundVm {
 }
 
 export interface CycleHeroVm {
-  /** "2 live timelines". */
-  readonly eyebrow: string;
+  /** After the total: ", from 4 live timelines", or ", Step 4 of 5 · closes 23 Jul" for one timeline. */
+  readonly detail: string;
+  /** Timeline id passed to Results, or null for all timelines. */
+  readonly timeline: string | null;
   readonly total: string;
   readonly rounds: readonly RoundVm[];
   /** Results that finished every QA step (the only place "Quality assessed" is used). */
@@ -44,20 +46,32 @@ const STAGE_COLOR: Record<QaStage, string> = {
 /** Top of the Overview: the whole cycle at a glance, with Round 1 and Round 2 side by side so they can be compared. */
 @Component({
   selector: 'qa-ov-cycle-hero',
-  imports: [QaButtonImports, RouterLink],
+  imports: [QaButtonImports, QaSelectImports, RouterLink],
   host: { class: 'block @container' },
   template: `
     <section
       aria-labelledby="overview-hero-title"
       class="relative flex flex-col gap-6 overflow-hidden rounded-[16px] bg-(--surface-3) p-5 @2xl:p-7"
     >
-      <!-- The total with the cycle link on its right, then the live timelines under it (the current step is in the page header line). -->
-      <!-- One sentence: "1,330 results in QA, from 2 live timelines", with the cycle link on the same line (wraps under it on narrow cards). -->
+      <!-- What the hero counts: all live timelines (default) or one of them. -->
+      <qa-select
+        [(value)]="timeline"
+        [options]="options()"
+        label="Viewing"
+        appearance="inline"
+        searchable
+        searchPlaceholder="Search timelines"
+        panelWidth="340px"
+        listMaxHeight="320px"
+        class="-mb-3 self-start"
+      />
+
+      <!-- One sentence: "1,330 results in QA, from 4 live timelines" (or one timeline's step), with the cycle link on the same line (wraps under it on narrow cards). -->
       <div class="flex flex-wrap items-baseline justify-between gap-x-8 gap-y-1">
         <h2 id="overview-hero-title" class="m-0 flex flex-wrap items-baseline gap-x-3">
           <span class="text-[2rem] leading-[1.05] font-bold tracking-[-0.02em] tabular-nums text-(--text) @2xl:text-[2.75rem]">{{ data().total }}</span>
           <span class="text-(length:--fs-16) font-semibold text-(--text-2)"
-            >results in QA<span class="font-normal text-(--text-3)">, from {{ data().eyebrow }}</span></span
+            >results in QA<span class="font-normal text-(--text-3)">{{ data().detail }}</span></span
           >
         </h2>
         <a hlmBtn qaBtn tone="link" size="sm" routerLink="/cycle" class="-ml-2.5 @2xl:-mr-2.5 @2xl:ml-0">See the full cycle</a>
@@ -91,7 +105,7 @@ const STAGE_COLOR: Record<QaStage, string> = {
                 <li>
                   <a
                     routerLink="/results"
-                    [queryParams]="{ stage: s.stage }"
+                    [queryParams]="{ stage: s.stage, timeline: data().timeline }"
                     [attr.aria-label]="r.title + ', ' + s.label + ': ' + s.count + ' results'"
                     class="group flex min-h-11 items-center gap-3 rounded-[8px] px-2 py-[7px] no-underline hover:bg-(--surface-2) focus-visible:shadow-(--focus-ring) focus-visible:outline-none"
                   >
@@ -113,7 +127,7 @@ const STAGE_COLOR: Record<QaStage, string> = {
       <!-- Final state: the only place "Quality assessed" appears -->
       <a
         routerLink="/results"
-        [queryParams]="{ stage: 'quality-assessed' }"
+        [queryParams]="{ stage: 'quality-assessed', timeline: data().timeline }"
         [attr.aria-label]="'Quality assessed: ' + data().final.count + ' results, ' + data().final.pct + '% of results in QA'"
         class="group -mt-3 flex min-h-11 items-center gap-3 rounded-[12px] bg-(--st-approved-bg) px-4 py-3 no-underline focus-visible:shadow-(--focus-ring) focus-visible:outline-none @2xl:px-5"
       >
@@ -135,6 +149,9 @@ const STAGE_COLOR: Record<QaStage, string> = {
 })
 export class OvCycleHero {
   readonly data = input.required<CycleHeroVm>();
+  /** Timeline the hero counts ("all" by default). */
+  readonly timeline = model<string | null>('all');
+  readonly options = input.required<readonly QaSelectOption[]>();
 
   protected readonly color = STAGE_COLOR;
 

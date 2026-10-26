@@ -19,7 +19,7 @@ export interface StageRowVm {
 /** Stages of one timeline. Each timeline has its own stages. */
 export interface TimelineStagesVm {
   readonly name: string;
-  /** "Official timeline, 1,114 results". */
+  /** "Official timeline, 989 results". */
   readonly meta: string;
   readonly rows: readonly StageRowVm[];
 }
