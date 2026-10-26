@@ -276,3 +276,10 @@ Task entry Reviewer field: **PASS (degraded-pair: opus/fable)**.
 **Requirements covered (T-5):** FR-5 (Two admins edit: last write wins at the store level), FR-8 (Stale revision; Two admins publish at once, database side), FR-11 (audit in the transaction; a refused publication leaves none), NFR-3 (fake part), NFR-5.
 
 **Final verification:** VERIFIED.
+
+### T-6: Service read flows — view, preview, effective query — in progress
+
+**Decisions made (recorded as they happen)**
+- Integration (2026-10-26, back lead's request): T-1…T-5 merged with `--no-ff` into `staging-center` (`ac16b01`) and into `dev` (`7a82c27`, pushed; Jenkins trigger run 40356052489 succeeded). Before the `dev` push, the Leader verified the merged `dev`: server lint clean, build 0, `2202` unit and `779` e2e passed, client `ng build` 0. Migration `0005` is **not** applied to `qadb`; that stays a human step (T-11). There is no HTTP route yet (T-8).
+- Forward pointers carried: from T-2, the cache uses `ADMIN_CONFIG_CLOCK`, so the module must provide it. From T-4, a not-started timeline with no versions resolves to `'none'`; the Leader narrowed that the effective query answers `FieldConfigNoVersionError` for it, as for a started timeline with none (no version exists to resolve to). From T-5, § 7.2 *Discard* step 4 and the § 7.3 ports row amendments are carried as named checks.
+- Skills: nestjs-expert, api-design-principles (as listed). Effort `medium`.
