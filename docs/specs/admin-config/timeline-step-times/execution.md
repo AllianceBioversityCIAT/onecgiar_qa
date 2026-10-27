@@ -292,3 +292,16 @@
 - **spawns:** implementer (respawn) not reported by host (10 tool calls, 80,447 tokens), ended complete; reviewer not reported by host, ended complete
 - **Budget:** review rounds 11 against ≈ 10 (approved overrun, F-1).
 - **Final verification:** green.
+
+### T-8 (HITL): Apply `0006` and its down script — in progress (partial evidence)
+
+- **Date:** 2026-10-27
+- **Context:** at the back lead's request the branch was merged to `staging-center` (`eb34bfe`) and to `dev` (`50f3579`) before the local T-8 run; the `dev` push triggered Jenkins `qa-application-2026-dev`, whose pipeline applies migrations (`docs/infrastructure.md:39`). The back lead ran the checks below on the **dev** database and pasted the results.
+- **Evidence (dev database, after the pipeline):**
+  - `__drizzle_migrations`: id 7, `created_at` 1793117646347 — equals the `0006_timeline_step_times` journal `when` (1793117646347); id 6 is `0005` (1793024411607)
+  - `SHOW COLUMNS FROM timeline_steps LIKE '%_at'`: `opens_at` `datetime` NOT NULL, `closes_at` `datetime` NOT NULL
+  - `timeline_steps`: 121 rows; `TIME(opens_at) <> '00:00:00'` → 0; `TIME(closes_at) <> '23:59:00'` → 0 (FR-11, S-6)
+  - `information_schema.CHECK_CONSTRAINTS` `chk_timeline_steps_dates` = `` (`closes_at` > `opens_at`) `` — the CHECK exists in `information_schema.CHECK_CONSTRAINTS`, which only MySQL 8.0.16+ provides (P-4, inferred; `SELECT VERSION()` not recorded)
+- **Not yet done:** the API read compared before / after; the down-script round-trip on a **local** copy (NFR-3; the down script is never run against a shared database); an explicit `SELECT VERSION()`.
+- **Deviation from T-8's scope:** T-8 asks for a local MySQL before `qadb`; here the up migration ran first on the shared dev database through the pipeline, by the back lead's decision. It succeeded on 121 rows.
+- **Status:** T-8 stays `[ ]` until the back lead records the remaining checks.
