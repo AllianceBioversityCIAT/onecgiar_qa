@@ -5,9 +5,7 @@ Branch: `jp-design/mockup-completo` · Author: Juanpa (with Claude Code) · Spec
 **Status: provisional and not a priority** (team meeting, 2026-10-27). Juanpa will adjust it after the conversation with María Julia.
 
 ## Done
-- **Bell in the top bar**, for admins only. A dot shows when something is unread.
-  - From 640 px it opens a panel: the 8 newest, All / Unread with a grey count, "Mark all as read" and "View all notifications".
-  - Below 640 px it is a link to the page.
+- **Bell in the top bar**, for admins only. A dot shows when something is unread. It opens the page directly at every width. A panel was built first and removed the same day at Juanpa's request.
 - **Page `/notifications`** with timeline, Type, search and All / Unread. Rows are grouped Today · Yesterday · Earlier. Each row opens Results with the matching filter.
 - **Data:** a mock (`notifications.mock.ts`) behind one store (`notifications-store.ts`). Every count in a sentence is computed from the Results mock, so it equals what Results shows.
 - **Results** now re-reads its filters on every navigation to it, so a notification updates an open Results page. Juanpa confirmed this logic change in writing. It touches only the filter-reading lines; Yeck's TableSort lines in `results-view.ts` are untouched.
@@ -37,4 +35,5 @@ Branch: `jp-design/mockup-completo` · Author: Juanpa (with Claude Code) · Spec
   - A non-admin account in the browser (covered by a unit test).
   - AXE: no AXE tool is installed in `client/`.
 - Tokens `--surface-4` (bell hover) and `--text-3` (bell icon) are not yet listed in the UX design's token section.
+- The row and list keep a `panel` variant that nothing uses since the panel was removed. Delete it, or reuse it if the panel comes back after the talk with María Julia.
 - Other kit parts still use `--text-muted`: `qa-menu`, `qa-tabs`, `qa-date-picker`, `qa-pagination` and `qa-badge`.

@@ -64,7 +64,7 @@ Results deep links: `?stage=<stage>[,<stage>…]` (QA stage, several allowed), `
 | Cycle | Mockup | Admin | Title "Assessment cycle". Official timeline card (named after the timeline) + Sub-timelines (Live / Closed tabs, current cycle only); timeline and step drawers with closed, scope-locked and in-progress states; empty states; load drawer |
 | Fields | Mockup | Admin | "Configuring <result type> ⌄" context line + chips (All fields · Hidden · View only · Assessed · Third-party \| Core only); sticky Review & publish bar |
 | Assessors | Mockup | Admin | Drawer to edit roles and result types |
-| Notifications | Provisional, mock data (`jp-design/mockup-completo`) | Admin | Bell in the top bar with a panel of the 8 newest (All / Unread with a grey count, "Mark all as read", "View all notifications"); page `/notifications` with "Viewing <timeline> ⌄", search, Type, All / Unread; rows grouped Today · Yesterday · Earlier, one sentence each, opening Results with the matching filter. Not a priority (meeting, 2026-10-27); to adjust after talking with María Julia. Spec `docs/specs/notifications/review-updates/` |
+| Notifications | Provisional, mock data (`jp-design/mockup-completo`) | Admin | Bell in the top bar that opens the page (no panel, since 2026-10-27); page `/notifications` with "Viewing <timeline> ⌄", search, Type, All / Unread; rows grouped Today · Yesterday · Earlier, one sentence each, opening Results with the matching filter. Not a priority (meeting, 2026-10-27); to adjust after talking with María Julia. Spec `docs/specs/notifications/review-updates/` |
 | Program response | **Missing** | Program | OQ-5 |
 | History / snapshot diff | **Missing** | All | Needs design in the `history` spec |
 | UI gallery | Dev-only | — | `ui/ui-gallery.ts` |
@@ -75,8 +75,7 @@ Results deep links: `?stage=<stage>[,<stage>…]` (QA stage, several allowed), `
 - Active nav item: tint background, weight 600 and a 2×16 px rounded `--primary` marker centered on its left edge (Jira-style; no full-height stripe).
 - Active cycle block at the top of the navigation: an outlined panel (`--nav-divider` border, no fill, no shadow) showing "Annual report 2026" · Active (6 px green dot, grey word) and "Step 5 of 5 · closes 19 Jul". It links to Cycle; hover changes only the border. Hidden when the navigation is collapsed.
 - Top bar: back/forward, search by code or title, notifications bell (admins only; a 6 px dot when something is unread, no number), Unsent button (only while something is waiting to be sent), user menu (roles, sign out). There is no cycle selector: the app always works on the active cycle.
-- The bell opens a panel from 640 px. Below that, it is a 40 px link to `/notifications`. Notifications is not a sidebar item.
-- Opening a notification goes to its target, even when it is the page already open. When the target is a different page, the sidebar re-expands, as it does for any navigation.
+- The bell is a link to `/notifications` at every width: no panel (Juanpa, 2026-10-27). It is 40 px on phones and 32 px from 640 px, and it shows as pressed while on that page. Notifications is not a sidebar item.
 - Deep links work for every result (`/results/:code`) and for Results filters (§ 2); the review page keeps filters on return.
 - Drawers for edit-in-place (load batch, edit assessor); dialogs only for confirmations.
 
