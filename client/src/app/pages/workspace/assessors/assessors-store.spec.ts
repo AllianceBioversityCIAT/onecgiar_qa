@@ -46,6 +46,7 @@ describe('AssessorsStore', () => {
       listAll: vi.fn(() => of([u()])),
       create: vi.fn(() => of(detail({ id: 8, email: 'bo@x.org', accountType: 'custom', invitation: 'sent' }))),
       edit: vi.fn(() => of(detail({ nickname: 'New' }))),
+      replace: vi.fn(() => of(detail({ nickname: 'New' }))),
       setRoles: vi.fn(() => of(detail())),
       setPrograms: vi.fn(() => of(detail())),
       addExclusion: vi.fn(() => of(detail())),
@@ -74,6 +75,29 @@ describe('AssessorsStore', () => {
     expect(store.state()).toBe('ready');
     expect(store.typeNames()).toEqual(['Knowledge product', 'Policy change']);
     expect(store.team().map((m) => m.name)).toEqual(['Ada Lovelace']);
+  });
+
+  it('programs down (CLARISA 503): the team still loads, only programs are flagged missing', async () => {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({
+      providers: [
+        AssessorsStore,
+        { provide: UsersApi, useValue: users },
+        {
+          provide: CatalogsApi,
+          useValue: {
+            resultTypes: () => of([{ key: 'kp', name: 'Knowledge product' }]),
+            sciencePrograms: () => throwError(() => new ApiError({ status: 503, code: 'SERVICE_UNAVAILABLE', message: 'Down.' })),
+          },
+        },
+        { provide: Toasts, useValue: { error: vi.fn(), success: vi.fn(), info: vi.fn() } },
+      ],
+    });
+    const s2 = TestBed.inject(AssessorsStore);
+    await s2.load();
+    expect(s2.state()).toBe('ready');
+    expect(s2.missingCatalogs()).toEqual(['programs']);
+    expect(s2.team().length).toBe(1);
   });
 
   it('a failed load shows the server message and can be retried', async () => {
@@ -118,23 +142,26 @@ describe('AssessorsStore', () => {
     expect(await store.invite(input())).toEqual({ ok: false, message: 'Taken.', field: 'email' });
   });
 
-  it('edit sends only what changed, in order, and stops at the first refusal', async () => {
-    users['setRoles'].mockReturnValueOnce(throwError(() => new ApiError({ status: 409, code: 'USERS_ROLE_CONFLICT', message: 'Conflict.' })));
+  it('edit saves the whole person in ONE PUT; a refusal changes nothing on the row', async () => {
+    users['replace'].mockReturnValueOnce(throwError(() => new ApiError({ status: 409, code: 'USERS_ROLE_CONFLICT', message: 'Conflict.' })));
     const outcome = await store.edit('7', input({ nick: 'New', types: ['Policy change'], programs: ['SP01'] }));
-    expect(users['edit']).toHaveBeenCalledOnce();
-    expect(users['setRoles']).toHaveBeenCalledOnce();
-    expect(users['setPrograms']).not.toHaveBeenCalled();
+    expect(users['replace']).toHaveBeenCalledOnce();
+    expect(users['replace'].mock.calls[0][1]).toEqual({
+      nickname: 'New',
+      roles: [{ role: 'ASSESSOR', resultTypes: ['pc'] }],
+      programs: [441],
+      exclusions: [],
+    });
+    for (const k of ['edit', 'setRoles', 'setPrograms', 'addExclusion', 'removeExclusion']) expect(users[k]).not.toHaveBeenCalled();
     expect(outcome).toEqual({ ok: false, message: 'Conflict.', field: 'role' });
-    // The nickname that did save is already on the row.
-    expect(store.team()[0].nick).toBe('New');
+    expect(store.team()[0].nick).toBe('Assessor AL');
   });
 
-  it('only the nickname of a Lead assessor with other roles changes: roles are not touched', async () => {
+  it('only the nickname of a Lead assessor with other roles changes: the server grants go back untouched', async () => {
     users['listAll'].mockReturnValueOnce(of([u({ roles: [{ role: 'LEAD_ASSESSOR', resultTypes: 'all' }, { role: 'TPB' }] })]));
     await store.load();
     await store.edit('7', input({ role: 'Lead assessor', lead: false, types: [], nick: 'New' }));
-    expect(users['edit']).toHaveBeenCalledOnce();
-    expect(users['setRoles']).not.toHaveBeenCalled();
+    expect(users['replace'].mock.calls[0][1].roles).toEqual([{ role: 'LEAD_ASSESSOR', resultTypes: 'all' }, { role: 'TPB' }]);
   });
 
   it('blocking their only program is refused instead of widening to all programs', async () => {
@@ -142,28 +169,16 @@ describe('AssessorsStore', () => {
     await store.load();
     const outcome = await store.edit('7', input({ programs: [], blocked: [{ code: 'SP01', reason: 'Co-author' }] }));
     expect(outcome).toMatchObject({ ok: false, field: 'programs' });
-    expect(users['setPrograms']).not.toHaveBeenCalled();
-    expect(users['addExclusion']).not.toHaveBeenCalled();
+    expect(users['replace']).not.toHaveBeenCalled();
   });
 
-  it('an existing block on their only program never turns the limit into "all"', async () => {
+  it('reporting exclusions are never sent; manual ones are the complete set', async () => {
     users['listAll'].mockReturnValueOnce(
-      of([u({ programs: [441], exclusions: [{ id: 5, programId: 441, origin: 'reporting', reason: null, since: '2026-02-12T00:00:00Z' }] })]),
+      of([u({ programs: 'all', exclusions: [{ id: 5, programId: 441, origin: 'reporting', reason: null, since: '2026-02-12T00:00:00Z' }] })]),
     );
     await store.load();
-    await store.edit('7', input({ nick: 'New', programs: ['SP01'], blocked: [{ code: 'SP01', reason: '', id: 5 }] }));
-    expect(users['setPrograms']).not.toHaveBeenCalled();
-  });
-
-  it('retry after a partial save does not send the block that already saved, nor delete it', async () => {
-    users['listAll'].mockReturnValueOnce(
-      of([u({ exclusions: [{ id: 9, programId: 441, origin: 'manual', reason: 'x', since: '2026-02-12T00:00:00Z' }] })]),
-    );
-    await store.load();
-    // The drawer still holds the block as new (no id) after the first, partly failed save.
-    await store.edit('7', input({ blocked: [{ code: 'SP01', reason: 'x' }] }));
-    expect(users['addExclusion']).not.toHaveBeenCalled();
-    expect(users['removeExclusion']).not.toHaveBeenCalled();
+    await store.edit('7', input({ nick: 'New', blocked: [{ code: 'SP01', reason: '', id: 5 }] }));
+    expect(users['replace'].mock.calls[0][1].exclusions).toEqual([]);
   });
 
   it('an assessor without result types is refused (it would revoke every grant)', async () => {
@@ -171,6 +186,7 @@ describe('AssessorsStore', () => {
     expect(await store.edit('7', input({ types: [] }))).toMatchObject({ ok: false, field: 'types' });
     await store.setTypes('7', []);
     expect(users['setRoles']).not.toHaveBeenCalled();
+    expect(users['replace']).not.toHaveBeenCalled();
   });
 
   it('a gateway timeout (504 without envelope) on invite also counts as a lost answer', async () => {
@@ -198,6 +214,54 @@ describe('AssessorsStore', () => {
     release();
     await first;
     expect(store.isBusy('7')).toBe(false);
+  });
+
+  it('a person who never signed in can have their name fixed: only the changed names are sent, trimmed', async () => {
+    await store.edit('7', input({ lastName: '  Byron ' }));
+    expect(users['replace']).toHaveBeenCalledOnce();
+    const body = users['replace'].mock.calls[0][1];
+    expect(body.lastName).toBe('Byron');
+    expect(body).not.toHaveProperty('firstName');
+    expect(body).not.toHaveProperty('nickname');
+  });
+
+  it('after the first sign-in the names are locked: a name in the form is never sent', async () => {
+    users['listAll'].mockReturnValueOnce(of([u({ lastSignInAt: '2026-10-20T10:00:00Z' })]));
+    await store.load();
+    await store.edit('7', input({ firstName: 'Augusta', lastName: 'King' }));
+    expect(users['replace']).not.toHaveBeenCalled();
+  });
+
+  it('"name locked" (they signed in meanwhile) comes back on the first name field', async () => {
+    users['replace'].mockReturnValueOnce(throwError(() => new ApiError({ status: 409, code: 'USERS_NAME_LOCKED', message: 'Locked.' })));
+    expect(await store.edit('7', input({ firstName: 'Augusta' }))).toEqual({ ok: false, message: 'Locked.', field: 'firstName' });
+  });
+
+  it('"last admin" comes back on the role field with the server message', async () => {
+    users['listAll'].mockReturnValueOnce(of([u({ roles: [{ role: 'ADMIN' }] })]));
+    await store.load();
+    users['replace'].mockReturnValueOnce(
+      throwError(() => new ApiError({ status: 409, code: 'USERS_LAST_ADMIN', message: 'QA needs at least one admin.' })),
+    );
+    expect(await store.edit('7', input({ role: 'Assessor', types: ['Knowledge product'] }))).toEqual({
+      ok: false,
+      message: 'QA needs at least one admin.',
+      field: 'role',
+    });
+    expect(store.team()[0].role).toBe('QA lead');
+  });
+
+  it('resend invitation: one call, a success toast with the email; a refusal shows the server message', async () => {
+    const toasts = TestBed.inject(Toasts) as unknown as Record<string, ReturnType<typeof vi.fn>>;
+    users['resendInvitation'] = vi.fn(() => of(detail({ accountType: 'custom', invitation: 'sent' })));
+    await store.resendInvitation('7');
+    expect(users['resendInvitation']).toHaveBeenCalledOnce();
+    expect(toasts['success']).toHaveBeenCalledWith('Invitation sent again to ada@cgiar.org.');
+    users['resendInvitation'].mockReturnValueOnce(
+      throwError(() => new ApiError({ status: 409, code: 'USERS_INVITATION_NOT_APPLICABLE', message: 'They already signed in.' })),
+    );
+    await store.resendInvitation('7');
+    expect(toasts['error']).toHaveBeenCalledWith('They already signed in.');
   });
 
   it('nothing changed: no call at all', async () => {

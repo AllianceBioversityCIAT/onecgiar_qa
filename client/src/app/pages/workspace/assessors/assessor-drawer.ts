@@ -52,8 +52,8 @@ function emptyDraft(): PersonDraft {
 
 function draftOf(p: TeamMember): PersonDraft {
   return {
-    firstName: '',
-    lastName: '',
+    firstName: p.firstName,
+    lastName: p.lastName,
     email: '',
     nick: p.nick,
     role: p.role,
@@ -92,6 +92,8 @@ export class AssessorDrawer {
     const s = this.session();
     return s && s.id ? (this.team().find((p) => p.id === s.id) ?? null) : null;
   });
+  /** Names can be typed when inviting, and fixed until the person first signs in. */
+  protected readonly namesEditable = computed(() => this.isNew() || this.person()?.namesLocked === false);
 
   // Draft and per-open UI state: reset whenever a new session starts.
   protected readonly draft = linkedSignal<PersonDraft>(() => {
@@ -117,8 +119,9 @@ export class AssessorDrawer {
 
   protected readonly personForm = form(this.draft, (p) => {
     const isNew = () => this.isNew();
-    required(p.firstName, { message: 'Enter their first name.', when: isNew });
-    required(p.lastName, { message: 'Enter their last name.', when: isNew });
+    const namesEditable = () => this.namesEditable();
+    required(p.firstName, { message: 'Enter their first name.', when: namesEditable });
+    required(p.lastName, { message: 'Enter their last name.', when: namesEditable });
     required(p.email, { message: 'Enter their email address.', when: isNew });
     email(p.email, { message: 'Enter a valid email address.' });
     required(p.nick, { message: 'Enter a nickname.' });
@@ -149,6 +152,9 @@ export class AssessorDrawer {
   /** Server or rule message for the result types / programs pickers. */
   protected readonly typesError = computed(() => (this.serverField()?.field === 'types' ? this.serverField()?.message : ''));
   protected readonly programsError = computed(() => (this.serverField()?.field === 'programs' ? this.serverField()?.message : ''));
+
+  /** Blocking needs the program list (it can fail on its own when CLARISA is down). */
+  protected readonly programsLoaded = computed(() => this.store.programCodes().length > 0);
 
   protected readonly accountHint = computed(() =>
     accountTypeFor(this.draft().email) === 'sso'

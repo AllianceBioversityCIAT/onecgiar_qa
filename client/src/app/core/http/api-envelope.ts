@@ -26,7 +26,13 @@ export interface ApiPage<T> {
 export interface ApiFieldError {
   /** Payload key, e.g. `email`. */
   readonly field: string;
-  /** `REQUIRED` | `INVALID_TYPE` | `INVALID_EMAIL` | `TOO_LONG` | `UNKNOWN_FIELD` | `INVALID`. */
+  /**
+   * `REQUIRED` | `INVALID_TYPE` | `INVALID_EMAIL` | `TOO_LONG` | `UNKNOWN_FIELD` | `INVALID`, plus the
+   * cycle/timeline ones: `OUT_OF_RANGE` | `CLOSES_BEFORE_OPENS` | `OVERLAPS_PREVIOUS_STEP` |
+   * `BEFORE_TODAY` | `AUDIENCE_ORDER` | `ROUND_SEQUENCE` | `FIRST_STEP_LOAD` | `LOCKED` (edit: a closed or
+   * started date, or the scope after step 1). `field` may be nested: `steps[0].opensOn` (on an edit,
+   * the step's place in the timeline, `position - 1`).
+   */
   readonly code: string;
   readonly message: string;
 }

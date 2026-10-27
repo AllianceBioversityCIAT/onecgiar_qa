@@ -226,6 +226,66 @@ export const ERROR_CATALOG = {
     message:
       'Only an exclusion that comes from Reporting can be dismissed. Remove an exclusion added by an administrator instead.',
   },
+
+  // --- Cycles and timelines ------------------------------------------------
+  CYCLES_NOT_FOUND: { status: 404, message: 'This cycle does not exist.' },
+  CYCLES_YEAR_TAKEN: {
+    status: 409,
+    message:
+      'A cycle for this year already exists. Open that cycle instead, or choose a different year.',
+  },
+  CYCLES_NOT_DRAFT: {
+    status: 409,
+    message: 'Only a draft cycle can be activated.',
+  },
+  CYCLES_CLOSED: {
+    status: 409,
+    message:
+      'This cycle is closed, so its timelines and assignments can no longer change.',
+  },
+  TIMELINES_NOT_FOUND: {
+    status: 404,
+    message: 'This timeline does not exist.',
+  },
+  TIMELINES_NAME_TAKEN: {
+    status: 409,
+    message:
+      'Another timeline in this cycle already has this name. Choose a different name.',
+  },
+  TIMELINES_VERSION_STALE: {
+    status: 409,
+    message:
+      'Someone else changed this timeline. Reload it and make your change again.',
+  },
+  TIMELINES_IN_PROGRESS_UNCONFIRMED: {
+    status: 409,
+    message:
+      'This change affects a step that is in progress. Confirm it to save.',
+  },
+  TIMELINES_USER_NOT_ELIGIBLE: {
+    status: 409,
+    message:
+      'This user is inactive or does not hold the role this step needs. Choose another user.',
+  },
+  TIMELINES_ASSIGNMENT_NOT_FOUND: {
+    status: 404,
+    message: 'This assignment does not exist or was already removed.',
+  },
+
+  // --- Field configuration -------------------------------------------------
+  FIELD_CONFIG_CATALOG_MISSING: {
+    status: 409,
+    message: "No Reporting catalog exists for this cycle's year.",
+  },
+  FIELD_CONFIG_REVISION_STALE: {
+    status: 409,
+    message:
+      'The draft changed after you reviewed it. Reload and review the changes again.',
+  },
+  FIELD_CONFIG_NOTHING_TO_PUBLISH: {
+    status: 409,
+    message: 'There are no changes to publish.',
+  },
 } as const satisfies Record<string, { status: number; message: string }>;
 
 export type ErrorCode = keyof typeof ERROR_CATALOG;
@@ -282,6 +342,19 @@ export const FIELD_ERRORS = {
       : `Must be at most ${max} characters.`,
   UNKNOWN_FIELD: () => 'This field is not allowed.',
   INVALID: () => 'This value is not valid.',
+  OUT_OF_RANGE: () => 'This value is outside the allowed range.',
+  CLOSES_BEFORE_OPENS: () =>
+    'The closing date cannot be before the opening date.',
+  OVERLAPS_PREVIOUS_STEP: () =>
+    'This step must open after the previous step closes.',
+  BEFORE_TODAY: () => 'This date cannot be in the past.',
+  AUDIENCE_ORDER: () =>
+    'Each audience can be used once, in the workflow order.',
+  ROUND_SEQUENCE: () =>
+    'Rounds start at 1 and either stay the same or go up by one.',
+  FIRST_STEP_LOAD: () => 'The first step must require a load.',
+  LOCKED: () => 'This can no longer be changed.',
+  NOT_ASSESSED: () => 'Core and AI input can only be set on an assessed field.',
 } as const;
 
 export type FieldErrorCode = keyof typeof FIELD_ERRORS;

@@ -14,12 +14,13 @@ NestJS 12 API of OneCGIAR QA. This guide adds to the root `AGENTS.md`; root rule
 | Path | What lives there | Guide |
 |---|---|---|
 | `src/main.ts` | Bootstrap: `configureApp(app)` + listen on `PORT` (default 3000) | — |
-| `src/app.module.ts` | Root module: global config validation, DB modules, `UsersModule`, `AuthModule`, the two global guards | — |
+| `src/app.module.ts` | Root module: global config validation, DB modules, `UsersModule`, `AuthModule`, `AdminConfigModule`, the two global guards | — |
 | `src/app.controller.ts` | `GET /api/v1/health` (public) | — |
 | `src/common/` | HTTP wiring shared by app and e2e: prefix, helmet, CORS, cookies, body parsing, validation pipe, the response standard (envelope, error catalog, field errors), request id, OpenAPI document | `src/common/AGENTS.md` |
 | `src/config/` | Env validation and typed config namespaces | `src/config/AGENTS.md` |
 | `src/database/` | Drizzle (MySQL) and DynamoDB modules, schema, seeds | `src/database/AGENTS.md` |
 | `src/users/` | Users, roles, role assignments, program scope, permission catalog, `can()` / `canReview()`, current-user cache, the admin API (`/users`, `/catalogs`) with audit | `src/users/AGENTS.md` |
+| `src/admin-config/` | Cycles and QA timelines: cycle create/list/activate, timeline defaults, create (official/additional, scope, 1-5 dated steps), list/detail with computed status and readiness, user assignment, timeline edit; field configuration per cycle (draft, preview, publish of immutable versions from the Reporting catalog of the cycle's year). Admin only; Rome-date rules | `src/admin-config/AGENTS.md` |
 | `src/auth/` | Cognito client, token verification, admission, login/session controllers, global guards, decorators | `src/auth/AGENTS.md` |
 | `drizzle/` | Generated SQL migrations (drizzle-kit). Never hand-edit an applied migration | `src/database/AGENTS.md` |
 | `test/` | e2e suites over the real app (`*.e2e-spec.ts`) and their fakes | `test/AGENTS.md` |

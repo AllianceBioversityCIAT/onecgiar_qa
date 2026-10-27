@@ -1,3 +1,4 @@
+import { DEMO_PROGRAMS } from '../../../core/domain/demo-programs';
 // Mock data for the "Results in QA" view, reproduced from the QA Platform mockup
 // (`QA Platform.dc.html`: RESULTS, PROGRAMS, STATUS, TYPES, TL_TYPES_SUB, RQ_STATUS, ASSESSORS,
 // DL_PROGS, PUB_INIT, timelines).
@@ -63,21 +64,7 @@ export interface DownloadProgram {
   readonly comments: number;
 }
 
-export const PROGRAMS: Readonly<Record<string, string>> = {
-  SP01: 'Breeding for Tomorrow',
-  SP02: 'Sustainable Farming',
-  SP03: 'Sustainable Animal and Aquatic Foods',
-  SP04: 'Multifunctional Landscapes',
-  SP05: 'Better Diets and Nutrition',
-  SP06: 'Climate Action',
-  SP07: 'Policy Innovations',
-  SP08: 'Food Frontiers and Security',
-  SP09: 'Scaling for Impact',
-  SP10: 'Gender Equality and Inclusion',
-  SP11: 'Capacity Sharing',
-  SP12: 'Digital Transformation',
-  SP13: 'Genebank',
-};
+export const PROGRAMS = DEMO_PROGRAMS;
 
 export const PROGRAM_CODES: readonly string[] = Object.keys(PROGRAMS);
 

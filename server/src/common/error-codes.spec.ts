@@ -21,6 +21,25 @@ import { UserNotAdmittedError } from '../auth/guards/auth.guard.js';
 import { PermissionDeniedError } from '../auth/guards/permission.guard.js';
 import { InvalidTokenError } from '../auth/token-verifier.service.js';
 import {
+  CycleActivationBusyError,
+  CycleClosedError,
+  CycleNotDraftError,
+  CycleNotFoundError,
+  CycleYearTakenError,
+  FieldConfigCatalogMissingError,
+  FieldConfigNoVersionError,
+  FieldConfigNothingToPublishError,
+  FieldConfigRevisionStaleError,
+  FieldConfigTypeNotInTimelineError,
+  TimelineAssignmentNotFoundError,
+  TimelineInProgressUnconfirmedError,
+  TimelineNameTakenError,
+  TimelineNotFoundError,
+  TimelineUserNotEligibleError,
+  TimelineValidationError,
+  TimelineVersionStaleError,
+} from '../admin-config/admin-config.errors.js';
+import {
   IdempotencyFenceLostError,
   IdempotencyInProgressError,
   IdempotencyKeyReusedError,
@@ -36,6 +55,7 @@ import {
 import {
   ERROR_CATALOG,
   ERROR_CODES,
+  FIELD_ERRORS,
   genericCodeFor,
   isErrorCode,
 } from './error-codes.js';
@@ -116,6 +136,33 @@ describe('domain errors declare a catalog code with the same status', () => {
     ['IdempotencyKeyReusedError', new IdempotencyKeyReusedError()],
     ['IdempotencyInProgressError', new IdempotencyInProgressError()],
     ['IdempotencyFenceLostError', new IdempotencyFenceLostError()],
+    ['CycleNotFoundError', new CycleNotFoundError(1)],
+    ['CycleYearTakenError', new CycleYearTakenError()],
+    ['CycleNotDraftError', new CycleNotDraftError()],
+    ['CycleActivationBusyError', new CycleActivationBusyError()],
+    ['CycleClosedError', new CycleClosedError()],
+    ['TimelineNotFoundError', new TimelineNotFoundError(1)],
+    ['TimelineNameTakenError', new TimelineNameTakenError()],
+    ['TimelineUserNotEligibleError', new TimelineUserNotEligibleError('x')],
+    ['TimelineVersionStaleError', new TimelineVersionStaleError()],
+    [
+      'TimelineInProgressUnconfirmedError',
+      new TimelineInProgressUnconfirmedError(),
+    ],
+    ['TimelineAssignmentNotFoundError', new TimelineAssignmentNotFoundError(1)],
+    [
+      'TimelineValidationError',
+      new TimelineValidationError([{ field: 'name', code: 'REQUIRED' }]),
+    ],
+    [
+      'FieldConfigCatalogMissingError',
+      new FieldConfigCatalogMissingError(2030),
+    ],
+    ['FieldConfigRevisionStaleError', new FieldConfigRevisionStaleError()],
+    [
+      'FieldConfigNothingToPublishError',
+      new FieldConfigNothingToPublishError(),
+    ],
   ];
 
   it.each(errors)('%s', (_name, error) => {
@@ -138,6 +185,142 @@ describe('idempotency errors (users-admin-write-safety FR-4, FR-5)', () => {
     expect((error.getResponse() as { code: string }).code).toBe(code);
     expect(ERROR_CATALOG[code as keyof typeof ERROR_CATALOG].status).toBe(
       status,
+    );
+  });
+});
+
+describe('cycle and timeline errors (cycle-timelines FR-11, DD-8)', () => {
+  it.each([
+    [new CycleNotFoundError(1), 404, 'CYCLES_NOT_FOUND'],
+    [new CycleYearTakenError(), 409, 'CYCLES_YEAR_TAKEN'],
+    [new CycleNotDraftError(), 409, 'CYCLES_NOT_DRAFT'],
+    [new CycleActivationBusyError(), 503, 'SERVICE_UNAVAILABLE'],
+    [new CycleClosedError(), 409, 'CYCLES_CLOSED'],
+    [new TimelineNotFoundError(1), 404, 'TIMELINES_NOT_FOUND'],
+    [new TimelineNameTakenError(), 409, 'TIMELINES_NAME_TAKEN'],
+    [new TimelineUserNotEligibleError('x'), 409, 'TIMELINES_USER_NOT_ELIGIBLE'],
+    [new TimelineVersionStaleError(), 409, 'TIMELINES_VERSION_STALE'],
+    [
+      new TimelineInProgressUnconfirmedError(),
+      409,
+      'TIMELINES_IN_PROGRESS_UNCONFIRMED',
+    ],
+    [
+      new TimelineAssignmentNotFoundError(1),
+      404,
+      'TIMELINES_ASSIGNMENT_NOT_FOUND',
+    ],
+  ])('%s answers %i %s', (error, status, code) => {
+    expect(error.getStatus()).toBe(status);
+    expect((error.getResponse() as { code: string }).code).toBe(code);
+  });
+
+  it('lists every field with a catalog field code and its message', () => {
+    const error = new TimelineValidationError([
+      { field: 'steps[0].opensOn', code: 'BEFORE_TODAY' },
+      { field: 'steps[1].closesOn', code: 'CLOSES_BEFORE_OPENS' },
+      { field: 'steps[1].opensOn', code: 'OVERLAPS_PREVIOUS_STEP' },
+      { field: 'steps[2].audience', code: 'AUDIENCE_ORDER' },
+      { field: 'steps[2].round', code: 'ROUND_SEQUENCE' },
+      { field: 'steps[0].requiresLoad', code: 'FIRST_STEP_LOAD' },
+      { field: 'steps', code: 'OUT_OF_RANGE' },
+    ]);
+    expect(error.getStatus()).toBe(400);
+    const body = error.getResponse() as {
+      code: string;
+      fields: Array<{ field: string; code: string; message: string }>;
+    };
+    expect(body.code).toBe('VALIDATION_FAILED');
+    expect(body.fields.map((f) => f.code)).toEqual([
+      'BEFORE_TODAY',
+      'CLOSES_BEFORE_OPENS',
+      'OVERLAPS_PREVIOUS_STEP',
+      'AUDIENCE_ORDER',
+      'ROUND_SEQUENCE',
+      'FIRST_STEP_LOAD',
+      'OUT_OF_RANGE',
+    ]);
+    for (const f of body.fields) expect(f.message).toMatch(/^[A-Z].*\.$/);
+  });
+
+  it('says a locked field can no longer be changed (timeline-edit FR-3)', () => {
+    const error = new TimelineValidationError([
+      { field: 'steps[0].closesOn', code: 'LOCKED' },
+    ]);
+    const body = error.getResponse() as {
+      fields: Array<{ field: string; code: string; message: string }>;
+    };
+    expect(body.fields).toEqual([
+      {
+        field: 'steps[0].closesOn',
+        code: 'LOCKED',
+        message: 'This can no longer be changed.',
+      },
+    ]);
+  });
+
+  it('answers the stale and the unconfirmed edit with the user-facing texts (timeline-edit § 6)', () => {
+    expect(new TimelineVersionStaleError().getResponse()).toEqual({
+      code: 'TIMELINES_VERSION_STALE',
+      message:
+        'Someone else changed this timeline. Reload it and make your change again.',
+    });
+    expect(new TimelineInProgressUnconfirmedError().getResponse()).toEqual({
+      code: 'TIMELINES_IN_PROGRESS_UNCONFIRMED',
+      message:
+        'This change affects a step that is in progress. Confirm it to save.',
+    });
+  });
+
+  it('answers the field-configuration refusals with the texts of design 7.5', () => {
+    expect(new FieldConfigCatalogMissingError(2030).getStatus()).toBe(409);
+    expect(new FieldConfigCatalogMissingError(2030).getResponse()).toEqual({
+      code: 'FIELD_CONFIG_CATALOG_MISSING',
+      message: "No Reporting catalog exists for this cycle's year.",
+    });
+    expect(new FieldConfigCatalogMissingError(2030).year).toBe(2030);
+    expect(new FieldConfigRevisionStaleError().getResponse()).toEqual({
+      code: 'FIELD_CONFIG_REVISION_STALE',
+      message:
+        'The draft changed after you reviewed it. Reload and review the changes again.',
+    });
+    expect(new FieldConfigNothingToPublishError().getResponse()).toEqual({
+      code: 'FIELD_CONFIG_NOTHING_TO_PUBLISH',
+      message: 'There are no changes to publish.',
+    });
+  });
+
+  it('keeps the effective-query errors in-process: no HTTP status, no catalog code (design 7.5)', () => {
+    const notInTimeline = new FieldConfigTypeNotInTimelineError(7, 'KP');
+    const noVersion = new FieldConfigNoVersionError(7);
+    expect(notInTimeline).not.toBeInstanceOf(HttpException);
+    expect(noVersion).not.toBeInstanceOf(HttpException);
+    expect(notInTimeline).toBeInstanceOf(Error);
+    expect(noVersion).toBeInstanceOf(Error);
+    expect(notInTimeline.timelineId).toBe(7);
+    expect(notInTimeline.resultTypeKey).toBe('KP');
+    expect(noVersion.timelineId).toBe(7);
+  });
+
+  it('has exactly the nine new field codes beside the six existing ones', () => {
+    expect(Object.keys(FIELD_ERRORS).sort()).toEqual(
+      [
+        'REQUIRED',
+        'INVALID_TYPE',
+        'INVALID_EMAIL',
+        'TOO_LONG',
+        'UNKNOWN_FIELD',
+        'INVALID',
+        'OUT_OF_RANGE',
+        'CLOSES_BEFORE_OPENS',
+        'OVERLAPS_PREVIOUS_STEP',
+        'BEFORE_TODAY',
+        'AUDIENCE_ORDER',
+        'ROUND_SEQUENCE',
+        'FIRST_STEP_LOAD',
+        'LOCKED',
+        'NOT_ASSESSED',
+      ].sort(),
     );
   });
 });

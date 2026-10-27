@@ -1,10 +1,11 @@
+import { DEMO_PROGRAMS } from '../../../core/domain/demo-programs';
 // Mock data for the Cycle view, copied from the "QA Platform" mockup (OFFICIAL0, CY_BATCHES,
 // RUN_TARGETS, DEMO_ACCESS, PROG_ROWS, PROGRAMS, TYPES, ST_DEFAULT.rtypes…).
 // TODO(api): replace with the cycle / timeline endpoints. PROGRAMS and RESULT_TYPES are local
 // copies of data other views also use (Results, Assessors, Fields).
 
 export type TimelineKind = 'Official' | 'Official timeline' | 'Sub-timeline';
-export type TimelineStatus = 'Live' | 'Scheduled' | 'Closed';
+export type TimelineStatus = 'Live' | 'Scheduled' | 'Waiting for results' | 'Closed';
 export type ReopenMode = 'comments' | 'all';
 
 export interface ExtendedAccess {
@@ -30,6 +31,11 @@ export interface CycleStep {
   ran: string;
   reopen?: ReopenMode;
   access?: ExtendedAccess[];
+  /** From the API, computed by the server from today in Rome (replaces the mock's dates math). */
+  state?: 'closed' | 'in_progress' | 'upcoming';
+  round?: number;
+  /** Audience key on the server (the label above is what the view shows). */
+  audienceKey?: 'assessors' | 'programs' | 'lead_assessors' | 'tpb' | 'ppu';
 }
 
 export interface Timeline {
@@ -43,6 +49,9 @@ export interface Timeline {
   types: string[];
   steps: CycleStep[];
   created?: boolean;
+  /** Id and edit version on the server (absent on mock data). */
+  apiId?: number;
+  version?: number;
 }
 
 export interface RunTarget {
@@ -69,21 +78,7 @@ export interface ResultTypeRule {
 /** Fixed "today" of the mockup, used to compute step states ("Opens in 44 days"). */
 export const TODAY = new Date(2026, 6, 19);
 
-export const PROGRAMS: Readonly<Record<string, string>> = {
-  SP01: 'Breeding for Tomorrow',
-  SP02: 'Sustainable Farming',
-  SP03: 'Sustainable Animal and Aquatic Foods',
-  SP04: 'Multifunctional Landscapes',
-  SP05: 'Better Diets and Nutrition',
-  SP06: 'Climate Action',
-  SP07: 'Policy Innovations',
-  SP08: 'Food Frontiers and Security',
-  SP09: 'Scaling for Impact',
-  SP10: 'Gender Equality and Inclusion',
-  SP11: 'Capacity Sharing',
-  SP12: 'Digital Transformation',
-  SP13: 'Genebank',
-};
+export const PROGRAMS = DEMO_PROGRAMS;
 
 /** Result types with the number of results of each type in the cycle (1,114 in total). */
 export const RESULT_TYPES: readonly (readonly [string, number])[] = [

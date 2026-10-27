@@ -1,5 +1,7 @@
 // Pure helpers and view models of the Cycle view (ported from the mockup's cyPhaseState,
 // cardVM, runEstimate, officialRelative and runTargets).
+import { StepAudience } from '../../../core/api/cycles.models';
+import { todayInRome } from '../../../core/domain/rome-date';
 import {
   CORRECTION_AUDIENCE,
   CycleStep,
@@ -46,9 +48,20 @@ export type StepState =
   | { kind: 'active'; pct: number; done: number; of: number }
   | { kind: 'future'; days: number };
 
+/** Whole days from today in Rome to a "06 Jul 2026" day (0 when unreadable). */
+export function daysFromToday(text: string, today: string = todayInRome()): number {
+  const d = parseDate(text);
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(today);
+  if (!d || !m) return 0;
+  return Math.round((Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) - Date.UTC(+m[1], +m[2] - 1, +m[3])) / DAY);
+}
+
 export function stepState(p: CycleStep, t: Timeline): StepState {
   let st: StepState;
-  if (p.done) st = { kind: 'done', text: p.done };
+  if (p.state === 'closed') st = { kind: 'done', text: '' };
+  else if (p.state === 'in_progress') st = { kind: 'active', pct: 0, done: 0, of: t.results };
+  else if (p.state === 'upcoming') st = { kind: 'future', days: Math.max(0, daysFromToday(p.start)) };
+  else if (p.done) st = { kind: 'done', text: p.done };
   else if (p.active) st = { kind: 'active', ...p.active };
   else {
     const s0 = parseDate(p.start);
@@ -70,7 +83,7 @@ export function stepOrderErrors(steps: readonly { start: string; end: string }[]
     if (!i) return false;
     const s0 = parseDate(p.start);
     const prev = parseDate(steps[i - 1].end) ?? parseDate(steps[i - 1].start);
-    return !!(s0 && prev && s0 < prev);
+    return !!(s0 && prev && s0 <= prev);
   });
 }
 
@@ -152,14 +165,21 @@ export interface StepDraftRow {
   start: string;
   end: string;
   batch: boolean;
+  /** Who works in the step on the server; a row keeps it when others are dropped. */
+  audience?: StepAudience;
 }
 
 /** "Reset to official timeline": the official steps, shifted to start on `startText`. */
 export function officialRelative(startText: string, official: Timeline): StepDraftRow[] {
   const o0 = parseDate(official.steps[0]?.start);
   const base = parseDate(startText) ?? new Date(2026, 8, 1);
-  const at = (d: Date | null) => (d && o0 ? formatDate(new Date(base.getTime() + (d.getTime() - o0.getTime()))) : '');
-  return official.steps.map((p) => ({ name: p.name, start: at(parseDate(p.start)), end: at(parseDate(p.end)), batch: p.batch }));
+  // Whole days, never milliseconds: a summer-time change in between would land on 23:00 of the day before.
+  const at = (d: Date | null) => {
+    if (!d || !o0) return '';
+    const days = Math.round((Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) - Date.UTC(o0.getFullYear(), o0.getMonth(), o0.getDate())) / DAY);
+    return formatDate(new Date(base.getFullYear(), base.getMonth(), base.getDate() + days));
+  };
+  return official.steps.map((p) => ({ name: p.name, start: at(parseDate(p.start)), end: at(parseDate(p.end)), batch: p.batch, audience: p.audienceKey }));
 }
 
 /** Start time of a timeline, for sorting (newest first). */
@@ -187,6 +207,13 @@ export interface StepCardVM {
   of: string;
   days: number;
   dayWord: string;
+  /** Progress numbers exist (mock data; the API has no loads yet). Without them the card says until when it is open. */
+  hasProgress: boolean;
+  /**
+   * The timeline is on hold: step 1's day came and nothing is loaded yet (`waiting_for_load`). Its first
+   * step shows "Waiting for results", never "Opens in 0 days" (timeline-edit front contract § 3).
+   */
+  waiting: boolean;
 }
 
 export interface TimelineVM {
@@ -208,16 +235,20 @@ export interface TimelineVM {
   rounds: { label: string; span: number; on: boolean }[];
   /** CSS width of the primary rail fill, or null when nothing runs. */
   progressWidth: string | null;
-  menu: { action: MenuAction; label: string; danger: boolean }[];
+  /** `soon`: shown greyed out with "Coming soon" (no API yet). */
+  menu: { action: MenuAction; label: string; danger: boolean; soon: boolean }[];
 }
 
 const STATUS_CLASS: Record<string, string> = {
   Live: 'bg-(--st-indigo-bg) text-(--st-indigo-fg)',
   Scheduled: 'bg-(--st-submitted-bg) text-(--st-submitted-fg)',
+  'Waiting for results': 'bg-(--st-editing-bg) text-(--st-editing-fg)',
   Closed: 'bg-(--surface-3) text-(--text-muted)',
 };
 
+/** Live data has no load, export, test or close endpoint yet: those actions show as "Coming soon". */
 export function timelineVM(t: Timeline): TimelineVM {
+  const soon = t.apiId != null;
   const n = t.steps.length;
   const closed = t.status === 'Closed';
   const states = t.steps.map((p) => stepState(p, t));
@@ -245,6 +276,8 @@ export function timelineVM(t: Timeline): TimelineVM {
       of: st.kind === 'active' ? formatNumber(st.of) : '',
       days: st.kind === 'future' ? st.days : 0,
       dayWord: st.kind === 'future' && st.days === 1 ? 'day' : 'days',
+      hasProgress: st.kind === 'active' && st.of > 0,
+      waiting: t.status === 'Waiting for results' && i === 0,
     };
   });
   const rail = states.map((s) => (closed ? 'done' : s.kind));
@@ -266,10 +299,10 @@ export function timelineVM(t: Timeline): TimelineVM {
   });
 
   const menu: TimelineVM['menu'] = [];
-  if (t.status === 'Live') menu.push({ action: 'add-results', label: 'Add results to this timeline', danger: false });
-  menu.push({ action: 'edit', label: 'Edit timeline', danger: false }, { action: 'export', label: 'Export comments', danger: false });
-  if (t.test) menu.push({ action: 'clear-test', label: 'Clear test results', danger: true });
-  if (t.kind !== 'Official timeline' && t.kind !== 'Official' && !closed) menu.push({ action: 'close', label: 'Close timeline', danger: true });
+  if (t.status === 'Live' || (soon && !closed)) menu.push({ action: 'add-results', label: 'Add results to this timeline', danger: false, soon });
+  menu.push({ action: 'edit', label: 'Edit timeline', danger: false, soon: false }, { action: 'export', label: 'Export comments', danger: false, soon });
+  if (t.test) menu.push({ action: 'clear-test', label: 'Clear test results', danger: true, soon });
+  if (t.kind !== 'Official timeline' && t.kind !== 'Official' && !closed) menu.push({ action: 'close', label: 'Close timeline', danger: true, soon });
 
   const first = t.steps[0];
   const last = t.steps[n - 1];
