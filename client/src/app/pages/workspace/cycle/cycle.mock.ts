@@ -21,7 +21,7 @@ export interface CycleStep {
   start: string;
   /** Empty when the step has no closing date (last step). */
   end: string;
-  /** Summary shown on a completed step ("1,114 assessed · 418 returned"). */
+  /** Summary shown on a completed step ("989 assessed · 372 returned"). */
   done?: string;
   /** Progress of the step that is running now. */
   active?: { pct: number; done: number; of: number };
@@ -145,15 +145,15 @@ export const OFFICIAL_TIMELINE: Timeline = {
   name: 'Annual report 2026',
   kind: 'Official',
   status: 'Live',
-  results: 1114,
+  results: 989,
   programs: [],
   types: [],
   steps: [
-    step(0, '02 Mar 2026', '27 Mar 2026', '1,114 assessed · 418 returned', true),
-    step(1, '30 Mar 2026', '17 Apr 2026', '418 answered · 43 unchanged'),
-    step(2, '20 Apr 2026', '24 Apr 2026', '96 highlighted', true),
-    step(3, '27 Apr 2026', '05 May 2026', '96 corrected'),
-    { ...step(4, '06 May 2026', '19 Jul 2026'), active: { pct: 94, done: 1047, of: 1114 } },
+    step(0, '02 Mar 2026', '27 Mar 2026', '989 assessed · 372 returned', true),
+    step(1, '30 Mar 2026', '17 Apr 2026', '372 answered · 38 unchanged'),
+    step(2, '20 Apr 2026', '24 Apr 2026', '85 highlighted', true),
+    { ...step(3, '06 Jul 2026', '23 Jul 2026'), active: { pct: 88, done: 870, of: 989 } },
+    step(4, '24 Jul 2026', '07 Aug 2026'),
   ],
 };
 
@@ -165,13 +165,43 @@ export const TIMELINES: Timeline[] = [
     status: 'Live',
     results: 216,
     programs: ['SP02', 'SP05'],
-    types: ['Innovation development', 'Knowledge product'],
+    types: [],
     steps: [
-      step(0, '06 Jul 2026', '11 Jul 2026', '214 assessed · 38 returned', true, 'Results loaded on 06 Jul · 216 results'),
-      step(1, '11 Jul 2026', '14 Jul 2026', '38 answered · 4 unchanged'),
-      step(2, '15 Jul 2026', '16 Jul 2026', '12 highlighted', true, 'Results loaded on 15 Jul · 38 results'),
-      step(3, '17 Jul 2026', '18 Jul 2026', '12 corrected'),
-      { ...step(4, '19 Jul 2026', ''), active: { pct: 62, done: 134, of: 216 } },
+      { ...step(0, '06 Jul 2026', '23 Jul 2026', undefined, true, 'Results loaded on 06 Jul · 216 results'), active: { pct: 34, done: 74, of: 216 } },
+      step(1, '24 Jul 2026', '28 Jul 2026'),
+      step(2, '29 Jul 2026', '30 Jul 2026', undefined, true),
+      step(3, '31 Jul 2026', '03 Aug 2026'),
+      step(4, '04 Aug 2026', '10 Aug 2026'),
+    ],
+  },
+  {
+    id: 'kp',
+    name: 'Knowledge products fast track',
+    kind: 'Sub-timeline',
+    status: 'Live',
+    results: 84,
+    programs: [],
+    types: ['Knowledge product'],
+    // A sub-timeline can skip steps: this one goes from the correction step straight to PPU.
+    steps: [
+      step(0, '29 Jun 2026', '10 Jul 2026', '84 assessed · 31 returned', true, 'Results loaded on 29 Jun · 84 results'),
+      { ...step(1, '13 Jul 2026', '28 Jul 2026'), active: { pct: 40, done: 34, of: 84 } },
+      step(4, '29 Jul 2026', '07 Aug 2026'),
+    ],
+  },
+  {
+    id: 'sp03',
+    name: 'SP03 late reporting',
+    kind: 'Sub-timeline',
+    status: 'Live',
+    results: 41,
+    programs: ['SP03'],
+    types: [],
+    steps: [
+      { ...step(0, '13 Jul 2026', '02 Aug 2026', undefined, true, 'Results loaded on 13 Jul · 41 results'), active: { pct: 12, done: 5, of: 41 } },
+      step(1, '03 Aug 2026', '07 Aug 2026'),
+      step(2, '10 Aug 2026', '11 Aug 2026', undefined, true),
+      step(4, '12 Aug 2026', '18 Aug 2026'),
     ],
   },
   {
@@ -196,38 +226,22 @@ export const TIMELINES: Timeline[] = [
     name: 'Annual report 2026',
     kind: 'Official timeline',
     status: 'Live',
-    results: 1114,
+    results: 989,
     programs: [],
     types: [],
     steps: [
-      step(0, '02 Mar 2026', '27 Mar 2026', '1,114 assessed · 418 returned', true, 'Results loaded on 02 Mar · 1,114 results'),
-      step(1, '30 Mar 2026', '17 Apr 2026', '418 answered · 43 unchanged'),
-      step(2, '20 Apr 2026', '24 Apr 2026', '96 highlighted', true, 'Results loaded on 20 Apr · 461 results'),
-      step(3, '27 Apr 2026', '05 May 2026', '96 corrected'),
-      { ...step(4, '06 May 2026', '19 Jul 2026'), active: { pct: 94, done: 1047, of: 1114 } },
-    ],
-  },
-  {
-    id: 'may',
-    name: 'May 2026 sub-timeline',
-    kind: 'Sub-timeline',
-    status: 'Closed',
-    results: 142,
-    programs: ['SP04', 'SP11'],
-    types: [],
-    steps: [
-      step(0, '11 May 2026', '15 May 2026', '142 assessed · 27 returned', true),
-      step(1, '18 May 2026', '21 May 2026', '27 answered · 2 unchanged'),
-      step(2, '22 May 2026', '25 May 2026', '9 highlighted', true),
-      step(3, '26 May 2026', '27 May 2026', '9 corrected'),
-      step(4, '28 May 2026', '29 May 2026', '142 closed'),
+      step(0, '02 Mar 2026', '27 Mar 2026', '989 assessed · 372 returned', true, 'Results loaded on 02 Mar · 989 results'),
+      step(1, '30 Mar 2026', '17 Apr 2026', '372 answered · 38 unchanged'),
+      step(2, '20 Apr 2026', '24 Apr 2026', '85 highlighted', true, 'Results loaded on 20 Apr · 410 results'),
+      { ...step(3, '06 Jul 2026', '23 Jul 2026'), active: { pct: 88, done: 870, of: 989 } },
+      step(4, '24 Jul 2026', '07 Aug 2026'),
     ],
   },
 ];
 
 export const RUN_TARGETS: readonly RunTarget[] = [
-  { id: 'jul:0', label: 'July 2026 sub-timeline · QA platform open for assessors', desc: 'Open · closes 11 Jul', first: true },
-  { id: 'annual:2', label: 'Annual report 2026 · QA platform open for lead assessor', desc: 'Opens 20 Apr', first: false },
+  { id: 'jul:0', label: 'July 2026 sub-timeline · QA platform open for assessors', desc: 'Open · closes 23 Jul', first: true },
+  { id: 'annual:4', label: 'Annual report 2026 · QA platform open for PPU', desc: 'Opens 24 Jul', first: false },
   { id: 'sep:0', label: 'September pilot · QA platform open for assessors', desc: 'Opens 01 Sep', first: true },
 ];
 
