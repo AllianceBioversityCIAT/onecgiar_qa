@@ -3,35 +3,27 @@ name: Trigger Jenkins Job
 on:
   push:
     branches:
-      - dev
-      - staging
-      - main
-  workflow_dispatch: # Allows the workflow to be triggered manually (only from dev, staging or main)
-
-# One trigger per branch at a time; a newer push replaces a queued one.
-concurrency:
-  group: jenkins-${{ github.ref_name }}
-  cancel-in-progress: true
-
-permissions: {}
+      - jp-design/mockup-completo
+  workflow_dispatch: # Allows the workflow to be triggered manually if needed
 
 jobs:
   trigger-job:
     runs-on: ubuntu-latest
-    if: contains(fromJSON('["dev","staging","main"]'), github.ref_name)
 
     steps:
-      # Step 1: Build the Jenkins job URL from the branch (qa-application-2026-<branch>)
+      # Step 1: Get the branch name and build the Jenkins job URL
       - name: Get branch name and build Jenkins URL
         run: |
-          JENKINS_URL="https://automation.prms.cgiar.org/job/qa-application-2026-${GITHUB_REF_NAME}/build"
-          echo "Jenkins job URL for the branch ${GITHUB_REF_NAME} is: ${JENKINS_URL}"
+          BRANCH_NAME=${GITHUB_REF#refs/heads/}  # Remove 'refs/heads/' from GITHUB_REF
+          JENKINS_URL="https://automation.prms.cgiar.org/job/qa-ssr-application-dev/build"
+          echo "Jenkins job URL for the branch $BRANCH_NAME is: $JENKINS_URL"
           echo "JENKINS_URL=${JENKINS_URL}" >> "$GITHUB_ENV"
 
       # Step 2: Trigger the Jenkins job (credentials come from repository secrets)
       - name: Trigger Jenkins Job
         run: |
-          curl --fail-with-body -sS -X POST "${JENKINS_URL}" --user "${JENKINS_USERNAME}:${JENKINS_API_TOKEN}"
+          curl --fail-with-body -X POST "${JENKINS_URL}" --user "${JENKINS_USERNAME}:${JENKINS_API_TOKEN}"
         env:
+          JENKINS_URL: ${{ env.JENKINS_URL }}
           JENKINS_USERNAME: ${{ secrets.JENKINS_USERNAME }}
           JENKINS_API_TOKEN: ${{ secrets.JENKINS_API_TOKEN }}
