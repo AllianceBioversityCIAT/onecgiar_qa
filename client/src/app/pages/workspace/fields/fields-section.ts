@@ -1,7 +1,6 @@
 import { Component, input, output } from '@angular/core';
-import { FieldSectionVm } from './fields-config';
+import { FieldSectionVm, FieldState } from './fields-config';
 import { FieldsRow } from './fields-row';
-import { FieldState } from './fields.mock';
 
 export interface FieldRowEvent<T> {
   readonly id: string;
@@ -34,10 +33,10 @@ export interface FieldRowEvent<T> {
         <qa-fields-row
           [row]="row"
           [compact]="compact()"
+          [readOnly]="readOnly()"
           (stateChange)="stateChange.emit({ id: row.id, value: $event })"
           (coreChange)="coreChange.emit({ id: row.id, value: $event })"
           (aiChange)="aiChange.emit({ id: row.id, value: $event })"
-          (reset)="reset.emit(row.id)"
         />
       }
     }
@@ -46,10 +45,11 @@ export interface FieldRowEvent<T> {
 export class FieldsSection {
   readonly section = input.required<FieldSectionVm>();
   readonly compact = input(false);
+  /** Closed cycle: the controls show the configuration but do not change it. */
+  readonly readOnly = input(false);
 
   readonly toggle = output<void>();
   readonly stateChange = output<FieldRowEvent<FieldState>>();
   readonly coreChange = output<FieldRowEvent<boolean>>();
   readonly aiChange = output<FieldRowEvent<boolean>>();
-  readonly reset = output<string>();
 }

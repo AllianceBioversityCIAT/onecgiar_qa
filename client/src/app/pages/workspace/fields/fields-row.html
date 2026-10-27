@@ -1,10 +1,11 @@
 @let r = row();
 
-<!-- Name, required mark, default / exception line -->
+<!-- Name, required mark, conditional / not set line -->
 <ng-template #nameBlock>
-  <div class="flex min-w-0 flex-col gap-0.5" [class.py-2]="!compact()" [class.opacity-55]="r.dim">
+  <!-- A hidden field reads quieter by colour, not opacity: most fields start hidden and must stay readable (AA). -->
+  <div class="flex min-w-0 flex-col gap-0.5" [class.py-2]="!compact()">
     <div class="flex min-w-0 items-baseline">
-      <span [title]="r.name" class="min-w-0 overflow-hidden text-(length:--fs-14) font-medium text-ellipsis whitespace-nowrap text-(--text)">{{ r.name }}</span>
+      <span [title]="r.name" class="min-w-0 overflow-hidden text-(length:--fs-14) font-medium text-ellipsis whitespace-nowrap" [class]="r.dim ? 'text-(--text-3)' : 'text-(--text)'">{{ r.name }}</span>
       @if (r.required) {
         <span aria-hidden="true" class="ml-0.5 flex-none font-semibold text-(--danger-strong)">*</span><span class="sr-only">(required)</span>
       }
@@ -19,24 +20,11 @@
         </button>
       }
     </div>
-    @if (r.isDefault) {
-      <span class="text-(length:--fs-12) font-normal text-(--text-muted)">Default for all result types</span>
+    @if (r.conditional) {
+      <span [qaTooltip]="conditionalHelp" tabindex="0" class="self-start text-(length:--fs-12) font-normal text-(--text-3) outline-none focus-visible:shadow-(--focus-ring)">Conditional</span>
     }
-    @if (r.isException) {
-      <span class="flex flex-wrap items-center gap-1.5 text-(length:--fs-12) font-normal text-(--accent)">
-        <span>Exception for this result type</span>
-        <button
-          hlmBtn
-          qaBtn
-          tone="link"
-          size="sm"
-          type="button"
-          (click)="reset.emit()"
-          [attr.aria-label]="'Reset ' + r.name + ' to default'"
-        >
-          Reset to default
-        </button>
-      </span>
+    @if (r.notSet) {
+      <span class="text-(length:--fs-12) font-normal text-(--text-3)">Not set yet</span>
     }
   </div>
 </ng-template>
@@ -46,6 +34,7 @@
 </ng-template>
 
 <ng-template #docButton>
+  @if (r.doc) {
   <button
     type="button"
     [qaTooltip]="docTip"
@@ -53,10 +42,10 @@
     [attr.aria-label]="'Field documentation: ' + r.name"
     class="flex size-5 flex-none cursor-pointer items-center justify-center rounded-full border-none bg-transparent p-0 text-(--text-muted) hover:text-(--primary) focus-visible:shadow-(--focus-ring) focus-visible:outline-none"
     [class.ml-auto]="compact()"
-    [class.opacity-55]="r.dim"
   >
     <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01"></path></svg>
   </button>
+  }
 </ng-template>
 
 <ng-template #segmented>
@@ -66,6 +55,7 @@
     [layout]="compact() ? 'fill' : 'inline'"
     [options]="states"
     [value]="r.config.state"
+    [disabled]="readOnly()"
     (valueChange)="onState($event)"
     [aria-label]="'In QA: ' + r.name"
   />
@@ -88,11 +78,11 @@
       </div>
       <div class="flex min-h-10 items-center gap-2" [class.opacity-55]="r.dim">
         <span aria-hidden="true" class="text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase">Core</span>
-        <qa-switch [checked]="r.effective.core" (checkedChange)="coreChange.emit($event)" [disabled]="!r.active" [aria-label]="'Core: ' + r.name" />
+        <qa-switch [checked]="r.effective.core" (checkedChange)="coreChange.emit($event)" [disabled]="readOnly() || !r.active" [aria-label]="'Core: ' + r.name" />
       </div>
       <div class="flex min-h-10 items-center gap-2" [class.opacity-55]="r.dim">
         <span aria-hidden="true" class="text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase">AI</span>
-        <qa-switch [checked]="r.effective.ai" (checkedChange)="aiChange.emit($event)" [disabled]="!r.active" [aria-label]="'AI helper: ' + r.name" />
+        <qa-switch [checked]="r.effective.ai" (checkedChange)="aiChange.emit($event)" [disabled]="readOnly() || !r.active" [aria-label]="'AI helper: ' + r.name" />
       </div>
     </div>
   </div>
@@ -105,10 +95,10 @@
     <ng-container [ngTemplateOutlet]="nameBlock" />
     <ng-container [ngTemplateOutlet]="segmented" />
     <div class="flex justify-center" [class.opacity-55]="r.dim">
-      <qa-switch [checked]="r.effective.core" (checkedChange)="coreChange.emit($event)" [disabled]="!r.active" [aria-label]="'Core: ' + r.name" />
+      <qa-switch [checked]="r.effective.core" (checkedChange)="coreChange.emit($event)" [disabled]="readOnly() || !r.active" [aria-label]="'Core: ' + r.name" />
     </div>
     <div class="flex justify-center" [class.opacity-55]="r.dim">
-      <qa-switch [checked]="r.effective.ai" (checkedChange)="aiChange.emit($event)" [disabled]="!r.active" [aria-label]="'AI helper: ' + r.name" />
+      <qa-switch [checked]="r.effective.ai" (checkedChange)="aiChange.emit($event)" [disabled]="readOnly() || !r.active" [aria-label]="'AI helper: ' + r.name" />
     </div>
     <div class="flex">
       <ng-container [ngTemplateOutlet]="docButton" />

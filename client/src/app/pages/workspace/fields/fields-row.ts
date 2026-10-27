@@ -1,8 +1,8 @@
 import { NgTemplateOutlet } from '@angular/common';
 import { Component, input, output } from '@angular/core';
 import { QaButtonImports, QaSegmented, QaSwitch, QaTooltipImports } from '../../../ui';
-import { FieldRowVm } from './fields-config';
-import { FIELD_STATES, FieldState, REQUIRED_HIDDEN_HELP } from './fields.mock';
+import { FieldRowVm, FieldState } from './fields-config';
+import { CONDITIONAL_HELP, FIELD_STATES, REQUIRED_HIDDEN_HELP } from './fields-copy';
 
 /**
  * One field of the Fields matrix: name, In QA segmented, Core / AI switches and documentation ⓘ.
@@ -17,14 +17,16 @@ import { FIELD_STATES, FieldState, REQUIRED_HIDDEN_HELP } from './fields.mock';
 export class FieldsRow {
   readonly row = input.required<FieldRowVm>();
   readonly compact = input(false);
+  /** Closed cycle: shows the configuration without letting it change. */
+  readonly readOnly = input(false);
 
   readonly stateChange = output<FieldState>();
   readonly coreChange = output<boolean>();
   readonly aiChange = output<boolean>();
-  readonly reset = output<void>();
 
   protected readonly states = FIELD_STATES;
   protected readonly requiredHiddenHelp = REQUIRED_HIDDEN_HELP;
+  protected readonly conditionalHelp = CONDITIONAL_HELP;
 
   protected onState(value: string | null): void {
     const state = FIELD_STATES.find((s) => s.value === value)?.value;
