@@ -207,3 +207,4 @@
   - → T-7: both audit key families; one key per boundary / null counts as sent also for the day-only request keys; the S-6 + FR-5 "today" consequence; P-8 readers.
 - **Requirements covered:** FR-1 (returned exactly), FR-9 (Read), FR-10, FR-12
 - **Final verification:** green.
+- **Execute-time spec edit (2026-10-27, Leader, meaning unchanged):** `tasks.md` T-6 Verification — the NFR-2 grep filter now also drops `/** … */` doc-comment lines (`grep -vE '^\S*:[0-9]+:\s*(//|/\*|\*)'`), matching NFR-2's "1 code line (comments excluded)". The old filter (`grep -v '^\S*:\s*//'`) also never matched `grep -rn` output, whose prefix is `file:line:`. With the new filter the grep returns 1 line (`rome-date.ts:8`). Carry it as a named conformance check into T-6's Reviewer brief.
