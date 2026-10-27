@@ -12,15 +12,31 @@
   <!-- The result type being configured, as a line of text (same as "Viewing" in Results): it sets the whole table.
        Below it, the table filters (counts computed from the draft). #summaryGrid also measures the content width. -->
   <div #summaryGrid class="flex flex-col gap-3">
-    <qa-select
-      [value]="resultType()"
-      (valueChange)="selectType($event)"
-      [options]="typeOptions()"
-      label="Configuring"
-      appearance="inline"
-      panelWidth="300px"
-      class="self-start"
-    />
+    <div class="flex flex-wrap items-center gap-x-6 gap-y-2">
+      @if (cycleOptions().length > 1) {
+        <qa-select
+          [value]="cycleValue()"
+          (valueChange)="selectCycle($event)"
+          [options]="cycleOptions()"
+          label="Cycle"
+          appearance="inline"
+          panelWidth="260px"
+        />
+      } @else if (store.cycle(); as cycle) {
+        <span class="text-(length:--fs-14) text-(--text-3)">Cycle <span class="font-semibold text-(--text)">{{ cycle.name }}</span></span>
+      }
+      @if (store.state() === 'ready') {
+        <qa-select
+          [value]="resultType()"
+          (valueChange)="selectType($event)"
+          [options]="typeOptions()"
+          label="Configuring"
+          appearance="inline"
+          panelWidth="300px"
+        />
+      }
+    </div>
+    @if (store.state() === 'ready') {
     <div class="flex flex-wrap items-center gap-2" role="group" aria-label="Show fields">
       @for (chip of stateFilters(); track chip.value) {
         @let on = stateFilter() === chip.value;
@@ -48,62 +64,84 @@
         <span class="font-(family-name:--qa-mono) text-(length:--fs-12) font-semibold tabular-nums" [class]="coreOnly() ? 'text-(--accent)' : 'text-(--text-muted)'">{{ coreCount() }}</span>
       </button>
     </div>
+    }
   </div>
 
-  @if (hasAssessed()) {
-    <!-- Field matrix. No own overflow: the sticky header rows stick to the view's scroll container. -->
-    <div class="relative overflow-visible rounded-xl border border-(--border) bg-(--surface)">
-      <span #stickSentinel aria-hidden="true" class="pointer-events-none absolute top-0 left-0 h-px w-px"></span>
-      @if (!compact()) {
-        <qa-fields-column-header [stuck]="headerStuck()" />
+  @switch (store.state()) {
+    @case ('loading') {
+      <p role="status" class="m-0 text-(length:--fs-14) text-(--text-3)">Loading the fields…</p>
+    }
+    @case ('no-cycle') {
+      <p class="m-0 text-(length:--fs-14) text-(--text-3)">There is no open cycle. Create or activate one in Cycle to configure its fields.</p>
+    }
+    @case ('no-catalog') {
+      <p class="m-0 text-(length:--fs-14) text-(--text-3)">No Reporting catalog exists for this cycle's year.</p>
+    }
+    @case ('error') {
+      <div role="alert" class="flex flex-wrap items-center gap-2">
+        <p class="m-0 text-(length:--fs-14) text-(--text-3)">{{ store.loadError() || 'The fields could not be loaded.' }}</p>
+        <button hlmBtn qaBtn tone="secondary" size="sm" type="button" (click)="retry()">Try again</button>
+      </div>
+    }
+    @case ('ready') {
+      @if (readOnly()) {
+        <p class="m-0 text-(length:--fs-13) text-(--text-3)">This cycle is closed: its fields can be read but not changed.</p>
       }
-      @for (section of sections(); track section.id) {
-        <qa-fields-section
-          [section]="section"
-          [compact]="compact()"
-          (toggle)="toggleSection(section.id)"
-          (stateChange)="setState($event)"
-          (coreChange)="setCore($event)"
-          (aiChange)="setAi($event)"
-          (reset)="resetToDefault($event)"
-        />
-      } @empty {
-        <div class="flex flex-wrap items-center gap-2 px-5 py-6">
-          <p class="m-0 text-(length:--fs-14) text-(--text-3)">No fields match this filter.</p>
-          <button
-            hlmBtn
-            qaBtn
-            tone="link"
-            size="sm"
-            type="button"
-            (click)="clearFilters()"
-          >
-            Show all fields
-          </button>
-        </div>
+      @if (!hasAssessed()) {
+        <p class="m-0 text-(length:--fs-14) text-(--text-3)">No fields are assessed for this result type yet. Choose how each field is used in QA below.</p>
       }
-    </div>
-  } @else {
-    <div class="flex max-w-[160px] flex-col items-start gap-2">
-      <p class="m-0 text-(length:--fs-14) text-(--text-3)">No fields are assessed for this result type.</p>
-      <button
-        hlmBtn
-        qaBtn
-        tone="link"
-        size="sm"
-        flush="start"
-        type="button"
-        (click)="copyFromAnotherType()"
-      >
-        Copy from another type
-      </button>
-    </div>
+      <!-- Field matrix. No own overflow: the sticky header rows stick to the view's scroll container. -->
+      <div class="relative overflow-visible rounded-xl border border-(--border) bg-(--surface)">
+        <span #stickSentinel aria-hidden="true" class="pointer-events-none absolute top-0 left-0 h-px w-px"></span>
+        @if (!compact()) {
+          <qa-fields-column-header [stuck]="headerStuck()" />
+        }
+        @for (section of sections(); track section.id) {
+          <qa-fields-section
+            [section]="section"
+            [compact]="compact()"
+            (toggle)="toggleSection(section.id)"
+            (stateChange)="setState($event)"
+            (coreChange)="setCore($event)"
+            (aiChange)="setAi($event)"
+            [readOnly]="readOnly()"
+          />
+        } @empty {
+          <div class="flex flex-wrap items-center gap-2 px-5 py-6">
+            <p class="m-0 text-(length:--fs-14) text-(--text-3)">No fields match this filter.</p>
+            <button
+              hlmBtn
+              qaBtn
+              tone="link"
+              size="sm"
+              type="button"
+              (click)="clearFilters()"
+            >
+              Show all fields
+            </button>
+          </div>
+        }
+      </div>
+      @if (notInCatalog().length > 0) {
+        <section aria-labelledby="fields-not-in-catalog" class="flex flex-col gap-2">
+          <h2 id="fields-not-in-catalog" class="m-0 text-(length:--fs-13) font-semibold tracking-[0.06em] text-(--text-3) uppercase">No longer in Reporting</h2>
+          <p class="m-0 text-(length:--fs-13) text-(--text-3)">Reporting removed these fields. Their setting is kept here for reference and is not published.</p>
+          <ul class="m-0 flex list-none flex-col p-0">
+            @for (f of notInCatalog(); track f.key) {
+              <li class="flex flex-wrap gap-x-2 border-b border-(--surface-4) py-2 text-(length:--fs-13) text-(--text-2) last:border-b-0">
+                <span class="font-semibold">{{ f.field }}</span><span class="text-(--text-3)">{{ f.type }} · {{ f.state }}</span>
+              </li>
+            }
+          </ul>
+        </section>
+      }
+    }
   }
 </div>
 
 <!-- Publish bar: pinned to the bottom while there are unpublished changes (the action follows the edits in the table).
      After publishing or discarding it says so for a few seconds, then goes away. -->
-@if (changeCount() > 0 || lastAction()) {
+@if (store.state() === 'ready' && (changeCount() > 0 || lastAction())) {
   <div
     role="region"
     aria-label="Unpublished changes"
@@ -119,6 +157,7 @@
         qaBtn
         tone="primary"
         type="button"
+        [disabled]="openingReview()"
         (click)="openConfirm()"
         aria-haspopup="dialog"
         class="flex-none max-sm:w-full"
@@ -141,4 +180,15 @@
 }
 
 <!-- Review & publish pop-up -->
-<qa-fields-publish-confirm [open]="showConfirm()" (openChange)="!$event && cancelConfirm()" [groups]="changeGroups()" [count]="changeCount()" (publish)="publish()" (undo)="undoChange($event)" (discard)="discard()" />
+<qa-fields-publish-confirm
+  [open]="!!store.review()"
+  (openChange)="!$event && cancelConfirm()"
+  [groups]="reviewGroups()"
+  [timelines]="store.review()?.preview?.timelines ?? noTimelines"
+  [notice]="store.review()?.notice ?? ''"
+  [busy]="reviewBusy()"
+  [publishing]="store.publishing()"
+  (publish)="publish()"
+  (undo)="undoChange($event)"
+  (discard)="discard()"
+/>
