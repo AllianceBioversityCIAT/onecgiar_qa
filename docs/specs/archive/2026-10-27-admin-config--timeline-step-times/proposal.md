@@ -182,7 +182,7 @@ Effort estimate: 3 to 5 days on the server, including migration and tests. 1 to 
 - Same moment or a reversed range gives a 400. Overlapping steps give a 400. Two steps on the same day with no overlap are accepted.
 - Every pre-existing timeline reads 00:00 / 23:59 and keeps its status, locks and field-configuration version after migration `0006`.
 - A field-configuration version published at 09:00 on step 1's day reaches a timeline that opens at 14:00 that day, and does not reach one that opened at 08:00.
-- `'Europe/Rome'` appears once in `server/src`.
+- `'Europe/Rome'` appears once in `server/src` as code (comments excluded, NFR-2). *Note at archive: a doc comment in `rome-date.ts` also holds the literal.*
 
 ## Next Step
 

@@ -8,7 +8,7 @@
 | Type | Change |
 | Depth | Full: migration of stored data, API contract change, and rules shared by three specs |
 | Approval Mode | gated |
-| Status | Draft |
+| Status | Delivered (archived 2026-10-27). T-8 partially done; see `archive-summary.md` |
 | Source | `proposal.md`, accepted when the back lead ran `/akili-specify` on 2026-10-27. Q-1…Q-7 are taken at their proposed defaults. Jira P2-4019 (AC 1–7), sub-tasks P2-4020 (back) and P2-4021 (front) |
 | BA confirmation | Pending. S-1, S-2 and S-6 are business choices; an overrule reopens this spec |
 | Builds on | *timelines* = `docs/specs/archive/2026-10-21-admin-config--cycle-timelines/`; *edit* = `docs/specs/admin-config/timeline-edit/`; *fields* = `docs/specs/archive/2026-10-27-admin-config--field-configuration/` |
