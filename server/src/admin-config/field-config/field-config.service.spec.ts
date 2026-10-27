@@ -192,8 +192,8 @@ function addTimeline(
       position: 1,
       name: 'First',
       audience: 'assessors',
-      opensOn: t.opensOn,
-      closesOn: t.closesOn ?? '2026-12-01',
+      opensAt: t.opensOn,
+      closesAt: t.closesOn ?? '2026-12-01',
       round: 1,
       requiresLoad: false,
     });

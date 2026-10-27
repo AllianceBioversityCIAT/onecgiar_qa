@@ -17,14 +17,14 @@ function stored(): TimelineSnapshot {
       {
         position: 1,
         name: 'Assessors',
-        opensOn: '2026-11-02',
-        closesOn: '2026-11-06',
+        opensAt: '2026-11-02',
+        closesAt: '2026-11-06',
       },
       {
         position: 2,
         name: 'Programs',
-        opensOn: '2026-11-10',
-        closesOn: '2026-11-13',
+        opensAt: '2026-11-10',
+        closesAt: '2026-11-13',
       },
     ],
   };
@@ -53,7 +53,7 @@ describe('diffTimeline: only changed keys (FR-10)', () => {
       name: 'August 2026',
       steps: [
         stored().steps[0]!,
-        { ...stored().steps[1]!, closesOn: '2026-11-20' },
+        { ...stored().steps[1]!, closesAt: '2026-11-20' },
       ],
     };
     expect(diffTimeline(stored(), merged)).toEqual({
@@ -67,7 +67,7 @@ describe('diffTimeline: only changed keys (FR-10)', () => {
       ...stored(),
       steps: [
         { ...stored().steps[1]!, name: 'Science Programs' },
-        { ...stored().steps[0]!, opensOn: '2026-11-03' },
+        { ...stored().steps[0]!, opensAt: '2026-11-03' },
       ],
     };
     expect(diffTimeline(stored(), merged)).toEqual({

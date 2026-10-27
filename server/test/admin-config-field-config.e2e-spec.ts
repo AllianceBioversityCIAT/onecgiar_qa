@@ -244,8 +244,8 @@ describe('Field configuration routes (e2e)', () => {
       position: 1,
       name: 'QA Platform open for assessors',
       audience: 'assessors',
-      opensOn,
-      closesOn: '2026-12-18',
+      opensAt: opensOn,
+      closesAt: '2026-12-18',
       round: 1,
       requiresLoad: false,
     });

@@ -7,8 +7,8 @@
 export interface TimelineSnapshotStep {
   position: number;
   name: string;
-  opensOn?: string | null;
-  closesOn?: string | null;
+  opensAt?: string | null;
+  closesAt?: string | null;
 }
 
 /** The fields an edit can change, in the shape both sides of the diff share. */
@@ -73,8 +73,8 @@ export function diffTimeline(
     const before = storedByPosition.get(step.position);
     const prefix = `steps.${step.position}`;
     scalar(`${prefix}.name`, before?.name, step.name);
-    scalar(`${prefix}.opensOn`, before?.opensOn, step.opensOn);
-    scalar(`${prefix}.closesOn`, before?.closesOn, step.closesOn);
+    scalar(`${prefix}.opensOn`, before?.opensAt, step.opensAt);
+    scalar(`${prefix}.closesOn`, before?.closesAt, step.closesAt);
   }
 
   return changes;

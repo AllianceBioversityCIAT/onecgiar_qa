@@ -66,7 +66,7 @@ T-2 ─▶ T-3
 - **Skills:** nestjs-best-practices, tdd
 
 ## T-2: Rename step boundaries and "today" inside the server, with no change in behavior
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** none
 - **Requirements:** none directly. This task prepares T-3 so that T-3's diff carries only the change in meaning (design § 2).

@@ -48,6 +48,8 @@ import {
   validateTimelineUpdate,
   type StoredTimeline,
   type TimelineCreateInput,
+  type TimelineStepInput,
+  type TimelineStepUpdate,
   type TimelineUpdateInput,
 } from './timeline-rules.js';
 import { viewTimeline } from './timeline-view.js';
@@ -69,8 +71,26 @@ export interface TimelineChange {
   timelineId: number;
 }
 
+/**
+ * A step as the API names it: the day-only keys `opensOn` / `closesOn` are the
+ * wire contract. The rules read `opensAt` / `closesAt`; `toRulesStep` and
+ * `toRulesStepUpdate` are the one place that maps between the two.
+ */
+export type TimelineStepCommand = Omit<
+  TimelineStepInput,
+  'opensAt' | 'closesAt'
+> & { opensOn?: string | null; closesOn?: string | null };
+
+/** A step of an edit as the API names it (see `TimelineStepCommand`). */
+export type TimelineStepUpdateCommand = Omit<
+  TimelineStepUpdate,
+  'opensAt' | 'closesAt'
+> & { opensOn?: string | null; closesOn?: string | null };
+
 /** The request as the pipe left it: the shape is right, the rules are not yet judged. */
-export type CreateTimelineCommand = TimelineCreateInput;
+export type CreateTimelineCommand = Omit<TimelineCreateInput, 'steps'> & {
+  steps: readonly TimelineStepCommand[];
+};
 
 /**
  * An edit as the pipe left it (shape only): the rules' `TimelineUpdateInput`
@@ -78,7 +98,11 @@ export type CreateTimelineCommand = TimelineCreateInput;
  * design 7.1): the version the edit was made on and the in-progress
  * confirmation.
  */
-export interface UpdateTimelineCommand extends TimelineUpdateInput {
+export interface UpdateTimelineCommand extends Omit<
+  TimelineUpdateInput,
+  'steps'
+> {
+  steps?: readonly TimelineStepUpdateCommand[];
   version: number;
   confirmInProgress?: boolean;
 }
@@ -93,6 +117,24 @@ export interface AssignUserCommand {
 export interface AssignResult {
   created: boolean;
   assignment: TimelineUserResponse;
+}
+
+/** The API's step keys to the rules' (`opensOn` -> `opensAt`); values stay `YYYY-MM-DD`. */
+function toRulesStep({
+  opensOn,
+  closesOn,
+  ...rest
+}: TimelineStepCommand): TimelineStepInput {
+  return { ...rest, opensAt: opensOn, closesAt: closesOn };
+}
+
+/** The same mapping for a step of an edit. */
+function toRulesStepUpdate({
+  opensOn,
+  closesOn,
+  ...rest
+}: TimelineStepUpdateCommand): TimelineStepUpdate {
+  return { ...rest, opensAt: opensOn, closesAt: closesOn };
 }
 
 /** A create request once cleaned: both scope lists are lists, whatever the client sent. */
@@ -113,7 +155,10 @@ function normalized(command: CreateTimelineCommand): NormalizedCreate {
     name: command.name.trim(),
     programIds: [...new Set(command.programIds ?? [])],
     resultTypeKeys: [...new Set(command.resultTypeKeys ?? [])],
-    steps: command.steps.map((step) => ({ ...step, name: step.name.trim() })),
+    steps: command.steps.map((step) => ({
+      ...toRulesStep(step),
+      name: step.name.trim(),
+    })),
   };
 }
 
@@ -144,8 +189,8 @@ function storedTimeline(bundle: TimelineBundle): StoredTimeline {
       position: step.position,
       name: step.name,
       audience: step.audience,
-      opensOn: step.opensOn,
-      closesOn: step.closesOn,
+      opensAt: step.opensAt,
+      closesAt: step.closesAt,
     })),
   };
 }
@@ -157,20 +202,20 @@ const stepPositionOf = (key: string): number | undefined => {
 };
 
 /**
- * FR-8: whether the diff touches a step that is `in_progress` today. The state
+ * FR-8: whether the diff touches a step that is `in_progress` at `now`. The state
  * is `viewTimeline`'s over the STORED steps (the same one the locks use), so a
  * hold, which makes every step `upcoming`, asks for no confirmation.
  */
 function changesAnInProgressStep(
   stored: StoredTimeline,
   changes: ReturnType<typeof diffTimeline>,
-  today: string,
+  now: string,
   hasLoad: boolean,
 ): boolean {
   const { stepStates } = viewTimeline({
     steps: stored.steps,
     assignedRoles: [],
-    today,
+    now,
     hasLoad,
   });
   return Object.keys(changes).some((key) => {
@@ -189,10 +234,10 @@ function changedSteps(
     const values: StepUpdateValues = {};
     if (`steps.${step.position}.name` in changes) values.name = step.name;
     if (`steps.${step.position}.opensOn` in changes) {
-      values.opensOn = asDate(step.opensOn);
+      values.opensAt = asDate(step.opensAt);
     }
     if (`steps.${step.position}.closesOn` in changes) {
-      values.closesOn = asDate(step.closesOn);
+      values.closesAt = asDate(step.closesAt);
     }
     if (Object.keys(values).length > 0) byPosition.set(step.position, values);
   }
@@ -274,7 +319,7 @@ export class TimelinesService {
     now: Date = this.clock(),
   ): Promise<TimelineResponse[]> {
     if (rows.length === 0) return [];
-    const today = todayInRome(now);
+    const romeNow = todayInRome(now);
     const ids = rows.map((row) => row.id);
     const [steps, programs, resultTypes, assigned, loaded] = await Promise.all([
       this.store.listSteps(ids),
@@ -303,7 +348,7 @@ export class TimelinesService {
             .filter((r) => r.timelineId === timeline.id)
             .map((r) => r.resultTypeKey),
         },
-        today,
+        romeNow,
         counts,
         loaded.has(timeline.id),
       );
@@ -389,8 +434,8 @@ export class TimelinesService {
                 name: step.name,
                 // The rules refused any audience outside the enum.
                 audience: step.audience as StepAudience,
-                opensOn: asDate(step.opensOn),
-                closesOn: asDate(step.closesOn),
+                opensAt: asDate(step.opensAt),
+                closesAt: asDate(step.closesAt),
                 round: step.round,
                 requiresLoad: step.requiresLoad,
               })),
@@ -432,8 +477,14 @@ export class TimelinesService {
         // 1. One read of the clock; a request that straddles midnight in Rome is
         // judged by the instant it arrived (design 7.2).
         const now = this.clock();
-        const today = todayInRome(now);
-        const { version, confirmInProgress, ...request } = command;
+        const romeNow = todayInRome(now);
+        const { version, confirmInProgress, steps, ...scalars } = command;
+        const request: TimelineUpdateInput = {
+          ...scalars,
+          ...(steps === undefined
+            ? {}
+            : { steps: steps.map(toRulesStepUpdate) }),
+        };
 
         // 2. The unlocked reads: the bundle (404), the cycle (closed 409) and
         // whether the timeline has a load, from the port the view's hold reads.
@@ -486,7 +537,7 @@ export class TimelinesService {
 
         // 5. Every rule problem, in one 400 (FR-5).
         const issues = validateTimelineUpdate(stored, request, {
-          today,
+          now: romeNow,
           knownProgramIds,
           knownResultTypeKeys,
           hasLoad,
@@ -505,7 +556,7 @@ export class TimelinesService {
         // when everything else is valid (FR-8, DD-11). The step state is the
         // view's, over the stored steps: a hold makes every step `upcoming`.
         if (
-          changesAnInProgressStep(stored, changes, today, hasLoad) &&
+          changesAnInProgressStep(stored, changes, romeNow, hasLoad) &&
           confirmInProgress !== true
         ) {
           // @akili-spec bugfix/timeline-edit-noop-stale
@@ -764,7 +815,7 @@ export class TimelinesService {
    */
   private async assertValid(
     request: NormalizedCreate,
-    today: string,
+    now: string,
   ): Promise<void> {
     const knownProgramIds = new Set<number>();
     if (!request.allPrograms && request.programIds.length > 0) {
@@ -779,7 +830,7 @@ export class TimelinesService {
       }
     }
     const issues = validateTimelineCreate(request, {
-      today,
+      now,
       knownProgramIds,
       knownResultTypeKeys,
     });

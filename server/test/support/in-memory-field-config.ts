@@ -317,14 +317,14 @@ export class InMemoryFieldConfigStore implements FieldConfigStore {
         undefined,
       );
       const last = own.reduce<string | null>(
-        (best, s) => (best === null || s.closesOn > best ? s.closesOn : best),
+        (best, s) => (best === null || s.closesAt > best ? s.closesAt : best),
         null,
       );
       return {
         id: timeline.id,
         name: timeline.name,
-        opensOn: first?.opensOn ?? null,
-        closesOn: last,
+        opensAt: first?.opensAt ?? null,
+        closesAt: last,
         allResultTypes: timeline.allResultTypes,
         resultTypeKeys: scope
           .filter((r) => r.timelineId === timeline.id)

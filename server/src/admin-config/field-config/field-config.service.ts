@@ -203,7 +203,7 @@ function describeLists(
   const named = new Map(timelines.map((t) => [t.id, t]));
   const entry = (id: number): PreviewTimeline => {
     const timeline = named.get(id)!;
-    return { id, name: timeline.name, opensOn: timeline.opensOn };
+    return { id, name: timeline.name, opensOn: timeline.opensAt };
   };
   return {
     receive: split.receive.map(entry),
@@ -614,7 +614,7 @@ export class FieldConfigService implements FieldConfigEffective {
     const entry = (id: number): PreviewTimeline => ({
       id,
       name: named.get(id)?.name ?? '',
-      opensOn: named.get(id)?.opensOn ?? null,
+      opensOn: named.get(id)?.opensAt ?? null,
     });
     return {
       version: {

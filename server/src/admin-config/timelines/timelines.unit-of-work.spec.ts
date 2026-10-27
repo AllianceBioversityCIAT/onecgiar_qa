@@ -17,9 +17,11 @@ import {
   TimelineNotFoundError,
   TimelineVersionStaleError,
 } from '../admin-config.errors.js';
-import type { TimelineCreateInput } from './timeline-rules.js';
 import { NoTimelineLoads } from './timeline-loads.js';
-import { TimelinesService } from './timelines.service.js';
+import {
+  TimelinesService,
+  type CreateTimelineCommand,
+} from './timelines.service.js';
 import { DrizzleTimelinesStore } from './timelines.store.js';
 import {
   DrizzleTimelinesUnitOfWork,
@@ -211,7 +213,7 @@ function stub({
   return { service, log, db };
 }
 
-const request: TimelineCreateInput = {
+const request: CreateTimelineCommand = {
   name: 'July 2026',
   allPrograms: false,
   programIds: [2],
@@ -647,7 +649,7 @@ const editWork =
     if (outcome.kind === 'stale') throw new TimelineVersionStaleError();
     for (const step of plan.steps) {
       await timelines.updateStep(plan.timelineId, step.position, {
-        closesOn: step.closesOn,
+        closesAt: step.closesOn,
       });
     }
     if (plan.programIds) {
@@ -930,8 +932,8 @@ describe('timeline edit over the in-memory world (FR-9, FR-10, NFR-3, NFR-5; the
         position,
         name: `Step ${position}`,
         audience: audiences[position - 1]!,
-        opensOn: `2026-11-${String(opens).padStart(2, '0')}`,
-        closesOn: `2026-11-${String(opens + 2).padStart(2, '0')}`,
+        opensAt: `2026-11-${String(opens).padStart(2, '0')}`,
+        closesAt: `2026-11-${String(opens + 2).padStart(2, '0')}`,
         round: 1,
         requiresLoad: position === 1,
       });
@@ -963,8 +965,8 @@ describe('timeline edit over the in-memory world (FR-9, FR-10, NFR-3, NFR-5; the
     });
     const step = (position: number) =>
       db.steps.find((s) => s.timelineId === 11 && s.position === position)!;
-    expect(step(2).closesOn).toBe('2026-12-01');
-    expect(step(1).closesOn).toBe('2026-11-05');
+    expect(step(2).closesAt).toBe('2026-12-01');
+    expect(step(1).closesAt).toBe('2026-11-05');
     expect(
       db.programs.filter((p) => p.timelineId === 11).map((p) => p.programId),
     ).toEqual([2, 3]);
@@ -1160,8 +1162,8 @@ describe('timeline edit over the in-memory world (FR-9, FR-10, NFR-3, NFR-5; the
           position: 1,
           name: 'Step 1',
           audience: 'assessors',
-          opensOn: '2026-11-03',
-          closesOn: '2026-11-05',
+          opensAt: '2026-11-03',
+          closesAt: '2026-11-05',
           round: 1,
           requiresLoad: true,
         },

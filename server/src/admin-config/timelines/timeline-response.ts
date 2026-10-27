@@ -71,13 +71,13 @@ export interface TimelineDetailResponse extends TimelineResponse {
 }
 
 /**
- * The read model of one timeline from its rows and today's Rome date (FR-12).
+ * The read model of one timeline from its rows and the Rome day in `now` (FR-12).
  * `assigned` is the count of active assignments per role; a role missing from
  * it has none. `hasLoad` comes from the loads port (timeline-edit FR-6, FR-14).
  */
 export function toTimelineResponse(
   bundle: TimelineBundle,
-  today: string,
+  now: string,
   assigned: Partial<Record<AssignableRole, number>>,
   hasLoad: boolean,
 ): TimelineResponse {
@@ -89,15 +89,15 @@ export function toTimelineResponse(
   const view = viewTimeline({
     steps: ordered,
     assignedRoles: ASSIGNABLE_ROLES.filter((role) => assignedCount[role] > 0),
-    today,
+    now,
     hasLoad,
   });
   const steps = ordered.map((step): TimelineStepResponse => ({
     position: step.position,
     name: step.name,
     audience: step.audience,
-    opensOn: step.opensOn,
-    closesOn: step.closesOn,
+    opensOn: step.opensAt,
+    closesOn: step.closesAt,
     round: step.round,
     requiresLoad: step.requiresLoad,
     state: view.stepStates[step.position],

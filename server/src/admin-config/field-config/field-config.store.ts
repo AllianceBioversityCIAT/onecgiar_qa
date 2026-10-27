@@ -116,7 +116,7 @@ export interface FieldConfigStore {
    * (design 7.3, DD-1): ids, scope and dates, from THREE statements whatever the
    * number of timelines, even none (timelines of the cycle, their steps, their
    * scope rows; the last two are keyed by the cycle through a subquery, not by
-   * the ids of the first). `opensOn` is step 1's, `closesOn` the latest
+   * the ids of the first). `opensAt` is step 1's, `closesAt` the latest
    * `closes_on`, both `null` for a timeline with no steps. No load signal is read
    * (DD-8a). Ordered by timeline id. It mirrors `TimelinesService.respond()`.
    */
@@ -320,8 +320,8 @@ export class DrizzleFieldConfigStore implements FieldConfigStore {
       .select({
         timelineId: timelineSteps.timelineId,
         position: timelineSteps.position,
-        opensOn: timelineSteps.opensOn,
-        closesOn: timelineSteps.closesOn,
+        opensAt: timelineSteps.opensAt,
+        closesAt: timelineSteps.closesAt,
       })
       .from(timelineSteps)
       .where(inArray(timelineSteps.timelineId, ofCycle));
@@ -345,14 +345,14 @@ export class DrizzleFieldConfigStore implements FieldConfigStore {
       );
       const last = own.reduce<string | null>(
         (best, step) =>
-          best === null || step.closesOn > best ? step.closesOn : best,
+          best === null || step.closesAt > best ? step.closesAt : best,
         null,
       );
       return {
         id: row.id,
         name: row.name,
-        opensOn: first?.opensOn ?? null,
-        closesOn: last,
+        opensAt: first?.opensAt ?? null,
+        closesAt: last,
         allResultTypes: row.allResultTypes,
         resultTypeKeys: scope
           .filter((entry) => entry.timelineId === row.id)

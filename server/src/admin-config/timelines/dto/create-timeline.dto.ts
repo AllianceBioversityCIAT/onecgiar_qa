@@ -10,9 +10,9 @@ import {
 } from 'class-validator';
 import { stepAudiences } from '../../../database/drizzle/schema/timeline-steps.js';
 import type {
-  TimelineCreateInput,
-  TimelineStepInput,
-} from '../timeline-rules.js';
+  CreateTimelineCommand,
+  TimelineStepCommand,
+} from '../timelines.service.js';
 
 /**
  * One step of `POST /cycles/:id/timelines`. The pipe judges the shape only
@@ -23,7 +23,7 @@ import type {
  * string and the dates are optional here: a missing date must reach the rules
  * to be named, never be dropped (FR-8).
  */
-export class TimelineStepDto implements TimelineStepInput {
+export class TimelineStepDto implements TimelineStepCommand {
   @ApiProperty({
     type: String,
     maxLength: 120,
@@ -92,7 +92,7 @@ export class TimelineStepDto implements TimelineStepInput {
  * `REQUIRED` in the same round as the other rule problems (FR-6, FR-11, design
  * 7.2 step 1). A list that is present is still type-checked here.
  */
-export class CreateTimelineDto implements TimelineCreateInput {
+export class CreateTimelineDto implements CreateTimelineCommand {
   @ApiProperty({
     type: String,
     maxLength: 120,

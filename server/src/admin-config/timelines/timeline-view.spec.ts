@@ -9,7 +9,7 @@ import {
 } from './timeline-view.js';
 
 // Expected values are literals from the FR-12 and FR-13 scenarios (S-1: a step
-// is open from 00:00 of `opensOn` to 23:59:59 of `closesOn`, Rome days). Step 1
+// is open from 00:00 of `opensAt` to 23:59:59 of `closesAt`, Rome days). Step 1
 // closes 6 Nov and step 2 opens 9 Nov, so 7 and 8 Nov are the gap. Every date
 // row sits exactly on its boundary.
 //
@@ -22,20 +22,20 @@ const steps: TimelineViewStep[] = [
   {
     position: 1,
     audience: 'assessors',
-    opensOn: '2026-10-26',
-    closesOn: '2026-11-06',
+    opensAt: '2026-10-26',
+    closesAt: '2026-11-06',
   },
   {
     position: 2,
     audience: 'programs',
-    opensOn: '2026-11-09',
-    closesOn: '2026-11-20',
+    opensAt: '2026-11-09',
+    closesAt: '2026-11-20',
   },
 ];
 
 /** A timeline with a load by default: the FR-12 behavior (timeline-edit FR-6 "Load present"). */
 function at(today: string, hasLoad = true): TimelineView {
-  return viewTimeline({ steps, assignedRoles: [], today, hasLoad });
+  return viewTimeline({ steps, assignedRoles: [], now: today, hasLoad });
 }
 
 describe('viewTimeline status (FR-12)', () => {
@@ -72,7 +72,7 @@ describe('viewTimeline current and next step (FR-12)', () => {
     const frozen = Object.freeze({
       steps: Object.freeze(steps.map((s) => Object.freeze({ ...s }))),
       assignedRoles: Object.freeze(['ASSESSOR'] as RoleCode[]),
-      today: '2026-11-06',
+      now: '2026-11-06',
       hasLoad: true,
     });
     const first = viewTimeline(frozen);
@@ -86,32 +86,32 @@ describe('viewTimeline readiness (FR-13)', () => {
     {
       position: 1,
       audience: 'assessors',
-      opensOn: '2026-10-26',
-      closesOn: '2026-11-06',
+      opensAt: '2026-10-26',
+      closesAt: '2026-11-06',
     },
     {
       position: 2,
       audience: 'programs',
-      opensOn: '2026-11-09',
-      closesOn: '2026-11-13',
+      opensAt: '2026-11-09',
+      closesAt: '2026-11-13',
     },
     {
       position: 3,
       audience: 'lead_assessors',
-      opensOn: '2026-11-16',
-      closesOn: '2026-11-20',
+      opensAt: '2026-11-16',
+      closesAt: '2026-11-20',
     },
     {
       position: 4,
       audience: 'tpb',
-      opensOn: '2026-11-23',
-      closesOn: '2026-11-27',
+      opensAt: '2026-11-23',
+      closesAt: '2026-11-27',
     },
     {
       position: 5,
       audience: 'ppu',
-      opensOn: '2026-11-30',
-      closesOn: '2026-12-04',
+      opensAt: '2026-11-30',
+      closesAt: '2026-12-04',
     },
   ];
 
@@ -126,7 +126,7 @@ describe('viewTimeline readiness (FR-13)', () => {
     const view = viewTimeline({
       steps: fullSteps,
       assignedRoles: ['ASSESSOR', 'LEAD_ASSESSOR', 'TPB', 'PPU'],
-      today: '2026-10-20',
+      now: '2026-10-20',
       hasLoad: true,
     });
     expect(view.readiness).toEqual(['NO_RESULTS_LOADED']);
@@ -136,7 +136,7 @@ describe('viewTimeline readiness (FR-13)', () => {
     const view = viewTimeline({
       steps: fullSteps,
       assignedRoles: [],
-      today: '2026-10-20',
+      now: '2026-10-20',
       hasLoad: true,
     });
     expect(view.readiness).toEqual([
@@ -152,7 +152,7 @@ describe('viewTimeline readiness (FR-13)', () => {
     const view = viewTimeline({
       steps,
       assignedRoles: ['ASSESSOR', 'TPB'],
-      today: '2026-10-20',
+      now: '2026-10-20',
       hasLoad: true,
     });
     expect(view.readiness).toEqual(['NO_RESULTS_LOADED']);
@@ -228,13 +228,13 @@ describe('viewTimeline status: every status x hold x date position (FR-6)', () =
   it('the hold ends when step 1 is moved after today: scheduled again', () => {
     // GIVEN the timeline was on hold on 26 Oct, an ADMIN moves step 1 to 2 Nov
     const moved: TimelineViewStep[] = [
-      { ...steps[0], opensOn: '2026-11-02', closesOn: '2026-11-06' },
+      { ...steps[0], opensAt: '2026-11-02', closesAt: '2026-11-06' },
       steps[1],
     ];
     const view = viewTimeline({
       steps: moved,
       assignedRoles: [],
-      today: '2026-10-26',
+      now: '2026-10-26',
       hasLoad: false,
     });
     expect(view.status).toBe('scheduled');
@@ -247,7 +247,7 @@ describe('viewTimeline status: every status x hold x date position (FR-6)', () =
     const view = viewTimeline({
       steps: [],
       assignedRoles: [],
-      today: '2026-10-26',
+      now: '2026-10-26',
       hasLoad: false,
     });
     expect([view.status, view.currentStep, view.nextStep]).toEqual([
@@ -317,18 +317,18 @@ describe('viewTimeline step state at its boundaries (FR-2)', () => {
         {
           position: 1,
           audience: 'assessors',
-          opensOn: '2026-11-02',
-          closesOn: '2026-11-06',
+          opensAt: '2026-11-02',
+          closesAt: '2026-11-06',
         },
         {
           position: 2,
           audience: 'programs',
-          opensOn: '2026-11-10',
-          closesOn: '2026-11-20',
+          opensAt: '2026-11-10',
+          closesAt: '2026-11-20',
         },
       ],
       assignedRoles: [],
-      today: '2026-11-12',
+      now: '2026-11-12',
       hasLoad: false,
     });
     expect(view.stepStates).toEqual({ 1: 'upcoming', 2: 'upcoming' });
@@ -339,7 +339,7 @@ describe('viewTimeline step state at its boundaries (FR-2)', () => {
     const view = viewTimeline({
       steps: [steps[1], steps[0]],
       assignedRoles: [],
-      today: '2026-11-09',
+      now: '2026-11-09',
       hasLoad: true,
     });
     expect(view.stepStates).toEqual({ 1: 'closed', 2: 'in_progress' });
@@ -356,13 +356,13 @@ describe('viewTimeline over Rome instants (NFR-4: midnight and both daylight-sav
     return viewTimeline({
       steps: stepsOf,
       assignedRoles: [],
-      today: todayInRome(new Date(instant)),
+      now: todayInRome(new Date(instant)),
       hasLoad,
     });
   }
 
-  const one = (opensOn: string, closesOn: string): TimelineViewStep[] => [
-    { position: 1, audience: 'assessors', opensOn, closesOn },
+  const one = (opensAt: string, closesAt: string): TimelineViewStep[] => [
+    { position: 1, audience: 'assessors', opensAt, closesAt },
   ];
 
   describe('midnight boundary (FR-2): step 1 closes on 6 Nov, Rome is UTC+1', () => {

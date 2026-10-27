@@ -10,8 +10,10 @@ import {
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
-import type { TimelineStepUpdate } from '../timeline-rules.js';
-import type { UpdateTimelineCommand } from '../timelines.service.js';
+import type {
+  TimelineStepUpdateCommand,
+  UpdateTimelineCommand,
+} from '../timelines.service.js';
 
 // A key the client left out is `undefined`; `null` is a value and not a way to
 // leave a key out, so for a field that cannot hold null the check runs on
@@ -26,7 +28,7 @@ const sentOnly = ValidateIf((_, value) => value !== undefined);
  * lacks, or sent twice, is named by the rules as `steps[i].position`, with the
  * other rule problems of the request (FR-11 of *timelines*).
  */
-export class TimelineStepUpdateDto implements TimelineStepUpdate {
+export class TimelineStepUpdateDto implements TimelineStepUpdateCommand {
   @ApiProperty({
     type: Number,
     minimum: 1,

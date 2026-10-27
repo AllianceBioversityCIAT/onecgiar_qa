@@ -125,8 +125,8 @@ export class DrizzleCyclesStore implements CyclesStore {
         status: cycles.status,
         createdAt: cycles.createdAt,
         timelineCount: countDistinct(timelines.id),
-        startsOn: min(timelineSteps.opensOn),
-        endsOn: max(timelineSteps.closesOn),
+        startsOn: min(timelineSteps.opensAt),
+        endsOn: max(timelineSteps.closesAt),
       })
       .from(cycles)
       .leftJoin(timelines, eq(timelines.cycleId, cycles.id))

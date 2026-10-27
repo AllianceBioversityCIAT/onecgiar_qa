@@ -323,10 +323,10 @@ export class InMemoryCyclesStore implements CyclesStore {
       status: row.status,
       createdAt: row.createdAt,
       timelineCount: own.length,
-      startsOn: steps.map((s) => s.opensOn).sort()[0] ?? null,
+      startsOn: steps.map((s) => s.opensAt).sort()[0] ?? null,
       endsOn:
         steps
-          .map((s) => s.closesOn)
+          .map((s) => s.closesAt)
           .sort()
           .at(-1) ?? null,
     };
@@ -484,7 +484,7 @@ function assertStepChecks(step: NewStepValues): void {
   if (step.position < 1 || step.position > 5) {
     checkFailed('chk_timeline_steps_position');
   }
-  if (step.closesOn < step.opensOn) checkFailed('chk_timeline_steps_dates');
+  if (step.closesAt < step.opensAt) checkFailed('chk_timeline_steps_dates');
   if (step.round < 1) checkFailed('chk_timeline_steps_round');
   if (step.position === 1 && !step.requiresLoad) {
     checkFailed('chk_timeline_steps_first_load');
@@ -603,8 +603,8 @@ export class InMemoryTimelinesStore implements TimelinesStore {
         position: step.position,
         name: step.name,
         audience: step.audience,
-        opensOn: step.opensOn,
-        closesOn: step.closesOn,
+        opensAt: step.opensAt,
+        closesAt: step.closesAt,
         round: step.round,
         requiresLoad: step.requiresLoad,
       });
@@ -872,8 +872,8 @@ export class InMemoryTimelinesStore implements TimelinesStore {
     if (!row) return false;
     const next = { ...row };
     if (values.name !== undefined) next.name = values.name;
-    if (values.opensOn !== undefined) next.opensOn = values.opensOn;
-    if (values.closesOn !== undefined) next.closesOn = values.closesOn;
+    if (values.opensAt !== undefined) next.opensAt = values.opensAt;
+    if (values.closesAt !== undefined) next.closesAt = values.closesAt;
     assertStepChecks(next);
     Object.assign(row, next);
     this.world.recordTimelineWrite(`step:update:${timelineId}:${position}`);

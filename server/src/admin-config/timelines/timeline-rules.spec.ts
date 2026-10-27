@@ -21,23 +21,23 @@ import { viewTimeline } from './timeline-view.js';
 // `steps[i].<key>`). A missing date is REQUIRED and a malformed one INVALID.
 
 const context: TimelineRulesContext = {
-  today: '2026-10-20',
+  now: '2026-10-20',
   knownProgramIds: new Set([1, 2, 5]),
   knownResultTypeKeys: new Set(['KP', 'IDEV']),
 };
 
 function step(
   audience: string,
-  opensOn: string | null | undefined,
-  closesOn: string | null | undefined,
+  opensAt: string | null | undefined,
+  closesAt: string | null | undefined,
   round: number,
   requiresLoad: boolean,
 ): TimelineStepInput {
   return {
     name: `Step ${audience}`,
     audience,
-    opensOn,
-    closesOn,
+    opensAt,
+    closesAt,
     round,
     requiresLoad,
   };
@@ -327,67 +327,67 @@ describe('step dates (FR-8, S-1)', () => {
   it.each<Row>([
     [
       'a step that opens and closes on the same day is valid',
-      withSteps(patch(0, { opensOn: '2026-11-02', closesOn: '2026-11-02' })),
+      withSteps(patch(0, { opensAt: '2026-11-02', closesAt: '2026-11-02' })),
       [],
     ],
     [
       'a step that closes the day before it opens',
-      withSteps(patch(0, { opensOn: '2026-11-02', closesOn: '2026-11-01' })),
+      withSteps(patch(0, { opensAt: '2026-11-02', closesAt: '2026-11-01' })),
       [{ field: 'steps[0].closesOn', code: 'CLOSES_BEFORE_OPENS' }],
     ],
     [
       'the next step opens on the previous closing day',
-      withSteps(patch(1, { opensOn: '2026-11-06', closesOn: '2026-11-13' })),
+      withSteps(patch(1, { opensAt: '2026-11-06', closesAt: '2026-11-13' })),
       [{ field: 'steps[1].opensOn', code: 'OVERLAPS_PREVIOUS_STEP' }],
     ],
     [
       'the next step opens the day after the previous closing day',
-      withSteps(patch(1, { opensOn: '2026-11-07', closesOn: '2026-11-13' })),
+      withSteps(patch(1, { opensAt: '2026-11-07', closesAt: '2026-11-13' })),
       [],
     ],
     [
       'the next step opens before the previous one opened',
-      withSteps(patch(1, { opensOn: '2026-11-01', closesOn: '2026-11-13' })),
+      withSteps(patch(1, { opensAt: '2026-11-01', closesAt: '2026-11-13' })),
       [{ field: 'steps[1].opensOn', code: 'OVERLAPS_PREVIOUS_STEP' }],
     ],
     [
       'a step with a missing closing date is kept at its place',
-      withSteps(patch(1, { closesOn: undefined })),
+      withSteps(patch(1, { closesAt: undefined })),
       [{ field: 'steps[1].closesOn', code: 'REQUIRED' }],
     ],
     [
       'a missing opening date',
-      withSteps(patch(0, { opensOn: undefined })),
+      withSteps(patch(0, { opensAt: undefined })),
       [{ field: 'steps[0].opensOn', code: 'REQUIRED' }],
     ],
     [
       'a null date',
-      withSteps(patch(0, { closesOn: null })),
+      withSteps(patch(0, { closesAt: null })),
       [{ field: 'steps[0].closesOn', code: 'REQUIRED' }],
     ],
     [
       'an empty date',
-      withSteps(patch(0, { opensOn: '' })),
+      withSteps(patch(0, { opensAt: '' })),
       [{ field: 'steps[0].opensOn', code: 'REQUIRED' }],
     ],
     [
       'a date that does not exist (30 Feb)',
-      withSteps(patch(0, { closesOn: '2026-02-30' })),
+      withSteps(patch(0, { closesAt: '2026-02-30' })),
       [{ field: 'steps[0].closesOn', code: 'INVALID' }],
     ],
     [
       'a date not written YYYY-MM-DD',
-      withSteps(patch(0, { opensOn: '02/11/2026' })),
+      withSteps(patch(0, { opensAt: '02/11/2026' })),
       [{ field: 'steps[0].opensOn', code: 'INVALID' }],
     ],
     [
       'step 1 opens yesterday',
-      withSteps(patch(0, { opensOn: '2026-10-19', closesOn: '2026-11-06' })),
+      withSteps(patch(0, { opensAt: '2026-10-19', closesAt: '2026-11-06' })),
       [{ field: 'steps[0].opensOn', code: 'BEFORE_TODAY' }],
     ],
     [
       'step 1 opens today',
-      withSteps(patch(0, { opensOn: '2026-10-20', closesOn: '2026-11-06' })),
+      withSteps(patch(0, { opensAt: '2026-10-20', closesAt: '2026-11-06' })),
       [],
     ],
   ])('%s', (_label, request, expected) => {
@@ -398,7 +398,7 @@ describe('step dates (FR-8, S-1)', () => {
     const steps = patch(
       2,
       { round: 3 },
-      patch(1, { closesOn: undefined }, fiveSteps().slice(0, 3)),
+      patch(1, { closesAt: undefined }, fiveSteps().slice(0, 3)),
     );
     expect(validateTimelineCreate(withSteps(steps), context)).toEqual([
       { field: 'steps[1].closesOn', code: 'REQUIRED' },
@@ -408,10 +408,10 @@ describe('step dates (FR-8, S-1)', () => {
 
   it('compares step 1 with the today it is given, not with the clock', () => {
     expect(
-      validateTimelineCreate(valid(), { ...context, today: '2026-11-03' }),
+      validateTimelineCreate(valid(), { ...context, now: '2026-11-03' }),
     ).toEqual([{ field: 'steps[0].opensOn', code: 'BEFORE_TODAY' }]);
     expect(
-      validateTimelineCreate(valid(), { ...context, today: '2026-11-02' }),
+      validateTimelineCreate(valid(), { ...context, now: '2026-11-02' }),
     ).toEqual([]);
   });
 });
@@ -468,7 +468,7 @@ describe('rounds (FR-10)', () => {
 describe('all issues at once (FR-11)', () => {
   it('lists name, programs and a missing closing date, and nothing else', () => {
     const request = withSteps(
-      patch(2, { closesOn: undefined }, fiveSteps().slice(0, 3)),
+      patch(2, { closesAt: undefined }, fiveSteps().slice(0, 3)),
       { name: '', allPrograms: false, programIds: [] },
     );
     expect(validateTimelineCreate(request, context)).toEqual([
@@ -481,7 +481,7 @@ describe('all issues at once (FR-11)', () => {
   it('lists name, an ABSENT programs list and a missing closing date together: the list key is not in the request', () => {
     const request = without(
       'programIds',
-      withSteps(patch(2, { closesOn: undefined }, fiveSteps().slice(0, 3)), {
+      withSteps(patch(2, { closesAt: undefined }, fiveSteps().slice(0, 3)), {
         name: '',
         allPrograms: false,
       }),
@@ -555,22 +555,22 @@ function storedTimeline(
         position: 1,
         name: 'Assessors',
         audience: 'assessors',
-        opensOn: '2026-11-02',
-        closesOn: '2026-11-06',
+        opensAt: '2026-11-02',
+        closesAt: '2026-11-06',
       },
       {
         position: 2,
         name: 'Programs',
         audience: 'programs',
-        opensOn: '2026-11-10',
-        closesOn: '2026-11-13',
+        opensAt: '2026-11-10',
+        closesAt: '2026-11-13',
       },
       {
         position: 3,
         name: 'Lead assessors',
         audience: 'lead_assessors',
-        opensOn: '2026-11-16',
-        closesOn: '2026-11-20',
+        opensAt: '2026-11-16',
+        closesAt: '2026-11-20',
       },
     ],
     ...overrides,
@@ -595,7 +595,7 @@ function updateContext(
   overrides: Partial<TimelineUpdateContext> = {},
 ): TimelineUpdateContext {
   const { today, hasLoad } = STATES[state];
-  return { ...context, today, hasLoad, ...overrides };
+  return { ...context, now: today, hasLoad, ...overrides };
 }
 
 type UpdateRow = [
@@ -617,7 +617,7 @@ describe('validateTimelineUpdate: the state comes from viewTimeline (DD-2, DD-4)
       const view = viewTimeline({
         steps: storedTimeline().steps,
         assignedRoles: [],
-        today,
+        now: today,
         hasLoad,
       });
       expect(view.stepStates[1]).toBe(step1);
@@ -629,7 +629,7 @@ describe('validateTimelineUpdate: the state comes from viewTimeline (DD-2, DD-4)
     const view = viewTimeline({
       steps: storedTimeline().steps,
       assignedRoles: [],
-      today,
+      now: today,
       hasLoad,
     });
     expect(view.stepStates).toEqual({
@@ -646,13 +646,13 @@ describe('validateTimelineUpdate: locks by step state and changed field (FR-3, F
     [
       'closed: a changed opening date is locked',
       'closed',
-      onStep1({ opensOn: '2026-11-01' }),
+      onStep1({ opensAt: '2026-11-01' }),
       [{ field: 'steps[0].opensOn', code: 'LOCKED' }],
     ],
     [
       'closed: a changed closing date is locked',
       'closed',
-      onStep1({ closesOn: '2026-11-07' }),
+      onStep1({ closesAt: '2026-11-07' }),
       [{ field: 'steps[0].closesOn', code: 'LOCKED' }],
     ],
     [
@@ -664,7 +664,7 @@ describe('validateTimelineUpdate: locks by step state and changed field (FR-3, F
     [
       'closed: both dates resent unchanged are not a change',
       'closed',
-      onStep1({ opensOn: '2026-11-02', closesOn: '2026-11-06' }),
+      onStep1({ opensAt: '2026-11-02', closesAt: '2026-11-06' }),
       [],
     ],
     [
@@ -688,44 +688,44 @@ describe('validateTimelineUpdate: locks by step state and changed field (FR-3, F
     [
       'closed: an upcoming step 2 may still move its opening date to a future day',
       'closed',
-      { steps: [{ position: 2, opensOn: '2026-11-09' }] },
+      { steps: [{ position: 2, opensAt: '2026-11-09' }] },
       [],
     ],
     [
       'closed: an upcoming step 2 cannot open before today',
       'closed',
-      { steps: [{ position: 2, opensOn: '2026-11-07' }] },
+      { steps: [{ position: 2, opensAt: '2026-11-07' }] },
       [{ field: 'steps[1].opensOn', code: 'BEFORE_TODAY' }],
     ],
     // --- in-progress step 1 (today 5 Nov, load done) ----------------------
     [
       'in progress: a changed opening date is locked',
       'in_progress',
-      onStep1({ opensOn: '2026-11-03' }),
+      onStep1({ opensAt: '2026-11-03' }),
       [{ field: 'steps[0].opensOn', code: 'LOCKED' }],
     ],
     [
       'in progress: a closing date before today is refused',
       'in_progress',
-      onStep1({ closesOn: '2026-11-04' }),
+      onStep1({ closesAt: '2026-11-04' }),
       [{ field: 'steps[0].closesOn', code: 'BEFORE_TODAY' }],
     ],
     [
       'in progress: a closing date of today is accepted',
       'in_progress',
-      onStep1({ closesOn: '2026-11-05' }),
+      onStep1({ closesAt: '2026-11-05' }),
       [],
     ],
     [
       'in progress: a later closing date is accepted',
       'in_progress',
-      onStep1({ closesOn: '2026-11-08' }),
+      onStep1({ closesAt: '2026-11-08' }),
       [],
     ],
     [
       'in progress: opening 3 Nov and closing 4 Nov are both refused in one answer',
       'in_progress',
-      onStep1({ opensOn: '2026-11-03', closesOn: '2026-11-04' }),
+      onStep1({ opensAt: '2026-11-03', closesAt: '2026-11-04' }),
       [
         { field: 'steps[0].opensOn', code: 'LOCKED' },
         { field: 'steps[0].closesOn', code: 'BEFORE_TODAY' },
@@ -740,7 +740,7 @@ describe('validateTimelineUpdate: locks by step state and changed field (FR-3, F
     [
       'in progress: the dates resent unchanged are not a change',
       'in_progress',
-      onStep1({ opensOn: '2026-11-02', closesOn: '2026-11-06' }),
+      onStep1({ opensAt: '2026-11-02', closesAt: '2026-11-06' }),
       [],
     ],
     [
@@ -753,25 +753,25 @@ describe('validateTimelineUpdate: locks by step state and changed field (FR-3, F
     [
       'upcoming: opening yesterday is refused',
       'upcoming',
-      onStep1({ opensOn: '2026-10-19' }),
+      onStep1({ opensAt: '2026-10-19' }),
       [{ field: 'steps[0].opensOn', code: 'BEFORE_TODAY' }],
     ],
     [
       'upcoming: opening today is accepted',
       'upcoming',
-      onStep1({ opensOn: '2026-10-20' }),
+      onStep1({ opensAt: '2026-10-20' }),
       [],
     ],
     [
       'upcoming: a later closing date is accepted',
       'upcoming',
-      onStep1({ closesOn: '2026-11-08' }),
+      onStep1({ closesAt: '2026-11-08' }),
       [],
     ],
     [
       'upcoming: a closing date before its opening date is refused',
       'upcoming',
-      onStep1({ closesOn: '2026-11-01' }),
+      onStep1({ closesAt: '2026-11-01' }),
       [{ field: 'steps[0].closesOn', code: 'CLOSES_BEFORE_OPENS' }],
     ],
     [
@@ -802,19 +802,19 @@ describe('validateTimelineUpdate: locks by step state and changed field (FR-3, F
     [
       'hold: opening on a past day is refused as before today',
       'hold',
-      onStep1({ opensOn: '2026-11-03' }),
+      onStep1({ opensAt: '2026-11-03' }),
       [{ field: 'steps[0].opensOn', code: 'BEFORE_TODAY' }],
     ],
     [
       'hold: opening today is accepted',
       'hold',
-      onStep1({ opensOn: '2026-11-05' }),
+      onStep1({ opensAt: '2026-11-05' }),
       [],
     ],
     [
       'hold: a later closing date is accepted',
       'hold',
-      onStep1({ closesOn: '2026-11-08' }),
+      onStep1({ closesAt: '2026-11-08' }),
       [],
     ],
     [
@@ -826,8 +826,8 @@ describe('validateTimelineUpdate: locks by step state and changed field (FR-3, F
           {
             position: 1,
             name: 'Assessors',
-            opensOn: '2026-11-02',
-            closesOn: '2026-11-06',
+            opensAt: '2026-11-02',
+            closesAt: '2026-11-06',
           },
         ],
       },
@@ -866,29 +866,29 @@ describe('validateTimelineUpdate: locks by step state and changed field (FR-3, F
   });
 
   it('a step closing today is still in progress: its opening date is locked, its closing date moves (day boundary)', () => {
-    const context6 = updateContext('in_progress', { today: '2026-11-06' });
+    const context6 = updateContext('in_progress', { now: '2026-11-06' });
     expect(
       validateTimelineUpdate(
         storedTimeline(),
-        onStep1({ closesOn: '2026-11-07' }),
+        onStep1({ closesAt: '2026-11-07' }),
         context6,
       ),
     ).toEqual([]);
     expect(
       validateTimelineUpdate(
         storedTimeline(),
-        onStep1({ opensOn: '2026-11-03' }),
+        onStep1({ opensAt: '2026-11-03' }),
         context6,
       ),
     ).toEqual([{ field: 'steps[0].opensOn', code: 'LOCKED' }]);
   });
 
   it('a step that closed yesterday is closed: its closing date is locked (day boundary)', () => {
-    const context7 = updateContext('closed', { today: '2026-11-07' });
+    const context7 = updateContext('closed', { now: '2026-11-07' });
     expect(
       validateTimelineUpdate(
         storedTimeline(),
-        onStep1({ closesOn: '2026-11-08' }),
+        onStep1({ closesAt: '2026-11-08' }),
         context7,
       ),
     ).toEqual([{ field: 'steps[0].closesOn', code: 'LOCKED' }]);
@@ -928,7 +928,7 @@ describe('validateTimelineUpdate: structure is fixed (FR-1, DD-7)', () => {
     [
       'an unknown position is not judged on its other fields',
       'upcoming',
-      { steps: [{ position: 7, name: '', opensOn: '2020-01-01' }] },
+      { steps: [{ position: 7, name: '', opensAt: '2020-01-01' }] },
       [{ field: 'steps[0].position', code: 'INVALID' }],
     ],
     [
@@ -956,7 +956,7 @@ describe('validateTimelineUpdate: step paths are the step position minus one (FR
     expect(
       validateTimelineUpdate(
         storedTimeline(),
-        onStep1({ closesOn: '2026-11-12' }),
+        onStep1({ closesAt: '2026-11-12' }),
         updateContext('upcoming'),
       ),
     ).toEqual([{ field: 'steps[1].opensOn', code: 'OVERLAPS_PREVIOUS_STEP' }]);
@@ -966,7 +966,7 @@ describe('validateTimelineUpdate: step paths are the step position minus one (FR
     expect(
       validateTimelineUpdate(
         storedTimeline(),
-        onStep1({ closesOn: '2026-11-10' }),
+        onStep1({ closesAt: '2026-11-10' }),
         updateContext('upcoming'),
       ),
     ).toEqual([{ field: 'steps[1].opensOn', code: 'OVERLAPS_PREVIOUS_STEP' }]);
@@ -976,7 +976,7 @@ describe('validateTimelineUpdate: step paths are the step position minus one (FR
     expect(
       validateTimelineUpdate(
         storedTimeline(),
-        onStep1({ closesOn: '2026-11-09' }),
+        onStep1({ closesAt: '2026-11-09' }),
         updateContext('upcoming'),
       ),
     ).toEqual([]);
@@ -988,7 +988,7 @@ describe('validateTimelineUpdate: step paths are the step position minus one (FR
       validateTimelineUpdate(
         storedTimeline(),
         {
-          steps: [{ position: 3, name: '', closesOn: '2026-11-15' }],
+          steps: [{ position: 3, name: '', closesAt: '2026-11-15' }],
         },
         updateContext('upcoming'),
       ),
@@ -1002,7 +1002,7 @@ describe('validateTimelineUpdate: step paths are the step position minus one (FR
     expect(
       validateTimelineUpdate(
         storedTimeline(),
-        { steps: [{ position: 1, closesOn: '2026-11-07' }] },
+        { steps: [{ position: 1, closesAt: '2026-11-07' }] },
         updateContext('closed'),
       ),
     ).toEqual([{ field: 'steps[0].closesOn', code: 'LOCKED' }]);
@@ -1015,7 +1015,7 @@ describe('validateTimelineUpdate: every problem at once (FR-5)', () => {
       storedTimeline(),
       {
         name: '',
-        steps: [{ position: 1, closesOn: '2026-11-07' }],
+        steps: [{ position: 1, closesAt: '2026-11-07' }],
         programIds: [1, 2],
       },
       updateContext('closed'),
@@ -1039,8 +1039,8 @@ describe('validateTimelineUpdate: every problem at once (FR-5)', () => {
         programIds: [1],
         steps: [
           { position: 8 },
-          { position: 1, name: ' ', closesOn: '2026-11-04' },
-          { position: 2, opensOn: '2026-11-04' },
+          { position: 1, name: ' ', closesAt: '2026-11-04' },
+          { position: 2, opensAt: '2026-11-04' },
         ],
       },
       updateContext('in_progress'),
@@ -1062,7 +1062,7 @@ describe('validateTimelineUpdate: every problem at once (FR-5)', () => {
     const request: TimelineUpdateInput = {
       name: ' x ',
       programIds: [2, 2, 1],
-      steps: [{ position: 1, name: ' y ', closesOn: '2026-11-08' }],
+      steps: [{ position: 1, name: ' y ', closesAt: '2026-11-08' }],
     };
     const snapshot = JSON.stringify([storedBefore, request]);
     validateTimelineUpdate(storedBefore, request, updateContext('upcoming'));
@@ -1130,13 +1130,13 @@ describe('validateTimelineUpdate: the creation rules still hold on the merged st
     [
       'a missing closing date is required',
       'upcoming',
-      onStep1({ closesOn: '' }),
+      onStep1({ closesAt: '' }),
       [{ field: 'steps[0].closesOn', code: 'REQUIRED' }],
     ],
     [
       'a date that is not on the calendar is invalid',
       'upcoming',
-      onStep1({ closesOn: '2026-02-30' }),
+      onStep1({ closesAt: '2026-02-30' }),
       [{ field: 'steps[0].closesOn', code: 'INVALID' }],
     ],
   ])('%s', (_label, state, request, expected) => {
@@ -1183,7 +1183,7 @@ describe('mergeTimelineUpdate (design 7.1 step 2)', () => {
   it('overlays the sent fields and keeps every other stored value', () => {
     expect(
       mergeTimelineUpdate(storedTimeline(), {
-        steps: [{ position: 2, closesOn: '2026-11-14' }],
+        steps: [{ position: 2, closesAt: '2026-11-14' }],
       }),
     ).toEqual({
       name: 'July 2026',
@@ -1195,20 +1195,20 @@ describe('mergeTimelineUpdate (design 7.1 step 2)', () => {
         {
           position: 1,
           name: 'Assessors',
-          opensOn: '2026-11-02',
-          closesOn: '2026-11-06',
+          opensAt: '2026-11-02',
+          closesAt: '2026-11-06',
         },
         {
           position: 2,
           name: 'Programs',
-          opensOn: '2026-11-10',
-          closesOn: '2026-11-14',
+          opensAt: '2026-11-10',
+          closesAt: '2026-11-14',
         },
         {
           position: 3,
           name: 'Lead assessors',
-          opensOn: '2026-11-16',
-          closesOn: '2026-11-20',
+          opensAt: '2026-11-16',
+          closesAt: '2026-11-20',
         },
       ],
     });

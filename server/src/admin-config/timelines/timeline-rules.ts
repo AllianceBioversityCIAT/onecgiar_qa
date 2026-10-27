@@ -24,8 +24,8 @@ export interface TimelineStepInput {
   name: string;
   audience: string;
   /** Absent, null or empty counts as missing (FR-8). */
-  opensOn?: string | null;
-  closesOn?: string | null;
+  opensAt?: string | null;
+  closesAt?: string | null;
   round: number;
   requiresLoad: boolean;
 }
@@ -41,8 +41,8 @@ export interface TimelineCreateInput {
 }
 
 export interface TimelineRulesContext {
-  /** Today's date in Europe/Rome, `YYYY-MM-DD` (S-4); never read from a clock here. */
-  today: string;
+  /** The Rome day to judge by, `YYYY-MM-DD` (S-4); never read from a clock here. */
+  now: string;
   knownProgramIds: ReadonlySet<number>;
   knownResultTypeKeys: ReadonlySet<string>;
 }
@@ -75,8 +75,8 @@ export function validateTimelineCreate(
       },
       steps: steps.map((step, index) => ({
         path: `steps[${index}]`,
-        opensOn: step.opensOn,
-        closesOn: step.closesOn,
+        opensAt: step.opensAt,
+        closesAt: step.closesAt,
       })),
     },
     issues,
@@ -101,8 +101,8 @@ export function validateTimelineCreate(
           lastAudienceRank = rank;
         }
       },
-      afterOpensOn: (index, opensOn) => {
-        if (index === 0 && compareDates(opensOn, context.today) < 0) {
+      afterOpensAt: (index, opensAt) => {
+        if (index === 0 && compareDates(opensAt, context.now) < 0) {
           issues.push({ field: 'steps[0].opensOn', code: 'BEFORE_TODAY' });
         }
       },
@@ -144,8 +144,8 @@ interface MergedStateInput {
   /** In position order; `path` is the field path of the step (`steps[i]`). */
   steps: readonly {
     path: string;
-    opensOn?: string | null;
-    closesOn?: string | null;
+    opensAt?: string | null;
+    closesAt?: string | null;
   }[];
 }
 
@@ -156,7 +156,7 @@ interface MergedStateHooks {
   /** Before a step's date checks. */
   beforeDates?: (index: number) => void;
   /** After a step's opening date was read as a real date, before its overlap check. */
-  afterOpensOn?: (index: number, opensOn: string) => void;
+  afterOpensAt?: (index: number, opensAt: string) => void;
   /** After a step's date checks. */
   afterDates?: (index: number) => void;
 }
@@ -193,11 +193,11 @@ function checkMergedState(
     const previous = index > 0 ? state.steps[index - 1] : undefined;
     hooks.beforeDates?.(index);
 
-    const opensOn = readDate(step.opensOn, `${step.path}.opensOn`, issues);
-    if (opensOn !== undefined) {
-      hooks.afterOpensOn?.(index, opensOn);
-      const previousClose = previous && validDate(previous.closesOn);
-      if (previousClose && compareDates(opensOn, previousClose) <= 0) {
+    const opensAt = readDate(step.opensAt, `${step.path}.opensOn`, issues);
+    if (opensAt !== undefined) {
+      hooks.afterOpensAt?.(index, opensAt);
+      const previousClose = previous && validDate(previous.closesAt);
+      if (previousClose && compareDates(opensAt, previousClose) <= 0) {
         issues.push({
           field: `${step.path}.opensOn`,
           code: 'OVERLAPS_PREVIOUS_STEP',
@@ -205,11 +205,11 @@ function checkMergedState(
       }
     }
 
-    const closesOn = readDate(step.closesOn, `${step.path}.closesOn`, issues);
+    const closesAt = readDate(step.closesAt, `${step.path}.closesOn`, issues);
     if (
-      opensOn !== undefined &&
-      closesOn !== undefined &&
-      compareDates(closesOn, opensOn) < 0
+      opensAt !== undefined &&
+      closesAt !== undefined &&
+      compareDates(closesAt, opensAt) < 0
     ) {
       issues.push({
         field: `${step.path}.closesOn`,
@@ -285,8 +285,8 @@ export interface StoredTimelineStep {
   position: number;
   name: string;
   audience: StepAudience;
-  opensOn: string;
-  closesOn: string;
+  opensAt: string;
+  closesAt: string;
 }
 
 /** The timeline as stored: what the edit rules overlay the request on. */
@@ -303,8 +303,8 @@ export interface StoredTimeline {
 export interface TimelineStepUpdate {
   position: number;
   name?: string;
-  opensOn?: string | null;
-  closesOn?: string | null;
+  opensAt?: string | null;
+  closesAt?: string | null;
 }
 
 /**
@@ -369,10 +369,10 @@ export function mergeTimelineUpdate(
         return {
           position: step.position,
           name: (update?.name ?? step.name).trim(),
-          opensOn:
-            update?.opensOn !== undefined ? update.opensOn : step.opensOn,
-          closesOn:
-            update?.closesOn !== undefined ? update.closesOn : step.closesOn,
+          opensAt:
+            update?.opensAt !== undefined ? update.opensAt : step.opensAt,
+          closesAt:
+            update?.closesAt !== undefined ? update.closesAt : step.closesAt,
         };
       }),
   };
@@ -448,8 +448,8 @@ export function validateTimelineUpdate(
       },
       steps: merged.steps.map((step) => ({
         path: stepPath(step.position),
-        opensOn: step.opensOn,
-        closesOn: step.closesOn,
+        opensAt: step.opensAt,
+        closesAt: step.closesAt,
       })),
     },
     issues,
@@ -526,13 +526,13 @@ function checkLocks(
   const { stepStates } = viewTimeline({
     steps: stored.steps,
     assignedRoles: [],
-    today: context.today,
+    now: context.now,
     hasLoad: context.hasLoad,
   });
   const beforeToday = (value: string | null | undefined): boolean =>
     typeof value === 'string' &&
     isCalendarDate(value) &&
-    compareDates(value, context.today) < 0;
+    compareDates(value, context.now) < 0;
 
   const mergedByPosition = new Map(merged.steps.map((s) => [s.position, s]));
   for (const step of [...stored.steps].sort(
@@ -542,8 +542,8 @@ function checkLocks(
     if (after === undefined) continue;
     const path = stepPath(step.position);
     const state = stepStates[step.position];
-    const opensChanged = after.opensOn !== step.opensOn;
-    const closesChanged = after.closesOn !== step.closesOn;
+    const opensChanged = after.opensAt !== step.opensAt;
+    const closesChanged = after.closesAt !== step.closesAt;
 
     if (state === 'closed') {
       if (opensChanged)
@@ -554,10 +554,10 @@ function checkLocks(
     } else if (state === 'in_progress') {
       if (opensChanged)
         issues.push({ field: `${path}.opensOn`, code: 'LOCKED' });
-      if (closesChanged && beforeToday(after.closesOn)) {
+      if (closesChanged && beforeToday(after.closesAt)) {
         issues.push({ field: `${path}.closesOn`, code: 'BEFORE_TODAY' });
       }
-    } else if (opensChanged && beforeToday(after.opensOn)) {
+    } else if (opensChanged && beforeToday(after.opensAt)) {
       issues.push({ field: `${path}.opensOn`, code: 'BEFORE_TODAY' });
     }
   }

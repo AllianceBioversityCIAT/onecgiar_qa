@@ -27,11 +27,11 @@ import {
 import { CyclesService } from '../cycles/cycles.service.js';
 import type { TimelineUser } from '../../database/drizzle/schema/timeline-users.js';
 import { NoTimelineLoads, type TimelineLoads } from './timeline-loads.js';
-import type { TimelineCreateInput } from './timeline-rules.js';
 import {
   TimelinesService,
   type AssignResult,
   type AssignUserCommand,
+  type CreateTimelineCommand,
   type UpdateTimelineCommand,
 } from './timelines.service.js';
 import type { TimelinesStore } from './timelines.store.js';
@@ -85,7 +85,9 @@ const STEP_3 = {
 };
 
 /** A valid request: two steps, SP02 and one result type. */
-function request(over: Partial<TimelineCreateInput> = {}): TimelineCreateInput {
+function request(
+  over: Partial<CreateTimelineCommand> = {},
+): CreateTimelineCommand {
   return {
     name: 'July 2026',
     allPrograms: false,
@@ -100,8 +102,8 @@ function request(over: Partial<TimelineCreateInput> = {}): TimelineCreateInput {
 /** The request with scope lists left out altogether, as a body that never sent the keys. */
 function requestWithout(
   omit: Array<'programIds' | 'resultTypeKeys'>,
-  over: Partial<TimelineCreateInput> = {},
-): TimelineCreateInput {
+  over: Partial<CreateTimelineCommand> = {},
+): CreateTimelineCommand {
   const full = request(over);
   for (const key of omit) delete full[key];
   return full;
@@ -2355,7 +2357,10 @@ describe('update: the edit flow (timeline-edit design 6, 7.2)', () => {
   const DAY = 86_400_000;
 
   /** The cycle and a timeline of "all programs, all result types" (no catalog read at create) with three steps. */
-  async function seeded(w: EditWorld, over: Partial<TimelineCreateInput> = {}) {
+  async function seeded(
+    w: EditWorld,
+    over: Partial<CreateTimelineCommand> = {},
+  ) {
     const cycleId = await w.seedCycle(2026);
     const { timelineId } = await w.service.create(
       w.ctx(),
@@ -2959,7 +2964,7 @@ describe('update: the edit flow (timeline-edit design 6, 7.2)', () => {
       expect(w.db.timelines[0]).toMatchObject({ name: 'First', version: 2 });
       expect(
         w.db.steps.find((s) => s.position === 1 && s.timelineId === timelineId),
-      ).toMatchObject({ closesOn: STEP_1.closesOn });
+      ).toMatchObject({ closesAt: STEP_1.closesOn });
       expect(w.db.auditEvents).toHaveLength(1);
       expect(w.db.auditEvents[0]).toMatchObject({ actorId: 8 });
       expect(w.unitOfWork.rolledBack).toBe(1);
@@ -3051,7 +3056,7 @@ describe('update: the edit flow (timeline-edit design 6, 7.2)', () => {
       expectOnlyTheRival(w, mixed);
       expect(
         w.db.steps.find((s) => s.timelineId === timelineId && s.position === 3),
-      ).toMatchObject({ closesOn: '2026-11-27' });
+      ).toMatchObject({ closesAt: '2026-11-27' });
     });
 
     it('400 on a mixed read: values that break a rule only against the rival steps are 409 stale, not VALIDATION_FAILED, and nothing is written', async () => {
@@ -3075,7 +3080,7 @@ describe('update: the edit flow (timeline-edit design 6, 7.2)', () => {
       expectOnlyTheRival(w, mixed);
       expect(
         w.db.steps.find((s) => s.timelineId === timelineId && s.position === 3),
-      ).toMatchObject({ opensOn: '2026-11-18', closesOn: STEP_3.closesOn });
+      ).toMatchObject({ opensAt: '2026-11-18', closesAt: STEP_3.closesOn });
     });
 
     it('unconfirmed on a mixed read: a step that is in progress only in the rival steps is 409 stale, not TIMELINES_IN_PROGRESS_UNCONFIRMED, and nothing is written', async () => {
@@ -3105,7 +3110,7 @@ describe('update: the edit flow (timeline-edit design 6, 7.2)', () => {
       expectOnlyTheRival(w, mixed);
       expect(
         w.db.steps.find((s) => s.timelineId === timelineId && s.position === 3),
-      ).toMatchObject({ opensOn: '2026-11-14', closesOn: STEP_3.closesOn });
+      ).toMatchObject({ opensAt: '2026-11-14', closesAt: STEP_3.closesOn });
     });
   });
 
@@ -3279,7 +3284,7 @@ describe('update: the edit flow (timeline-edit design 6, 7.2)', () => {
         const stepApplied =
           w.db.steps.find(
             (s) => s.timelineId === timelineId && s.position === 1,
-          )?.closesOn === '2026-11-07';
+          )?.closesAt === '2026-11-07';
         expect(Number(nameApplied) + Number(stepApplied)).toBe(1);
       },
     );
