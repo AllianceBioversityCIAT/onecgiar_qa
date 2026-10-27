@@ -334,6 +334,27 @@ describe('Field configuration routes (e2e)', () => {
       );
     }
 
+    it('FR-1 and FR-8: a keyed publish refused for no token or for a non-admin reserves no idempotency key and records nothing', async () => {
+      const id = await createCycle(2026);
+      const edited = await patch(id, [item('policy_change', 'general.title')]);
+      const revision = edited.body.data.revision;
+      const rows = stored();
+
+      const statuses: number[] = [];
+      for (const token of [null, 'Bearer not-a-token', bearer('sub-ppu')]) {
+        const res = await publish(id, revision, { key: 'denied-1', token });
+        statuses.push(res.status);
+      }
+      expect(statuses).toEqual([401, 401, 403]);
+
+      expect(w.db.idempotency).toHaveLength(0);
+      expect(stored()).toBe(rows);
+      // the same key is still free for the admin: it creates version 1
+      const admin = await publish(id, revision, { key: 'denied-1' });
+      expect(admin.status).toBe(201);
+      expect(admin.headers['idempotency-replayed']).toBeUndefined();
+    });
+
     it.each(ROUTES)(
       '%s: a non-admin gets the same 403 for a cycle that exists and one that does not',
       async (_name, method, path, payload) => {
@@ -1332,6 +1353,57 @@ describe('Field configuration routes (e2e)', () => {
       const done = await edit(id, [item('policy_change', 'general.title')]);
 
       expect(done.body.data.version.number).toBe(1);
+    });
+  });
+
+  // --- NFR-5: one catalog read per request -----------------------------------
+
+  describe('NFR-5: at most one Reporting catalog read per request', () => {
+    it('view, edit, preview, publish and discard each read the catalog of the cycle year exactly once; a refused one reads it at most once', async () => {
+      const id = await createCycle(2026);
+      const readsOf = async (call: () => Promise<request.Response>) => {
+        const before = w.fieldCatalogs.requested.length;
+        const res = await call();
+        return {
+          status: res.status,
+          reads: w.fieldCatalogs.requested.length - before,
+        };
+      };
+
+      const viewed = await readsOf(() => view(id));
+      const edited = await readsOf(() =>
+        patch(id, [item('policy_change', 'general.title')]),
+      );
+      const refusedEdit = await readsOf(() =>
+        patch(id, [
+          item('policy_change', 'general.title', {
+            visibility: 'hidden',
+            isCore: true,
+          }),
+        ]),
+      );
+      const previewed = await readsOf(() => preview(id));
+      const stale = await readsOf(() => publish(id, 99));
+      const current = await revisionOf(id);
+      const published = await readsOf(() => publish(id, current));
+      const after = await revisionOf(id);
+      const nothing = await readsOf(() => publish(id, after));
+      const discarded = await readsOf(() => discard(id));
+
+      expect([viewed, edited, previewed, published, discarded]).toEqual([
+        { status: 200, reads: 1 },
+        { status: 200, reads: 1 },
+        { status: 200, reads: 1 },
+        { status: 201, reads: 1 },
+        { status: 200, reads: 1 },
+      ]);
+      expect(refusedEdit.status).toBe(400);
+      expect(stale.status).toBe(409);
+      expect(nothing.status).toBe(409);
+      for (const refusal of [refusedEdit, stale, nothing]) {
+        expect(refusal.reads).toBeLessThanOrEqual(1);
+      }
+      expect(new Set(w.fieldCatalogs.requested)).toEqual(new Set([2026]));
     });
   });
 

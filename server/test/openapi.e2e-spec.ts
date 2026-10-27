@@ -256,6 +256,75 @@ describe('OpenAPI document (e2e)', () => {
     );
   });
 
+  it('field-configuration FR-1, FR-8, NFR-2: documents its five admin routes, the codes each can answer, and the bounds of its two bodies', () => {
+    const codesOf = (key: string, status: string): string[] => {
+      const response = operationOf(doc, key).responses[status] as
+        { description?: string } | undefined;
+      return [...String(response?.description).matchAll(/`([A-Z_]+)`/g)]
+        .map((match) => match[1])
+        .sort();
+    };
+    const view = [
+      'GET /api/v1/cycles/:id/field-config',
+      'GET /api/v1/cycles/:id/field-config/publish-preview',
+    ];
+    const writes = [
+      'PATCH /api/v1/cycles/:id/field-config/draft',
+      'DELETE /api/v1/cycles/:id/field-config/draft',
+      'POST /api/v1/cycles/:id/field-config/publish',
+    ];
+    const documented = documentedRoutes(doc);
+    for (const key of [...view, ...writes]) {
+      expect(documented, key).toContain(key);
+      // admin only: the guard answers 401 and 403 on every one
+      expect(codesOf(key, '403'), `${key} 403`).toContain(
+        'AUTH_PERMISSION_DENIED',
+      );
+      expect(Object.keys(operationOf(doc, key).responses), key).toContain(
+        '401',
+      );
+      expect(codesOf(key, '404'), `${key} 404`).toEqual(['CYCLES_NOT_FOUND']);
+      expect(codesOf(key, '503'), `${key} 503`).toContain(
+        'SERVICE_UNAVAILABLE',
+      );
+      expect(codesOf(key, '409'), `${key} 409`).toContain(
+        'FIELD_CONFIG_CATALOG_MISSING',
+      );
+    }
+    // Reads work in any cycle status (FR-13); the three writes refuse a closed one.
+    for (const key of view) {
+      expect(codesOf(key, '409'), key).not.toContain('CYCLES_CLOSED');
+    }
+    for (const key of writes) {
+      expect(codesOf(key, '409'), key).toContain('CYCLES_CLOSED');
+    }
+    expect(
+      codesOf('POST /api/v1/cycles/:id/field-config/publish', '409'),
+    ).toEqual(
+      expect.arrayContaining([
+        'FIELD_CONFIG_NOTHING_TO_PUBLISH',
+        'FIELD_CONFIG_REVISION_STALE',
+      ]),
+    );
+    // The publish is the one idempotent route; the replay is declared on its 201.
+    expect(
+      JSON.stringify(
+        operationOf(doc, 'POST /api/v1/cycles/:id/field-config/publish')
+          .responses['201'],
+      ),
+    ).toContain('Idempotency-Replayed');
+
+    const schemas = doc.components?.schemas as Record<string, any>;
+    expect(schemas.PublishFieldConfigDto).toMatchObject({
+      required: ['revision'],
+      properties: { revision: { type: 'number', minimum: 0 } },
+    });
+    expect(schemas.UpdateFieldConfigDraftDto).toMatchObject({
+      required: ['items'],
+      properties: { items: { type: 'array', minItems: 1, maxItems: 2000 } },
+    });
+  });
+
   it('carries no secret or token value', () => {
     const text = JSON.stringify(doc);
     for (const name of [

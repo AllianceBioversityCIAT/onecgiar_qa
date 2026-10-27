@@ -217,4 +217,123 @@ describe('ReportingQaCatalogClient', () => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
   });
+
+  // NFR-6: Reporting down or hung -> 503 within the 10 s client timeout, or the
+  // cached catalog of the year when it is fresh enough. The cold-catalog hang of
+  // T-11 (execution.md) is bounded here on every path the client controls.
+  describe('NFR-6: a hung Reporting is bounded by the 10 s timeout', () => {
+    /** A call whose headers never arrive: only the abort signal ends it. */
+    const hangBeforeHeaders = () =>
+      fetchMock.mockImplementation(
+        (_url, init) =>
+          new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener('abort', () =>
+              reject(new DOMException('aborted', 'AbortError')),
+            );
+          }),
+      );
+    /** A 200 whose body starts and never ends: the abort signal errors the stream, as undici does. */
+    const hangInBody = () =>
+      fetchMock.mockImplementation((_url, init) =>
+        Promise.resolve(
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.enqueue(
+                  new TextEncoder().encode('{"result_types":['),
+                );
+                init?.signal?.addEventListener('abort', () =>
+                  controller.error(new DOMException('aborted', 'AbortError')),
+                );
+              },
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          ),
+        ),
+      );
+    const track = (call: Promise<unknown>) => {
+      const state: { settled: boolean; value?: unknown } = { settled: false };
+      void call.then(
+        (value) => {
+          state.settled = true;
+          state.value = value;
+        },
+        (err: unknown) => {
+          state.settled = true;
+          state.value = err;
+        },
+      );
+      return state;
+    };
+
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    it('a body that stalls after the headers is aborted at 10 s: unavailable, not a hang', async () => {
+      hangInBody();
+      const call = track(client.forYear(2026));
+
+      await vi.advanceTimersByTimeAsync(9_999);
+      expect(call.settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(2);
+
+      expect(call.settled).toBe(true);
+      expect(call.value).toBeInstanceOf(UpstreamUnavailableError);
+    });
+
+    it('a call with no answer at all stays open up to 10 s and is unavailable right after', async () => {
+      hangBeforeHeaders();
+      const call = track(client.forYear(2026));
+
+      await vi.advanceTimersByTimeAsync(9_999);
+      expect(call.settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(2);
+
+      expect(call.value).toBeInstanceOf(UpstreamUnavailableError);
+    });
+
+    it('requests that join a hung call all end at 10 s, and the next request asks Reporting again instead of waiting on the dead call', async () => {
+      hangBeforeHeaders();
+      const first = track(client.forYear(2026));
+      const second = track(client.forYear(2026));
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(10_001);
+
+      expect(first.value).toBeInstanceOf(UpstreamUnavailableError);
+      expect(second.value).toBeInstanceOf(UpstreamUnavailableError);
+      fetchMock.mockImplementation(() => Promise.resolve(json(FIXTURE)));
+      expect((await client.forYear(2026)).catalogVersion).toBe('2026.30');
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('a hung Reporting serves the cached catalog of that year once the copy is no longer fresh, and nothing for a year with no copy', async () => {
+      fetchMock.mockResolvedValueOnce(json(FIXTURE));
+      await client.forYear(2026);
+      nowMs += CATALOG_FRESH_MS + 1;
+      hangBeforeHeaders();
+      const cached = track(client.forYear(2026));
+      const cold = track(client.forYear(2027));
+
+      await vi.advanceTimersByTimeAsync(10_001);
+
+      expect(cached.settled).toBe(true);
+      expect((cached.value as { catalogVersion: string }).catalogVersion).toBe(
+        '2026.30',
+      );
+      expect(cold.value).toBeInstanceOf(UpstreamUnavailableError);
+    });
+
+    it('a hung Reporting does not serve a copy older than 24 h', async () => {
+      fetchMock.mockResolvedValueOnce(json(FIXTURE));
+      await client.forYear(2026);
+      nowMs += CATALOG_STALE_LIMIT_MS + 1;
+      hangBeforeHeaders();
+      const call = track(client.forYear(2026));
+
+      await vi.advanceTimersByTimeAsync(10_001);
+
+      expect(call.value).toBeInstanceOf(UpstreamUnavailableError);
+    });
+  });
 });
