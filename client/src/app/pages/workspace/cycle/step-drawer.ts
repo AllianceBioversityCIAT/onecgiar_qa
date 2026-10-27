@@ -1,4 +1,4 @@
-import { Component, computed, input, linkedSignal, model, output, untracked } from '@angular/core';
+import { Component, computed, effect, input, linkedSignal, model, output, untracked } from '@angular/core';
 import { FormField, form, required, validate } from '@angular/forms/signals';
 import { HlmInput } from '@spartan/input';
 import { QaButtonImports, QaDatePicker, QaDialogImports, QaDrawerImports, QaSegmented, QaSelect, QaSwitch, QaTooltipImports, discardGuard } from '../../../ui';
@@ -347,6 +347,14 @@ export class StepDrawer {
       (this.live() ? toApiDay(value()) : parseDate(value())) ? undefined : { kind: 'date', message: 'Enter an opening date, for example 06 Jul 2026.' },
     );
   });
+
+  constructor() {
+    // Each opening starts with a clean form (no touched fields from the last step).
+    effect(() => {
+      this.request();
+      untracked(() => this.stepForm().reset());
+    });
+  }
 
   /** Errors show once a field is left or after a save attempt (same as Assessors). */
   private readonly tried = linkedSignal({ source: this.request, computation: () => false });
