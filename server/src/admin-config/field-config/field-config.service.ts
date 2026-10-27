@@ -67,6 +67,7 @@ import {
   type FieldConfigStore,
   type NamedTimelineStart,
 } from './field-config.store.js';
+import { dayOf, type RomeMinute } from '../rome-date.js';
 
 export interface FieldView {
   key: string;
@@ -195,6 +196,16 @@ export class FieldConfigBusyError extends ServiceUnavailableException {
   }
 }
 
+/**
+ * The Rome day a timeline opens, for the preview's `opensOn` (FR-9: the key
+ * keeps its day form; the moment is a later contract).
+ */
+function openingDay(
+  start: { opensAt: RomeMinute | null } | undefined,
+): string | null {
+  return start?.opensAt == null ? null : dayOf(start.opensAt);
+}
+
 /** The receive and keep lists as the preview and the publish answer show them. */
 function describeLists(
   timelines: readonly NamedTimelineStart[],
@@ -203,7 +214,7 @@ function describeLists(
   const named = new Map(timelines.map((t) => [t.id, t]));
   const entry = (id: number): PreviewTimeline => {
     const timeline = named.get(id)!;
-    return { id, name: timeline.name, opensOn: timeline.opensOn };
+    return { id, name: timeline.name, opensOn: openingDay(timeline) };
   };
   return {
     receive: split.receive.map(entry),
@@ -614,7 +625,7 @@ export class FieldConfigService implements FieldConfigEffective {
     const entry = (id: number): PreviewTimeline => ({
       id,
       name: named.get(id)?.name ?? '',
-      opensOn: named.get(id)?.opensOn ?? null,
+      opensOn: openingDay(named.get(id)),
     });
     return {
       version: {

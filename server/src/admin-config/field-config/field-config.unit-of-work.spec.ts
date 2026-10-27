@@ -10,6 +10,7 @@ import { FakeClock } from '../../../test/support/in-memory-idempotency.js';
 import type { Reservation } from '../../common/idempotency/idempotency.store.js';
 import * as schema from '../../database/drizzle/schema/index.js';
 import { FieldConfigRevisionStaleError } from '../admin-config.errors.js';
+import { dayEnd, dayStart } from '../rome-date.js';
 import type { ConfigItem } from './field-config-diff.js';
 import { DrizzleFieldConfigStore } from './field-config.store.js';
 import {
@@ -232,10 +233,11 @@ function stub({
           ]);
           break;
         case 'timeline_steps':
-          // timeline_id, position, opens_on, closes_on; step 2 first on purpose.
+          // timeline_id, position, opens_at, closes_at (DATETIME strings as
+          // mysql2 hands them over, P-2); step 2 first on purpose.
           rows = Array.from({ length: timelineCount }, (_, i) => [
-            [100 + i, 2, '2026-11-09', '2026-11-13'],
-            [100 + i, 1, '2026-11-02', '2026-11-06'],
+            [100 + i, 2, '2026-11-09 00:00:00', '2026-11-13 23:59:00'],
+            [100 + i, 1, '2026-11-02 00:00:00', '2026-11-06 23:59:00'],
           ]).flat();
           break;
         case 'timeline_result_types':
@@ -603,8 +605,8 @@ describe('DrizzleFieldConfigUnitOfWork over a stub MySQL driver (design 7.2, 7.3
         id: 100,
         name: 'Timeline 100',
         // Step 1's opening and the latest closing, whatever the order the rows come in.
-        opensOn: '2026-11-02',
-        closesOn: '2026-11-13',
+        opensAt: '2026-11-02T00:00',
+        closesAt: '2026-11-13T23:59',
         allResultTypes: false,
         resultTypeKeys: ['policy_change'],
       },
@@ -613,8 +615,8 @@ describe('DrizzleFieldConfigUnitOfWork over a stub MySQL driver (design 7.2, 7.3
     expect(fifty.starts[1]).toEqual({
       id: 101,
       name: 'Timeline 101',
-      opensOn: '2026-11-02',
-      closesOn: '2026-11-13',
+      opensAt: '2026-11-02T00:00',
+      closesAt: '2026-11-13T23:59',
       allResultTypes: true,
       resultTypeKeys: [],
     });
@@ -1254,8 +1256,8 @@ describe('the field configuration over the in-memory world (FR-5, FR-8, FR-11, N
             position: 2,
             name: 'Second',
             audience: 'programs',
-            opensOn: '2026-11-09',
-            closesOn: '2026-11-13',
+            opensAt: dayStart('2026-11-09'),
+            closesAt: dayEnd('2026-11-13'),
             round: 1,
             requiresLoad: false,
           },
@@ -1265,8 +1267,8 @@ describe('the field configuration over the in-memory world (FR-5, FR-8, FR-11, N
             position: 1,
             name: 'First',
             audience: 'assessors',
-            opensOn: '2026-11-02',
-            closesOn: '2026-11-06',
+            opensAt: dayStart('2026-11-02'),
+            closesAt: dayEnd('2026-11-06'),
             round: 1,
             requiresLoad: true,
           },
@@ -1292,8 +1294,8 @@ describe('the field configuration over the in-memory world (FR-5, FR-8, FR-11, N
       {
         id: 1,
         name: 'Timeline 1',
-        opensOn: '2026-11-02',
-        closesOn: '2026-11-13',
+        opensAt: '2026-11-02T00:00',
+        closesAt: '2026-11-13T23:59',
         allResultTypes: false,
         resultTypeKeys: ['policy_change'],
       },
@@ -1302,8 +1304,8 @@ describe('the field configuration over the in-memory world (FR-5, FR-8, FR-11, N
     expect(startsOfFifty[1]).toEqual({
       id: 2,
       name: 'Timeline 2',
-      opensOn: '2026-11-02',
-      closesOn: '2026-11-13',
+      opensAt: '2026-11-02T00:00',
+      closesAt: '2026-11-13T23:59',
       allResultTypes: true,
       resultTypeKeys: [],
     });
@@ -1330,8 +1332,8 @@ describe('the field configuration over the in-memory world (FR-5, FR-8, FR-11, N
       {
         id: 1,
         name: 'Bare',
-        opensOn: null,
-        closesOn: null,
+        opensAt: null,
+        closesAt: null,
         allResultTypes: true,
         resultTypeKeys: [],
       },

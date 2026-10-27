@@ -20,6 +20,7 @@ import type { FieldConfigDraftItem } from '../../src/database/drizzle/schema/fie
 import type { FieldConfigDraft } from '../../src/database/drizzle/schema/field-config-drafts.js';
 import type { FieldConfigVersionItem } from '../../src/database/drizzle/schema/field-config-version-items.js';
 import type { FieldConfigVersion } from '../../src/database/drizzle/schema/field-config-versions.js';
+import type { RomeMinute } from '../../src/admin-config/rome-date.js';
 import { InMemoryAdminConfigDatabase } from './in-memory-admin-config.js';
 import { roundTrip } from './in-memory-idempotency.js';
 import type {
@@ -316,15 +317,15 @@ export class InMemoryFieldConfigStore implements FieldConfigStore {
           best === undefined || s.position < best.position ? s : best,
         undefined,
       );
-      const last = own.reduce<string | null>(
-        (best, s) => (best === null || s.closesOn > best ? s.closesOn : best),
+      const last = own.reduce<RomeMinute | null>(
+        (best, s) => (best === null || s.closesAt > best ? s.closesAt : best),
         null,
       );
       return {
         id: timeline.id,
         name: timeline.name,
-        opensOn: first?.opensOn ?? null,
-        closesOn: last,
+        opensAt: first?.opensAt ?? null,
+        closesAt: last,
         allResultTypes: timeline.allResultTypes,
         resultTypeKeys: scope
           .filter((r) => r.timelineId === timeline.id)

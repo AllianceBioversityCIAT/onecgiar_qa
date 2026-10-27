@@ -4,7 +4,7 @@ import { diffTimeline, type TimelineSnapshot } from './timeline-diff.js';
 // Expected `changes` maps are literals taken from design 5 (`changes` shape) and
 // FR-10 / FR-11; none is computed by the diff. Keys are `name`, `allPrograms`,
 // `programIds`, `allResultTypes`, `resultTypeKeys` and
-// `steps.<position>.<name|opensOn|closesOn>`; only changed fields appear.
+// `steps.<position>.<name|opensAt|closesAt>`; only changed fields appear.
 
 function stored(): TimelineSnapshot {
   return {
@@ -17,14 +17,14 @@ function stored(): TimelineSnapshot {
       {
         position: 1,
         name: 'Assessors',
-        opensOn: '2026-11-02',
-        closesOn: '2026-11-06',
+        opensAt: '2026-11-02T00:00',
+        closesAt: '2026-11-06T23:59',
       },
       {
         position: 2,
         name: 'Programs',
-        opensOn: '2026-11-10',
-        closesOn: '2026-11-13',
+        opensAt: '2026-11-10T00:00',
+        closesAt: '2026-11-13T23:59',
       },
     ],
   };
@@ -53,12 +53,15 @@ describe('diffTimeline: only changed keys (FR-10)', () => {
       name: 'August 2026',
       steps: [
         stored().steps[0]!,
-        { ...stored().steps[1]!, closesOn: '2026-11-20' },
+        { ...stored().steps[1]!, closesAt: '2026-11-20T23:59' },
       ],
     };
     expect(diffTimeline(stored(), merged)).toEqual({
       name: { before: 'July 2026', after: 'August 2026' },
-      'steps.2.closesOn': { before: '2026-11-13', after: '2026-11-20' },
+      'steps.2.closesAt': {
+        before: '2026-11-13T23:59',
+        after: '2026-11-20T23:59',
+      },
     });
   });
 
@@ -67,12 +70,57 @@ describe('diffTimeline: only changed keys (FR-10)', () => {
       ...stored(),
       steps: [
         { ...stored().steps[1]!, name: 'Science Programs' },
-        { ...stored().steps[0]!, opensOn: '2026-11-03' },
+        { ...stored().steps[0]!, opensAt: '2026-11-03T00:00' },
       ],
     };
     expect(diffTimeline(stored(), merged)).toEqual({
-      'steps.1.opensOn': { before: '2026-11-02', after: '2026-11-03' },
+      'steps.1.opensAt': {
+        before: '2026-11-02T00:00',
+        after: '2026-11-03T00:00',
+      },
       'steps.2.name': { before: 'Programs', after: 'Science Programs' },
+    });
+  });
+
+  it('FR-12 time-only change: a closing moved 17:30 to 23:59 on the same day is recorded under `closesAt` with moment values, and no `closesOn` key exists', () => {
+    const base = stored();
+    const withTimes: TimelineSnapshot = {
+      ...base,
+      steps: [
+        base.steps[0]!,
+        { ...base.steps[1]!, closesAt: '2026-11-13T17:30' },
+      ],
+    };
+    const merged: TimelineSnapshot = {
+      ...withTimes,
+      steps: [
+        withTimes.steps[0]!,
+        { ...withTimes.steps[1]!, closesAt: '2026-11-13T23:59' },
+      ],
+    };
+    const changes = diffTimeline(withTimes, merged);
+    expect(changes).toEqual({
+      'steps.2.closesAt': {
+        before: '2026-11-13T17:30',
+        after: '2026-11-13T23:59',
+      },
+    });
+    expect(Object.keys(changes)).not.toContain('steps.2.closesOn');
+  });
+
+  it('records an opening moved within the same day under `opensAt`, never `opensOn`', () => {
+    const merged: TimelineSnapshot = {
+      ...stored(),
+      steps: [
+        { ...stored().steps[0]!, opensAt: '2026-11-02T09:15' },
+        stored().steps[1]!,
+      ],
+    };
+    expect(diffTimeline(stored(), merged)).toEqual({
+      'steps.1.opensAt': {
+        before: '2026-11-02T00:00',
+        after: '2026-11-02T09:15',
+      },
     });
   });
 

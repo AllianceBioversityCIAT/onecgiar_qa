@@ -7,6 +7,7 @@ import {
   timelineKinds,
   type TimelineKind,
 } from '../../../database/drizzle/schema/timelines.js';
+import { QA_TIME_ZONE, type RomeMinute } from '../../rome-date.js';
 import type { DefaultStep } from '../default-steps.js';
 import {
   ASSIGNABLE_ROLES,
@@ -49,9 +50,27 @@ export class TimelineStepModel implements TimelineStepResponse {
 
   @ApiProperty({
     type: String,
+    example: '2026-11-02T09:30',
+    description:
+      'The moment the step opens, `YYYY-MM-DDTHH:mm`, in the timeline `timeZone`',
+  })
+  opensAt!: RomeMinute;
+
+  @ApiProperty({
+    type: String,
+    example: '2026-11-06T17:45',
+    description:
+      'The moment the step closes, `YYYY-MM-DDTHH:mm`, in the timeline `timeZone`',
+  })
+  closesAt!: RomeMinute;
+
+  @ApiProperty({
+    type: String,
     format: 'date',
     example: '2026-11-02',
-    description: 'Rome calendar day',
+    deprecated: true,
+    description:
+      'Deprecated: use `opensAt`. The Rome calendar day of `opensAt`',
   })
   opensOn!: string;
 
@@ -59,7 +78,9 @@ export class TimelineStepModel implements TimelineStepResponse {
     type: String,
     format: 'date',
     example: '2026-11-06',
-    description: 'Rome calendar day',
+    deprecated: true,
+    description:
+      'Deprecated: use `closesAt`. The Rome calendar day of `closesAt`',
   })
   closesOn!: string;
 
@@ -135,6 +156,14 @@ export class TimelineModel implements TimelineResponse {
 
   @ApiProperty({ type: [TimelineStepModel] })
   steps!: TimelineStepModel[];
+
+  @ApiProperty({
+    type: String,
+    example: QA_TIME_ZONE,
+    description:
+      'The time zone of every moment and day of this timeline (opensAt, closesAt, opensOn, closesOn)',
+  })
+  timeZone!: string;
 
   @ApiProperty({
     type: String,
