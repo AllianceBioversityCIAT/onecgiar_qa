@@ -64,6 +64,7 @@ Results deep links: `?stage=<stage>[,<stage>…]` (QA stage, several allowed), `
 | Cycle | Mockup | Admin | Title "Assessment cycle". Official timeline card (named after the timeline) + Sub-timelines (Live / Closed tabs, current cycle only); timeline and step drawers with closed, scope-locked and in-progress states; empty states; load drawer |
 | Fields | Mockup | Admin | "Configuring <result type> ⌄" context line + chips (All fields · Hidden · View only · Assessed · Third-party \| Core only); sticky Review & publish bar |
 | Assessors | Mockup | Admin | Drawer to edit roles and result types |
+| Notifications | Provisional, mock data (`jp-design/mockup-completo`) | Admin | Bell in the top bar with a panel of the 8 newest (All / Unread with a grey count, "Mark all as read", "View all notifications"); page `/notifications` with "Viewing <timeline> ⌄", search, Type, All / Unread; rows grouped Today · Yesterday · Earlier, one sentence each, opening Results with the matching filter. Not a priority (meeting, 2026-10-27); to adjust after talking with María Julia. Spec `docs/specs/notifications/review-updates/` |
 | Program response | **Missing** | Program | OQ-5 |
 | History / snapshot diff | **Missing** | All | Needs design in the `history` spec |
 | UI gallery | Dev-only | — | `ui/ui-gallery.ts` |
@@ -73,7 +74,9 @@ Results deep links: `?stage=<stage>[,<stage>…]` (QA stage, several allowed), `
 - Persistent left navigation (`shell/qa-shell`) with the workspace sections in two groups, ASSESSMENT and ADMINISTRATION (uppercase eyebrow labels); admin-only sections hidden for users without ADMIN.
 - Active nav item: tint background, weight 600 and a 2×16 px rounded `--primary` marker centered on its left edge (Jira-style; no full-height stripe).
 - Active cycle block at the top of the navigation: an outlined panel (`--nav-divider` border, no fill, no shadow) showing "Annual report 2026" · Active (6 px green dot, grey word) and "Step 5 of 5 · closes 19 Jul". It links to Cycle; hover changes only the border. Hidden when the navigation is collapsed.
-- Top bar: back/forward, search by code or title, Unsent button (only while something is waiting to be sent), user menu (roles, sign out). There is no cycle selector: the app always works on the active cycle.
+- Top bar: back/forward, search by code or title, notifications bell (admins only; a 6 px dot when something is unread, no number), Unsent button (only while something is waiting to be sent), user menu (roles, sign out). There is no cycle selector: the app always works on the active cycle.
+- The bell opens a panel from 640 px. Below that, it is a 40 px link to `/notifications`. Notifications is not a sidebar item.
+- Opening a notification goes to its target, even when it is the page already open. When the target is a different page, the sidebar re-expands, as it does for any navigation.
 - Deep links work for every result (`/results/:code`) and for Results filters (§ 2); the review page keeps filters on return.
 - Drawers for edit-in-place (load batch, edit assessor); dialogs only for confirmations.
 
@@ -214,3 +217,9 @@ Sizes: `md` 36 px (page headers, drawer and dialog footers), `sm` 32 px (cards, 
 - Spartan sets `aria-invalid="true"` on an empty required field before it is touched, so a screen reader may announce it early (spartan is shared code — Yeck).
 - Contrast: the "Pending" badge and some grey texts are ≈ 2.9:1, below AA.
 - Not verified yet: dark mode on Results, Fields and the Overview stages pop-up; the sidebar on the phone menu.
+- Notifications (provisional, not a priority) — questions to settle with María Julia and the business:
+  - Which events are "Needs you" and which are "Updates" (spec OQ-1).
+  - Each escalation one by one, or a daily count (OQ-2).
+  - Whether Notifications also needs a sidebar item; today it is reached only from the bell (OQ-6).
+  - How a later load of a timeline shows its size (OQ-7).
+- Some shared kit parts still use `--text-muted` (≈ 3.0:1), below AA: `qa-menu`, `qa-tabs`, `qa-date-picker`, `qa-pagination` and `qa-badge`. `qa-select` and `qa-multi-select` moved to `--text-4` (2026-10-27).

@@ -45,7 +45,7 @@ export type QaMultiSelectAppearance = 'filter' | 'field';
           [attr.aria-invalid]="invalid() || null"
           [disabled]="disabled()"
           class="flex h-9 max-sm:h-10 w-full max-w-full min-w-[280px] cursor-pointer items-center gap-2 rounded-lg border bg-(--field-bg) px-3 text-left text-(length:--fs-14) font-medium outline-none hover:border-(--border-strong) focus-visible:shadow-(--focus-ring) disabled:cursor-not-allowed disabled:opacity-50 max-sm:min-w-0"
-          [class]="(invalid() ? 'border-(--danger) ' : 'border-(--border) ') + (!count() && mutedPlaceholder() ? 'text-(--text-muted)' : 'text-(--text)')"
+          [class]="(invalid() ? 'border-(--danger) ' : 'border-(--border) ') + (!count() && mutedPlaceholder() ? 'text-(--text-4)' : 'text-(--text)')"
         >
           <span class="min-w-0 flex-1 truncate">{{ summary() }}</span>
           <svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flex-none"><path d="M6 9l6 6 6-6" /></svg>
@@ -82,14 +82,14 @@ export type QaMultiSelectAppearance = 'filter' | 'field';
               [attr.aria-label]="searchPlaceholder()"
               [value]="query()"
               (input)="onQuery($event)"
-              class="h-8 w-full rounded-md border-(--border) bg-(--field-bg) px-2.5 py-0 text-(length:--fs-13) text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 md:text-(length:--fs-13) dark:bg-(--field-bg)"
+              class="h-8 w-full rounded-md border-(--border) bg-(--field-bg) px-2.5 py-0 text-(length:--fs-13) text-(--text) shadow-none placeholder:text-(--text-4) focus-visible:border-(--primary) focus-visible:ring-0 md:text-(length:--fs-13) dark:bg-(--field-bg)"
             />
           }
           <div role="group" [attr.aria-label]="label()" class="flex flex-col gap-px overflow-y-auto" [style.max-height]="listMaxHeight()">
             @for (option of filtered(); track option.value; let i = $index) {
               @let on = isSelected(option.value);
               @if (option.group && option.group !== filtered()[i - 1]?.group) {
-                <div role="presentation" class="flex-none px-2 pt-2 pb-1 text-(length:--fs-10) font-semibold tracking-[0.08em] text-(--text-muted) uppercase">
+                <div role="presentation" class="flex-none px-2 pt-2 pb-1 text-(length:--fs-10) font-semibold tracking-[0.08em] text-(--text-4) uppercase">
                   {{ option.group }}
                 </div>
               }
