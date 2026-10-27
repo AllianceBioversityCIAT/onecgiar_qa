@@ -28,6 +28,7 @@ import { timelineResultTypes } from '../../database/drizzle/schema/timeline-resu
 import { timelineSteps } from '../../database/drizzle/schema/timeline-steps.js';
 import { timelines } from '../../database/drizzle/schema/timelines.js';
 import { isDuplicateKeyError } from '../../users/users.errors.js';
+import type { RomeMinute } from '../rome-date.js';
 import type { ConfigItem } from './field-config-diff.js';
 import type { TimelineStart } from './field-config-versions.js';
 
@@ -116,8 +117,8 @@ export interface FieldConfigStore {
    * (design 7.3, DD-1): ids, scope and dates, from THREE statements whatever the
    * number of timelines, even none (timelines of the cycle, their steps, their
    * scope rows; the last two are keyed by the cycle through a subquery, not by
-   * the ids of the first). `opensOn` is step 1's, `closesOn` the latest
-   * `closes_on`, both `null` for a timeline with no steps. No load signal is read
+   * the ids of the first). `opensAt` is step 1's, `closesAt` the latest
+   * `closes_at`, both `null` for a timeline with no steps. No load signal is read
    * (DD-8a). Ordered by timeline id. It mirrors `TimelinesService.respond()`.
    */
   listTimelineStarts(cycleId: number): Promise<NamedTimelineStart[]>;
@@ -320,8 +321,8 @@ export class DrizzleFieldConfigStore implements FieldConfigStore {
       .select({
         timelineId: timelineSteps.timelineId,
         position: timelineSteps.position,
-        opensOn: timelineSteps.opensOn,
-        closesOn: timelineSteps.closesOn,
+        opensAt: timelineSteps.opensAt,
+        closesAt: timelineSteps.closesAt,
       })
       .from(timelineSteps)
       .where(inArray(timelineSteps.timelineId, ofCycle));
@@ -336,23 +337,23 @@ export class DrizzleFieldConfigStore implements FieldConfigStore {
 
     return rows.map((row) => {
       const own = steps.filter((step) => step.timelineId === row.id);
-      // Step 1 is the lowest position; the finish is the latest `closes_on`.
-      // Dates are `YYYY-MM-DD` strings, compared as strings (P-13).
+      // Step 1 is the lowest position; the finish is the latest `closes_at`.
+      // Moments are `YYYY-MM-DDTHH:mm` strings, compared as strings (P-13).
       const first = own.reduce<(typeof own)[number] | undefined>(
         (best, step) =>
           best === undefined || step.position < best.position ? step : best,
         undefined,
       );
-      const last = own.reduce<string | null>(
+      const last = own.reduce<RomeMinute | null>(
         (best, step) =>
-          best === null || step.closesOn > best ? step.closesOn : best,
+          best === null || step.closesAt > best ? step.closesAt : best,
         null,
       );
       return {
         id: row.id,
         name: row.name,
-        opensOn: first?.opensOn ?? null,
-        closesOn: last,
+        opensAt: first?.opensAt ?? null,
+        closesAt: last,
         allResultTypes: row.allResultTypes,
         resultTypeKeys: scope
           .filter((entry) => entry.timelineId === row.id)

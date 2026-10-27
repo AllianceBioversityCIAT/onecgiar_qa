@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   mergeTimelineUpdate,
+  momentsOfStep,
   validateTimelineCreate,
   validateTimelineUpdate,
   type StoredTimeline,
@@ -10,6 +11,7 @@ import {
   type TimelineUpdateContext,
   type TimelineUpdateInput,
 } from './timeline-rules.js';
+import { dayEnd, dayStart, type RomeMinute } from '../rome-date.js';
 import { viewTimeline } from './timeline-view.js';
 
 // Expected issues are literal `{ field, code }` pairs taken from the FR-6 to
@@ -21,7 +23,7 @@ import { viewTimeline } from './timeline-view.js';
 // `steps[i].<key>`). A missing date is REQUIRED and a malformed one INVALID.
 
 const context: TimelineRulesContext = {
-  today: '2026-10-20',
+  now: dayStart('2026-10-20'),
   knownProgramIds: new Set([1, 2, 5]),
   knownResultTypeKeys: new Set(['KP', 'IDEV']),
 };
@@ -386,7 +388,7 @@ describe('step dates (FR-8, S-1)', () => {
       [{ field: 'steps[0].opensOn', code: 'BEFORE_TODAY' }],
     ],
     [
-      'step 1 opens today',
+      'step 1 opens on the day of now (now is 00:00, so the opening minute is not before it)',
       withSteps(patch(0, { opensOn: '2026-10-20', closesOn: '2026-11-06' })),
       [],
     ],
@@ -406,12 +408,18 @@ describe('step dates (FR-8, S-1)', () => {
     ]);
   });
 
-  it('compares step 1 with the today it is given, not with the clock', () => {
+  it('compares step 1 with the now it is given, not with the clock', () => {
     expect(
-      validateTimelineCreate(valid(), { ...context, today: '2026-11-03' }),
+      validateTimelineCreate(valid(), {
+        ...context,
+        now: dayStart('2026-11-03'),
+      }),
     ).toEqual([{ field: 'steps[0].opensOn', code: 'BEFORE_TODAY' }]);
     expect(
-      validateTimelineCreate(valid(), { ...context, today: '2026-11-02' }),
+      validateTimelineCreate(valid(), {
+        ...context,
+        now: dayStart('2026-11-02'),
+      }),
     ).toEqual([]);
   });
 });
@@ -555,22 +563,22 @@ function storedTimeline(
         position: 1,
         name: 'Assessors',
         audience: 'assessors',
-        opensOn: '2026-11-02',
-        closesOn: '2026-11-06',
+        opensAt: dayStart('2026-11-02'),
+        closesAt: dayEnd('2026-11-06'),
       },
       {
         position: 2,
         name: 'Programs',
         audience: 'programs',
-        opensOn: '2026-11-10',
-        closesOn: '2026-11-13',
+        opensAt: dayStart('2026-11-10'),
+        closesAt: dayEnd('2026-11-13'),
       },
       {
         position: 3,
         name: 'Lead assessors',
         audience: 'lead_assessors',
-        opensOn: '2026-11-16',
-        closesOn: '2026-11-20',
+        opensAt: dayStart('2026-11-16'),
+        closesAt: dayEnd('2026-11-20'),
       },
     ],
     ...overrides,
@@ -582,20 +590,20 @@ type StateName = 'closed' | 'in_progress' | 'upcoming' | 'hold';
 /** Step 1's state per fixture; a hold makes every step `upcoming`. */
 const STATES: Record<
   StateName,
-  { today: string; hasLoad: boolean; step1: string }
+  { day: string; hasLoad: boolean; step1: string }
 > = {
-  closed: { today: '2026-11-08', hasLoad: true, step1: 'closed' },
-  in_progress: { today: '2026-11-05', hasLoad: true, step1: 'in_progress' },
-  upcoming: { today: '2026-10-20', hasLoad: false, step1: 'upcoming' },
-  hold: { today: '2026-11-05', hasLoad: false, step1: 'upcoming' },
+  closed: { day: '2026-11-08', hasLoad: true, step1: 'closed' },
+  in_progress: { day: '2026-11-05', hasLoad: true, step1: 'in_progress' },
+  upcoming: { day: '2026-10-20', hasLoad: false, step1: 'upcoming' },
+  hold: { day: '2026-11-05', hasLoad: false, step1: 'upcoming' },
 };
 
 function updateContext(
   state: StateName,
   overrides: Partial<TimelineUpdateContext> = {},
 ): TimelineUpdateContext {
-  const { today, hasLoad } = STATES[state];
-  return { ...context, today, hasLoad, ...overrides };
+  const { day, hasLoad } = STATES[state];
+  return { ...context, now: dayStart(day), hasLoad, ...overrides };
 }
 
 type UpdateRow = [
@@ -613,11 +621,11 @@ const onStep1 = (fields: object): TimelineUpdateInput => ({
 describe('validateTimelineUpdate: the state comes from viewTimeline (DD-2, DD-4)', () => {
   it.each(Object.entries(STATES))(
     '%s fixture: step 1 is %s through the view',
-    (_name, { today, hasLoad, step1 }) => {
+    (_name, { day, hasLoad, step1 }) => {
       const view = viewTimeline({
         steps: storedTimeline().steps,
         assignedRoles: [],
-        today,
+        now: dayStart(day),
         hasLoad,
       });
       expect(view.stepStates[1]).toBe(step1);
@@ -625,11 +633,11 @@ describe('validateTimelineUpdate: the state comes from viewTimeline (DD-2, DD-4)
   );
 
   it('the hold fixture has every step upcoming', () => {
-    const { today, hasLoad } = STATES.hold;
+    const { day, hasLoad } = STATES.hold;
     const view = viewTimeline({
       steps: storedTimeline().steps,
       assignedRoles: [],
-      today,
+      now: dayStart(day),
       hasLoad,
     });
     expect(view.stepStates).toEqual({
@@ -866,7 +874,9 @@ describe('validateTimelineUpdate: locks by step state and changed field (FR-3, F
   });
 
   it('a step closing today is still in progress: its opening date is locked, its closing date moves (day boundary)', () => {
-    const context6 = updateContext('in_progress', { today: '2026-11-06' });
+    const context6 = updateContext('in_progress', {
+      now: dayStart('2026-11-06'),
+    });
     expect(
       validateTimelineUpdate(
         storedTimeline(),
@@ -884,7 +894,7 @@ describe('validateTimelineUpdate: locks by step state and changed field (FR-3, F
   });
 
   it('a step that closed yesterday is closed: its closing date is locked (day boundary)', () => {
-    const context7 = updateContext('closed', { today: '2026-11-07' });
+    const context7 = updateContext('closed', { now: dayStart('2026-11-07') });
     expect(
       validateTimelineUpdate(
         storedTimeline(),
@@ -1195,20 +1205,20 @@ describe('mergeTimelineUpdate (design 7.1 step 2)', () => {
         {
           position: 1,
           name: 'Assessors',
-          opensOn: '2026-11-02',
-          closesOn: '2026-11-06',
+          opensAt: '2026-11-02T00:00',
+          closesAt: '2026-11-06T23:59',
         },
         {
           position: 2,
           name: 'Programs',
-          opensOn: '2026-11-10',
-          closesOn: '2026-11-14',
+          opensAt: '2026-11-10T00:00',
+          closesAt: '2026-11-14T23:59',
         },
         {
           position: 3,
           name: 'Lead assessors',
-          opensOn: '2026-11-16',
-          closesOn: '2026-11-20',
+          opensAt: '2026-11-16T00:00',
+          closesAt: '2026-11-20T23:59',
         },
       ],
     });
@@ -1244,5 +1254,766 @@ describe('mergeTimelineUpdate (design 7.1 step 2)', () => {
       'Programs',
       'Lead assessors',
     ]);
+  });
+});
+
+// --- timeline-step-times: a day-only value is a moment (FR-5, FR-9, S-6) ------
+
+describe('a day-only value means 00:00 when it opens and 23:59 when it closes (timeline-step-times FR-9, S-6)', () => {
+  it('step 1 opening today is before now once the day has begun (FR-5: judged to the minute)', () => {
+    const request = withSteps(
+      patch(0, { opensOn: '2026-10-20', closesOn: '2026-11-06' }),
+    );
+    expect(
+      validateTimelineCreate(request, {
+        ...context,
+        now: '2026-10-20T10:00' as RomeMinute,
+      }),
+    ).toEqual([{ field: 'steps[0].opensOn', code: 'BEFORE_TODAY' }]);
+    expect(
+      validateTimelineCreate(request, {
+        ...context,
+        now: '2026-10-20T00:00' as RomeMinute,
+      }),
+    ).toEqual([]);
+  });
+
+  it.each([
+    ['a moment in the day-only opening key', { opensOn: '2026-11-02T00:00' }],
+    ['a moment in the day-only closing key', { closesOn: '2026-11-06T23:59' }],
+    ['a moment with a time zone', { opensOn: '2026-11-02T00:00Z' }],
+  ])('refuses %s as INVALID, on that key', (_label, fields) => {
+    const key = 'opensOn' in fields ? 'opensOn' : 'closesOn';
+    expect(
+      validateTimelineCreate(withSteps(patch(0, fields)), context),
+    ).toEqual([{ field: `steps[0].${key}`, code: 'INVALID' }]);
+  });
+
+  it('on an edit, a closesOn equal to the stored date over a stored 17:30 is a change to 23:59, so a closed step locks it', () => {
+    const stored = storedTimeline();
+    const withTimes: StoredTimeline = {
+      ...stored,
+      steps: stored.steps.map((s) =>
+        s.position === 1
+          ? { ...s, closesAt: '2026-11-06T17:30' as RomeMinute }
+          : s,
+      ),
+    };
+    const merged = mergeTimelineUpdate(withTimes, {
+      steps: [{ position: 1, closesOn: '2026-11-06' }],
+    });
+    expect(merged.steps[0]?.closesAt).toBe('2026-11-06T23:59');
+    expect(
+      validateTimelineUpdate(
+        withTimes,
+        { steps: [{ position: 1, closesOn: '2026-11-06' }] },
+        updateContext('closed'),
+      ),
+    ).toEqual([{ field: 'steps[0].closesOn', code: 'LOCKED' }]);
+  });
+
+  it('on an edit, a day equal to a stored 00:00 / 23:59 is not a change', () => {
+    expect(
+      validateTimelineUpdate(
+        storedTimeline(),
+        onStep1({ opensOn: '2026-11-02', closesOn: '2026-11-06' }),
+        updateContext('closed'),
+      ),
+    ).toEqual([]);
+  });
+});
+
+// --- timeline-step-times T-4: the minute-level write rules --------------------
+//
+// Expected values are the literal moments, fields and codes of the scenarios of
+// requirements FR-1, FR-3, FR-4, FR-5, FR-6 and FR-9; none is computed by the
+// rules. Every case pins `now` itself and never reads a clock.
+
+const minute = (value: string): RomeMinute => value as RomeMinute;
+
+function atStep(
+  audience: string,
+  opensAt: string | null | undefined,
+  closesAt: string | null | undefined,
+  round: number,
+  requiresLoad: boolean,
+): TimelineStepInput {
+  return {
+    name: `Step ${audience}`,
+    audience,
+    opensAt,
+    closesAt,
+    round,
+    requiresLoad,
+  };
+}
+
+/** Two steps written with moments: 10 to 12 Nov, then 13 to 14 Nov. */
+function twoStepsAt(): TimelineStepInput[] {
+  return [
+    atStep('assessors', '2026-11-10T14:00', '2026-11-12T17:30', 1, true),
+    atStep('programs', '2026-11-13T09:00', '2026-11-14T17:00', 1, false),
+  ];
+}
+
+const patchAt = (
+  index: number,
+  changes: Partial<TimelineStepInput>,
+  steps: TimelineStepInput[] = twoStepsAt(),
+): TimelineStepInput[] =>
+  steps.map((s, i) => (i === index ? { ...s, ...changes } : s));
+
+const at = (value: string): RomeMinute => minute(value);
+const createAt = (now: string): TimelineRulesContext => ({
+  ...context,
+  now: at(now),
+});
+
+describe('FR-1 Valid moments (timeline-step-times)', () => {
+  it('a step from 2026-11-10T14:00 to 2026-11-12T17:30 is valid at 2026-11-02T10:00', () => {
+    expect(
+      validateTimelineCreate(
+        withSteps(twoStepsAt()),
+        createAt('2026-11-02T10:00'),
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe('FR-1 Malformed or missing moment (timeline-step-times)', () => {
+  it.each([
+    ['seconds', '2026-11-10T14:00:00'],
+    ['an offset', '2026-11-10T14:00Z'],
+    ['a date that does not exist', '2026-02-30T10:00'],
+    ['hour 24', '2026-11-10T24:00'],
+    ['a minute of 60', '2026-11-10T14:60'],
+    ['a bare day', '2026-11-10'],
+  ])('an opening moment with %s is INVALID on opensAt', (_label, value) => {
+    expect(
+      validateTimelineCreate(
+        withSteps(patchAt(0, { opensAt: value })),
+        createAt('2026-11-02T10:00'),
+      ),
+    ).toEqual([{ field: 'steps[0].opensAt', code: 'INVALID' }]);
+  });
+
+  it.each([
+    ['seconds', '2026-11-12T17:30:00'],
+    ['an offset', '2026-11-12T17:30+01:00'],
+    ['a date that does not exist', '2026-02-30T10:00'],
+    ['hour 24', '2026-11-12T24:00'],
+  ])('a closing moment with %s is INVALID on closesAt', (_label, value) => {
+    expect(
+      validateTimelineCreate(
+        withSteps(patchAt(0, { closesAt: value })),
+        createAt('2026-11-02T10:00'),
+      ),
+    ).toEqual([{ field: 'steps[0].closesAt', code: 'INVALID' }]);
+  });
+
+  it.each([
+    ['absent', undefined],
+    ['null', null],
+    ['empty', ''],
+  ])('a %s closing moment is REQUIRED on closesAt', (_label, value) => {
+    expect(
+      validateTimelineCreate(
+        withSteps(patchAt(1, { closesAt: value })),
+        createAt('2026-11-02T10:00'),
+      ),
+    ).toEqual([{ field: 'steps[1].closesAt', code: 'REQUIRED' }]);
+  });
+
+  it('a step with neither form for its opening moment is REQUIRED on opensAt', () => {
+    expect(
+      validateTimelineCreate(
+        withSteps(patchAt(0, { opensAt: undefined })),
+        createAt('2026-11-02T10:00'),
+      ),
+    ).toEqual([{ field: 'steps[0].opensAt', code: 'REQUIRED' }]);
+  });
+
+  it('the step is not dropped: a bad moment on step 2 keeps the index of the rule problem on step 3', () => {
+    const steps = [
+      ...patchAt(1, { opensAt: '2026-11-13T14:00:00' }),
+      atStep('lead_assessors', '2026-11-12T09:00', '2026-11-12T10:00', 3, true),
+    ];
+    expect(
+      validateTimelineCreate(withSteps(steps), createAt('2026-11-02T10:00')),
+    ).toEqual([
+      { field: 'steps[1].opensAt', code: 'INVALID' },
+      { field: 'steps[2].opensAt', code: 'OVERLAPS_PREVIOUS_STEP' },
+      { field: 'steps[2].round', code: 'ROUND_SEQUENCE' },
+    ]);
+  });
+
+  it('a moment with an offset is refused, not read in another zone', () => {
+    // 13:00Z would be 14:00 in Rome; it must not be accepted as that.
+    expect(
+      validateTimelineCreate(
+        withSteps(patchAt(0, { opensAt: '2026-11-10T13:00Z' })),
+        createAt('2026-11-02T10:00'),
+      ),
+    ).toEqual([{ field: 'steps[0].opensAt', code: 'INVALID' }]);
+  });
+});
+
+describe('FR-3 Order and overlap at minute level (timeline-step-times)', () => {
+  const now = createAt('2026-11-02T10:00');
+
+  it('Same moment or reversed: the same minute is CLOSES_BEFORE_OPENS on closesAt', () => {
+    expect(
+      validateTimelineCreate(
+        withSteps(
+          patchAt(0, {
+            opensAt: '2026-11-10T14:00',
+            closesAt: '2026-11-10T14:00',
+          }),
+        ),
+        now,
+      ),
+    ).toEqual([{ field: 'steps[0].closesAt', code: 'CLOSES_BEFORE_OPENS' }]);
+  });
+
+  it('Same moment or reversed: a closing minute before the opening one is CLOSES_BEFORE_OPENS on closesAt', () => {
+    expect(
+      validateTimelineCreate(
+        withSteps(
+          patchAt(0, {
+            opensAt: '2026-11-10T14:00',
+            closesAt: '2026-11-10T13:59',
+          }),
+        ),
+        now,
+      ),
+    ).toEqual([{ field: 'steps[0].closesAt', code: 'CLOSES_BEFORE_OPENS' }]);
+  });
+
+  it('Same moment or reversed: one minute later is valid', () => {
+    expect(
+      validateTimelineCreate(
+        withSteps(
+          patchAt(0, {
+            opensAt: '2026-11-10T14:00',
+            closesAt: '2026-11-10T14:01',
+          }),
+        ),
+        now,
+      ),
+    ).toEqual([]);
+  });
+
+  it('Two steps on the same day: step 1 closing at 12:00, step 2 opening at 14:00, is valid', () => {
+    const steps = [
+      atStep('assessors', '2026-11-10T09:00', '2026-11-10T12:00', 1, true),
+      atStep('programs', '2026-11-10T14:00', '2026-11-10T17:00', 1, false),
+    ];
+    expect(validateTimelineCreate(withSteps(steps), now)).toEqual([]);
+  });
+
+  describe('Overlap: step 1 closes at 2026-11-10T12:00', () => {
+    const overlapSteps = (opensAt: string): TimelineStepInput[] => [
+      atStep('assessors', '2026-11-10T09:00', '2026-11-10T12:00', 1, true),
+      atStep('programs', opensAt, '2026-11-10T17:00', 1, false),
+    ];
+
+    it.each([
+      ['the same minute', '2026-11-10T12:00'],
+      ['an earlier minute', '2026-11-10T11:59'],
+      ['before step 1 opened', '2026-11-10T08:00'],
+    ])(
+      'step 2 opening at %s is OVERLAPS_PREVIOUS_STEP on opensAt',
+      (_l, value) => {
+        expect(
+          validateTimelineCreate(withSteps(overlapSteps(value)), now),
+        ).toEqual([
+          { field: 'steps[1].opensAt', code: 'OVERLAPS_PREVIOUS_STEP' },
+        ]);
+      },
+    );
+
+    it('AND IT MUST accept 2026-11-10T12:01', () => {
+      expect(
+        validateTimelineCreate(
+          withSteps(overlapSteps('2026-11-10T12:01')),
+          now,
+        ),
+      ).toEqual([]);
+    });
+  });
+});
+
+describe('FR-4 Spring and autumn (timeline-step-times)', () => {
+  const now = createAt('2026-10-20T10:00');
+
+  it('a step opening at 2027-03-28T02:30 (the hour does not exist) is DST_HOUR on opensAt', () => {
+    expect(
+      validateTimelineCreate(
+        withSteps([
+          atStep('assessors', '2027-03-28T02:30', '2027-03-29T09:00', 1, true),
+        ]),
+        now,
+      ),
+    ).toEqual([{ field: 'steps[0].opensAt', code: 'DST_HOUR' }]);
+  });
+
+  it('a step closing at 2026-10-25T02:15 (the hour happens twice) is DST_HOUR on closesAt', () => {
+    expect(
+      validateTimelineCreate(
+        withSteps([
+          atStep('assessors', '2026-10-24T09:00', '2026-10-25T02:15', 1, true),
+        ]),
+        now,
+      ),
+    ).toEqual([{ field: 'steps[0].closesAt', code: 'DST_HOUR' }]);
+  });
+
+  it.each([
+    ['2026-10-25T03:00', 'closes'],
+    ['2026-10-25T01:59', 'closes'],
+  ])('BUT %s is not refused', (value) => {
+    expect(
+      validateTimelineCreate(
+        withSteps([atStep('assessors', '2026-10-24T09:00', value, 1, true)]),
+        now,
+      ),
+    ).toEqual([]);
+  });
+
+  it('02:30 on an ordinary day is not refused', () => {
+    expect(
+      validateTimelineCreate(
+        withSteps([
+          atStep('assessors', '2026-11-10T02:30', '2026-11-10T09:00', 1, true),
+        ]),
+        now,
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe('FR-5 Earlier today (timeline-step-times)', () => {
+  const now = createAt('2026-11-10T14:20');
+  const stepOpeningAt = (opensAt: string): TimelineStepInput[] => [
+    atStep('assessors', opensAt, '2026-11-12T17:30', 1, true),
+  ];
+
+  it('step 1 opening at 2026-11-10T14:00 is BEFORE_TODAY on opensAt at 14:20', () => {
+    expect(
+      validateTimelineCreate(withSteps(stepOpeningAt('2026-11-10T14:00')), now),
+    ).toEqual([{ field: 'steps[0].opensAt', code: 'BEFORE_TODAY' }]);
+  });
+
+  it('AND IT MUST accept 2026-11-10T14:20, the current minute, and the step is in progress at once', () => {
+    expect(
+      validateTimelineCreate(withSteps(stepOpeningAt('2026-11-10T14:20')), now),
+    ).toEqual([]);
+    const view = viewTimeline({
+      steps: [
+        {
+          position: 1,
+          audience: 'assessors',
+          opensAt: at('2026-11-10T14:20'),
+          closesAt: at('2026-11-12T17:30'),
+        },
+      ],
+      assignedRoles: [],
+      now: now.now,
+      hasLoad: true,
+    });
+    expect(view.stepStates[1]).toBe('in_progress');
+  });
+});
+
+/**
+ * The same rules with the two forms of one boundary (FR-9: "every rule of
+ * FR-3...FR-6 applies to the resulting moment"). A row is written once as days
+ * and times; the day-only form uses the days of the same moments, which mean
+ * 00:00 and 23:59, so the outcome is the same and only the key differs.
+ */
+describe('the same rules with both forms of input (FR-9)', () => {
+  type Form = 'moments' | 'day-only';
+  type Bounds = [opens: string, closes: string | null | undefined];
+  const build = (form: Form, a: Bounds, b: Bounds): TimelineStepInput[] => {
+    const write = (
+      audience: string,
+      [opens, closes]: Bounds,
+      round: number,
+      load: boolean,
+    ): TimelineStepInput =>
+      form === 'moments'
+        ? atStep(
+            audience,
+            `${opens}T00:00`,
+            closes ? `${closes}T23:59` : closes,
+            round,
+            load,
+          )
+        : step(audience, opens, closes, round, load);
+    return [write('assessors', a, 1, true), write('programs', b, 1, false)];
+  };
+  const key = (form: Form, edge: 'opens' | 'closes') =>
+    `${edge}${form === 'moments' ? 'At' : 'On'}`;
+  const now = createAt('2026-11-10T00:00');
+
+  describe.each<Form>(['moments', 'day-only'])('written as %s', (form) => {
+    it('valid: later days are accepted', () => {
+      expect(
+        validateTimelineCreate(
+          withSteps(
+            build(
+              form,
+              ['2026-11-10', '2026-11-12'],
+              ['2026-11-13', '2026-11-14'],
+            ),
+          ),
+          now,
+        ),
+      ).toEqual([]);
+    });
+
+    it('a closing before the opening is CLOSES_BEFORE_OPENS on the key that was sent', () => {
+      expect(
+        validateTimelineCreate(
+          withSteps(
+            build(
+              form,
+              ['2026-11-12', '2026-11-10'],
+              ['2026-11-13', '2026-11-14'],
+            ),
+          ),
+          now,
+        ),
+      ).toEqual([
+        {
+          field: `steps[0].${key(form, 'closes')}`,
+          code: 'CLOSES_BEFORE_OPENS',
+        },
+      ]);
+    });
+
+    it('a step opening on the day the previous one closes is OVERLAPS_PREVIOUS_STEP on the key that was sent', () => {
+      expect(
+        validateTimelineCreate(
+          withSteps(
+            build(
+              form,
+              ['2026-11-10', '2026-11-12'],
+              ['2026-11-12', '2026-11-14'],
+            ),
+          ),
+          now,
+        ),
+      ).toEqual([
+        {
+          field: `steps[1].${key(form, 'opens')}`,
+          code: 'OVERLAPS_PREVIOUS_STEP',
+        },
+      ]);
+    });
+
+    it('step 1 opening before now is BEFORE_TODAY on the key that was sent', () => {
+      expect(
+        validateTimelineCreate(
+          withSteps(
+            build(
+              form,
+              ['2026-11-09', '2026-11-12'],
+              ['2026-11-13', '2026-11-14'],
+            ),
+          ),
+          now,
+        ),
+      ).toEqual([
+        { field: `steps[0].${key(form, 'opens')}`, code: 'BEFORE_TODAY' },
+      ]);
+    });
+
+    it('a step with no closing value is REQUIRED on the key its other boundary used', () => {
+      expect(
+        validateTimelineCreate(
+          withSteps(
+            build(
+              form,
+              ['2026-11-10', '2026-11-12'],
+              ['2026-11-13', undefined],
+            ),
+          ),
+          now,
+        ),
+      ).toEqual([
+        { field: `steps[1].${key(form, 'closes')}`, code: 'REQUIRED' },
+      ]);
+    });
+  });
+});
+
+describe('FR-9 Both forms for the same moment (timeline-step-times)', () => {
+  const now = createAt('2026-11-02T10:00');
+
+  it.each([
+    ['they differ', '2026-11-10T14:00', '2026-11-11'],
+    ['they agree', '2026-11-10T00:00', '2026-11-10'],
+  ])(
+    'opensAt and opensOn together are INVALID on opensOn, even when %s',
+    (_l, opensAt, opensOn) => {
+      expect(
+        validateTimelineCreate(
+          withSteps(patchAt(0, { opensAt, opensOn })),
+          now,
+        ),
+      ).toEqual([{ field: 'steps[0].opensOn', code: 'INVALID' }]);
+    },
+  );
+
+  it.each([
+    ['they differ', '2026-11-12T17:30', '2026-11-13'],
+    ['they agree', '2026-11-12T23:59', '2026-11-12'],
+  ])(
+    'closesAt and closesOn together are INVALID on closesOn, even when %s',
+    (_l, closesAt, closesOn) => {
+      expect(
+        validateTimelineCreate(
+          withSteps(patchAt(0, { closesAt, closesOn })),
+          now,
+        ),
+      ).toEqual([{ field: 'steps[0].closesOn', code: 'INVALID' }]);
+    },
+  );
+
+  it('on an edit, both forms for one boundary are INVALID on the day-only key too', () => {
+    expect(
+      validateTimelineUpdate(
+        storedTimes(),
+        onStep1({ closesAt: '2026-11-12T18:00', closesOn: '2026-11-12' }),
+        editContext('2026-11-02T10:00', true),
+      ),
+    ).toEqual([{ field: 'steps[0].closesOn', code: 'INVALID' }]);
+  });
+});
+
+// --- the edit rules at minute level -----------------------------------------
+
+/**
+ * A stored timeline with real times:
+ *   step 1  2026-11-10T09:00 to 2026-11-12T17:30
+ *   step 2  2026-11-13T09:00 to 2026-11-14T17:00
+ *   step 3  2026-11-16T09:00 to 2026-11-17T17:00
+ */
+function storedTimes(): StoredTimeline {
+  const stored = storedTimeline();
+  const times: Array<[string, string]> = [
+    ['2026-11-10T09:00', '2026-11-12T17:30'],
+    ['2026-11-13T09:00', '2026-11-14T17:00'],
+    ['2026-11-16T09:00', '2026-11-17T17:00'],
+  ];
+  return {
+    ...stored,
+    steps: stored.steps.map((s, i) => ({
+      ...s,
+      opensAt: at(times[i]![0]),
+      closesAt: at(times[i]![1]),
+    })),
+  };
+}
+
+const editContext = (now: string, hasLoad: boolean): TimelineUpdateContext => ({
+  ...context,
+  now: at(now),
+  hasLoad,
+});
+
+describe('FR-6 Close an in-progress step now (timeline-step-times)', () => {
+  // Now is 14:20:30 Rome, which the rules receive as the minute 14:20.
+  const now = '2026-11-10T14:20';
+
+  it('guard: step 1 is in progress at that minute, through the view', () => {
+    const view = viewTimeline({
+      steps: storedTimes().steps,
+      assignedRoles: [],
+      now: at(now),
+      hasLoad: true,
+    });
+    expect(view.stepStates[1]).toBe('in_progress');
+  });
+
+  it('moving the closing moment to 2026-11-10T14:20 is accepted', () => {
+    expect(
+      validateTimelineUpdate(
+        storedTimes(),
+        onStep1({ closesAt: '2026-11-10T14:20' }),
+        editContext(now, true),
+      ),
+    ).toEqual([]);
+  });
+
+  it('BUT 2026-11-10T14:19 is BEFORE_TODAY on closesAt', () => {
+    expect(
+      validateTimelineUpdate(
+        storedTimes(),
+        onStep1({ closesAt: '2026-11-10T14:19' }),
+        editContext(now, true),
+      ),
+    ).toEqual([{ field: 'steps[0].closesAt', code: 'BEFORE_TODAY' }]);
+  });
+
+  it('an opening moment sent for the step in progress is LOCKED on opensAt', () => {
+    expect(
+      validateTimelineUpdate(
+        storedTimes(),
+        onStep1({ opensAt: '2026-11-10T09:30' }),
+        editContext(now, true),
+      ),
+    ).toEqual([{ field: 'steps[0].opensAt', code: 'LOCKED' }]);
+  });
+});
+
+describe('FR-6 Unchanged past moment (timeline-step-times)', () => {
+  // On hold (no load), step 1 opened in the past on 10 Nov at 09:00.
+  const hold = editContext('2026-11-11T10:00', false);
+
+  it('only renaming the timeline succeeds', () => {
+    expect(
+      validateTimelineUpdate(storedTimes(), { name: 'Renamed' }, hold),
+    ).toEqual([]);
+  });
+
+  it('sending the stored opening moment again is not a change', () => {
+    expect(
+      validateTimelineUpdate(
+        storedTimes(),
+        onStep1({ opensAt: '2026-11-10T09:00', closesAt: '2026-11-12T17:30' }),
+        hold,
+      ),
+    ).toEqual([]);
+  });
+
+  it('a different past opening moment is a change and is BEFORE_TODAY on opensAt', () => {
+    expect(
+      validateTimelineUpdate(
+        storedTimes(),
+        onStep1({ opensAt: '2026-11-10T09:01' }),
+        hold,
+      ),
+    ).toEqual([{ field: 'steps[0].opensAt', code: 'BEFORE_TODAY' }]);
+  });
+});
+
+describe('FR-9 Day-only edit over a stored time (timeline-step-times)', () => {
+  it('an edit that sends only steps[1].name keeps both moments of step 2', () => {
+    const merged = mergeTimelineUpdate(storedTimes(), {
+      steps: [{ position: 2, name: 'Renamed' }],
+    });
+    expect(merged.steps[1]).toEqual({
+      position: 2,
+      name: 'Renamed',
+      opensAt: '2026-11-13T09:00',
+      closesAt: '2026-11-14T17:00',
+    });
+  });
+
+  it('BUT a closesOn equal to the stored date is a change to 23:59, not "unchanged"', () => {
+    const request = onStep1({ closesOn: '2026-11-12' });
+    const merged = mergeTimelineUpdate(storedTimes(), request);
+    expect(merged.steps[0]?.closesAt).toBe('2026-11-12T23:59');
+    // Step 1 closed at 17:30 on 12 Nov; at 12 Nov 18:00 it is closed, and the
+    // change to 23:59 meets the lock instead of passing as unchanged.
+    expect(
+      validateTimelineUpdate(
+        storedTimes(),
+        request,
+        editContext('2026-11-12T18:00', true),
+      ),
+    ).toEqual([{ field: 'steps[0].closesOn', code: 'LOCKED' }]);
+  });
+
+  it('the same closesOn on a step in progress is accepted and extends it to 23:59', () => {
+    expect(
+      validateTimelineUpdate(
+        storedTimes(),
+        onStep1({ closesOn: '2026-11-12' }),
+        editContext('2026-11-10T14:20', true),
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe('errors name the key that was sent (DD-5)', () => {
+  it('moments: an edit that makes the next step overlap names steps[1].opensAt', () => {
+    expect(
+      validateTimelineUpdate(
+        storedTimes(),
+        onStep1({ closesAt: '2026-11-13T09:00' }),
+        editContext('2026-11-02T10:00', false),
+      ),
+    ).toEqual([{ field: 'steps[1].opensAt', code: 'OVERLAPS_PREVIOUS_STEP' }]);
+  });
+
+  it('day-only: the same edit names steps[1].opensOn', () => {
+    expect(
+      validateTimelineUpdate(
+        storedTimes(),
+        onStep1({ closesOn: '2026-11-13' }),
+        editContext('2026-11-02T10:00', false),
+      ),
+    ).toEqual([{ field: 'steps[1].opensOn', code: 'OVERLAPS_PREVIOUS_STEP' }]);
+  });
+
+  it('a lock on a boundary sent as a moment names closesAt', () => {
+    expect(
+      validateTimelineUpdate(
+        storedTimes(),
+        onStep1({ closesAt: '2026-11-12T18:00' }),
+        editContext('2026-11-12T18:00', true),
+      ),
+    ).toEqual([{ field: 'steps[0].closesAt', code: 'LOCKED' }]);
+  });
+
+  it('a DST hour sent on an edit names the key sent', () => {
+    expect(
+      validateTimelineUpdate(
+        storedTimes(),
+        {
+          steps: [{ position: 3, closesAt: '2026-10-25T02:15' }],
+        },
+        editContext('2026-10-20T10:00', false),
+      ),
+    ).toEqual([{ field: 'steps[2].closesAt', code: 'DST_HOUR' }]);
+  });
+});
+
+describe('one reader for the rules and the insert (timeline-step-times T-4)', () => {
+  it('FR-1: a step with moments is read as exactly those moments', () => {
+    expect(
+      momentsOfStep(
+        atStep('assessors', '2026-11-10T14:00', '2026-11-12T17:30', 1, true),
+      ),
+    ).toEqual({ opensAt: '2026-11-10T14:00', closesAt: '2026-11-12T17:30' });
+  });
+
+  it('FR-9: a day-only step is read as 00:00 and 23:59, and the forms may be mixed per boundary', () => {
+    expect(
+      momentsOfStep(step('assessors', '2026-11-10', '2026-11-12', 1, true)),
+    ).toEqual({ opensAt: '2026-11-10T00:00', closesAt: '2026-11-12T23:59' });
+    expect(
+      momentsOfStep({
+        ...atStep('assessors', '2026-11-10T14:00', undefined, 1, true),
+        closesOn: '2026-11-12',
+      }),
+    ).toEqual({ opensAt: '2026-11-10T14:00', closesAt: '2026-11-12T23:59' });
+  });
+
+  it('a step the rules would refuse is not read (both forms, a DST hour)', () => {
+    expect(() =>
+      momentsOfStep({
+        ...atStep('assessors', '2026-11-10T14:00', '2026-11-12T17:30', 1, true),
+        opensOn: '2026-11-10',
+      }),
+    ).toThrow();
+    expect(() =>
+      momentsOfStep(
+        atStep('assessors', '2027-03-28T02:30', '2027-03-29T09:00', 1, true),
+      ),
+    ).toThrow();
   });
 });

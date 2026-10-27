@@ -243,6 +243,23 @@ describe('cycle and timeline errors (cycle-timelines FR-11, DD-8)', () => {
     for (const f of body.fields) expect(f.message).toMatch(/^[A-Z].*\.$/);
   });
 
+  it('says a daylight-saving hour cannot be chosen, in the catalog words (timeline-step-times FR-4, design 6)', () => {
+    const error = new TimelineValidationError([
+      { field: 'steps[0].opensAt', code: 'DST_HOUR' },
+    ]);
+    const body = error.getResponse() as {
+      fields: Array<{ field: string; code: string; message: string }>;
+    };
+    expect(body.fields).toEqual([
+      {
+        field: 'steps[0].opensAt',
+        code: 'DST_HOUR',
+        message:
+          'This time does not exist or happens twice in Rome on this day (daylight-saving change). Choose another time.',
+      },
+    ]);
+  });
+
   it('says a locked field can no longer be changed (timeline-edit FR-3)', () => {
     const error = new TimelineValidationError([
       { field: 'steps[0].closesOn', code: 'LOCKED' },
@@ -302,7 +319,7 @@ describe('cycle and timeline errors (cycle-timelines FR-11, DD-8)', () => {
     expect(noVersion.timelineId).toBe(7);
   });
 
-  it('has exactly the nine new field codes beside the six existing ones', () => {
+  it('lists exactly the catalog field codes', () => {
     expect(Object.keys(FIELD_ERRORS).sort()).toEqual(
       [
         'REQUIRED',
@@ -315,6 +332,7 @@ describe('cycle and timeline errors (cycle-timelines FR-11, DD-8)', () => {
         'CLOSES_BEFORE_OPENS',
         'OVERLAPS_PREVIOUS_STEP',
         'BEFORE_TODAY',
+        'DST_HOUR',
         'AUDIENCE_ORDER',
         'ROUND_SEQUENCE',
         'FIRST_STEP_LOAD',

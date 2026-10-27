@@ -7,8 +7,9 @@
 export interface TimelineSnapshotStep {
   position: number;
   name: string;
-  opensOn?: string | null;
-  closesOn?: string | null;
+  /** A moment, `YYYY-MM-DDTHH:mm`: what changed is judged by it (FR-9). */
+  opensAt?: string | null;
+  closesAt?: string | null;
 }
 
 /** The fields an edit can change, in the shape both sides of the diff share. */
@@ -27,8 +28,9 @@ export type ChangeValue =
 /**
  * `{ "<field>": { before, after } }`. Keys: `name`, `allPrograms`,
  * `programIds`, `allResultTypes`, `resultTypeKeys` and
- * `steps.<position>.<name|opensOn|closesOn>`. Lists are sorted, so the same set
- * in another order is not a change.
+ * `steps.<position>.<name|opensAt|closesAt>`. Lists are sorted, so the same set
+ * in another order is not a change. A step boundary is compared and recorded by
+ * its moment (timeline-step-times FR-12).
  */
 export type TimelineChanges = Record<
   string,
@@ -73,8 +75,8 @@ export function diffTimeline(
     const before = storedByPosition.get(step.position);
     const prefix = `steps.${step.position}`;
     scalar(`${prefix}.name`, before?.name, step.name);
-    scalar(`${prefix}.opensOn`, before?.opensOn, step.opensOn);
-    scalar(`${prefix}.closesOn`, before?.closesOn, step.closesOn);
+    scalar(`${prefix}.opensAt`, before?.opensAt, step.opensAt);
+    scalar(`${prefix}.closesAt`, before?.closesAt, step.closesAt);
   }
 
   return changes;

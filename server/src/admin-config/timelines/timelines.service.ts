@@ -26,7 +26,7 @@ import {
   TimelineValidationError,
   TimelineVersionStaleError,
 } from '../admin-config.errors.js';
-import { todayInRome } from '../rome-date.js';
+import { nowInRome, type RomeMinute } from '../rome-date.js';
 import {
   DEFAULT_STEPS,
   type DefaultStep,
@@ -44,10 +44,13 @@ import {
 } from './timeline-response.js';
 import {
   mergeTimelineUpdate,
+  momentsOfStep,
   validateTimelineCreate,
   validateTimelineUpdate,
   type StoredTimeline,
   type TimelineCreateInput,
+  type TimelineStepInput,
+  type TimelineStepUpdate,
   type TimelineUpdateInput,
 } from './timeline-rules.js';
 import { viewTimeline } from './timeline-view.js';
@@ -69,8 +72,22 @@ export interface TimelineChange {
   timelineId: number;
 }
 
+/**
+ * A step as the API names it: each boundary is `opensAt` / `closesAt` (a
+ * moment, FR-1) or the day-only `opensOn` / `closesOn` (FR-9); the wire keeps
+ * all four optional so the rules can name a missing or doubled one. The
+ * rules' reader turns either form into the moment it means (00:00 / 23:59,
+ * S-6).
+ */
+export type TimelineStepCommand = TimelineStepInput;
+
+/** A step of an edit as the API names it (see `TimelineStepCommand`). */
+export type TimelineStepUpdateCommand = TimelineStepUpdate;
+
 /** The request as the pipe left it: the shape is right, the rules are not yet judged. */
-export type CreateTimelineCommand = TimelineCreateInput;
+export type CreateTimelineCommand = Omit<TimelineCreateInput, 'steps'> & {
+  steps: readonly TimelineStepCommand[];
+};
 
 /**
  * An edit as the pipe left it (shape only): the rules' `TimelineUpdateInput`
@@ -78,7 +95,11 @@ export type CreateTimelineCommand = TimelineCreateInput;
  * design 7.1): the version the edit was made on and the in-progress
  * confirmation.
  */
-export interface UpdateTimelineCommand extends TimelineUpdateInput {
+export interface UpdateTimelineCommand extends Omit<
+  TimelineUpdateInput,
+  'steps'
+> {
+  steps?: readonly TimelineStepUpdateCommand[];
   version: number;
   confirmInProgress?: boolean;
 }
@@ -113,12 +134,16 @@ function normalized(command: CreateTimelineCommand): NormalizedCreate {
     name: command.name.trim(),
     programIds: [...new Set(command.programIds ?? [])],
     resultTypeKeys: [...new Set(command.resultTypeKeys ?? [])],
-    steps: command.steps.map((step) => ({ ...step, name: step.name.trim() })),
+    steps: command.steps.map((step) => ({
+      ...step,
+      name: step.name.trim(),
+    })),
   };
 }
 
-/** After the rules ran a date is a real date string; the type cannot know it. */
-const asDate = (value: string | null | undefined): string => value as string;
+/** After the rules ran a moment is a real `RomeMinute`; the type cannot know it. */
+const asMinute = (value: string | null | undefined): RomeMinute =>
+  value as RomeMinute;
 
 /**
  * A copy cut to the whole second. `timeline_users.assigned_at` is a `datetime`
@@ -144,8 +169,8 @@ function storedTimeline(bundle: TimelineBundle): StoredTimeline {
       position: step.position,
       name: step.name,
       audience: step.audience,
-      opensOn: step.opensOn,
-      closesOn: step.closesOn,
+      opensAt: step.opensAt,
+      closesAt: step.closesAt,
     })),
   };
 }
@@ -157,20 +182,20 @@ const stepPositionOf = (key: string): number | undefined => {
 };
 
 /**
- * FR-8: whether the diff touches a step that is `in_progress` today. The state
+ * FR-8: whether the diff touches a step that is `in_progress` at `now`. The state
  * is `viewTimeline`'s over the STORED steps (the same one the locks use), so a
  * hold, which makes every step `upcoming`, asks for no confirmation.
  */
 function changesAnInProgressStep(
   stored: StoredTimeline,
   changes: ReturnType<typeof diffTimeline>,
-  today: string,
+  now: RomeMinute,
   hasLoad: boolean,
 ): boolean {
   const { stepStates } = viewTimeline({
     steps: stored.steps,
     assignedRoles: [],
-    today,
+    now,
     hasLoad,
   });
   return Object.keys(changes).some((key) => {
@@ -188,11 +213,11 @@ function changedSteps(
   for (const step of merged.steps) {
     const values: StepUpdateValues = {};
     if (`steps.${step.position}.name` in changes) values.name = step.name;
-    if (`steps.${step.position}.opensOn` in changes) {
-      values.opensOn = asDate(step.opensOn);
+    if (`steps.${step.position}.opensAt` in changes) {
+      values.opensAt = asMinute(step.opensAt);
     }
-    if (`steps.${step.position}.closesOn` in changes) {
-      values.closesOn = asDate(step.closesOn);
+    if (`steps.${step.position}.closesAt` in changes) {
+      values.closesAt = asMinute(step.closesAt);
     }
     if (Object.keys(values).length > 0) byPosition.set(step.position, values);
   }
@@ -222,12 +247,12 @@ export class TimelinesService {
     return DEFAULT_STEPS.map((step) => ({ ...step }));
   }
 
-  /** One timeline as the API shows it, with status and readiness from today in Rome (FR-12). */
+  /** One timeline as the API shows it, with status and readiness from now in Rome (FR-12). */
   get(id: number): Promise<TimelineResponse> {
     return this.read(id, this.clock());
   }
 
-  /** `get` for a given instant: an edit answers with the `today` it judged the request by (timeline-edit NFR-4). */
+  /** `get` for a given instant: an edit answers with the `now` it judged the request by (timeline-edit NFR-4). */
   private async read(id: number, now: Date): Promise<TimelineResponse> {
     const row = await this.store.findById(id);
     if (!row) throw new TimelineNotFoundError(id);
@@ -274,7 +299,7 @@ export class TimelinesService {
     now: Date = this.clock(),
   ): Promise<TimelineResponse[]> {
     if (rows.length === 0) return [];
-    const today = todayInRome(now);
+    const nowMinute = nowInRome(now);
     const ids = rows.map((row) => row.id);
     const [steps, programs, resultTypes, assigned, loaded] = await Promise.all([
       this.store.listSteps(ids),
@@ -303,7 +328,7 @@ export class TimelinesService {
             .filter((r) => r.timelineId === timeline.id)
             .map((r) => r.resultTypeKey),
         },
-        today,
+        nowMinute,
         counts,
         loaded.has(timeline.id),
       );
@@ -330,7 +355,7 @@ export class TimelinesService {
       async () => {
         const now = this.clock();
         const request = normalized(command);
-        await this.assertValid(request, todayInRome(now));
+        await this.assertValid(request, nowInRome(now));
         return this.unitOfWork.run(
           async ({ cycles, timelines, idempotency }) => {
             const cycle = await cycles.findById(cycleId, { forUpdate: true });
@@ -389,8 +414,9 @@ export class TimelinesService {
                 name: step.name,
                 // The rules refused any audience outside the enum.
                 audience: step.audience as StepAudience,
-                opensOn: asDate(step.opensOn),
-                closesOn: asDate(step.closesOn),
+                // Valid by now: the rules' own reader gives the moments, so
+                // the insert cannot read a form differently from the check.
+                ...momentsOfStep(step),
                 round: step.round,
                 requiresLoad: step.requiresLoad,
               })),
@@ -432,7 +458,7 @@ export class TimelinesService {
         // 1. One read of the clock; a request that straddles midnight in Rome is
         // judged by the instant it arrived (design 7.2).
         const now = this.clock();
-        const today = todayInRome(now);
+        const nowMinute = nowInRome(now);
         const { version, confirmInProgress, ...request } = command;
 
         // 2. The unlocked reads: the bundle (404), the cycle (closed 409) and
@@ -486,7 +512,7 @@ export class TimelinesService {
 
         // 5. Every rule problem, in one 400 (FR-5).
         const issues = validateTimelineUpdate(stored, request, {
-          today,
+          now: nowMinute,
           knownProgramIds,
           knownResultTypeKeys,
           hasLoad,
@@ -505,7 +531,7 @@ export class TimelinesService {
         // when everything else is valid (FR-8, DD-11). The step state is the
         // view's, over the stored steps: a hold makes every step `upcoming`.
         if (
-          changesAnInProgressStep(stored, changes, today, hasLoad) &&
+          changesAnInProgressStep(stored, changes, nowMinute, hasLoad) &&
           confirmInProgress !== true
         ) {
           // @akili-spec bugfix/timeline-edit-noop-stale
@@ -764,7 +790,7 @@ export class TimelinesService {
    */
   private async assertValid(
     request: NormalizedCreate,
-    today: string,
+    now: RomeMinute,
   ): Promise<void> {
     const knownProgramIds = new Set<number>();
     if (!request.allPrograms && request.programIds.length > 0) {
@@ -779,7 +805,7 @@ export class TimelinesService {
       }
     }
     const issues = validateTimelineCreate(request, {
-      today,
+      now,
       knownProgramIds,
       knownResultTypeKeys,
     });

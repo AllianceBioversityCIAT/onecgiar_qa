@@ -28,7 +28,7 @@ const draftRow = [3, 2027, 'draft', null, at, 1, null, null, null, null];
 const activeRow = [2, 2026, 'active', 1, at, 1, at, 1, null, null];
 const summaryRow = [3, 2027, 'draft', at, 0, null, null];
 
-function stub(fenceRows = 1) {
+function stub(fenceRows = 1, summary: unknown[] = summaryRow) {
   const log: Statement[] = [];
   const answer = (via: Statement['via']) => ({
     query: ({ sql }: { sql: string }, values?: unknown[]) => {
@@ -43,7 +43,7 @@ function stub(fenceRows = 1) {
         return Promise.resolve([{ affectedRows }, []]);
       }
       const row = sql.includes('group by')
-        ? summaryRow
+        ? summary
         : sql.includes('`active_key` = ?')
           ? activeRow
           : draftRow;
@@ -156,8 +156,8 @@ describe('DrizzleCyclesUnitOfWork over a stub MySQL driver', () => {
     expect(log[0]!.via).toBe('pool');
     const sql = log[0]!.sql;
     expect(sql).toMatch(/count\(distinct `timelines`\.`id`\)/);
-    expect(sql).toMatch(/min\(`timeline_steps`\.`opens_on`\)/);
-    expect(sql).toMatch(/max\(`timeline_steps`\.`closes_on`\)/);
+    expect(sql).toMatch(/min\(`timeline_steps`\.`opens_at`\)/);
+    expect(sql).toMatch(/max\(`timeline_steps`\.`closes_at`\)/);
     expect(sql).toMatch(
       /from `cycles` left join `timelines` on `timelines`\.`cycle_id` = `cycles`\.`id` left join `timeline_steps` on `timeline_steps`\.`timeline_id` = `timelines`\.`id`/,
     );
@@ -174,6 +174,25 @@ describe('DrizzleCyclesUnitOfWork over a stub MySQL driver', () => {
         endsOn: null,
         createdAt: new Date('2026-10-19T10:00:00.000Z'),
       },
+    ]);
+  });
+  it('the span stays in days: the DATETIME min and max come back as YYYY-MM-DD (timeline-step-times FR-13, DD-9)', async () => {
+    // What mysql2 hands over for a DATETIME in string mode (P-2): the date and the time.
+    const { service } = stub(1, [
+      3,
+      2027,
+      'draft',
+      at,
+      2,
+      '2026-11-02 00:00:00',
+      '2026-12-31 23:59:00',
+    ]);
+
+    const [cycle] = await service.list();
+
+    expect([cycle!.startsOn, cycle!.endsOn]).toEqual([
+      '2026-11-02',
+      '2026-12-31',
     ]);
   });
 });

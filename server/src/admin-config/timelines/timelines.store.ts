@@ -100,7 +100,7 @@ export interface TimelineUpdateValues {
 
 /** The step fields an edit can change (FR-1, S-4): never audience, round or `requires_load`. A field left out is not written. */
 export type StepUpdateValues = Partial<
-  Pick<NewTimelineStep, 'name' | 'opensOn' | 'closesOn'>
+  Pick<NewTimelineStep, 'name' | 'opensAt' | 'closesAt'>
 >;
 
 /** One audit row of an applied edit (FR-10, DD-10): `createdAt` is the edit's instant, the same as `updated_at`. */
@@ -565,8 +565,8 @@ export class DrizzleTimelinesStore implements TimelinesStore {
       .update(timelineSteps)
       .set({
         name: values.name,
-        opensOn: values.opensOn,
-        closesOn: values.closesOn,
+        opensAt: values.opensAt,
+        closesAt: values.closesAt,
       })
       .where(
         and(

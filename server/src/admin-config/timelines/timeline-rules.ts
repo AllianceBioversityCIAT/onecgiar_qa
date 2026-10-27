@@ -1,5 +1,12 @@
 import type { FieldIssue } from '../../users/users.errors.js';
-import { compareDates, isCalendarDate } from '../rome-date.js';
+import {
+  compareMinutes,
+  dayEnd,
+  dayStart,
+  isDstHour,
+  isRomeMinute,
+  type RomeMinute,
+} from '../rome-date.js';
 import { DEFAULT_STEPS, type StepAudience } from './default-steps.js';
 import type { TimelineSnapshot } from './timeline-diff.js';
 import { viewTimeline } from './timeline-view.js';
@@ -23,7 +30,15 @@ const AUDIENCE_RANK: ReadonlyMap<string, number> = new Map(
 export interface TimelineStepInput {
   name: string;
   audience: string;
-  /** Absent, null or empty counts as missing (FR-8). */
+  /**
+   * A boundary is written as a moment, `YYYY-MM-DDTHH:mm` (`opensAt` /
+   * `closesAt`, FR-1), or in the day-only form, a `YYYY-MM-DD` day that means
+   * 00:00 when it opens a step and 23:59 when it closes one (`opensOn` /
+   * `closesOn`, FR-9, S-6): exactly one form per boundary. Absent, null or
+   * empty counts as missing (FR-8).
+   */
+  opensAt?: string | null;
+  closesAt?: string | null;
   opensOn?: string | null;
   closesOn?: string | null;
   round: number;
@@ -41,8 +56,8 @@ export interface TimelineCreateInput {
 }
 
 export interface TimelineRulesContext {
-  /** Today's date in Europe/Rome, `YYYY-MM-DD` (S-4); never read from a clock here. */
-  today: string;
+  /** The Rome minute to judge by, `YYYY-MM-DDTHH:mm` (S-4); never read from a clock here. */
+  now: RomeMinute;
   knownProgramIds: ReadonlySet<number>;
   knownResultTypeKeys: ReadonlySet<string>;
 }
@@ -60,6 +75,7 @@ export function validateTimelineCreate(
   // runs (timeline-edit DD-5); what only a create can break hangs on the hooks
   // so every issue keeps its place in the order below.
   const { steps } = request;
+  const family = requestFamily(steps);
   let lastAudienceRank = -1;
   checkMergedState(
     {
@@ -75,8 +91,8 @@ export function validateTimelineCreate(
       },
       steps: steps.map((step, index) => ({
         path: `steps[${index}]`,
-        opensOn: step.opensOn,
-        closesOn: step.closesOn,
+        opens: readBoundary('opens', step.opensAt, step.opensOn, family),
+        closes: readBoundary('closes', step.closesAt, step.closesOn, family),
       })),
     },
     issues,
@@ -101,9 +117,9 @@ export function validateTimelineCreate(
           lastAudienceRank = rank;
         }
       },
-      afterOpensOn: (index, opensOn) => {
-        if (index === 0 && compareDates(opensOn, context.today) < 0) {
-          issues.push({ field: 'steps[0].opensOn', code: 'BEFORE_TODAY' });
+      afterOpensAt: (index, opens) => {
+        if (index === 0 && compareMinutes(opens.moment, context.now) < 0) {
+          issues.push({ field: `steps[0].${opens.key}`, code: 'BEFORE_TODAY' });
         }
       },
       afterDates: (index) => {
@@ -144,8 +160,8 @@ interface MergedStateInput {
   /** In position order; `path` is the field path of the step (`steps[i]`). */
   steps: readonly {
     path: string;
-    opensOn?: string | null;
-    closesOn?: string | null;
+    opens: Boundary;
+    closes: Boundary;
   }[];
 }
 
@@ -155,18 +171,20 @@ interface MergedStateHooks {
   afterScope?: () => void;
   /** Before a step's date checks. */
   beforeDates?: (index: number) => void;
-  /** After a step's opening date was read as a real date, before its overlap check. */
-  afterOpensOn?: (index: number, opensOn: string) => void;
+  /** After a step's opening moment was read as a real moment, before its overlap check. */
+  afterOpensAt?: (index: number, opens: ReadBoundary) => void;
   /** After a step's date checks. */
   afterDates?: (index: number) => void;
 }
 
 /**
  * The rules of the state a request leaves behind, shared by create and update
- * (timeline-edit DD-5): the scope pairs and catalog membership, dates real, no
- * step closing before it opens, each step opening after the previous step's
- * closing day. Order: programs, result types, then each step in turn
- * (opening date, overlap, closing date, closes-before-opens).
+ * (timeline-edit DD-5): the scope pairs and catalog membership, moments real
+ * and not in a daylight-saving hour, no step closing at or before it opens
+ * (FR-3), each step opening after the previous step's closing minute. Order:
+ * programs, result types, then each step in turn (opening moment, overlap,
+ * closing moment, closes-before-opens). A problem is reported on the key the
+ * boundary was sent with (DD-5).
  */
 function checkMergedState(
   state: MergedStateInput,
@@ -193,26 +211,26 @@ function checkMergedState(
     const previous = index > 0 ? state.steps[index - 1] : undefined;
     hooks.beforeDates?.(index);
 
-    const opensOn = readDate(step.opensOn, `${step.path}.opensOn`, issues);
-    if (opensOn !== undefined) {
-      hooks.afterOpensOn?.(index, opensOn);
-      const previousClose = previous && validDate(previous.closesOn);
-      if (previousClose && compareDates(opensOn, previousClose) <= 0) {
+    const opens = reportProblem(step.opens, step.path, issues);
+    if (opens !== undefined) {
+      hooks.afterOpensAt?.(index, opens);
+      const previousClose = previous?.closes.moment;
+      if (previousClose && compareMinutes(opens.moment, previousClose) <= 0) {
         issues.push({
-          field: `${step.path}.opensOn`,
+          field: `${step.path}.${step.opens.key}`,
           code: 'OVERLAPS_PREVIOUS_STEP',
         });
       }
     }
 
-    const closesOn = readDate(step.closesOn, `${step.path}.closesOn`, issues);
+    const closes = reportProblem(step.closes, step.path, issues);
     if (
-      opensOn !== undefined &&
-      closesOn !== undefined &&
-      compareDates(closesOn, opensOn) < 0
+      opens !== undefined &&
+      closes !== undefined &&
+      compareMinutes(closes.moment, opens.moment) <= 0
     ) {
       issues.push({
-        field: `${step.path}.closesOn`,
+        field: `${step.path}.${step.closes.key}`,
         code: 'CLOSES_BEFORE_OPENS',
       });
     }
@@ -255,25 +273,135 @@ function checkScope<T>(
   }
 }
 
-/** The date when real; a missing one is REQUIRED and a malformed one INVALID (FR-8). */
-function readDate(
-  value: string | null | undefined,
-  field: string,
-  issues: FieldIssue[],
-): string | undefined {
-  if (value === undefined || value === null || value === '') {
-    issues.push({ field, code: 'REQUIRED' });
-    return undefined;
-  }
-  if (!isCalendarDate(value)) {
-    issues.push({ field, code: 'INVALID' });
-    return undefined;
-  }
-  return value;
+type Edge = 'opens' | 'closes';
+
+/** The two ways a request writes a boundary: `…At` (a moment) or `…On` (a day). */
+type Family = 'At' | 'On';
+
+/** The four keys a boundary can be sent under, and so the four an error can name (DD-5). */
+export type BoundaryKey = 'opensAt' | 'opensOn' | 'closesAt' | 'closesOn';
+
+/** What the reader decided for one boundary of one step (design 7.2). */
+interface Boundary {
+  /** The key every rule problem of this boundary is reported on (DD-5). */
+  key: BoundaryKey;
+  /** The real Rome minute; absent whenever `problem` is set. */
+  moment?: RomeMinute;
+  /** Why the boundary cannot be used, as the catalog code to report. */
+  problem?: 'REQUIRED' | 'INVALID' | 'DST_HOUR';
+  /**
+   * The value the merged state carries, for the diff and the locks: the moment
+   * the sent form means, or the raw sent value when it is not one. Undefined
+   * when nothing usable was sent (both forms, or neither).
+   */
+  raw?: string | null;
 }
 
-function validDate(value: string | null | undefined): string | undefined {
-  return typeof value === 'string' && isCalendarDate(value) ? value : undefined;
+/** A boundary the rules accepted. */
+interface ReadBoundary extends Boundary {
+  moment: RomeMinute;
+}
+
+/**
+ * The key a boundary is reported on when the request sent neither form of it:
+ * the day-only one when the request is written day-only (an old client keeps
+ * the paths it maps), else the moment (DD-5, FR-9).
+ */
+function requestFamily(
+  steps: readonly {
+    opensAt?: string | null;
+    closesAt?: string | null;
+    opensOn?: string | null;
+    closesOn?: string | null;
+  }[],
+): Family {
+  const sentAt = steps.some(
+    (s) => s.opensAt !== undefined || s.closesAt !== undefined,
+  );
+  const sentOn = steps.some(
+    (s) => s.opensOn !== undefined || s.closesOn !== undefined,
+  );
+  return sentOn && !sentAt ? 'On' : 'At';
+}
+
+/**
+ * The one reader of a boundary sent in a request (design 7.2), used by the
+ * rules and by the insert so they cannot choose differently:
+ *
+ * - only `…At`: a real `YYYY-MM-DDTHH:mm`, not in a daylight-saving hour;
+ * - only `…On`: a real day, which means 00:00 when it opens and 23:59 when it
+ *   closes (S-6), then the same checks (a day-only value is never in a
+ *   daylight-saving hour);
+ * - both: `INVALID` on the day-only key, never one of them picked, even when
+ *   they agree (FR-9);
+ * - neither: `REQUIRED` on the key of `family`.
+ *
+ * A form sent as null or empty is missing: `REQUIRED` on that form's key.
+ */
+function readBoundary(
+  edge: Edge,
+  at: string | null | undefined,
+  on: string | null | undefined,
+  family: Family,
+): Boundary {
+  if (at !== undefined && on !== undefined) {
+    return { key: `${edge}On`, problem: 'INVALID' };
+  }
+  if (at === undefined && on === undefined) {
+    return { key: `${edge}${family}`, problem: 'REQUIRED' };
+  }
+  const form: Family = at !== undefined ? 'At' : 'On';
+  const key: BoundaryKey = `${edge}${form}`;
+  const sent = at !== undefined ? at : on;
+  if (sent === null || sent === undefined || sent === '') {
+    return { key, problem: 'REQUIRED', raw: sent };
+  }
+  // The day of a day-only value is not checked on its own: `isRomeMinute`
+  // refuses anything that is not a real `YYYY-MM-DD` with its time after it.
+  const value =
+    form === 'At' ? sent : edge === 'opens' ? dayStart(sent) : dayEnd(sent);
+  if (!isRomeMinute(value)) return { key, problem: 'INVALID', raw: value };
+  if (isDstHour(value)) return { key, problem: 'DST_HOUR', raw: value };
+  return { key, moment: value, raw: value };
+}
+
+/** A boundary the request did not send: the stored moment, as it is. */
+function storedBoundary(
+  edge: Edge,
+  moment: RomeMinute,
+  family: Family,
+): ReadBoundary {
+  return { key: `${edge}${family}`, moment, raw: moment };
+}
+
+/**
+ * The moments of a create step, read by the same reader the rules use (FR-1,
+ * FR-9). Called after the rules accepted the request: a step that still has a
+ * problem here is a caller that skipped them.
+ */
+export function momentsOfStep(step: TimelineStepInput): {
+  opensAt: RomeMinute;
+  closesAt: RomeMinute;
+} {
+  const opens = readBoundary('opens', step.opensAt, step.opensOn, 'At');
+  const closes = readBoundary('closes', step.closesAt, step.closesOn, 'At');
+  if (opens.moment === undefined || closes.moment === undefined) {
+    throw new Error('A step was written before its moments were validated');
+  }
+  return { opensAt: opens.moment, closesAt: closes.moment };
+}
+
+/** Reports the problem of a boundary on its key; the boundary when it is usable. */
+function reportProblem(
+  boundary: Boundary,
+  path: string,
+  issues: FieldIssue[],
+): ReadBoundary | undefined {
+  if (boundary.problem !== undefined) {
+    issues.push({ field: `${path}.${boundary.key}`, code: boundary.problem });
+    return undefined;
+  }
+  return boundary as ReadBoundary;
 }
 
 // ---------------------------------------------------------------------------
@@ -285,8 +413,8 @@ export interface StoredTimelineStep {
   position: number;
   name: string;
   audience: StepAudience;
-  opensOn: string;
-  closesOn: string;
+  opensAt: RomeMinute;
+  closesAt: RomeMinute;
 }
 
 /** The timeline as stored: what the edit rules overlay the request on. */
@@ -303,6 +431,10 @@ export interface StoredTimeline {
 export interface TimelineStepUpdate {
   position: number;
   name?: string;
+  /** A moment, `YYYY-MM-DDTHH:mm` (FR-1). Not together with its day-only form (FR-9). */
+  opensAt?: string | null;
+  closesAt?: string | null;
+  /** The day-only form (FR-9): 00:00 of that day when it opens, 23:59 when it closes (S-6). */
   opensOn?: string | null;
   closesOn?: string | null;
 }
@@ -321,7 +453,7 @@ export interface TimelineUpdateInput {
 }
 
 /**
- * Today, the catalogs and whether the timeline has a load. A catalog set is
+ * Now, the catalogs and whether the timeline has a load. A catalog set is
  * read only for a scope list that changes (design 7.2), so for an unchanged
  * list the set may be empty: the rules do not look at it.
  */
@@ -330,18 +462,27 @@ export interface TimelineUpdateContext extends TimelineRulesContext {
   hasLoad: boolean;
 }
 
+/** A step of an edit once its sent boundaries are read; the others are the stored ones. */
+interface ResolvedStep {
+  opens: Boundary;
+  closes: Boundary;
+}
+
 /**
- * The stored values overlaid with the sent ones (design 7.1 step 2). Text is
- * trimmed and lists are deduped, as create does. A scope flag turned on with no
- * list empties the list; a list sent without its flag is merged under the
- * stored flag. A step position the timeline lacks is ignored (the rules report
- * it). The result can still hold values the rules refuse; it is what the diff
- * and the write take once they pass.
+ * The stored values overlaid with the sent ones (design 7.1 step 2), and, by
+ * position, how each step's boundaries were read. Text is trimmed and lists
+ * are deduped, as create does. A scope flag turned on with no list empties the
+ * list; a list sent without its flag is merged under the stored flag. A step
+ * position the timeline lacks is ignored (the rules report it). A boundary
+ * sent in either form becomes the moment it means, so an unchanged value is
+ * one whose moment equals the stored one (FR-9: a `closesOn` equal to the
+ * stored date over a stored 17:30 is a change to 23:59); one sent in both
+ * forms, or in none, keeps the stored value, and its problem is the rules'.
  */
-export function mergeTimelineUpdate(
+function resolveUpdate(
   stored: StoredTimeline,
   request: TimelineUpdateInput,
-): TimelineSnapshot {
+): { snapshot: TimelineSnapshot; steps: Map<number, ResolvedStep> } {
   const programs = mergeScope(
     stored.allPrograms,
     stored.programIds,
@@ -355,27 +496,52 @@ export function mergeTimelineUpdate(
     request.resultTypeKeys,
   );
   const sent = firstStepUpdates(request.steps ?? [], stored);
+  const family = requestFamily(request.steps ?? []);
+  const resolved = new Map<number, ResolvedStep>();
+
+  const steps = [...stored.steps]
+    .sort((a, b) => a.position - b.position)
+    .map((step) => {
+      const update = sent.get(step.position)?.update;
+      const opens =
+        update?.opensAt !== undefined || update?.opensOn !== undefined
+          ? readBoundary('opens', update.opensAt, update.opensOn, family)
+          : storedBoundary('opens', step.opensAt, family);
+      const closes =
+        update?.closesAt !== undefined || update?.closesOn !== undefined
+          ? readBoundary('closes', update.closesAt, update.closesOn, family)
+          : storedBoundary('closes', step.closesAt, family);
+      resolved.set(step.position, { opens, closes });
+      return {
+        position: step.position,
+        name: (update?.name ?? step.name).trim(),
+        opensAt: opens.raw !== undefined ? opens.raw : step.opensAt,
+        closesAt: closes.raw !== undefined ? closes.raw : step.closesAt,
+      };
+    });
 
   return {
-    name: (request.name ?? stored.name).trim(),
-    allPrograms: programs.all,
-    programIds: programs.ids,
-    allResultTypes: resultTypes.all,
-    resultTypeKeys: resultTypes.ids,
-    steps: [...stored.steps]
-      .sort((a, b) => a.position - b.position)
-      .map((step) => {
-        const update = sent.get(step.position)?.update;
-        return {
-          position: step.position,
-          name: (update?.name ?? step.name).trim(),
-          opensOn:
-            update?.opensOn !== undefined ? update.opensOn : step.opensOn,
-          closesOn:
-            update?.closesOn !== undefined ? update.closesOn : step.closesOn,
-        };
-      }),
+    snapshot: {
+      name: (request.name ?? stored.name).trim(),
+      allPrograms: programs.all,
+      programIds: programs.ids,
+      allResultTypes: resultTypes.all,
+      resultTypeKeys: resultTypes.ids,
+      steps,
+    },
+    steps: resolved,
   };
+}
+
+/**
+ * The merged state of an edit (design 7.1 step 2). It can still hold values
+ * the rules refuse; it is what the diff and the write take once they pass.
+ */
+export function mergeTimelineUpdate(
+  stored: StoredTimeline,
+  request: TimelineUpdateInput,
+): TimelineSnapshot {
+  return resolveUpdate(stored, request).snapshot;
 }
 
 /**
@@ -387,7 +553,7 @@ export function mergeTimelineUpdate(
  *
  * The locks judge CHANGED fields only (DD-4): a value sent equal to the stored
  * one is not a change, so a drawer may resend a past date. The step state is
- * `viewTimeline`'s, over the stored steps, `hasLoad` and today, never worked
+ * `viewTimeline`'s, over the stored steps, `hasLoad` and now, never worked
  * out here.
  */
 export function validateTimelineUpdate(
@@ -415,8 +581,11 @@ export function validateTimelineUpdate(
   }
 
   // 3. Locks, on changed fields only.
-  const merged = mergeTimelineUpdate(stored, request);
-  checkLocks(stored, merged, context, issues);
+  const { snapshot: merged, steps: boundaries } = resolveUpdate(
+    stored,
+    request,
+  );
+  checkLocks(stored, merged, boundaries, context, issues);
 
   // 4. Merged-state rules, the same function create calls. A scope is checked
   // against the catalog only when it changed; an unchanged one was valid.
@@ -448,8 +617,7 @@ export function validateTimelineUpdate(
       },
       steps: merged.steps.map((step) => ({
         path: stepPath(step.position),
-        opensOn: step.opensOn,
-        closesOn: step.closesOn,
+        ...boundaries.get(step.position)!,
       })),
     },
     issues,
@@ -520,45 +688,46 @@ function scopeChanged<T>(
 function checkLocks(
   stored: StoredTimeline,
   merged: TimelineSnapshot,
+  boundaries: ReadonlyMap<number, ResolvedStep>,
   context: TimelineUpdateContext,
   issues: FieldIssue[],
 ): void {
   const { stepStates } = viewTimeline({
     steps: stored.steps,
     assignedRoles: [],
-    today: context.today,
+    now: context.now,
     hasLoad: context.hasLoad,
   });
-  const beforeToday = (value: string | null | undefined): boolean =>
-    typeof value === 'string' &&
-    isCalendarDate(value) &&
-    compareDates(value, context.today) < 0;
+  // Before now, to the minute (S-4); a value that is not a usable moment is the
+  // merged-state rules' to refuse, not a lock's.
+  const beforeNow = (boundary: Boundary): boolean =>
+    boundary.moment !== undefined &&
+    compareMinutes(boundary.moment, context.now) < 0;
 
   const mergedByPosition = new Map(merged.steps.map((s) => [s.position, s]));
   for (const step of [...stored.steps].sort(
     (a, b) => a.position - b.position,
   )) {
     const after = mergedByPosition.get(step.position);
-    if (after === undefined) continue;
+    const read = boundaries.get(step.position);
+    if (after === undefined || read === undefined) continue;
     const path = stepPath(step.position);
     const state = stepStates[step.position];
-    const opensChanged = after.opensOn !== step.opensOn;
-    const closesChanged = after.closesOn !== step.closesOn;
+    const opensChanged = after.opensAt !== step.opensAt;
+    const closesChanged = after.closesAt !== step.closesAt;
+    const opensField = `${path}.${read.opens.key}`;
+    const closesField = `${path}.${read.closes.key}`;
 
     if (state === 'closed') {
-      if (opensChanged)
-        issues.push({ field: `${path}.opensOn`, code: 'LOCKED' });
-      if (closesChanged) {
-        issues.push({ field: `${path}.closesOn`, code: 'LOCKED' });
-      }
+      if (opensChanged) issues.push({ field: opensField, code: 'LOCKED' });
+      if (closesChanged) issues.push({ field: closesField, code: 'LOCKED' });
     } else if (state === 'in_progress') {
-      if (opensChanged)
-        issues.push({ field: `${path}.opensOn`, code: 'LOCKED' });
-      if (closesChanged && beforeToday(after.closesOn)) {
-        issues.push({ field: `${path}.closesOn`, code: 'BEFORE_TODAY' });
+      if (opensChanged) issues.push({ field: opensField, code: 'LOCKED' });
+      if (closesChanged && beforeNow(read.closes)) {
+        issues.push({ field: closesField, code: 'BEFORE_TODAY' });
       }
-    } else if (opensChanged && beforeToday(after.opensOn)) {
-      issues.push({ field: `${path}.opensOn`, code: 'BEFORE_TODAY' });
+    } else if (opensChanged && beforeNow(read.opens)) {
+      issues.push({ field: opensField, code: 'BEFORE_TODAY' });
     }
   }
 
