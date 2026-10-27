@@ -6,6 +6,8 @@ export interface QaSegmentedOption {
   readonly value: string;
   readonly label: string;
   readonly disabled?: boolean;
+  /** Optional plain grey number after the label (e.g. "Unread 4"); regular weight, same in active and inactive. */
+  readonly count?: number;
 }
 
 export type QaSegmentedSize = 'default' | 'compact';
@@ -63,6 +65,9 @@ let nextId = 0;
               [class]="itemClass(option.value === value(), !!option.disabled)"
             >
               {{ option.label }}
+              @if (option.count !== undefined) {
+                &ngsp;<span class="ml-1 font-normal text-(--text-4) tabular-nums">{{ option.count }}</span>
+              }
             </label>
           </brn-radio>
         }

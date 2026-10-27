@@ -120,7 +120,84 @@ class Host2 {
   ];
 }
 
+@Component({
+  imports: [QaSelect, QaMultiSelect],
+  template: `
+    <qa-select [(value)]="timeline" [options]="timelineOptions" label="Viewing" appearance="inline" searchable searchPlaceholder="Search timelines" />
+    <qa-select [(value)]="empty" [options]="timelineOptions" label="Timeline" appearance="field" searchable />
+    <qa-multi-select appearance="field" [(value)]="types" [options]="typeOptions" label="Type" searchable mutedPlaceholder />
+  `,
+})
+class HostContrast {
+  readonly timeline = signal<string | null>('official');
+  readonly empty = signal<string | null>(null);
+  readonly timelineOptions = [
+    { value: 'official', label: 'Annual report 2026', group: 'Official timeline', tag: 'Official' },
+    { value: 'sub', label: 'July 2026', group: 'Sub-timelines', tag: 'Sub' },
+  ];
+  readonly types = signal<readonly string[]>([]);
+  readonly typeOptions = [
+    { value: 'load', label: 'Load', group: 'Review' },
+    { value: 'reply', label: 'Reply', group: 'Review' },
+  ];
+}
+
+@Component({
+  imports: [QaSegmented],
+  template: `<qa-segmented [(value)]="seg" [options]="segCountOptions" aria-label="Notifications filter" />`,
+})
+class HostSegmentedCount {
+  readonly seg = signal<string | null>('unread');
+  readonly segCountOptions = [
+    { value: 'all', label: 'All' },
+    { value: 'unread', label: 'Unread', count: 4 },
+    { value: 'read', label: 'Read', count: 5 },
+  ];
+}
+
 const $ = <T extends Element = HTMLElement>(selector: string) => document.querySelector<T>(selector);
+
+describe('UI kit segmented count', () => {
+  async function setupCount() {
+    const fixture = TestBed.createComponent(HostSegmentedCount);
+    fixture.autoDetectChanges();
+    await fixture.whenStable();
+    return fixture;
+  }
+
+  const labelOf = (text: string) =>
+    Array.from(document.querySelectorAll<HTMLLabelElement>('qa-segmented label')).find((l) => l.textContent?.trim().startsWith(text))!;
+  const countIn = (label: HTMLElement, text: string) =>
+    Array.from(label.querySelectorAll<HTMLElement>('*')).find((e) => e.textContent === text) ?? null;
+
+  it('renders a separate grey count next to the label, active and inactive', async () => {
+    await setupCount();
+    const active = labelOf('Unread');
+    const inactive = labelOf('Read');
+    expect(active.textContent).toContain('Unread');
+    expect(inactive.textContent).toContain('Read');
+
+    const activeCount = countIn(active, '4');
+    const inactiveCount = countIn(inactive, '5');
+    expect(activeCount, 'count element not found').toBeTruthy();
+    expect(inactiveCount, 'count element not found').toBeTruthy();
+    for (const count of [activeCount!, inactiveCount!]) {
+      expect(count).not.toBe(active);
+      expect(count.classList.contains('text-(--text-4)')).toBe(true);
+      expect(count.classList.contains('font-normal')).toBe(true);
+      expect(count.classList.contains('tabular-nums')).toBe(true);
+    }
+    // The active label is dark; the count must not inherit that color.
+    expect(active.classList.contains('text-(--text)')).toBe(true);
+  });
+
+  it('renders no count element for an option without count', async () => {
+    await setupCount();
+    const all = labelOf('All');
+    expect(all.children.length).toBe(0);
+    expect(all.textContent?.trim()).toBe('All');
+  });
+});
 
 describe('UI kit', () => {
   beforeAll(() => {
@@ -363,5 +440,37 @@ describe('UI kit variants', () => {
     expect($('#mi-tall')!.className).toContain('min-h-11');
     expect($('#mi-link')!.className).toContain('text-(--accent)');
     expect($('#mi-link')!.className).toContain('w-auto');
+  });
+});
+
+// FR-9 (notifications review-updates): the selectors' text is at least 4.5:1, so none of it uses --text-muted (about 3.0:1).
+describe('UI kit selectors contrast', () => {
+  beforeAll(() => {
+    Element.prototype.scrollIntoView ??= () => undefined;
+  });
+
+  async function settle(fixture: { whenStable(): Promise<unknown> }) {
+    await fixture.whenStable();
+    await new Promise((r) => setTimeout(r, 30));
+    await fixture.whenStable();
+  }
+
+  it('qa-select (tag, group, search) and qa-multi-select (group, search, muted placeholder) never use --text-muted, closed or open', async () => {
+    const fixture = TestBed.createComponent(HostContrast);
+    fixture.autoDetectChanges();
+    await fixture.whenStable();
+    // Closed: the triggers, the tag next to the chosen value and the empty-value placeholder.
+    expect(document.body.innerHTML).not.toContain('--text-muted');
+
+    for (const trigger of ['qa-select button[role="combobox"]', 'qa-multi-select button']) {
+      document.querySelector<HTMLElement>(trigger)!.click();
+      await settle(fixture);
+      // The open panel is in an overlay outside the component: its group headings and search placeholder.
+      expect(document.body.textContent).toContain(trigger.startsWith('qa-select') ? 'Sub-timelines' : 'Review');
+      expect(document.querySelector('input[placeholder]'), 'search input').toBeTruthy();
+      expect(document.body.innerHTML).not.toContain('--text-muted');
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await settle(fixture);
+    }
   });
 });
