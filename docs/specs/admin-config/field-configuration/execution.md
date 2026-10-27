@@ -576,9 +576,10 @@ spawns (T-9 total): implementer 1 worker, resumed twice. The host reported 39 ca
   - preview: `basedOn 1`, 0 changes.
   - a further publish with revision 2 → 409 `FIELD_CONFIG_NOTHING_TO_PUBLISH`.
 - **Finding (to investigate):** the very first `GET /cycles/34/field-config` (cold catalog for 2026) hung for more than 45 s on two concurrent clients, without the 503 that NFR-6 bounds at 10 s. The next calls answered in 0.1–0.3 s. Possible causes: the per-year in-flight fetch, a slow Reporting body read, or the TEST proxy. Server logs are needed (requestIds unavailable, because the clients timed out).
-- Leftover data on TEST: cycle 34 (2026, draft), draft revision 2 with 3 items, version 1 (504 items), one audit row expected.
+- Leftover data on TEST: cycle 34 (2026, draft), draft revision 2 with 3 items, version 1 (504 items), one audit row.
+- **Audit count (back lead, 2026-10-27, SQL on the TEST database):** `SELECT COUNT(*) FROM field_config_audit_events WHERE cycle_id = 34` → **1**. One publication, one audit row: the four losers wrote nothing.
 
 **Why T-11 stays `[~]`**
 1. **Disqualifier:** "a token or key that passed through chat". The admin token was pasted in chat by the back lead, who explicitly asked the Leader to run the test. Closing T-11 needs the back lead to waive this, or to re-run with a token from their own shell.
-2. **Not verified over HTTP:** exactly **one** audit row for cycle 34. The back lead should check with `SELECT COUNT(*) FROM field_config_audit_events WHERE cycle_id = 34;` (expected 1), and `SELECT number FROM field_config_versions WHERE cycle_id = 34;` (expected only 1).
+2. ~~Audit row count~~ — **verified 2026-10-27: 1 row.** The HTTP view already shows that version 2 does not exist; `SELECT number FROM field_config_versions WHERE cycle_id = 34;` (expected only 1) is an optional extra check.
 3. PI-7 MySQL checks are still open: the driver `timezone` round-trip; a concurrent first `ensureDraft`; the 1213 path.
