@@ -20,7 +20,7 @@ T-1, T-2 and T-3 are independent (different files). T-4 needs T-3's model. T-5 n
 ---
 
 ## T-1: Add an optional grey count to `qa-segmented`
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** S
 - **Depends on:** none
 - **Requirements:** FR-2 (Scenario: Unread only — "the switch reads 'Unread 4' with the count as a plain grey number"); FR-9 (Scenario: Widths and themes — contrast ≥ 4.5:1 for the count)
@@ -37,30 +37,30 @@ T-1, T-2 and T-3 are independent (different files). T-4 needs T-3's model. T-5 n
 - **Skills:** angular-developer, tailwind-design-system
 
 ## T-2: Make Results re-read its filters on every navigation to it
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** none
 - **Requirements:** FR-5 (Scenario: Stage notification to Results — "AND IT MUST be a deep link: opening the same URL in a new tab shows the same filter and count"; the same-URL case after a manual filter change); NFR-4
 - **Design refs:** design.md § 8 *Results re-reads its filters on navigation*, DD-11, P-16, P-23, P-24, P-26, P-27
 - **Scope:** `client/src/app/pages/workspace/results/results-view.ts`: on every `NavigationEnd` whose path is `/results`, re-seed `timelineId`, `stages`, `search`, `programs`, `types`, `assessors`, `statuses` from that event's URL with the existing allowed-value rules (`listParam`, timeline fallback). First load unchanged. Results must **not** write to the URL. Not touched: `qa-shell.*`, `app.config.ts`, `results-view.html` (unless a test id is needed), `results.mock.ts`.
-- **Tests:** new `client/src/app/pages/workspace/results/results-view.spec.ts` with the real router (`provideRouter` with a `results` route): (a) open `/results?stage=r1-two`, then navigate to `/results?stage=r2-assessed` → "Showing … of N results" shows the new N; (b) open `/results?stage=r1-two`, change the stage filter by hand (set the signal through the component's own setter or menu), navigate to `/results?stage=r1-two` with `onSameUrlNavigation: 'reload'` → the count returns to the `r1-two` count; (c) after (a) and (b), `router.url` never changed except by the test's own navigations (no URL writes).
+- **Tests:** new `client/src/app/pages/workspace/results/results-view.spec.ts` with the real router (`provideRouter` with a `results` route): (a) open `/results?stage=r1-two`, then navigate to `/results?stage=r2-assessed` → the paginator total (`qa-pagination`, `results-view.html:69`) shows the new N; (b) open `/results?stage=r1-two`, change the stage filter by hand (set the signal through the component's own setter or menu), navigate to `/results?stage=r1-two` with `onSameUrlNavigation: 'reload'` → the count returns to the `r1-two` count; (c) after (a) and (b), `router.url` never changed except by the test's own navigations (no URL writes).
 - **Verification:** `cd client && npx ng test --watch=false --include=src/app/pages/workspace/results/results-view.spec.ts && npx ng build`
 - **Falsifier:** remove the `NavigationEnd` re-seed (keep only the snapshot) → (a) and (b) red with the old count; add a `router.navigate` that writes filters to the URL → (c) red.
 - **Red run:** run (a) and (b) on the current code before the change: both fail on the count assertion (old N stays) — quote it in `execution.md`.
-- **Disqualifier:** a test that re-creates the component for each URL (new `TestBed` fixture per navigation) never exercises reuse, so its green proves nothing; a test that reads the signal directly instead of the rendered "Showing … of N" text does not prove what she sees.
+- **Disqualifier:** a test that re-creates the component for each URL (new `TestBed` fixture per navigation) never exercises reuse, so its green proves nothing; a test that reads the signal directly instead of the rendered paginator total does not prove what she sees.
 - **Consumers:** `grep -rn "ResultsView\|results-view" client/src --include=*.spec.ts` → 0 hits (P-16); Overview deep links `ov-cycle-hero.ts`, `ov-attention.ts`, `ov-work.ts`, `overview-view.ts` (navigate to `/results?...` from another route — must keep working, checked in T-7)
 - **Review:** full — behavior change in a routed view that every Overview link reaches
 - **Done when:** (a), (b), (c) green; build green; no file outside Scope changed; the accepted change "sidebar Results link shows the unfiltered list" (design.md reversion challenge (e)) is noted in `execution.md`.
 - **Skills:** angular-developer, tdd
 
 ## T-3: Add the notification model, mock and store
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** none
 - **Requirements:** FR-3 (closed set of 9 types; "IT MUST use the QA stage words … exactly"); FR-4 (Scenario: Many results reach a stage — "BUT it must NOT list 18 separate notifications"); FR-5 (sentence's total = target count); FR-7 (Scenarios: Open one; Mark all as read incl. "IT MUST be a no-op … when nothing is unread"; Reload in the mock phase); FR-8 (Scenario: Loading and error — "IT MUST be possible to show both states with the mock"); NFR-3; NFR-4
 - **Design refs:** design.md § 5 (data model, per-type table and rules), § 8 *Sentences*, DD-1, DD-2, DD-3, DD-6, DD-8, DD-9, DD-12, P-4…P-7, P-17, P-18, P-25
 - **Scope:** new `client/src/app/pages/workspace/notifications/notifications.model.ts`, `notifications.mock.ts`, `notifications-store.ts`. The mock has 9–12 entries covering all 9 types, mock date 17 Jul 2026, `total` computed from `RESULTS` with Results' rules, `delta` authored, single-result codes from `review.mock.ts` excluding `QA-2026-0806` and `QA-2026-0803`. The store is a `@Service()` root service: `state`, `items`, `unreadCount`, `load()` (dynamic import of the mock), `retry()`, `markRead(id)`, `markAllRead()`, `simulate(state)` (a simulated state is not overwritten by a later `load()` resolving). Not touched: `results.mock.ts`, `review.mock.ts`, `overview.mock.ts`.
-- **Tests:** new `notifications.mock.spec.ts`: (a) for every entry with a list target, render `ResultsView` at the target URL and assert "Showing … of `total`"; (b) the target's `timeline` parameter equals `timelineId` and is absent exactly when `timelineId` is `all`; (c) every Stage, Quality assessed and At risk sentence contains its `QA_STAGE_LABELS` words exactly; (d) single-result codes exist in `review.mock.ts` and are not `Automatic`; (e) Load `delta` = `total`; (f) Waiting `total` = 212 (the Overview figure); (g) types used ⊆ the 9 types and every type appears; (h) Stage entries use only `r1-one`, `r1-two`, `r2-assessed`. New `notifications-store.spec.ts`: (i) `unreadCount` after `markRead`; (j) `markAllRead` twice is a no-op without error; (k) `simulate('error')` before `load()` resolves stays `error`; (l) `retry()` from `error` reaches `ready`.
+- **Tests:** new `notifications.mock.spec.ts`: (a) for every entry with a list target, render `ResultsView` at the target URL and assert the rendered paginator total equals `total`; (b) the target's `timeline` parameter equals `timelineId` and is absent exactly when `timelineId` is `all`; (c) every Stage, Quality assessed and At risk sentence contains its `QA_STAGE_LABELS` words exactly; (d) single-result codes exist in `review.mock.ts` and are not `Automatic`; (e) Load `delta` = `total`; (f) Waiting `total` = 212 (the Overview figure); (g) types used ⊆ the 9 types and every type appears; (h) Stage entries use only `r1-one`, `r1-two`, `r2-assessed`. New `notifications-store.spec.ts`: (i) `unreadCount` after `markRead`; (j) `markAllRead` twice is a no-op without error; (k) `simulate('error')` before `load()` resolves stays `error`; (l) `retry()` from `error` reaches `ready`.
 - **Verification:** `cd client && npx ng test --watch=false --include=src/app/pages/workspace/notifications/notifications.mock.spec.ts --include=src/app/pages/workspace/notifications/notifications-store.spec.ts && npx ng build`
 - **Falsifier:** change one Stage entry's `total` by +1 (or type it as the mockup's 71 instead of computing it) → (a) red; give a Program response entry `timelineId: 'annual'` → (b) red; write "have now been assessed" instead of the label words → (c) red; use `QA-2026-0377` → (d) red; let `load()` set `ready` unconditionally → (k) red.
 - **Red run:** with empty exports in place, (a)…(l) fail on their assertions — quote the failing lines in `execution.md`.
@@ -71,7 +71,7 @@ T-1, T-2 and T-3 are independent (different files). T-4 needs T-3's model. T-5 n
 - **Skills:** angular-developer, tdd
 
 ## T-4: Build the notification row and list
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-3
 - **Requirements:** FR-3 (Scenario: Reading a notification — bold subject, meta "type · timeline · time", "BUT it must NOT put icons before the type or the sentence"; Scenario: At risk — red only for At risk, "BUT it must NOT color any other type, sentence or count red"); FR-2 (day groups Today / Yesterday / Earlier, newest first); FR-8 (Scenarios: Nothing unread; Filters match nothing; Loading and error — placeholder rows of the same height, error copy and "Try again"); FR-9 (unread dot has a text equivalent)
@@ -88,7 +88,7 @@ T-1, T-2 and T-3 are independent (different files). T-4 needs T-3's model. T-5 n
 - **Skills:** angular-developer, tailwind-design-system, frontend-design
 
 ## T-5: Add the bell and its panel to the top bar
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-1, T-2, T-3, T-4
 - **Requirements:** FR-1 (all three scenarios, incl. "BUT it must NOT show the number as a colored badge", "AND IT MUST keep the existing top-bar controls … in place and working", "BUT it must NOT leave an empty gap"); FR-2 (Scenarios: Open and close — focus moves in, Escape / outside click / bell close and return focus, "BUT it must NOT navigate away or lose the page's state"; Unread only; View all; Panel on a phone); FR-5 (Scenario: Activating the row — target opens and the panel closes); FR-7 (Scenario: Open one, from the panel); FR-9 (Scenario: Keyboard path, "BUT it must NOT trap focus after the panel closes")
@@ -105,12 +105,12 @@ T-1, T-2 and T-3 are independent (different files). T-4 needs T-3's model. T-5 n
 - **Skills:** angular-developer, tailwind-design-system, frontend-design
 
 ## T-6: Add the Notifications page and its route
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-1, T-3, T-4
 - **Requirements:** FR-6 (all three scenarios, incl. applied filters removable, case-insensitive search, "BUT it must NOT download the page's code first" for users without access); FR-7 (Scenario: Mark all as read on the page, and the bell / panel / page agree); FR-8 (page states, incl. the `?mock=` switch); FR-2 (Unread view on the page); NFR-2 (page lazy loaded)
 - **Design refs:** design.md § 8 *Route*, *Page*, DD-7, DD-9, P-3, P-20
-- **Scope:** new `notifications-view.ts` + `notifications-view.html`: header, "Viewing All timelines ⌄" (`qa-select appearance="inline"`), search, Type (`qa-multi-select`), All / Unread (`qa-segmented` with `count`, `layout="fill"` below 640 px), applied-filter chips + "Clear filters", list `variant="page"`, "Mark all as read", `?mock=loading|error`. **Additive only** in Yeck's `client/src/app/app.routes.ts`: one `view('notifications', 'Notifications · PRMS Quality Assurance', { permission: Permission.ADMIN_ACCESS }, …)` child of the shell route, no `nav`. New `client/src/app/app.routes.spec.ts`.
+- **Scope:** new `notifications-view.ts` + `notifications-view.html`: header, "Viewing All timelines ⌄" (`qa-select appearance="inline"`), search, Type (`qa-multi-select`), All / Unread (`qa-segmented` with `count`, `layout="fill"` below 640 px), applied-filter chips + "Clear filters", list `variant="page"`, "Mark all as read", `?mock=loading|error`. **Additive only** in Yeck's `client/src/app/app.routes.ts`: one `view('notifications', 'Notifications · PRMS Quality Assurance', { permission: Permission.ADMIN_ACCESS }, …)` child of the shell route, no `nav`. New `client/src/app/app.routes.spec.ts`. **Amended 2026-10-27 (Juanpa):** also `client/src/app/ui/select/qa-select.ts` and `client/src/app/ui/multi-select/qa-multi-select.ts`, design-only — every `--text-muted` text (tags, group headings, search and trigger placeholders) becomes `--text-4`, app-wide.
 - **Tests:** new `notifications-view.spec.ts`: (a) timeline "July 2026 sub-timeline" + type "Load" → only matching rows, each filter shown as a removable chip; (b) search "sp09" matches "SP09" (case-insensitive) in sentence, subject or timeline; (c) "Unread" shows only unread rows with the grey count; (d) "Mark all as read" → unread count 0 in the store (the bell reads the same store); (e) `?mock=loading` shows 4 placeholder rows, `?mock=error` shows the error and "Try again" recovers. New `app.routes.spec.ts`: (f) the `notifications` route exists under the shell route with `data.permission === ADMIN_ACCESS`, `canMatch` includes `permissionMatch`, and it has no `nav`.
 - **Verification:** `cd client && npx ng test --watch=false --include=src/app/pages/workspace/notifications/notifications-view.spec.ts --include=src/app/app.routes.spec.ts --include=src/app/core/access/nav-items.spec.ts && npx ng build`
 - **Falsifier:** add `nav: { label: 'Notifications', … }` to the route → `nav-items.spec.ts` red and (f) red; make search case-sensitive → (b) red; drop `permission` from the route data → (f) red.
@@ -122,7 +122,7 @@ T-1, T-2 and T-3 are independent (different files). T-4 needs T-3's model. T-5 n
 - **Skills:** angular-developer, tailwind-design-system, frontend-design
 
 ## T-7: Check in the browser and update the docs
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** S
 - **Depends on:** T-5, T-6
 - **Requirements:** FR-2 (Scenario: Panel on a phone — no horizontal scroll, actions ≥ 40 px); FR-9 (Scenarios: Keyboard path; Widths and themes — no horizontal scroll, no overlap, contrast ≥ 4.5:1, light and dark); FR-1 (no gap for a non-admin, measured); FR-6 (Scenario: No access, in the browser); FR-5 (Overview deep links still open the right count after T-2); NFR-1; NFR-2

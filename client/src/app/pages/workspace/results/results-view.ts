@@ -1,5 +1,7 @@
 import { Component, ElementRef, computed, inject, linkedSignal, signal, viewChild } from '@angular/core';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { ActivatedRoute, NavigationEnd, PRIMARY_OUTLET, ParamMap, Router, RouterLink } from '@angular/router';
+import { filter } from 'rxjs';
 import { HlmInput } from '@spartan/input';
 import { QaButtonImports, QaMultiSelect, QaPagination, QaSelectImports, QaSelectOption } from '../../../ui';
 import { TableSort } from '../../../core/list/table-sort';
@@ -46,6 +48,20 @@ function listParam(value: string | null, allowed: readonly string[]): readonly s
     .filter((v) => allowed.includes(v));
 }
 
+/** The filters a /results URL carries, with the allowed-value rules (unknown timeline → "all", unknown list values dropped). */
+function readFilters(params: ParamMap) {
+  const timeline = params.get('timeline');
+  return {
+    timelineId: TIMELINES.some((t) => t.id === timeline) ? timeline! : 'all',
+    stages: listParam(params.get('stage'), QA_STAGES),
+    search: params.get('q') ?? '',
+    programs: listParam(params.get('program'), PROGRAM_CODES),
+    types: listParam(params.get('type'), RESULT_TYPES),
+    assessors: listParam(params.get('assessor'), ASSESSOR_NAMES),
+    statuses: listParam(params.get('status'), STATUS_ORDER),
+  };
+}
+
 /**
  * "Results in QA": every result under assessment, filtered by search, timeline (a picker, since sub-timelines can grow
  * in number), QA stage (grouped by round), program, type and assessor, with sorting.
@@ -57,10 +73,13 @@ function listParam(value: string | null, allowed: readonly string[]): readonly s
   imports: [QaButtonImports, HlmInput, RouterLink, QaMultiSelect, QaSelectImports, ResultsTable, QaPagination],
 })
 export class ResultsView {
-  private readonly params = inject(ActivatedRoute).snapshot.queryParamMap;
+  private readonly router = inject(Router);
+  private readonly initial = readFilters(inject(ActivatedRoute).snapshot.queryParamMap);
 
-  // Deep links (e.g. from the Overview): ?timeline=jul&stage=r1-one&program=…&type=…&assessor=…
+  // Deep links (e.g. from the Overview or a notification): ?timeline=jul&stage=r1-one&program=…&type=…&assessor=…
   // ?status=… is kept for the Overview's "waiting on a program" link; it has no menu and shows as an applied filter.
+  // The filters are read from the URL on load and again on every navigation to /results (a notification opened while
+  // this view is on screen reuses it); changing a filter by hand only sets the signals and never writes the URL.
 
   // ---------- Timeline ----------
   /** "All timelines", then the official timeline and the sub-timelines, each with its results under assessment. */
@@ -76,7 +95,7 @@ export class ResultsView {
         count: RESULTS.filter((r) => r.batch === t.name && qaStage(r)).length.toLocaleString('en-US'),
       })),
   ];
-  protected readonly timelineId = signal(TIMELINES.some((t) => t.id === this.params.get('timeline')) ? this.params.get('timeline')! : 'all');
+  protected readonly timelineId = signal(this.initial.timelineId);
   private readonly timeline = computed(() => TIMELINES.find((t) => t.id === this.timelineId()) ?? null);
   /** Results of the selected timeline that are under assessment (automatic ones left out). */
   private readonly inTimeline = computed(() => {
@@ -86,15 +105,38 @@ export class ResultsView {
   protected readonly timelineEmpty = computed(() => this.inTimeline().length === 0);
 
   // ---------- Menus ----------
-  protected readonly stages = signal(listParam(this.params.get('stage'), QA_STAGES));
+  protected readonly stages = signal(this.initial.stages);
   protected readonly programOptions = PROGRAM_CODES.map((c) => ({ value: c, label: `${c} ${PROGRAMS[c]}` }));
   protected readonly typeOptions = RESULT_TYPES.map((t) => ({ value: t, label: t }));
   protected readonly assessorOptions = ASSESSOR_NAMES.map((a) => ({ value: a, label: a }));
-  protected readonly search = signal(this.params.get('q') ?? '');
-  protected readonly programs = signal(listParam(this.params.get('program'), PROGRAM_CODES));
-  protected readonly types = signal(listParam(this.params.get('type'), RESULT_TYPES));
-  protected readonly assessors = signal(listParam(this.params.get('assessor'), ASSESSOR_NAMES));
-  protected readonly statuses = signal(listParam(this.params.get('status'), STATUS_ORDER));
+  protected readonly search = signal(this.initial.search);
+  protected readonly programs = signal(this.initial.programs);
+  protected readonly types = signal(this.initial.types);
+  protected readonly assessors = signal(this.initial.assessors);
+  protected readonly statuses = signal(this.initial.statuses);
+
+  constructor() {
+    // Re-seed from the event's own URL: the router reuses this view for a new ?query, and a same-URL reload leaves
+    // `snapshot` untouched, so neither would reach the signals above otherwise.
+    this.router.events
+      .pipe(
+        filter((event): event is NavigationEnd => event instanceof NavigationEnd),
+        takeUntilDestroyed(),
+      )
+      .subscribe((event) => {
+        const url = this.router.parseUrl(event.urlAfterRedirects);
+        const segments = url.root.children[PRIMARY_OUTLET]?.segments ?? [];
+        if (segments.length !== 1 || segments[0].path !== 'results') return;
+        const f = readFilters(url.queryParamMap);
+        this.timelineId.set(f.timelineId);
+        this.stages.set(f.stages);
+        this.search.set(f.search);
+        this.programs.set(f.programs);
+        this.types.set(f.types);
+        this.assessors.set(f.assessors);
+        this.statuses.set(f.statuses);
+      });
+  }
 
   protected readonly sort = new TableSort<SortKey>();
   protected readonly sortKey = this.sort.key;

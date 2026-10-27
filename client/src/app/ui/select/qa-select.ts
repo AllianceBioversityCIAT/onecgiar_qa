@@ -120,7 +120,7 @@ export class QaSelectFooter {}
           >
             <span class="min-w-0 truncate">{{ display() }}</span>
             @if (selected()?.tag; as tag) {
-              <span class="flex-none rounded-full bg-(--surface-3) px-1.5 py-px text-(length:--fs-10) font-semibold text-(--text-muted)">{{ tag }}</span>
+              <span class="flex-none rounded-full bg-(--surface-3) px-1.5 py-px text-(length:--fs-10) font-semibold text-(--text-4)">{{ tag }}</span>
             }
             <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flex-none"><path d="M6 9l6 6 6-6" /></svg>
           </button>
@@ -130,12 +130,12 @@ export class QaSelectFooter {}
           brnSelectTrigger
           [id]="triggerId() ?? autoTriggerId"
           [attr.aria-label]="label() + ': ' + display()"
-          class="flex h-auto min-h-9 max-sm:min-h-10 w-full min-w-0 cursor-pointer items-center gap-2 rounded-lg border border-(--border) bg-(--field-bg) px-3 text-left text-(length:--fs-14) text-(--text) outline-none hover:border-(--border-strong) focus-visible:shadow-(--focus-ring) disabled:cursor-not-allowed disabled:opacity-50 data-[placeholder]:text-(--text-muted)"
+          class="flex h-auto min-h-9 max-sm:min-h-10 w-full min-w-0 cursor-pointer items-center gap-2 rounded-lg border border-(--border) bg-(--field-bg) px-3 text-left text-(length:--fs-14) text-(--text) outline-none hover:border-(--border-strong) focus-visible:shadow-(--focus-ring) disabled:cursor-not-allowed disabled:opacity-50 data-[placeholder]:text-(--text-4)"
           [class]="triggerClass()"
         >
           <span class="min-w-0 truncate">{{ display() }}</span>
           @if (selected()?.tag; as tag) {
-            <span class="flex-none rounded-full bg-(--surface-3) px-1.5 py-px text-(length:--fs-10) font-semibold text-(--text-muted)">{{ tag }}</span>
+            <span class="flex-none rounded-full bg-(--surface-3) px-1.5 py-px text-(length:--fs-10) font-semibold text-(--text-4)">{{ tag }}</span>
           }
           <svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="ml-auto flex-none"><path d="M6 9l6 6 6-6" /></svg>
         </button>
@@ -160,7 +160,7 @@ export class QaSelectFooter {}
               [value]="query()"
               (input)="onQuery($event)"
               (keydown)="onSearchKey($event)"
-              class="box-border h-8 w-full flex-none rounded-md border border-(--border) bg-(--field-bg) px-2.5 py-0 text-(length:--fs-13) text-(--text) shadow-none outline-none placeholder:text-(--text-muted) focus-visible:border-(--primary)"
+              class="box-border h-8 w-full flex-none rounded-md border border-(--border) bg-(--field-bg) px-2.5 py-0 text-(length:--fs-13) text-(--text) shadow-none outline-none placeholder:text-(--text-4) focus-visible:border-(--primary)"
             />
           }
           <div class="min-h-0 flex-1 overflow-y-auto" [style.max-height]="listMaxHeight()">
@@ -169,7 +169,7 @@ export class QaSelectFooter {}
                 @let option = row.option;
                 @let on = option.value === value();
                 @if (row.heading) {
-                  <div role="presentation" class="flex-none px-2 pt-2 pb-1 text-(length:--fs-10) font-semibold tracking-[0.08em] text-(--text-muted) uppercase">
+                  <div role="presentation" class="flex-none px-2 pt-2 pb-1 text-(length:--fs-10) font-semibold tracking-[0.08em] text-(--text-4) uppercase">
                     {{ row.heading }}
                   </div>
                 }

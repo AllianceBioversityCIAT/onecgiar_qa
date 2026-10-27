@@ -95,6 +95,9 @@ export const routes: Routes = [
         },
         () => import('./pages/workspace/assessors/assessors-view').then((m) => m.AssessorsView),
       ),
+      view('notifications', 'Notifications · PRMS Quality Assurance', { permission: Permission.ADMIN_ACCESS }, () =>
+        import('./pages/workspace/notifications/notifications-view').then((m) => m.NotificationsView),
+      ),
     ],
   },
   { path: '**', redirectTo: '' },
