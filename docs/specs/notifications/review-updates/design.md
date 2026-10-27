@@ -81,7 +81,7 @@ No persistence. The mock's in-memory shape (`notifications.model.ts`):
 | `type` | One of the 9 types of FR-3 | Closed union |
 | `subject` | Bold start of the sentence | — |
 | `text` | Rest of the sentence | Stage words by the rule in § 8 *Sentences* (DD-6) |
-| `timelineId` | `annual` · `jul` · `sep` · `all` | `all` is not a `TIMELINES` id: it means "every timeline"; such items show only under "All timelines" |
+| `timelineId` | a `TIMELINES` id (`annual`, `jul`, `kp`, `sp03`, `sep` at HEAD `2904c55`) or `all` | `all` is not a `TIMELINES` id: it means "every timeline"; such items show only under "All timelines" |
 | `day`, `time` | Day group (`today` · `yesterday` · `earlier`) and display time | Mock date 17 Jul 2026, same as the mockup |
 | `unread` | Initial read state | Copied into the store's signals |
 | `target` | `{ path, queryParams? }` | Per-type table below |
@@ -97,13 +97,13 @@ No persistence. The mock's in-memory shape (`notifications.model.ts`):
 | Quality assessed | timeline, day | that timeline | View results | `/results?timeline=<id>&stage=quality-assessed` | "`<total>` results are Quality assessed." + "`<delta>` since yesterday." |
 | Program response | program, day | `all` | View results | `/results?program=<code>&status=Answered` | "`<code>` has answered `<total>` returned results." — results, not comments |
 | Waiting | condition | `all` | View results | `/results?status=Awaiting%20response` | "`<total>` returned results are waiting on a program." |
-| At risk | step, timeline | that timeline | View results | `/results?timeline=<id>&stage=<stage>` — the stage is named in the mock entry (`r2-pending` for "Step 5") | "Step `<n>` of `<timeline>` closes in `<days>` with `<total>` results still `<Stage>` in `<Round>`." |
+| At risk | step, timeline | that timeline | View results | `/results?timeline=<id>&stage=<stage>` — the stage is named in the mock entry (`r2-pending` for "Step 4", the broker step closing on 23 Jul in the timeline data at `2904c55`) | "Step `<n>` of `<timeline>` closes in `<days>` with `<total>` results still `<Stage>` in `<Round>`." |
 | Load | first load of a timeline (later loads: OQ-7) | that timeline | View results | `/results?timeline=<id>` | "`<timeline>` now has `<total>` results in QA." + "`<delta>` loaded today." |
 | Escalation | result | the result's timeline | View result | `/results/<code>` | "`<code>` was escalated to the third-party broker." — no number |
 | Third-party broker | result | the result's timeline | View result | `/results/<code>` | "`<code>` moves to PPU." — no number |
 | PPU | result | the result's timeline | View result | `/results/<code>` | "`<code>` was marked Done by PPU." — no number |
 
-Rules the mock spec asserts: for every entry with a list target (`/results` with query parameters), the target's `timeline` parameter equals `timelineId` and is absent exactly when `timelineId` is `all`, and the sentence contains `total`; for a Load entry, `delta` equals `total` (a first load); for the Waiting entry, `total` also equals the Overview's waiting figure (212, `overview.mock.ts:234`); `delta` and qualifiers (days left, "since yesterday", "loaded today") are never compared; single-result codes exist in `review.mock.ts` and are not `Automatic` (`QA-2026-0806` and `QA-2026-0803` are excluded, P-25).
+Rules the mock spec asserts: for every entry with a list target (`/results` with query parameters), the target's `timeline` parameter equals `timelineId` and is absent exactly when `timelineId` is `all`, and the sentence contains `total`; for a Load entry, `delta` equals `total` (a first load); for the Waiting entry, `total` also equals the Overview's waiting figure (212, `overview.mock.ts:186`, `STATUS_COUNTS`); `delta` and qualifiers (days left, "since yesterday", "loaded today") are never compared; single-result codes exist in `review.mock.ts` and are not `Automatic` (`QA-2026-0806` and `QA-2026-0803` are excluded, P-25).
 
 "Show progress" → Cycle is dropped: Cycle's figures come from its own mock and Cycle reads no query parameters, so its numbers could not match the sentence (P-19). At risk opens the Results list it talks about instead. FR-5 is amended accordingly.
 
@@ -147,7 +147,7 @@ None in this phase.
 - Context line "Viewing All timelines ⌄" — `qa-select appearance="inline"` with All timelines + `TIMELINES`.
 - Filter row: search (same input styling as Results), Type (`qa-multi-select`, the 9 types), spacer, All / Unread (`qa-segmented` with `count`; `layout="fill"` below 640 px so segments reach 40 px with the track). Applied filters show as removable chips with "Clear filters", as in Results.
 - One card, day groups with eyebrow labels (11 px, uppercase, 0.08em, **`--text-4`**), lines only between rows.
-- States: loading → 4 placeholder rows of row height; error → "Couldn't load notifications." + "Try again" (`secondary`); empty Unread → "No unread notifications" + "Show all"; no match → "No notifications match these filters" + "Clear filters".
+- States: loading → 4 placeholder rows of row height; error → "Couldn't load notifications." + "Try again" (`secondary`); empty Unread → "No unread notifications" + "Show all"; no match → "No notifications match these filters" + "Clear filters"; nothing at all → "No notifications yet" (no action). The list takes the kind as an input; the parent picks it.
 - Mock switch: `?mock=loading` or `?mock=error` on the page calls `store.simulate()` (DD-9).
 
 ### Row
@@ -170,7 +170,7 @@ Results must **not** write its filters to the URL: every URL write is a router n
 1. **Results re-seeds on navigation** (Juanpa's own file, P-12): on every `NavigationEnd` whose path is `/results`, the filter signals (timeline, stage, search, program, type, assessor, status) are re-seeded from that event's URL, with the same allowed-value rules as today. On first load the behavior is unchanged. Manual filter changes still only set signals, as today.
 2. **Notifications navigate with a same-URL reload** (new code): the row and its action call the router with `onSameUrlNavigation: 'reload'` for that one navigation (P-28), so opening the same target twice still produces a `NavigationEnd`. The URL string does not change, so the shell's URL signal keeps its value and the sidebar keeps its state (P-27).
 
-`qa-shell.ts` is not touched. `results-view.spec.ts` covers: an open view navigated from one `?stage=` to another updates "Showing … of N results"; after a manual filter change, a same-URL reload navigation to the original target restores its count. `notifications-bell.spec.ts` covers: the sidebar's collapsed state survives opening a notification whose target is the current URL. Results' route has no unsaved-changes form, so these navigations raise no guard prompt (P-26).
+`qa-shell.ts` is not touched. `results-view.spec.ts` covers: an open view navigated from one `?stage=` to another updates the paginator total; after a manual filter change, a same-URL reload navigation to the original target restores its count. `notifications-bell.spec.ts` covers: the sidebar's collapsed state survives opening a notification whose target is the current URL. Results' route has no unsaved-changes form, so these navigations raise no guard prompt (P-26).
 
 ### `qa-segmented` count (S-6)
 
@@ -232,7 +232,7 @@ Blast-radius triggers: `live-path` (activate the bell; open `/notifications`; op
 | P-8 | Spartan `BrnPopover` is already in use, with `role: null` on the pane | existence | `client/src/app/ui/select/qa-select.ts:20`, `:86`; `client/src/app/pages/workspace/assessors/role-cell.ts:3-20` | 93dfe10 | DD-10 needs another primitive — Low | — |
 | P-9 | `QaShell` is lazy loaded, so the bell is not in the initial bundle | existence | `client/src/app/app.routes.ts:55`, `:58-60`; `client/src/app/pages/home/home.ts:2`, `:8` | 93dfe10 | NFR-2 measure changes — Low | — |
 | P-10 | Unit tests run with `@angular/build:unit-test`; a store spec exemplar exists | data-env | `client/angular.json:90`; `client/src/app/pages/workspace/assessors/assessors-store.spec.ts` | 93dfe10 | Test runner changes — Low | — |
-| P-11 | Results shows "Showing X of Y results", where Y is the match count | location | `client/src/app/pages/workspace/results/results-view.html:69` (`matchCount()`) | 93dfe10 | NFR-4 test reads another element — Low | — |
+| P-11 | Results shows its match count as the `qa-pagination` total (`[total]="matchCount()"`; amended at execute time, the "Showing X of Y" line was replaced by a paginator) | location | `client/src/app/pages/workspace/results/results-view.html:69`; `client/src/app/ui/pagination/qa-pagination.ts:38` | 2904c55 | NFR-4 test reads another element — Low | — |
 | P-12 | `qa-shell.*` and `app.routes.ts` carry commits by Yeck; `results-view.ts`, `qa-segmented.ts`, `review-view.ts`, `review.mock.ts` only by Juanpa | other | `git log --format='%an' -- <file> \| sort \| uniq -c` run on each file (judges could not re-run: no shell) | 93dfe10 | Changes to the Yeck files are additions only (allowed by team `CLAUDE.md` § 3.4); a logic change there would need Juanpa's written confirmation — Low | — |
 | P-13 | `BrnPopover` sets `autoFocus` and closes on Escape and outside click; focus returns to the trigger only when focus fell to the body; the trigger must be a `<button>` | data-env | `client/node_modules/@spartan-ng/brain/fesm2022/spartan-ng-brain-popover.mjs:18-25`, `:144`; `spartan-ng-brain-overlay.mjs:309-310`, `:464-475` | 93dfe10 | DD-10 adds focus handling — Low | — |
 | P-14 | Overlay content gets the QA tokens (light and `.dark`) only when its root carries `class="qa-tokens"` | data-env | `client/src/app/ui/tokens/qa-tokens.css:7`; `client/src/app/ui/tokens/qa-tokens.ts:24-29`; `qa-select.ts:146`; `role-cell.ts:36` (contradicted the first version in review, corrected) | 93dfe10 | Panel unstyled — High | — |

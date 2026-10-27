@@ -49,7 +49,8 @@
 ## 2026-10-22 · Juanpa · Notifications for the QA Admin (review updates)
 
 - **Idea:** a bell in the top bar and a Notifications page where María Julia (QA Admin) gets every update on the review of results: stages reached, program responses, escalations, TPB and PPU decisions, results that became Quality assessed, long waits, steps at risk and loads. In-app only; no email for now.
-- **Done** (branch `jp-design/mockup-completo`): mockup in Claude Design (project "QA Platform", `notifications/Notifications.dc.html`) and the proposal `docs/specs/notifications/review-updates/proposal.md`. No app code yet.
+- **Done** (branch `jp-design/mockup-completo`): mockup in Claude Design (project "QA Platform", `notifications/Notifications.dc.html`), the spec `docs/specs/notifications/review-updates/`, and, since 2026-10-27, a **provisional** front on mock data: the bell in the top bar (admins only), its panel and the `/notifications` page.
+- **Priority (Juanpa, 2026-10-27, from the team meeting):** not a priority. The section stays provisional; Juanpa will adjust it after the conversation with María Julia.
 - **Verdict:** 🟡 as a front-only screen on mock data; 🔴 for real data (needs a server module, the `comments` / `escalation` / `ingestion` specs, and a change to PRD § 5, which keeps notifications out of v1).
 - **What is needed:**
   1. Business (Santi / Ángel): decide whether in-app notifications for the ADMIN enter v1.
