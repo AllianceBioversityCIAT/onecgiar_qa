@@ -296,7 +296,7 @@ T-2 ─▶ T-3
 - **Skills:** cognitive-doc-design, api-design-principles
 
 ## T-8 (HITL): Apply `0006` and its down script on a local MySQL; back lead sign-off
-- **Status:** [ ]
+- **Status:** [~] — partially done; accepted as follow-up at archive (2026-10-27): migration verified on the dev database; the local down-script round-trip and the dev API read remain (`archive-summary.md`)
 - **Size:** S
 - **Depends on:** T-7
 - **Requirements:**
