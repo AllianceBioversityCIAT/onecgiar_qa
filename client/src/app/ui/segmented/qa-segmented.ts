@@ -12,8 +12,8 @@ export type QaSegmentedSize = 'default' | 'compact';
 
 /**
  * `inline` (default): intrinsic width, one row.
- * `fill`: takes the full available width with equal segments; when the container is narrower than
- * 23rem the options lay out as a 2-column grid instead of scrolling sideways.
+ * `fill`: takes the full available width with equal segments; with four or more options and a
+ * container narrower than 23rem they lay out as a 2-column grid instead of scrolling sideways.
  */
 export type QaSegmentedLayout = 'inline' | 'fill';
 
@@ -88,6 +88,8 @@ export class QaSegmented {
   protected readonly trackClass = computed(() => {
     const compact = this.size() === 'compact';
     const shape = compact ? 'gap-0.5 rounded-lg' : 'gap-[2px] rounded-[8px]';
+    // Three short options fit one row on a phone; four wrap to a 2×2 grid.
+    if (this.fill() && this.options().length <= 3) return `${shape} flex w-full items-center`;
     if (this.fill()) return `${shape} grid w-full grid-cols-2 @min-[23rem]:flex @min-[23rem]:items-center`;
     return `${shape} flex items-center overflow-x-auto ${compact ? 'h-[30px]' : 'h-8'}`;
   });
