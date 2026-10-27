@@ -27,7 +27,7 @@ T-2 ─▶ T-3
 ---
 
 ## T-1: Rome time helpers and the single zone constant
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** none
 - **Requirements:**
