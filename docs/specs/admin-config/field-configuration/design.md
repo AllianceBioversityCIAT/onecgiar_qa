@@ -5,7 +5,7 @@
 | | |
 |---|---|
 | Spec path | `docs/specs/admin-config/field-configuration` |
-| Requirements | `requirements.md` (FR-1…FR-14, NFR-1…NFR-8, S-1…S-13), approved 2026-10-26 |
+| Requirements | `requirements.md` (FR-1…FR-14, NFR-1…NFR-8, S-1…S-14; S-14 added at T-3), approved 2026-10-26 |
 | Depth | Full |
 | Approval Mode | gated |
 | Status | Approved at the design gate (back lead: "Continue", 2026-10-26; Review Design not chosen) |
@@ -48,19 +48,20 @@ server/src/admin-config/
 ├── admin-config.errors.ts                  (+ field-config errors)
 ├── AGENTS.md                               (named deliverable)
 └── field-config/                           (new)
-    ├── field-config.module.ts
+    ├── field-catalog.ports.ts              (FIELD_CATALOG_SOURCE port and catalog types)
+    ├── field-config.module.ts              (+ spec: wiring and the replay reader)
     ├── field-config.controller.ts
-    ├── field-config.service.ts
+    ├── field-config.service.ts             (+ spec)
     ├── field-config.store.ts               (port + Drizzle adapter)
-    ├── field-config.unit-of-work.ts
+    ├── field-config.unit-of-work.ts        (+ spec)
     ├── field-config-catalog.ts             (+ spec)
     ├── field-config-rules.ts               (+ spec)
     ├── field-config-versions.ts            (+ spec)
     ├── field-config-diff.ts                (+ spec)
     ├── reporting-qa-catalog.client.ts      (+ spec; FIELD_CATALOG_SOURCE adapter)
     ├── fixtures/reporting-qa-catalog-2026.json   (TEST catalog, 2026.30, key-free)
-    ├── dto/ (cycle-field-config-params, update-draft, publish)
-    └── models/ (field-config.model, preview.model, publish.model)
+    ├── dto/ (update-field-config-draft, publish-field-config, + dto spec; the route param reuses `CycleIdParams`, § 6)
+    └── models/ (field-config.model: view, preview and publish models in one file)
 server/src/users/catalogs/catalog-http.ts   (optional "not found" outcome, DD-4)
 server/src/common/error-codes.ts            (+3 top-level codes, +1 field code)
 server/src/database/drizzle/schema/field-config-*.ts (5 files), schema/index.ts
@@ -206,6 +207,8 @@ Subfields are not stored, so they follow their field (S-1).
   - `FIELD_CONFIG_REVISION_STALE` 409 "The draft changed after you reviewed it. Reload and review the changes again."
   - `FIELD_CONFIG_NOTHING_TO_PUBLISH` 409 "There are no changes to publish."
 - **Field code:** `NOT_ASSESSED`, bringing the pin at `error-codes.spec.ts:261-276` from 14 to 15 codes.
+- **Busy:** a write that loses a lock (MySQL 1213 deadlock or 1205 lock wait timeout) throws `FieldConfigBusyError` (`field-config.service.ts`) → 503 `SERVICE_UNAVAILABLE`. Nothing is committed and the service does not retry (KZ-admin-config--cycle-timelines-1); the client retries with the same idempotency key. *Amended at validation 2026-10-27; decided at T-7.*
+- **Duplicate version number:** a 1062 on UNIQUE (`cycle_id`, `number`) means another publication won the race; it is answered as `FIELD_CONFIG_REVISION_STALE`, like a lost conditional `UPDATE` (DD-6). *Amended at validation 2026-10-27.*
 - **Effective-query errors:** `FieldConfigTypeNotInTimelineError` and `FieldConfigNoVersionError`. They are thrown to in-process callers and have no HTTP route yet.
 - **Log:** `AdminConfigAction` gains `field_config_update`, `field_config_discard` and `field_config_publish` (`admin-config.context.ts:4-10`). One decision line per request, through a private `logged()` like `timelines.service.ts:810`.
 
@@ -237,7 +240,7 @@ No `client/` change (S-12). `front-contract.md` (FR-14) covers:
 | DD-2 | A version stores an option set for **every applicable field** at publish, unclassified as hidden | Store classified fields only and fill hidden from the catalog at read time | The effective query needs no catalog call, and a later catalog change cannot alter a published version (FR-12). About 504 rows per version (amended 2026-10-26 at T-2) | FR-8, FR-10, FR-12 |
 | DD-3 | Full snapshot per version (proposal option A) | Deltas, or one JSON document | One indexed read for the effective query; the CHECK enforces FR-4 on every row | FR-4, FR-10 |
 | DD-4 | A new catalog port and client per year, with a keyed cache. `catalog-http.ts` gains an optional "not found" outcome; existing callers keep "every non-2xx → 503" | Change `ReportingResultTypesClient` to take a year (its consumers rely on the current-year rule, S-11); widen `CachedCatalog` (one slot, `catalog.service.ts:27`) | The 404 for a missing year becomes a typed 409 instead of 503 (FR-2). Every `catalog-http` caller is a consumer (P-7) | FR-2, NFR-6 |
-| DD-5 | Version per timeline compares the **Rome date** of `published_at` with step 1's `opens_on` (`romeDate(publishedAt) < opensOn`) | Store the version on the timeline at its start (needs a job, or a write on read); compare UTC instants | No job and no write, and the answer for a started timeline never changes (published versions are immutable; *edit* FR-3 locks a started step 1). The opening day falls to the old version (S-5) | FR-9, NFR-4 |
+| DD-5 | Version per timeline compares the **Rome date** of `published_at` with step 1's `opens_on` (`romeDate(publishedAt) < opensOn`) | Store the version on the timeline at its start (needs a job, or a write on read); compare UTC instants | No job and no write, and the answer for a started timeline never changes (published versions are immutable; *edit* FR-3 locks a started step 1). The opening day falls to the old version (S-5). **Caveat (validation 2026-10-27):** *edit* FR-3 does not lock step 1 of a **held** timeline (its step 1 reads `upcoming`), so moving that step's `opensOn` later can take the timeline back to provisional. Low harm: a held timeline has no load, so nothing is reviewed under the old answer | FR-9, NFR-4 |
 | DD-6 | Publish concurrency: lock order cycle `FOR SHARE` → draft `FOR UPDATE`, conditional `UPDATE … WHERE revision = ?` decides by affected rows; UNIQUE (`cycle_id`, `number`) as a backstop | A pre-read check only; serializing on cycle `FOR UPDATE` (would block timeline edits, assign and remove) | Same guard as *edit* DD-6, not a retry loop (KZ-admin-config--cycle-timelines-1); HITL on MySQL proves it | FR-8, NFR-3 |
 | DD-7 | The preview and the publish compute receive and keep with the same pure function, from data read before the transaction | Recompute under the lock | The lists in the audit row are what the ADMIN saw. A timeline starting between preview and publish is caught by the clock read at publish, not the preview's | FR-7, FR-11 |
 | DD-8 | Finished timelines and timelines not covering a changed type are in neither list | List every timeline | The dialog shows only timelines the change could matter to | FR-7 |

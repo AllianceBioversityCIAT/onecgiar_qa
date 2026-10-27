@@ -1,6 +1,6 @@
 # Validation Report — Field configuration per cycle
 
-**Verdict: PASS with warnings. 0 FAIL, 10 WARN.** Every requirement is implemented and tested at clause level, and the build is green. Before `/akili-archive`, do the spec and doc touch-ups (R-1…R-4, about 30 min). R-5…R-7 are code, test and ops follow-ups. The most important one is R-5: a draft of 2,000 items probably gets a 413 from the 100 KB body limit.
+**Verdict: PASS with warnings. 0 FAIL, 10 WARN.** *Update 2026-10-27: R-1…R-5 are fixed (see `execution.md` → Remediation after validation). R-6 and R-7 remain follow-ups.* Every requirement is implemented and tested at clause level, and the build is green. Before `/akili-archive`, do the spec and doc touch-ups (R-1…R-4, about 30 min). R-5…R-7 are code, test and ops follow-ups. The most important one is R-5: a draft of 2,000 items probably gets a 413 from the 100 KB body limit.
 
 ## 1. Document Control
 

@@ -540,7 +540,7 @@ spawns (T-9 total): implementer 1 worker, resumed twice. The host reported 39 ca
 | PI-4 | **Recorded 2026-10-27** in TRD § 13. `upsertDraftItems` uses `VALUES()`, deprecated since MySQL 8.0.20 (`field-config.store.ts:397`) | TRD pending; revisit on a MySQL upgrade |
 | PI-5 | **Applied 2026-10-27.** `server/src/common/AGENTS.md:28`: add the third replay reader, whose stored target id is a **version id** | `staging` (shared guide) |
 | PI-6 | ~~Open question~~ **Answered by the back lead, 2026-10-26 ("Si"):** after the first publication and a discard, no field reads "unclassified" again (DD-2 + FR-6). This is intended. `front-contract.md` § 10 is updated | Closed |
-| PI-7 | **Partly verified at T-11:** the publish race, and `published_at` stored to the whole second. Still open: the driver `timezone` round-trip, a concurrent first `ensureDraft`, a 1213 during publish, and the `findPublication` join (no replay ran). T-11 checks on MySQL: the driver `timezone` and the `published_at` round-trip; a concurrent first `ensureDraft`; a 1213 during publish; the `findPublication` join | Back lead (T-11) |
+| PI-7 | MySQL checks. **Verified at T-11:** the publish race; `published_at` stored to the whole second. **Still open:** the driver `timezone` round-trip; a concurrent first `ensureDraft`; a 1213 during publish; the `findPublication` join (no replay ran) | Back lead |
 | PI-8 | S-1 for the comments spec: a comment covers the field with all its sub-options, never one subfield | comments spec |
 
 ## Integration after T-10 (2026-10-26)
@@ -579,7 +579,7 @@ spawns (T-9 total): implementer 1 worker, resumed twice. The host reported 39 ca
 - Leftover data on TEST: cycle 34 (2026, draft), draft revision 2 with 3 items, version 1 (504 items), one audit row.
 - **Audit count (back lead, 2026-10-27, SQL on the TEST database):** `SELECT COUNT(*) FROM field_config_audit_events WHERE cycle_id = 34` → **1**. One publication, one audit row: the four losers wrote nothing.
 
-**Why T-11 stays `[~]`**
+**Open points at the run (resolved under Closing below)**
 1. **Disqualifier:** "a token or key that passed through chat". The admin token was pasted in chat by the back lead, who explicitly asked the Leader to run the test. Closing T-11 needs the back lead to waive this, or to re-run with a token from their own shell.
 2. ~~Audit row count~~ — **verified 2026-10-27: 1 row.** The HTTP view already shows that version 2 does not exist; `SELECT number FROM field_config_versions WHERE cycle_id = 34;` (expected only 1) is an optional extra check.
 3. PI-7 MySQL checks are still open: the driver `timezone` round-trip; a concurrent first `ensureDraft`; the 1213 path.
@@ -587,7 +587,8 @@ spawns (T-9 total): implementer 1 worker, resumed twice. The host reported 39 ca
 **Closing (2026-10-27)**
 - **Waiver of the Disqualifier "a token or key that passed through chat":** the back lead wrote *"acepto la evidencia"* on 2026-10-27. The token was pasted by the back lead, who asked the Leader to run the test; it was used only in shell variables and is in no repo file. The back lead was advised to revoke it, and to rotate the Reporting key that was pasted earlier.
 - The other two Disqualifiers hold: the five windows overlapped (table above), and only the disposable cycle 34 was used.
-- `tasks.md` expected "one 200"; the publish answers **201** (T-9 amended the replay to 201 for the same reason). Not a deviation.
+- `tasks.md` expected "one 200"; the publish answers **201** (T-9 amended the replay to 201 for the same reason). Not a deviation; `tasks.md` amended at validation.
+- **Final verification:** VERIFIED by the evidence above (overlapping windows, 1 × 201 + 4 × 409, SQL audit count 1). Review: checklist by the Leader, per the task.
 - NFR-3 / FR-8 / FR-11 verified on MySQL: one version, one audit row (SQL count 1), four stale refusals, no 5xx.
 - Still open, not blocking: the cold-catalog hang (finding above, recorded in `server/src/admin-config/AGENTS.md`) and PI-7's remaining checks.
 - Docs synced at close: TRD § 4, § 5.1, § 6, § 13 (PI-1, PI-2, PI-4); `server/src/common/AGENTS.md` (PI-5); root `AGENTS.md`, `server/AGENTS.md` and `server/src/admin-config/AGENTS.md`.
@@ -600,7 +601,7 @@ spawns (T-9 total): implementer 1 worker, resumed twice. The host reported 39 ca
 | Attempts | T-5: 2 (degraded-pair, `REVIEW_WAIVED`); T-9: 3; T-10: 2; the rest: 1. No HALT, no Pivot |
 | Checkpoints | T-8: 2 (resource guard blocked e2e) |
 | Waivers | T-5 review pair (`REVIEW_WAIVED`); T-11 Disqualifier (token through chat) |
-| Final checks | unit 2299 passed, e2e 862 passed (14 files), lint 0 warnings, client `ng build` 0 |
+| Final checks | at T-10: unit 2299, e2e 862. After `/akili-test` and `/akili-validate` (2026-10-27): unit **2304**, e2e **865** (14 files), lint 0 warnings, client `ng build` 0 |
 | Real MySQL | TEST, cycle 34: 504 fields, catalog `2026.30`, 1 × 201 + 4 × 409 on overlapping publishes, 1 version, 1 audit row |
 | Budget | over the ~7,000 LOC estimate (8,538 at T-7); tripwire lifted by the back lead |
 | Integration | `staging-center` and `dev` (see the integration sections) |
@@ -608,4 +609,34 @@ spawns (T-9 total): implementer 1 worker, resumed twice. The host reported 39 ca
 | Open | cold-catalog hang (NFR-6 on TEST); PI-3 (Reporting `is_new`); PI-7 remainder; PI-8 (comments spec) |
 
 **Next:** `/akili-test admin-config/field-configuration`.
+
+## Remediation after validation (2026-10-27, back lead chose "La a": R-1…R-5)
+
+- **R-1…R-4 (spec and docs, Leader):**
+  - `tasks.md` T-9 and T-11, and `proposal.md`: "200" → "201".
+  - `design.md`:
+    - S-14 in the header;
+    - the § 4 tree;
+    - § 7.5: Busy 1213/1205 → 503 and 1062 → stale;
+    - DD-5 caveat for held timelines.
+  - This file: the Summary counts, the PI-7 row, the T-11 heading and verification line.
+  - `server/src/admin-config/AGENTS.md`: three controllers, Busy at T-7, the NFR-6 wording, the version id among the replay targets.
+- **R-5 (code; Implementer `akili-implementer`, Reviewer `akili-reviewer`):** the draft edit accepted 1..2,000 items, but the global JSON parser's 100 KB default refused about 770 or more.
+  - **Fix:** a JSON parser for `PATCH /api/v1/cycles/:id/field-config/draft` only, at **640 KB** (`FIELD_CONFIG_DRAFT_BODY_LIMIT`, `server/src/common/configure-app.ts`). It is registered before the global 100 KB parser and selected by the predicate `isFieldConfigDraftJson` (method, path, content type). Every other route stays at 100 KB.
+  - **Size math:** real catalog keys are about 176 B per item (about 352 KB for 2,000); at the DTO maxima an item is about 285 B (about 570,000 B).
+  - **Also changed:**
+    - the PATCH declares 413 `PAYLOAD_TOO_LARGE` (OpenAPI pin);
+    - the DTO examples are `innovation_development` and `general.title`;
+    - `front-contract.md` § 2 and `server/src/common/AGENTS.md` (*Body limits*) are updated.
+  - **Tests:**
+    - unit: `configure-app.spec.ts`, the predicate;
+    - e2e, describe *R-5, FR-5 and NFR-2: the body limit of the draft edit*: 2,000 items over 100 KB are parsed (per-item errors, not 413); 2,001 items → 400 on `items`; about 500 KB → parsed; over 640 KB → 413; `POST /cycles` over 100 KB → still 413.
+  - **Red run:** with `configure-app.ts` at HEAD, (a) and (b) failed with `expected 413 to be 400`.
+  - **Review:**
+    - attempt 1 **FAIL**: the comment's limit math was false at the DTO maxima, and test (a) could pass on an unparsed body. Effort raised one step.
+    - attempt 2 **PASS**. The Reviewer confirmed the scoping against body-parser 2.3.0: the type check runs before the body is read, and a skipped request falls through to the global parser.
+    - Advisory applied by the Leader: a test title changed from "realistic worst case" to "near the limit".
+  - **Leader re-run:** lint 0, build 0, unit **2316**, e2e **870** (14 files).
+  - A prettier pass had reformatted `fixtures/reporting-qa-catalog-2026.json`. The data was identical, and the Leader restored the file to HEAD.
+- **Still follow-ups:** R-6 (a test for the crash-window replay reader) and R-7 (TEST logs for the NFR-6 hang; confirm the key and token were rotated).
 

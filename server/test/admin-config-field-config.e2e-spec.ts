@@ -821,6 +821,91 @@ describe('Field configuration routes (e2e)', () => {
         'CYCLES_CLOSED',
       );
     });
+
+    describe('R-5, FR-5 and NFR-2: the body limit of the draft edit', () => {
+      const bulk = (count: number, pad = 0) =>
+        Array.from({ length: count }, (_, n) =>
+          item(
+            TYPES[n % TYPES.length],
+            `general.field_${n}${'x'.repeat(pad)}`,
+            { visibility: 'view_only', isCore: false, isAiInput: false },
+          ),
+        );
+
+      it('R-5 and FR-5: 2,000 items whose JSON is over 100 KB reach validation (400 VALIDATION_FAILED, not 413) and write nothing', async () => {
+        const id = await createCycle(2026);
+        const items = bulk(2000);
+        expect(JSON.stringify({ items }).length).toBeGreaterThan(100 * 1024);
+
+        // The world catalog does not hold these keys, so the answer is the
+        // domain 400 listing them; what the test pins is that the parser let
+        // the body through to the pipe and the service.
+        const res = await refused(
+          id,
+          () => patch(id, items),
+          400,
+          'VALIDATION_FAILED',
+        );
+
+        // per-item domain errors from the service, not a body the pipe never saw
+        const fields = fieldsOf(res);
+        expect(fields.length).toBeGreaterThan(0);
+        expect(fields).not.toEqual([['items', expect.anything()]]);
+        for (const [field] of fields) {
+          expect(field).toMatch(/^items\[\d+\]\.(resultTypeKey|fieldKey)$/);
+        }
+      });
+
+      it('R-5 and NFR-2: 2,000 items near the limit (about 500 KB, under it) are parsed, not 413', async () => {
+        const id = await createCycle(2026);
+        const items = bulk(2000, 130);
+        const size = JSON.stringify({ items }).length;
+        expect(size).toBeGreaterThan(450 * 1024);
+        expect(size).toBeLessThan(640 * 1024);
+
+        const res = await refused(
+          id,
+          () => patch(id, items),
+          400,
+          'VALIDATION_FAILED',
+        );
+
+        expect(fieldsOf(res).length).toBeGreaterThan(0);
+      });
+
+      it('R-5 and NFR-2: 2,001 items are a 400 VALIDATION_FAILED on `items` (the array bound), not a 413', async () => {
+        const id = await createCycle(2026);
+        const items = bulk(2001);
+        expect(JSON.stringify({ items }).length).toBeGreaterThan(100 * 1024);
+
+        const res = await refused(
+          id,
+          () => patch(id, items),
+          400,
+          'VALIDATION_FAILED',
+        );
+
+        expect(fieldsOf(res).map(([field]) => field)).toEqual(['items']);
+      });
+
+      it('R-5 and NFR-2: a body over the 640 KB limit of the draft edit is 413 PAYLOAD_TOO_LARGE and writes nothing', async () => {
+        const id = await createCycle(2026);
+        const items = bulk(2000, 400);
+        expect(JSON.stringify({ items }).length).toBeGreaterThan(640 * 1024);
+
+        await refused(id, () => patch(id, items), 413, 'PAYLOAD_TOO_LARGE');
+      });
+
+      it('R-5 and NFR-2: the larger limit stays on that route; another JSON route over 100 KB is still 413', async () => {
+        const padding = 'x'.repeat(150 * 1024);
+
+        const created = await w.send('post', '/cycles', {
+          body: { year: 2027, padding },
+        });
+
+        expectError(created, 413, 'PAYLOAD_TOO_LARGE');
+      });
+    });
   });
 
   // --- FR-6: discard ----------------------------------------------------------
