@@ -87,6 +87,7 @@ import { FieldChangeGroupVm } from './fields-config';
         </div>
       }
 
+      <!-- Phones: full-width buttons stacked, Publish first, Discard all last. -->
       <div qaDialogFooter class="contents">
         @if (!confirmDiscard() && count() > 0) {
           <button
@@ -96,7 +97,7 @@ import { FieldChangeGroupVm } from './fields-config';
             type="button"
             [disabled]="busy()"
             (click)="confirmDiscard.set(true)"
-            class="mr-auto"
+            class="mr-auto max-sm:order-last max-sm:mr-0 max-sm:w-full"
           >
             Discard all
           </button>
@@ -108,6 +109,7 @@ import { FieldChangeGroupVm } from './fields-config';
           type="button"
           [disabled]="publishing()"
           (click)="open.set(false)"
+          class="max-sm:w-full"
         >
           Cancel
         </button>
@@ -118,6 +120,7 @@ import { FieldChangeGroupVm } from './fields-config';
           type="button"
           [disabled]="busy() || count() === 0"
           (click)="publish.emit()"
+          class="max-sm:order-first max-sm:w-full"
         >
           {{ publishing() ? 'Publishing…' : 'Publish' }}
         </button>

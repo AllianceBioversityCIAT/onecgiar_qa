@@ -80,7 +80,7 @@
     @case ('error') {
       <div role="alert" class="flex flex-wrap items-center gap-2">
         <p class="m-0 text-(length:--fs-14) text-(--text-3)">{{ store.loadError() || 'The fields could not be loaded.' }}</p>
-        <button hlmBtn qaBtn tone="link" size="sm" type="button" (click)="retry()">Try again</button>
+        <button hlmBtn qaBtn tone="secondary" size="sm" type="button" (click)="retry()">Try again</button>
       </div>
     }
     @case ('ready') {

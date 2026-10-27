@@ -2,9 +2,10 @@
 
 <!-- Name, required mark, conditional / not set line -->
 <ng-template #nameBlock>
-  <div class="flex min-w-0 flex-col gap-0.5" [class.py-2]="!compact()" [class.opacity-55]="r.dim">
+  <!-- A hidden field reads quieter by colour, not opacity: most fields start hidden and must stay readable (AA). -->
+  <div class="flex min-w-0 flex-col gap-0.5" [class.py-2]="!compact()">
     <div class="flex min-w-0 items-baseline">
-      <span [title]="r.name" class="min-w-0 overflow-hidden text-(length:--fs-14) font-medium text-ellipsis whitespace-nowrap text-(--text)">{{ r.name }}</span>
+      <span [title]="r.name" class="min-w-0 overflow-hidden text-(length:--fs-14) font-medium text-ellipsis whitespace-nowrap" [class]="r.dim ? 'text-(--text-3)' : 'text-(--text)'">{{ r.name }}</span>
       @if (r.required) {
         <span aria-hidden="true" class="ml-0.5 flex-none font-semibold text-(--danger-strong)">*</span><span class="sr-only">(required)</span>
       }
@@ -20,10 +21,10 @@
       }
     </div>
     @if (r.conditional) {
-      <span [qaTooltip]="conditionalHelp" tabindex="0" class="self-start text-(length:--fs-12) font-normal text-(--text-muted) outline-none focus-visible:shadow-(--focus-ring)">Conditional</span>
+      <span [qaTooltip]="conditionalHelp" tabindex="0" class="self-start text-(length:--fs-12) font-normal text-(--text-3) outline-none focus-visible:shadow-(--focus-ring)">Conditional</span>
     }
     @if (r.notSet) {
-      <span class="text-(length:--fs-12) font-normal text-(--text-muted)">Not set yet</span>
+      <span class="text-(length:--fs-12) font-normal text-(--text-3)">Not set yet</span>
     }
   </div>
 </ng-template>
@@ -41,7 +42,6 @@
     [attr.aria-label]="'Field documentation: ' + r.name"
     class="flex size-5 flex-none cursor-pointer items-center justify-center rounded-full border-none bg-transparent p-0 text-(--text-muted) hover:text-(--primary) focus-visible:shadow-(--focus-ring) focus-visible:outline-none"
     [class.ml-auto]="compact()"
-    [class.opacity-55]="r.dim"
   >
     <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01"></path></svg>
   </button>
