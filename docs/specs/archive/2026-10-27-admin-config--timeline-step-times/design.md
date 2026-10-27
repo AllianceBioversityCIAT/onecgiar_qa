@@ -7,7 +7,7 @@
 | Spec path | `docs/specs/admin-config/timeline-step-times` |
 | Requirements | `requirements.md` (FR-1…FR-14, NFR-1…NFR-4, S-1…S-7) |
 | Depth | Full |
-| Status | Draft |
+| Status | Delivered (archived 2026-10-27) |
 | Verified at | `8ac4df7` (`feat/timeline-step-times` = `origin/staging-center`) |
 | Last updated | 2026-10-27 |
 
@@ -258,7 +258,7 @@ Not built in this spec. `front-contract.md` (FR-14) gives P2-4021 what it needs:
 | P-1 | The rules and the view compare `YYYY-MM-DD` strings lexically against a `today` string, and never build a `Date` | location | `server/src/admin-config/timelines/timeline-view.ts:66-105`; `timeline-rules.ts:196-215`; `server/src/admin-config/rome-date.ts:1-4,42-44` (`compareDates`) | `8ac4df7` | DD-1 and DD-2 lose their "same shape" basis, and the rules need a rewrite, not a widening: **High** | — |
 | P-2 | Drizzle's mysql2 session returns `DATETIME` as a string (`field.string()`) | data-env | `server/node_modules/drizzle-orm/mysql2/session.js:26-28` (`typeCast`: `TIMESTAMP`, `DATETIME`, `DATE` → `field.string()`) | `8ac4df7` | The DD-3 column type must parse a `Date` and would take on the process zone: **High** | — |
 | P-3 | ~~`drizzle-kit generate --custom` writes an empty SQL file **and** a snapshot of the current schema~~ **FALSE (2026-10-27, T-3):** `--custom` (drizzle-kit 0.31) writes an empty SQL file and a snapshot that copies the **previous** schema; DD-6 amended to an interactive generate | data-env | T-3 run: `0006_snapshot.json` held `opens_on` `date`; only `id` / `prevId` differed from `0005_snapshot.json` | `a1188ff` | DD-6 changes: add a generated migration and then a custom one, or edit the snapshot. **High** | T-2, first step: run `pnpm drizzle-kit generate --custom --name timeline_step_times` and inspect the files |
-| P-4 | The target MySQL enforces `CHECK` and supports `RENAME COLUMN` (8.0.16+) | data-env | `UNVERIFIED — confirm at source before relying on it` | — | The migration needs `CHANGE COLUMN` syntax, or the check is decorative: **Low** | HITL pause: the back lead runs `SELECT VERSION()` on the local MySQL before applying `0006` |
+| P-4 | The target MySQL enforces `CHECK` and supports `RENAME COLUMN` (8.0.16+) | data-env | **Confirmed 2026-10-27:** `SELECT VERSION()` on the dev database → `8.0.46-0ubuntu0.22.04.4` (`execution.md` § T-8) | `38f7bc8` | The migration needs `CHANGE COLUMN` syntax, or the check is decorative: **Low** | HITL pause: the back lead runs `SELECT VERSION()` on the local MySQL before applying `0006` |
 | P-5 | There is no disposable MySQL in tests; the unit-of-work suites assert statements over a stub driver | existence | `server/src/admin-config/timelines/timelines.unit-of-work.spec.ts:29-34`; `server/vitest.config.e2e.ts:13` (`DATABASE_URL` to localhost, unused by the fake-store e2e, `server/test/support/admin-config-app.ts:46`) | `8ac4df7` | A real migration test could replace the HITL step (NFR-3): **Low** | — |
 | P-6 | `todayInRome` has exactly these callers: `field-config-versions.ts:102,111,133` and `timelines.service.ts:277,333,435` | consumer | `grep -rnE "todayInRome" server/src --include='*.ts' \| grep -v '\.spec\.ts'` → `rome-date.ts:16` (definition) and the six sites listed | `8ac4df7` | A missed caller keeps judging by day: **High** | — |
 | P-7 | `timeline_steps` is read by exactly three stores | shared-state | `grep -rnE "timelineSteps\b" server/src --include='*.ts' \| grep -v spec \| grep -v schema/` → `timelines.store.ts` (8), `field-config.store.ts` (6), `cycles.store.ts` (3: `:128-129` min/max) | `8ac4df7` | A fourth reader would break on the rename: **High** | — |
@@ -268,7 +268,7 @@ Not built in this spec. `front-contract.md` (FR-14) gives P2-4021 what it needs:
 | P-11 | The live path for create and edit: `POST cycles/:id/timelines` and `PATCH timelines/:id` (`timelines.controller.ts:133,200`) → `TimelinesService` → `validateTimelineCreate` (`timelines.service.ts:781`) / `validateTimelineUpdate` (`:488`), with `today` from `todayInRome(this.clock())` (`:333`, `:435`) | live-path | The citations listed | `8ac4df7` | Validation changes elsewhere would not reach the user: **High** | — |
 | P-12 | Applying migrations to `qadb` is a human step, and applied migrations are never edited | other | `server/src/database/AGENTS.md:49-50` | `8ac4df7` | DD-6 could run the migration in CI: **Low** | — |
 
-`UNVERIFIED` rows: **P-4** (Low, owned by the HITL pause).
+`UNVERIFIED` rows: none (P-3 found false and amended; P-4 confirmed, 2026-10-27).
 
 ## 12. Budget (tripwire for `/akili-execute`)
 
