@@ -1,5 +1,11 @@
 import type { FieldIssue } from '../../users/users.errors.js';
-import { compareDates, isCalendarDate } from '../rome-date.js';
+import {
+  compareMinutes,
+  dayEnd,
+  dayStart,
+  isRomeMinute,
+  type RomeMinute,
+} from '../rome-date.js';
 import { DEFAULT_STEPS, type StepAudience } from './default-steps.js';
 import type { TimelineSnapshot } from './timeline-diff.js';
 import { viewTimeline } from './timeline-view.js';
@@ -23,9 +29,13 @@ const AUDIENCE_RANK: ReadonlyMap<string, number> = new Map(
 export interface TimelineStepInput {
   name: string;
   audience: string;
-  /** Absent, null or empty counts as missing (FR-8). */
-  opensAt?: string | null;
-  closesAt?: string | null;
+  /**
+   * The day-only form (timeline-step-times FR-9): a `YYYY-MM-DD` day that
+   * means 00:00 when it opens a step and 23:59 when it closes one (S-6).
+   * Absent, null or empty counts as missing (FR-8).
+   */
+  opensOn?: string | null;
+  closesOn?: string | null;
   round: number;
   requiresLoad: boolean;
 }
@@ -41,8 +51,8 @@ export interface TimelineCreateInput {
 }
 
 export interface TimelineRulesContext {
-  /** The Rome day to judge by, `YYYY-MM-DD` (S-4); never read from a clock here. */
-  now: string;
+  /** The Rome minute to judge by, `YYYY-MM-DDTHH:mm` (S-4); never read from a clock here. */
+  now: RomeMinute;
   knownProgramIds: ReadonlySet<number>;
   knownResultTypeKeys: ReadonlySet<string>;
 }
@@ -75,8 +85,8 @@ export function validateTimelineCreate(
       },
       steps: steps.map((step, index) => ({
         path: `steps[${index}]`,
-        opensAt: step.opensAt,
-        closesAt: step.closesAt,
+        opensAt: openingFrom(step.opensOn),
+        closesAt: closingFrom(step.closesOn),
       })),
     },
     issues,
@@ -102,7 +112,7 @@ export function validateTimelineCreate(
         }
       },
       afterOpensAt: (index, opensAt) => {
-        if (index === 0 && compareDates(opensAt, context.now) < 0) {
+        if (index === 0 && compareMinutes(opensAt, context.now) < 0) {
           issues.push({ field: 'steps[0].opensOn', code: 'BEFORE_TODAY' });
         }
       },
@@ -141,7 +151,11 @@ interface MergedScope<T> {
 interface MergedStateInput {
   programs: MergedScope<number>;
   resultTypes: MergedScope<string>;
-  /** In position order; `path` is the field path of the step (`steps[i]`). */
+  /**
+   * In position order; `path` is the field path of the step (`steps[i]`). A
+   * boundary is a moment not yet read: the stored one, or the one a day-only
+   * value means (`openingFrom` / `closingFrom`), which `readMoment` checks.
+   */
   steps: readonly {
     path: string;
     opensAt?: string | null;
@@ -155,18 +169,18 @@ interface MergedStateHooks {
   afterScope?: () => void;
   /** Before a step's date checks. */
   beforeDates?: (index: number) => void;
-  /** After a step's opening date was read as a real date, before its overlap check. */
-  afterOpensAt?: (index: number, opensAt: string) => void;
+  /** After a step's opening moment was read as a real moment, before its overlap check. */
+  afterOpensAt?: (index: number, opensAt: RomeMinute) => void;
   /** After a step's date checks. */
   afterDates?: (index: number) => void;
 }
 
 /**
  * The rules of the state a request leaves behind, shared by create and update
- * (timeline-edit DD-5): the scope pairs and catalog membership, dates real, no
- * step closing before it opens, each step opening after the previous step's
- * closing day. Order: programs, result types, then each step in turn
- * (opening date, overlap, closing date, closes-before-opens).
+ * (timeline-edit DD-5): the scope pairs and catalog membership, moments real,
+ * no step closing at or before it opens (FR-3), each step opening after the
+ * previous step's closing minute. Order: programs, result types, then each
+ * step in turn (opening moment, overlap, closing moment, closes-before-opens).
  */
 function checkMergedState(
   state: MergedStateInput,
@@ -193,11 +207,11 @@ function checkMergedState(
     const previous = index > 0 ? state.steps[index - 1] : undefined;
     hooks.beforeDates?.(index);
 
-    const opensAt = readDate(step.opensAt, `${step.path}.opensOn`, issues);
+    const opensAt = readMoment(step.opensAt, `${step.path}.opensOn`, issues);
     if (opensAt !== undefined) {
       hooks.afterOpensAt?.(index, opensAt);
-      const previousClose = previous && validDate(previous.closesAt);
-      if (previousClose && compareDates(opensAt, previousClose) <= 0) {
+      const previousClose = previous && validMoment(previous.closesAt);
+      if (previousClose && compareMinutes(opensAt, previousClose) <= 0) {
         issues.push({
           field: `${step.path}.opensOn`,
           code: 'OVERLAPS_PREVIOUS_STEP',
@@ -205,11 +219,11 @@ function checkMergedState(
       }
     }
 
-    const closesAt = readDate(step.closesAt, `${step.path}.closesOn`, issues);
+    const closesAt = readMoment(step.closesAt, `${step.path}.closesOn`, issues);
     if (
       opensAt !== undefined &&
       closesAt !== undefined &&
-      compareDates(closesAt, opensAt) < 0
+      compareMinutes(closesAt, opensAt) <= 0
     ) {
       issues.push({
         field: `${step.path}.closesOn`,
@@ -255,25 +269,45 @@ function checkScope<T>(
   }
 }
 
-/** The date when real; a missing one is REQUIRED and a malformed one INVALID (FR-8). */
-function readDate(
+/**
+ * The moment a day-only opening value means: 00:00 of that day (S-6). The day
+ * is NOT validated here; `readMoment` runs `isRomeMinute` on the result, which
+ * refuses anything that is not a real `YYYY-MM-DD` day with `T00:00` after it
+ * (so `2026-02-30`, `02/11/2026` and `2026-11-02T00:00` are all `INVALID`).
+ * A missing value (absent, null, empty) stays as it is.
+ */
+export function openingFrom(
+  day: string | null | undefined,
+): string | null | undefined {
+  return typeof day === 'string' && day !== '' ? dayStart(day) : day;
+}
+
+/** The moment a day-only closing value means: 23:59 of that day (S-6); see `openingFrom`. */
+export function closingFrom(
+  day: string | null | undefined,
+): string | null | undefined {
+  return typeof day === 'string' && day !== '' ? dayEnd(day) : day;
+}
+
+/** The moment when real; a missing one is REQUIRED and a malformed one INVALID (FR-8, FR-1). */
+function readMoment(
   value: string | null | undefined,
   field: string,
   issues: FieldIssue[],
-): string | undefined {
+): RomeMinute | undefined {
   if (value === undefined || value === null || value === '') {
     issues.push({ field, code: 'REQUIRED' });
     return undefined;
   }
-  if (!isCalendarDate(value)) {
+  if (!isRomeMinute(value)) {
     issues.push({ field, code: 'INVALID' });
     return undefined;
   }
   return value;
 }
 
-function validDate(value: string | null | undefined): string | undefined {
-  return typeof value === 'string' && isCalendarDate(value) ? value : undefined;
+function validMoment(value: string | null | undefined): RomeMinute | undefined {
+  return typeof value === 'string' && isRomeMinute(value) ? value : undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -285,8 +319,8 @@ export interface StoredTimelineStep {
   position: number;
   name: string;
   audience: StepAudience;
-  opensAt: string;
-  closesAt: string;
+  opensAt: RomeMinute;
+  closesAt: RomeMinute;
 }
 
 /** The timeline as stored: what the edit rules overlay the request on. */
@@ -303,8 +337,9 @@ export interface StoredTimeline {
 export interface TimelineStepUpdate {
   position: number;
   name?: string;
-  opensAt?: string | null;
-  closesAt?: string | null;
+  /** The day-only form (FR-9): 00:00 of that day when it opens, 23:59 when it closes (S-6). */
+  opensOn?: string | null;
+  closesOn?: string | null;
 }
 
 /**
@@ -321,7 +356,7 @@ export interface TimelineUpdateInput {
 }
 
 /**
- * Today, the catalogs and whether the timeline has a load. A catalog set is
+ * Now, the catalogs and whether the timeline has a load. A catalog set is
  * read only for a scope list that changes (design 7.2), so for an unchanged
  * list the set may be empty: the rules do not look at it.
  */
@@ -369,10 +404,17 @@ export function mergeTimelineUpdate(
         return {
           position: step.position,
           name: (update?.name ?? step.name).trim(),
+          // A sent day becomes the moment it means, so an unchanged value is
+          // one whose moment equals the stored one (FR-9: a `closesOn` equal to
+          // the stored date over a stored 17:30 is a change to 23:59).
           opensAt:
-            update?.opensAt !== undefined ? update.opensAt : step.opensAt,
+            update?.opensOn !== undefined
+              ? openingFrom(update.opensOn)
+              : step.opensAt,
           closesAt:
-            update?.closesAt !== undefined ? update.closesAt : step.closesAt,
+            update?.closesOn !== undefined
+              ? closingFrom(update.closesOn)
+              : step.closesAt,
         };
       }),
   };
@@ -387,7 +429,7 @@ export function mergeTimelineUpdate(
  *
  * The locks judge CHANGED fields only (DD-4): a value sent equal to the stored
  * one is not a change, so a drawer may resend a past date. The step state is
- * `viewTimeline`'s, over the stored steps, `hasLoad` and today, never worked
+ * `viewTimeline`'s, over the stored steps, `hasLoad` and now, never worked
  * out here.
  */
 export function validateTimelineUpdate(
@@ -529,10 +571,12 @@ function checkLocks(
     now: context.now,
     hasLoad: context.hasLoad,
   });
+  // Before now, to the minute (S-4); a value that is not a real moment is the
+  // merged-state rules' to refuse, not a lock's.
   const beforeToday = (value: string | null | undefined): boolean =>
     typeof value === 'string' &&
-    isCalendarDate(value) &&
-    compareDates(value, context.now) < 0;
+    isRomeMinute(value) &&
+    compareMinutes(value, context.now) < 0;
 
   const mergedByPosition = new Map(merged.steps.map((s) => [s.position, s]));
   for (const step of [...stored.steps].sort(

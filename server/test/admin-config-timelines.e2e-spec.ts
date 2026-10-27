@@ -2010,10 +2010,12 @@ describe('Timelines routes: defaults, create, list and detail (e2e)', () => {
         expect(today.body.data.steps[0].closesOn).toBe('2026-11-04');
       });
 
-      it('an upcoming step: opening yesterday is refused as before today; opening today is accepted and the step is in progress at once', async () => {
+      it('an upcoming step: opening yesterday is refused as before today; opening at the current minute is accepted and the step is in progress at once', async () => {
         const { id } = await setup();
         w.world.loads.markLoaded(id);
-        at('2026-11-01T10:00:00.000Z'); // today in Rome is 1 Nov, step 1 upcoming
+        // 00:00 Rome on 1 Nov: a day-only "today" means this very minute (S-6),
+        // step 1 is upcoming (it opens on 2 Nov).
+        at('2026-10-31T23:00:00.000Z');
 
         const res = await refused(
           id,
@@ -2034,6 +2036,21 @@ describe('Timelines routes: defaults, create, list and detail (e2e)', () => {
           status: 'live',
           currentStep: 1,
         });
+      });
+
+      it('an upcoming step: a day-only opening today is before now once the day has begun (10:00 Rome), so it is refused (S-4, FR-6)', async () => {
+        const { id } = await setup();
+        w.world.loads.markLoaded(id);
+        at('2026-11-01T09:00:00.000Z'); // 10:00 Rome on 1 Nov
+
+        const res = await refused(
+          id,
+          { version: 1, steps: [{ position: 1, opensOn: '2026-11-01' }] },
+          400,
+          'VALIDATION_FAILED',
+        );
+
+        expect(fieldsOf(res)).toEqual([['steps[0].opensOn', 'BEFORE_TODAY']]);
       });
 
       it('on hold with step 1 opening day in the past: a rename sending that stored date succeeds, and the past date is not reported', async () => {

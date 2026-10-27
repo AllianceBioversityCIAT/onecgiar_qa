@@ -26,7 +26,7 @@ import {
   TimelineValidationError,
   TimelineVersionStaleError,
 } from '../admin-config.errors.js';
-import { todayInRome } from '../rome-date.js';
+import { nowInRome, type RomeMinute } from '../rome-date.js';
 import {
   DEFAULT_STEPS,
   type DefaultStep,
@@ -43,7 +43,9 @@ import {
   type TimelineUserResponse,
 } from './timeline-response.js';
 import {
+  closingFrom,
   mergeTimelineUpdate,
+  openingFrom,
   validateTimelineCreate,
   validateTimelineUpdate,
   type StoredTimeline,
@@ -73,19 +75,13 @@ export interface TimelineChange {
 
 /**
  * A step as the API names it: the day-only keys `opensOn` / `closesOn` are the
- * wire contract. The rules read `opensAt` / `closesAt`; `toRulesStep` and
- * `toRulesStepUpdate` are the one place that maps between the two.
+ * wire contract (timeline-step-times FR-9). The rules read them and turn each
+ * into the moment it means (00:00 / 23:59, S-6).
  */
-export type TimelineStepCommand = Omit<
-  TimelineStepInput,
-  'opensAt' | 'closesAt'
-> & { opensOn?: string | null; closesOn?: string | null };
+export type TimelineStepCommand = TimelineStepInput;
 
 /** A step of an edit as the API names it (see `TimelineStepCommand`). */
-export type TimelineStepUpdateCommand = Omit<
-  TimelineStepUpdate,
-  'opensAt' | 'closesAt'
-> & { opensOn?: string | null; closesOn?: string | null };
+export type TimelineStepUpdateCommand = TimelineStepUpdate;
 
 /** The request as the pipe left it: the shape is right, the rules are not yet judged. */
 export type CreateTimelineCommand = Omit<TimelineCreateInput, 'steps'> & {
@@ -119,24 +115,6 @@ export interface AssignResult {
   assignment: TimelineUserResponse;
 }
 
-/** The API's step keys to the rules' (`opensOn` -> `opensAt`); values stay `YYYY-MM-DD`. */
-function toRulesStep({
-  opensOn,
-  closesOn,
-  ...rest
-}: TimelineStepCommand): TimelineStepInput {
-  return { ...rest, opensAt: opensOn, closesAt: closesOn };
-}
-
-/** The same mapping for a step of an edit. */
-function toRulesStepUpdate({
-  opensOn,
-  closesOn,
-  ...rest
-}: TimelineStepUpdateCommand): TimelineStepUpdate {
-  return { ...rest, opensAt: opensOn, closesAt: closesOn };
-}
-
 /** A create request once cleaned: both scope lists are lists, whatever the client sent. */
 type NormalizedCreate = Omit<
   TimelineCreateInput,
@@ -156,14 +134,15 @@ function normalized(command: CreateTimelineCommand): NormalizedCreate {
     programIds: [...new Set(command.programIds ?? [])],
     resultTypeKeys: [...new Set(command.resultTypeKeys ?? [])],
     steps: command.steps.map((step) => ({
-      ...toRulesStep(step),
+      ...step,
       name: step.name.trim(),
     })),
   };
 }
 
-/** After the rules ran a date is a real date string; the type cannot know it. */
-const asDate = (value: string | null | undefined): string => value as string;
+/** After the rules ran a moment is a real `RomeMinute`; the type cannot know it. */
+const asMinute = (value: string | null | undefined): RomeMinute =>
+  value as RomeMinute;
 
 /**
  * A copy cut to the whole second. `timeline_users.assigned_at` is a `datetime`
@@ -209,7 +188,7 @@ const stepPositionOf = (key: string): number | undefined => {
 function changesAnInProgressStep(
   stored: StoredTimeline,
   changes: ReturnType<typeof diffTimeline>,
-  now: string,
+  now: RomeMinute,
   hasLoad: boolean,
 ): boolean {
   const { stepStates } = viewTimeline({
@@ -234,10 +213,10 @@ function changedSteps(
     const values: StepUpdateValues = {};
     if (`steps.${step.position}.name` in changes) values.name = step.name;
     if (`steps.${step.position}.opensOn` in changes) {
-      values.opensAt = asDate(step.opensAt);
+      values.opensAt = asMinute(step.opensAt);
     }
     if (`steps.${step.position}.closesOn` in changes) {
-      values.closesAt = asDate(step.closesAt);
+      values.closesAt = asMinute(step.closesAt);
     }
     if (Object.keys(values).length > 0) byPosition.set(step.position, values);
   }
@@ -267,12 +246,12 @@ export class TimelinesService {
     return DEFAULT_STEPS.map((step) => ({ ...step }));
   }
 
-  /** One timeline as the API shows it, with status and readiness from today in Rome (FR-12). */
+  /** One timeline as the API shows it, with status and readiness from now in Rome (FR-12). */
   get(id: number): Promise<TimelineResponse> {
     return this.read(id, this.clock());
   }
 
-  /** `get` for a given instant: an edit answers with the `today` it judged the request by (timeline-edit NFR-4). */
+  /** `get` for a given instant: an edit answers with the `now` it judged the request by (timeline-edit NFR-4). */
   private async read(id: number, now: Date): Promise<TimelineResponse> {
     const row = await this.store.findById(id);
     if (!row) throw new TimelineNotFoundError(id);
@@ -319,7 +298,7 @@ export class TimelinesService {
     now: Date = this.clock(),
   ): Promise<TimelineResponse[]> {
     if (rows.length === 0) return [];
-    const romeNow = todayInRome(now);
+    const nowMinute = nowInRome(now);
     const ids = rows.map((row) => row.id);
     const [steps, programs, resultTypes, assigned, loaded] = await Promise.all([
       this.store.listSteps(ids),
@@ -348,7 +327,7 @@ export class TimelinesService {
             .filter((r) => r.timelineId === timeline.id)
             .map((r) => r.resultTypeKey),
         },
-        romeNow,
+        nowMinute,
         counts,
         loaded.has(timeline.id),
       );
@@ -375,7 +354,7 @@ export class TimelinesService {
       async () => {
         const now = this.clock();
         const request = normalized(command);
-        await this.assertValid(request, todayInRome(now));
+        await this.assertValid(request, nowInRome(now));
         return this.unitOfWork.run(
           async ({ cycles, timelines, idempotency }) => {
             const cycle = await cycles.findById(cycleId, { forUpdate: true });
@@ -434,8 +413,9 @@ export class TimelinesService {
                 name: step.name,
                 // The rules refused any audience outside the enum.
                 audience: step.audience as StepAudience,
-                opensAt: asDate(step.opensAt),
-                closesAt: asDate(step.closesAt),
+                // Valid by now: the day-only values become the moments they mean.
+                opensAt: asMinute(openingFrom(step.opensOn)),
+                closesAt: asMinute(closingFrom(step.closesOn)),
                 round: step.round,
                 requiresLoad: step.requiresLoad,
               })),
@@ -477,14 +457,8 @@ export class TimelinesService {
         // 1. One read of the clock; a request that straddles midnight in Rome is
         // judged by the instant it arrived (design 7.2).
         const now = this.clock();
-        const romeNow = todayInRome(now);
-        const { version, confirmInProgress, steps, ...scalars } = command;
-        const request: TimelineUpdateInput = {
-          ...scalars,
-          ...(steps === undefined
-            ? {}
-            : { steps: steps.map(toRulesStepUpdate) }),
-        };
+        const nowMinute = nowInRome(now);
+        const { version, confirmInProgress, ...request } = command;
 
         // 2. The unlocked reads: the bundle (404), the cycle (closed 409) and
         // whether the timeline has a load, from the port the view's hold reads.
@@ -537,7 +511,7 @@ export class TimelinesService {
 
         // 5. Every rule problem, in one 400 (FR-5).
         const issues = validateTimelineUpdate(stored, request, {
-          now: romeNow,
+          now: nowMinute,
           knownProgramIds,
           knownResultTypeKeys,
           hasLoad,
@@ -556,7 +530,7 @@ export class TimelinesService {
         // when everything else is valid (FR-8, DD-11). The step state is the
         // view's, over the stored steps: a hold makes every step `upcoming`.
         if (
-          changesAnInProgressStep(stored, changes, romeNow, hasLoad) &&
+          changesAnInProgressStep(stored, changes, nowMinute, hasLoad) &&
           confirmInProgress !== true
         ) {
           // @akili-spec bugfix/timeline-edit-noop-stale
@@ -815,7 +789,7 @@ export class TimelinesService {
    */
   private async assertValid(
     request: NormalizedCreate,
-    now: string,
+    now: RomeMinute,
   ): Promise<void> {
     const knownProgramIds = new Set<number>();
     if (!request.allPrograms && request.programIds.length > 0) {

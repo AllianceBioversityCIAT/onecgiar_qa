@@ -2,7 +2,7 @@ import { sql } from 'drizzle-orm';
 import {
   boolean,
   check,
-  date,
+  customType,
   int,
   mysqlEnum,
   mysqlTable,
@@ -10,6 +10,7 @@ import {
   unique,
   varchar,
 } from 'drizzle-orm/mysql-core';
+import type { RomeMinute } from '../../../admin-config/rome-date.js';
 import { timelines } from './timelines.js';
 
 export const stepAudiences = [
@@ -22,10 +23,27 @@ export const stepAudiences = [
 export type StepAudience = (typeof stepAudiences)[number];
 
 const position = sql.identifier('position');
-const opensAt = sql.identifier('opens_on');
-const closesAt = sql.identifier('closes_on');
+const opensAt = sql.identifier('opens_at');
+const closesAt = sql.identifier('closes_at');
 const round = sql.identifier('round');
 const requiresLoad = sql.identifier('requires_load');
+
+// A step boundary: a DATETIME holding Rome wall-clock time to the minute
+// (S-7, DD-1). The database form is `YYYY-MM-DD HH:mm:00`; the application form
+// is the branded `RomeMinute`, `YYYY-MM-DDTHH:mm` (DD-3). The mysql2 session
+// hands DATETIME over as a string (P-2: `typeCast` -> `field.string()`), so no
+// `Date` and no process zone is ever involved.
+const romeMinute = customType<{ data: RomeMinute; driverData: string }>({
+  dataType() {
+    return 'datetime';
+  },
+  fromDriver(value) {
+    return value.slice(0, 16).replace(' ', 'T') as RomeMinute;
+  },
+  toDriver(value) {
+    return `${value.replace('T', ' ')}:00`;
+  },
+});
 
 // A step of a timeline (design 5, FR-7..FR-10). Cross-step rules (order, no
 // overlap, contiguous rounds, audience order) span rows, so
@@ -41,10 +59,8 @@ export const timelineSteps = mysqlTable(
     position: tinyint('position', { unsigned: true }).notNull(),
     name: varchar('name', { length: 120 }).notNull(),
     audience: mysqlEnum('audience', stepAudiences).notNull(),
-    // Rome calendar days, read and written as `YYYY-MM-DD` strings: a `Date`
-    // would go through the server's time zone (DD-5, P-12).
-    opensAt: date('opens_on', { mode: 'string' }).notNull(),
-    closesAt: date('closes_on', { mode: 'string' }).notNull(),
+    opensAt: romeMinute('opens_at').notNull(),
+    closesAt: romeMinute('closes_at').notNull(),
     round: tinyint('round', { unsigned: true }).notNull(),
     requiresLoad: boolean('requires_load').notNull(),
   },
@@ -52,8 +68,8 @@ export const timelineSteps = mysqlTable(
     unique('uq_timeline_steps_position').on(t.timelineId, t.position),
     unique('uq_timeline_steps_audience').on(t.timelineId, t.audience),
     check('chk_timeline_steps_position', sql`${position} BETWEEN 1 AND 5`),
-    // A step may open and close on the same day (FR-8).
-    check('chk_timeline_steps_dates', sql`${closesAt} >= ${opensAt}`),
+    // A step closes strictly after it opens; the same day is fine (FR-3).
+    check('chk_timeline_steps_dates', sql`${closesAt} > ${opensAt}`),
     check('chk_timeline_steps_round', sql`${round} >= 1`),
     // The first step always requires a load; the database refuses a row that
     // says otherwise instead of switching it on (FR-9).

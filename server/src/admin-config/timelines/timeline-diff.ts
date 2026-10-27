@@ -7,6 +7,7 @@
 export interface TimelineSnapshotStep {
   position: number;
   name: string;
+  /** A moment, `YYYY-MM-DDTHH:mm`: what changed is judged by it (FR-9). */
   opensAt?: string | null;
   closesAt?: string | null;
 }
@@ -28,7 +29,9 @@ export type ChangeValue =
  * `{ "<field>": { before, after } }`. Keys: `name`, `allPrograms`,
  * `programIds`, `allResultTypes`, `resultTypeKeys` and
  * `steps.<position>.<name|opensOn|closesOn>`. Lists are sorted, so the same set
- * in another order is not a change.
+ * in another order is not a change. A step boundary is compared by its moment
+ * and recorded as its day under the existing key: the audit keys move to the
+ * moment itself with the API (timeline-step-times FR-12, a later task).
  */
 export type TimelineChanges = Record<
   string,
@@ -47,6 +50,11 @@ export function diffTimeline(
   const scalar = (key: string, before: Scalar, after: Scalar): void => {
     if ((before ?? null) !== (after ?? null)) {
       changes[key] = { before: before ?? null, after: after ?? null };
+    }
+  };
+  const day = (key: string, before: Scalar, after: Scalar): void => {
+    if ((before ?? null) !== (after ?? null)) {
+      changes[key] = { before: dayPart(before), after: dayPart(after) };
     }
   };
   const list = <T extends string | number>(
@@ -73,11 +81,16 @@ export function diffTimeline(
     const before = storedByPosition.get(step.position);
     const prefix = `steps.${step.position}`;
     scalar(`${prefix}.name`, before?.name, step.name);
-    scalar(`${prefix}.opensOn`, before?.opensAt, step.opensAt);
-    scalar(`${prefix}.closesOn`, before?.closesAt, step.closesAt);
+    day(`${prefix}.opensOn`, before?.opensAt, step.opensAt);
+    day(`${prefix}.closesOn`, before?.closesAt, step.closesAt);
   }
 
   return changes;
+}
+
+/** The `YYYY-MM-DD` part of a moment, or null when there is none. */
+function dayPart(moment: Scalar): string | null {
+  return typeof moment === 'string' ? moment.slice(0, 10) : null;
 }
 
 /** A sorted copy; numbers by value, strings by code unit, never mutating the input. */

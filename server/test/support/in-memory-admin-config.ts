@@ -42,6 +42,7 @@ import type {
   NewTimeline,
   Timeline,
 } from '../../src/database/drizzle/schema/timelines.js';
+import { dayOf, type RomeMinute } from '../../src/admin-config/rome-date.js';
 import { roundTrip } from './in-memory-idempotency.js';
 import {
   InMemoryDatabase,
@@ -323,12 +324,15 @@ export class InMemoryCyclesStore implements CyclesStore {
       status: row.status,
       createdAt: row.createdAt,
       timelineCount: own.length,
-      startsOn: steps.map((s) => s.opensAt).sort()[0] ?? null,
-      endsOn:
+      // The span is in days: the date part of the earliest opening and the
+      // latest closing moment (timeline-step-times FR-13).
+      startsOn: dayPartOf(steps.map((s) => s.opensAt).sort()[0]),
+      endsOn: dayPartOf(
         steps
           .map((s) => s.closesAt)
           .sort()
-          .at(-1) ?? null,
+          .at(-1),
+      ),
     };
   }
 
@@ -479,12 +483,18 @@ export function collateName(name: string): string {
   return name.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
 }
 
+/** The `YYYY-MM-DD` part of a stored moment, null for none (what `cycles.store.ts` does to min/max). */
+function dayPartOf(moment: RomeMinute | undefined): string | null {
+  return moment === undefined ? null : dayOf(moment);
+}
+
 /** The CHECKs of `timeline_steps` that one row can break (schema file), on the row as it would be stored. */
 function assertStepChecks(step: NewStepValues): void {
   if (step.position < 1 || step.position > 5) {
     checkFailed('chk_timeline_steps_position');
   }
-  if (step.closesAt < step.opensAt) checkFailed('chk_timeline_steps_dates');
+  // Strict, as the database check: the same moment is refused (FR-3).
+  if (step.closesAt <= step.opensAt) checkFailed('chk_timeline_steps_dates');
   if (step.round < 1) checkFailed('chk_timeline_steps_round');
   if (step.position === 1 && !step.requiresLoad) {
     checkFailed('chk_timeline_steps_first_load');

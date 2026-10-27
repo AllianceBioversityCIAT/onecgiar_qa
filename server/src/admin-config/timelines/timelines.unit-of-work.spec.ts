@@ -10,6 +10,7 @@ import * as schema from '../../database/drizzle/schema/index.js';
 import { CatalogService } from '../../users/catalogs/catalog.service.js';
 import { UpstreamUnavailableError } from '../../users/catalogs/catalogs.errors.js';
 import type { AdminConfigContext } from '../admin-config.context.js';
+import { dayEnd, dayStart } from '../rome-date.js';
 import {
   CycleClosedError,
   TimelineAssignmentNotFoundError,
@@ -164,8 +165,9 @@ function stub({
           i + 1,
           i === 0 ? 'Assessors' : `Step ${i + 1}`,
           ['assessors', 'programs', 'lead_assessors', 'tpb', 'ppu'][i],
-          '2026-11-02',
-          '2026-11-06',
+          // DATETIME as mysql2 hands it over in string mode (P-2).
+          '2026-11-02 00:00:00',
+          '2026-11-06 23:59:00',
           1,
           i === 0 ? 1 : 0,
         ]);
@@ -270,6 +272,13 @@ describe('DrizzleTimelinesUnitOfWork over a stub MySQL driver', () => {
     expect(inTx[4]!.sql).toMatch(/^insert into `timeline_programs`/);
     expect(inTx[5]!.sql).toMatch(/^insert into `timeline_result_types`/);
     expect(inTx[6]!.sql).toMatch(/^insert into `timeline_steps`/);
+    // A day-only create is stored as the moments it means (S-6): 00:00 of the
+    // opening day, 23:59 of the closing day, through the custom column type.
+    expect(inTx[6]!.sql).toContain('`opens_at`');
+    expect(inTx[6]!.sql).toContain('`closes_at`');
+    expect(inTx[6]!.params).toEqual(
+      expect.arrayContaining(['2026-11-02 00:00:00', '2026-11-06 23:59:00']),
+    );
     expect(inTx[7]!.sql).toMatch(/^update `idempotency_keys`/);
     expect(inTx.at(-1)!.sql).toBe('commit');
     expect(inTx).toHaveLength(9);
@@ -649,7 +658,7 @@ const editWork =
     if (outcome.kind === 'stale') throw new TimelineVersionStaleError();
     for (const step of plan.steps) {
       await timelines.updateStep(plan.timelineId, step.position, {
-        closesAt: step.closesOn,
+        closesAt: dayEnd(step.closesOn),
       });
     }
     if (plan.programIds) {
@@ -721,9 +730,9 @@ describe('timeline edit over a stub MySQL driver (design 7.3, DD-6, DD-10, NFR-5
       /all_programs|`kind`|`cycle_id`|created_by|created_at/,
     );
     expect(inTx[4]!.sql).toBe(
-      'update `timeline_steps` set `closes_on` = ? where (`timeline_steps`.`timeline_id` = ? and `timeline_steps`.`position` = ?)',
+      'update `timeline_steps` set `closes_at` = ? where (`timeline_steps`.`timeline_id` = ? and `timeline_steps`.`position` = ?)',
     );
-    expect(inTx[4]!.params).toEqual(['2026-11-14', 11, 2]);
+    expect(inTx[4]!.params).toEqual(['2026-11-14 23:59:00', 11, 2]);
     expect(inTx[5]!.sql).toBe(
       'delete from `timeline_programs` where `timeline_programs`.`timeline_id` = ?',
     );
@@ -932,8 +941,8 @@ describe('timeline edit over the in-memory world (FR-9, FR-10, NFR-3, NFR-5; the
         position,
         name: `Step ${position}`,
         audience: audiences[position - 1]!,
-        opensAt: `2026-11-${String(opens).padStart(2, '0')}`,
-        closesAt: `2026-11-${String(opens + 2).padStart(2, '0')}`,
+        opensAt: dayStart(`2026-11-${String(opens).padStart(2, '0')}`),
+        closesAt: dayEnd(`2026-11-${String(opens + 2).padStart(2, '0')}`),
         round: 1,
         requiresLoad: position === 1,
       });
@@ -965,8 +974,8 @@ describe('timeline edit over the in-memory world (FR-9, FR-10, NFR-3, NFR-5; the
     });
     const step = (position: number) =>
       db.steps.find((s) => s.timelineId === 11 && s.position === position)!;
-    expect(step(2).closesAt).toBe('2026-12-01');
-    expect(step(1).closesAt).toBe('2026-11-05');
+    expect(step(2).closesAt).toBe('2026-12-01T23:59');
+    expect(step(1).closesAt).toBe('2026-11-05T23:59');
     expect(
       db.programs.filter((p) => p.timelineId === 11).map((p) => p.programId),
     ).toEqual([2, 3]);
@@ -1162,8 +1171,8 @@ describe('timeline edit over the in-memory world (FR-9, FR-10, NFR-3, NFR-5; the
           position: 1,
           name: 'Step 1',
           audience: 'assessors',
-          opensAt: '2026-11-03',
-          closesAt: '2026-11-05',
+          opensAt: dayStart('2026-11-03'),
+          closesAt: dayEnd('2026-11-05'),
           round: 1,
           requiresLoad: true,
         },

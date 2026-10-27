@@ -1,5 +1,6 @@
 import { RoleCode } from '../../users/permissions.js';
 import type { TimelineKind } from '../../database/drizzle/schema/timelines.js';
+import { dayOf, type RomeMinute } from '../rome-date.js';
 import type { StepAudience } from './default-steps.js';
 import {
   viewTimeline,
@@ -17,7 +18,7 @@ export const ASSIGNABLE_ROLES = [
 ] as const;
 export type AssignableRole = (typeof ASSIGNABLE_ROLES)[number];
 
-/** A step as the API shows it (design 6): as created, plus its position. Dates are Rome calendar days. */
+/** A step as the API shows it (design 6): as created, plus its position. `opensOn` / `closesOn` are the Rome day of the stored moment (timeline-step-times FR-9). */
 export interface TimelineStepResponse {
   position: number;
   name: string;
@@ -26,7 +27,7 @@ export interface TimelineStepResponse {
   closesOn: string;
   round: number;
   requiresLoad: boolean;
-  /** From its dates, today and the hold; every step is `upcoming` during a hold (timeline-edit FR-2). */
+  /** From its moments, now and the hold; every step is `upcoming` during a hold (timeline-edit FR-2). */
   state: TimelineStepState;
 }
 
@@ -71,13 +72,13 @@ export interface TimelineDetailResponse extends TimelineResponse {
 }
 
 /**
- * The read model of one timeline from its rows and the Rome day in `now` (FR-12).
+ * The read model of one timeline from its rows and the Rome minute in `now` (FR-12).
  * `assigned` is the count of active assignments per role; a role missing from
  * it has none. `hasLoad` comes from the loads port (timeline-edit FR-6, FR-14).
  */
 export function toTimelineResponse(
   bundle: TimelineBundle,
-  now: string,
+  now: RomeMinute,
   assigned: Partial<Record<AssignableRole, number>>,
   hasLoad: boolean,
 ): TimelineResponse {
@@ -96,8 +97,8 @@ export function toTimelineResponse(
     position: step.position,
     name: step.name,
     audience: step.audience,
-    opensOn: step.opensAt,
-    closesOn: step.closesAt,
+    opensOn: dayOf(step.opensAt),
+    closesOn: dayOf(step.closesAt),
     round: step.round,
     requiresLoad: step.requiresLoad,
     state: view.stepStates[step.position],

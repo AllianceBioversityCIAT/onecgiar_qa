@@ -78,3 +78,70 @@
 - **Decisions made:** the Reviewer received the 2,275-line diff as a scratchpad file (above the 300-line inline limit).
 - **Issues encountered:** none.
 - **Final verification:** green.
+
+### T-3: Store minutes and judge by now (schema, migration `0006`, clock) — PASS (after Pivot)
+
+- **Date:** 2026-10-27
+- **Attempts:** 1 (implementation complete in the working tree, uncommitted; no Reviewer run — stopped on P-3 before review)
+- **Skills / effort:** nestjs-expert, nestjs-best-practices, tdd (as listed) · `high` (permanent migration on a shared boundary)
+- **Attempt 1**
+  - files changed (31, uncommitted): `server/src/database/drizzle/schema/timeline-steps.ts`; `server/src/admin-config/rome-date.ts` (`todayInRome` removed); `timelines/{timeline-view,timeline-rules,timelines.service,timeline-response,timeline-diff}.ts`; `field-config/{field-config-versions,field-config.store,field-config.service}.ts`; `cycles/cycles.store.ts`; `server/drizzle/0006_timeline_step_times.sql`, `server/drizzle/rollback/0006_timeline_step_times.down.sql`, `server/drizzle/meta/_journal.json`, `server/drizzle/meta/0006_snapshot.json`; `server/src/database/AGENTS.md`; `server/test/support/in-memory-{admin-config,field-config}.ts`; specs `schema`, `timeline-view`, `field-config-versions`, `timeline-rules`, `timeline-diff`, `timelines.service`, `{timelines,cycles,field-config}.unit-of-work`, `field-config.service`, `rome-date`; e2e `admin-config-timelines`, `admin-config-field-config`
+  - Implementer verification: lint 0 · build 0 · unit 2392/2392 and e2e 871/871 in the default zone (America/Bogota), `TZ=UTC` and `TZ=America/Bogota`; unit also under `TZ=Asia/Tokyo`
+  - Red run: `field-config-versions.spec.ts` 26 failed (e.g. FR-8 same morning `expected { number: 3, provisional: true } to deeply equal { number: 2, provisional: false }`); `timelines.service.spec.ts` 3 failed (hold at the hour `expected 'scheduled' to be 'waiting_for_load'`); `schema.spec.ts` 8 failed (`0006` statements, 23:59 rewrite, down script, strict check). `timeline-view.spec.ts` had no red (lexical comparison already works after T-2)
+  - Falsifiers: (1) `todayInRome` feeding `now` → 6 failed, `expected 'scheduled' to be 'waiting_for_load'`; (2) UPDATE dropped from `0006` → 3 failed in `schema.spec.ts`; (3) publish day instead of minute → 2 failed, "published the same morning". All reverted
+  - `todayInRome` grep over `server/src` and `server/test`: no hit
+  - NFR-4: no `toHaveLength` / statement-count expectation changed in the three unit-of-work suites; only column names and parameter values
+  - Evidence re-run: not run (pivot before closure)
+  - Reviewer: not run (pivot before closure)
+  - runtime events: none
+- **spawns:** implementer not reported by host (worker: 115 tool calls, 342,868 tokens), ended partial (Pivot-Detection flag)
+- **Not Done / Assumptions (verbatim from the Implementer, condensed list of its items):**
+  - Not applied or tested on a real MySQL: the up and down round trip, the P-4 `SELECT VERSION()` check, and CHECK enforcement are the HITL step (T-8). `0006` and its down script are pinned only by text.
+  - Rules input keys: the rules inputs are the day-only `opensOn` / `closesOn` again, with `opensAt` / `closesAt` reserved for minutes (stored, merged, view), so a day and a minute never share a key. `toRulesStep*` is gone and `TimelineStepCommand = TimelineStepInput`.
+  - `dayStart` / `dayEnd` are applied to the raw sent value, then `readMoment` runs `isRomeMinute` on the result, which refuses malformed days (pinned by a rules test).
+  - Audit (FR-12): keys and values stay days until T-4/T-5; change detection already compares moments.
+  - Behavior change from S-4, FR-5, FR-6: a day-only `opensOn` of today means 00:00, so it is `BEFORE_TODAY` once the Rome clock is past 00:00. Four tests adapted (service "judges today…", stale-mixed-read clock moved to 00:00, e2e "opening today is accepted" now at 00:00 plus a new e2e at 10:00 expecting `BEFORE_TODAY`).
+  - `server/src/admin-config/AGENTS.md` still says dates are Rome days and names `todayInRome` (T-7).
+  - The `0006` note in `server/src/database/AGENTS.md` says the snapshot is stale; it must change if the snapshot is fixed.
+
+## Pivot Record: T-3
+
+- **Trigger:** premise P-3 is false. `pnpm drizzle-kit generate --custom --name timeline_step_times` (exit 0) wrote an empty SQL file and journal entry 6, but `server/drizzle/meta/0006_snapshot.json` is a copy of the **previous** schema (`opens_on` / `closes_on` as `date`, check `closes_on >= opens_on`; only `id` / `prevId` differ from `0005_snapshot.json`). Leader confirmed: the snapshot holds `"opens_on"` only. Consequence: the next `pnpm db:generate` would propose the rename and retype again (a spurious `0007` behind an interactive rename prompt).
+- **Spec rule hit:** `tasks.md` T-3 scope 1 — "If not, stop and use the Pivot Protocol (DD-6). Never edit the snapshot by hand." Design § 11 P-3 names the fallback: "add a generated migration and then a custom one, or edit the snapshot".
+- **Implementer conduct:** flagged Pivot-Detection and continued to a complete implementation instead of stopping; the generated files are left as the tool wrote them (not hand-edited).
+- **Alternatives:**
+  1. A human runs the interactive `pnpm drizzle-kit generate --name timeline_step_times` once (answering "rename" for both columns) so the tool writes a true snapshot; the generated SQL body is then replaced by the reviewed four-step custom SQL. One migration, tool-written snapshot.
+  2. Two migrations: the interactive generated one (schema + snapshot) as `0006`, and a custom `0007` for the 23:59 rewrite and the strict check.
+  3. Accept the stale snapshot and document it (already drafted in `server/src/database/AGENTS.md`); every later `db:generate` must hand-discard the spurious diff.
+  4. Edit the snapshot by hand — forbidden by T-3's scope text.
+- **Also surfaced for the user (consequence of S-6 + FR-5, not a defect):** with day-only writes meaning 00:00, the current front (which sends days) can no longer create a timeline whose step 1 opens *today* once Rome is past midnight — `BEFORE_TODAY` — until P2-4021 ships the time picker.
+- **State:** T-3 `[~]`; working tree holds the complete attempt-1 diff, uncommitted. Awaiting the user's decision before any further spawn.
+- **User decision (2026-10-27, back lead):** alternative 1 — interactive generate, one migration, tool-written snapshot. The S-6 + FR-5 "today" side effect is **accepted as specified**; T-7's `front-contract.md` must state it for P2-4021.
+- **Spec amended (two-direction sweep: `--custom` and P-3 across the spec folder):** `design.md` § 4 tree line, § 10 DD-6, § 11 P-3 (marked FALSE with evidence) and the `UNVERIFIED` summary line; `tasks.md` T-3 scope step 1. Carry these as named conformance checks into the T-3 Reviewer brief.
+- **Leader prep (mechanical, tool-generated files only):** the reviewed custom SQL was saved to the session scratchpad; the empty-generated `drizzle/0006_timeline_step_times.sql`, the stale `drizzle/meta/0006_snapshot.json` and journal entry 6 were removed (journal restored to `HEAD`) so the interactive generate can write `0006` cleanly. The rest of the attempt-1 tree is kept.
+- **Waiting on:** the back lead runs the interactive generate in a real terminal.
+
+### T-3 closure (after the Pivot)
+
+- **P-3 settled (tasks.md T-3 step 1 as amended):** the back lead ran `pnpm drizzle-kit generate --name timeline_step_times` interactively (`~ opens_on › opens_at`, `~ closes_on › closes_at`, both renames). `drizzle/meta/0006_snapshot.json`: `timeline_steps.opens_at` / `closes_at` are `datetime`, `opens_on` / `closes_on` absent, `chk_timeline_steps_dates` = `` `closes_at` > `opens_at` ``, `_meta.columns` records both renames, `prevId` chains to `0005_snapshot.json`. Journal entry `idx 6` / `0006_timeline_step_times`. Leader probe afterwards: `drizzle-kit generate --name probe` → "No schema changes, nothing to migrate".
+- **Leader edits after the generate (mechanical, reviewed):** the generated SQL body (rename before dropping the check, no 23:59 rewrite) was replaced by the Implementer's reviewed four-statement SQL; the stale-snapshot sentence in `server/src/database/AGENTS.md` was replaced by the interactive-generate provenance and a warning against `--custom` for column changes. (The attempt-1 "Not Done" item about that sentence is therefore resolved.)
+- **Evidence re-run (Leader inline):** **VERIFIED** — lint and build clean; unit 2392/2392 in America/Bogota (machine default) and `TZ=UTC`; e2e 871/871 in both zones; `todayInRome` grep over `server/src` and `server/test`: 0 hits.
+- **Review mode:** parallel lens reviewers (migration / data-loss surface).
+  - Reviewer A (risk + resilience, baseline conformance): **PASS** — `0006` holds the four § 5 steps in order (drop check first is required by MySQL); the strict check cannot fail on migrated rows; down script reverses § 5, lossy, outside the journal; named conformance checks for the amended DD-6, P-3, § 4 tree line and T-3 step 1 pass; custom column type and codec pin conform to DD-3 / P-2; NFR-4 counts unchanged.
+  - Reviewer B (reliability + readability, baseline conformance): **PASS** — every T-3 scenario (FR-2, FR-4 span, FR-7, FR-8, FR-9 old-client create, FR-11, FR-13) is pinned with literal values; all six P-6 sites use `nowInRome`; red on behavioral assertions; rules-input key choice (`…On` days / `…At` minutes) conforms to design § 7.2–7.3; the adapted "today" tests state and assert their new scenarios (Disqualifier clean); T-2 forward pointers handled.
+- **spawns:** reviewer A not reported by host (21 tool calls, 61,202 tokens), ended complete; reviewer B not reported by host, ended complete
+- **ADVISORY (not gating):**
+  - RESILIENCE (A): MySQL DDL is not transactional — a failure after statement 2 leaves a half-migrated table and a re-run fails at `DROP CHECK`; `sql_safe_updates` (Workbench default) refuses the unfiltered `UPDATE` (error 1175).
+  - RISK (A): the lossy down path is tested only as text; T-8 should include one step moved to a non-00:00/23:59 time.
+  - RELIABILITY (A): `fromDriver` throws if the driver ever returns a `Date` (P-2) — acceptable, guarded by the codec pin.
+  - READABILITY (B): `timeline-rules.spec.ts` row "step 1 opens today" is valid only because `now` is 00:00; `checkLocks` local `beforeToday` could be `beforeNow`; `spanInDays` in `cycles.store.ts` could note that either driver form works.
+  - READABILITY (B): the S-6 day→minute mapping runs twice on create (rules and insert) — one resolver both consume would keep T-4's "exactly one of `…At` / `…On`" choice in one place; `TimelineStepCommand` / `TimelineStepUpdateCommand` are now plain aliases.
+  - RELIABILITY (B): interim audit for a same-day time-only change records `{before: day, after: day}` until T-5 — T-5 must land in the same PR.
+  - RELIABILITY (B): the strict `closesAt <= opensAt` rule has no T-3 pin (day-only input cannot reach it); T-4's FR-3 "same moment" case is the pin.
+- **Forward pointers:**
+  - → T-4: one moment resolver shared by rules and insert (B); FR-3 "same moment" pins the strict close rule (B); `TimelineStepCommand` aliases are where the wire shape diverges.
+  - → T-5: audit values move to moments in the same PR (B).
+  - → T-7: state the accepted S-6 + FR-5 consequence (old front cannot open step 1 "today" after 00:00 Rome) in `front-contract.md` for P2-4021.
+  - → T-8: recovery note for a half-applied `0006`; apply with `pnpm db:migrate` or a session without `sql_safe_updates`; include one step at a non-00:00/23:59 time in the down round-trip (A).
+- **Requirements covered:** FR-2, FR-4 (span), FR-7, FR-8, FR-9 (Old client creates), FR-11 (SQL pin), FR-13, NFR-1, NFR-3 (statement pin), NFR-4
+- **Final verification:** green.

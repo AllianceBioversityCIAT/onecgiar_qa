@@ -19,6 +19,7 @@ import {
   TimelineNotFoundError,
 } from '../admin-config.errors.js';
 import { applicableFields, shapeCatalog } from './field-config-catalog.js';
+import { dayEnd, dayStart } from '../rome-date.js';
 import type { ConfigItem, OptionSet } from './field-config-diff.js';
 import { FieldConfigService } from './field-config.service.js';
 import type { FieldConfigStore } from './field-config.store.js';
@@ -192,8 +193,9 @@ function addTimeline(
       position: 1,
       name: 'First',
       audience: 'assessors',
-      opensAt: t.opensOn,
-      closesAt: t.closesOn ?? '2026-12-01',
+      // The test names whole days; a day opens at 00:00 and closes at 23:59 (S-6).
+      opensAt: dayStart(t.opensOn),
+      closesAt: dayEnd(t.closesOn ?? '2026-12-01'),
       round: 1,
       requiresLoad: false,
     });

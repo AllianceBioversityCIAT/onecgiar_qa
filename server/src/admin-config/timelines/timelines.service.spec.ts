@@ -26,6 +26,7 @@ import {
 } from '../admin-config.errors.js';
 import { CyclesService } from '../cycles/cycles.service.js';
 import type { TimelineUser } from '../../database/drizzle/schema/timeline-users.js';
+import type { RomeMinute } from '../rome-date.js';
 import { NoTimelineLoads, type TimelineLoads } from './timeline-loads.js';
 import {
   TimelinesService,
@@ -1078,16 +1079,28 @@ describe('create: every problem at once, nothing written (FR-11)', () => {
     ]);
   });
 
-  it('judges "today" by the Rome date: 10:00 UTC on 20 Oct is 20 Oct in Rome, so a step opening that day is accepted', async () => {
-    const { service, ctx, seedCycle, db } = world();
+  it('judges "now" to the Rome minute (S-4, FR-5): at 12:00 Rome on 20 Oct a day-only step opening that day (00:00) is back-dated, and one opening on 21 Oct is accepted', async () => {
+    const { service, ctx, seedCycle, db, written } = world();
     const cycleId = await seedCycle(2026);
+    const before = written();
+
+    const error = await refusal(
+      service.create(
+        ctx(),
+        cycleId,
+        request({ steps: [{ ...STEP_1, opensOn: '2026-10-20' }, STEP_2] }),
+      ),
+    );
+    expect((error as TimelineValidationError).issues).toEqual([
+      { field: 'steps[0].opensOn', code: 'BEFORE_TODAY' },
+    ]);
+    expect(written()).toBe(before);
 
     await service.create(
       ctx(),
       cycleId,
-      request({ steps: [{ ...STEP_1, opensOn: '2026-10-20' }, STEP_2] }),
+      request({ steps: [{ ...STEP_1, opensOn: '2026-10-21' }, STEP_2] }),
     );
-
     expect(db.timelines).toHaveLength(1);
   });
 
@@ -1237,6 +1250,93 @@ describe('the hold, through the loads port (timeline-edit FR-6, FR-2, FR-14)', (
       [first.timelineId, 'waiting_for_load'],
       [second.timelineId, 'live'],
     ]);
+  });
+});
+
+describe('step times: stored to the minute and judged by the Rome minute (timeline-step-times FR-2, FR-7, FR-9, FR-11)', () => {
+  /** Rewrites a stored step as a migrated or future row would hold it. */
+  const setStep = (
+    w: ReturnType<typeof world>,
+    timelineId: number,
+    position: number,
+    opensAt: string,
+    closesAt: string,
+  ) => {
+    const row = w.db.steps.find(
+      (s) => s.timelineId === timelineId && s.position === position,
+    )!;
+    row.opensAt = opensAt as RomeMinute;
+    row.closesAt = closesAt as RomeMinute;
+  };
+  /** Moves the clock to an instant (UTC) of the same run. */
+  const goTo = (w: ReturnType<typeof world>, instant: string) =>
+    w.clock.advance(Date.parse(instant) - w.clock.now().getTime());
+
+  it('an old client create (day-only) is stored from 00:00 of the opening day to 23:59 of the closing day, and both forms are answered', async () => {
+    const w = world();
+    const cycleId = await w.seedCycle(2026);
+    const { timelineId } = await w.service.create(w.ctx(), cycleId, request());
+
+    expect(
+      w.db.steps
+        .filter((s) => s.timelineId === timelineId)
+        .sort((a, b) => a.position - b.position)
+        .map((s) => [s.opensAt, s.closesAt]),
+    ).toEqual([
+      ['2026-11-02T00:00', '2026-11-06T23:59'],
+      ['2026-11-09T00:00', '2026-11-13T23:59'],
+    ]);
+    const answer = await w.service.get(timelineId);
+    expect(answer.steps.map((step) => [step.opensOn, step.closesOn])).toEqual([
+      ['2026-11-02', '2026-11-06'],
+      ['2026-11-09', '2026-11-13'],
+    ]);
+  });
+
+  it('the hold starts at the opening hour: scheduled at 13:59 and waiting for load at 14:00, not at 00:00', async () => {
+    const w = world();
+    const cycleId = await w.seedCycle(2026);
+    const { timelineId } = await w.service.create(w.ctx(), cycleId, request());
+    setStep(w, timelineId, 1, '2026-11-10T14:00', '2026-11-12T17:30');
+    setStep(w, timelineId, 2, '2026-11-13T00:00', '2026-11-13T23:59');
+
+    goTo(w, '2026-11-09T23:00:00Z'); // 00:00 Rome on 10 Nov
+    expect((await w.service.get(timelineId)).status).toBe('scheduled');
+    goTo(w, '2026-11-10T12:59:00Z'); // 13:59 Rome
+    expect((await w.service.get(timelineId)).status).toBe('scheduled');
+    goTo(w, '2026-11-10T13:00:00Z'); // 14:00 Rome
+    expect((await w.service.get(timelineId)).status).toBe('waiting_for_load');
+  });
+
+  it('with a load, a step 14:00-17:30 is upcoming at 13:59:59, in progress at 14:00:00 and 17:30:59, closed at 17:31:00', async () => {
+    const w = world();
+    const cycleId = await w.seedCycle(2026);
+    const { timelineId } = await w.service.create(w.ctx(), cycleId, request());
+    w.db.loads.markLoaded(timelineId);
+    setStep(w, timelineId, 1, '2026-11-10T14:00', '2026-11-12T17:30');
+    setStep(w, timelineId, 2, '2026-11-13T00:00', '2026-11-13T23:59');
+
+    const state = async () => (await w.service.get(timelineId)).steps[0]!.state;
+    goTo(w, '2026-11-10T12:59:59Z');
+    expect(await state()).toBe('upcoming');
+    goTo(w, '2026-11-10T13:00:00Z');
+    expect(await state()).toBe('in_progress');
+    goTo(w, '2026-11-12T16:30:59Z');
+    expect(await state()).toBe('in_progress');
+    goTo(w, '2026-11-12T16:31:00Z');
+    expect(await state()).toBe('closed');
+  });
+
+  it('a migrated timeline (00:00 / 23:59) answers as the day timeline did: live through 23:59:59 of the closing day, finished at 00:00 after', async () => {
+    const w = world();
+    const cycleId = await w.seedCycle(2026);
+    const { timelineId } = await w.service.create(w.ctx(), cycleId, request());
+    w.db.loads.markLoaded(timelineId);
+
+    goTo(w, '2026-11-13T22:59:59Z'); // 23:59:59 Rome on 13 Nov, step 2's last day
+    expect((await w.service.get(timelineId)).status).toBe('live');
+    goTo(w, '2026-11-13T23:00:00Z'); // 00:00 on 14 Nov
+    expect((await w.service.get(timelineId)).status).toBe('finished');
   });
 });
 
@@ -2964,7 +3064,7 @@ describe('update: the edit flow (timeline-edit design 6, 7.2)', () => {
       expect(w.db.timelines[0]).toMatchObject({ name: 'First', version: 2 });
       expect(
         w.db.steps.find((s) => s.position === 1 && s.timelineId === timelineId),
-      ).toMatchObject({ closesAt: STEP_1.closesOn });
+      ).toMatchObject({ closesAt: `${STEP_1.closesOn}T23:59` });
       expect(w.db.auditEvents).toHaveLength(1);
       expect(w.db.auditEvents[0]).toMatchObject({ actorId: 8 });
       expect(w.unitOfWork.rolledBack).toBe(1);
@@ -3056,7 +3156,7 @@ describe('update: the edit flow (timeline-edit design 6, 7.2)', () => {
       expectOnlyTheRival(w, mixed);
       expect(
         w.db.steps.find((s) => s.timelineId === timelineId && s.position === 3),
-      ).toMatchObject({ closesAt: '2026-11-27' });
+      ).toMatchObject({ closesAt: '2026-11-27T23:59' });
     });
 
     it('400 on a mixed read: values that break a rule only against the rival steps are 409 stale, not VALIDATION_FAILED, and nothing is written', async () => {
@@ -3080,21 +3180,27 @@ describe('update: the edit flow (timeline-edit design 6, 7.2)', () => {
       expectOnlyTheRival(w, mixed);
       expect(
         w.db.steps.find((s) => s.timelineId === timelineId && s.position === 3),
-      ).toMatchObject({ opensAt: '2026-11-18', closesAt: STEP_3.closesOn });
+      ).toMatchObject({
+        opensAt: '2026-11-18T00:00',
+        closesAt: `${STEP_3.closesOn}T23:59`,
+      });
     });
 
     it('unconfirmed on a mixed read: a step that is in progress only in the rival steps is 409 stale, not TIMELINES_IN_PROGRESS_UNCONFIRMED, and nothing is written', async () => {
       const w = world();
       const { timelineId } = await seeded(w);
-      // `startStepTwo` (2026-11-10, with a load), then four more days: today
-      // is 2026-11-14, steps 1 and 2 are closed and step 3 (opens 2026-11-16)
-      // is upcoming, so nothing is in progress and a closing-day change asks
-      // for no confirmation.
+      // `startStepTwo` (2026-11-10, with a load), then the clock goes to 00:00
+      // Rome on 2026-11-14: steps 1 and 2 are closed and step 3 (opens
+      // 2026-11-16) is upcoming, so nothing is in progress and a closing-day
+      // change asks for no confirmation.
       startStepTwo(w, timelineId);
-      w.clock.advance(4 * DAY);
-      // The rival opens step 3 today (an upcoming step may open today): in its
-      // steps step 3 is in progress, so a request that moves its closing day
-      // needs the confirmation it did not send.
+      w.clock.advance(
+        Date.parse('2026-11-13T23:00:00Z') - w.clock.now().getTime(),
+      );
+      // The rival opens step 3 at that minute (an upcoming step may open at the
+      // current minute, not before it, S-4): in its steps step 3 is in
+      // progress, so a request that moves its closing day needs the
+      // confirmation it did not send.
       const mixed = mixedRead(w, {
         version: 1,
         steps: [{ position: 3, opensOn: '2026-11-14' }],
@@ -3110,7 +3216,10 @@ describe('update: the edit flow (timeline-edit design 6, 7.2)', () => {
       expectOnlyTheRival(w, mixed);
       expect(
         w.db.steps.find((s) => s.timelineId === timelineId && s.position === 3),
-      ).toMatchObject({ opensAt: '2026-11-14', closesAt: STEP_3.closesOn });
+      ).toMatchObject({
+        opensAt: '2026-11-14T00:00',
+        closesAt: `${STEP_3.closesOn}T23:59`,
+      });
     });
   });
 
@@ -3284,7 +3393,7 @@ describe('update: the edit flow (timeline-edit design 6, 7.2)', () => {
         const stepApplied =
           w.db.steps.find(
             (s) => s.timelineId === timelineId && s.position === 1,
-          )?.closesAt === '2026-11-07';
+          )?.closesAt === '2026-11-07T23:59';
         expect(Number(nameApplied) + Number(stepApplied)).toBe(1);
       },
     );

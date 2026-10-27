@@ -1,5 +1,5 @@
 import type { RoleCode } from '../../users/permissions.js';
-import { compareDates } from '../rome-date.js';
+import { compareMinutes, type RomeMinute } from '../rome-date.js';
 import type { StepAudience } from './default-steps.js';
 
 export type TimelineStatus =
@@ -11,16 +11,16 @@ export type TimelineStepState = 'closed' | 'in_progress' | 'upcoming';
 export interface TimelineViewStep {
   position: number;
   audience: StepAudience;
-  opensAt: string;
-  closesAt: string;
+  opensAt: RomeMinute;
+  closesAt: RomeMinute;
 }
 
 export interface TimelineViewInput {
   steps: readonly TimelineViewStep[];
   /** Roles with at least one active assignment on the timeline. */
   assignedRoles: readonly RoleCode[];
-  /** The Rome day to judge by, `YYYY-MM-DD`; never read from a clock here. */
-  now: string;
+  /** The Rome minute to judge by, `YYYY-MM-DDTHH:mm`; never read from a clock here. */
+  now: RomeMinute;
   /** Whether the timeline has a load (the `TIMELINE_LOADS` port, design 7.4). */
   hasLoad: boolean;
 }
@@ -53,14 +53,17 @@ const MISSING_ROLE_ITEM: Readonly<Partial<Record<RoleCode, string>>> = {
 /**
  * Status, step states, current step, next step and readiness from the steps,
  * the roles with an active assignment, whether the timeline has a load and
- * the Rome date in `now` (timeline-edit design 7.1; *timelines* FR-12, FR-13). A step
- * is open from `opensAt` to `closesAt`, both days included (S-1). Computed on
- * read; nothing is stored (DD-2).
+ * the Rome minute in `now` (timeline-edit design 7.1; *timelines* FR-12,
+ * FR-13; timeline-step-times FR-2, FR-7). A step is open from second :00 of
+ * its `opensAt` minute to second :59 of its `closesAt` minute, both included
+ * (S-2): `now` is a whole minute, so `opensAt <= now <= closesAt` says exactly
+ * that. Computed on read; nothing is stored (DD-2).
  *
- * **Hold** (timeline-edit FR-6, DD-2): step 1 exists, its opening day has
- * arrived and there is no load. The hold wins over the dates: status is
- * `waiting_for_load` even after every step's closing day, every step is
- * `upcoming`, there is no current step and the next one is step 1 (S-2).
+ * **Hold** (timeline-edit FR-6, DD-2; timeline-step-times FR-7): step 1 exists,
+ * its opening minute has arrived and there is no load. The hold wins over the
+ * dates: status is `waiting_for_load` even after every step's closing minute,
+ * every step is `upcoming`, there is no current step and the next one is
+ * step 1 (S-2).
  */
 export function viewTimeline(input: TimelineViewInput): TimelineView {
   const { steps, assignedRoles, now, hasLoad } = input;
@@ -71,15 +74,15 @@ export function viewTimeline(input: TimelineViewInput): TimelineView {
     undefined,
   );
   const onHold =
-    first !== undefined && compareDates(first.opensAt, now) <= 0 && !hasLoad;
+    first !== undefined && compareMinutes(first.opensAt, now) <= 0 && !hasLoad;
 
   const stepStates: Record<number, TimelineStepState> = {};
   for (const step of steps) {
     stepStates[step.position] = onHold
       ? 'upcoming'
-      : compareDates(step.closesAt, now) < 0
+      : compareMinutes(step.closesAt, now) < 0
         ? 'closed'
-        : compareDates(step.opensAt, now) <= 0
+        : compareMinutes(step.opensAt, now) <= 0
           ? 'in_progress'
           : 'upcoming';
   }
@@ -90,19 +93,19 @@ export function viewTimeline(input: TimelineViewInput): TimelineView {
   const next = onHold
     ? first
     : steps
-        .filter((step) => compareDates(step.opensAt, now) > 0)
-        .sort((a, b) => compareDates(a.opensAt, b.opensAt))[0];
+        .filter((step) => compareMinutes(step.opensAt, now) > 0)
+        .sort((a, b) => compareMinutes(a.opensAt, b.opensAt))[0];
 
   const lastClose = steps
     .map((s) => s.closesAt)
-    .sort(compareDates)
+    .sort(compareMinutes)
     .at(-1);
   const status: TimelineStatus =
-    first === undefined || compareDates(now, first.opensAt) < 0
+    first === undefined || compareMinutes(now, first.opensAt) < 0
       ? 'scheduled'
       : onHold
         ? 'waiting_for_load'
-        : lastClose !== undefined && compareDates(now, lastClose) > 0
+        : lastClose !== undefined && compareMinutes(now, lastClose) > 0
           ? 'finished'
           : 'live';
 

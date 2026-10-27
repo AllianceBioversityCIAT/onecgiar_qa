@@ -104,7 +104,7 @@ T-2 ─▶ T-3
 - **Skills:** nestjs-best-practices
 
 ## T-3: Store minutes and judge by now (schema, migration `0006`, clock)
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M (the largest; if the budget trips, split the migration into its own task)
 - **Depends on:** T-1, T-2
 - **Requirements:**
@@ -120,9 +120,9 @@ T-2 ─▶ T-3
 - **Scope:**
   1. **First step: settle P-3.**
      - Change `timeline-steps.ts` to `DATETIME` columns `opens_at` / `closes_at`, using a custom column type that maps to `RomeMinute`, and the strict check.
-     - Run `cd server && pnpm drizzle-kit generate --custom --name timeline_step_times`.
-     - Record in `execution.md` whether it produced an empty SQL file and a snapshot of the new schema.
-     - If not, **stop and use the Pivot Protocol** (DD-6). Never edit the snapshot by hand.
+     - ~~Run `--custom`~~ (P-3 false, Pivot 2026-10-27). A **human** runs `cd server && pnpm drizzle-kit generate --name timeline_step_times` once, answering "rename" for both columns, so the tool writes `0006_snapshot.json` and the journal entry from the new schema.
+     - Check the snapshot holds `opens_at` / `closes_at` as `datetime` and the strict check; record it in `execution.md`. Never edit the snapshot by hand.
+     - The generated SQL body is then replaced by the § 5 SQL (step 2).
   2. Write `server/drizzle/0006_timeline_step_times.sql` (design § 5, in order) and `server/drizzle/rollback/0006_timeline_step_times.down.sql`.
   3. Update `server/src/database/AGENTS.md`: the `0006` note. It is **not** additive: rename, type change, data rewrite of `closes_at`, applied by a human, with a lossy down script.
   4. Switch the meaning:

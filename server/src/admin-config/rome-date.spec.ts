@@ -11,14 +11,13 @@ import {
   isRomeMinute,
   nowInRome,
   QA_TIME_ZONE,
-  todayInRome,
   type RomeMinute,
 } from './rome-date.js';
 
 // Expected values are literal: Rome is UTC+1 in winter (CET) and UTC+2 in
 // summer (CEST); the 2026 changes are 29 Mar (02:00 -> 03:00 CET to CEST) and
 // 25 Oct (03:00 -> 02:00 CEST to CET).
-describe('todayInRome', () => {
+describe('the Rome day of an instant (dayOf of nowInRome)', () => {
   it.each([
     [
       'winter, 22:59Z is still the same Rome day',
@@ -86,7 +85,7 @@ describe('todayInRome', () => {
       '2027-01-01',
     ],
   ])('%s', (_name, instant, expected) => {
-    expect(todayInRome(new Date(instant))).toBe(expected);
+    expect(dayOf(nowInRome(new Date(instant)))).toBe(expected);
   });
 });
 

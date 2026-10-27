@@ -1,5 +1,6 @@
 import request from 'supertest';
 import { GRANTABLE_ROLES } from '../src/users/permissions.js';
+import { dayEnd, dayStart } from '../src/admin-config/rome-date.js';
 import {
   bearer,
   buildAdminConfigApp,
@@ -244,8 +245,9 @@ describe('Field configuration routes (e2e)', () => {
       position: 1,
       name: 'QA Platform open for assessors',
       audience: 'assessors',
-      opensAt: opensOn,
-      closesAt: '2026-12-18',
+      // A whole day: opens at 00:00, closes at 23:59 (S-6).
+      opensAt: dayStart(opensOn),
+      closesAt: dayEnd('2026-12-18'),
       round: 1,
       requiresLoad: false,
     });

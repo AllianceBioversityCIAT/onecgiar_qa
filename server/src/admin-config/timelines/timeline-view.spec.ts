@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RoleCode } from '../../users/permissions.js';
-import { todayInRome } from '../rome-date.js';
+import { dayEnd, dayStart, nowInRome } from '../rome-date.js';
 import {
   viewTimeline,
   type TimelineStepState,
@@ -22,20 +22,25 @@ const steps: TimelineViewStep[] = [
   {
     position: 1,
     audience: 'assessors',
-    opensAt: '2026-10-26',
-    closesAt: '2026-11-06',
+    opensAt: dayStart('2026-10-26'),
+    closesAt: dayEnd('2026-11-06'),
   },
   {
     position: 2,
     audience: 'programs',
-    opensAt: '2026-11-09',
-    closesAt: '2026-11-20',
+    opensAt: dayStart('2026-11-09'),
+    closesAt: dayEnd('2026-11-20'),
   },
 ];
 
 /** A timeline with a load by default: the FR-12 behavior (timeline-edit FR-6 "Load present"). */
 function at(today: string, hasLoad = true): TimelineView {
-  return viewTimeline({ steps, assignedRoles: [], now: today, hasLoad });
+  return viewTimeline({
+    steps,
+    assignedRoles: [],
+    now: dayStart(today),
+    hasLoad,
+  });
 }
 
 describe('viewTimeline status (FR-12)', () => {
@@ -72,7 +77,7 @@ describe('viewTimeline current and next step (FR-12)', () => {
     const frozen = Object.freeze({
       steps: Object.freeze(steps.map((s) => Object.freeze({ ...s }))),
       assignedRoles: Object.freeze(['ASSESSOR'] as RoleCode[]),
-      now: '2026-11-06',
+      now: dayStart('2026-11-06'),
       hasLoad: true,
     });
     const first = viewTimeline(frozen);
@@ -86,32 +91,32 @@ describe('viewTimeline readiness (FR-13)', () => {
     {
       position: 1,
       audience: 'assessors',
-      opensAt: '2026-10-26',
-      closesAt: '2026-11-06',
+      opensAt: dayStart('2026-10-26'),
+      closesAt: dayEnd('2026-11-06'),
     },
     {
       position: 2,
       audience: 'programs',
-      opensAt: '2026-11-09',
-      closesAt: '2026-11-13',
+      opensAt: dayStart('2026-11-09'),
+      closesAt: dayEnd('2026-11-13'),
     },
     {
       position: 3,
       audience: 'lead_assessors',
-      opensAt: '2026-11-16',
-      closesAt: '2026-11-20',
+      opensAt: dayStart('2026-11-16'),
+      closesAt: dayEnd('2026-11-20'),
     },
     {
       position: 4,
       audience: 'tpb',
-      opensAt: '2026-11-23',
-      closesAt: '2026-11-27',
+      opensAt: dayStart('2026-11-23'),
+      closesAt: dayEnd('2026-11-27'),
     },
     {
       position: 5,
       audience: 'ppu',
-      opensAt: '2026-11-30',
-      closesAt: '2026-12-04',
+      opensAt: dayStart('2026-11-30'),
+      closesAt: dayEnd('2026-12-04'),
     },
   ];
 
@@ -126,7 +131,7 @@ describe('viewTimeline readiness (FR-13)', () => {
     const view = viewTimeline({
       steps: fullSteps,
       assignedRoles: ['ASSESSOR', 'LEAD_ASSESSOR', 'TPB', 'PPU'],
-      now: '2026-10-20',
+      now: dayStart('2026-10-20'),
       hasLoad: true,
     });
     expect(view.readiness).toEqual(['NO_RESULTS_LOADED']);
@@ -136,7 +141,7 @@ describe('viewTimeline readiness (FR-13)', () => {
     const view = viewTimeline({
       steps: fullSteps,
       assignedRoles: [],
-      now: '2026-10-20',
+      now: dayStart('2026-10-20'),
       hasLoad: true,
     });
     expect(view.readiness).toEqual([
@@ -152,7 +157,7 @@ describe('viewTimeline readiness (FR-13)', () => {
     const view = viewTimeline({
       steps,
       assignedRoles: ['ASSESSOR', 'TPB'],
-      now: '2026-10-20',
+      now: dayStart('2026-10-20'),
       hasLoad: true,
     });
     expect(view.readiness).toEqual(['NO_RESULTS_LOADED']);
@@ -228,13 +233,17 @@ describe('viewTimeline status: every status x hold x date position (FR-6)', () =
   it('the hold ends when step 1 is moved after today: scheduled again', () => {
     // GIVEN the timeline was on hold on 26 Oct, an ADMIN moves step 1 to 2 Nov
     const moved: TimelineViewStep[] = [
-      { ...steps[0], opensAt: '2026-11-02', closesAt: '2026-11-06' },
+      {
+        ...steps[0],
+        opensAt: dayStart('2026-11-02'),
+        closesAt: dayEnd('2026-11-06'),
+      },
       steps[1],
     ];
     const view = viewTimeline({
       steps: moved,
       assignedRoles: [],
-      now: '2026-10-26',
+      now: dayStart('2026-10-26'),
       hasLoad: false,
     });
     expect(view.status).toBe('scheduled');
@@ -247,7 +256,7 @@ describe('viewTimeline status: every status x hold x date position (FR-6)', () =
     const view = viewTimeline({
       steps: [],
       assignedRoles: [],
-      now: '2026-10-26',
+      now: dayStart('2026-10-26'),
       hasLoad: false,
     });
     expect([view.status, view.currentStep, view.nextStep]).toEqual([
@@ -317,18 +326,18 @@ describe('viewTimeline step state at its boundaries (FR-2)', () => {
         {
           position: 1,
           audience: 'assessors',
-          opensAt: '2026-11-02',
-          closesAt: '2026-11-06',
+          opensAt: dayStart('2026-11-02'),
+          closesAt: dayEnd('2026-11-06'),
         },
         {
           position: 2,
           audience: 'programs',
-          opensAt: '2026-11-10',
-          closesAt: '2026-11-20',
+          opensAt: dayStart('2026-11-10'),
+          closesAt: dayEnd('2026-11-20'),
         },
       ],
       assignedRoles: [],
-      now: '2026-11-12',
+      now: dayStart('2026-11-12'),
       hasLoad: false,
     });
     expect(view.stepStates).toEqual({ 1: 'upcoming', 2: 'upcoming' });
@@ -339,7 +348,7 @@ describe('viewTimeline step state at its boundaries (FR-2)', () => {
     const view = viewTimeline({
       steps: [steps[1], steps[0]],
       assignedRoles: [],
-      now: '2026-11-09',
+      now: dayStart('2026-11-09'),
       hasLoad: true,
     });
     expect(view.stepStates).toEqual({ 1: 'closed', 2: 'in_progress' });
@@ -347,7 +356,7 @@ describe('viewTimeline step state at its boundaries (FR-2)', () => {
 });
 
 describe('viewTimeline over Rome instants (NFR-4: midnight and both daylight-saving changes)', () => {
-  /** The view at an instant, as the service reads it: today's Rome day from the clock. */
+  /** The view at an instant, as the service reads it: the Rome minute from the clock. */
   function atInstant(
     instant: string,
     stepsOf: TimelineViewStep[],
@@ -356,13 +365,18 @@ describe('viewTimeline over Rome instants (NFR-4: midnight and both daylight-sav
     return viewTimeline({
       steps: stepsOf,
       assignedRoles: [],
-      now: todayInRome(new Date(instant)),
+      now: nowInRome(new Date(instant)),
       hasLoad,
     });
   }
 
-  const one = (opensAt: string, closesAt: string): TimelineViewStep[] => [
-    { position: 1, audience: 'assessors', opensAt, closesAt },
+  const one = (opensOn: string, closesOn: string): TimelineViewStep[] => [
+    {
+      position: 1,
+      audience: 'assessors',
+      opensAt: dayStart(opensOn),
+      closesAt: dayEnd(closesOn),
+    },
   ];
 
   describe('midnight boundary (FR-2): step 1 closes on 6 Nov, Rome is UTC+1', () => {
@@ -485,5 +499,109 @@ describe('viewTimeline readiness does not depend on the hold (FR-6, FR-14)', () 
     expect(at('2026-11-07', false).readiness).toEqual(
       at('2026-11-07', true).readiness,
     );
+  });
+});
+
+// --- timeline-step-times: minutes (FR-2, FR-4, FR-7) ---------------------------
+// Rome is UTC+1 on 10-12 Nov 2026, so 14:00 Rome is 13:00Z. Every row sits on
+// its boundary; expected values are literals from the scenarios.
+
+describe('viewTimeline over Rome minutes (timeline-step-times)', () => {
+  const minute = (instant: string) => nowInRome(new Date(instant));
+  const stepOf = (opensAt: string, closesAt: string): TimelineViewStep[] => [
+    {
+      position: 1,
+      audience: 'assessors',
+      opensAt: opensAt as TimelineViewStep['opensAt'],
+      closesAt: closesAt as TimelineViewStep['closesAt'],
+    },
+  ];
+  const viewAt = (
+    instant: string,
+    stepsOf: TimelineViewStep[],
+    hasLoad: boolean,
+  ): TimelineView =>
+    viewTimeline({
+      steps: stepsOf,
+      assignedRoles: [],
+      now: minute(instant),
+      hasLoad,
+    });
+
+  describe('FR-2: boundaries of a step that runs 10 Nov 14:00 to 12 Nov 17:30', () => {
+    const window = stepOf('2026-11-10T14:00', '2026-11-12T17:30');
+
+    it.each<[string, string, TimelineStepState]>([
+      ['13:59:59 on 10 Nov', '2026-11-10T12:59:59Z', 'upcoming'],
+      ['14:00:00 on 10 Nov', '2026-11-10T13:00:00Z', 'in_progress'],
+      ['17:30:59 on 12 Nov', '2026-11-12T16:30:59Z', 'in_progress'],
+      ['17:31:00 on 12 Nov', '2026-11-12T16:31:00Z', 'closed'],
+    ])('at %s the state is %s', (_label, instant, state) => {
+      expect(viewAt(instant, window, true).stepStates[1]).toBe(state);
+    });
+  });
+
+  describe('FR-2: a whole-day window is open exactly on 2-6 Nov', () => {
+    const wholeDays = stepOf('2026-11-02T00:00', '2026-11-06T23:59');
+
+    it.each<[string, string, TimelineStepState]>([
+      ['23:59 on 1 Nov', '2026-11-01T22:59:00Z', 'upcoming'],
+      ['00:00 on 2 Nov', '2026-11-01T23:00:00Z', 'in_progress'],
+      ['23:59:59 on 6 Nov', '2026-11-06T22:59:59Z', 'in_progress'],
+      ['00:00 on 7 Nov', '2026-11-06T23:00:00Z', 'closed'],
+    ])('at %s the state is %s', (_label, instant, state) => {
+      expect(viewAt(instant, wholeDays, true).stepStates[1]).toBe(state);
+    });
+  });
+
+  describe('FR-4: a step that spans the autumn change (24 Oct 09:00 to 26 Oct 09:00)', () => {
+    const spanning = stepOf('2026-10-24T09:00', '2026-10-26T09:00');
+
+    it('is in progress at 02:30 Rome on 25 Oct, in both occurrences of that hour', () => {
+      // 02:30 CEST (UTC+2) = 00:30Z, then 02:30 CET (UTC+1) = 01:30Z
+      for (const instant of ['2026-10-25T00:30:00Z', '2026-10-25T01:30:00Z']) {
+        expect(viewAt(instant, spanning, true).stepStates[1]).toBe(
+          'in_progress',
+        );
+      }
+    });
+  });
+
+  describe('FR-7: the hold starts at the opening hour', () => {
+    const opensAtTwo = stepOf('2026-11-10T14:00', '2026-11-12T17:30');
+
+    it('is scheduled at 13:59 and waiting for load at 14:00 on 10 Nov', () => {
+      expect(viewAt('2026-11-10T12:59:00Z', opensAtTwo, false).status).toBe(
+        'scheduled',
+      );
+      expect(viewAt('2026-11-10T13:00:00Z', opensAtTwo, false).status).toBe(
+        'waiting_for_load',
+      );
+    });
+
+    it('is not waiting for load at 00:00 that day', () => {
+      // 00:00 Rome on 10 Nov = 23:00Z on 9 Nov
+      const view = viewAt('2026-11-09T23:00:00Z', opensAtTwo, false);
+      expect(view.status).toBe('scheduled');
+      expect(view.status).not.toBe('waiting_for_load');
+    });
+  });
+
+  describe('FR-7: between two steps on the same day', () => {
+    const sameDay: TimelineViewStep[] = [
+      ...stepOf('2026-11-10T08:00', '2026-11-10T12:00'),
+      {
+        position: 2,
+        audience: 'programs',
+        opensAt: '2026-11-10T14:00' as TimelineViewStep['opensAt'],
+        closesAt: '2026-11-10T18:00' as TimelineViewStep['closesAt'],
+      },
+    ];
+
+    it('has no current step and step 2 next at 13:00', () => {
+      // 13:00 Rome = 12:00Z
+      const view = viewAt('2026-11-10T12:00:00Z', sameDay, true);
+      expect([view.currentStep, view.nextStep]).toEqual([null, 2]);
+    });
   });
 });

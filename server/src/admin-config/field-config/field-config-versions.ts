@@ -1,21 +1,22 @@
 // Pure rules for the version a timeline uses and for the publish preview's
 // receive / keep split (design 7.1, FR-9, FR-7, DD-5, DD-8, NFR-4). No I/O and
-// no clock: `now` is always a parameter (P-13, NFR-4). Every date is a Europe/Rome
-// calendar day as a `YYYY-MM-DD` string from `rome-date.ts`, compared as strings;
-// no `Date` is ever built from a step date, and the process zone (`TZ`) never
-// changes an answer.
+// no clock: `now` is always a parameter (P-13, NFR-4). Every moment is a
+// Europe/Rome wall-clock minute, `YYYY-MM-DDTHH:mm` (`RomeMinute`), compared as
+// strings; no `Date` is ever built from a step moment, and the process zone
+// (`TZ`) never changes an answer. An instant becomes a minute through
+// `nowInRome` (timeline-step-times DD-2, FR-8).
 
-import { compareDates, todayInRome } from '../rome-date.js';
+import { compareMinutes, nowInRome, type RomeMinute } from '../rome-date.js';
 
 /**
  * What the module needs of a timeline (fed by `listTimelineStarts`, design 7.3):
- * step 1's `opensAt` and the last step's `closesAt`, both `null` when the
- * timeline has no steps, and its scope.
+ * step 1's `opensAt` and the last step's `closesAt` (moments), both `null` when
+ * the timeline has no steps, and its scope.
  */
 export interface TimelineStart {
   id: number;
-  opensAt: string | null;
-  closesAt: string | null;
+  opensAt: RomeMinute | null;
+  closesAt: RomeMinute | null;
   allResultTypes: boolean;
   resultTypeKeys: readonly string[];
 }
@@ -47,30 +48,33 @@ export interface ReceiveAndKeep {
 }
 
 /**
- * A timeline has started at 00:00 Rome on its step 1's `opensAt`, even while it
- * is on hold (S-3). A hold depends on a load, never on dates, so it does not
- * move the start. A timeline with no steps has not started.
+ * A timeline has started at its step 1's opening minute, even while it is on
+ * hold (S-3). A hold depends on a load, never on dates, so it does not move the
+ * start. A timeline with no steps has not started.
  */
-function hasStarted(opensAt: string | null, now: string): opensAt is string {
-  return opensAt !== null && compareDates(opensAt, now) <= 0;
+function hasStarted(
+  opensAt: RomeMinute | null,
+  now: RomeMinute,
+): opensAt is RomeMinute {
+  return opensAt !== null && compareMinutes(opensAt, now) <= 0;
 }
 
 /**
- * Finished: the Rome day is after the last step's `closesAt`, the same date
+ * Finished: the Rome minute is after the last step's closing minute, the same
  * rule `viewTimeline` uses for status `finished` (`timelines/timeline-view.ts`,
- * `compareDates(now, lastClose) > 0` for a timeline whose step 1 has opened).
- * The view's load hold is not part of this input (design 7.3 reads dates and
- * scope only): a timeline is finished here on dates alone.
+ * `compareMinutes(now, lastClose) > 0` for a timeline whose step 1 has opened).
+ * The view's load hold is not part of this input (design 7.3 reads moments and
+ * scope only): a timeline is finished here on moments alone.
  */
 function isFinished(
-  opensAt: string | null,
-  closesAt: string | null,
-  now: string,
+  opensAt: RomeMinute | null,
+  closesAt: RomeMinute | null,
+  now: RomeMinute,
 ): boolean {
   return (
     hasStarted(opensAt, now) &&
     closesAt !== null &&
-    compareDates(now, closesAt) > 0
+    compareMinutes(now, closesAt) > 0
   );
 }
 
@@ -86,9 +90,10 @@ function latest(
 }
 
 /**
- * The version a timeline uses (FR-9, DD-5). A version counts when the Rome day
- * of its publish instant is before `opensAt` (S-3, S-5): one published on the
- * opening day, at any hour, does not reach the timeline. A started timeline
+ * The version a timeline uses (FR-9, DD-5; timeline-step-times FR-8). A version
+ * counts when the Rome minute of its publish instant is before `opensAt`: one
+ * published in the opening minute or later does not reach the timeline, and one
+ * published earlier the same day does. A started timeline
  * resolves to the latest counting version and keeps it (S-13), or to `'none'`
  * when no version counts. A timeline that has not started resolves to the
  * latest version, provisional (S-4).
@@ -99,7 +104,7 @@ export function versionFor(
   now: Date,
 ): VersionResolution {
   const { opensAt } = timeline;
-  if (!hasStarted(opensAt, todayInRome(now))) {
+  if (!hasStarted(opensAt, nowInRome(now))) {
     const newest = latest(versions);
     return newest === undefined
       ? 'none'
@@ -108,7 +113,7 @@ export function versionFor(
   const counting = latest(
     versions.filter(
       (candidate) =>
-        compareDates(todayInRome(candidate.publishedAt), opensAt) < 0,
+        compareMinutes(nowInRome(candidate.publishedAt), opensAt) < 0,
     ),
   );
   return counting === undefined
@@ -130,7 +135,7 @@ export function receiveAndKeep(
   changedTypes: readonly string[],
   now: Date,
 ): ReceiveAndKeep {
-  const romeNow = todayInRome(now);
+  const nowMinute = nowInRome(now);
   const result: ReceiveAndKeep = { receive: [], keep: [] };
   for (const timeline of timelines) {
     const covers =
@@ -138,9 +143,9 @@ export function receiveAndKeep(
       (timeline.allResultTypes ||
         timeline.resultTypeKeys.some((key) => changedTypes.includes(key)));
     if (!covers) continue;
-    if (!hasStarted(timeline.opensAt, romeNow)) {
+    if (!hasStarted(timeline.opensAt, nowMinute)) {
       result.receive.push(timeline.id);
-    } else if (!isFinished(timeline.opensAt, timeline.closesAt, romeNow)) {
+    } else if (!isFinished(timeline.opensAt, timeline.closesAt, nowMinute)) {
       result.keep.push({
         timelineId: timeline.id,
         version: versionFor(timeline, versions, now),

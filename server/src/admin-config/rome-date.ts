@@ -1,17 +1,11 @@
-// Dates in this module are `YYYY-MM-DD` strings in the Europe/Rome calendar
-// (DD-2, DD-5). They never become a local-zone `Date`: the only zone-aware step
-// is `todayInRome`, and it asks `Intl` for Rome's calendar day (P-5). The
-// process zone (`TZ`) never changes the answer.
+// Days are `YYYY-MM-DD` strings and moments are `YYYY-MM-DDTHH:mm` strings
+// (`RomeMinute`), both in the Europe/Rome calendar (DD-1, DD-3). They never
+// become a local-zone `Date`: the only zone-aware step is `nowInRome`, and it
+// asks `Intl` for Rome's wall clock (P-5). The process zone (`TZ`) never
+// changes the answer.
 
 /** The one QA clock zone (FR-10): the only `'Europe/Rome'` in `server/src`. */
 export const QA_TIME_ZONE = 'Europe/Rome';
-
-const ROME_DAY = new Intl.DateTimeFormat('en-CA', {
-  timeZone: QA_TIME_ZONE,
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-});
 
 const ROME_MINUTE = new Intl.DateTimeFormat('en-CA', {
   timeZone: QA_TIME_ZONE,
@@ -34,14 +28,6 @@ const MINUTE_SHAPE = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})$/;
 export type RomeMinute = string & { readonly __brand: 'RomeMinute' };
 
 const DATE_SHAPE = /^(\d{4})-(\d{2})-(\d{2})$/;
-
-/** The Rome calendar day of an instant, as `YYYY-MM-DD` (FR-8, FR-12). */
-export function todayInRome(now: Date): string {
-  const parts = Object.fromEntries(
-    ROME_DAY.formatToParts(now).map(({ type, value }) => [type, value]),
-  );
-  return `${parts.year}-${parts.month}-${parts.day}`;
-}
 
 /** True for a real calendar date written exactly `YYYY-MM-DD`. */
 export function isCalendarDate(value: string): boolean {

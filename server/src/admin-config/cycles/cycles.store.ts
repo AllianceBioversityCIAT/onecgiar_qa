@@ -11,6 +11,7 @@ import {
 import { timelineSteps } from '../../database/drizzle/schema/timeline-steps.js';
 import { timelines } from '../../database/drizzle/schema/timelines.js';
 import { isDuplicateKeyError } from '../../users/users.errors.js';
+import { dayOf, type RomeMinute } from '../rome-date.js';
 
 export const CYCLES_STORE = Symbol('CYCLES_STORE');
 
@@ -38,6 +39,23 @@ export interface CycleSummaryRow {
 
 export type InsertOutcome =
   { kind: 'created'; cycle: Cycle } | { kind: 'duplicate' };
+
+/**
+ * The span stays in days (timeline-step-times FR-13, DD-9): `min(opens_at)` and
+ * `max(closes_at)` are moments, the cycle shows their Rome date.
+ */
+function spanInDays(
+  row: {
+    startsOn: RomeMinute | null;
+    endsOn: RomeMinute | null;
+  } & Omit<CycleSummaryRow, 'startsOn' | 'endsOn'>,
+): CycleSummaryRow {
+  return {
+    ...row,
+    startsOn: row.startsOn === null ? null : dayOf(row.startsOn),
+    endsOn: row.endsOn === null ? null : dayOf(row.endsOn),
+  };
+}
 
 /** The persistence port of cycles (design 3, 6, 7.3). Rules live in `CyclesService`. */
 export interface CyclesStore {
@@ -134,12 +152,13 @@ export class DrizzleCyclesStore implements CyclesStore {
       .groupBy(cycles.id);
   }
 
-  listSummaries(): Promise<CycleSummaryRow[]> {
-    return this.summaries().orderBy(desc(cycles.year));
+  async listSummaries(): Promise<CycleSummaryRow[]> {
+    const rows = await this.summaries().orderBy(desc(cycles.year));
+    return rows.map(spanInDays);
   }
 
   async findSummary(id: number): Promise<CycleSummaryRow | undefined> {
     const [row] = await this.summaries().where(eq(cycles.id, id));
-    return row;
+    return row && spanInDays(row);
   }
 }
