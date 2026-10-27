@@ -275,8 +275,8 @@ export class UiGallery {
   protected readonly timeline = signal<string | null>('all');
   protected readonly timelineOptions: QaSelectOption[] = [
     { value: 'all', label: 'All timelines', description: '1,330 results' },
-    { value: 'ar-2026', label: 'Annual report 2026', description: '1,114 results · step 5 of 5 · closes 19 Jul', group: 'Official timeline' },
-    { value: 'jul-2026', label: 'July 2026 sub-timeline', description: '216 results · step 5 of 5 · closes 19 Jul', group: 'Sub-timelines' },
+    { value: 'ar-2026', label: 'Annual report 2026', description: '989 results · step 4 of 5 · closes 23 Jul', group: 'Official timeline' },
+    { value: 'jul-2026', label: 'July 2026 sub-timeline', description: '216 results · step 1 of 5 · closes 23 Jul', group: 'Sub-timelines' },
     { value: 'sep-pilot', label: 'September pilot', description: '0 results · step 1 of 5 · opens 01 Sep', group: 'Sub-timelines' },
   ];
   protected readonly role = signal<string | null>(null);

@@ -70,6 +70,15 @@ export const PHASE_NAMES = [
   'QA platform open for PPU',
 ] as const;
 
+/** Short step names for labels under the Timelines bar, in PHASE_NAMES order. */
+export const PHASE_SHORT: Readonly<Record<string, string>> = {
+  [PHASE_NAMES[0]]: 'Assessors',
+  [PHASE_NAMES[1]]: 'Programs correct',
+  [PHASE_NAMES[2]]: 'Lead assessor',
+  [PHASE_NAMES[3]]: 'Third-party broker',
+  [PHASE_NAMES[4]]: 'PPU',
+};
+
 export type TimelineStatus = 'Live' | 'Scheduled' | 'Closed';
 export type TimelineKind = 'Official timeline' | 'Sub-timeline';
 
@@ -97,16 +106,43 @@ export interface Timeline {
 
 const P = (i: number, start: string, end: string, done?: string): TimelinePhase => ({ name: PHASE_NAMES[i], start, end, done });
 
+// Live timelines add up to the 1,330 results in QA (989 + 216 + 84 + 41). Each one has its own steps:
+// a sub-timeline can skip steps, so "Step 2 of 3" is as valid as "Step 4 of 5".
 export const TIMELINES: readonly Timeline[] = [
   {
-    id: 'jul', name: 'July 2026 sub-timeline', kind: 'Sub-timeline', status: 'Live', results: 216,
-    programs: ['SP02', 'SP05'], types: ['Innovation development', 'Knowledge product'],
+    id: 'annual', name: 'Annual report 2026', kind: 'Official timeline', status: 'Live', results: 989,
+    programs: [], types: [],
     phases: [
-      P(0, '06 Jul 2026', '11 Jul 2026', '214 assessed · 38 returned'),
-      P(1, '11 Jul 2026', '14 Jul 2026', '38 answered · 4 unchanged'),
-      P(2, '15 Jul 2026', '16 Jul 2026', '12 highlighted'),
-      P(3, '17 Jul 2026', '18 Jul 2026', '12 corrected'),
-      { ...P(4, '19 Jul 2026', ''), active: { pct: 62, done: 134, of: 216 } },
+      P(0, '02 Mar 2026', '27 Mar 2026', '989 assessed · 372 returned'),
+      P(1, '30 Mar 2026', '17 Apr 2026', '372 answered · 38 unchanged'),
+      P(2, '20 Apr 2026', '24 Apr 2026', '85 highlighted'),
+      { ...P(3, '06 Jul 2026', '23 Jul 2026'), active: { pct: 88, done: 870, of: 989 } },
+      P(4, '24 Jul 2026', '07 Aug 2026'),
+    ],
+  },
+  {
+    id: 'jul', name: 'July 2026 sub-timeline', kind: 'Sub-timeline', status: 'Live', results: 216,
+    programs: ['SP02', 'SP05'], types: [],
+    phases: [
+      { ...P(0, '06 Jul 2026', '23 Jul 2026'), active: { pct: 34, done: 74, of: 216 } },
+      P(1, '24 Jul 2026', '28 Jul 2026'), P(2, '29 Jul 2026', '30 Jul 2026'), P(3, '31 Jul 2026', '03 Aug 2026'), P(4, '04 Aug 2026', '10 Aug 2026'),
+    ],
+  },
+  {
+    id: 'kp', name: 'Knowledge products fast track', kind: 'Sub-timeline', status: 'Live', results: 84,
+    programs: [], types: ['Knowledge product'],
+    phases: [
+      P(0, '29 Jun 2026', '10 Jul 2026', '84 assessed · 31 returned'),
+      { ...P(1, '13 Jul 2026', '28 Jul 2026'), active: { pct: 40, done: 34, of: 84 } },
+      P(4, '29 Jul 2026', '07 Aug 2026'),
+    ],
+  },
+  {
+    id: 'sp03', name: 'SP03 late reporting', kind: 'Sub-timeline', status: 'Live', results: 41,
+    programs: ['SP03'], types: [],
+    phases: [
+      { ...P(0, '13 Jul 2026', '02 Aug 2026'), active: { pct: 12, done: 5, of: 41 } },
+      P(1, '03 Aug 2026', '07 Aug 2026'), P(2, '10 Aug 2026', '11 Aug 2026'), P(4, '12 Aug 2026', '18 Aug 2026'),
     ],
   },
   {
@@ -115,17 +151,6 @@ export const TIMELINES: readonly Timeline[] = [
     phases: [
       P(0, '01 Sep 2026', '03 Sep 2026'), P(1, '04 Sep 2026', '06 Sep 2026'), P(2, '07 Sep 2026', '08 Sep 2026'),
       P(3, '09 Sep 2026', '10 Sep 2026'), P(4, '11 Sep 2026', '12 Sep 2026'),
-    ],
-  },
-  {
-    id: 'annual', name: 'Annual report 2026', kind: 'Official timeline', status: 'Live', results: 1114,
-    programs: [], types: [],
-    phases: [
-      P(0, '02 Mar 2026', '27 Mar 2026', '1,114 assessed · 418 returned'),
-      P(1, '30 Mar 2026', '17 Apr 2026', '418 answered · 43 unchanged'),
-      P(2, '20 Apr 2026', '24 Apr 2026', '96 highlighted'),
-      P(3, '27 Apr 2026', '05 May 2026', '96 corrected'),
-      { ...P(4, '06 May 2026', '19 Jul 2026'), active: { pct: 94, done: 1047, of: 1114 } },
     ],
   },
   {
@@ -176,27 +201,30 @@ export const STAGE_CRITERIA: Readonly<Record<string, string>> = {
 
 // ---------- Needs attention ----------
 
-/** % of the current stage window already elapsed; pace alerts fire 30 points below it. */
-export const PHASE_ELAPSED = 60;
+/** Text segment: [text, subject]. Subject segments (SP05, Assessor LM) are the only bold words. */
+export type AttentionSegment = readonly [text: string, subject?: boolean];
 
-/** Text segment: [text, mono]. Mono segments are the numbers and names in bold mono. */
-export type AttentionSegment = readonly [text: string, mono?: boolean];
+/** Where the admin fixes the problem: assign or reassign people, or move a step date. */
+export type AttentionPath = '/assessors' | '/cycle';
 
-export type AttentionTarget =
-  | { readonly kind: 'route'; readonly path: '/assessors' }
-  | { readonly kind: 'status'; readonly statuses: readonly ResultStatus[] }
-  | { readonly kind: 'risk'; readonly key: string };
-
+/**
+ * Something the admin can fix in QA before a step closes. Rows she can only watch
+ * (nothing she does changes them) belong in the other Overview blocks, not here.
+ */
 export interface AttentionRow {
+  /** Results affected; breaks ties between rows that close on the same day. */
   readonly sev?: number;
-  readonly pct?: number;
   readonly text: string;
   readonly segs: readonly AttentionSegment[];
+  /** "July 2026 sub-timeline · Step 1": the timeline and the open step the row belongs to. */
+  readonly context: string;
+  /** Day the step closes ("23 Jul 2026"); rows are sorted by it. */
+  readonly closes: string;
   readonly label: string;
-  readonly to: AttentionTarget;
+  readonly path: AttentionPath;
 }
 
-export type AttentionGroupKey = 'coverage' | 'pace' | 'waiting';
+export type AttentionGroupKey = 'unreviewed' | 'risk';
 
 export interface AttentionGroup {
   readonly key: AttentionGroupKey;
@@ -204,91 +232,63 @@ export interface AttentionGroup {
   readonly rows: readonly AttentionRow[];
 }
 
+// TODO(api): build these rows from assignments, sign-ins and step progress per timeline.
+// "Waiting on a program" stays out until business confirms what happens to unanswered
+// results when the correction window closes (docs/ideas.md).
 export const ATTENTION: readonly AttentionGroup[] = [
   {
-    key: 'coverage', name: 'Coverage',
+    key: 'unreviewed', name: "Won't be reviewed",
     rows: [
-      { sev: 299, text: '2 result types have no active assessor. 299 results will not be reviewed.', segs: [['2 result types have no active assessor. 299 results will not be reviewed.']], label: 'Open Assessors', to: { kind: 'route', path: '/assessors' } },
-      { sev: 64, text: 'Assessor LM has never signed in. 64 results are assigned to them.', segs: [['Assessor LM', true], [' has never signed in. 64 results are assigned to them.']], label: 'Open Assessors', to: { kind: 'route', path: '/assessors' } },
+      { sev: 40, text: 'Assessor LM has never signed in. 40 results are assigned to them.', segs: [['Assessor LM', true], [' has never signed in. 40 results are assigned to them.']], context: 'July 2026 sub-timeline · Step 1', closes: '23 Jul 2026', label: 'Open Assessors', path: '/assessors' },
+      { sev: 26, text: 'Innovation use has no active assessor. 26 results are waiting for one.', segs: [['Innovation use', true], [' has no active assessor. 26 results are waiting for one.']], context: 'SP03 late reporting · Step 1', closes: '02 Aug 2026', label: 'Open Assessors', path: '/assessors' },
     ],
   },
   {
-    key: 'pace', name: 'Pace',
+    key: 'risk', name: 'At risk before the stage closes',
     rows: [
-      { pct: 20, text: 'Capacity sharing for development is 20% reviewed with 4 days left.', segs: [['Capacity sharing for development', true], [' is 20% reviewed with 4 days left.']], label: 'Show progress', to: { kind: 'risk', key: 'type:Capacity sharing for development' } },
-      { pct: 19, text: 'SP09 has corrected 6 of 31 returned results with 2 days left.', segs: [['SP09', true], [' has corrected 6 of 31 returned results with 2 days left.']], label: 'Show progress', to: { kind: 'risk', key: 'program:SP09' } },
-      { pct: 24, text: 'Assessor DD is 24% through 88 knowledge products.', segs: [['Assessor DD', true], [' is 24% through 88 knowledge products.']], label: 'Show progress', to: { kind: 'risk', key: 'assessor:Assessor DD' } },
-    ],
-  },
-  {
-    key: 'waiting', name: 'Waiting',
-    rows: [
-      { sev: 14, text: '212 returned results have been waiting on a program for more than 14 days.', segs: [['212 returned results have been waiting on a program for more than 14 days.']], label: 'View results', to: { kind: 'status', statuses: ['Awaiting response'] } },
+      { sev: 67, text: 'Assessor DD has assessed 21 of 88 knowledge products.', segs: [['Assessor DD', true], [' has assessed 21 of 88 knowledge products.']], context: 'July 2026 sub-timeline · Step 1', closes: '23 Jul 2026', label: 'Open Assessors', path: '/assessors' },
+      { sev: 119, text: 'Annual report 2026: 119 results are still with the third-party broker.', segs: [['Annual report 2026', true], [': 119 results are still with the third-party broker.']], context: 'Annual report 2026 · Step 4', closes: '23 Jul 2026', label: 'Open Cycle', path: '/cycle' },
+      { sev: 25, text: 'SP05 has corrected 6 of 31 returned knowledge products.', segs: [['SP05', true], [' has corrected 6 of 31 returned knowledge products.']], context: 'Knowledge products fast track · Step 2', closes: '28 Jul 2026', label: 'Open Cycle', path: '/cycle' },
     ],
   },
 ];
 
-// ---------- Where the work is ----------
+// ---------- Assessment pace ----------
 
-export type Pace = 'On track' | 'Behind' | 'At risk';
-
-export interface WorkRow {
-  /** Result type name, program code or assessor nickname. */
-  readonly key: string;
-  /** Assessor full name (assessor rows only). */
-  readonly person?: string;
-  readonly pct: number;
-  /** Pending results for "All timelines" (1,330 results); the view scales them to the timeline. */
-  readonly pending: number;
-  readonly pace: Pace;
+/** Results done in a timeline's open step, day by day, from the day it opened until today. */
+export interface PaceSeries {
+  readonly timelineId: string;
+  /** Cumulative results done in the step, one value per day from the step's start to MOCK_TODAY. */
+  readonly done: readonly number[];
 }
 
-export const WORK_BASE = 1330;
+// TODO(api): daily history of results done per open step (needs a back-end endpoint).
+export const PACE: readonly PaceSeries[] = [
+  { timelineId: 'jul', done: [0, 3, 8, 14, 20, 27, 34, 41, 47, 54, 59, 64, 69, 74] },
+  { timelineId: 'annual', done: [700, 715, 731, 744, 760, 773, 786, 799, 811, 824, 836, 848, 859, 870] },
+  { timelineId: 'kp', done: [0, 3, 7, 13, 19, 26, 34] },
+  { timelineId: 'sp03', done: [0, 0, 1, 2, 3, 4, 5] },
+];
 
-export const WORK_BY: Readonly<Record<'type' | 'program' | 'assessor', readonly WorkRow[]>> = {
-  type: [
-    { key: 'Capacity sharing for development', pct: 20, pending: 158, pace: 'At risk' },
-    { key: 'Innovation development', pct: 31, pending: 180, pace: 'At risk' },
-    { key: 'Knowledge product', pct: 54, pending: 157, pace: 'Behind' },
-    { key: 'Innovation use', pct: 68, pending: 36, pace: 'Behind' },
-    { key: 'Policy change', pct: 86, pending: 12, pace: 'On track' },
-    { key: 'Other output', pct: 91, pending: 7, pace: 'On track' },
-    { key: 'Other outcome', pct: 97, pending: 1, pace: 'On track' },
-  ],
-  program: [
-    { key: 'SP09', pct: 19, pending: 152, pace: 'At risk' },
-    { key: 'SP02', pct: 33, pending: 143, pace: 'At risk' },
-    { key: 'SP11', pct: 51, pending: 59, pace: 'Behind' },
-    { key: 'SP05', pct: 64, pending: 53, pace: 'Behind' },
-    { key: 'SP07', pct: 78, pending: 29, pace: 'On track' },
-    { key: 'SP04', pct: 88, pending: 12, pace: 'On track' },
-    { key: 'SP01', pct: 94, pending: 6, pace: 'On track' },
-  ],
-  assessor: [
-    { key: 'Assessor LM', person: 'L. Mwangi', pct: 0, pending: 64, pace: 'At risk' },
-    { key: 'Assessor DD', person: 'D. Okeke', pct: 24, pending: 67, pace: 'At risk' },
-    { key: 'Assessor RS', person: 'R. Silva', pct: 41, pending: 42, pace: 'Behind' },
-    { key: 'Assessor AF', person: 'A. Farooq', pct: 57, pending: 18, pace: 'Behind' },
-    { key: 'Assessor MC', person: 'M. Chen', pct: 69, pending: 17, pace: 'On track' },
-    { key: 'Assessor SR', person: 'S. Restrepo', pct: 82, pending: 16, pace: 'On track' },
-    { key: 'Assessor TA', person: 'T. Abebe', pct: 91, pending: 3, pace: 'On track' },
-    { key: 'Assessor NH', person: 'N. Haddad', pct: 98, pending: 1, pace: 'On track' },
-  ],
-};
+// ---------- Assessor load ----------
 
-export interface TimelineWorkRow {
-  readonly id: string;
+/** Results assigned to an assessor in timelines whose open step is the assessors' step. */
+export interface AssessorLoad {
   readonly name: string;
-  readonly chip: 'Official' | 'Sub';
-  readonly pct: number;
-  readonly pending: number;
-  readonly pace: Pace;
+  readonly done: number;
+  readonly left: number;
+  readonly neverSignedIn?: boolean;
 }
 
-export const WORK_BY_TIMELINE: readonly TimelineWorkRow[] = [
-  { id: 'annual', name: 'Annual report 2026', chip: 'Official', pct: 62, pending: 420, pace: 'Behind' },
-  { id: 'jul', name: 'July 2026 sub-timeline', chip: 'Sub', pct: 38, pending: 134, pace: 'At risk' },
-  { id: 'sep', name: 'September pilot', chip: 'Sub', pct: 0, pending: 0, pace: 'On track' },
+// TODO(api): assignments per assessor for the timelines in the assessors' step.
+// Totals match the Timelines block: 74 + 5 done and 142 + 36 left (July sub-timeline and SP03).
+export const ASSESSOR_LOAD: readonly AssessorLoad[] = [
+  { name: 'Assessor DD', done: 21, left: 67 },
+  { name: 'Assessor LM', done: 0, left: 40, neverSignedIn: true },
+  { name: 'Assessor KR', done: 20, left: 25 },
+  { name: 'Assessor JS', done: 5, left: 20 },
+  { name: 'Assessor PA', done: 18, left: 18 },
+  { name: 'Assessor MT', done: 15, left: 8 },
 ];
 
 // ---------- Load results into QA ----------
@@ -302,8 +302,8 @@ export interface LoadTarget {
 }
 
 export const LOAD_TARGETS: readonly LoadTarget[] = [
-  { id: 'jul:0', label: 'July 2026 sub-timeline · QA platform open for assessors', desc: 'Open · closes 11 Jul', first: true },
-  { id: 'annual:2', label: 'Annual report 2026 · QA platform open for lead assessor', desc: 'Opens 20 Apr', first: false },
+  { id: 'jul:0', label: 'July 2026 sub-timeline · QA platform open for assessors', desc: 'Open · closes 23 Jul', first: true },
+  { id: 'annual:4', label: 'Annual report 2026 · QA platform open for PPU', desc: 'Opens 24 Jul', first: false },
   { id: 'sep:0', label: 'September pilot · QA platform open for assessors', desc: 'Opens 01 Sep', first: true },
 ];
 
