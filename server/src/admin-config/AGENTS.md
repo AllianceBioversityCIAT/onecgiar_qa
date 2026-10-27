@@ -1,6 +1,6 @@
 # src/admin-config — Agent Guide
 
-Cycles and QA timelines: the admin API that says *when* QA runs, *for which* Science Programs and result types, and *who* works in each timeline. Spec (archived): `docs/specs/archive/2026-10-21-admin-config--cycle-timelines/` (`design.md`, DD-1…DD-10). What the front may rely on: `front-contract.md` in the same folder. The timeline edit (`PATCH /timelines/:id`) is spec `docs/specs/admin-config/timeline-edit/` (its `front-contract.md` is the front's source). The field configuration of a cycle (`field-config/`) is spec `docs/specs/admin-config/field-configuration/` (its `front-contract.md` is the front's source). Root and `server/AGENTS.md` rules apply.
+Cycles and QA timelines: the admin API that says *when* QA runs, *for which* Science Programs and result types, and *who* works in each timeline. Spec (archived): `docs/specs/archive/2026-10-21-admin-config--cycle-timelines/` (`design.md`, DD-1…DD-10). What the front may rely on: `front-contract.md` in the same folder. The timeline edit (`PATCH /timelines/:id`) is spec `docs/specs/admin-config/timeline-edit/` (its `front-contract.md` is the front's source). The field configuration of a cycle (`field-config/`) is spec `docs/specs/archive/2026-10-27-admin-config--field-configuration/` (its `front-contract.md` is the front's source). Root and `server/AGENTS.md` rules apply.
 
 ## Model in one line
 
@@ -41,7 +41,7 @@ Cycles and QA timelines: the admin API that says *when* QA runs, *for which* Sci
 
 ## Field configuration (`field-config/`)
 
-Which fields QA shows, per cycle and result type: a **draft** the ADMIN edits, and **immutable versions** published from it. Spec: `docs/specs/admin-config/field-configuration/` (`design.md` DD-1 to DD-12). A timeline uses a version by its start date, never by editing it. `FieldConfigModule` (`field-config.module.ts`) is its own Nest module so its replay reader answers a publication. Its **only export** is `FIELD_CONFIG_EFFECTIVE` (`field-config.module.ts:31, 95`), the port later review stories inject: `effectiveFor(cycleId, timelineId, resultTypeKey)`.
+Which fields QA shows, per cycle and result type: a **draft** the ADMIN edits, and **immutable versions** published from it. Spec: `docs/specs/archive/2026-10-27-admin-config--field-configuration/` (`design.md` DD-1 to DD-12). A timeline uses a version by its start date, never by editing it. `FieldConfigModule` (`field-config.module.ts`) is its own Nest module so its replay reader answers a publication. Its **only export** is `FIELD_CONFIG_EFFECTIVE` (`field-config.module.ts:31, 95`), the port later review stories inject: `effectiveFor(cycleId, timelineId, resultTypeKey)`.
 
 | File | Role |
 |---|---|
