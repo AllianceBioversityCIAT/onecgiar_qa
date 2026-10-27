@@ -217,7 +217,7 @@ Let the QA Admin decide, **per cycle and per result type**, how each Reporting f
   - Published while one timeline is live → that timeline keeps its version, and those not started receive the new one.
   - The preview lists exactly those sets.
 - **Audit:** each publish writes one audit event with user, time, and before/after per changed (type, field).
-- **Concurrency:** two concurrent publishes give one 200 and one 409, proven on the fake and in HITL on MySQL.
+- **Concurrency:** two concurrent publishes give one 201 and one 409 (*edit* at validation 2026-10-27, was "200"), proven on the fake and in HITL on MySQL.
 - **Gates:** `pnpm lint && pnpm build && pnpm test && pnpm test:e2e` green.
 
 ## Next Step

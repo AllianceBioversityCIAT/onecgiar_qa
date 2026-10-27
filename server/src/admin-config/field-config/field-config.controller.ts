@@ -108,6 +108,7 @@ export class FieldConfigController {
     400: ['VALIDATION_FAILED', 'MALFORMED_JSON'],
     404: ['CYCLES_NOT_FOUND'],
     409: ['CYCLES_CLOSED', 'FIELD_CONFIG_CATALOG_MISSING'],
+    413: ['PAYLOAD_TOO_LARGE'],
     503: ['SERVICE_UNAVAILABLE'],
   })
   @Patch(':id/field-config/draft')
