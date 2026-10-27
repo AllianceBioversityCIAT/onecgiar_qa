@@ -291,6 +291,11 @@ describe('OpenAPI document (e2e)', () => {
         'FIELD_CONFIG_CATALOG_MISSING',
       );
     }
+    // The draft edit alone takes up to 2,000 items, so its body limit is 640 KB
+    // (R-5); the parser answers 413 above it.
+    expect(
+      codesOf('PATCH /api/v1/cycles/:id/field-config/draft', '413'),
+    ).toEqual(['PAYLOAD_TOO_LARGE']);
     // Reads work in any cycle status (FR-13); the three writes refuse a closed one.
     for (const key of view) {
       expect(codesOf(key, '409'), key).not.toContain('CYCLES_CLOSED');

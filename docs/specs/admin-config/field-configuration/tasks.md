@@ -343,7 +343,7 @@ T-4 ─────────────────────────�
   - Discard.
   - The preview for the FR-7 timelines.
   - Publish, then a GET showing the version.
-  - Stale revision; nothing to publish; two concurrent publishes (one 200, one 409, one version).
+  - Stale revision; nothing to publish; two concurrent publishes (one 201, one 409, one version; *edit* at validation 2026-10-27, was "200").
   - Replay with the same key → the first answer (201, the publish route's status; *edit* 2026-10-26 at T-8, was "200") with `Idempotency-Replayed` and one version and audit row.
   - A closed cycle refuses writes and allows reads.
   - The log lines.
@@ -394,7 +394,7 @@ T-4 ─────────────────────────�
 - **Design refs:** § 5, § 7.2 (publish); DD-6
 - **Scope:** a human step by the back lead (agents never run migrations on `qadb`).
   - Apply `0005` to `qadb`.
-  - On one disposable `draft` cycle: GET the configuration (the real TEST catalog for its year), PATCH a few items, then fire 5 concurrent publishes with the same `revision` and **distinct** idempotency keys. Expect one 200, four 409, one version, one audit row.
+  - On one disposable `draft` cycle: GET the configuration (the real TEST catalog for its year), PATCH a few items, then fire 5 concurrent publishes with the same `revision` and **distinct** idempotency keys. Expect one 201, four 409, one version, one audit row (*edit* at validation 2026-10-27, was "200").
   - **Plan (KZ-admin-config--cycle-timelines-3):**
     - The admin token and the Reporting key stay in shell variables from the back lead's own session, never in chat or in a repo file.
     - The checks use one disposable cycle. Its version and audit ids are recorded in `execution.md`.

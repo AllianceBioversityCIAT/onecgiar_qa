@@ -15,7 +15,7 @@ import {
 import { fieldConfigVisibilities } from '../../../database/drizzle/schema/field-config-draft-items.js';
 import type { DraftEditItem, FieldVisibility } from '../field-config-rules.js';
 
-/** The most items one draft edit carries (design 6): about 8 result types by a few hundred fields. */
+/** The most items one draft edit carries (design 6): about 9 result types by a few hundred fields. */
 export const MAX_DRAFT_ITEMS = 2000;
 
 // A flag left out is `undefined` and stays optional (FR-4: the service stores it
@@ -31,7 +31,7 @@ export class DraftItemDto implements DraftEditItem {
   @ApiProperty({
     type: String,
     maxLength: 64,
-    example: 'INNOVATION_DEV',
+    example: 'innovation_development',
     description: 'Result type key, as the Reporting catalog spells it',
   })
   @IsString()
@@ -41,7 +41,7 @@ export class DraftItemDto implements DraftEditItem {
   @ApiProperty({
     type: String,
     maxLength: 128,
-    example: 'title',
+    example: 'general.title',
     description:
       'Top-level field key of that result type, as the Reporting catalog spells it',
   })
