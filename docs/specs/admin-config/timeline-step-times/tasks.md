@@ -271,7 +271,7 @@ T-2 ─▶ T-3
 - **Skills:** nestjs-expert, tdd
 
 ## T-7: Front contract and module guide
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** S
 - **Depends on:** T-6
 - **Requirements:** FR-14: Contract matches the server.

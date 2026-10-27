@@ -240,3 +240,33 @@
 - **Spec wording gap for the user (T-6 gate):** FR-5's GIVEN omits the load that FR-2's GIVEN states; proposed: add "and the timeline has a load" to FR-5 "Earlier today". Also `tasks.md` T-6 says "unit-of-work list test" for NFR-4 where the pinned test is the e2e NFR-5 list test.
 - **Final verification:** green.
 - **Gate decision (2026-10-27, back lead):** amendments approved — `requirements.md` FR-5 "Earlier today" GIVEN adds "and the timeline has a load"; `tasks.md` T-6 NFR-4 wording now names the e2e list test. Text only; carried as named conformance checks into T-7's Reviewer brief.
+
+### T-7: Front contract and module guide — PASS (attempt 2)
+
+- **Date:** 2026-10-27
+- **Skills / effort:** cognitive-doc-design, api-design-principles (as listed) · attempt 1 `medium`, attempt 2 `high` (bumped on FAIL)
+- **Attempt 1**
+  - files changed: `docs/specs/admin-config/timeline-step-times/front-contract.md` (new, 118 lines), `server/src/admin-config/AGENTS.md`
+  - Implementer verification: cross-check against the real app's generated OpenAPI (dumped outside the repo by a throwaway vitest spec built like `server/test/openapi.e2e-spec.ts`) and `error-codes.ts` — 34 names, 0 unknown; falsifier copy with `opensAtUtc` / `DST_GAP` → `UNKNOWN 2`. P-8 files and client line refs checked. AGENTS.md sweep: `todayInRome` 0, `Rome calendar day` 0
+  - Evidence re-run (Leader inline): **VERIFIED** — `CHECKED 34 UNKNOWN 0`; falsifier `UNKNOWN 2 ['DST_GAP', 'opensAtUtc']`; OpenAPI `TimelineStepDto.required` = `['name','audience','opensOn','closesOn','round','requiresLoad']` confirmed
+  - Reviewer: **FAIL** (verbatim):
+
+    > 1. **Discovered Issue:** `front-contract.md:40` (BEFORE_TODAY row) says "A first step may open at the current minute and is then `in_progress` at once." This leaves out the load that amended FR-5 requires. Without a load the timeline is on hold (`waiting_for_load`, every step `upcoming`). With `NoTimelineLoads` bound, that is the case for every timeline today, as the AGENTS.md diff itself says ("Until loads exist every timeline whose step 1 has opened is on hold"). A front built on this sentence would show the wrong state. `:26` has the same gap ("A step is `in_progress` from its opening minute…") and never mentions the hold.
+    >    * **Violated Rule:** `requirements.md` FR-5 "Earlier today", GIVEN amended 2026-10-27 ("and the timeline has a load"); FR-7 status table (`waiting_for_load`); execution.md:242 (gate decision carried into T-7).
+    >    * **Remediation Suggestion:** In `:40`, change the sentence to say step 1 is `in_progress` at once **if the timeline has a load**, and otherwise the timeline is `waiting_for_load` (the hold). In `:26`, add one clause saying the hold still wins over step 1's window (see the earlier contracts).
+
+  - Finding classified by the Reviewer: **(b) defect owned by T-4/T-5** — design § 7.7 says "DTOs: the four keys are optional strings", but `create-timeline.dto.ts:70-90` `opensOn` / `closesOn` `@ApiProperty` lack `required: false`, so the generated OpenAPI requires the day-only keys on create. The contract is correct to flag it (§ 9 open point). Not an FR-14 failure. To the user at the T-7 gate (a production fix outside any open task).
+  - ADVISORY: § 4 "Cleanup" lines ("in a later spec", "do not build new code on `opensOn`/`closesOn`") are not labeled as guidance — cite DD-7 / § 7.7 or label them; AC 7 "same-day official step stays same-day" reads as a requirement — say it follows from keeping `HH:mm`; § 9 message-wording point could name `error-codes.ts`.
+  - runtime events: none
+- **spawns (attempt 1):** implementer not reported by host (worker: 37 tool calls, 137,015 tokens), ended complete; reviewer not reported by host, ended fail
+- **Attempt 2** (effort `high`)
+  - files changed: `front-contract.md` only — line 26 adds the hold ("unless the timeline is on hold … the hold now starts at the opening minute … Until loads exist (P2-3905) that is every timeline whose step 1 has opened"); line 40 (`BEFORE_TODAY`) "in_progress at once only if the timeline has a load; with no load … `waiting_for_load`"; advisory items done (§ 4 Cleanup cites DD-7 and is labelled "Guidance, not spec"; AC 7 "follows from keeping `HH:mm`"; § 9 names `error-codes.ts`)
+  - Implementer verification: `xcheck.py` → `CHECKED 34 UNKNOWN 0 []`; phrase sweep (`in_progress`, `at once`, `opening minute`, `waiting_for_load`, `upcoming`) — only lines 26 and 40 state a step state
+  - Evidence re-run (Leader inline): **VERIFIED** — `CHECKED 34 UNKNOWN 0 []`; lines 26 and 40 read as reported
+  - Reviewer: **PASS** — attempt 1 issue fixed against FR-5 (amended) and FR-7; contract § 5 matches design § 7.2 (amended); P2-3905 sourced (`docs/trd/trd.md:180,192`, timeline-edit S-1, `timeline-loads.ts:17-19`)
+  - runtime events: none
+- **spawns (attempt 2):** implementer not reported by host (worker: 13 tool calls, 80,156 tokens), ended complete; reviewer not reported by host, ended complete
+- **Requirements covered:** FR-14
+- **Open finding (for the user):** OpenAPI `TimelineStepDto.required` still lists `opensOn` / `closesOn` (design § 7.7 says all four keys are optional) — owned by T-4/T-5; flagged in `front-contract.md` § 9.
+- **Budget:** review rounds so far 10 (T-1 1, T-2 1, T-3 2, T-4 1, T-5 1, T-6 2, T-7 2) against ≈ 10 in design § 12 — at budget, not exceeded. T-8 has no review. Any further fix opens an 11th round (tripwire).
+- **Final verification:** green.
