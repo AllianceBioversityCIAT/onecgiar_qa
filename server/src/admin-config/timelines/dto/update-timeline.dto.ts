@@ -58,7 +58,7 @@ export class TimelineStepUpdateDto implements TimelineStepUpdateCommand {
     nullable: true,
     example: '2026-11-10T14:00',
     description:
-      'New opening moment, Rome time, `YYYY-MM-DDTHH:mm`; left out keeps the stored one. Not together with `opensOn`. Refused when the step is already open or closed',
+      'New opening moment, Rome time, `YYYY-MM-DDTHH:mm`; left out keeps the stored one. Not together with `opensOn`: send only one key per boundary; a null key counts as sent. Refused when the step is already open or closed',
   })
   @IsOptional()
   @IsString()
@@ -70,7 +70,7 @@ export class TimelineStepUpdateDto implements TimelineStepUpdateCommand {
     nullable: true,
     example: '2026-11-12T17:30',
     description:
-      'New closing moment, Rome time, `YYYY-MM-DDTHH:mm`; left out keeps the stored one. Not together with `closesOn`. A step in progress can be moved to the current minute or later',
+      'New closing moment, Rome time, `YYYY-MM-DDTHH:mm`; left out keeps the stored one. Not together with `closesOn`: send only one key per boundary; a null key counts as sent. A step in progress can be moved to the current minute or later',
   })
   @IsOptional()
   @IsString()

@@ -60,6 +60,10 @@ const STEP_3 = {
   requiresLoad: true,
 };
 
+/** What a read returns for each fixture step: the day-only keys mean 00:00 and 23:59 (timeline-step-times FR-9). */
+const MOMENTS_1 = { opensAt: '2026-11-02T00:00', closesAt: '2026-11-06T23:59' };
+const MOMENTS_2 = { opensAt: '2026-11-09T00:00', closesAt: '2026-11-13T23:59' };
+
 /** A valid body: SP02 and one result type, two steps. */
 const body = (over: Record<string, unknown> = {}) => ({
   name: 'July 2026',
@@ -385,9 +389,10 @@ describe('Timelines routes: defaults, create, list and detail (e2e)', () => {
         allResultTypes: false,
         resultTypeKeys: ['INNOVATION_DEV'],
         steps: [
-          { position: 1, ...STEP_1, state: 'upcoming' },
-          { position: 2, ...STEP_2, state: 'upcoming' },
+          { position: 1, ...STEP_1, ...MOMENTS_1, state: 'upcoming' },
+          { position: 2, ...STEP_2, ...MOMENTS_2, state: 'upcoming' },
         ],
+        timeZone: 'Europe/Rome',
         status: 'scheduled',
         currentStep: null,
         nextStep: 1,
@@ -918,9 +923,10 @@ describe('Timelines routes: defaults, create, list and detail (e2e)', () => {
           allResultTypes: false,
           resultTypeKeys: ['INNOVATION_DEV'],
           steps: [
-            { position: 1, ...STEP_1, state: 'upcoming' },
-            { position: 2, ...STEP_2, state: 'upcoming' },
+            { position: 1, ...STEP_1, ...MOMENTS_1, state: 'upcoming' },
+            { position: 2, ...STEP_2, ...MOMENTS_2, state: 'upcoming' },
           ],
+          timeZone: 'Europe/Rome',
           status: 'scheduled',
           currentStep: null,
           nextStep: 1,
@@ -1284,6 +1290,7 @@ describe('Timelines routes: defaults, create, list and detail (e2e)', () => {
           'resultTypeKeys',
           'status',
           'steps',
+          'timeZone',
           'users',
           'version',
         ].sort(),
@@ -1291,8 +1298,10 @@ describe('Timelines routes: defaults, create, list and detail (e2e)', () => {
       expect(Object.keys(detail.body.data.steps[0]).sort()).toEqual(
         [
           'audience',
+          'closesAt',
           'closesOn',
           'name',
+          'opensAt',
           'opensOn',
           'position',
           'requiresLoad',
@@ -1302,6 +1311,8 @@ describe('Timelines routes: defaults, create, list and detail (e2e)', () => {
       );
       expect(detail.body.data.version).toBe(1);
       expect(detail.body.data.steps[0].state).toBe('upcoming');
+      // FR-10: a read states the zone its moments are in.
+      expect(detail.body.data.timeZone).toBe('Europe/Rome');
     });
   });
 
@@ -1780,6 +1791,7 @@ describe('Timelines routes: defaults, create, list and detail (e2e)', () => {
         const expected = structuredClone(before);
         expected.version = 2;
         expected.steps[0].closesOn = '2026-11-07';
+        expected.steps[0].closesAt = '2026-11-07T23:59';
         expect(res.body.data).toEqual(withoutUsers(expected));
         expect((await detailOf(id)).body.data).toEqual(expected);
         expect(w.world.auditEvents).toHaveLength(1);
@@ -2574,7 +2586,10 @@ describe('Timelines routes: defaults, create, list and detail (e2e)', () => {
         });
         expect(row!.changes).toEqual({
           name: { before: 'July 2026', after: 'July 2026 v2' },
-          'steps.2.closesOn': { before: '2026-11-13', after: '2026-11-14' },
+          'steps.2.closesAt': {
+            before: '2026-11-13T23:59',
+            after: '2026-11-14T23:59',
+          },
         });
       });
 

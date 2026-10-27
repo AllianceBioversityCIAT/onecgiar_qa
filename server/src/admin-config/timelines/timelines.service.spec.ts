@@ -1141,9 +1141,22 @@ describe('the timeline as read (FR-12 read model, P-1 replay)', () => {
       allResultTypes: false,
       resultTypeKeys: ['INNOVATION_DEV'],
       steps: [
-        { position: 1, ...STEP_1, state: 'upcoming' },
-        { position: 2, ...STEP_2, state: 'upcoming' },
+        {
+          position: 1,
+          ...STEP_1,
+          opensAt: '2026-11-02T00:00',
+          closesAt: '2026-11-06T23:59',
+          state: 'upcoming',
+        },
+        {
+          position: 2,
+          ...STEP_2,
+          opensAt: '2026-11-09T00:00',
+          closesAt: '2026-11-13T23:59',
+          state: 'upcoming',
+        },
       ],
+      timeZone: 'Europe/Rome',
       status: 'scheduled',
       currentStep: null,
       nextStep: 1,
@@ -2652,7 +2665,13 @@ describe('update: the edit flow (timeline-edit design 6, 7.2)', () => {
         ...before,
         version: 2,
         steps: before.steps.map((step) =>
-          step.position === 1 ? { ...step, closesOn: '2026-11-07' } : step,
+          step.position === 1
+            ? {
+                ...step,
+                closesOn: '2026-11-07',
+                closesAt: '2026-11-07T23:59',
+              }
+            : step,
         ),
       });
       expect(await w.service.get(timelineId)).toEqual(answer);
@@ -2690,7 +2709,10 @@ describe('update: the edit flow (timeline-edit design 6, 7.2)', () => {
       });
       expect(w.db.auditEvents[0]!.changes).toEqual({
         name: { before: 'July 2026', after: 'Renamed' },
-        'steps.2.closesOn': { before: '2026-11-13', after: '2026-11-12' },
+        'steps.2.closesAt': {
+          before: '2026-11-13T23:59',
+          after: '2026-11-12T23:59',
+        },
       });
     });
 
@@ -3285,7 +3307,7 @@ describe('update: the edit flow (timeline-edit design 6, 7.2)', () => {
       expect(w.db.auditEvents).toHaveLength(1);
       // The confirmation is not a field of the timeline: it is not audited.
       expect(Object.keys(w.db.auditEvents[0]!.changes)).toEqual([
-        'steps.2.closesOn',
+        'steps.2.closesAt',
       ]);
     });
 

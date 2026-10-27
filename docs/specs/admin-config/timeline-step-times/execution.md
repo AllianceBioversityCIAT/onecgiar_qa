@@ -177,3 +177,33 @@
 - **Forward pointers:** → T-5: null-counts-as-sent wording in OpenAPI; deprecation of `…On`. → T-6: the FR-6 14:20:59 / 14:21:00 view pin; e2e cases follow § 7.2 as amended (if approved). → T-7: one key per boundary, null counts as sent.
 - **Requirements covered:** FR-1, FR-3, FR-4 (rule), FR-5, FR-6, FR-9 (both forms, day-only edit)
 - **Final verification:** green.
+- **Gate decision (2026-10-27, back lead):** amendment approved. `design.md` § 7.2 reader table rows "Neither, on create / on edit" now point to the request's family, and the sentence above was added after the key-memory paragraph. Carry it as a named conformance check into the next Reviewer brief (T-5) and into T-6's brief.
+
+### T-5: API surface (moments and time zone in responses, OpenAPI, audit keys) — PASS
+
+- **Date:** 2026-10-27
+- **Attempts:** 1
+- **Skills / effort:** nestjs-expert, api-design-principles (as listed) · `medium`
+- **Attempt 1**
+  - files changed (13): `server/src/admin-config/timelines/{timeline-response,timeline-diff,timelines.service}.ts`, `timelines/models/timeline.model.ts`, `timelines/dto/{create-timeline,update-timeline}.dto.ts` (description text only), specs `timeline-diff`, `timeline-response` (new), `timelines.service`; `server/test/openapi.e2e-spec.ts`, `server/test/admin-config-timelines.e2e-spec.ts`
+  - Implementer verification: lint 0 · build 0 · unit 2470/2470 (default and `TZ=UTC`) · e2e 872/872
+  - Red run (implementation stashed): `timeline-diff.spec.ts` 4 failed on keys/values (`expected { 'steps.2.closesOn': … } to deeply equal { 'steps.2.closesAt': … }`); `timeline-response.spec.ts` (`expected undefined to be 'Europe/Rome'`); service 2 audit-key cases; OpenAPI pin (`opensAt` / `closesAt` missing)
+  - Falsifier 1 (mapper hardcodes `'Europe/Rome'`): NFR-2 grep 2 → 3 hits (`timeline-response.ts:125`); the mapper spec stayed green (same value) — only the grep catches it, as the task says. Falsifier 2 (diff key `closesOn`): 2 failed incl. "FR-12 time-only change … recorded under closesAt with moment values, and no closesOn key exists". Both reverted
+  - Expected-body edits: additions of `opensAt` / `closesAt` / `timeZone` and the audit key move to `…At` minute values only; no `…On` or error-path expectation changed or removed
+  - Evidence re-run (Leader inline): **VERIFIED** — lint and build clean; unit 2470/2470 (America/Bogota and `TZ=UTC`); e2e 872/872; NFR-2 grep: 2 lines, both `rome-date.ts` (line 7 a `/** … */` doc comment holding the literal, line 8 the constant)
+  - Reviewer: **PASS** — mapper, models (`…On` deprecated, examples, `timeZone` from `QA_TIME_ZONE`) and audit keys match § 6 / § 7.7, DD-7, DD-8; named check § 7.2 (amended 2026-10-27) not contradicted; `changedSteps` and DTO description edits are a necessary consequence; OpenAPI pin checks properties; pin placed in `openapi.e2e-spec.ts` satisfies the task's "`/`" alternative
+  - runtime events: none
+- **spawns:** implementer not reported by host (worker: 33 tool calls, 136,246 tokens), ended complete; reviewer not reported by host, ended complete
+- **Not Done / Assumptions (verbatim from the Implementer, condensed list of its items):**
+  - The field-config preview (`PreviewTimeline.opensOn`) is untouched. Design § 6 and § 7.7 do not name it.
+  - I assumed the audit key change must reach `changedSteps` in the service. That is a consequence of the task's diff-key change, not a widening.
+  - The repo-wide `tsc --noEmit` shows errors in two unrelated spec files (`token-verifier.service.spec.ts`, `configure-app.spec.ts`).
+- **ADVISORY (Reviewer, not gating):**
+  - READABILITY: the request DTOs' `opensOn` / `closesOn` descriptions lack the "a null key counts as sent" rule and are not deprecated on write (outside T-5's scope).
+  - READABILITY: `timeZone` typed `string`; `typeof QA_TIME_ZONE` would carry the single source into the type.
+  - RISK: audit history now holds `…On` keys (older records) and `…At` keys (from now on); readers must handle both.
+- **Forward pointers:**
+  - → T-6: its NFR-2 grep expects 1 code line but finds 2 — the `rome-date.ts:7` doc comment `/** … */` contains `'Europe/Rome'` and the grep's `grep -v '^\S*:\s*//'` filter only drops `//` comments. T-6 is "no production code", so this needs a decision at the T-6 gate.
+  - → T-7: both audit key families; one key per boundary / null counts as sent also for the day-only request keys; the S-6 + FR-5 "today" consequence; P-8 readers.
+- **Requirements covered:** FR-1 (returned exactly), FR-9 (Read), FR-10, FR-12
+- **Final verification:** green.

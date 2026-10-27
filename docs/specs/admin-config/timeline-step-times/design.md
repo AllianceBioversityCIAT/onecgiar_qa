@@ -160,10 +160,10 @@ One reader per boundary (open, close) of each sent step, replacing `readDate`:
 | Only `…At` | Checked with `isRomeMinute`, then `isDstHour` | `…At` |
 | Only `…On` (day-only) | Checked as a calendar date; it becomes `dayStart` or `dayEnd` (open or close); then `isDstHour` (never true for 00:00 / 23:59) | `…On` |
 | Both | `INVALID` | `…On` (FR-9) |
-| Neither, on create | `REQUIRED` | `…At` |
-| Neither, on edit | Keeps the stored value | — |
+| Neither, on create | `REQUIRED` | the request's family (below) |
+| Neither, on edit | Keeps the stored value | the request's family (below) |
 
-The reader remembers which key was used, and every later rule on that boundary reports on that key (DD-5).
+The reader remembers which key was used, and every later rule on that boundary reports on that key (DD-5). A boundary the request did not send (missing on create, stored on edit) is named on `…On` when the request sent only day-only keys, else on `…At` (DD-5). *Amended 2026-10-27 (T-4 spec tension, approved by the back lead).*
 
 Then the rules run unchanged in structure, with minutes:
 

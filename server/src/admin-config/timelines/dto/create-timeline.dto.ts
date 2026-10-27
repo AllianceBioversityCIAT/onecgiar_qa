@@ -49,7 +49,7 @@ export class TimelineStepDto implements TimelineStepCommand {
     nullable: true,
     example: '2026-11-10T14:00',
     description:
-      'Opening moment, Rome time, `YYYY-MM-DDTHH:mm` (no seconds, no offset). Send this or `opensOn`, not both. The first step cannot open before the current Rome minute, and a step opens after the closing minute of the one before it',
+      'Opening moment, Rome time, `YYYY-MM-DDTHH:mm` (no seconds, no offset). Send this or `opensOn`, not both: send only one key per boundary; a null key counts as sent. The first step cannot open before the current Rome minute, and a step opens after the closing minute of the one before it',
   })
   @IsOptional()
   @IsString()
@@ -61,7 +61,7 @@ export class TimelineStepDto implements TimelineStepCommand {
     nullable: true,
     example: '2026-11-12T17:30',
     description:
-      'Closing moment, Rome time, `YYYY-MM-DDTHH:mm`. Send this or `closesOn`, not both. It is after the opening moment',
+      'Closing moment, Rome time, `YYYY-MM-DDTHH:mm`. Send this or `closesOn`, not both: send only one key per boundary; a null key counts as sent. It is after the opening moment',
   })
   @IsOptional()
   @IsString()

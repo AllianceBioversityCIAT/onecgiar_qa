@@ -209,7 +209,7 @@ T-2 ─▶ T-3
 - **Skills:** nestjs-expert, api-design-principles, error-handling-patterns, tdd
 
 ## T-5: API surface (moments and time zone in responses, OpenAPI, audit keys)
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** S
 - **Depends on:** T-4
 - **Requirements:**

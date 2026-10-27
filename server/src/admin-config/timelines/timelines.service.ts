@@ -213,10 +213,10 @@ function changedSteps(
   for (const step of merged.steps) {
     const values: StepUpdateValues = {};
     if (`steps.${step.position}.name` in changes) values.name = step.name;
-    if (`steps.${step.position}.opensOn` in changes) {
+    if (`steps.${step.position}.opensAt` in changes) {
       values.opensAt = asMinute(step.opensAt);
     }
-    if (`steps.${step.position}.closesOn` in changes) {
+    if (`steps.${step.position}.closesAt` in changes) {
       values.closesAt = asMinute(step.closesAt);
     }
     if (Object.keys(values).length > 0) byPosition.set(step.position, values);
