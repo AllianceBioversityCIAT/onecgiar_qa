@@ -1,6 +1,6 @@
 import { Component, input } from '@angular/core';
 import { QaTooltipImports } from '../../../ui';
-import { FIELD_HEAD_HELP } from './fields.mock';
+import { FIELD_HEAD_HELP } from './fields-copy';
 
 /** Sticky column header of the Fields matrix (wide layout only) with the ⓘ help of each column. */
 @Component({

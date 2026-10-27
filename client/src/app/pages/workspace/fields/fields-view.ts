@@ -1,35 +1,24 @@
-import { Component, DestroyRef, ElementRef, afterNextRender, computed, effect, inject, signal, viewChild } from '@angular/core';
+import { Component, DestroyRef, ElementRef, afterNextRender, computed, effect, inject, linkedSignal, signal, viewChild } from '@angular/core';
+import { FieldConfigField, FieldConfigResultType, PublishTimelines } from '../../../core/api/field-config.models';
 import { QaButtonImports, QaSelect, QaSelectOption } from '../../../ui';
 import {
   FieldChangeGroupVm,
-  FieldChangeVm,
-  FieldRowVm,
+  FieldConfig,
   FieldSectionVm,
+  FieldState,
   countFields,
-  defaultOf,
   describeChange,
   effective,
-  fieldsFor,
-  initialDraft,
-  initialPublished,
+  fieldsOf,
+  fromOptions,
   isActive,
-  sameConfig,
+  rowVm,
 } from './fields-config';
 import { FieldsColumnHeader } from './fields-column-header';
+import { FIELD_STATES } from './fields-copy';
 import { FieldsPublishConfirm } from './fields-publish-confirm';
 import { FieldRowEvent, FieldsSection } from './fields-section';
-import {
-  FIELD_DEFS,
-  FIELD_SECTIONS,
-  FieldConfig,
-  FieldConfigMap,
-  FieldDef,
-  FieldState,
-  INNOVATION_DEVELOPMENT,
-  RESULT_TYPES,
-} from './fields.mock';
-
-type ConfigByType = Readonly<Record<string, FieldConfigMap>>;
+import { FieldsStore } from './fields-store';
 
 /** Matrix width under which rows switch to the two-line layout (mockup: 900px). */
 const COMPACT_BELOW = 900;
@@ -39,18 +28,20 @@ const COMPACT_BELOW = 900;
   selector: 'qa-fields-view',
   templateUrl: './fields-view.html',
   imports: [QaButtonImports, QaSelect, FieldsColumnHeader, FieldsSection, FieldsPublishConfirm],
+  providers: [FieldsStore],
 })
 export class FieldsView {
-
+  protected readonly store = inject(FieldsStore);
 
   // ── State ──────────────────────────────────────────────────────────────
-  protected readonly resultType = signal(INNOVATION_DEVELOPMENT);
-  /** Unpublished configuration per result type (kept while switching types). */
-  private readonly drafts = signal<ConfigByType>({});
-  /** Published configuration per result type. */
-  private readonly published = signal<ConfigByType>({});
+  private readonly types = computed(() => this.store.view()?.resultTypes ?? []);
+  /** Result type being configured: kept while it exists, else the first one. */
+  protected readonly resultType = linkedSignal<readonly FieldConfigResultType[], string>({
+    source: this.types,
+    computation: (types, previous) =>
+      types.some((t) => t.key === previous?.value) ? previous!.value : (types[0]?.key ?? ''),
+  });
   private readonly collapsed = signal<Readonly<Record<string, boolean>>>({});
-  private readonly confirmRequested = signal(false);
   /** Table filters: the state chip and the "Core only" toggle. */
   protected readonly stateFilter = signal<FieldState | 'all'>('all');
   protected readonly coreOnly = signal(false);
@@ -61,14 +52,17 @@ export class FieldsView {
   protected readonly headerStuck = signal(false);
 
   // ── Derived ────────────────────────────────────────────────────────────
-  private readonly draft = computed(() => this.draftOf(this.resultType()));
-  private readonly base = computed(() => this.publishedOf(this.resultType()));
-  private readonly defs = computed(() => fieldsFor(this.resultType()));
-  private readonly counts = computed(() => countFields(this.resultType(), this.draft()));
+  private readonly type = computed(() => this.types().find((t) => t.key === this.resultType()) ?? null);
+  private readonly counts = computed(() => {
+    const type = this.type();
+    return countFields(type ? fieldsOf(type).map((f) => this.configOf(type.key, f)) : []);
+  });
 
   /** Unpublished changes of every result type (publishing is page-wide), in selector order. */
   protected readonly changeGroups = computed<readonly FieldChangeGroupVm[]>(() =>
-    RESULT_TYPES.map((t) => ({ type: t.name, changes: this.changesOf(t.name) })).filter((g) => g.changes.length > 0),
+    this.types()
+      .map((t) => ({ typeKey: t.key, type: t.label, changes: this.changesOf(t) }))
+      .filter((g) => g.changes.length > 0),
   );
   protected readonly changeCount = computed(() => this.changeGroups().reduce((n, g) => n + g.changes.length, 0));
   /** "in Innovation development" or "in 2 result types". */
@@ -76,17 +70,45 @@ export class FieldsView {
     const groups = this.changeGroups();
     return groups.length === 1 ? 'in ' + groups[0].type : `in ${groups.length} result types`;
   });
-  protected readonly showConfirm = computed(() => this.confirmRequested() && this.changeCount() > 0);
+  /** The review pop-up lists what the server will publish (its preview), not the local count. */
+  protected readonly reviewGroups = computed<readonly FieldChangeGroupVm[]>(() => {
+    const changes = this.store.review()?.preview.changes ?? [];
+    return this.types()
+      .map((t) => ({
+        typeKey: t.key,
+        type: t.label,
+        changes: changes
+          .filter((c) => c.resultTypeKey === t.key)
+          .map((c) => ({
+            id: c.fieldKey,
+            name: fieldsOf(t).find((f) => f.key === c.fieldKey)?.label ?? c.fieldKey,
+            description: describeChange(effective(fromOptions(c.before)), effective(fromOptions(c.after))),
+          })),
+      }))
+      .filter((g) => g.changes.length > 0);
+  });
+  protected readonly noTimelines: PublishTimelines = { receive: [], keep: [] };
+  protected readonly openingReview = signal(false);
+  protected readonly reviewBusy = computed(() => this.store.publishing() || this.store.discarding() || this.store.saving());
   /** What the last bulk action did, shown in the publish bar for a few seconds once nothing is pending. Cleared by any edit. */
   protected readonly lastAction = signal<'published' | 'discarded' | null>(null);
   private lastActionTimer: ReturnType<typeof setTimeout> | undefined;
 
+  protected readonly cycleOptions = computed<readonly QaSelectOption[]>(() =>
+    this.store.cycles().map((c) => ({
+      value: String(c.id),
+      label: c.name,
+      description: c.status === 'active' ? 'Active cycle' : 'Draft cycle',
+    })),
+  );
+  protected readonly cycleValue = computed(() => (this.store.cycle() ? String(this.store.cycle()!.id) : null));
+
   protected readonly typeOptions = computed<readonly QaSelectOption[]>(() =>
-    RESULT_TYPES.map((t) => {
-      const assessed = countFields(t.name, this.draftOf(t.name)).assessed;
-      const pending = this.changesOf(t.name).length;
+    this.types().map((t) => {
+      const assessed = countFields(fieldsOf(t).map((f) => this.configOf(t.key, f))).assessed;
+      const pending = this.changesOf(t).length;
       const unpublished = pending ? ` · ${pending} unpublished` : '';
-      return { value: t.name, label: t.name, description: `${assessed} fields assessed${unpublished}` };
+      return { value: t.key, label: t.label, description: `${assessed} fields assessed${unpublished}` };
     }),
   );
 
@@ -96,59 +118,83 @@ export class FieldsView {
     return [
       { value: 'all' as const, label: 'All fields', count: c.total },
       { value: 'hidden' as const, label: 'Hidden', count: c.hidden },
-      { value: 'view' as const, label: 'View only', count: c.view },
-      { value: 'assessed' as const, label: 'Assessed', count: c.assessedOnly },
-      { value: 'third' as const, label: 'Third-party', count: c.third },
+      { value: 'view_only' as const, label: 'View only', count: c.view },
+      { value: 'assessed' as const, label: 'Assessed', count: c.assessed },
     ];
   });
   protected readonly coreCount = computed(() => this.counts().core);
   protected readonly filtering = computed(() => this.stateFilter() !== 'all' || this.coreOnly());
 
   protected readonly hasAssessed = computed(() => this.counts().assessed > 0);
+  protected readonly readOnly = computed(() => !this.store.canWrite());
 
   protected readonly compact = computed(() => this.contentWidth() > 0 && this.contentWidth() < COMPACT_BELOW);
 
+  /** Fields the catalog no longer lists for their type (read only). */
+  protected readonly notInCatalog = computed(() => {
+    const types = this.types();
+    return (this.store.view()?.notInCatalog ?? []).map((f) => ({
+      key: `${f.resultTypeKey}/${f.fieldKey}`,
+      type: types.find((t) => t.key === f.resultTypeKey)?.label ?? f.resultTypeKey,
+      field: f.fieldKey,
+      state: FIELD_STATES.find((s) => s.value === f.draft.visibility)?.label ?? f.draft.visibility,
+    }));
+  });
+
   /** Rows that pass the chips, plus rows edited while filtering (so a row does not vanish under the pointer). */
-  private matches(f: FieldDef, cfg: FieldConfig): boolean {
-    if (this.kept().has(f.id)) return true;
+  private matches(f: FieldConfigField, cfg: FieldConfig): boolean {
+    if (this.kept().has(f.key)) return true;
     const e = effective(cfg);
     const state = this.stateFilter();
     return (state === 'all' || e.state === state) && (!this.coreOnly() || e.core);
   }
 
   protected readonly sections = computed<readonly FieldSectionVm[]>(() => {
-    const draft = this.draft();
-    const defs = this.defs();
-    const shown = defs.filter((f) => this.matches(f, draft[f.id]));
-    const base = this.base();
+    const type = this.type();
+    if (!type) return [];
     const collapsed = this.collapsed();
     // Sections with no matching row are left out; their "N of M assessed" still counts the whole section.
-    return FIELD_SECTIONS.filter((s) => shown.some((f) => f.section === s.id)).map((s) => {
-      const fields = defs.filter((f) => f.section === s.id);
-      const open = !collapsed[s.id];
-      return {
-        id: s.id,
-        name: s.name,
-        open,
-        total: fields.length,
-        assessed: fields.filter((f) => isActive(draft[f.id].state)).length,
-        rows: open ? shown.filter((f) => f.section === s.id).map((f) => rowVm(f, draft[f.id], base[f.id])) : [],
-      };
-    });
+    return type.sections
+      .map((s) => {
+        const configs = s.fields.map((f) => this.configOf(type.key, f));
+        const shown = s.fields.filter((f, i) => this.matches(f, configs[i]));
+        const open = !collapsed[s.key];
+        return {
+          id: s.key,
+          name: s.label,
+          open,
+          total: s.fields.length,
+          assessed: configs.filter((c) => isActive(c.state)).length,
+          shown: shown.length,
+          rows: open
+            ? shown.map((f) => rowVm(f, this.configOf(type.key, f), f.unclassified && !this.store.hasOverride(type.key, f.key)))
+            : [],
+        };
+      })
+      .filter((s) => s.shown > 0)
+      .map(({ shown: _shown, ...s }) => s);
   });
 
   // ── Layout observers ───────────────────────────────────────────────────
-  private readonly summaryGrid = viewChild.required<ElementRef<HTMLElement>>('summaryGrid');
+  private readonly summaryGrid = viewChild<ElementRef<HTMLElement>>('summaryGrid');
   private readonly stickSentinel = viewChild<ElementRef<HTMLElement>>('stickSentinel');
 
   constructor() {
     const destroyRef = inject(DestroyRef);
     destroyRef.onDestroy(() => clearTimeout(this.lastActionTimer));
-    afterNextRender(() => {
-      const el = this.summaryGrid().nativeElement;
+    void this.store.load();
+
+    // The summary grid only exists once the configuration is loaded.
+    effect((onCleanup) => {
+      const el = this.summaryGrid()?.nativeElement;
+      if (!el || typeof ResizeObserver === 'undefined') return;
       const observer = new ResizeObserver(() => this.contentWidth.set(el.clientWidth));
       observer.observe(el);
-      destroyRef.onDestroy(() => observer.disconnect());
+      onCleanup(() => observer.disconnect());
+    });
+    afterNextRender(() => {
+      const el = this.summaryGrid()?.nativeElement;
+      if (el) this.contentWidth.set(el.clientWidth);
     });
 
     // Square the header corners while it is stuck to the top of the scrolling <main>.
@@ -172,10 +218,14 @@ export class FieldsView {
   }
 
   // ── Actions ────────────────────────────────────────────────────────────
+  protected selectCycle(id: string | null): void {
+    if (id) void this.store.selectCycle(Number(id));
+    this.kept.set(new Set());
+  }
+
   protected selectType(type: string | null): void {
     if (!type || type === this.resultType()) return;
     this.resultType.set(type);
-    this.confirmRequested.set(false);
     this.lastAction.set(null);
     this.kept.set(new Set());
   }
@@ -212,41 +262,35 @@ export class FieldsView {
     this.patch(e.id, { ai: e.value });
   }
 
-  protected resetToDefault(id: string): void {
-    const def = FIELD_DEFS.find((f) => f.id === id);
-    if (def) this.patch(id, defaultOf(def));
-  }
-
-  protected openConfirm(): void {
-    this.confirmRequested.set(true);
+  protected async openConfirm(): Promise<void> {
+    if (this.openingReview()) return;
+    this.openingReview.set(true);
+    try {
+      await this.store.openReview();
+    } finally {
+      this.openingReview.set(false);
+    }
   }
 
   protected cancelConfirm(): void {
-    this.confirmRequested.set(false);
+    this.store.closeReview();
   }
 
-  /** Publishes the draft of every result type that has changes. */
-  protected publish(): void {
-    const types = this.changeGroups().map((g) => g.type);
-    // TODO(api): publish the draft configuration of each of these result types (the API may take one type per call);
-    // on success keep the local copies as published.
-    this.published.update((all) => ({ ...all, ...Object.fromEntries(types.map((t) => [t, this.draftOf(t)])) }));
-    this.confirmRequested.set(false);
-    this.flash('published');
+  protected async publish(): Promise<void> {
+    if (await this.store.publish()) this.flash('published');
   }
 
   /** Undo one change from the review: the field goes back to its published configuration. */
   protected undoChange(e: { type: string; id: string }): void {
-    const published = this.publishedOf(e.type)[e.id];
-    if (published) this.patch(e.id, published, e.type);
+    void this.store.undo(e.type, e.id);
   }
 
-  /** Discards the unpublished changes of every result type. */
-  protected discard(): void {
-    const types = this.changeGroups().map((g) => g.type);
-    this.drafts.update((all) => ({ ...all, ...Object.fromEntries(types.map((t) => [t, this.publishedOf(t)])) }));
-    this.confirmRequested.set(false);
-    this.flash('discarded');
+  protected async discard(): Promise<void> {
+    if (await this.store.discard()) this.flash('discarded');
+  }
+
+  protected retry(): void {
+    void this.store.load();
   }
 
   /** Shows the outcome in the publish bar, then hides the bar. */
@@ -256,61 +300,26 @@ export class FieldsView {
     this.lastActionTimer = setTimeout(() => this.lastAction.set(null), 4000);
   }
 
-  /** Empty state: copy the setup of another type (Innovation development, or Knowledge product from it). */
-  protected copyFromAnotherType(): void {
-    const type = this.resultType();
-    const source = this.draftOf(type === INNOVATION_DEVELOPMENT ? 'Knowledge product' : INNOVATION_DEVELOPMENT);
-    const next: Record<string, FieldConfig> = { ...this.draft() };
-    for (const id of Object.keys(next)) {
-      if (source[id]) next[id] = { ...source[id] };
-    }
-    this.drafts.update((all) => ({ ...all, [type]: next }));
-  }
-
   // ── Helpers ────────────────────────────────────────────────────────────
-  private draftOf(type: string): FieldConfigMap {
-    return this.drafts()[type] ?? initialDraft(type);
+  private configOf(typeKey: string, f: FieldConfigField): FieldConfig {
+    return this.store.configOf(typeKey, f.key, fromOptions(f.draft));
   }
 
   /** Fields of a result type whose draft differs from what is published. */
-  private publishedOf(type: string): FieldConfigMap {
-    return this.published()[type] ?? initialPublished(type);
+  private changesOf(type: FieldConfigResultType) {
+    return fieldsOf(type)
+      .map((f) => ({ f, draft: effective(this.configOf(type.key, f)), base: effective(fromOptions(f.published)) }))
+      .filter(({ draft, base }) => describeChange(base, draft) !== '')
+      .map(({ f, draft, base }) => ({ id: f.key, name: f.label, description: describeChange(base, draft) }));
   }
 
-  private changesOf(type: string): readonly FieldChangeVm[] {
-    const draft = this.draftOf(type);
-    const base = this.publishedOf(type);
-    return fieldsFor(type)
-      .filter((f) => !sameConfig(effective(draft[f.id]), effective(base[f.id])))
-      .map((f) => ({ id: f.id, name: f.name, description: describeChange(effective(base[f.id]), effective(draft[f.id])) }));
-  }
-
-  private patch(id: string, patch: Partial<FieldConfig>, type = this.resultType()): void {
+  private patch(id: string, patch: Partial<FieldConfig>): void {
+    const type = this.type();
+    const field = type && fieldsOf(type).find((f) => f.key === id);
+    if (!type || !field) return;
     this.lastAction.set(null);
-    if (this.filtering() && type === this.resultType()) this.kept.update((ids) => new Set(ids).add(id));
-    this.drafts.update((all) => {
-      const draft = all[type] ?? initialDraft(type);
-      return { ...all, [type]: { ...draft, [id]: { ...draft[id], ...patch } } };
-    });
+    if (this.filtering()) this.kept.update((ids) => new Set(ids).add(id));
+    // From what applies: a Core left on while the field was not assessed never comes back by itself.
+    this.store.edit(type.key, id, { ...effective(this.configOf(type.key, field)), ...patch });
   }
-}
-
-function rowVm(f: FieldDef, cfg: FieldConfig, published: FieldConfig): FieldRowVm {
-  const eff = effective(cfg);
-  const common = f.section !== 'detail';
-  const isDefault = common && sameConfig(eff, effective(defaultOf(f)));
-  return {
-    id: f.id,
-    name: f.name,
-    doc: f.doc,
-    required: f.required,
-    config: cfg,
-    effective: eff,
-    active: isActive(cfg.state),
-    changed: !sameConfig(eff, effective(published)),
-    dim: cfg.state === 'hidden',
-    isDefault,
-    isException: common && !isDefault,
-    requiredHidden: f.required && (cfg.state === 'hidden' || cfg.state === 'view'),
-  };
 }
