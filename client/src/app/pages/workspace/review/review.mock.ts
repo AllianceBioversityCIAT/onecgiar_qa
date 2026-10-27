@@ -170,7 +170,7 @@ export const FIELD_DEFS: readonly FieldDef[] = [
   { id: 'iaenv', sec: 'general', ia: true, label: 'Environmental health and biodiversity tag', mode: 'core', score: 1, value: '1 Significant', tip: 'Whether the result aims to protect or restore soils, water, forests and biodiversity, or to reduce the environmental footprint of agriculture.' },
   { id: 'iapoverty', sec: 'general', ia: true, label: 'Poverty reduction, livelihoods and jobs tag', mode: 'core', score: 0, value: '0 Not targeted', tip: 'Whether the result aims to raise incomes, create jobs or improve the livelihoods of poor rural and urban people.' },
   { id: 'centers', sec: 'contrib', label: 'Contributing CGIAR centers', mode: 'hidden', value: 'IRRI, IWMI', tip: 'Context from the reporting tool. Not assessed.' },
-  { id: 'sp', sec: 'contrib', label: 'Contributing science program / Accelerator', mode: 'core', value: 'SP02 Rice Agrifood Systems', tip: 'The contributing program must match the program that submitted the result.' },
+  { id: 'sp', sec: 'contrib', label: 'Contributing science program / Accelerator', mode: 'core', value: 'SP02 Sustainable Farming', tip: 'The contributing program must match the program that submitted the result.' },
   { id: 'partners', sec: 'contrib', label: 'Partners', mode: 'core', value: 'Bangladesh Rice Research Institute; Can Tho University; PhilRice', tip: 'Every partner listed should have a stated role in the result.' },
   { id: 'lead', sec: 'contrib', label: 'Lead center', mode: 'assessed', value: 'IRRI', tip: 'One lead center. It must also appear among the contributing centers.' },
   { id: 'focus', sec: 'geo', label: 'Geographic focus', mode: 'assessed', value: 'National', tip: 'The focus must agree with the regions and countries reported.' },
@@ -186,12 +186,12 @@ export const FIELD_DEFS: readonly FieldDef[] = [
 const TOC_0841 = [
   { id: 'toc1', prog: 'SP02', level: 'Output', chip: 'Output', node: ['AOW02', 'Improved water productivity in rice-based systems'], kpi: 'Number of innovations advanced to readiness level 5 or above in water management', contrib: 1, target: 14 },
   { id: 'toc2', prog: 'SP02', level: 'Outcome', chip: 'Outcome', node: ['IO03', 'National partners apply CGIAR water-saving practices at scale'], kpi: 'Number of national research partners that have adopted at least one CGIAR-developed water management innovation', contrib: 3, target: 40 },
-  { id: 'toc3', prog: 'SP05', level: '2030 Outcome', chip: 'Outcome', node: ['2030-04', 'Climate adaptation and mitigation'], kpi: 'Number of innovations contributing to measurable reductions in agricultural water use across target landscapes', contrib: 1, target: 22 },
+  { id: 'toc3', prog: 'SP04', level: '2030 Outcome', chip: 'Outcome', node: ['2030-04', 'Climate adaptation and mitigation'], kpi: 'Number of innovations contributing to measurable reductions in agricultural water use across target landscapes', contrib: 1, target: 22 },
 ] as const;
 
 export const TOC_PROG_NAMES: Readonly<Record<string, string>> = {
-  SP02: 'Rice Agrifood Systems',
-  SP05: 'Multifunctional Landscapes',
+  SP02: 'Sustainable Farming',
+  SP04: 'Multifunctional Landscapes',
 };
 
 export const tocDefsFor = (r: ReviewResult): readonly TocDef[] =>

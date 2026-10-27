@@ -64,13 +64,10 @@
       (sortSet)="setSort($event)"
       (exportComments)="exportComments($event)"
       (reassign)="reassign($event)"
-    />
-    <div class="flex flex-col items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-3 sm:gap-y-1">
-      <p class="m-0 text-(length:--fs-13) text-(--text-3) max-sm:text-center" aria-live="polite">Showing <span class="whitespace-nowrap"><span class="font-(family-name:--qa-mono) font-semibold tabular-nums text-(--text-2)">{{ visibleRows().length | number }}</span> of <span class="font-(family-name:--qa-mono) font-semibold tabular-nums text-(--text-2)">{{ matchCount() | number }}</span></span> results</p>
-      @if (remaining() > 0) {
-        <button hlmBtn qaBtn tone="link" size="sm" type="button" (click)="showMore()">Show {{ (remaining() < 50 ? remaining() : 50) | number }} more</button>
-      }
-    </div>
+    >
+      <!-- Inside the table card, as in PRMS. -->
+      <qa-pagination qaTableFooter [(page)]="page" [(pageSize)]="pageSize" [total]="matchCount()" (pageChange)="onPage()" />
+    </qa-results-table>
   } @else {
     <div class="flex flex-col items-start gap-2">
       <p class="m-0 text-(length:--fs-14) text-(--text-3)">No results match your filters.</p>

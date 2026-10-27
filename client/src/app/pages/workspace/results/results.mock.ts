@@ -111,11 +111,15 @@ export const ASSESSOR_NAMES: readonly string[] = [
 
 export const ANNUAL = 'Annual report 2026';
 export const JULY = 'July 2026 sub-timeline';
+export const KP_FAST_TRACK = 'Knowledge products fast track';
+export const SP03_LATE = 'SP03 late reporting';
 
 /** Open timelines of the page-level picker (closed ones are not listed). */
 export const TIMELINES: readonly QaTimeline[] = [
-  { id: 'annual', name: ANNUAL, kind: 'Official timeline', status: 'Live', step: 5, steps: 5, when: 'closes', date: '19 Jul' },
-  { id: 'jul', name: JULY, kind: 'Sub-timeline', status: 'Live', step: 5, steps: 5, when: 'closes', date: '19 Jul' },
+  { id: 'annual', name: ANNUAL, kind: 'Official timeline', status: 'Live', step: 4, steps: 5, when: 'closes', date: '23 Jul' },
+  { id: 'jul', name: JULY, kind: 'Sub-timeline', status: 'Live', step: 1, steps: 5, when: 'closes', date: '23 Jul' },
+  { id: 'kp', name: KP_FAST_TRACK, kind: 'Sub-timeline', status: 'Live', step: 2, steps: 3, when: 'closes', date: '28 Jul' },
+  { id: 'sp03', name: SP03_LATE, kind: 'Sub-timeline', status: 'Live', step: 1, steps: 4, when: 'closes', date: '02 Aug' },
   { id: 'sep', name: 'September pilot', kind: 'Sub-timeline', status: 'Scheduled', step: 1, steps: 5, when: 'opens', date: '01 Sep' },
 ];
 
@@ -124,14 +128,19 @@ export const PUBLISHED_PROGRAMS: readonly string[] = ['SP02', 'SP05', 'SP04'];
 
 /** "Download comments" drawer: results and comments per program (mockup DL_PROGS). */
 export const DL_PROGRAMS: readonly DownloadProgram[] = [
-  { code: 'SP02', name: 'Rice Agrifood Systems', results: 214, comments: 41 },
-  { code: 'SP04', name: 'Climate Action', results: 96, comments: 7 },
-  { code: 'SP05', name: 'Multifunctional Landscapes', results: 147, comments: 28 },
-  { code: 'SP07', name: 'Genetic Innovation', results: 132, comments: 12 },
-  { code: 'SP09', name: 'Sustainable Animal and Aquatic Foods', results: 188, comments: 63 },
-  { code: 'SP11', name: 'Policy Innovations', results: 121, comments: 19 },
   { code: 'SP01', name: 'Breeding for Tomorrow', results: 108, comments: 0 },
-  { code: 'SP12', name: 'Scaling for Impact', results: 108, comments: 0 },
+  { code: 'SP02', name: 'Sustainable Farming', results: 150, comments: 41 },
+  { code: 'SP03', name: 'Sustainable Animal and Aquatic Foods', results: 64, comments: 0 },
+  { code: 'SP04', name: 'Multifunctional Landscapes', results: 96, comments: 7 },
+  { code: 'SP05', name: 'Better Diets and Nutrition', results: 110, comments: 28 },
+  { code: 'SP06', name: 'Climate Action', results: 58, comments: 0 },
+  { code: 'SP07', name: 'Policy Innovations', results: 110, comments: 12 },
+  { code: 'SP08', name: 'Food Frontiers and Security', results: 37, comments: 0 },
+  { code: 'SP09', name: 'Scaling for Impact', results: 130, comments: 63 },
+  { code: 'SP10', name: 'Gender Equality and Inclusion', results: 48, comments: 0 },
+  { code: 'SP11', name: 'Capacity Sharing', results: 121, comments: 19 },
+  { code: 'SP12', name: 'Digital Transformation', results: 60, comments: 0 },
+  { code: 'SP13', name: 'Genebank', results: 22, comments: 0 },
 ];
 
 /** Non-automatic results per type in the official timeline (mockup TYPES). */
@@ -382,7 +391,27 @@ function generateResults(): QaResult[] {
 }
 
 /** Every result in QA: the mockup's 14 rows first, then 1,400 generated ones (1,330 + 84 automatic in total). */
-export const RESULTS: readonly QaResult[] = [...MOCKUP_RESULTS, ...generateResults()];
+/**
+ * The two smaller sub-timelines (as on the Overview) take their results out of the official one: the first 84
+ * knowledge products under assessment and the first 41 SP03 results, so the official timeline keeps 989.
+ */
+function splitSubTimelines(list: QaResult[]): QaResult[] {
+  const room = { kp: 84, sp03: 41 };
+  return list.map((r) => {
+    if (r.batch !== ANNUAL || r.status === 'Automatic') return r;
+    if (r.type === 'Knowledge product' && room.kp > 0) {
+      room.kp--;
+      return { ...r, batch: KP_FAST_TRACK };
+    }
+    if (r.program === 'SP03' && room.sp03 > 0) {
+      room.sp03--;
+      return { ...r, batch: SP03_LATE };
+    }
+    return r;
+  });
+}
+
+export const RESULTS: readonly QaResult[] = splitSubTimelines([...MOCKUP_RESULTS, ...generateResults()]);
 
 // ---------- QA stage (Overview round columns) ----------
 
