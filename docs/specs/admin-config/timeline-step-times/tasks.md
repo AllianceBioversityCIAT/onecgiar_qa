@@ -254,7 +254,7 @@ T-2 ─▶ T-3
 - **Verification:**
   - `cd server && TZ=UTC pnpm test:e2e --reporter=dot && TZ=America/Bogota pnpm test:e2e --reporter=dot`.
   - `grep -rn "Europe/Rome" server/src --include='*.ts' --exclude='*.spec.ts' | grep -vE '^\S*:[0-9]+:\s*(//|/\*|\*)'` returns 1 code line (`QA_TIME_ZONE`). *Amended 2026-10-27: the filter also drops `/** … */` doc-comment lines, as NFR-2 says "comments excluded".*
-  - The unit-of-work list test's statement count is unchanged from `8ac4df7`.
+  - The e2e list test's statement count (`admin-config-timelines.e2e-spec.ts`, NFR-5 block) is unchanged from `8ac4df7`. *(Wording amended 2026-10-27.)*
 - **Falsifier:**
   - Pin the clock at `2026-11-10T13:59:59` Rome instead of 14:00. The hold case expecting `waiting_for_load` goes red.
   - Add a second `'Europe/Rome'` literal. The grep returns 2.

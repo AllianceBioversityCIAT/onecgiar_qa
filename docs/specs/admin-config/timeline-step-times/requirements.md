@@ -166,7 +166,7 @@ The system SHALL refuse an opening or closing moment from 02:00 to 02:59 on a Ro
 A new timeline's step 1 SHALL NOT open before the current Rome minute. This updates *timelines* S-4 / FR-8 (S-4).
 
 #### Scenario: Earlier today
-- GIVEN now is 2026-11-10T14:20 Rome
+- GIVEN now is 2026-11-10T14:20 Rome, and the timeline has a load *(amended 2026-10-27: step 1 always requires a load, FR-7)*
 - WHEN step 1 opens at `2026-11-10T14:00`
 - THEN it is refused, naming step 1's `opensAt`, with code `BEFORE_TODAY`
 - AND IT MUST accept `2026-11-10T14:20`, the step then being `in_progress` at once

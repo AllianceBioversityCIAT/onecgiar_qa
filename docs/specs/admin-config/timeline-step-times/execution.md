@@ -239,3 +239,4 @@
 - **Requirements covered:** over HTTP — FR-1, FR-2, FR-3 (same day, overlap), FR-5, FR-6 (14:20:59 / 14:21:00), FR-7, FR-8 (both), FR-9 (old client, both forms incl. BUT), FR-10; NFR-1, NFR-2, NFR-4
 - **Spec wording gap for the user (T-6 gate):** FR-5's GIVEN omits the load that FR-2's GIVEN states; proposed: add "and the timeline has a load" to FR-5 "Earlier today". Also `tasks.md` T-6 says "unit-of-work list test" for NFR-4 where the pinned test is the e2e NFR-5 list test.
 - **Final verification:** green.
+- **Gate decision (2026-10-27, back lead):** amendments approved — `requirements.md` FR-5 "Earlier today" GIVEN adds "and the timeline has a load"; `tasks.md` T-6 NFR-4 wording now names the e2e list test. Text only; carried as named conformance checks into T-7's Reviewer brief.
