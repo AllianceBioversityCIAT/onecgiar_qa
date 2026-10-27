@@ -114,5 +114,4 @@ Old records are not rewritten (FR-12). A history screen must read both. A change
 
 ## 9. Open points
 
-- The OpenAPI `required` list of the **create** step model (`TimelineStepDto`) still names `opensOn` and `closesOn`, although the server accepts `…At` instead and reports `REQUIRED` only when a boundary has neither form. Do not generate a client that forces the day-only keys; the rule is section 4. Pending a fix on the server side.
 - The messages of `CLOSES_BEFORE_OPENS` and `BEFORE_TODAY` (in `server/src/common/error-codes.ts`) still say "date" and "before"; they fit but are not exact about minutes. Whether to reword them is open.

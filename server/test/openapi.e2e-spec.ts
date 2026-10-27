@@ -362,6 +362,10 @@ describe('OpenAPI document (e2e)', () => {
     for (const dto of ['TimelineStepDto', 'TimelineStepUpdateDto']) {
       const model = schemas[dto];
       expect(model, dto).toBeDefined();
+      // A boundary may be sent in either form, so no moment key is required.
+      for (const key of ['opensAt', 'closesAt', 'opensOn', 'closesOn']) {
+        expect(model.required ?? [], `${dto}.required`).not.toContain(key);
+      }
       for (const key of ['opensAt', 'closesAt']) {
         expect(model.properties[key], `${dto}.${key}`).toMatchObject({
           type: 'string',

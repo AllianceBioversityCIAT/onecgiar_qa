@@ -70,6 +70,8 @@ export class TimelineStepDto implements TimelineStepCommand {
   @ApiProperty({
     type: String,
     format: 'date',
+    required: false,
+    nullable: true,
     example: '2026-11-02',
     description:
       'Rome calendar day, `YYYY-MM-DD`: the day-only form of the opening, meaning 00:00 that day. Send this or `opensAt`; the first step cannot open before the current Rome minute, and a step opens after the closing minute of the one before it',
@@ -81,6 +83,8 @@ export class TimelineStepDto implements TimelineStepCommand {
   @ApiProperty({
     type: String,
     format: 'date',
+    required: false,
+    nullable: true,
     example: '2026-11-06',
     description:
       'Rome calendar day, `YYYY-MM-DD`: the day-only form of the closing, meaning 23:59 that day. Send this or `closesAt`',

@@ -270,3 +270,25 @@
 - **Open finding (for the user):** OpenAPI `TimelineStepDto.required` still lists `opensOn` / `closesOn` (design § 7.7 says all four keys are optional) — owned by T-4/T-5; flagged in `front-contract.md` § 9.
 - **Budget:** review rounds so far 10 (T-1 1, T-2 1, T-3 2, T-4 1, T-5 1, T-6 2, T-7 2) against ≈ 10 in design § 12 — at budget, not exceeded. T-8 has no review. Any further fix opens an 11th round (tripwire).
 - **Final verification:** green.
+
+### Follow-up F-1 (defect owned by T-4/T-5): OpenAPI `required` on the create step DTO — PASS
+
+- **Date:** 2026-10-27
+- **Approved by:** the back lead, 2026-10-27, at the T-7 gate ("Fix it now"), knowing it opens an 11th review round past the ≈ 10 budget (budget tripwire acknowledged).
+- **Defect:** design § 7.7 "DTOs: the four keys are optional strings"; `server/src/admin-config/timelines/dto/create-timeline.dto.ts` `opensOn` / `closesOn` `@ApiProperty` lack `required: false`, so the generated OpenAPI `TimelineStepDto.required` lists them.
+- **Scope:** `required: false` on those two properties; an OpenAPI e2e pin that `TimelineStepDto.required` excludes all four boundary keys; remove the matching open point from `front-contract.md` § 9.
+- **Attempt 1:** `STATUS: CHECKPOINT` naming a blocker (handled as a blocker by precedence). Done: the pin in `server/test/openapi.e2e-spec.ts` (`TimelineStepDto` / `TimelineStepUpdateDto` `required` must not contain any of the four boundary keys). Not done: red run, the DTO change, the `front-contract.md` § 9 removal, falsifier, verification. Blocker: the local resource guard refused every `pnpm test:e2e` run (3 tries, available RAM 3.6–3.8 GB < 4500 MB; `RG_FORCE=1` needs the user's authorization). Leader probe (one bounded run of `test/openapi.e2e-spec.ts`): blocked too — 3490 MB available, swap 4.8 GB. Checkpoint report kept verbatim in the worker transcript; its remaining steps: red run → `required: false, nullable: true` on `opensOn` / `closesOn` in `create-timeline.dto.ts` (mirror `opensAt`) → leave `update-timeline.dto.ts` → delete the § 9 bullet → falsifier → full verification → contract cross-check.
+- **spawns:** implementer not reported by host (worker: 11 tool calls, 80,212 tokens), ended checkpoint (blocker)
+- **State:** F-1 parked; tree holds the uncommitted pin only. Waiting on the user (free memory or authorize `RG_FORCE=1`).
+- **Respawn after checkpoint 1** (the user freed memory; no `RG_FORCE`)
+  - files changed: `server/src/admin-config/timelines/dto/create-timeline.dto.ts` (`required: false, nullable: true` on `opensOn` / `closesOn`), `server/test/openapi.e2e-spec.ts` (pin from the first worker, unchanged), `front-contract.md` (§ 9 bullet deleted)
+  - Red run: `AssertionError: TimelineStepDto.required: expected [ 'name', 'audience', 'opensOn', …(3) ] to not include 'opensOn'` (`test/openapi.e2e-spec.ts:367`), 1 failed / 14 passed; after the fix 15 passed
+  - Falsifier (`required: false` removed from `opensOn` only): same assertion red; reverted
+  - Implementer verification: lint/build clean · unit 2470/2470 · e2e 885/885 · contract cross-check `CHECKED 33 UNKNOWN 0`
+  - Evidence re-run (Leader inline): **VERIFIED** — lint/build clean; unit 2470/2470; e2e 885/885; `CHECKED 33 UNKNOWN 0 []`
+  - Reviewer: **PASS** — matches design § 7.7, within the recorded scope; `update-timeline.dto.ts` already conformant; § 9 still holds one real open point. Note (not gating): the pin does not assert that `name` / `audience` / `round` / `requiresLoad` stay required
+  - runtime events: none
+- **checkpoints:** 1 (blocker: local resource guard refused `pnpm test:e2e` for RAM)
+- **spawns:** implementer (respawn) not reported by host (10 tool calls, 80,447 tokens), ended complete; reviewer not reported by host, ended complete
+- **Budget:** review rounds 11 against ≈ 10 (approved overrun, F-1).
+- **Final verification:** green.
