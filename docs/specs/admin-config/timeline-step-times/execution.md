@@ -302,6 +302,7 @@
   - `SHOW COLUMNS FROM timeline_steps LIKE '%_at'`: `opens_at` `datetime` NOT NULL, `closes_at` `datetime` NOT NULL
   - `timeline_steps`: 121 rows; `TIME(opens_at) <> '00:00:00'` → 0; `TIME(closes_at) <> '23:59:00'` → 0 (FR-11, S-6)
   - `information_schema.CHECK_CONSTRAINTS` `chk_timeline_steps_dates` = `` (`closes_at` > `opens_at`) `` — the CHECK exists in `information_schema.CHECK_CONSTRAINTS`, which only MySQL 8.0.16+ provides (P-4, inferred; `SELECT VERSION()` not recorded)
-- **Not yet done:** the API read compared before / after; the down-script round-trip on a **local** copy (NFR-3; the down script is never run against a shared database); an explicit `SELECT VERSION()`.
+- **P-4 confirmed (2026-10-27, back lead):** `SELECT VERSION()` on the dev database → `8.0.46-0ubuntu0.22.04.4` (≥ 8.0.16: CHECK enforced, `RENAME COLUMN` available).
+- **Not yet done:** the API read compared before / after; the down-script round-trip on a **local** copy (NFR-3; the down script is never run against a shared database).
 - **Deviation from T-8's scope:** T-8 asks for a local MySQL before `qadb`; here the up migration ran first on the shared dev database through the pipeline, by the back lead's decision. It succeeded on 121 rows.
 - **Status:** T-8 stays `[ ]` until the back lead records the remaining checks.
