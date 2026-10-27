@@ -7,6 +7,7 @@ import { AccessControl } from '../core/access/access-control';
 import { Permission } from '../core/access/role-definitions';
 import { AuthSession } from '../core/auth/auth-session';
 import { UnsentQueue } from '../core/http/unsent-queue';
+import { NotificationsBell } from '../pages/workspace/notifications/notifications-bell';
 import { QaTokensLoader, QaUnsentCenter } from '../ui';
 
 interface NavItem {
@@ -66,7 +67,7 @@ const ADMINISTRATION: readonly NavItem[] = [
  */
 @Component({
   selector: 'qa-shell',
-  imports: [NgOptimizedImage, NgTemplateOutlet, RouterLink, RouterLinkActive, RouterOutlet, QaUnsentCenter],
+  imports: [NgOptimizedImage, NgTemplateOutlet, RouterLink, RouterLinkActive, RouterOutlet, NotificationsBell, QaUnsentCenter],
   templateUrl: './qa-shell.html',
   styleUrl: './qa-shell.css',
   host: {
