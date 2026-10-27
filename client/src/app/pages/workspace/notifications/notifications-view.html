@@ -1,0 +1,84 @@
+<!-- Notifications. Data: notifications-store.ts (the one source; mock for now). State lives in notifications-view.ts. -->
+
+<!-- Page header -->
+<div class="flex flex-wrap items-start gap-4 px-4 pt-6 sm:px-6 sm:pt-8 lg:px-8">
+  <div class="flex min-w-0 flex-[1_1_16rem] flex-col gap-1">
+    <h1 class="m-0 text-balance text-(length:--fs-26) leading-[1.2] font-bold tracking-[-0.02em] text-(--text)">Notifications</h1>
+    <p class="m-0 text-pretty text-(length:--fs-14) text-(--text-3)">Updates on the review of results in Annual report 2026.</p>
+  </div>
+  <div class="flex flex-none items-center max-sm:w-full">
+    <button
+      hlmBtn
+      qaBtn
+      tone="secondary"
+      type="button"
+      class="max-sm:w-full"
+      [disabled]="store.unreadCount() === 0 || store.state() !== 'ready'"
+      (click)="store.markAllRead()"
+    >
+      Mark all as read
+    </button>
+  </div>
+</div>
+
+<div class="flex flex-col items-stretch gap-5 px-4 pt-5 pb-8 sm:px-6 lg:px-8">
+  <!-- Context line ("Viewing All timelines ⌄"): it sets what the whole page shows, so it reads as context, not as one more
+       filter. Below it, the filters and what is applied. -->
+  <div class="flex flex-col gap-3">
+    <qa-select
+      [(value)]="timelineId"
+      [options]="timelineOptions"
+      label="Viewing"
+      appearance="inline"
+      searchable
+      searchPlaceholder="Search timelines"
+      panelWidth="340px"
+      listMaxHeight="320px"
+      class="self-start"
+    />
+    <div class="flex flex-wrap items-center gap-2 lg:gap-3">
+      <label class="box-border flex h-9 w-[320px] max-w-full flex-none cursor-text items-center gap-2 rounded-lg border border-(--border) bg-(--surface) px-3 focus-within:shadow-(--focus-ring) max-sm:h-10 max-sm:w-full">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-4)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="flex-none"><path d="M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.35-4.35" /></svg>
+        <input hlmInput type="text" placeholder="Search notifications..." aria-label="Search notifications" [value]="search()" (input)="onSearch($event)" class="h-auto min-w-0 flex-1 rounded-none border-none bg-transparent p-0 text-(length:--fs-14) text-(--text) shadow-none placeholder:text-(--text-4) focus-visible:ring-0 md:text-(length:--fs-14)" />
+      </label>
+      <qa-multi-select [(value)]="types" [options]="typeOptions" label="Type" [searchable]="false" panelWidth="260px" listMaxHeight="none" />
+      <qa-segmented
+        [value]="view()"
+        (valueChange)="setView($event)"
+        [options]="viewOptions()"
+        [layout]="narrow() ? 'fill' : 'inline'"
+        aria-label="Show notifications"
+        class="sm:ml-auto"
+      />
+    </div>
+
+    @if (applied().length) {
+      <div class="flex flex-wrap items-center gap-2">
+        @for (f of applied(); track f.key) {
+          <span class="inline-flex h-7 max-w-[min(380px,100%)] items-center gap-1.5 rounded-full bg-(--tint) pr-1.5 pl-2.5 text-(length:--fs-12) font-medium text-(--accent)">
+            <span class="flex-none font-semibold">{{ f.label }}</span>
+            <span class="min-w-0 truncate">{{ f.values }}</span>
+            <button type="button" (click)="clearFilter(f.key)" [attr.aria-label]="'Remove ' + f.label + ' filter'" class="flex size-[18px] flex-none items-center justify-center rounded-full p-0 text-(--accent) outline-none hover:bg-(--tint-3) focus-visible:shadow-(--focus-ring)">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12" /></svg>
+            </button>
+          </span>
+        }
+        <button hlmBtn qaBtn tone="link" size="sm" type="button" (click)="clearFilters()">Clear filters</button>
+      </div>
+    }
+  </div>
+
+  <!-- One card; day groups inside it, lines only between rows. -->
+  <div class="overflow-hidden rounded-xl border border-(--border) bg-(--surface) pb-2">
+    <qa-notification-list
+      variant="page"
+      [items]="visible()"
+      [state]="store.state()"
+      [timelineNames]="timelineNames"
+      [emptyKind]="emptyKind()"
+      (opened)="open($event)"
+      (retry)="store.retry()"
+      (emptyAction)="onEmptyAction()"
+    />
+  </div>
+</div>
