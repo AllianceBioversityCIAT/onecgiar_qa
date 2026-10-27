@@ -1,6 +1,11 @@
 import request from 'supertest';
 import { GRANTABLE_ROLES } from '../src/users/permissions.js';
-import { dayEnd, dayStart } from '../src/admin-config/rome-date.js';
+import {
+  dayEnd,
+  dayStart,
+  type RomeMinute,
+} from '../src/admin-config/rome-date.js';
+
 import {
   bearer,
   buildAdminConfigApp,
@@ -1597,6 +1602,77 @@ describe('Field configuration routes (e2e)', () => {
       expect(lineOf(refusedClosed, 'field_config_update')).toMatchObject([
         { outcome: 'refused', reason: 'CYCLES_CLOSED', targetId: closed },
       ]);
+    });
+  });
+
+  // --- timeline-step-times (P2-4019) FR-8: versions use the opening moment ------
+
+  describe('step times (P2-4019)', () => {
+    /** Two published versions a month ago, then the clock at this instant (UTC; Rome is UTC+1 in November). */
+    const versionsThenAt = async (id: number, iso: string) => {
+      w.adminClock.advance(-days(30));
+      await edit(id, [item('policy_change', 'general.title')]);
+      await edit(id, [item('policy_change', 'policy_change.policy_type')]);
+      w.adminClock.advance(
+        new Date(iso).getTime() - w.adminClock.now().getTime(),
+      );
+    };
+    /**
+     * A timeline whose step 1 opens at this Rome minute (not at the day's 00:00).
+     * Only `opensAt` is overridden: `closesAt` keeps the seeded default because
+     * FR-8 judges only the start of the timeline.
+     */
+    const seedOpeningAt = (
+      id: number,
+      cycleId: number,
+      opensAt: RomeMinute,
+    ) => {
+      seedTimeline(id, cycleId, opensAt.slice(0, 10), ['policy_change']);
+      w.world.steps.find((s) => s.timelineId === id)!.opensAt = opensAt;
+    };
+
+    it('FR-8 Published the same morning: at 09:00 Rome on 10 Nov, the timeline opening at 14:00 receives version 3 and the one that opened at 08:00 keeps version 2', async () => {
+      const id = await createCycle(2026);
+      await versionsThenAt(id, '2026-11-10T08:00:00.000Z');
+      seedOpeningAt(1, id, '2026-11-10T14:00' as RomeMinute); // A
+      seedOpeningAt(2, id, '2026-11-10T08:00' as RomeMinute); // B
+
+      const edited = await patch(id, [
+        item('policy_change', 'general.title', { visibility: 'view_only' }),
+      ]);
+      const res = await publish(id, edited.body.data.revision);
+
+      expect(res.status).toBe(201);
+      expect(res.body.data.version.number).toBe(3);
+      expect(res.body.data.timelines).toEqual({
+        receive: [{ id: 1, name: 'Timeline 1', opensOn: '2026-11-10' }],
+        keep: [
+          { id: 2, name: 'Timeline 2', opensOn: '2026-11-10', version: 2 },
+        ],
+      });
+      expect(w.fieldConfigWorld.auditEvents.at(-1)).toMatchObject({
+        timelines: { receive: [1], keep: [{ id: 2, version: 2 }] },
+      });
+    });
+
+    it('FR-8 Published in the opening minute: at 14:00:10 Rome the timeline opening at 14:00 keeps version 2', async () => {
+      const id = await createCycle(2026);
+      await versionsThenAt(id, '2026-11-10T13:00:10.000Z');
+      seedOpeningAt(1, id, '2026-11-10T14:00' as RomeMinute); // A
+
+      const edited = await patch(id, [
+        item('policy_change', 'general.title', { visibility: 'view_only' }),
+      ]);
+      const res = await publish(id, edited.body.data.revision);
+
+      expect(res.status).toBe(201);
+      expect(res.body.data.version.number).toBe(3);
+      expect(res.body.data.timelines).toEqual({
+        receive: [],
+        keep: [
+          { id: 1, name: 'Timeline 1', opensOn: '2026-11-10', version: 2 },
+        ],
+      });
     });
   });
 });

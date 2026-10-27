@@ -1380,6 +1380,316 @@ describe('Timelines routes: defaults, create, list and detail (e2e)', () => {
     });
   });
 
+  // --- timeline-step-times (P2-4019): moments to the minute, over HTTP ----------
+
+  describe('step times (P2-4019)', () => {
+    // Rome is UTC+1 from 25 Oct 2026, so every Rome time below is the UTC time plus one hour.
+    /** Moves the admin clock to this instant (UTC). */
+    const at = (iso: string) =>
+      w.adminClock.advance(
+        new Date(iso).getTime() - w.adminClock.now().getTime(),
+      );
+    const NOW = '2026-11-02T09:00:00.000Z'; // 10:00 Rome on 2 Nov
+    const step = (over: Record<string, unknown>) => ({
+      name: 'QA Platform open for assessors',
+      audience: 'assessors',
+      round: 1,
+      requiresLoad: true,
+      ...over,
+    });
+    const STEP_A = step({
+      opensAt: '2026-11-10T14:00',
+      closesAt: '2026-11-12T17:30',
+    });
+    const STEP_B = step({
+      name: 'QA open for Science Programs',
+      audience: 'programs',
+      requiresLoad: false,
+      opensAt: '2026-11-13T09:00',
+      closesAt: '2026-11-13T18:00',
+    });
+    const detailOf = (id: number) => w.send('get', `/timelines/${id}`);
+    const readAt = async (id: number, iso: string) => {
+      at(iso);
+      const res = await detailOf(id);
+      expect(res.status).toBe(200);
+      return res.body.data as {
+        status: string;
+        currentStep: number | null;
+        nextStep: number | null;
+        steps: Array<{ state: string }>;
+      };
+    };
+    /** A timeline created at 10:00 Rome on 2 Nov, with the given steps. */
+    const created = async (steps: unknown[], loaded = true) => {
+      const cycleId = await createCycle(2026);
+      at(NOW);
+      const res = await createTimeline(cycleId, { steps });
+      expect(res.status).toBe(201);
+      const id = res.body.data.id as number;
+      if (loaded) w.world.loads.markLoaded(id);
+      return { cycleId, id, res };
+    };
+
+    it('FR-1 Valid moments: step 1 from 2026-11-10T14:00 to 2026-11-12T17:30 is stored and returned with exactly those moments, with the day-only form and the zone', async () => {
+      const { id, res } = await created([STEP_A, STEP_B]);
+
+      expect(res.body.data.timeZone).toBe('Europe/Rome');
+      expect(res.body.data.steps[0]).toMatchObject({
+        position: 1,
+        opensAt: '2026-11-10T14:00',
+        closesAt: '2026-11-12T17:30',
+        opensOn: '2026-11-10',
+        closesOn: '2026-11-12',
+      });
+      expect(w.world.steps[0]).toMatchObject({
+        opensAt: '2026-11-10T14:00',
+        closesAt: '2026-11-12T17:30',
+      });
+      const read = await detailOf(id);
+      expect(read.body.data.steps[0]).toMatchObject({
+        opensAt: '2026-11-10T14:00',
+        closesAt: '2026-11-12T17:30',
+      });
+      expect(read.body.data.timeZone).toBe('Europe/Rome');
+    });
+
+    it('FR-2 Boundaries: upcoming at 13:59:59, in progress at 14:00:00 and at 17:30:59, closed at 17:31:00 Rome', async () => {
+      const { id } = await created([STEP_A, STEP_B]);
+
+      const states: string[] = [];
+      for (const iso of [
+        '2026-11-10T12:59:59.000Z', // 13:59:59 Rome on 10 Nov
+        '2026-11-10T13:00:00.000Z', // 14:00:00
+        '2026-11-12T16:30:59.000Z', // 17:30:59 on 12 Nov
+        '2026-11-12T16:31:00.000Z', // 17:31:00
+      ]) {
+        states.push((await readAt(id, iso)).steps[0].state);
+      }
+
+      expect(states).toEqual([
+        'upcoming',
+        'in_progress',
+        'in_progress',
+        'closed',
+      ]);
+    });
+
+    it('FR-3 Two steps on the same day: step 1 closing at 12:00 and step 2 opening at 14:00 is valid, and at 13:00 there is no current step and the next step is 2', async () => {
+      const { id, res } = await created([
+        step({ opensAt: '2026-11-10T08:00', closesAt: '2026-11-10T12:00' }),
+        step({
+          name: 'QA open for Science Programs',
+          audience: 'programs',
+          opensAt: '2026-11-10T14:00',
+          closesAt: '2026-11-10T18:00',
+        }),
+      ]);
+
+      expect(
+        res.body.data.steps.map((s: { opensAt: string }) => s.opensAt),
+      ).toEqual(['2026-11-10T08:00', '2026-11-10T14:00']);
+      const between = await readAt(id, '2026-11-10T12:00:00.000Z'); // 13:00 Rome
+      expect(between).toMatchObject({
+        status: 'live',
+        currentStep: null,
+        nextStep: 2,
+      });
+      expect(between.steps.map((s) => s.state)).toEqual(['closed', 'upcoming']);
+    });
+
+    it('FR-3 Overlap: step 2 opening at 12:00 or earlier is refused on its opensAt, and 12:01 is accepted', async () => {
+      const cycleId = await createCycle(2026);
+      at(NOW);
+      const first = step({
+        opensAt: '2026-11-10T08:00',
+        closesAt: '2026-11-10T12:00',
+      });
+      const second = (opensAt: string) =>
+        step({
+          name: 'QA open for Science Programs',
+          audience: 'programs',
+          opensAt,
+          closesAt: '2026-11-10T18:00',
+        });
+      const before = rows();
+
+      const same = await createTimeline(cycleId, {
+        steps: [first, second('2026-11-10T12:00')],
+      });
+      const earlier = await createTimeline(cycleId, {
+        steps: [first, second('2026-11-10T11:59')],
+      });
+
+      for (const res of [same, earlier]) {
+        expectError(res, 400, 'VALIDATION_FAILED');
+        expect(fieldsOf(res)).toEqual([
+          ['steps[1].opensAt', 'OVERLAPS_PREVIOUS_STEP'],
+        ]);
+      }
+      expect(rows()).toBe(before);
+      const ok = await createTimeline(cycleId, {
+        steps: [first, second('2026-11-10T12:01')],
+      });
+      expect(ok.status).toBe(201);
+    });
+
+    it('FR-5 Earlier today: at 14:20:30 Rome, step 1 opening at 14:00 is refused on its opensAt, and 14:20 is accepted with the step in progress at once', async () => {
+      const cycleId = await createCycle(2026);
+      at('2026-11-10T13:20:30.000Z'); // 14:20:30 Rome on 10 Nov
+      const later = step({
+        name: 'QA open for Science Programs',
+        audience: 'programs',
+        opensAt: '2026-11-13T09:00',
+        closesAt: '2026-11-13T18:00',
+      });
+      const before = rows();
+
+      const refusal = await createTimeline(cycleId, {
+        steps: [
+          step({ opensAt: '2026-11-10T14:00', closesAt: '2026-11-12T17:30' }),
+          later,
+        ],
+      });
+      expect(rows()).toBe(before);
+      const ok = await createTimeline(cycleId, {
+        steps: [
+          step({ opensAt: '2026-11-10T14:20', closesAt: '2026-11-12T17:30' }),
+          later,
+        ],
+      });
+
+      expectError(refusal, 400, 'VALIDATION_FAILED');
+      expect(fieldsOf(refusal)).toEqual([['steps[0].opensAt', 'BEFORE_TODAY']]);
+      expect(ok.status).toBe(201);
+      w.world.loads.markLoaded(ok.body.data.id as number);
+      const read = await detailOf(ok.body.data.id as number);
+      expect(read.body.data.steps[0]).toMatchObject({
+        opensAt: '2026-11-10T14:20',
+        state: 'in_progress',
+      });
+      expect(w.world.timelines).toHaveLength(1);
+    });
+
+    it('FR-7 The hold starts at the hour: without a load it is scheduled at 00:00 and 13:59 and waiting_for_load at 14:00 Rome', async () => {
+      const { id } = await created([STEP_A, STEP_B], false);
+
+      const midnight = await readAt(id, '2026-11-09T23:00:00.000Z'); // 00:00 Rome on 10 Nov
+      const minuteBefore = await readAt(id, '2026-11-10T12:59:00.000Z'); // 13:59
+      const atTheHour = await readAt(id, '2026-11-10T13:00:00.000Z'); // 14:00
+
+      expect(midnight.status).toBe('scheduled');
+      expect(minuteBefore.status).toBe('scheduled');
+      expect(atTheHour.status).toBe('waiting_for_load');
+      expect(atTheHour.status).not.toBe('live');
+      expect(atTheHour).toMatchObject({ currentStep: null, nextStep: 1 });
+    });
+
+    it('FR-9 Old client creates a timeline: day-only keys are stored as 00:00 and 23:59 and both forms are returned', async () => {
+      const { res } = await created([
+        step({ opensOn: '2026-11-10', closesOn: '2026-11-12' }),
+        step({
+          name: 'QA open for Science Programs',
+          audience: 'programs',
+          opensOn: '2026-11-13',
+          closesOn: '2026-11-13',
+        }),
+      ]);
+
+      expect(res.body.data.steps[0]).toMatchObject({
+        opensAt: '2026-11-10T00:00',
+        closesAt: '2026-11-12T23:59',
+        opensOn: '2026-11-10',
+        closesOn: '2026-11-12',
+      });
+      expect(w.world.steps[0]).toMatchObject({
+        opensAt: '2026-11-10T00:00',
+        closesAt: '2026-11-12T23:59',
+      });
+    });
+
+    it('FR-9 Both forms for the same moment: opensAt 14:00 with opensOn, and closesAt 17:30 with closesOn, are refused on the day-only field and nothing is written', async () => {
+      const cycleId = await createCycle(2026);
+      at(NOW);
+      const before = rows();
+
+      // The two forms disagree as moments: the day-only value means 00:00 / 23:59.
+      const opens = await createTimeline(cycleId, {
+        steps: [{ ...STEP_A, opensOn: '2026-11-10' }, STEP_B],
+      });
+      const closes = await createTimeline(cycleId, {
+        steps: [{ ...STEP_A, closesOn: '2026-11-12' }, STEP_B],
+      });
+
+      expectError(opens, 400, 'VALIDATION_FAILED');
+      expect(fieldsOf(opens)).toEqual([['steps[0].opensOn', 'INVALID']]);
+      expectError(closes, 400, 'VALIDATION_FAILED');
+      expect(fieldsOf(closes)).toEqual([['steps[0].closesOn', 'INVALID']]);
+      expect(rows()).toBe(before);
+    });
+
+    it('FR-9 Both forms for the same moment, even when they agree: opensAt 00:00 with opensOn, and closesAt 23:59 with closesOn, are refused on the day-only field and nothing is written', async () => {
+      const cycleId = await createCycle(2026);
+      at(NOW);
+      const before = rows();
+
+      // The two forms agree as moments: the day-only value means 00:00 / 23:59.
+      const opens = await createTimeline(cycleId, {
+        steps: [
+          { ...STEP_A, opensAt: '2026-11-10T00:00', opensOn: '2026-11-10' },
+          STEP_B,
+        ],
+      });
+      const closes = await createTimeline(cycleId, {
+        steps: [
+          { ...STEP_A, closesAt: '2026-11-12T23:59', closesOn: '2026-11-12' },
+          STEP_B,
+        ],
+      });
+
+      expectError(opens, 400, 'VALIDATION_FAILED');
+      expect(fieldsOf(opens)).toEqual([['steps[0].opensOn', 'INVALID']]);
+      expectError(closes, 400, 'VALIDATION_FAILED');
+      expect(fieldsOf(closes)).toEqual([['steps[0].closesOn', 'INVALID']]);
+      expect(rows()).toBe(before);
+    });
+
+    it('FR-6 Close an in-progress step now: at 14:20:30 closing at 14:19 is refused, 14:20 is accepted, and the step is in progress at 14:20:59 and closed at 14:21:00', async () => {
+      const { id } = await created([STEP_A, STEP_B]);
+      at('2026-11-10T13:20:30.000Z'); // 14:20:30 Rome, step 1 in progress
+      const patch = (closesAt: string) =>
+        w.send('patch', `/timelines/${id}`, {
+          body: {
+            version: 1,
+            confirmInProgress: true,
+            steps: [{ position: 1, closesAt }],
+          },
+        });
+
+      const tooEarly = await patch('2026-11-10T14:19');
+      const accepted = await patch('2026-11-10T14:20');
+
+      expectError(tooEarly, 400, 'VALIDATION_FAILED');
+      expect(fieldsOf(tooEarly)).toEqual([
+        ['steps[0].closesAt', 'BEFORE_TODAY'],
+      ]);
+      expect(accepted.status).toBe(200);
+      expect(accepted.body.data.steps[0].closesAt).toBe('2026-11-10T14:20');
+      const last = await readAt(id, '2026-11-10T13:20:59.000Z'); // 14:20:59
+      const next = await readAt(id, '2026-11-10T13:21:00.000Z'); // 14:21:00
+      expect(last.steps[0].state).toBe('in_progress');
+      expect(next.steps[0].state).toBe('closed');
+    });
+
+    it('FR-10 Read: a timeline in the list and in the detail carries the zone', async () => {
+      const { cycleId } = await created([STEP_A, STEP_B]);
+
+      const list = await w.send('get', `/cycles/${cycleId}/timelines`);
+
+      expect(list.body.data[0].timeZone).toBe('Europe/Rome');
+    });
+  });
+
   // --- NFR-5: a fixed number of statements -------------------------------------
 
   describe('NFR-5: the number of read statements does not depend on the number of timelines', () => {

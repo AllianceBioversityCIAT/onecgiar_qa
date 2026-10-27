@@ -208,3 +208,34 @@
 - **Requirements covered:** FR-1 (returned exactly), FR-9 (Read), FR-10, FR-12
 - **Final verification:** green.
 - **Execute-time spec edit (2026-10-27, Leader, meaning unchanged):** `tasks.md` T-6 Verification — the NFR-2 grep filter now also drops `/** … */` doc-comment lines (`grep -vE '^\S*:[0-9]+:\s*(//|/\*|\*)'`), matching NFR-2's "1 code line (comments excluded)". The old filter (`grep -v '^\S*:\s*//'`) also never matched `grep -rn` output, whose prefix is `file:line:`. With the new filter the grep returns 1 line (`rome-date.ts:8`). Carry it as a named conformance check into T-6's Reviewer brief.
+
+### T-6: End-to-end scenarios and the cross-cutting NFR checks — PASS (attempt 2)
+
+- **Date:** 2026-10-27
+- **Skills / effort:** nestjs-expert, tdd (as listed) · attempt 1 `medium`, attempt 2 `high` (bumped on FAIL)
+- **Attempt 1**
+  - files changed: `server/test/admin-config-timelines.e2e-spec.ts` (new `describe('step times (P2-4019)')`, 10 cases), `server/test/admin-config-field-config.e2e-spec.ts` (new block, 2 cases, type-only `RomeMinute` import)
+  - Implementer verification: e2e 884/884 under `TZ=UTC` and `TZ=America/Bogota` · unit 2470/2470 · lint 0 · NFR-2 grep 1 line (`rome-date.ts:8`) · NFR-4: `expect(listMany).toHaveLength(7)` in the e2e NFR-5 list test unchanged since `8ac4df7`
+  - Falsifiers: (1) hold read at 13:59:59 Rome → `FR-7 The hold starts at the hour`: `expected 'scheduled' to be 'waiting_for_load'`; (2) second literal → NFR-2 grep 2 lines. Both reverted
+  - Evidence re-run (Leader inline): **VERIFIED** — lint clean; e2e 884/884 in both zones; unit 2470/2470; NFR-2 grep 1 line
+  - Reviewer: **FAIL** (verbatim):
+
+    > 1. **Discovered Issue:** The test `FR-9 Both forms for the same moment: refused on the day-only field even when they agree` never sends a pair that agrees. It sends `opensAt: '2026-11-10T14:00'` with `opensOn: '2026-11-10'` (the day-only value means 00:00), and `closesAt: '2026-11-12T17:30'` with `closesOn: '2026-11-12'` (means 23:59). Both pairs disagree as moments. If the server accepted pairs that match after normalizing, this test would stay green. Its title claims a guarantee it does not check over HTTP.
+    >    * **Violated Rule:** `requirements.md` FR-9, scenario Both forms (`:243-246`): "BUT it must NOT pick one silently, even when they agree". `tasks.md` Coverage (`:348`) makes T-6 a co-owner of "FR-9 | Both forms; BUT never picked silently". T-4 covers it only in unit tests (`timeline-rules.spec.ts:1756,1771`).
+    >    * **Remediation Suggestion:** Add the agreeing pairs to the e2e case and keep the current ones: `{ ...STEP_A, opensAt: '2026-11-10T00:00', opensOn: '2026-11-10' }` must give `[['steps[0].opensOn','INVALID']]`, and `{ ...STEP_A, closesAt: '2026-11-12T23:59', closesOn: '2026-11-12' }` must give `[['steps[0].closesOn','INVALID']]`, with `rows()` unchanged. Alternatively, rename the current case so it no longer claims "agree", but that leaves the BUT clause untested over HTTP.
+
+  - Reviewer verdicts on the Leader's questions: FR-5 "in_progress at once" read after `markLoaded` is **conformant** (FR-7 puts a no-load timeline on hold; T-4's rules test used `hasLoad: true`), with a spec wording gap — FR-5's GIVEN omits the load that FR-2's GIVEN states; proposed amendment: add "and the timeline has a load" to FR-5's GIVEN (to the user at the T-6 gate). NFR-4 accepted: the only list-read count test is the e2e NFR-5 test; "unit-of-work list test" in `tasks.md` is a wording slip.
+  - ADVISORY: NFR-4 wording slip in `tasks.md`; FR-6 14:20:59 / 14:21:00 pins correct; the NFR-2 filter would drop a code line starting with a block comment then carrying the literal (unlikely); the FR-8 seed changes only `opensAt` (a comment would help).
+  - runtime events: none
+- **spawns (attempt 1):** implementer not reported by host (worker: 32 tool calls, 131,760 tokens), ended complete; reviewer not reported by host, ended fail
+- **Attempt 2** (effort `high`)
+  - files changed: same two e2e files; the disagreeing "Both forms" pairs kept as their own case, retitled "FR-9 Both forms for the same moment: opensAt 14:00 with opensOn, and closesAt 17:30 with closesOn, are refused on the day-only field and nothing is written"; new case "FR-9 Both forms for the same moment, even when they agree: opensAt 00:00 with opensOn, and closesAt 23:59 with closesOn, are refused on the day-only field and nothing is written" (400 `VALIDATION_FAILED`, `steps[0].opensOn` / `steps[0].closesOn` `INVALID`, `rows()` unchanged); FR-8 seed comment ([advisory-grade])
+  - Implementer verification: e2e 885/885 under `TZ=UTC` and `TZ=America/Bogota` · lint clean · NFR-2 grep 1 line
+  - Falsifier: agreeing opens assertion changed to `[]` → `expected [ [ 'steps[0].opensOn', 'INVALID' ] ] to deeply equal []`; reverted (opens pair only)
+  - Evidence re-run (Leader inline): **VERIFIED** — lint clean; e2e 885/885 in both zones; NFR-2 grep 1 line
+  - Reviewer: **PASS** — attempt 1 issue resolved; both branches of the FR-9 BUT covered over HTTP; rest of the diff unchanged from attempt 1; attempt 1 verdicts (FR-5 conformant, NFR-4 accepted) stand
+  - runtime events: none
+- **spawns (attempt 2):** implementer not reported by host (worker: 17 tool calls, 86,759 tokens), ended complete; reviewer not reported by host, ended complete
+- **Requirements covered:** over HTTP — FR-1, FR-2, FR-3 (same day, overlap), FR-5, FR-6 (14:20:59 / 14:21:00), FR-7, FR-8 (both), FR-9 (old client, both forms incl. BUT), FR-10; NFR-1, NFR-2, NFR-4
+- **Spec wording gap for the user (T-6 gate):** FR-5's GIVEN omits the load that FR-2's GIVEN states; proposed: add "and the timeline has a load" to FR-5 "Earlier today". Also `tasks.md` T-6 says "unit-of-work list test" for NFR-4 where the pinned test is the e2e NFR-5 list test.
+- **Final verification:** green.

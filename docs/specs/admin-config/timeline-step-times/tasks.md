@@ -240,7 +240,7 @@ T-2 ─▶ T-3
 - **Skills:** nestjs-expert, api-design-principles
 
 ## T-6: End-to-end scenarios and the cross-cutting NFR checks
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-5
 - **Requirements:**
