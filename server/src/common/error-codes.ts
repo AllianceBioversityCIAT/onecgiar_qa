@@ -348,6 +348,8 @@ export const FIELD_ERRORS = {
   OVERLAPS_PREVIOUS_STEP: () =>
     'This step must open after the previous step closes.',
   BEFORE_TODAY: () => 'This date cannot be in the past.',
+  DST_HOUR: () =>
+    'This time does not exist or happens twice in Rome on this day (daylight-saving change). Choose another time.',
   AUDIENCE_ORDER: () =>
     'Each audience can be used once, in the workflow order.',
   ROUND_SEQUENCE: () =>

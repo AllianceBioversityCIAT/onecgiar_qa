@@ -54,6 +54,30 @@ export class TimelineStepUpdateDto implements TimelineStepUpdateCommand {
 
   @ApiProperty({
     type: String,
+    required: false,
+    nullable: true,
+    example: '2026-11-10T14:00',
+    description:
+      'New opening moment, Rome time, `YYYY-MM-DDTHH:mm`; left out keeps the stored one. Not together with `opensOn`. Refused when the step is already open or closed',
+  })
+  @IsOptional()
+  @IsString()
+  opensAt?: string | null;
+
+  @ApiProperty({
+    type: String,
+    required: false,
+    nullable: true,
+    example: '2026-11-12T17:30',
+    description:
+      'New closing moment, Rome time, `YYYY-MM-DDTHH:mm`; left out keeps the stored one. Not together with `closesOn`. A step in progress can be moved to the current minute or later',
+  })
+  @IsOptional()
+  @IsString()
+  closesAt?: string | null;
+
+  @ApiProperty({
+    type: String,
     format: 'date',
     required: false,
     nullable: true,

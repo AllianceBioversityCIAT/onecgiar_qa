@@ -170,7 +170,7 @@ T-2 ─▶ T-3
 - **Skills:** nestjs-expert, nestjs-best-practices, tdd
 
 ## T-4: Minute-level write rules (moments, compatibility, DST, codes)
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-3
 - **Requirements:**

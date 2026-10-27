@@ -43,9 +43,8 @@ import {
   type TimelineUserResponse,
 } from './timeline-response.js';
 import {
-  closingFrom,
   mergeTimelineUpdate,
-  openingFrom,
+  momentsOfStep,
   validateTimelineCreate,
   validateTimelineUpdate,
   type StoredTimeline,
@@ -74,9 +73,11 @@ export interface TimelineChange {
 }
 
 /**
- * A step as the API names it: the day-only keys `opensOn` / `closesOn` are the
- * wire contract (timeline-step-times FR-9). The rules read them and turn each
- * into the moment it means (00:00 / 23:59, S-6).
+ * A step as the API names it: each boundary is `opensAt` / `closesAt` (a
+ * moment, FR-1) or the day-only `opensOn` / `closesOn` (FR-9); the wire keeps
+ * all four optional so the rules can name a missing or doubled one. The
+ * rules' reader turns either form into the moment it means (00:00 / 23:59,
+ * S-6).
  */
 export type TimelineStepCommand = TimelineStepInput;
 
@@ -413,9 +414,9 @@ export class TimelinesService {
                 name: step.name,
                 // The rules refused any audience outside the enum.
                 audience: step.audience as StepAudience,
-                // Valid by now: the day-only values become the moments they mean.
-                opensAt: asMinute(openingFrom(step.opensOn)),
-                closesAt: asMinute(closingFrom(step.closesOn)),
+                // Valid by now: the rules' own reader gives the moments, so
+                // the insert cannot read a form differently from the check.
+                ...momentsOfStep(step),
                 round: step.round,
                 requiresLoad: step.requiresLoad,
               })),

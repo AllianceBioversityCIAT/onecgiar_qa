@@ -1272,6 +1272,45 @@ describe('step times: stored to the minute and judged by the Rome minute (timeli
   const goTo = (w: ReturnType<typeof world>, instant: string) =>
     w.clock.advance(Date.parse(instant) - w.clock.now().getTime());
 
+  it('FR-1 a create with moments stores exactly those moments, and the insert reads them as the rules did (timeline-step-times T-4)', async () => {
+    const w = world();
+    const cycleId = await w.seedCycle(2026);
+    const { timelineId } = await w.service.create(
+      w.ctx(),
+      cycleId,
+      request({
+        steps: [
+          {
+            name: STEP_1.name,
+            audience: 'assessors',
+            opensAt: '2026-11-10T14:00',
+            closesAt: '2026-11-10T17:30',
+            round: 1,
+            requiresLoad: true,
+          },
+          {
+            name: STEP_2.name,
+            audience: 'programs',
+            opensAt: '2026-11-10T17:31',
+            closesOn: '2026-11-13',
+            round: 1,
+            requiresLoad: false,
+          },
+        ],
+      }),
+    );
+
+    expect(
+      w.db.steps
+        .filter((s) => s.timelineId === timelineId)
+        .sort((a, b) => a.position - b.position)
+        .map((s) => [s.opensAt, s.closesAt]),
+    ).toEqual([
+      ['2026-11-10T14:00', '2026-11-10T17:30'],
+      ['2026-11-10T17:31', '2026-11-13T23:59'],
+    ]);
+  });
+
   it('an old client create (day-only) is stored from 00:00 of the opening day to 23:59 of the closing day, and both forms are answered', async () => {
     const w = world();
     const cycleId = await w.seedCycle(2026);

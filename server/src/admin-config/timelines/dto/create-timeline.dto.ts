@@ -45,10 +45,34 @@ export class TimelineStepDto implements TimelineStepCommand {
 
   @ApiProperty({
     type: String,
+    required: false,
+    nullable: true,
+    example: '2026-11-10T14:00',
+    description:
+      'Opening moment, Rome time, `YYYY-MM-DDTHH:mm` (no seconds, no offset). Send this or `opensOn`, not both. The first step cannot open before the current Rome minute, and a step opens after the closing minute of the one before it',
+  })
+  @IsOptional()
+  @IsString()
+  opensAt?: string | null;
+
+  @ApiProperty({
+    type: String,
+    required: false,
+    nullable: true,
+    example: '2026-11-12T17:30',
+    description:
+      'Closing moment, Rome time, `YYYY-MM-DDTHH:mm`. Send this or `closesOn`, not both. It is after the opening moment',
+  })
+  @IsOptional()
+  @IsString()
+  closesAt?: string | null;
+
+  @ApiProperty({
+    type: String,
     format: 'date',
     example: '2026-11-02',
     description:
-      'Rome calendar day, `YYYY-MM-DD`. Required; the first step cannot open before today in Rome, and a step opens after the closing day of the one before it',
+      'Rome calendar day, `YYYY-MM-DD`: the day-only form of the opening, meaning 00:00 that day. Send this or `opensAt`; the first step cannot open before the current Rome minute, and a step opens after the closing minute of the one before it',
   })
   @IsOptional()
   @IsString()
@@ -59,7 +83,7 @@ export class TimelineStepDto implements TimelineStepCommand {
     format: 'date',
     example: '2026-11-06',
     description:
-      'Rome calendar day, `YYYY-MM-DD`. Required; the same day as the opening is valid',
+      'Rome calendar day, `YYYY-MM-DD`: the day-only form of the closing, meaning 23:59 that day. Send this or `closesAt`',
   })
   @IsOptional()
   @IsString()

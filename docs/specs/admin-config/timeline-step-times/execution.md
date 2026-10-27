@@ -145,3 +145,35 @@
   - → T-8: recovery note for a half-applied `0006`; apply with `pnpm db:migrate` or a session without `sql_safe_updates`; include one step at a non-00:00/23:59 time in the down round-trip (A).
 - **Requirements covered:** FR-2, FR-4 (span), FR-7, FR-8, FR-9 (Old client creates), FR-11 (SQL pin), FR-13, NFR-1, NFR-3 (statement pin), NFR-4
 - **Final verification:** green.
+
+### T-4: Minute-level write rules (moments, compatibility, DST, codes) — PASS
+
+- **Date:** 2026-10-27
+- **Attempts:** 1
+- **Skills / effort:** nestjs-expert, api-design-principles, error-handling-patterns, tdd (as listed) · `high` (every user-facing write rule)
+- **Attempt 1**
+  - files changed (10): `server/src/admin-config/timelines/{timeline-rules,timelines.service}.ts`, `timelines/dto/{create-timeline,update-timeline}.dto.ts`, `timelines/dto/create-timeline.dto.spec.ts` (new), `timelines/dto/update-timeline.dto.spec.ts`, `server/src/common/error-codes.ts`, `common/error-codes.spec.ts`, `timeline-rules.spec.ts`, `timelines.service.spec.ts`
+  - Implementer verification: lint 0 · build 0 · unit 2466/2466 (default, `TZ=UTC`, `TZ=America/Bogota`) · e2e 871/871 through the e2e vitest config with `--maxWorkers=2` (the `pnpm test:e2e` alias was refused by the local resource guard for RAM)
+  - Red run: 48 new rules cases failed on their assertions before the reader (e.g. Valid moments received `REQUIRED steps[0].opensOn…`; DST expected `steps[0].opensAt DST_HOUR`); `error-codes.spec` exact-codes list red on `-  "DST_HOUR"`. Not assertion reds: the `DST_HOUR` message case (TypeError) and the `momentsOfStep` cases (written after)
+  - Falsifiers: (1) `<=` → `<`: 1 failed, "Same moment or reversed: the same minute is CLOSES_BEFORE_OPENS on closesAt"; (2) errors always on `…At`: 8 failed (`- "field": "steps[1].opensOn"` / `+ "steps[1].opensAt"`); (3) prefer `…At` silently: 6 failed. All reverted
+  - Resolver: one `readBoundary(edge, at, on, family)` feeds create validation, `mergeTimelineUpdate` / `validateTimelineUpdate`, and the insert via exported `momentsOfStep` (throws on an unvalidated step); `openingFrom` / `closingFrom` removed (T-3 forward pointer closed)
+  - Evidence re-run (Leader inline): **VERIFIED** — lint and build clean; unit 2466/2466 (America/Bogota and `TZ=UTC`); the `pnpm test:e2e` alias itself 871/871; `git diff -- server/test` empty
+  - Reviewer: **PASS** — every FR-1/3/4/5/6/9 scenario, BUT and AND IT MUST has a named test with pinned `now`, exact field and code; reader matches § 7.2; strict close; `DST_HOUR` in the catalog; DST cases on real change days; falsifiers traced
+  - runtime events: none
+- **spawns:** implementer not reported by host (worker: 54 tool calls, 221,794 tokens), ended complete; reviewer not reported by host, ended complete
+- **Not Done / Assumptions (verbatim from the Implementer, condensed list of its items):**
+  - The `pnpm test:e2e` alias was blocked by the resource guard (RAM 3766 MB under the 4500 MB required); the identical vitest config was run directly with `--maxWorkers=2`. (Resolved: the Leader ran the alias, 871/871.)
+  - Both forms with a null value: any boundary where both an `…At` and an `…On` key are present (not `undefined`), even if one is null, is refused as `INVALID` on `…On`.
+  - A boundary with a problem (REQUIRED, INVALID, DST_HOUR) skips the follow-on rules.
+  - Create steps with no boundary key report REQUIRED on `…At` unless the request sent only day-only keys, then on `…On` (keeps e2e 656-706).
+  - The `@ApiProperty` text of the day-only DTO keys was reworded (no "Required"), not deprecated (T-5).
+  - No response-shape, audit-key or e2e change.
+- **Spec tension (Reviewer verdict (b), carried to the user at this gate):** `design.md` § 7.2 says "Neither, on create → REQUIRED on `…At`", but T-4's own gate ("the e2e suite is unchanged and green") and DD-5 require an old client to get `steps[2].closesOn` (`server/test/admin-config-timelines.e2e-spec.ts:676,704`). § 7.2 is also silent on the key for an unsent boundary on edit. Proposed one-line amendment: *"A boundary the request did not send (missing on create, stored on edit) is named on `…On` when the request sent only day-only keys, else on `…At` (DD-5)."*
+- **ADVISORY (Reviewer, not gating):**
+  - RISK: the `…At` keys are `nullable: true` and a null key counts as sent, so `opensAt: '…', opensOn: null` is `INVALID` — T-5's OpenAPI text or T-7's contract must say "send one key per boundary; a null key counts as sent".
+  - READABILITY: `Boundary.raw` holds the normalized moment, not what was sent (`mergedValue` would fit).
+  - RELIABILITY: on an edit of a closed step, a null/malformed/DST boundary reports both `LOCKED` and its own code (old double report kept).
+  - COVERAGE: FR-6 "the step closes at 14:20:59" is view behavior; a T-6 case should pin 14:20:59 `in_progress` and 14:21:00 `closed` for a step moved to 14:20.
+- **Forward pointers:** → T-5: null-counts-as-sent wording in OpenAPI; deprecation of `…On`. → T-6: the FR-6 14:20:59 / 14:21:00 view pin; e2e cases follow § 7.2 as amended (if approved). → T-7: one key per boundary, null counts as sent.
+- **Requirements covered:** FR-1, FR-3, FR-4 (rule), FR-5, FR-6, FR-9 (both forms, day-only edit)
+- **Final verification:** green.
