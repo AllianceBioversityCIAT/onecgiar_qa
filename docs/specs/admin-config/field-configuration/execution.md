@@ -534,11 +534,78 @@ spawns (T-9 total): implementer 1 worker, resumed twice. The host reported 39 ca
 
 | # | Item | Owner / where |
 |---|---|---|
-| PI-1 | TRD § 5.1: five tables replace the single `field_configs` row (`field_config_drafts`, `field_config_draft_items`, `field_config_versions`, `field_config_version_items`, `field_config_audit_events`) | `staging`, TRD sync at `/akili-archive` |
-| PI-2 | TRD § 6: five routes under `/cycles/:id/field-config`; three codes `FIELD_CONFIG_CATALOG_MISSING`, `FIELD_CONFIG_REVISION_STALE`, `FIELD_CONFIG_NOTHING_TO_PUBLISH`; field code `NOT_ASSESSED` | `staging`, TRD sync |
+| PI-1 | **Applied 2026-10-27** (`docs/trd/trd.md` § 4, § 5.1). TRD § 5.1: five tables replace the single `field_configs` row (`field_config_drafts`, `field_config_draft_items`, `field_config_versions`, `field_config_version_items`, `field_config_audit_events`) | `staging`, TRD sync at `/akili-archive` |
+| PI-2 | **Applied 2026-10-27** (TRD § 6 resource map; the codes live in the closed catalog `error-codes.ts`, which the TRD cites). TRD § 6: five routes under `/cycles/:id/field-config`; three codes `FIELD_CONFIG_CATALOG_MISSING`, `FIELD_CONFIG_REVISION_STALE`, `FIELD_CONFIG_NOTHING_TO_PUBLISH`; field code `NOT_ASSESSED` | `staging`, TRD sync |
 | PI-3 | Reporting RC-5 / S-6: a per-field "new" flag. QA reads `is_new` as a boolean; any other type makes the catalog malformed (503, `field-config-catalog.ts:119-121`). The name and type need confirming. Today it is never sent, so `isNew` is always `false` | Back lead + Reporting |
-| PI-4 | `upsertDraftItems` uses `VALUES()`, deprecated since MySQL 8.0.20 (`field-config.store.ts:397`) | TRD pending; revisit on a MySQL upgrade |
-| PI-5 | `server/src/common/AGENTS.md:28`: add the third replay reader, whose stored target id is a **version id** | `staging` (shared guide) |
-| PI-6 | **Open question for the business owner (Angel Jarrín):** after the first publication and a discard, every field has a draft row, so no field can read "unclassified" again (DD-2 + FR-6). Is that intended? | Business owner; `front-contract.md` § 10 |
-| PI-7 | T-11 checks on MySQL: the driver `timezone` and the `published_at` round-trip; a concurrent first `ensureDraft`; a 1213 during publish; the `findPublication` join | Back lead (T-11) |
+| PI-4 | **Recorded 2026-10-27** in TRD § 13. `upsertDraftItems` uses `VALUES()`, deprecated since MySQL 8.0.20 (`field-config.store.ts:397`) | TRD pending; revisit on a MySQL upgrade |
+| PI-5 | **Applied 2026-10-27.** `server/src/common/AGENTS.md:28`: add the third replay reader, whose stored target id is a **version id** | `staging` (shared guide) |
+| PI-6 | ~~Open question~~ **Answered by the back lead, 2026-10-26 ("Si"):** after the first publication and a discard, no field reads "unclassified" again (DD-2 + FR-6). This is intended. `front-contract.md` § 10 is updated | Closed |
+| PI-7 | **Partly verified at T-11:** the publish race, and `published_at` stored to the whole second. Still open: the driver `timezone` round-trip, a concurrent first `ensureDraft`, a 1213 during publish, and the `findPublication` join (no replay ran). T-11 checks on MySQL: the driver `timezone` and the `published_at` round-trip; a concurrent first `ensureDraft`; a 1213 during publish; the `findPublication` join | Back lead (T-11) |
 | PI-8 | S-1 for the comments spec: a comment covers the field with all its sub-options, never one subfield | comments spec |
+
+## Integration after T-10 (2026-10-26)
+- `feat/field-configuration` pushed. Merged with `--no-ff` into `staging-center` (`5b0f547`) and `dev` (`81c6f77`), both pushed. Jenkins trigger run 40372208291 succeeded.
+- The Leader verified the merged `dev` before pushing: server lint 0 warnings, build 0, unit `2299 passed`, e2e `862 passed` (14 files), client `ng build` 0.
+- The run stops before **T-11** (a human step: apply `0005` to `qadb`, then the concurrent publish on MySQL). The Leader prepared the commands for the back lead; no token or key passes through chat.
+
+### T-11: HITL on MySQL — migration, concurrent publish, version resolution — PASS (Disqualifier waived by the back lead)
+
+**Run (2026-10-26, Leader, at the back lead's explicit request: "HAz la prueba tu")**
+- Target: TEST API `https://qatest-serv.ciat.cgiar.org/api/v1`, deployed from `dev` @ `81c6f77`. The four field-config paths are listed in `/docs/openapi.json`.
+- Migration `0005`: the tables exist in the TEST database. Edits and publishes wrote rows and returned 200/201, so the deploy or the back lead applied it. The Leader did not run a migration.
+- Smoke checks:
+  - no token → 401;
+  - cycle 999 → 404 `CYCLES_NOT_FOUND`;
+  - cycle 1 (year 2099) → 409 `FIELD_CONFIG_CATALOG_MISSING` (Reporting's real 404).
+- Disposable cycle: the back lead approved creating it (TEST had no 2026 cycle). `POST /cycles {year: 2026}` returned **cycle id 34**, `draft`, requestId `8294f86f-6617-473b-8a03-29603c283b93`. It permanently occupies year 2026 in the TEST database.
+- View: `2026`, catalog `2026.30`, 9 types, **504 fields** (matches the amended § 5 size check), revision 0.
+- PATCH of 3 items → revision 1. Preview revision 1.
+- **Five concurrent publishes, revision 1, distinct keys:**
+
+| # | HTTP | Start (UTC) | End (UTC) | requestId | Result |
+|---|---|---|---|---|---|
+| 1 | 201 | 21:20:51.556823 | 21:20:51.939240 | 02abffd3-d6c9-4401-9142-20445cbeb5f9 | version 1 |
+| 2 | 409 | 21:20:51.557048 | 21:20:51.939457 | 21b02242-d833-4cdf-9303-db246c188a3a | FIELD_CONFIG_REVISION_STALE |
+| 3 | 409 | 21:20:51.556916 | 21:20:51.943212 | 6572a8e0-c6df-456b-8a14-a550bb7bd976 | FIELD_CONFIG_REVISION_STALE |
+| 4 | 409 | 21:20:51.556782 | 21:20:51.937082 | 79362827-0d80-4633-afdf-890a6434f945 | FIELD_CONFIG_REVISION_STALE |
+| 5 | 409 | 21:20:51.556772 | 21:20:51.936311 | 0e741229-bbbd-451a-a601-5c710680189b | FIELD_CONFIG_REVISION_STALE |
+
+  All five windows overlap: they started within 0.3 ms and ended about 0.38 s later. There were no 500s and no 503s.
+- After the race:
+  - the view shows revision 2 and `latestVersion { number: 1, publishedAt: 2026-10-26T21:20:51.000Z }` (whole second, PI-7). No version 2 exists.
+  - preview: `basedOn 1`, 0 changes.
+  - a further publish with revision 2 → 409 `FIELD_CONFIG_NOTHING_TO_PUBLISH`.
+- **Finding (to investigate):** the very first `GET /cycles/34/field-config` (cold catalog for 2026) hung for more than 45 s on two concurrent clients, without the 503 that NFR-6 bounds at 10 s. The next calls answered in 0.1–0.3 s. Possible causes: the per-year in-flight fetch, a slow Reporting body read, or the TEST proxy. Server logs are needed (requestIds unavailable, because the clients timed out).
+- Leftover data on TEST: cycle 34 (2026, draft), draft revision 2 with 3 items, version 1 (504 items), one audit row.
+- **Audit count (back lead, 2026-10-27, SQL on the TEST database):** `SELECT COUNT(*) FROM field_config_audit_events WHERE cycle_id = 34` → **1**. One publication, one audit row: the four losers wrote nothing.
+
+**Why T-11 stays `[~]`**
+1. **Disqualifier:** "a token or key that passed through chat". The admin token was pasted in chat by the back lead, who explicitly asked the Leader to run the test. Closing T-11 needs the back lead to waive this, or to re-run with a token from their own shell.
+2. ~~Audit row count~~ — **verified 2026-10-27: 1 row.** The HTTP view already shows that version 2 does not exist; `SELECT number FROM field_config_versions WHERE cycle_id = 34;` (expected only 1) is an optional extra check.
+3. PI-7 MySQL checks are still open: the driver `timezone` round-trip; a concurrent first `ensureDraft`; the 1213 path.
+
+**Closing (2026-10-27)**
+- **Waiver of the Disqualifier "a token or key that passed through chat":** the back lead wrote *"acepto la evidencia"* on 2026-10-27. The token was pasted by the back lead, who asked the Leader to run the test; it was used only in shell variables and is in no repo file. The back lead was advised to revoke it, and to rotate the Reporting key that was pasted earlier.
+- The other two Disqualifiers hold: the five windows overlapped (table above), and only the disposable cycle 34 was used.
+- `tasks.md` expected "one 200"; the publish answers **201** (T-9 amended the replay to 201 for the same reason). Not a deviation.
+- NFR-3 / FR-8 / FR-11 verified on MySQL: one version, one audit row (SQL count 1), four stale refusals, no 5xx.
+- Still open, not blocking: the cold-catalog hang (finding above, recorded in `server/src/admin-config/AGENTS.md`) and PI-7's remaining checks.
+- Docs synced at close: TRD § 4, § 5.1, § 6, § 13 (PI-1, PI-2, PI-4); `server/src/common/AGENTS.md` (PI-5); root `AGENTS.md`, `server/AGENTS.md` and `server/src/admin-config/AGENTS.md`.
+
+## Summary
+
+| | |
+|---|---|
+| Tasks | 11/11 `[x]` (T-1…T-11) |
+| Attempts | T-5: 2 (degraded-pair, `REVIEW_WAIVED`); T-9: 3; T-10: 2; the rest: 1. No HALT, no Pivot |
+| Checkpoints | T-8: 2 (resource guard blocked e2e) |
+| Waivers | T-5 review pair (`REVIEW_WAIVED`); T-11 Disqualifier (token through chat) |
+| Final checks | unit 2299 passed, e2e 862 passed (14 files), lint 0 warnings, client `ng build` 0 |
+| Real MySQL | TEST, cycle 34: 504 fields, catalog `2026.30`, 1 × 201 + 4 × 409 on overlapping publishes, 1 version, 1 audit row |
+| Budget | over the ~7,000 LOC estimate (8,538 at T-7); tripwire lifted by the back lead |
+| Integration | `staging-center` and `dev` (see the integration sections) |
+| Front's source | `front-contract.md`; the OpenAPI document at `/api/v1/docs` |
+| Open | cold-catalog hang (NFR-6 on TEST); PI-3 (Reporting `is_new`); PI-7 remainder; PI-8 (comments spec) |
+
+**Next:** `/akili-test admin-config/field-configuration`.
+
