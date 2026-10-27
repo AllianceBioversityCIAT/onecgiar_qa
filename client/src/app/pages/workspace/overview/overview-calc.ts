@@ -1,24 +1,8 @@
-// Pure helpers for the Overview view (date math, estimates). Ported from the mockup JS.
-import {
-  AUTO_APPROVED,
-  LOAD_ALREADY_IN_QA,
-  LOAD_SUBMITTED,
-  LOAD_TARGETS,
-  MOCK_TODAY,
-  OFFICIAL_RESULTS,
-  PHASE_NAMES,
-  PROGRAMS,
-  RESULT_TYPES,
-  RESULT_TYPE_ORDER,
-  RESULT_TYPE_PLURAL,
-  RESULT_TYPE_RULES,
-  Timeline,
-  TimelinePhase,
-} from './overview.mock';
+// Pure helpers for the Overview view (date math, number formatting). Ported from the mockup JS.
+import { MOCK_TODAY, Timeline, TimelinePhase } from './overview.mock';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const DAY_MS = 864e5;
-const TYPE_COUNTS: Readonly<Record<string, number>> = Object.fromEntries(RESULT_TYPES);
 
 /** 1330 → "1,330". */
 export const fmt = (n: number): string => Number(n).toLocaleString('en-US');
@@ -85,37 +69,4 @@ export function timelineInfo(b: Timeline): TimelineInfo {
 export function daysFromToday(str: string): number {
   const d = parseDate(str);
   return d ? Math.round((d.getTime() - MOCK_TODAY.getTime()) / DAY_MS) : 0;
-}
-
-// ---------- Load results into QA ----------
-
-export interface LoadEstimate {
-  readonly matched: number;
-  readonly already: number;
-  readonly pulled: number;
-  readonly notFirst: boolean;
-  readonly joins: readonly { readonly n: string; readonly what: string; readonly phase: string }[];
-  readonly autos: readonly { readonly n: string; readonly what: string }[];
-}
-
-export function loadEstimate(target: string, types: readonly string[], programs: readonly string[]): LoadEstimate {
-  const tf = types.length ? types.reduce((a, t) => a + (TYPE_COUNTS[t] || 0), 0) / OFFICIAL_RESULTS : 1;
-  const pf = programs.length ? programs.length / Object.keys(PROGRAMS).length : 1;
-  const matched = Math.round(LOAD_SUBMITTED * tf * pf);
-  const already = Math.round((matched * LOAD_ALREADY_IN_QA) / LOAD_SUBMITTED);
-  const tgt = LOAD_TARGETS.find((t) => t.id === target);
-  const targetPhase = (+(target.split(':')[1] ?? 0) || 0) + 1;
-  const selected = RESULT_TYPE_ORDER.filter((t) => !types.length || types.includes(t));
-  return {
-    matched,
-    already,
-    pulled: matched - already,
-    notFirst: !!tgt && !tgt.first,
-    joins: selected
-      .filter((t) => RESULT_TYPE_RULES[t].phase !== targetPhase)
-      .map((t) => ({ n: fmt(TYPE_COUNTS[t] || 0), what: RESULT_TYPE_PLURAL[t], phase: PHASE_NAMES[RESULT_TYPE_RULES[t].phase - 1] })),
-    autos: selected
-      .filter((t) => RESULT_TYPE_RULES[t].auto)
-      .map((t) => ({ n: fmt(AUTO_APPROVED[t] ?? Math.round((TYPE_COUNTS[t] || 0) / 4)), what: RESULT_TYPE_PLURAL[t] })),
-  };
 }

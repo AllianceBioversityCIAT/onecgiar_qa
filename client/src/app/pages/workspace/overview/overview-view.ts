@@ -1,8 +1,7 @@
-import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { AuthSession } from '../../../core/auth/auth-session';
 import { OvAttention, AttentionGroupVm } from './ov-attention';
 import { OvAssessorLoad } from './ov-assessor-load';
-import { OvLoadDrawer } from './ov-load-drawer';
 import { CycleHeroVm, OvCycleHero, RoundVm } from './ov-cycle-hero';
 import { OvPace, PaceVm } from './ov-pace';
 import { QaStage, RESULTS, qaStage } from '../results/results.mock';
@@ -71,7 +70,7 @@ function scopeText(b: Timeline): string {
 /** "Overview" view of the QA Platform (QA lead): a dashboard where each block answers one question of the QA admin. */
 @Component({
   selector: 'qa-overview-view',
-  imports: [OvCycleHero, OvTimelineLanes, OvStages, OvAttention, OvPace, OvTypeProgress, OvAssessorLoad, OvLoadDrawer],
+  imports: [OvCycleHero, OvTimelineLanes, OvStages, OvAttention, OvPace, OvTypeProgress, OvAssessorLoad],
   templateUrl: './overview-view.html',
   host: { class: 'block' },
 })
@@ -103,17 +102,6 @@ export class OverviewView {
       ? { lead: head + 'the next step closes ', key: 'today', tail: '' }
       : { lead: head + 'the next step closes in ', key: `${next.days} ${next.days === 1 ? 'day' : 'days'}`, tail: ` (${next.date})` };
   });
-
-  // ---------- State ----------
-  protected readonly loadOpen = signal(false);
-  /** Load in progress (header shows "Loading results N of M"). */
-  protected readonly running = signal<{ done: number; total: number } | null>(null);
-
-  private runTimer: ReturnType<typeof setInterval> | undefined;
-
-  constructor() {
-    inject(DestroyRef).onDestroy(() => clearInterval(this.runTimer));
-  }
 
   // ---------- Timelines ----------
   /** Timelines that are not closed: official first, then live by closing date, then scheduled. */
@@ -305,30 +293,4 @@ export class OverviewView {
     this.stagesId.set(id);
     this.stagesOpen.set(true);
   }
-
-  /** Simulated load: counts up to the total, then the header button comes back. */
-  protected startRun(total: number): void {
-    // TODO(api): start the load job on the server and poll its progress instead of simulating it.
-    clearInterval(this.runTimer);
-    this.running.set({ done: 0, total });
-    const step = Math.max(1, Math.ceil(total / 48));
-    this.runTimer = setInterval(() => {
-      const r = this.running();
-      if (!r) {
-        clearInterval(this.runTimer);
-        return;
-      }
-      const done = Math.min(r.total, r.done + step);
-      this.running.set({ ...r, done });
-      if (done >= r.total) {
-        clearInterval(this.runTimer);
-        this.runTimer = setTimeout(() => this.running.set(null), 900);
-      }
-    }, 250);
-  }
-
-  protected readonly runningText = computed(() => {
-    const r = this.running();
-    return r ? fmt(r.done) + ' of ' + fmt(r.total) : '';
-  });
 }

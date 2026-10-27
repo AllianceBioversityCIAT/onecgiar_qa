@@ -8,16 +8,6 @@
       <p class="m-0 text-(length:--fs-14) font-normal text-(--text-3)">{{ c.lead }}<span class="font-semibold text-(--text)">{{ c.key }}</span>{{ c.tail }}</p>
     }
   </div>
-
-  <div class="flex flex-none items-center gap-2 max-sm:w-full">
-    @if (running()) {
-      <div role="status" aria-live="polite" class="flex h-9 items-center gap-2 rounded-[8px] border border-(--tint-border-2) bg-(--tint-2) px-[14px] whitespace-nowrap max-sm:w-full max-sm:justify-center">
-        <span aria-hidden="true" class="size-[7px] flex-none rounded-full bg-(--primary)"></span>
-        <span class="text-(length:--fs-14) font-semibold text-(--accent)">Loading results</span>
-        <span class="text-(length:--fs-13) font-semibold tabular-nums text-(--accent)">{{ runningText() }}</span>
-      </div>
-    }
-  </div>
 </div>
 
 <!-- Body -->
@@ -40,6 +30,5 @@
   </div>
 </div>
 
-<!-- Pop-ups and drawer -->
+<!-- Pop-up -->
 <qa-ov-stages [(open)]="stagesOpen" [data]="stagesData()" />
-<qa-ov-load-drawer [(open)]="loadOpen" (load)="startRun($event)" />
