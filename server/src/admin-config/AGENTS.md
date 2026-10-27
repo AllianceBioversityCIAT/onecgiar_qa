@@ -69,6 +69,8 @@ Which fields QA shows, per cycle and result type: a **draft** the ADMIN edits, a
 - **Catalog per cycle year (DD-4):** a missing catalog is 409, an unreachable or malformed one is 503, never an empty list. `is_new` must be a boolean or absent (else 503).
 - **Busy (T-9):** a write that loses a lock (1213 / 1205) is 503 `SERVICE_UNAVAILABLE` via `FieldConfigBusyError`, nothing committed, rethrown and never retried here (`:674-683`).
 - **Idempotency:** only the publish is keyed. It marks the key in its transaction (`markExecuted`) and stores the **version id** in `idempotency_keys.target_user_id`; the module's replay reader (`field-config.module.ts:87-92`) calls `replayPublish(versionId)`, which returns the lists as recorded and joins names and `opensOn` from the timelines **now** (a deleted timeline reads `name: ''`, `opensOn: null`).
+- **Verified on MySQL (T-11, TEST, 2026-10-26):** five overlapping publishes of the same revision gave one 201 and four 409 `FIELD_CONFIG_REVISION_STALE`, one version and one audit row. `published_at` is stored to the whole second.
+- **Open finding:** the first view of a year whose catalog is not cached yet hung for more than 45 s on TEST instead of failing with 503 within 10 s (NFR-6); later calls answered in under 0.3 s. Check the per-year in-flight fetch and the Reporting body-read timeout before relying on the 10 s bound.
 - **Known limits:** `upsertDraftItems` uses `VALUES()`, deprecated since MySQL 8.0.20 (`field-config.store.ts:397`). A no-op edit answers from an unlocked read, so it can show a slightly stale draft.
 
 ## Idempotency

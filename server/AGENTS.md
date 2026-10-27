@@ -20,7 +20,7 @@ NestJS 12 API of OneCGIAR QA. This guide adds to the root `AGENTS.md`; root rule
 | `src/config/` | Env validation and typed config namespaces | `src/config/AGENTS.md` |
 | `src/database/` | Drizzle (MySQL) and DynamoDB modules, schema, seeds | `src/database/AGENTS.md` |
 | `src/users/` | Users, roles, role assignments, program scope, permission catalog, `can()` / `canReview()`, current-user cache, the admin API (`/users`, `/catalogs`) with audit | `src/users/AGENTS.md` |
-| `src/admin-config/` | Cycles and QA timelines: cycle create/list/activate, timeline defaults, create (official/additional, scope, 1-5 dated steps), list/detail with computed status and readiness, user assignment. Admin only; Rome-date rules | `src/admin-config/AGENTS.md` |
+| `src/admin-config/` | Cycles and QA timelines: cycle create/list/activate, timeline defaults, create (official/additional, scope, 1-5 dated steps), list/detail with computed status and readiness, user assignment, timeline edit; field configuration per cycle (draft, preview, publish of immutable versions from the Reporting catalog of the cycle's year). Admin only; Rome-date rules | `src/admin-config/AGENTS.md` |
 | `src/auth/` | Cognito client, token verification, admission, login/session controllers, global guards, decorators | `src/auth/AGENTS.md` |
 | `drizzle/` | Generated SQL migrations (drizzle-kit). Never hand-edit an applied migration | `src/database/AGENTS.md` |
 | `test/` | e2e suites over the real app (`*.e2e-spec.ts`) and their fakes | `test/AGENTS.md` |
