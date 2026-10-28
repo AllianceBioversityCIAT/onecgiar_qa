@@ -17,6 +17,8 @@ import { CONDITIONAL_HELP, FIELD_STATES, REQUIRED_HIDDEN_HELP } from './fields-c
 export class FieldsRow {
   readonly row = input.required<FieldRowVm>();
   readonly compact = input(false);
+  /** Position in the page's one-after-another entrance (`qa-reveal` in styles.css). */
+  readonly reveal = input(0);
   /** Closed cycle: shows the configuration without letting it change. */
   readonly readOnly = input(false);
 

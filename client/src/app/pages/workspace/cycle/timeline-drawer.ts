@@ -248,7 +248,7 @@ interface TimelineDraft {
           <button hlmBtn qaBtn tone="danger" type="button" (click)="discard.discard()">Discard and close</button>
         } @else {
           <button hlmBtn qaBtn tone="secondary" type="button" (click)="discard.requestClose()">Cancel</button>
-          <button hlmBtn qaBtn tone="primary" type="button" (click)="save()" [disabled]="saving()">{{ saving() ? 'Saving…' : isNew() ? (creatingOfficial() ? 'Create official timeline' : 'Create sub-timeline') : 'Save changes' }}</button>
+          <button hlmBtn qaBtn tone="primary" type="button" (click)="save()" [loading]="saving()">{{ saving() ? 'Saving…' : isNew() ? (creatingOfficial() ? 'Create official timeline' : 'Create sub-timeline') : 'Save changes' }}</button>
         }
       </div>
     </qa-drawer>

@@ -1,6 +1,6 @@
 import { Component, DestroyRef, ElementRef, afterNextRender, computed, effect, inject, linkedSignal, signal, viewChild } from '@angular/core';
 import { FieldConfigField, FieldConfigResultType, PublishTimelines } from '../../../core/api/field-config.models';
-import { QaButtonImports, QaSelect, QaSelectOption } from '../../../ui';
+import { QaButtonImports, QaSelect, QaSelectOption, QaSkeleton } from '../../../ui';
 import {
   FieldChangeGroupVm,
   FieldConfig,
@@ -18,6 +18,7 @@ import { FieldsColumnHeader } from './fields-column-header';
 import { FIELD_STATES } from './fields-copy';
 import { FieldsPublishConfirm } from './fields-publish-confirm';
 import { FieldRowEvent, FieldsSection } from './fields-section';
+import { FieldsSkeleton } from './fields-skeleton';
 import { FieldsStore } from './fields-store';
 
 /** Matrix width under which rows switch to the two-line layout (mockup: 900px). */
@@ -27,7 +28,7 @@ const COMPACT_BELOW = 900;
 @Component({
   selector: 'qa-fields-view',
   templateUrl: './fields-view.html',
-  imports: [QaButtonImports, QaSelect, FieldsColumnHeader, FieldsSection, FieldsPublishConfirm],
+  imports: [QaButtonImports, QaSelect, QaSkeleton, FieldsColumnHeader, FieldsSection, FieldsPublishConfirm, FieldsSkeleton],
   providers: [FieldsStore],
 })
 export class FieldsView {
@@ -173,6 +174,19 @@ export class FieldsView {
       })
       .filter((s) => s.shown > 0)
       .map(({ shown: _shown, ...s }) => s);
+  });
+
+  /** Widths of the filter chips while they load (All fields, Hidden, View only, Assessed). */
+  protected readonly chipWidths = ['w-[88px]', 'w-[74px]', 'w-[82px]', 'w-[86px]'];
+
+  /** Where each section starts in the one-after-another entrance: its bar, then its rows. */
+  protected readonly revealFrom = computed(() => {
+    let next = 0;
+    return this.sections().map((s) => {
+      const start = next;
+      next += 1 + s.rows.length;
+      return start;
+    });
   });
 
   // ── Layout observers ───────────────────────────────────────────────────

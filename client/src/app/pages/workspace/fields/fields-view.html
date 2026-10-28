@@ -24,6 +24,8 @@
         />
       } @else if (store.cycle(); as cycle) {
         <span class="text-(length:--fs-14) text-(--text-3)">Cycle <span class="font-semibold text-(--text)">{{ cycle.name }}</span></span>
+      } @else if (store.state() === 'loading') {
+        <span aria-hidden="true" class="flex items-center gap-2"><qa-skeleton class="h-3.5 w-10" /><qa-skeleton class="h-3.5 w-24" /></span>
       }
       @if (store.state() === 'ready') {
         <qa-select
@@ -34,6 +36,8 @@
           appearance="inline"
           panelWidth="300px"
         />
+      } @else if (store.state() === 'loading') {
+        <span aria-hidden="true" class="flex items-center gap-2"><qa-skeleton class="h-3.5 w-16" /><qa-skeleton class="h-3.5 w-28" /></span>
       }
     </div>
     @if (store.state() === 'ready') {
@@ -64,12 +68,20 @@
         <span class="font-(family-name:--qa-mono) text-(length:--fs-12) font-semibold tabular-nums" [class]="coreOnly() ? 'text-(--accent)' : 'text-(--text-muted)'">{{ coreCount() }}</span>
       </button>
     </div>
+    } @else if (store.state() === 'loading') {
+    <div aria-hidden="true" class="flex flex-wrap items-center gap-2">
+      @for (w of chipWidths; track $index) {
+        <qa-skeleton class="h-[30px] rounded-full" [class]="w" />
+      }
+      <span class="mx-1 h-5 w-px flex-none bg-(--border) max-sm:hidden"></span>
+      <qa-skeleton class="h-[30px] w-[86px] rounded-full" />
+    </div>
     }
   </div>
 
   @switch (store.state()) {
     @case ('loading') {
-      <p role="status" class="m-0 text-(length:--fs-14) text-(--text-3)">Loading the fields…</p>
+      <qa-fields-skeleton [compact]="compact()" />
     }
     @case ('no-cycle') {
       <p class="m-0 text-(length:--fs-14) text-(--text-3)">There is no open cycle. Create or activate one in Cycle to configure its fields.</p>
@@ -99,6 +111,7 @@
         @for (section of sections(); track section.id) {
           <qa-fields-section
             [section]="section"
+            [revealFrom]="revealFrom()[$index]"
             [compact]="compact()"
             (toggle)="toggleSection(section.id)"
             (stateChange)="setState($event)"
@@ -157,7 +170,7 @@
         qaBtn
         tone="primary"
         type="button"
-        [disabled]="openingReview()"
+        [loading]="openingReview()"
         (click)="openConfirm()"
         aria-haspopup="dialog"
         class="flex-none max-sm:w-full"
@@ -188,6 +201,7 @@
   [notice]="store.review()?.notice ?? ''"
   [busy]="reviewBusy()"
   [publishing]="store.publishing()"
+  [discarding]="store.discarding()"
   (publish)="publish()"
   (undo)="undoChange($event)"
   (discard)="discard()"

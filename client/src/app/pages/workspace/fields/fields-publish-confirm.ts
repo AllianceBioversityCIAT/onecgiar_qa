@@ -83,7 +83,7 @@ import { FieldChangeGroupVm } from './fields-config';
         <div role="alert" class="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg bg-(--danger-bg) px-3 py-2">
           <span class="mr-auto text-(length:--fs-13) text-(--text-2)">Discard all {{ count() }} {{ count() === 1 ? 'change' : 'changes' }}? This can't be undone.</span>
           <button hlmBtn qaBtn tone="secondary" size="sm" type="button" (click)="confirmDiscard.set(false)">Keep them</button>
-          <button hlmBtn qaBtn tone="danger" size="sm" type="button" [disabled]="busy()" (click)="discard.emit()">Discard all</button>
+          <button hlmBtn qaBtn tone="danger" size="sm" type="button" [disabled]="busy()" [loading]="discarding()" (click)="discard.emit()">Discard all</button>
         </div>
       }
 
@@ -119,6 +119,7 @@ import { FieldChangeGroupVm } from './fields-config';
           tone="primary"
           type="button"
           [disabled]="busy() || count() === 0"
+          [loading]="publishing()"
           (click)="publish.emit()"
           class="max-sm:order-first max-sm:w-full"
         >
@@ -137,6 +138,7 @@ export class FieldsPublishConfirm {
   /** A publish, discard or undo is running. */
   readonly busy = input(false);
   readonly publishing = input(false);
+  readonly discarding = input(false);
 
   readonly publish = output<void>();
   /** Undo one change (`type` = result type key, `id` = field key). */

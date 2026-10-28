@@ -37,7 +37,7 @@ import { QaDrawerImports } from '../drawer/qa-drawer';
       </ul>
       <div qaDialogFooter>
         <button hlmBtn qaBtn tone="secondary" type="button" (click)="keep()">Keep in queue</button>
-        <button hlmBtn qaBtn tone="primary" type="button" [disabled]="retrying()" (click)="retry()">Retry</button>
+        <button hlmBtn qaBtn tone="primary" type="button" [loading]="retrying()" (click)="retry()">Retry</button>
       </div>
     </qa-dialog>
 

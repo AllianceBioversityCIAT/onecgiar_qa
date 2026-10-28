@@ -1,6 +1,7 @@
 import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { Toasts } from '../../../core/http/toasts';
-import { QaButtonImports, QaTabsImports } from '../../../ui';
+import { QaButtonImports, QaReveal, QaTabsImports } from '../../../ui';
+import { CycleSkeleton } from './cycle-skeleton';
 import { CycleStore, TimelineSaveOutcome } from './cycle-store';
 import { RUN_TARGETS, Timeline } from './cycle.mock';
 import { MenuAction, formatNumber, stepState, timelineStart, timelineVM } from './cycle.logic';
@@ -23,7 +24,7 @@ const EMPTY_TIMELINE: Timeline = { id: '', name: '', kind: 'Sub-timeline', statu
  */
 @Component({
   selector: 'qa-cycle-view',
-  imports: [QaButtonImports, QaTabsImports, TimelineSteps, TimelineCard, TimelineDrawer, StepDrawer, ProgressDrawer],
+  imports: [QaButtonImports, QaTabsImports, QaReveal, CycleSkeleton, TimelineSteps, TimelineCard, TimelineDrawer, StepDrawer, ProgressDrawer],
   providers: [CycleStore],
   templateUrl: './cycle-view.html',
 })
