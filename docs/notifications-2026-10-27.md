@@ -27,13 +27,23 @@ Branch: `jp-design/mockup-completo` · Author: Juanpa (with Claude Code) · Spec
   - Each notification count matches Results.
   - The 7 Overview stage links still show 148, 200, 71, 180, 334, 40 and 357.
 
+## Update 2026-10-28 — PRMS pattern adapted to QA
+- **Done:** the page follows the PRMS notifications page, adapted to QA (Juanpa, from a PRMS screenshot and the 2026-10-27 meeting).
+  - Tabs All · Needs your action · For your information, each with its count under the current filters.
+  - Filters: Viewing <timeline>, search, Type (only the current tab's types), Science program; chips with Clear all; "Mark all as read".
+  - Rows: unread dot, tinted icon, one sentence, meta line (type · Main batch / Complementary batch · step · time).
+  - Needs your action: step complete ("Open next step" → Cycle), slow program ("View results"), at risk; each with "Not now". Any button marks the row read.
+  - Removed: the Third-party broker, PPU and Waiting types, the unused `panel` variant and the All / Unread control.
+  - Timeline kinds read "Main batch" / "Complementary batches" (O-8 of `overview-feedback-2026-10-27.md`).
+- **Tested:** 85 unit tests in notifications, overview and results pass; eslint clean; `ng build` exit 0 (initial bundle 605.96 kB, budget warning already there). Browser check at 1440 and 390 px and in dark mode: no horizontal scroll; every count matches Results.
+- **Not verified:** "Open next step" with a real admin (the design account is signed out by Cycle's API); AXE (no tool in `client/`).
+
 ## Pending
-- María Julia: event list and grouping, and the panel layout (spec OQ-1, OQ-2).
+- María Julia: event list and grouping (spec OQ-1, OQ-2).
 - Business: PRD § 5 keeps notifications out of v1.
 - Juanda: a server module for real data, when this becomes a priority.
 - Not verified:
   - A non-admin account in the browser (covered by a unit test).
   - AXE: no AXE tool is installed in `client/`.
 - Tokens `--surface-4` (bell hover) and `--text-3` (bell icon) are not yet listed in the UX design's token section.
-- The row and list keep a `panel` variant that nothing uses since the panel was removed. Delete it, or reuse it if the panel comes back after the talk with María Julia.
 - Other kit parts still use `--text-muted`: `qa-menu`, `qa-tabs`, `qa-date-picker`, `qa-pagination` and `qa-badge`.
