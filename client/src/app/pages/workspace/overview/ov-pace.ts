@@ -55,44 +55,48 @@ function yTicks(v: number): number[] {
       </div>
 
       @if (view(); as v) {
-        <p class="m-0 mt-3 text-(length:--fs-15) leading-[1.5] text-pretty text-(--text-2)">
-          At the current pace, about <b class="text-(--text)">{{ v.projected }} of {{ v.target }}</b> results will be done when {{ v.step }} closes on {{ v.endLabel }}.
-        </p>
+        <!-- Full-width card: from a wide card the summary sits left and the chart right, so the chart does not grow too tall. -->
+        <div class="mt-3 flex flex-1 flex-col gap-4 @4xl:grid @4xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] @4xl:items-end @4xl:gap-8">
+          <div class="flex flex-col gap-3 @4xl:self-start">
+            <p class="m-0 text-(length:--fs-15) leading-[1.5] text-pretty text-(--text-2)">
+              At the current pace, about <b class="text-(--text)">{{ v.projected }} of {{ v.target }}</b> results will be done when {{ v.step }} closes on {{ v.endLabel }}.
+            </p>
 
-        <dl class="m-0 mt-3 grid grid-cols-2 gap-2 @lg:grid-cols-4">
-          @for (k of v.kpis; track k.label) {
-            <div class="flex flex-col-reverse gap-0.5 rounded-[10px] border border-(--surface-4) bg-(--surface-2) px-3 py-2.5">
-              <dt class="text-(length:--fs-12) text-(--text-3)">{{ k.label }}</dt>
-              <dd class="m-0 text-(length:--fs-20) font-bold tabular-nums tracking-[-0.01em] text-(--text)">{{ k.value }}</dd>
+            <dl class="m-0 grid grid-cols-2 gap-2 @lg:grid-cols-4 @4xl:grid-cols-2">
+              @for (k of v.kpis; track k.label) {
+                <div class="flex flex-col-reverse gap-0.5 rounded-[10px] border border-(--surface-4) bg-(--surface-2) px-3 py-2.5">
+                  <dt class="text-(length:--fs-12) text-(--text-3)">{{ k.label }}</dt>
+                  <dd class="m-0 text-(length:--fs-20) font-bold tabular-nums tracking-[-0.01em] text-(--text)">{{ k.value }}</dd>
+                </div>
+              }
+            </dl>
+          </div>
+
+          <div class="flex flex-col justify-end">
+            <svg [attr.viewBox]="'0 0 ' + w + ' ' + h" class="block h-auto w-full" role="img" [attr.aria-label]="v.ariaLabel">
+              @for (g of v.grid; track g.v) {
+                <line [attr.x1]="pl" [attr.x2]="w - pr" [attr.y1]="g.y" [attr.y2]="g.y" class="stroke-(--surface-4)" stroke-width="1"></line>
+                <text [attr.x]="pl - 8" [attr.y]="g.y + 4" text-anchor="end" class="fill-(--text-muted) text-[11px]">{{ g.label }}</text>
+              }
+              @for (t of v.ticks; track t.label) {
+                <text [attr.x]="t.x" [attr.y]="h - 8" [attr.text-anchor]="t.anchor" class="fill-(--text-muted) text-[11px]">{{ t.label }}</text>
+              }
+              <line [attr.x1]="v.todayX" [attr.x2]="v.todayX" [attr.y1]="pt" [attr.y2]="h - pb" class="stroke-(--border-strong)" stroke-dasharray="3 3"></line>
+              <polyline [attr.points]="v.needLine" fill="none" class="stroke-(--text-muted)" stroke-width="2" stroke-dasharray="6 5"></polyline>
+              <polyline [attr.points]="v.projLine" fill="none" class="stroke-(--primary)" stroke-width="2" stroke-dasharray="2 4" opacity=".7"></polyline>
+              <polyline [attr.points]="v.actLine" fill="none" class="stroke-(--primary)" stroke-width="2.5" stroke-linejoin="round"></polyline>
+              <circle [attr.cx]="v.todayX" [attr.cy]="v.todayY" r="4.5" class="fill-(--primary) stroke-(--surface)" stroke-width="2"></circle>
+              <circle [attr.cx]="v.endX" [attr.cy]="v.targetY" r="4.5" class="fill-(--surface) stroke-(--text-muted)" stroke-width="2"></circle>
+              <!-- Hover targets bigger than the line: one per day with its value. -->
+              @for (d of v.days; track $index) {
+                <circle [attr.cx]="d.x" [attr.cy]="d.y" r="9" fill="transparent"><title>{{ d.title }}</title></circle>
+              }
+            </svg>
+            <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-(length:--fs-12) text-(--text-3)">
+              <span class="inline-flex items-center gap-1.5"><i class="inline-block w-[18px] border-t-[2.5px] border-(--primary)"></i>Done so far</span>
+              <span class="inline-flex items-center gap-1.5"><i class="inline-block w-[18px] border-t-2 border-dotted border-(--primary)"></i>At current pace</span>
+              <span class="inline-flex items-center gap-1.5"><i class="inline-block w-[18px] border-t-2 border-dashed border-(--text-muted)"></i>Needed to finish on time</span>
             </div>
-          }
-        </dl>
-
-        <!-- The chart sits at the bottom and grows with the card, so this card matches "Needs your attention" beside it. -->
-        <div class="mt-4 flex flex-1 flex-col justify-end">
-          <svg [attr.viewBox]="'0 0 ' + w + ' ' + h" class="block h-auto w-full" role="img" [attr.aria-label]="v.ariaLabel">
-            @for (g of v.grid; track g.v) {
-              <line [attr.x1]="pl" [attr.x2]="w - pr" [attr.y1]="g.y" [attr.y2]="g.y" class="stroke-(--surface-4)" stroke-width="1"></line>
-              <text [attr.x]="pl - 8" [attr.y]="g.y + 4" text-anchor="end" class="fill-(--text-muted) text-[11px]">{{ g.label }}</text>
-            }
-            @for (t of v.ticks; track t.label) {
-              <text [attr.x]="t.x" [attr.y]="h - 8" [attr.text-anchor]="t.anchor" class="fill-(--text-muted) text-[11px]">{{ t.label }}</text>
-            }
-            <line [attr.x1]="v.todayX" [attr.x2]="v.todayX" [attr.y1]="pt" [attr.y2]="h - pb" class="stroke-(--border-strong)" stroke-dasharray="3 3"></line>
-            <polyline [attr.points]="v.needLine" fill="none" class="stroke-(--text-muted)" stroke-width="2" stroke-dasharray="6 5"></polyline>
-            <polyline [attr.points]="v.projLine" fill="none" class="stroke-(--primary)" stroke-width="2" stroke-dasharray="2 4" opacity=".7"></polyline>
-            <polyline [attr.points]="v.actLine" fill="none" class="stroke-(--primary)" stroke-width="2.5" stroke-linejoin="round"></polyline>
-            <circle [attr.cx]="v.todayX" [attr.cy]="v.todayY" r="4.5" class="fill-(--primary) stroke-(--surface)" stroke-width="2"></circle>
-            <circle [attr.cx]="v.endX" [attr.cy]="v.targetY" r="4.5" class="fill-(--surface) stroke-(--text-muted)" stroke-width="2"></circle>
-            <!-- Hover targets bigger than the line: one per day with its value. -->
-            @for (d of v.days; track $index) {
-              <circle [attr.cx]="d.x" [attr.cy]="d.y" r="9" fill="transparent"><title>{{ d.title }}</title></circle>
-            }
-          </svg>
-          <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-(length:--fs-12) text-(--text-3)">
-            <span class="inline-flex items-center gap-1.5"><i class="inline-block w-[18px] border-t-[2.5px] border-(--primary)"></i>Done so far</span>
-            <span class="inline-flex items-center gap-1.5"><i class="inline-block w-[18px] border-t-2 border-dotted border-(--primary)"></i>At current pace</span>
-            <span class="inline-flex items-center gap-1.5"><i class="inline-block w-[18px] border-t-2 border-dashed border-(--text-muted)"></i>Needed to finish on time</span>
           </div>
         </div>
       }

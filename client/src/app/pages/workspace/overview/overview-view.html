@@ -12,17 +12,17 @@
 
 <!-- Body -->
 <div class="flex flex-col items-stretch gap-6 px-4 pt-6 pb-8 sm:px-6 lg:px-8">
+  <!-- Order agreed with María Julia (2026-10-27): timelines, then rounds and statuses, then the analysis of the results. -->
+  <!-- Where is each timeline? -->
+  <qa-ov-timeline-lanes [lanes]="lanes()" (viewStages)="openStages($event)" />
+
   <!-- How is the cycle going? -->
   <qa-ov-cycle-hero [data]="hero()" [options]="heroOptions" [timeline]="heroTimeline()" (timelineChange)="heroTimeline.set($event ?? 'all')" />
 
   <!-- Two cards per row on wide screens; cards in the same row share height. -->
   <div class="grid grid-cols-1 gap-5 xl:grid-cols-12">
-    <!-- What do I have to fix? · Will the open step close on time? -->
-    <qa-ov-attention class="xl:col-span-5" [groups]="attention()" />
-    <qa-ov-pace class="xl:col-span-7" [series]="pace()" />
-
-    <!-- Where is each timeline? -->
-    <qa-ov-timeline-lanes class="xl:col-span-12" [lanes]="lanes()" (viewStages)="openStages($event)" />
+    <!-- Will the open step close on time? -->
+    <qa-ov-pace class="xl:col-span-12" [series]="pace()" />
 
     <!-- Where are the results? · Is the load balanced? -->
     <qa-ov-type-progress class="xl:col-span-7" [rows]="typeProgress()" />

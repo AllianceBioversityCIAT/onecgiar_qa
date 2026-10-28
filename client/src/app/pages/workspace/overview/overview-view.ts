@@ -1,6 +1,5 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { AuthSession } from '../../../core/auth/auth-session';
-import { OvAttention, AttentionGroupVm } from './ov-attention';
 import { OvAssessorLoad } from './ov-assessor-load';
 import { CycleHeroVm, OvCycleHero, RoundVm } from './ov-cycle-hero';
 import { OvPace, PaceVm } from './ov-pace';
@@ -10,7 +9,7 @@ import { OvStages, StageStatus, TimelineStagesVm } from './ov-stages';
 import { OvTimelineLanes, TimelineLaneVm } from './ov-timeline-lanes';
 import { OvTypeProgress, TypeProgressVm } from './ov-type-progress';
 import { TimelineInfo, daysFromToday, fmt, parseDate, phaseState, shortDate, timelineInfo } from './overview-calc';
-import { ASSESSOR_LOAD, ATTENTION, MOCK_TODAY, PACE, PHASE_NAMES, PHASE_SHORT, STAGE_CRITERIA, TIMELINES, Timeline } from './overview.mock';
+import { ASSESSOR_LOAD, MOCK_TODAY, PACE, PHASE_NAMES, PHASE_SHORT, STAGE_CRITERIA, TIMELINES, Timeline } from './overview.mock';
 
 const isOfficial = (b: Timeline) => b.kind === 'Official timeline';
 
@@ -70,7 +69,7 @@ function scopeText(b: Timeline): string {
 /** "Overview" view of the QA Platform (QA lead): a dashboard where each block answers one question of the QA admin. */
 @Component({
   selector: 'qa-overview-view',
-  imports: [OvCycleHero, OvTimelineLanes, OvStages, OvAttention, OvPace, OvTypeProgress, OvAssessorLoad],
+  imports: [OvCycleHero, OvTimelineLanes, OvStages, OvPace, OvTypeProgress, OvAssessorLoad],
   templateUrl: './overview-view.html',
   host: { class: 'block' },
 })
@@ -211,18 +210,6 @@ export class OverviewView {
         };
       }),
     };
-  });
-
-  // ---------- Needs attention ----------
-  protected readonly attention = computed<AttentionGroupVm[]>(() => {
-    if (this.total <= 0) return [];
-    return ATTENTION.map((g) => {
-      const rows = g.rows
-        .map((r) => ({ ...r, days: daysFromToday(r.closes), closesOn: shortDate(r.closes) }))
-        // Soonest deadline first; on the same day, the row that affects more results.
-        .sort((a, b) => a.days - b.days || (b.sev ?? 0) - (a.sev ?? 0));
-      return { key: g.key, name: g.name, rows };
-    }).filter((g) => g.rows.length > 0);
   });
 
   // ---------- Assessment pace ----------
