@@ -13,25 +13,83 @@ import { ASSESSOR_LOAD, MOCK_TODAY, PACE, PHASE_NAMES, PHASE_SHORT, STAGE_CRITER
 
 const isOfficial = (b: Timeline) => b.kind === 'Official timeline';
 
-/** Round columns of the hero (agreed with the QA admin, 2026-10-16). "Quality assessed" is kept for the final state only. */
-const ROUNDS: readonly { id: RoundVm['id']; title: string; who: string; stages: readonly { stage: QaStage; label: string; hint: string }[] }[] = [
+/** Where a result is inside its step. "Quality assessed" is kept for the final state only. */
+type StepStatus = 'pending' | 'review' | 'one' | 'two' | 'reply' | 'replied' | 'lead-pending' | 'lead-done' | 'tpb-pending' | 'tpb-done';
+
+/**
+ * Rounds of the hero, each with its steps and each step with its statuses (María Julia, 2026-10-27: "status inside the
+ * step"; names to confirm with her). Step names match the Timeline progress lanes. PPU (step 5) is left out: she said
+ * it was not important. `stage` is the Results filter a row opens, null while Results has none for that status.
+ * Colors: grey while waiting, the round's color as work gets done (indigo Round 1, blue Round 2); green is the final state.
+ */
+const ROUNDS: readonly {
+  id: RoundVm['id'];
+  title: string;
+  who: string;
+  steps: readonly { n: number; status: readonly { key: StepStatus; label: string; color: string; stage: QaStage | null }[] }[];
+}[] = [
   {
-    id: 'r1', title: 'Round 1', who: 'Assessors',
-    stages: [
-      { stage: 'r1-pending', label: 'Pending', hint: 'No assessor has opened them yet' },
-      { stage: 'r1-review', label: 'In review', hint: 'Assessors are working on them' },
-      { stage: 'r1-one', label: 'Assessed by 1 assessor', hint: 'Waiting for the second assessor' },
-      { stage: 'r1-two', label: 'Assessed by 2 assessors', hint: 'Round 1 complete, single-check types included' },
+    id: 'r1', title: 'Round 1', who: 'Assessors and science programs',
+    steps: [
+      { n: 1, status: [
+        { key: 'pending', label: 'Pending', color: 'bg-(--text-muted)', stage: 'r1-pending' },
+        { key: 'review', label: 'In review', color: 'bg-(--st-indigo-fg)/35', stage: 'r1-review' },
+        { key: 'one', label: 'Assessed by 1 assessor', color: 'bg-(--st-indigo-fg)/65', stage: 'r1-one' },
+        { key: 'two', label: 'Assessed by 2 assessors', color: 'bg-(--st-indigo-fg)', stage: null },
+      ] },
+      { n: 2, status: [
+        { key: 'reply', label: 'Pending reply', color: 'bg-(--text-muted)', stage: null },
+        { key: 'replied', label: 'Comments replied', color: 'bg-(--st-indigo-fg)', stage: null },
+      ] },
     ],
   },
   {
-    id: 'r2', title: 'Round 2', who: 'Lead assessors, third-party brokers and PPU',
-    stages: [
-      { stage: 'r2-pending', label: 'Pending', hint: 'Comments or core fields still to review' },
-      { stage: 'r2-assessed', label: 'Assessed', hint: 'Resolved by a lead assessor or a broker' },
+    id: 'r2', title: 'Round 2', who: 'Lead assessors and third-party brokers',
+    steps: [
+      { n: 3, status: [
+        { key: 'lead-pending', label: 'Pending lead assessor review', color: 'bg-(--text-muted)', stage: null },
+        { key: 'lead-done', label: 'Assessed by lead assessor', color: 'bg-(--st-submitted-fg)/60', stage: null },
+      ] },
+      { n: 4, status: [
+        { key: 'tpb-pending', label: 'Pending third-party review', color: 'bg-(--text-muted)', stage: null },
+        { key: 'tpb-done', label: 'Assessed by third party', color: 'bg-(--st-submitted-fg)', stage: null },
+      ] },
     ],
   },
 ];
+
+/**
+ * Status of a result inside its step, from the Results mock (null when quality assessed or automatic).
+ * TODO(api): the API should return the step and the status. The mock has one "awaiting response" state and one
+ * "answered" state per round, so these splits are fixed shares by code, as `qaStage` does for "assessed by 1".
+ */
+function stepStatus(r: QaResult): StepStatus | null {
+  const s = qaStage(r);
+  const code = Number(r.code.slice(-4));
+  if (s === 'r1-pending' || s === 'r1-review' || s === 'r1-one') return s === 'r1-pending' ? 'pending' : s === 'r1-review' ? 'review' : 'one';
+  if (s === 'r1-two') return code % 3 === 0 ? 'two' : 'reply'; // Assessed by 2 but not sent yet, or with the program.
+  if (r.round === 'QA round 1' && r.status === 'Answered') return 'replied';
+  if (s === 'r2-pending') return fitStep(r, r.status === 'Awaiting response' ? 'tpb-pending' : 'lead-pending');
+  if (s === 'r2-assessed') return fitStep(r, code % 2 === 0 ? 'lead-done' : 'tpb-done');
+  return null;
+}
+
+/** The five steps each timeline uses, by timeline name (a timeline uses some of them, in order, each once). */
+const STEPS_OF = new Map(TIMELINES.map((b) => [b.name, new Set(b.phases.map((p) => p.name))]));
+
+/**
+ * Keeps a Round 2 status inside the steps the result's timeline has (the mock does not know them): no third-party
+ * step falls back to the lead assessor's, and no Round 2 at all leaves the result with the programs' reply.
+ */
+function fitStep(r: QaResult, s: StepStatus): StepStatus {
+  const steps = STEPS_OF.get(r.batch);
+  if (!steps) return s;
+  const hasLead = steps.has(PHASE_NAMES[2]);
+  const hasTpb = steps.has(PHASE_NAMES[3]);
+  if (s.startsWith('tpb-') && !hasTpb) s = s === 'tpb-pending' ? 'lead-pending' : 'lead-done';
+  if (s.startsWith('lead-') && !hasLead) return hasTpb ? (s === 'lead-pending' ? 'tpb-pending' : 'tpb-done') : 'replied';
+  return s;
+}
 
 /** Results under assessment (automatic ones are not), the source of every count the filters change. TODO(api). */
 const IN_QA: readonly QaResult[] = RESULTS.filter((r) => qaStage(r));
@@ -211,6 +269,10 @@ export class OverviewView {
     const counts = this.inView().reduce((m, r) => m.set(qaStage(r)!, (m.get(qaStage(r)!) ?? 0) + 1), new Map<QaStage, number>());
     const sum = [...counts.values()].reduce((a, n) => a + n, 0);
     const qa = counts.get('quality-assessed') ?? 0;
+    const byStatus = this.inView().reduce((m, r) => {
+      const s = stepStatus(r);
+      return s ? m.set(s, (m.get(s) ?? 0) + 1) : m;
+    }, new Map<StepStatus, number>());
     const info = one && timelineInfo(one);
     const liveShown = this.shown().filter((b) => b.status === 'Live').length;
     return {
@@ -221,11 +283,17 @@ export class OverviewView {
       query: this.query(),
       total: fmt(sum),
       rounds: ROUNDS.map((r) => {
-        const stages = r.stages.map((s) => {
-          const n = counts.get(s.stage) ?? 0;
-          return { ...s, n, count: fmt(n) };
+        // Only the steps the timelines in view use: the one picked, or every timeline the filters keep.
+        const used = new Set((one ? [one] : this.shown()).flatMap((b) => b.phases.map((p) => p.name)));
+        const steps = r.steps.filter((step) => used.has(PHASE_NAMES[step.n - 1])).map((step) => {
+          const stages = step.status.map((s) => {
+            const n = byStatus.get(s.key) ?? 0;
+            return { ...s, n, count: fmt(n) };
+          });
+          const n = stages.reduce((a, s) => a + s.n, 0);
+          return { n: step.n, name: PHASE_SHORT[PHASE_NAMES[step.n - 1]], total: fmt(n), sum: n, stages };
         });
-        return { id: r.id, title: r.title, who: r.who, total: fmt(stages.reduce((a, s) => a + s.n, 0)), stages };
+        return { id: r.id, title: r.title, who: r.who, total: fmt(steps.reduce((a, s) => a + s.sum, 0)), steps };
       }),
       final: { count: fmt(qa), pct: sum ? Math.round((qa / sum) * 100) : 0 },
     };
