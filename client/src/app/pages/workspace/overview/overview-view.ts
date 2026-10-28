@@ -357,9 +357,9 @@ export class OverviewView {
 
   // ---------- Assessment pace ----------
   /** "Assessor ⌄" in Assessment pace, for the assessors' step only. */
-  protected readonly paceAssessor = signal('all');
+  protected readonly paceAssessor = signal('');
   protected readonly assessorOptions: readonly QaSelectOption[] = [
-    { value: 'all', label: 'All assessors' },
+    { value: '', label: 'All assessors' },
     ...ASSESSOR_LOAD.map((a) => ({ value: a.name, label: a.name })),
   ];
   /** Share of the assessors' work done by the assessor picked (1 for all). TODO(api): daily history per assessor. */
@@ -387,7 +387,6 @@ export class OverviewView {
       return [{
         id: b.id,
         label: `${b.name} · Step ${info.step}`,
-        step: `Step ${info.step}`,
         target,
         done: s.done.map((v) => Math.round(v * f)),
         span,
