@@ -1,4 +1,5 @@
-import { Directive, effect, inject, input } from '@angular/core';
+import { afterRenderEffect, booleanAttribute, Directive, effect, ElementRef, inject, input } from '@angular/core';
+import { BrnButton } from '@spartan-ng/brain/button';
 import { HlmButton } from '@spartan/button';
 
 /**
@@ -59,18 +60,44 @@ export function qaButtonClasses(tone: QaButtonTone, size: QaButtonSize, flush: Q
  * <button hlmBtn qaBtn tone="primary">Load results</button>
  * <button hlmBtn qaBtn tone="secondary">Cancel</button>
  * <a hlmBtn qaBtn tone="link" size="sm" flush="start" routerLink="/assessors">Go to Assessors</a>
+ *
+ * Fixed rule: a button that runs an action passes `[loading]` while it runs. It spins (before the label) and is
+ * disabled, so a second tap does nothing. Keep the label, or say what is happening ("Saving…").
+ * <button hlmBtn qaBtn tone="primary" [loading]="saving()" (click)="save()">Save</button>
  */
 @Directive({
   selector: 'button[hlmBtn][qaBtn], a[hlmBtn][qaBtn]',
+  host: {
+    '[class.qa-btn-busy]': 'loading()',
+    '[attr.aria-busy]': 'loading() || null',
+  },
 })
 export class QaButton {
   readonly tone = input<QaButtonTone>('secondary');
   readonly size = input<QaButtonSize>('md');
   readonly flush = input<QaButtonFlush | null>(null);
+  /** An action is running: spinner + disabled on top of `[disabled]`. */
+  readonly loading = input(false, { transform: booleanAttribute });
 
   constructor() {
     const hlm = inject(HlmButton);
     effect(() => hlm.setClass(qaButtonClasses(this.tone(), this.size(), this.flush())));
+
+    // BrnButton owns `disabled`; while loading it is forced on after each render so its own binding cannot undo it.
+    const brn = inject(BrnButton);
+    const el = inject<ElementRef<HTMLButtonElement | HTMLAnchorElement>>(ElementRef).nativeElement;
+    const anchor = el.tagName === 'A';
+    afterRenderEffect(() => {
+      const off = brn.disabled() || this.loading();
+      if (!anchor) el.toggleAttribute('disabled', off);
+      el.toggleAttribute('data-disabled', off);
+    });
+    // Anchors cannot be disabled natively: swallow the click while loading.
+    el.addEventListener('click', (e) => {
+      if (!this.loading()) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    }, { capture: true });
   }
 }
 
