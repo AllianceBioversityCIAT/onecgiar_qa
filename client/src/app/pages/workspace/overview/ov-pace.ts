@@ -1,4 +1,4 @@
-import { Component, computed, input, linkedSignal } from '@angular/core';
+import { Component, computed, input, model } from '@angular/core';
 import { QaSelectImports, QaSelectOption } from '../../../ui';
 
 /** Pace of one timeline's open step: results done day by day against what is needed to close on time. */
@@ -17,6 +17,8 @@ export interface PaceVm {
   /** "06 Jul", "23 Jul". */
   readonly startLabel: string;
   readonly endLabel: string;
+  /** True for the assessors' step, the only one the assessor filter applies to. */
+  readonly byAssessor: boolean;
 }
 
 const W = 640;
@@ -35,7 +37,10 @@ function yTicks(v: number): number[] {
   return Array.from({ length: count() + 1 }, (_, i) => i * step);
 }
 
-/** "Assessment pace": fixed title; the timeline is picked in the "Viewing" line, the riskiest one first. */
+/**
+ * "Assessment pace": one open step, the riskiest one the page's filters keep (the timeline is picked only at the top
+ * of the page). In the assessors' step an "Assessor" line narrows it to one assessor.
+ */
 @Component({
   selector: 'qa-ov-pace',
   imports: [QaSelectImports],
@@ -45,7 +50,23 @@ function yTicks(v: number): number[] {
       <div class="flex items-start justify-between gap-4">
         <div class="flex min-w-0 flex-col gap-1">
           <h3 id="overview-pace-title" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">Assessment pace</h3>
-          <qa-select [(value)]="selected" [options]="options()" label="Viewing" appearance="inline" class="self-start" />
+          <div class="flex flex-wrap items-center gap-x-5 gap-y-1">
+            <!-- The timeline is picked only at the top of the page: with several open steps this shows the one most behind. -->
+            @if (current(); as c) {
+              <p class="m-0 text-(length:--fs-14) text-(--text-3)">Step <span class="font-semibold text-(--text)">{{ c.label }}</span></p>
+            }
+            @if (current()?.byAssessor) {
+              <qa-select
+                [value]="assessor()"
+                (valueChange)="assessor.set($event ?? 'all')"
+                [options]="assessorOptions()"
+                label="Assessor"
+                appearance="inline"
+                searchable
+                searchPlaceholder="Search assessors"
+              />
+            }
+          </div>
         </div>
         @if (view(); as v) {
           <span class="flex-none rounded-full px-2.5 py-0.5 text-(length:--fs-12) font-semibold" [class]="v.behind ? 'bg-(--st-editing-bg) text-(--st-editing-fg)' : 'bg-(--st-approved-bg) text-(--st-approved-fg)'">
@@ -53,7 +74,13 @@ function yTicks(v: number): number[] {
           </span>
         }
       </div>
+      @if (series().length > 1) {
+        <p class="m-0 mt-1 text-(length:--fs-13) text-(--text-3)">The step most behind of {{ series().length }} open steps. Pick a timeline at the top to see another.</p>
+      }
 
+      @if (!series().length) {
+        <p class="m-0 mt-3 text-(length:--fs-14) text-(--text-3)">No open step matches these filters.</p>
+      }
       @if (view(); as v) {
         <!-- Full-width card: from a wide card the summary sits left and the chart right, so the chart does not grow too tall. -->
         <div class="mt-3 flex flex-1 flex-col gap-4 @4xl:grid @4xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] @4xl:items-end @4xl:gap-8">
@@ -106,6 +133,10 @@ function yTicks(v: number): number[] {
 export class OvPace {
   /** Open steps with history, riskiest first; the first one is shown by default. */
   readonly series = input.required<readonly PaceVm[]>();
+  /** "All assessors", then each assessor of the assessors' step. */
+  readonly assessorOptions = input<readonly QaSelectOption[]>([]);
+  /** Assessor the assessors' step is narrowed to ("all" by default); the page recomputes the series with it. */
+  readonly assessor = model('all');
 
   protected readonly w = W;
   protected readonly h = H;
@@ -114,12 +145,11 @@ export class OvPace {
   protected readonly pt = PT;
   protected readonly pb = PB;
 
-  protected readonly selected = linkedSignal<string | null>(() => this.series()[0]?.id ?? null);
-
-  protected readonly options = computed<QaSelectOption[]>(() => this.series().map((s) => ({ value: s.id, label: s.label })));
+  /** The step shown: the riskiest one the filters keep (the series comes sorted, most behind first). */
+  protected readonly current = computed(() => this.series()[0] ?? null);
 
   protected readonly view = computed(() => {
-    const s = this.series().find((x) => x.id === this.selected());
+    const s = this.current();
     if (!s || !s.done.length) return null;
     const today = s.done.length - 1;
     const done = s.done[today];

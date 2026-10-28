@@ -12,21 +12,58 @@
 
 <!-- Body -->
 <div class="flex flex-col items-stretch gap-6 px-4 pt-6 pb-8 sm:px-6 lg:px-8">
+  <!-- Filters for the whole page (agreed with María Julia and Ángel, 2026-10-27): every block below counts only what they keep.
+       The timeline reads as context ("Viewing All timelines ⌄"), with program and type as menus under it, exactly as in
+       Results: same layout, and it scrolls away with the page (docs/ux-ui/design.md § 6, "Filter bar"). -->
+  <div class="flex flex-col gap-3">
+    <qa-select
+      [value]="timeline()"
+      (valueChange)="timeline.set($event ?? 'all')"
+      [options]="timelineOptions"
+      label="Viewing"
+      appearance="inline"
+      searchable
+      searchPlaceholder="Search timelines"
+      panelWidth="340px"
+      listMaxHeight="320px"
+      class="self-start"
+    />
+    <div class="flex flex-wrap items-center gap-2 lg:gap-3">
+      <qa-multi-select [(value)]="programs" [options]="programOptions" label="Science program" [searchable]="false" panelWidth="320px" listMaxHeight="none" />
+      <qa-multi-select [(value)]="types" [options]="typeOptions" label="Result type" [searchable]="false" panelWidth="320px" listMaxHeight="none" />
+    </div>
+
+    @if (applied().length) {
+      <div class="flex flex-wrap items-center gap-2">
+        @for (f of applied(); track f.key) {
+          <span class="inline-flex h-7 max-w-[min(380px,100%)] items-center gap-1.5 rounded-full bg-(--tint) pr-1.5 pl-2.5 text-(length:--fs-12) font-medium text-(--accent)">
+            <span class="flex-none font-semibold">{{ f.label }}</span>
+            <span class="min-w-0 truncate">{{ f.values }}</span>
+            <button type="button" (click)="clearFilter(f.key)" [attr.aria-label]="'Remove ' + f.label + ' filter'" class="flex size-[18px] flex-none items-center justify-center rounded-full p-0 text-(--accent) outline-none hover:bg-(--tint-3) focus-visible:shadow-(--focus-ring)">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12" /></svg>
+            </button>
+          </span>
+        }
+        <button hlmBtn qaBtn tone="link" size="sm" type="button" (click)="clearAll()">Clear all</button>
+      </div>
+    }
+  </div>
+
   <!-- Order agreed with María Julia (2026-10-27): timelines, then rounds and statuses, then the analysis of the results. -->
   <!-- Where is each timeline? -->
-  <qa-ov-timeline-lanes [lanes]="lanes()" (viewStages)="openStages($event)" />
+  <qa-ov-timeline-lanes [lanes]="lanes()" [total]="timelines.length" (viewStages)="openStages($event)" />
 
   <!-- How is the cycle going? -->
-  <qa-ov-cycle-hero [data]="hero()" [options]="heroOptions" [timeline]="heroTimeline()" (timelineChange)="heroTimeline.set($event ?? 'all')" />
+  <qa-ov-cycle-hero [data]="hero()" />
 
   <!-- Two cards per row on wide screens; cards in the same row share height. -->
   <div class="grid grid-cols-1 gap-5 xl:grid-cols-12">
     <!-- Will the open step close on time? -->
-    <qa-ov-pace class="xl:col-span-12" [series]="pace()" />
+    <qa-ov-pace class="xl:col-span-12" [series]="pace()" [assessorOptions]="assessorOptions" [(assessor)]="paceAssessor" />
 
     <!-- Where are the results? · Is the load balanced? -->
-    <qa-ov-type-progress class="xl:col-span-7" [rows]="typeProgress()" />
-    <qa-ov-assessor-load class="xl:col-span-5" [load]="assessorLoad" [scope]="loadScope()" />
+    <qa-ov-type-progress class="xl:col-span-7" [rows]="typeProgress()" [query]="query()" />
+    <qa-ov-assessor-load class="xl:col-span-5" [load]="assessorLoad()" [scope]="loadScope()" />
   </div>
 </div>
 

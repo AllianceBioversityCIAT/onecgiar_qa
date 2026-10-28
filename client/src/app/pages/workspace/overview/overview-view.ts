@@ -3,8 +3,8 @@ import { AuthSession } from '../../../core/auth/auth-session';
 import { OvAssessorLoad } from './ov-assessor-load';
 import { CycleHeroVm, OvCycleHero, RoundVm } from './ov-cycle-hero';
 import { OvPace, PaceVm } from './ov-pace';
-import { QaStage, RESULTS, qaStage } from '../results/results.mock';
-import { QaSelectOption } from '../../../ui';
+import { PROGRAMS, PROGRAM_CODES, QaResult, QaStage, RESULTS, RESULT_TYPES, qaStage } from '../results/results.mock';
+import { QaButtonImports, QaMultiSelect, QaSelectImports, QaSelectOption } from '../../../ui';
 import { OvStages, StageStatus, TimelineStagesVm } from './ov-stages';
 import { OvTimelineLanes, TimelineLaneVm } from './ov-timeline-lanes';
 import { OvTypeProgress, TypeProgressVm } from './ov-type-progress';
@@ -33,21 +33,15 @@ const ROUNDS: readonly { id: RoundVm['id']; title: string; who: string; stages: 
   },
 ];
 
-/** Results per QA stage, by timeline id and for 'all'. TODO(api): read the counts per timeline from the API instead of the Results mock. */
-const STAGE_COUNTS = (() => {
-  const idOf = new Map(TIMELINES.map((b) => [b.name, b.id]));
-  const out = new Map<string, Map<QaStage, number>>();
-  for (const r of RESULTS) {
-    const s = qaStage(r);
-    if (!s) continue;
-    for (const key of ['all', idOf.get(r.batch) ?? r.batch]) {
-      const m = out.get(key) ?? new Map<QaStage, number>();
-      m.set(s, (m.get(s) ?? 0) + 1);
-      out.set(key, m);
-    }
-  }
-  return out;
-})();
+/** Results under assessment (automatic ones are not), the source of every count the filters change. TODO(api). */
+const IN_QA: readonly QaResult[] = RESULTS.filter((r) => qaStage(r));
+
+/** Results under assessment per timeline name, to turn a filtered count into a share of the timeline. */
+const PER_TIMELINE = IN_QA.reduce((m, r) => m.set(r.batch, (m.get(r.batch) ?? 0) + 1), new Map<string, number>());
+
+/** Chips under the filters, in this order. */
+type FilterKey = 'program' | 'type';
+const FILTER_LABELS: Readonly<Record<FilterKey, string>> = { program: 'Science program', type: 'Result type' };
 
 /** "4 days left" / "today" / "1 day left". */
 const daysLeftText = (days: number) => (days <= 0 ? 'today' : days === 1 ? '1 day left' : `${days} days left`);
@@ -69,7 +63,7 @@ function scopeText(b: Timeline): string {
 /** "Overview" view of the QA Platform (QA lead): a dashboard where each block answers one question of the QA admin. */
 @Component({
   selector: 'qa-overview-view',
-  imports: [OvCycleHero, OvTimelineLanes, OvStages, OvPace, OvTypeProgress, OvAssessorLoad],
+  imports: [QaButtonImports, QaSelectImports, QaMultiSelect, OvCycleHero, OvTimelineLanes, OvStages, OvPace, OvTypeProgress, OvAssessorLoad],
   templateUrl: './overview-view.html',
   host: { class: 'block' },
 })
@@ -116,13 +110,16 @@ export class OverviewView {
   /** Results across every open timeline. */
   protected readonly total = this.timelines.reduce((a, b) => a + b.results, 0);
 
-  // ---------- Hero: the whole cycle at a glance ----------
   /** Live timelines, the ones with results in QA. */
   private readonly live = this.timelines.filter((b) => b.status === 'Live');
 
-  /** "Viewing All timelines ⌄" on the hero: all live timelines together, or one of them. */
-  protected readonly heroTimeline = signal('all');
-  protected readonly heroOptions: readonly QaSelectOption[] = [
+  // ---------- Filters: they set what every block counts (agreed with María Julia and Ángel, 2026-10-27) ----------
+  /** "Viewing All timelines ⌄": all live timelines together, or one of them. */
+  protected readonly timeline = signal('all');
+  protected readonly programs = signal<readonly string[]>([]);
+  protected readonly types = signal<readonly string[]>([]);
+
+  protected readonly timelineOptions: readonly QaSelectOption[] = [
     { value: 'all', label: 'All timelines', count: fmt(this.live.reduce((a, b) => a + b.results, 0)) },
     ...this.live.map((b) => ({
       value: b.id,
@@ -132,20 +129,96 @@ export class OverviewView {
       count: fmt(b.results),
     })),
   ];
+  protected readonly programOptions = PROGRAM_CODES.map((c) => ({ value: c, label: `${c} ${PROGRAMS[c]}` }));
+  protected readonly typeOptions = RESULT_TYPES.map((t) => ({ value: t, label: t }));
 
+  protected readonly applied = computed(() => {
+    const values: Record<FilterKey, readonly string[]> = { program: this.programs(), type: this.types() };
+    return (Object.keys(FILTER_LABELS) as FilterKey[])
+      .filter((k) => values[k].length > 0)
+      .map((k) => ({ key: k, label: FILTER_LABELS[k], values: values[k].join(', ') }));
+  });
+
+  protected clearFilter(key: FilterKey): void {
+    if (key === 'program') this.programs.set([]);
+    else this.types.set([]);
+  }
+
+  protected clearAll(): void {
+    this.programs.set([]);
+    this.types.set([]);
+  }
+
+  /** The timeline picked in "Viewing", or null for all of them. */
+  private readonly picked = computed(() => this.live.find((b) => b.id === this.timeline()) ?? null);
+
+  /** Results under assessment that pass the program and type filters (in any timeline). */
+  private readonly matching = computed(() => {
+    const programs = this.programs();
+    const types = this.types();
+    return IN_QA.filter((r) => (!programs.length || programs.includes(r.program)) && (!types.length || types.includes(r.type)));
+  });
+
+  /** The same, narrowed to the timeline picked. */
+  private readonly inView = computed(() => {
+    const one = this.picked();
+    return one ? this.matching().filter((r) => r.batch === one.name) : this.matching();
+  });
+
+  /** Results that pass the program and type filters, per timeline name. */
+  private readonly matchingPerTimeline = computed(() =>
+    this.matching().reduce((m, r) => m.set(r.batch, (m.get(r.batch) ?? 0) + 1), new Map<string, number>()),
+  );
+
+  /** Share of a timeline's results that pass the program and type filters (1 without them). TODO(api): exact counts. */
+  private readonly shares = computed(() => {
+    const m = this.matchingPerTimeline();
+    return new Map(this.timelines.map((b) => [b.id, PER_TIMELINE.get(b.name) ? (m.get(b.name) ?? 0) / PER_TIMELINE.get(b.name)! : 1]));
+  });
+
+  /** A timeline with no results yet (scheduled) whose scope can hold the programs and types picked ("all" when empty). */
+  private covers(b: Timeline): boolean {
+    const programs = this.programs();
+    const types = this.types();
+    return (
+      (!programs.length || !b.programs.length || b.programs.some((p) => programs.includes(p))) &&
+      (!types.length || !b.types.length || b.types.some((t) => types.includes(t)))
+    );
+  }
+
+  /**
+   * Timelines the blocks show: the one picked (or all), and only those with results that pass the filters, so the
+   * Timelines block and the counts below always add up. A timeline with no results yet is kept when its scope fits.
+   */
+  private readonly shown = computed(() =>
+    this.timelines.filter(
+      (b) =>
+        (this.timeline() === 'all' || b.id === this.timeline()) &&
+        (PER_TIMELINE.get(b.name) ? (this.matchingPerTimeline().get(b.name) ?? 0) > 0 : this.covers(b)),
+    ),
+  );
+
+  /** The filters as Results query params, so a count clicked opens Results with the same filters. */
+  protected readonly query = computed(() => ({
+    timeline: this.picked()?.id ?? null,
+    program: this.programs().join(',') || null,
+    type: this.types().join(',') || null,
+  }));
+
+  // ---------- Hero: the whole cycle at a glance ----------
   protected readonly hero = computed<CycleHeroVm>(() => {
-    const id = this.heroTimeline();
-    const one = this.live.find((b) => b.id === id);
-    const counts = STAGE_COUNTS.get(one ? id : 'all') ?? new Map<QaStage, number>();
+    const one = this.picked();
+    const counts = this.inView().reduce((m, r) => m.set(qaStage(r)!, (m.get(qaStage(r)!) ?? 0) + 1), new Map<QaStage, number>());
     const sum = [...counts.values()].reduce((a, n) => a + n, 0);
     const qa = counts.get('quality-assessed') ?? 0;
     const info = one && timelineInfo(one);
+    const liveShown = this.shown().filter((b) => b.status === 'Live').length;
     return {
       // All: "from 4 live timelines". One: where it is now, "Step 4 of 5 · closes 23 Jul".
       detail: info
         ? `, Step ${info.step} of ${info.steps} · ${info.when === 'closes' ? 'closes' : info.when === 'opens' ? 'opens' : 'closed'} ${info.date}`
-        : `, from ${this.live.length} live ${this.live.length === 1 ? 'timeline' : 'timelines'}`,
-      timeline: one ? id : null,
+        : `, from ${liveShown} live ${liveShown === 1 ? 'timeline' : 'timelines'}`,
+      query: this.query(),
       total: fmt(sum),
       rounds: ROUNDS.map((r) => {
         const stages = r.stages.map((s) => {
@@ -159,15 +232,17 @@ export class OverviewView {
   });
 
   // ---------- Timelines list ----------
+  /** The timelines the filters show; with a program or type filter, counts are that share of each timeline. */
   protected readonly lanes = computed<TimelineLaneVm[]>(() =>
-    this.timelines.map((b) => {
+    this.shown().map((b) => {
       const info = timelineInfo(b);
-      const st = info.state;
+      const share = this.shares().get(b.id) ?? 1;
+      const st = info.state.kind === 'active' ? { ...info.state, of: Math.round(info.state.of * share), done: Math.round(info.state.done * share) } : info.state;
       const open = info.when === 'closes';
       return {
         id: b.id,
         name: b.name,
-        meta: [b.kind, scopeText(b), b.test ? 'Test' : `${fmt(b.results)} results`].join(' · '),
+        meta: [b.kind, scopeText(b), b.test ? 'Test' : `${fmt(Math.round(b.results * share))} results`].join(' · '),
         scheduled: b.status === 'Scheduled',
         steps: b.phases.map((p, i) => ({
           state: phaseState(p, b).kind,
@@ -213,25 +288,44 @@ export class OverviewView {
   });
 
   // ---------- Assessment pace ----------
+  /** "Assessor ⌄" in Assessment pace, for the assessors' step only. */
+  protected readonly paceAssessor = signal('all');
+  protected readonly assessorOptions: readonly QaSelectOption[] = [
+    { value: 'all', label: 'All assessors' },
+    ...ASSESSOR_LOAD.map((a) => ({ value: a.name, label: a.name })),
+  ];
+  /** Share of the assessors' work done by the assessor picked (1 for all). TODO(api): daily history per assessor. */
+  private readonly assessorShare = computed(() => {
+    const a = ASSESSOR_LOAD.find((x) => x.name === this.paceAssessor());
+    const all = ASSESSOR_LOAD.reduce((n, x) => n + x.done + x.left, 0);
+    return a && all ? (a.done + a.left) / all : 1;
+  });
+
   /** One entry per open step with history: behind pace first, soonest close first (the first one is shown by default). */
   protected readonly pace = computed<PaceVm[]>(() =>
     PACE.flatMap((s) => {
-      const b = this.timelines.find((t) => t.id === s.timelineId);
+      const b = this.shown().find((t) => t.id === s.timelineId);
       if (!b) return [];
       const info = timelineInfo(b);
       const start = parseDate(info.phase.start);
       const end = parseDate(info.phase.end);
       if (info.when !== 'closes' || !start || !end || info.state.kind !== 'active') return [];
       const span = Math.round((end.getTime() - start.getTime()) / 864e5);
+      const byAssessor = info.phase.name === PHASE_NAMES[0];
+      // The filters narrow the step to a share of its results (and of one assessor's, in the assessors' step).
+      const f = (this.shares().get(b.id) ?? 1) * (byAssessor ? this.assessorShare() : 1);
+      const target = Math.round(info.state.of * f);
+      if (target <= 0) return [];
       return [{
         id: b.id,
         label: `${b.name} · Step ${info.step}`,
         step: `Step ${info.step}`,
-        target: info.state.of,
-        done: s.done,
+        target,
+        done: s.done.map((v) => Math.round(v * f)),
         span,
         startLabel: shortDate(info.phase.start),
         endLabel: shortDate(info.phase.end),
+        byAssessor,
       }];
     })
       // Behind: the last week's pace would not get through the step before it closes.
@@ -249,9 +343,8 @@ export class OverviewView {
   // ---------- Progress by result type ----------
   protected readonly typeProgress = computed<TypeProgressVm[]>(() => {
     const by = new Map<string, { r1: number; r2: number; qa: number }>();
-    for (const r of RESULTS) {
-      const s = qaStage(r);
-      if (!s) continue;
+    for (const r of this.inView()) {
+      const s = qaStage(r)!;
       const row = by.get(r.type) ?? { r1: 0, r2: 0, qa: 0 };
       if (s === 'quality-assessed') row.qa++;
       else if (s.startsWith('r1-')) row.r1++;
@@ -267,15 +360,23 @@ export class OverviewView {
   });
 
   // ---------- Assessor load ----------
-  protected readonly assessorLoad = ASSESSOR_LOAD;
   /** Timelines whose open step is the assessors' step: the only ones the assessor load counts. */
-  protected readonly loadScope = computed(() => {
-    const names = this.timelines.filter((b) => timelineInfo(b).when === 'closes' && timelineInfo(b).phase.name === PHASE_NAMES[0]).map((b) => b.name);
-    return names.length ? `Timelines in the assessors' step: ${names.join(', ')}` : 'No timeline is in the assessors’ step';
-  });
+  private readonly inAssessorsStep = (list: readonly Timeline[]) =>
+    list.filter((b) => timelineInfo(b).when === 'closes' && timelineInfo(b).phase.name === PHASE_NAMES[0]);
 
+  /** The load mock covers every timeline in the assessors' step; the filters keep their share of it. TODO(api). */
+  protected readonly assessorLoad = computed(() => {
+    const all = this.inAssessorsStep(this.timelines).reduce((n, b) => n + b.results, 0);
+    const kept = this.inAssessorsStep(this.shown()).reduce((n, b) => n + b.results * (this.shares().get(b.id) ?? 1), 0);
+    const f = all ? kept / all : 0;
+    return ASSESSOR_LOAD.map((a) => ({ ...a, done: Math.round(a.done * f), left: Math.round(a.left * f) })).filter((a) => a.done + a.left > 0);
+  });
+  protected readonly loadScope = computed(() => {
+    const names = this.inAssessorsStep(this.shown()).map((b) => b.name);
+    return names.length ? `Timelines in the assessors' step: ${names.join(', ')}` : 'No timeline in these filters is in the assessors’ step';
+  });
   // ---------- Actions ----------
-  /** A row in "Timelines": open its stages pop-up. */
+  /** A row in "Timeline progress": open its stages pop-up. */
   protected openStages(id: string): void {
     this.stagesId.set(id);
     this.stagesOpen.set(true);

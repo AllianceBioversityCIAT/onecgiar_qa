@@ -44,7 +44,8 @@ const LABEL_CLASS: Record<LaneStepState, string> = {
 };
 
 /**
- * "Timelines": one row per open or scheduled timeline, so the block reads the same with 1 timeline or with 10.
+ * "Timeline progress": one row per open or scheduled timeline, so the block reads the same with 1 timeline or with 10.
+ * The page's filters can hide timelines; the count then reads "1 of 5" so it is clear the others are filtered out.
  * Each row is one bar with the timeline's steps named under it; the open step says "Now · 88%" and fills up as its results get done.
  */
 @Component({
@@ -55,8 +56,8 @@ const LABEL_CLASS: Record<LaneStepState, string> = {
     <section aria-labelledby="overview-lanes-title" class="flex flex-col overflow-hidden rounded-[12px] border border-(--border) bg-(--surface)">
       <div class="flex items-start justify-between gap-4 px-5 pt-5 pb-4">
         <h3 id="overview-lanes-title" class="m-0 flex items-baseline gap-2 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">
-          Timelines
-          <span class="text-(length:--fs-13) font-semibold tabular-nums text-(--text-muted)">{{ lanes().length }}</span>
+          Timeline progress
+          <span class="text-(length:--fs-13) font-semibold tabular-nums text-(--text-4)">{{ lanes().length < total() ? lanes().length + ' of ' + total() : lanes().length }}</span>
         </h3>
         <a hlmBtn qaBtn tone="link" size="sm" routerLink="/cycle" class="-mr-2.5">Open Cycle</a>
       </div>
@@ -140,6 +141,8 @@ const LABEL_CLASS: Record<LaneStepState, string> = {
 })
 export class OvTimelineLanes {
   readonly lanes = input.required<readonly TimelineLaneVm[]>();
+  /** Timelines before the page's filters (the "of 5" in "1 of 5"). */
+  readonly total = input(0);
   /** Open the stages pop-up of a timeline. */
   readonly viewStages = output<string>();
 
