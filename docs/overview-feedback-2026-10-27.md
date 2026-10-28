@@ -20,7 +20,7 @@ Source: Teams transcript, shared by Juanpa on 2026-10-28. This note records what
 | O-5 | **Remove the notifications block** ("Needs your attention") from the Overview | María Julia | **Done 2026-10-28.** `ov-attention.ts` deleted; its mock (`ATTENTION` in `overview.mock.ts`, a file shared with Yeck) is left in place |
 | O-6 | **Assessment pace:** all results by default, filterable by result type ("indicator") and by assessor, to follow each assessor's daily work | María Julia | **Done 2026-10-28.** Result type comes from the page filters; "Assessor ⌄" in the assessors' step. No step picker: it shows the step most behind (pick a timeline at the top to see another). Mock data: per-assessor pace is a proportional share until the API gives daily history per assessor |
 | O-7 | Assessor load is useful; pace per assessor is "another way to see the same data" | María Julia | Covered by O-6 |
-| O-8 | **Names:** she suggested "Main batch" for the official timeline and "complementary batches" for sub-timelines. Ángel explained timeline names are typed by the admin, so they are customizable | María Julia, Ángel | Open: whether the type labels change too |
+| O-8 | **Names:** she suggested "Main batch" for the official timeline and "complementary batches" for sub-timelines. Ángel explained timeline names are typed by the admin, so they are customizable | María Julia, Ángel | **Done 2026-10-28 (labels only).** Juanpa chose to rename the kinds on screen: "Main batch" (tag "Main") and "Complementary batches" in the timeline pickers of Overview, Results and Notifications, and in the Overview timeline lines. The data keeps `kind` ("Official timeline" / "Sub-timeline"); Cycle still shows the old names (Yeck's screen) |
 | O-9 | **Other roles** get a reduced subset of this Overview. To do after these revisions; she reviews it with the shared link and credentials | All | Later |
 
 ## Notifications
@@ -60,4 +60,5 @@ Source: Teams transcript, shared by Juanpa on 2026-10-28. This note records what
   - Light and dark modes both checked.
 
 ## Pending
-- O-1 steps with statuses (send names to María Julia first), O-8 names (Ángel).
+- O-1: send the step and status names to María Julia to confirm.
+- O-8: Cycle (Yeck's screen) still says "Official timeline" / "Sub-timeline"; tell Yeck so it can match.

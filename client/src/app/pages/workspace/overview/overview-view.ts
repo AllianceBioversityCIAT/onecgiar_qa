@@ -13,6 +13,12 @@ import { ASSESSOR_LOAD, MOCK_TODAY, PACE, PHASE_NAMES, PHASE_SHORT, STAGE_CRITER
 
 const isOfficial = (b: Timeline) => b.kind === 'Official timeline';
 
+/**
+ * What the QA admin calls each kind of timeline (María Julia, 2026-10-27; Juanpa, 2026-10-28): the official
+ * timeline is the "Main batch" and sub-timelines are "Complementary batches". Display only: the data keeps `kind`.
+ */
+const kindLabel = (b: Timeline) => (isOfficial(b) ? 'Main batch' : 'Complementary batch');
+
 /** Where a result is inside its step. "Quality assessed" is kept for the final state only. */
 type StepStatus = 'pending' | 'review' | 'one' | 'two' | 'reply' | 'replied' | 'lead-pending' | 'lead-done' | 'tpb-pending' | 'tpb-done';
 
@@ -182,8 +188,8 @@ export class OverviewView {
     ...this.live.map((b) => ({
       value: b.id,
       label: b.name,
-      group: isOfficial(b) ? 'Official timeline' : 'Sub-timelines',
-      tag: isOfficial(b) ? 'Official' : 'Sub',
+      group: isOfficial(b) ? 'Main batch' : 'Complementary batches',
+      tag: isOfficial(b) ? 'Main' : undefined,
       count: fmt(b.results),
     })),
   ];
@@ -310,7 +316,7 @@ export class OverviewView {
       return {
         id: b.id,
         name: b.name,
-        meta: [b.kind, scopeText(b), b.test ? 'Test' : `${fmt(Math.round(b.results * share))} results`].join(' · '),
+        meta: [kindLabel(b), scopeText(b), b.test ? 'Test' : `${fmt(Math.round(b.results * share))} results`].join(' · '),
         scheduled: b.status === 'Scheduled',
         steps: b.phases.map((p, i) => ({
           state: phaseState(p, b).kind,
@@ -334,7 +340,7 @@ export class OverviewView {
     if (!b) return null;
     return {
       name: b.name,
-      meta: `${b.kind}, ${fmt(b.results)} results`,
+      meta: `${kindLabel(b)}, ${fmt(b.results)} results`,
       rows: b.phases.map((p, i) => {
         const st = phaseState(p, b);
         const start = parseDate(p.start);

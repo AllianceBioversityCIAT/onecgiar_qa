@@ -15,7 +15,7 @@ export interface LaneStepVm {
 export interface TimelineLaneVm {
   readonly id: string;
   readonly name: string;
-  /** "Official timeline · All programs · 989 results". */
+  /** "Main batch · All programs · 989 results". */
   readonly meta: string;
   readonly scheduled: boolean;
   /** One entry per step of this timeline (each timeline has its own steps). */
