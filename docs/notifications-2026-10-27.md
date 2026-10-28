@@ -36,6 +36,7 @@ Branch: `jp-design/mockup-completo` · Author: Juanpa (with Claude Code) · Spec
   - Removed: the Third-party broker, PPU and Waiting types, the unused `panel` variant and the All / Unread control.
   - Timeline kinds read "Main batch" / "Complementary batches" (O-8 of `overview-feedback-2026-10-27.md`).
 - **Tested:** 85 unit tests in notifications, overview and results pass; eslint clean; `ng build` exit 0 (initial bundle 605.96 kB, budget warning already there). Browser check at 1440 and 390 px and in dark mode: no horizontal scroll; every count matches Results.
+- **Top bar, as in PRMS:** the bell now reads "Notifications" with the unread count in a pill from 768 px; below that only the bell, with the pill on its corner. Tested: 79 notifications tests pass, eslint clean; checked at 1440 and 375 px; pill contrast 5.5:1 light (white on #0F766E) and about 8:1 dark; no horizontal scroll.
 - **Not verified:** "Open next step" with a real admin (the design account is signed out by Cycle's API); AXE (no tool in `client/`).
 
 ## Pending

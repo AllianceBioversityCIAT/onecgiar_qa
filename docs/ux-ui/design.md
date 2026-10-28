@@ -74,8 +74,8 @@ Results deep links: `?stage=<stage>[,<stage>…]` (QA stage, several allowed), `
 - Persistent left navigation (`shell/qa-shell`) with the workspace sections in two groups, ASSESSMENT and ADMINISTRATION (uppercase eyebrow labels); admin-only sections hidden for users without ADMIN.
 - Active nav item: tint background, weight 600 and a 2×16 px rounded `--primary` marker centered on its left edge (Jira-style; no full-height stripe).
 - Active cycle block at the top of the navigation: an outlined panel (`--nav-divider` border, no fill, no shadow) showing "Annual report 2026" · Active (6 px green dot, grey word) and "Step 5 of 5 · closes 19 Jul". It links to Cycle; hover changes only the border. Hidden when the navigation is collapsed.
-- Top bar: back/forward, search by code or title, notifications bell (admins only; a 6 px dot when something is unread, no number), Unsent button (only while something is waiting to be sent), user menu (roles, sign out). There is no cycle selector: the app always works on the active cycle.
-- The bell is a link to `/notifications` at every width: no panel (Juanpa, 2026-10-27). It is 40 px on phones and 32 px from 640 px, and it shows as pressed while on that page. Notifications is not a sidebar item.
+- Top bar: back/forward, search by code or title, Notifications (admins only; as in PRMS: bell, "Notifications" and the unread count in a primary pill), Unsent button (only while something is waiting to be sent), user menu (roles, sign out). There is no cycle selector: the app always works on the active cycle.
+- The bell is a link to `/notifications` at every width: no panel (Juanpa, 2026-10-27). Below 768 px only the bell shows (40 px on phones, 36 px from 640 px), with the pill on its corner; from 768 px it reads "🔔 Notifications [4]" (Juanpa, 2026-10-28; "99+" past 99). It shows as pressed while on that page. Notifications is not a sidebar item.
 - Deep links work for every result (`/results/:code`) and for Results filters (§ 2); the review page keeps filters on return.
 - Drawers for edit-in-place (load batch, edit assessor); dialogs only for confirmations.
 

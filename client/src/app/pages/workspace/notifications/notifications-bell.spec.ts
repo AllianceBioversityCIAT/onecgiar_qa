@@ -58,24 +58,24 @@ const hostEl = (f: ComponentFixture<unknown>): HTMLElement => f.nativeElement;
 const bell = (f: ComponentFixture<unknown>): HTMLAnchorElement => hostEl(f).querySelector('a[aria-label^="Notifications"]')!;
 
 describe('NotificationsBell', () => {
-  // (a) FR-1: unread notifications show as a dot and in the accessible name, never as a number on the bell.
-  it('(a) names the bell "Notifications, 4 unread" and shows a dot, with no number on it', async () => {
+  // (a) FR-1: as in PRMS, the bell says "Notifications" and shows the unread count in a pill; the accessible name says it too.
+  it('(a) names the bell "Notifications, 4 unread" and shows "Notifications" with a 4 pill', async () => {
     const f = await renderBell();
     expect(bell(f), 'the bell').not.toBeNull();
 
     expect(bell(f).getAttribute('aria-label')).toBe('Notifications, 4 unread');
-    expect(bell(f).querySelector('[data-dot]'), 'the dot').not.toBeNull();
-    expect(text(bell(f)), 'no text on the bell').toBe('');
+    expect(text(bell(f).querySelector('[data-count]')!), 'the pill').toBe('4');
+    expect(text(bell(f)), 'the visible text').toBe('Notifications4');
   });
 
-  // (b) FR-1: nothing unread, no dot and the plain name.
-  it('(b) names the bell "Notifications" and shows no dot when nothing is unread', async () => {
+  // (b) FR-1: nothing unread, no pill and the plain name.
+  it('(b) names the bell "Notifications" and shows no pill when nothing is unread', async () => {
     const f = await renderBell();
     TestBed.inject(NotificationsStore).markAllRead();
     await settle(f);
 
     expect(bell(f).getAttribute('aria-label')).toBe('Notifications');
-    expect(bell(f).querySelector('[data-dot]')).toBeNull();
+    expect(bell(f).querySelector('[data-count]')).toBeNull();
   });
 
   // (c) FR-1: no bell, and no empty gap, for a user without ADMIN_ACCESS.
