@@ -1,6 +1,6 @@
 import { NgTemplateOutlet } from '@angular/common';
 import { Component, computed, input, output } from '@angular/core';
-import { QaButtonImports, QaProgress } from '../../../ui';
+import { QaButtonImports, QaProgress, QaReveal } from '../../../ui';
 import { TimelineVM } from './cycle.logic';
 
 /**
@@ -10,7 +10,7 @@ import { TimelineVM } from './cycle.logic';
  */
 @Component({
   selector: 'qa-cycle-timeline-steps',
-  imports: [NgTemplateOutlet, QaButtonImports, QaProgress],
+  imports: [NgTemplateOutlet, QaButtonImports, QaProgress, QaReveal],
   host: { class: 'block' },
   template: `
     @let t = timeline();
@@ -73,6 +73,7 @@ import { TimelineVM } from './cycle.logic';
       >
         @for (s of t.steps; track $index) {
           <li
+            [qaReveal]="$index"
             class="relative flex min-h-[164px] min-w-0 flex-col gap-2 rounded-[10px] border p-[14px] text-left hover:border-(--border-strong) has-[[data-step-open]:focus-visible]:shadow-(--focus-ring)"
             [class]="s.state === 'active' ? 'border-(--border-accent) bg-(--surface) shadow-(--shadow-seg)' : 'border-(--border) bg-(--surface-2)'"
             [attr.aria-current]="s.state === 'active' ? 'step' : null"

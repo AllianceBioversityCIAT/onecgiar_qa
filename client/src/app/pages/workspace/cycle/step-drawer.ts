@@ -225,7 +225,7 @@ interface StepDraft {
           }
           <button hlmBtn qaBtn tone="secondary" type="button" (click)="discard.requestClose()">Cancel</button>
           @if (!locked()) {
-            <button hlmBtn qaBtn tone="primary" type="button" (click)="save()" [disabled]="saving()">{{ saving() ? 'Saving…' : isEdit() ? 'Save step' : 'Add step' }}</button>
+            <button hlmBtn qaBtn tone="primary" type="button" (click)="save()" [loading]="saving()">{{ saving() ? 'Saving…' : isEdit() ? 'Save step' : 'Add step' }}</button>
           }
         }
       </div>
