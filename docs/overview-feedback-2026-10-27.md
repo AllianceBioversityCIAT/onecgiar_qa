@@ -8,7 +8,7 @@ Source: Teams transcript, shared by Juanpa on 2026-10-28. This note records what
 
 | # | Feedback | Who | Status |
 |---|---|---|---|
-| O-1 | **Statuses inside steps.** Replace the Round 1 / Round 2 status cards with the steps, each showing its own statuses: | María Julia, Ángel | She wants the step and status names proposed to her (Teams or email) **before** we implement |
+| O-1 | **Statuses inside steps.** Replace the Round 1 / Round 2 status cards with the steps, each showing its own statuses: | María Julia, Ángel | **Design done 2026-10-28, on mock data; names to confirm with her.** Each round card lists its steps by name, never by number: a timeline uses some of the five steps (one of each kind, in order, per the timelines API), so a number differs across timelines but a name does not. With one timeline picked, only its steps show. Status names are hers, with no descriptions. Rows link to Results only where Results has the status (Pending, In review, Assessed by 1); the others need Results' QA stage filter and the API to add them (Yeck, Juanda) |
 | | - **Step 1, assessors:** Pending · In review · Assessed by 1 assessor · Assessed by 2 assessors | | |
 | | - **Step 2, submitters / science programs (new):** Pending reply · Comments replied | | |
 | | - **Step 3, lead assessor:** Pending lead assessor review · Assessed by lead assessor | | |
