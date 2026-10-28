@@ -16,9 +16,9 @@ Source: Teams transcript, shared by Juanpa on 2026-10-28. This note records what
 | | - PPU "implemented or not" is optional ("not important") | | |
 | O-2 | "In review" is of little interest (only the 1–10 results being assessed at that moment). It can be dropped and counted in Pending, or kept apart from "Pending = not touched" | María Julia | Our choice |
 | O-3 | **Order of the page:** timelines (per-timeline steps) first, then the steps and statuses, then Assessment pace, Progress by result type, Assessor load | María Julia, Ángel | **Done 2026-10-28.** Assessment pace is now full width; in a wide card the summary sits left and the chart right |
-| O-4 | **Global filters at the top** (timeline, which exists, plus science program and result type), changing every number on the page. Higher priority than notifications | Ángel, María Julia | Agreed |
+| O-4 | **Global filters at the top** (timeline, which exists, plus science program and result type), changing every number on the page. Higher priority than notifications | Ángel, María Julia | **Done 2026-10-28.** Same filter bar as Results (Viewing · Science program · Result type, chips, Clear all), not sticky; every block counts only what it keeps, and every count opens Results with the same filters. The hero lost its own timeline picker; the Timelines block is now "Timeline progress" with "1 of 5" when filtered |
 | O-5 | **Remove the notifications block** ("Needs your attention") from the Overview | María Julia | **Done 2026-10-28.** `ov-attention.ts` deleted; its mock (`ATTENTION` in `overview.mock.ts`, a file shared with Yeck) is left in place |
-| O-6 | **Assessment pace:** all results by default, filterable by result type ("indicator") and by assessor, to follow each assessor's daily work | María Julia | Agreed |
+| O-6 | **Assessment pace:** all results by default, filterable by result type ("indicator") and by assessor, to follow each assessor's daily work | María Julia | **Done 2026-10-28.** Result type comes from the page filters; "Assessor ⌄" in the assessors' step. No step picker: it shows the step most behind (pick a timeline at the top to see another). Mock data: per-assessor pace is a proportional share until the API gives daily history per assessor |
 | O-7 | Assessor load is useful; pace per assessor is "another way to see the same data" | María Julia | Covered by O-6 |
 | O-8 | **Names:** she suggested "Main batch" for the official timeline and "complementary batches" for sub-timelines. Ángel explained timeline names are typed by the admin, so they are customizable | María Julia, Ángel | Open: whether the type labels change too |
 | O-9 | **Other roles** get a reduced subset of this Overview. To do after these revisions; she reviews it with the shared link and credentials | All | Later |
@@ -60,4 +60,4 @@ Source: Teams transcript, shared by Juanpa on 2026-10-28. This note records what
   - Light and dark modes both checked.
 
 ## Pending
-- O-4 global filters, O-6 pace filters (mock data), O-1 steps with statuses (send names to María Julia first), O-8 names (Ángel).
+- O-1 steps with statuses (send names to María Julia first), O-8 names (Ángel).

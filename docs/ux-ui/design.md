@@ -58,7 +58,7 @@ Results deep links: `?stage=<stage>[,<stage>…]` (QA stage, several allowed), `
 | Screen | Status | Primary roles | Notes |
 |---|---|---|---|
 | Login | Mockup + stub auth (`feat/auth-login`) | All | SSO and custom login (Cognito via auth microservice) |
-| Overview | Mockup | All | Whole active cycle, no timeline filter. Hero with Round 1 and Round 2 cards + Quality assessed strip; Timelines lanes (one per open timeline, "View stages" pop-up); Needs attention (Coverage · Pace · Waiting); Where the work is (tabs: by result type, science program, assessor, timeline, and At risk; with pace) |
+| Overview | Mockup | All | Filter bar for the whole page: Viewing <timeline> ⌄ · Science program · Result type. In this order (María Julia, 2026-10-27): Timeline progress (one lane per timeline the filters keep, "1 of 5" when some are hidden, "View stages" pop-up); Round 1 and Round 2 cards + Quality assessed strip; Assessment pace (the step most behind, "Assessor ⌄" in the assessors' step); Progress by result type; Assessor load. Every count opens Results with the same filters. No notifications block |
 | Results | Mockup | All | "Viewing <timeline> ⌄" context line; filter row: search · QA stage (multi-select grouped by round) · Science program · Result type · Assessor; applied-filter chips; table with QA stage (round above the label). Automatic results are not listed (not under assessment) |
 | Result review | Mockup (`review/`) | Assessor, Lead, TPB, PPU, Program | Field list + detail panel with "AI match"; header shows round and stage ("Round 2 · Pending") |
 | Cycle | Mockup | Admin | Title "Assessment cycle". Official timeline card (named after the timeline) + Sub-timelines (Live / Closed tabs, current cycle only); timeline and step drawers with closed, scope-locked and in-progress states; empty states; load drawer |
@@ -85,6 +85,7 @@ Results deep links: `?stage=<stage>[,<stage>…]` (QA stage, several allowed), `
 |---|---|
 | Shell + content | Every workspace page |
 | Filter bar + data table | Results, Assessors |
+| Filter bar | Same in Results and the Overview: "Viewing <timeline> ⌄" context line, the filter menus under it, then the applied-filter chips with "Clear all". It is not sticky and has no divider; it scrolls away with the page. A block may keep only a choice of its own that the bar cannot make (the Overview's Assessment pace keeps "Assessor ⌄"). Never a second timeline picker inside a block. If a sticky bar is ever needed, it is decided for every screen at once (Juanpa, 2026-10-28) |
 | List + detail split | Result review (fields on the left, field detail and thread on the right) |
 | Cards grid | Overview; every section keeps its title and subtitle inside its card |
 | Right drawer | Create/edit forms that keep context (batch load, assessor roles, timeline and step editing) |
