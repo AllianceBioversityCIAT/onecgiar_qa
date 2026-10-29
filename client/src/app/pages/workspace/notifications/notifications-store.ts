@@ -2,7 +2,7 @@ import { Service, computed, signal } from '@angular/core';
 import type { Notification, NotificationsLoadState } from './notifications.model';
 
 /**
- * The one source of notifications for the bell, the panel and the page (they never import the mock): the list, the read
+ * The one source of notifications for the bell and the page (they never import the mock): the list, the read
  * state and the load state. Read state lives in memory only, so it resets on reload (mock phase).
  * TODO(api): replace the dynamic import in `fetch()` with the notifications API; the `Notification` shape stays.
  */
