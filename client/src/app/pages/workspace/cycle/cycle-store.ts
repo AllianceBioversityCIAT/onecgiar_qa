@@ -15,7 +15,7 @@ export type TimelineSaveOutcome =
   | {
       readonly ok: false;
       readonly message: string;
-      /** Field problems as the server lists them (`name`, `programIds`, `steps[2].closesOn`…). */
+      /** Field problems as the server lists them (`name`, `programIds`, `steps[2].closesAt`…). */
       readonly fields: readonly ApiFieldError[];
       /** 409 TIMELINES_IN_PROGRESS_UNCONFIRMED: ask the admin, then save again with confirm = true. */
       readonly needsConfirm?: boolean;
