@@ -1,11 +1,13 @@
 /**
  * Cycles and QA timelines of the admin config API (`/api/v1/cycles`, `/timelines`, ADMIN only).
- * Copied by hand from the server contracts (`docs/specs/archive/2026-10-21-admin-config--cycle-timelines/front-contract.md`
- * and `docs/specs/admin-config/timeline-edit/front-contract.md`, Juanda 21-oct-2026): keep in sync.
+ * Copied by hand from the server contracts (`docs/specs/archive/2026-10-21-admin-config--cycle-timelines/front-contract.md`,
+ * `docs/specs/admin-config/timeline-edit/front-contract.md` and
+ * `docs/specs/archive/2026-10-27-admin-config--timeline-step-times/front-contract.md`, Juanda): keep in sync.
  *
- * Step dates (`opensOn`, `closesOn`, `startsOn`, `endsOn`) are `YYYY-MM-DD` Rome calendar days:
- * keep them as strings and format them with `core/domain/rome-date` (never `new Date('YYYY-MM-DD')`).
- * Instants (`createdAt`, `assignedAt`) are ISO 8601 UTC.
+ * Step moments (`opensAt`, `closesAt`) are Rome wall-clock minutes `YYYY-MM-DDTHH:mm` (no offset, no
+ * seconds); cycle days (`startsOn`, `endsOn`) are `YYYY-MM-DD` Rome calendar days. Keep both as strings
+ * and format them with `core/domain/rome-date` (never `new Date(...)`). Instants (`createdAt`,
+ * `assignedAt`) are ISO 8601 UTC.
  */
 
 export type CycleStatus = 'draft' | 'active' | 'closed';
@@ -38,21 +40,31 @@ export interface DefaultStep {
   readonly requiresLoad: boolean;
 }
 
+/**
+ * One step as the front sends it: Rome moments only. The server also takes the day-only keys
+ * (`opensOn` = 00:00, `closesOn` = 23:59) but never both for one boundary, and they will be dropped.
+ */
 export interface TimelineStepInput {
   readonly name: string;
   readonly audience: StepAudience;
-  readonly opensOn: string;
-  readonly closesOn: string;
+  /** First open minute. */
+  readonly opensAt: string;
+  /** Last open minute: open until second :59 of it. */
+  readonly closesAt: string;
   readonly round: number;
   readonly requiresLoad: boolean;
 }
 
-/** From the step's dates and today in Rome, on every read. All `upcoming` while the timeline waits for its load. */
+/** From the step's moments and the current Rome minute, on every read. All `upcoming` while the timeline waits for its load. */
 export type StepState = 'closed' | 'in_progress' | 'upcoming';
 
 export interface TimelineStep extends TimelineStepInput {
   readonly position: number;
   readonly state: StepState;
+  /** @deprecated Date part of `opensAt`; still returned, will be dropped. */
+  readonly opensOn?: string;
+  /** @deprecated Date part of `closesAt`; still returned, will be dropped. */
+  readonly closesOn?: string;
 }
 
 /**
@@ -105,15 +117,20 @@ export interface Timeline {
   readonly assignedCount: Readonly<Record<AssignableRole, number>>;
   /** Starts at 1, +1 per applied edit: send it back in the next `TimelineUpdate`. */
   readonly version: number;
+  /** Always `Europe/Rome`: the zone of every moment and day of the timeline. Show it, never convert. */
+  readonly timeZone: string;
   readonly createdAt: string;
 }
 
-/** Only `name`, `opensOn` and `closesOn` of a step can change; it is picked by `position` (1 to 5). */
+/**
+ * Only the name and the two moments of a step can change; it is picked by `position` (1 to 5). A
+ * boundary left out keeps its stored minute (resending a day over a stored time would rewrite it).
+ */
 export interface TimelineStepUpdate {
   readonly position: number;
   readonly name?: string;
-  readonly opensOn?: string;
-  readonly closesOn?: string;
+  readonly opensAt?: string;
+  readonly closesAt?: string;
 }
 
 /**

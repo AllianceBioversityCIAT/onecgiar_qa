@@ -21,6 +21,9 @@ export interface CycleStep {
   start: string;
   /** Empty when the step has no closing date (last step). */
   end: string;
+  /** Rome `HH:mm` of the opening and closing minutes (API); missing = 00:00 / 23:59. */
+  startTime?: string;
+  endTime?: string;
   /** Summary shown on a completed step ("989 assessed · 372 returned"). */
   done?: string;
   /** Progress of the step that is running now. */

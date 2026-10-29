@@ -1,7 +1,7 @@
 // Pure helpers and view models of the Cycle view (ported from the mockup's cyPhaseState,
 // cardVM, runEstimate, officialRelative and runTargets).
 import { StepAudience } from '../../../core/api/cycles.models';
-import { todayInRome } from '../../../core/domain/rome-date';
+import { DEFAULT_CLOSES_TIME, DEFAULT_OPENS_TIME, todayInRome, zoneAt } from '../../../core/domain/rome-date';
 import {
   CORRECTION_AUDIENCE,
   CycleStep,
@@ -37,6 +37,30 @@ export function formatDate(d: Date): string {
 /** "06 Jul 2026" → "06 Jul". */
 export function shortDate(text: string): string {
   return (text || '').replace(/\s+\d{4}\s*$/, '');
+}
+
+/** "06 Jul 2026" → "2026-07-06" ('' when unreadable), for the Rome zone of a day. */
+function isoDay(text: string): string {
+  const d = parseDate(text);
+  return d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` : '';
+}
+
+const opensTimeOf = (p: Pick<CycleStep, 'startTime'>) => p.startTime || DEFAULT_OPENS_TIME;
+const closesTimeOf = (p: Pick<CycleStep, 'endTime'>) => p.endTime || DEFAULT_CLOSES_TIME;
+
+/**
+ * The two lines of a step card, opening then closing minute (Rome): "12 Nov, 09:00 –" / "20 Nov, 17:30 CET"
+ * ("12:00 CET" when it closes the same day). The zone shows on both ends only when a clock change sits in between.
+ */
+function cardLines(p: CycleStep): { from: string; to: string } {
+  const [st, et] = [opensTimeOf(p), closesTimeOf(p)];
+  const zs = zoneAt(isoDay(p.start), st);
+  if (!p.end) return { from: `${shortDate(p.start)}, ${st} ${zs}`, to: '' };
+  const ze = zoneAt(isoDay(p.end), et);
+  return {
+    from: `${shortDate(p.start)}, ${st}${zs === ze ? '' : ` ${zs}`} –`,
+    to: p.end === p.start ? `${et} ${ze}` : `${shortDate(p.end)}, ${et} ${ze}`,
+  };
 }
 
 export function formatNumber(n: number): string {
@@ -164,12 +188,20 @@ export interface StepDraftRow {
   name: string;
   start: string;
   end: string;
+  /** Rome `HH:mm`, 24-hour, as typed (`parseTime` reads it). */
+  startTime: string;
+  endTime: string;
   batch: boolean;
   /** Who works in the step on the server; a row keeps it when others are dropped. */
   audience?: StepAudience;
 }
 
-/** "Reset to official timeline": the official steps, shifted to start on `startText`. */
+/** A saved step as an editable row (missing times = the server defaults). */
+export function stepRow(p: CycleStep): StepDraftRow {
+  return { name: p.name, start: p.start, end: p.end, startTime: opensTimeOf(p), endTime: closesTimeOf(p), batch: p.batch, audience: p.audienceKey };
+}
+
+/** "Reset to official timeline": the official steps, shifted to start on `startText`, each keeping its hour and minute. */
 export function officialRelative(startText: string, official: Timeline): StepDraftRow[] {
   const o0 = parseDate(official.steps[0]?.start);
   const base = parseDate(startText) ?? new Date(2026, 8, 1);
@@ -179,7 +211,19 @@ export function officialRelative(startText: string, official: Timeline): StepDra
     const days = Math.round((Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) - Date.UTC(o0.getFullYear(), o0.getMonth(), o0.getDate())) / DAY);
     return formatDate(new Date(base.getFullYear(), base.getMonth(), base.getDate() + days));
   };
-  return official.steps.map((p) => ({ name: p.name, start: at(parseDate(p.start)), end: at(parseDate(p.end)), batch: p.batch, audience: p.audienceKey }));
+  return official.steps.map((p) => ({ ...stepRow(p), start: at(parseDate(p.start)), end: at(parseDate(p.end)) }));
+}
+
+/**
+ * ["12 Nov, 09:00 –", "20 Nov 2026, 17:30 CET"]: first opening to last closing minute, Rome time (zone on
+ * both ends across a clock change). Two parts so a narrow screen breaks the line at the dash.
+ */
+function rangeParts(first: CycleStep, last: CycleStep): [string, string] {
+  const endDay = last.end || last.start;
+  const endTime = last.end ? closesTimeOf(last) : opensTimeOf(last);
+  const zs = zoneAt(isoDay(first.start), opensTimeOf(first));
+  const ze = zoneAt(isoDay(endDay), endTime);
+  return [`${shortDate(first.start)}, ${opensTimeOf(first)}${zs === ze ? '' : ` ${zs}`} –`, `${endDay}, ${endTime} ${ze}`];
 }
 
 /** Start time of a timeline, for sorting (newest first). */
@@ -195,7 +239,12 @@ export type MenuAction = 'add-results' | 'edit' | 'export' | 'clear-test' | 'clo
 export interface StepCardVM {
   n: number;
   name: string;
-  dates: string;
+  /** Opening minute line, e.g. "12 Nov, 09:00 –". */
+  from: string;
+  /** Closing minute line with its zone, e.g. "20 Nov, 17:30 CET" ('' without a closing date). */
+  to: string;
+  /** Opening minute, for "Opens today at 09:00". */
+  opensTime: string;
   hasBatch: boolean;
   joinText: string;
   joinTitle: string;
@@ -225,6 +274,8 @@ export interface TimelineVM {
   isTest: boolean;
   closed: boolean;
   range: string;
+  /** `range` split at the dash (each part kept on one line). */
+  rangeParts: [string, string];
   results: string;
   stepCount: number;
   canEdit: boolean;
@@ -264,7 +315,8 @@ export function timelineVM(t: Timeline): TimelineVM {
     return {
       n: i + 1,
       name: p.name,
-      dates: p.end ? `${shortDate(p.start)} – ${shortDate(p.end)}` : shortDate(p.start),
+      ...cardLines(p),
+      opensTime: opensTimeOf(p),
       hasBatch: p.batch,
       joinText: joinTypes.length ? `${firstJoin}${joinTypes.length > 1 ? ` +${joinTypes.length - 1}` : ''} join here` : '',
       joinTitle: joinTypes.join(', '),
@@ -306,6 +358,7 @@ export function timelineVM(t: Timeline): TimelineVM {
 
   const first = t.steps[0];
   const last = t.steps[n - 1];
+  const rangeLine: [string, string] = first ? rangeParts(first, last) : ['—', ''];
   return {
     id: t.id,
     name: t.name,
@@ -314,7 +367,8 @@ export function timelineVM(t: Timeline): TimelineVM {
     statusClass: STATUS_CLASS[t.status] ?? STATUS_CLASS['Live'],
     isTest: !!t.test,
     closed,
-    range: first ? `${shortDate(first.start)} – ${last.end || last.start}` : '—',
+    range: rangeLine.join(' '),
+    rangeParts: rangeLine,
     results: formatNumber(t.results),
     stepCount: n,
     canEdit: !closed,

@@ -4,7 +4,8 @@ import { HlmInput } from '@spartan/input';
 import { QaButtonImports, QaDatePicker, QaDialogImports, QaDrawerImports, QaSegmented, QaSelect, QaSwitch, QaTooltipImports, discardGuard } from '../../../ui';
 import { AUDIENCES, CORRECTION_AUDIENCE, CycleStep, DEMO_ACCESS, PROGRAMS, ReopenMode, Timeline } from './cycle.mock';
 import { formatNumber, parseDate, stepState } from './cycle.logic';
-import { stepDateIssues, toApiDay } from './cycle.mapper';
+import { boundaryPart, stepDateIssues, toApiDay } from './cycle.mapper';
+import { DEFAULT_CLOSES_TIME, DEFAULT_OPENS_TIME, parseTime, zoneAt } from '../../../core/domain/rome-date';
 import type { TimelineSaveFeedback } from './timeline-drawer';
 
 /** Which step the drawer edits (index) or which timeline gets a new step (index null). */
@@ -18,7 +19,7 @@ export interface StepSaveEvent {
   timelineId: string;
   isOfficial: boolean;
   index: number | null;
-  step: Pick<CycleStep, 'name' | 'audience' | 'start' | 'end' | 'batch' | 'reopen' | 'access'>;
+  step: Pick<CycleStep, 'name' | 'audience' | 'start' | 'end' | 'startTime' | 'endTime' | 'batch' | 'reopen' | 'access'>;
   /** The admin already agreed to change a step in progress (live data: sent up front). */
   confirmed: boolean;
 }
@@ -34,6 +35,9 @@ interface StepDraft {
   audience: string;
   opens: string;
   closes: string;
+  /** Rome `HH:mm`, 24-hour, as typed. */
+  opensTime: string;
+  closesTime: string;
   batch: boolean;
   reopen: ReopenMode;
   access: AccessRow[];
@@ -86,8 +90,8 @@ interface StepDraft {
           <!-- Closed step: its dates are the record of the cycle, so they read as text. -->
           <div class="flex flex-col items-start gap-[6px]">
             <span id="cycle-step-dates" class="text-(length:--fs-13) font-semibold text-(--text-2)">Dates</span>
-            <span aria-labelledby="cycle-step-dates" class="font-(family-name:--qa-mono) text-(length:--fs-14) text-(--text) tabular-nums">{{ d.opens }} – {{ d.closes || 'no closing date' }}</span>
-            <span class="text-(length:--fs-13) leading-[1.5] font-normal text-pretty text-(--text-4)">This step closed{{ d.closes ? ' on ' + d.closes : '' }}. Its dates stay as the record of the cycle.</span>
+            <span aria-labelledby="cycle-step-dates" class="font-(family-name:--qa-mono) text-(length:--fs-14) text-(--text) tabular-nums">{{ d.opens }}, {{ d.opensTime }} – {{ d.closes ? d.closes + ', ' + d.closesTime : 'no closing date' }} {{ zoneText() }}</span>
+            <span class="text-(length:--fs-13) leading-[1.5] font-normal text-pretty text-(--text-4)">This step closed{{ d.closes ? ' on ' + d.closes + ' at ' + d.closesTime : '' }} (Rome time). Its dates stay as the record of the cycle.</span>
           </div>
         } @else {
         <div class="flex flex-col items-start gap-[6px]">
@@ -95,8 +99,9 @@ interface StepDraft {
             <div class="flex flex-col gap-[6px]">
               <span id="cycle-step-opens" class="text-(length:--fs-13) font-semibold text-(--text-2)">Opens</span>
               @if (opensLocked()) {
-                <span class="flex h-9 items-center font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text-3) tabular-nums">{{ d.opens }}</span>
+                <span class="flex h-9 items-center font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text-3) tabular-nums">{{ d.opens }}, {{ d.opensTime }}</span>
               } @else {
+              <span class="flex gap-1.5">
               <span class="relative flex">
                 <input
                   hlmInput
@@ -104,28 +109,58 @@ interface StepDraft {
                   [formField]="stepForm.opens"
                   aria-labelledby="cycle-step-opens"
                   placeholder="06 Jul 2026"
-                  [attr.aria-invalid]="opensError() ? true : null"
+                  [attr.aria-invalid]="bad().opens ? true : null"
                   [attr.aria-describedby]="opensError() ? 'cycle-step-opens-err' : null"
-                  [attr.data-error]="!!opensError()"
+                  [attr.data-error]="bad().opens"
                   class="h-9 w-[180px] rounded-[8px] border-(--border) bg-(--field-bg) py-0 pr-10 pl-3 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) dark:bg-(--field-bg)"
                 />
                 <qa-date-picker [value]="stepForm.opens().value()" (valueChange)="stepForm.opens().value.set($event)" label="Pick the opening date" class="absolute top-1/2 right-1 -translate-y-1/2" />
               </span>
+              <input
+                hlmInput
+                type="text"
+                inputmode="numeric"
+                [formField]="stepForm.opensTime"
+                aria-label="Opening time, 24-hour, Rome"
+                placeholder="00:00"
+                (blur)="tidyTime('opensTime')"
+                [attr.aria-invalid]="bad().opensTime ? true : null"
+                [attr.aria-describedby]="opensError() ? 'cycle-step-opens-err' : null"
+                [attr.data-error]="bad().opensTime"
+                class="h-9 w-[72px] rounded-[8px] border-(--border) bg-(--field-bg) px-3 py-0 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) dark:bg-(--field-bg)"
+              />
+              </span>
               }
             </div>
-            <label class="flex flex-col gap-[6px]">
-              <span class="text-(length:--fs-13) font-semibold text-(--text-2)">Closes</span>
-              <span class="relative flex">
-                <input hlmInput type="text" [formField]="stepForm.closes" placeholder="11 Jul 2026" class="h-9 w-[180px] rounded-[8px] border-(--border) bg-(--field-bg) py-0 pr-10 pl-3 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 md:text-(length:--fs-13) dark:bg-(--field-bg)" />
-                <qa-date-picker [value]="stepForm.closes().value()" (valueChange)="stepForm.closes().value.set($event)" label="Pick the closing date" class="absolute top-1/2 right-1 -translate-y-1/2" />
+            <div class="flex flex-col gap-[6px]">
+              <span id="cycle-step-closes" class="text-(length:--fs-13) font-semibold text-(--text-2)">Closes</span>
+              <span class="flex gap-1.5">
+                <span class="relative flex">
+                  <input hlmInput type="text" [formField]="stepForm.closes" aria-labelledby="cycle-step-closes" placeholder="11 Jul 2026" [attr.aria-invalid]="bad().closes ? true : null" [attr.aria-describedby]="opensError() ? 'cycle-step-opens-err' : null" [attr.data-error]="bad().closes" class="h-9 w-[180px] rounded-[8px] border-(--border) bg-(--field-bg) py-0 pr-10 pl-3 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) dark:bg-(--field-bg)" />
+                  <qa-date-picker [value]="stepForm.closes().value()" (valueChange)="stepForm.closes().value.set($event)" label="Pick the closing date" class="absolute top-1/2 right-1 -translate-y-1/2" />
+                </span>
+                <input
+                  hlmInput
+                  type="text"
+                  inputmode="numeric"
+                  [formField]="stepForm.closesTime"
+                  aria-label="Closing time, 24-hour, Rome"
+                  placeholder="23:59"
+                  (blur)="tidyTime('closesTime')"
+                  [attr.aria-invalid]="bad().closesTime ? true : null"
+                  [attr.aria-describedby]="opensError() ? 'cycle-step-opens-err' : null"
+                  [attr.data-error]="bad().closesTime"
+                  class="h-9 w-[72px] rounded-[8px] border-(--border) bg-(--field-bg) px-3 py-0 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) dark:bg-(--field-bg)"
+                />
               </span>
-            </label>
+            </div>
           </div>
+          <span class="text-(length:--fs-13) font-normal text-(--text-4)">Rome time ({{ zoneText() }}), 24-hour clock.</span>
           @if (opensError()) {
             <span id="cycle-step-opens-err" class="text-(length:--fs-13) text-(--danger)">{{ opensError() }}</span>
           }
           @if (opensLocked()) {
-            <span class="text-(length:--fs-13) leading-[1.5] font-normal text-pretty text-(--text-4)">This step is open, so its opening date stays. You can still move its closing date.</span>
+            <span class="text-(length:--fs-13) leading-[1.5] font-normal text-pretty text-(--text-4)">This step is open, so its opening date and time stay. You can still move its closing date and time.</span>
           }
           @if (feedbackText(); as message) {
             <span role="alert" class="text-(length:--fs-13) text-(--danger)">{{ message }}</span>
@@ -296,7 +331,13 @@ export class StepDrawer {
   private readonly changed = computed(() => {
     const p = this.existing();
     const d = this.draft();
-    return !!p && (d.name.trim() !== p.name || d.audience !== p.audience || d.opens.trim() !== p.start || d.closes.trim() !== p.end || d.batch !== p.batch);
+    if (!p) return false;
+    const moved =
+      d.opens.trim() !== p.start ||
+      d.closes.trim() !== p.end ||
+      (parseTime(d.opensTime) ?? d.opensTime) !== (p.startTime || DEFAULT_OPENS_TIME) ||
+      (parseTime(d.closesTime) ?? d.closesTime) !== (p.endTime || DEFAULT_CLOSES_TIME);
+    return d.name.trim() !== p.name || d.audience !== p.audience || moved || d.batch !== p.batch;
   });
   /** Also opens when the server asks (409 TIMELINES_IN_PROGRESS_UNCONFIRMED). */
   protected readonly confirmActive = linkedSignal({
@@ -322,6 +363,8 @@ export class StepDrawer {
         audience: AUDIENCES[r.timeline.steps.length] ?? 'Assessors',
         opens: '',
         closes: '',
+        opensTime: DEFAULT_OPENS_TIME,
+        closesTime: DEFAULT_CLOSES_TIME,
         batch: false,
         reopen: 'comments',
         access: [],
@@ -332,6 +375,8 @@ export class StepDrawer {
       audience: p.audience,
       opens: p.start,
       closes: p.end,
+      opensTime: p.startTime || DEFAULT_OPENS_TIME,
+      closesTime: p.endTime || DEFAULT_CLOSES_TIME,
       batch: p.batch,
       reopen: p.reopen ?? 'comments',
       access: (p.access ?? DEMO_ACCESS).map((a) => ({ ...a, isNew: false })),
@@ -345,6 +390,10 @@ export class StepDrawer {
     );
     validate(f.opens, ({ value }) =>
       (this.live() ? toApiDay(value()) : parseDate(value())) ? undefined : { kind: 'date', message: 'Enter an opening date, for example 06 Jul 2026.' },
+    );
+    validate(f.opensTime, ({ value }) => (parseTime(value()) ? undefined : { kind: 'time', message: 'Enter an opening time, for example 09:00.' }));
+    validate(f.closesTime, ({ value }) =>
+      this.live() && !parseTime(value()) ? { kind: 'time', message: 'Enter a closing time, for example 17:30.' } : undefined,
     );
   });
 
@@ -365,24 +414,59 @@ export class StepDrawer {
    * Live data: the server's date rules against the steps around this one, checked as the admin types
    * (closing before opening, opening on or before the previous step closes, closing on or after the next one opens).
    */
-  protected readonly liveDateIssue = computed(() => {
+  private readonly liveIssues = computed((): { start?: string; end?: string } => {
     const r = this.request();
-    if (!this.live() || r.index == null) return '';
+    if (!this.live() || r.index == null) return {};
     const d = this.draft();
-    const rows = r.timeline.steps.map((p, i) => (i === r.index ? { start: d.opens, end: d.closes } : { start: p.start, end: p.end }));
+    const rows = r.timeline.steps.map((p, i) =>
+      i === r.index
+        ? { start: d.opens, end: d.closes, startTime: d.opensTime, endTime: d.closesTime }
+        : { start: p.start, end: p.end, startTime: p.startTime || DEFAULT_OPENS_TIME, endTime: p.endTime || DEFAULT_CLOSES_TIME },
+    );
     const issues = stepDateIssues(rows);
     const own = issues[r.index];
-    const next = issues[r.index + 1]?.start ? `Must close before step ${r.index + 2} opens (${rows[r.index + 1].start}).` : '';
-    return own.start ?? own.end ?? next;
+    const after = rows[r.index + 1];
+    const next = issues[r.index + 1]?.start ? `Must close before step ${r.index + 2} opens (${after.start}, ${after.startTime}).` : undefined;
+    return { start: own.start, end: own.end ?? next };
+  });
+  protected readonly liveDateIssue = computed(() => this.liveIssues().start ?? this.liveIssues().end ?? '');
+
+  /** Inputs to outline: only the ones a problem points at (the day, the time, or both for an order rule). */
+  protected readonly bad = computed(() => {
+    const f = this.stepForm;
+    const d = this.draft();
+    const live = this.liveIssues();
+    const shown = (x: typeof f.opens) => (this.tried() || x().touched()) && x().errors().length > 0;
+    const [ps, pe] = [boundaryPart(d.opens, d.opensTime), boundaryPart(d.closes, d.closesTime)];
+    return {
+      opens: shown(f.opens) || (!!live.start && ps !== 'time'),
+      opensTime: shown(f.opensTime) || (!!live.start && ps !== 'day'),
+      closes: shown(f.closes) || (!!live.end && pe !== 'time'),
+      closesTime: shown(f.closesTime) || (!!live.end && pe !== 'day'),
+    };
   });
 
-  protected readonly opensError = computed(
-    () =>
-      this.liveDateIssue() ||
-      (this.tried() || this.stepForm.opens().touched() || this.stepForm.closes().touched()
-        ? (this.stepForm.opens().errors()[0]?.message ?? this.stepForm.closes().errors()[0]?.message ?? '')
-        : ''),
-  );
+  protected readonly opensError = computed(() => {
+    const f = this.stepForm;
+    const fields = [f.opens, f.opensTime, f.closes, f.closesTime];
+    if (this.liveDateIssue()) return this.liveDateIssue();
+    if (!this.tried() && !fields.some((x) => x().touched())) return '';
+    return fields.map((x) => x().errors()[0]?.message).find(Boolean) ?? '';
+  });
+
+  /** Rome zone of the step's minutes ("CET", or "CEST / CET" across a clock change). */
+  protected readonly zoneText = computed(() => {
+    const d = this.draft();
+    const zones = [
+      [d.opens, d.opensTime],
+      [d.closes, d.closesTime],
+    ].flatMap(([day, time]) => {
+      const iso = toApiDay(day);
+      const t = parseTime(time);
+      return iso && t ? [zoneAt(iso, t)] : [];
+    });
+    return [...new Set(zones)].join(' / ') || 'CET / CEST';
+  });
 
   protected readonly title = computed(() => this.draft().name.trim() || 'New step');
 
@@ -410,6 +494,12 @@ export class StepDrawer {
 
   protected removeAccess(i: number): void {
     this.draft.update((d) => ({ ...d, access: d.access.filter((_, j) => j !== i) }));
+  }
+
+  /** `9` → `09:00` once the admin leaves the field. */
+  protected tidyTime(key: 'opensTime' | 'closesTime'): void {
+    const t = parseTime(this.draft()[key]);
+    if (t && t !== this.draft()[key]) this.patch({ [key]: t });
   }
 
   protected programName(code: string): string {
@@ -444,6 +534,8 @@ export class StepDrawer {
         audience: d.audience,
         start: d.opens.trim(),
         end: d.closes.trim(),
+        startTime: parseTime(d.opensTime) ?? d.opensTime.trim(),
+        endTime: parseTime(d.closesTime) ?? d.closesTime.trim(),
         batch: d.batch,
         reopen: d.reopen,
         access: d.access.filter((a) => a.code.trim()).map((a) => ({ code: a.code.trim().toUpperCase(), range: a.range.trim() })),

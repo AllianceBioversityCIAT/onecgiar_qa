@@ -72,7 +72,7 @@ describe('CyclesApi', () => {
   });
 
   it('edits with a PATCH of version + only what changed, silent and labelled', async () => {
-    const body = { version: 2, steps: [{ position: 3, closesOn: '2027-03-10' }] };
+    const body = { version: 2, steps: [{ position: 3, closesAt: '2027-03-10T17:30' }] };
     const edited = firstValueFrom(api.updateTimeline(9, 'July', body));
     const req = http.expectOne(`${API}/timelines/9`);
     expect(req.request.method).toBe('PATCH');
