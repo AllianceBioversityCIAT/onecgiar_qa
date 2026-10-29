@@ -316,12 +316,13 @@ export class OverviewView {
       return {
         id: b.id,
         name: b.name,
-        meta: [kindLabel(b), scopeText(b), b.test ? 'Test' : `${fmt(Math.round(b.results * share))} results`].join(' · '),
+        meta: [kindLabel(b), scopeText(b), b.test ? 'Test' : `${fmt(Math.round(b.results * share))} results`],
         scheduled: b.status === 'Scheduled',
-        steps: b.phases.map((p, i) => ({
+        // Step names without numbers, as in the round cards: a number differs across timelines, a name does not.
+        steps: b.phases.map((p) => ({
           state: phaseState(p, b).kind,
-          label: `${i + 1} · ${PHASE_SHORT[p.name] ?? p.name}`,
-          title: `Step ${i + 1} · ${p.name}`,
+          label: PHASE_SHORT[p.name] ?? p.name,
+          title: p.name,
         })),
         step: open ? info.step : null,
         whenText: whenText(info),
