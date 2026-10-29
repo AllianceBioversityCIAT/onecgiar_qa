@@ -25,7 +25,6 @@ export interface RoundStepVm {
   readonly n: number;
   /** "Assessors", "Programs correct"… the same short names as the Timeline progress lanes. */
   readonly name: string;
-  readonly total: string;
   readonly stages: readonly RoundStageVm[];
 }
 
@@ -78,8 +77,9 @@ export interface CycleHeroVm {
            its statuses. A row opens Results filtered by that status when Results has that filter. -->
       <div class="-mt-1 grid grid-cols-1 gap-3 @3xl:grid-cols-2">
         @for (r of data().rounds; track r.id) {
-          <!-- White card with a grey outline like every Overview block; the rounds inside are grey panels, so they read as parts of it. -->
-          <section [attr.aria-labelledby]="'hero-' + r.id + '-title'" class="flex flex-col gap-4 rounded-[12px] bg-(--surface-3) p-4 @2xl:p-5">
+          <!-- White card with a grey outline like every Overview block; the rounds inside are boxes in the same style as the
+               Assessment pace figures (light grey with a soft outline), so every inner box on the page reads the same. -->
+          <section [attr.aria-labelledby]="'hero-' + r.id + '-title'" class="flex flex-col gap-4 rounded-[10px] border border-(--surface-4) bg-(--surface-2) p-4 @2xl:p-5">
             <div class="flex items-start justify-between gap-4">
               <div class="flex min-w-0 flex-col gap-[2px]">
                 <h3 [id]="'hero-' + r.id + '-title'" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">{{ r.title }}</h3>
@@ -107,11 +107,8 @@ export interface CycleHeroVm {
               }
               @for (step of r.steps; track step.n) {
                 <section [attr.aria-labelledby]="'hero-step-' + step.n" class="flex flex-col gap-1">
-                  <!-- Step eyebrow, like the sidebar's group labels: no line between it and its rows. -->
-                  <div class="flex items-baseline justify-between gap-3">
-                    <h4 [id]="'hero-step-' + step.n" class="m-0 text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--text-4) uppercase">{{ step.name }}</h4>
-                    <span class="text-(length:--fs-12) tabular-nums text-(--text-4)">{{ step.total }}</span>
-                  </div>
+                  <!-- Step eyebrow, like the sidebar's group labels: no line between it and its rows, and no total (Juanpa, 2026-10-29). -->
+                  <h4 [id]="'hero-step-' + step.n" class="m-0 text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--text-4) uppercase">{{ step.name }}</h4>
                   <ul class="m-0 -mx-2 flex list-none flex-col p-0">
                     @for (s of step.stages; track s.key) {
                       <li>
