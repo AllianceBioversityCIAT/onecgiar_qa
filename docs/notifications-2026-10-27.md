@@ -27,7 +27,22 @@ Branch: `jp-design/mockup-completo` · Author: Juanpa (with Claude Code) · Spec
   - Each notification count matches Results.
   - The 7 Overview stage links still show 148, 200, 71, 180, 334, 40 and 357.
 
-## Update 2026-10-28 — PRMS pattern adapted to QA
+## Update 2026-10-29 — one list, adapted to QA
+- **Why:** the 2026-10-28 version copied PRMS whole (three tabs, a timeline picker, Type, Science program and search). In QA a single admin gets 10 to 15 notifications. The tabs only added clicks, and the design rule says to show things together rather than hide them behind selectors. The notifications María Julia asked for (meeting, 2026-10-27) are almost all actions: a step finished for a batch, and slow programs.
+- **Done:**
+  - One list, newest first, in day groups. A row that needs action carries its own button and "Not now".
+  - Removed: the tabs, "Viewing <timeline>", Type, Science program, search and the chips.
+  - "Mark all as read" moved into the page header.
+  - Removed the types that repeat Overview counts, "Stage" and "Quality assessed" (4 entries). The mock now has 10 entries: 6 that need action and 4 updates.
+- **Tested:** 55 notifications tests pass (the tab and filter tests were replaced by "one list, no tabs, no filters" and "buttons only on action rows"). eslint and tsc are clean. Checked in the browser at 1440 and 375 px, with no horizontal scroll.
+- **Then, the same day (Juanpa):**
+  - Only the types María Julia asked for remain: "Step complete" (×3: assessors, lead assessor, third-party broker) and "Slow program" (×2). The mock has 5 entries, 2 of them unread, all with a button.
+  - At risk, Escalation, Program response and Load were removed, along with the unused `delta` field. They are kept as ideas in `docs/ideas.md`.
+  - "Mark all as read" was removed for now. The store still has `markAllRead`.
+  - Tested: 49 notifications tests pass (the store and bell counts went from 4 unread to 2). eslint and tsc are clean. Checked in the browser at desktop width.
+- **Not changed (to decide):** the tinted icons and the type pill on each row; the bell still counts unread notifications.
+
+## Update 2026-10-28 — PRMS pattern adapted to QA (superseded on 2026-10-29)
 - **Done:** the page follows the PRMS notifications page, adapted to QA (Juanpa, from a PRMS screenshot and the 2026-10-27 meeting).
   - Tabs All · Needs your action · For your information, each with its count under the current filters.
   - Filters: Viewing <timeline>, search, Type (only the current tab's types), Science program; chips with Clear all; "Mark all as read".

@@ -15,27 +15,27 @@ describe('NotificationsStore', () => {
     expect(store.state()).toBe('loading');
     await store.load();
     expect(store.state()).toBe('ready');
-    expect(store.items().length).toBeGreaterThanOrEqual(9);
+    expect(store.items().length).toBeGreaterThanOrEqual(5);
   });
 
   // (i) FR-7: the bell, the panel and the page read this one count.
   it('(i) unreadCount drops by one when an unread notification is marked read', async () => {
     await store.load();
-    expect(store.unreadCount()).toBe(4);
+    expect(store.unreadCount()).toBe(2);
     const unread = store.items().find((n) => n.unread)!;
     store.markRead(unread.id);
-    expect(store.unreadCount()).toBe(3);
+    expect(store.unreadCount()).toBe(1);
     expect(store.items().find((n) => n.id === unread.id)?.unread).toBe(false);
     // Opening it again, or an id that does not exist, changes nothing.
     store.markRead(unread.id);
     store.markRead('no-such-id');
-    expect(store.unreadCount()).toBe(3);
+    expect(store.unreadCount()).toBe(1);
   });
 
   // (j) FR-7: a no-op, without errors, when nothing is unread.
   it('(j) markAllRead twice is a no-op the second time and does not throw', async () => {
     await store.load();
-    expect(store.unreadCount()).toBe(4);
+    expect(store.unreadCount()).toBe(2);
     store.markAllRead();
     expect(store.unreadCount()).toBe(0);
     const afterFirst = store.items();
@@ -57,7 +57,7 @@ describe('NotificationsStore', () => {
     const loading = store.load();
     store.simulate('loading');
     await loading;
-    expect(store.items().length).toBeGreaterThanOrEqual(9);
+    expect(store.items().length).toBeGreaterThanOrEqual(5);
     expect(store.state()).toBe('loading');
   });
 
@@ -67,7 +67,7 @@ describe('NotificationsStore', () => {
     expect(store.state()).toBe('error');
     await store.retry();
     expect(store.state()).toBe('ready');
-    expect(store.items().length).toBeGreaterThanOrEqual(9);
+    expect(store.items().length).toBeGreaterThanOrEqual(5);
   });
 
   it('retry() after the data loaded keeps the read state', async () => {

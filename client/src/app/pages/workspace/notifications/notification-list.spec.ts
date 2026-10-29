@@ -1,13 +1,13 @@
 import { TestBed } from '@angular/core/testing';
 import { NotificationList } from './notification-list';
 import { NotificationRow, ROW_BOX } from './notification-row';
-import { NOTIFICATION_CATEGORY, NOTIFICATION_TYPES, type Notification, type SentencePart } from './notifications.model';
+import { NOTIFICATION_TYPES, type Notification, type SentencePart } from './notifications.model';
 
 /** A notification built for these tests only (the list never reads the mock). */
 function make(overrides: Partial<Notification> & Pick<Notification, 'id'>): Notification {
   return {
-    type: 'Stage',
-    sentence: [{ text: '146 results', strong: true }, { text: ' reached Assessed by 2 assessors in Round 1. 18 since yesterday.' }],
+    type: 'Slow program',
+    sentence: [{ text: 'SP12', strong: true }, { text: ' has not replied to any of its ' }, { text: '2', strong: true }, { text: ' returned results.' }],
     detail: null,
     timelineId: 'annual',
     program: null,
@@ -16,8 +16,7 @@ function make(overrides: Partial<Notification> & Pick<Notification, 'id'>): Noti
     when: '2 hours ago',
     unread: false,
     target: { path: '/results' },
-    total: 146,
-    delta: 18,
+    total: 2,
     action: null,
     ...overrides,
   };
@@ -25,7 +24,7 @@ function make(overrides: Partial<Notification> & Pick<Notification, 'id'>): Noti
 
 /** One notification of every type, so a rule about "every type" cannot pass by covering only one. */
 const ALL_TYPES: readonly Notification[] = NOTIFICATION_TYPES.map((type, i) =>
-  make({ id: `t-${i}`, type, action: NOTIFICATION_CATEGORY[type] === 'action' ? 'View results' : null }),
+  make({ id: `t-${i}`, type, action: 'View results' }),
 );
 
 const STEP_COMPLETE = make({
@@ -45,7 +44,6 @@ const STEP_COMPLETE = make({
   unread: true,
   target: { path: '/cycle' },
   total: 216,
-  delta: null,
   action: 'Open next step',
 });
 
@@ -98,11 +96,10 @@ describe('NotificationRow', () => {
     expect(root(renderRow(make({ id: 'x' }))).querySelector('[data-detail]')).toBeNull();
   });
 
-  it('colours the pill and the icon by type: green, amber and red for needs-action types, grey for updates', () => {
+  it('colours the pill and the icon by type: green for a finished step, amber for a slow program', () => {
     const tones: Record<string, string> = {
       'Step complete': '--st-approved-bg',
       'Slow program': '--st-editing-bg',
-      'At risk': '--danger-bg',
     };
     for (const n of ALL_TYPES) {
       const row = root(renderRow(n));
@@ -173,7 +170,7 @@ describe('NotificationRow', () => {
 describe('NotificationList', () => {
   const items: readonly Notification[] = [
     make({ id: 'a', day: 'today' }),
-    make({ id: 'b', day: 'today', type: 'At risk', action: 'View results' }),
+    make({ id: 'b', day: 'today', type: 'Step complete', action: 'Open next step' }),
     make({ id: 'c', day: 'yesterday' }),
     make({ id: 'd', day: 'earlier' }),
     make({ id: 'e', day: 'earlier' }),
