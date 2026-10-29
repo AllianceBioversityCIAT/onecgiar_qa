@@ -297,7 +297,7 @@ export class OverviewView {
             return { ...s, n, count: fmt(n) };
           });
           const n = stages.reduce((a, s) => a + s.n, 0);
-          return { n: step.n, name: PHASE_SHORT[PHASE_NAMES[step.n - 1]], total: fmt(n), sum: n, stages };
+          return { n: step.n, name: PHASE_SHORT[PHASE_NAMES[step.n - 1]], sum: n, stages };
         });
         return { id: r.id, title: r.title, who: r.who, total: fmt(steps.reduce((a, s) => a + s.sum, 0)), steps };
       }),
