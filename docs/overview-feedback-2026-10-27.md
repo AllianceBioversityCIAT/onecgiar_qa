@@ -63,6 +63,9 @@ Source: Teams transcript, shared by Juanpa on 2026-10-28. This note records what
 - 2026-10-29: the step labels inside the round cards no longer show the step's total (Juanpa). Each status row still has its count, and each round still has its total. Tested: tsc and eslint clean (the overview folder has no unit tests); checked in the browser at desktop width.
 - 2026-10-29: Assessment pace has a new layout (Juanpa: the 2 × 2 figures left an empty space under them). The four figures now sit in one row (two by two on phones), with the chart across the whole card below them. The chart is drawn at its box's width, 220–300 px tall, so its labels stay 11 px. Tested: tsc and eslint clean; checked at 1440, 768 and 375 px with no horizontal scroll (card 521 px tall at 1440).
 - 2026-10-29: the Round 1 and Round 2 panels take the style of the Assessment pace figure boxes (light grey, soft outline, 10 px corners), so every inner box on the Overview looks the same (Juanpa). Checked in light and dark mode.
+- 2026-10-29, from Yeck's review:
+  - Timeline progress: step names no longer carry a number ("Third-party broker", not "4 · Third-party bro…"), matching the round cards, and wrap onto a second line instead of being cut. The right column says "done in this step". Meta parts ("84 results") never split; a line breaks only between parts. Checked at 1280 and 1600 px: no cut text.
+  - Notifications: "…in Round 1. 18 since yesterday." now reads "…in Round 1, 18 of them since yesterday." (and the same for Quality assessed). 79 notifications tests pass.
 
 ## Pending
 - O-1: send the step and status names to María Julia to confirm.
