@@ -272,3 +272,20 @@ After T-4: LOC ≈ 1,230 against a budget of ~1,100 (3 of 7 tasks), projected �
     - Tasks 7/7.
     - LOC ≈ 2,300 (over budget, approved).
     - Review rounds 9/9: the T-7 fixes were Leader inline, with no Reviewer.
+
+### Change after close: the bell opens the page, no panel (2026-10-27)
+
+- **Request (Juanpa, chat):** "al abrir la campana de notificaciones, no deberia salir ese popover, deberia llevar directamente a la pantalla de notificaciones". This is a design change in his own file; all commits on `notifications-bell.*` are his.
+- **Change:**
+  - `notifications-bell.ts` is now one `routerLink="/notifications"` at every width: 40 px below 640 px and 32 px above. It is `routerLinkActive` with `aria-current="page"` on the page, and keeps the dot, the accessible name and the `contents` host.
+  - Removed: the spartan popover, the panel, its Unread switch, "Mark all as read" and "View all notifications".
+  - `qa-shell.*` untouched.
+- **Supersedes:** design DD-5 (panel ≥ 640 px, link below), the panel half of FR-2, and DD-11 part 2 for the bell. The page's rows still navigate with the same-URL reload, which is harmless.
+- **Left unused:** the `panel` variant of `notification-row` / `notification-list` (still tested). Deletion or reuse is pending the talk with María Julia.
+- **Tests:** `notifications-bell.spec.ts` rewritten. It keeps (a)–(c). (d) checks there is one link and no panel trigger; (e) checks it navigates to `/notifications`, gets `aria-current="page"` and opens no dialog. The panel tests (old d–g, 8 rows, phone swap) were removed.
+- **Verification:**
+  - Bell spec `5 passed (5)`.
+  - Full suite `31 files, 260 passed (260)`: 264 − 4 panel tests.
+  - `eslint` on the notifications folder exits 0.
+  - Build exit 0, initial 606.05 kB.
+- Leader inline, with no Reviewer: the review rounds are at budget, and this is a design-requested simplification of one file plus its spec.

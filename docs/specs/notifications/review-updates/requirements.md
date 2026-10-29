@@ -66,20 +66,20 @@ The QA Admin gets a bell in the top bar and a Notifications page that tell her w
 
 ### FR-1: Bell in the top bar
 
-The system SHALL show a bell button in the top bar for users with `ADMIN_ACCESS`, before the Unsent button. When at least one notification is unread, the bell SHALL show a dot, and its accessible name SHALL say how many are unread.
+The system SHALL show a bell button in the top bar for users with `ADMIN_ACCESS`, before the Unsent button. As in PRMS (Juanpa, 2026-10-28), it SHALL read "Notifications" from 768 px and, when at least one notification is unread, show the unread count in a pill; its accessible name SHALL say how many are unread.
 
 #### Scenario: Admin with unread notifications
 - GIVEN the QA Admin is signed in and 4 notifications are unread
 - WHEN any workspace page loads
-- THEN the top bar shows the bell with a dot
+- THEN the top bar shows the bell, "Notifications" and a pill with 4
 - AND the bell's accessible name is "Notifications, 4 unread"
-- BUT it must NOT show the number as a colored badge or pill on the bell
+- AND below 768 px only the bell shows, with the pill on its corner
 - AND IT MUST keep the existing top-bar controls (back, forward, search, Unsent, user menu) in place and working
 
 #### Scenario: Nothing unread
 - GIVEN every notification is read
 - WHEN the page loads
-- THEN the bell shows no dot and its accessible name is "Notifications"
+- THEN the bell shows no pill and its accessible name is "Notifications"
 
 #### Scenario: User without ADMIN_ACCESS
 - GIVEN a signed-in user without `ADMIN_ACCESS` (e.g. an assessor)
