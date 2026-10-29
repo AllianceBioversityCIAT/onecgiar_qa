@@ -63,7 +63,7 @@
 
 @if (compact()) {
   <!-- Compact: name + ⓘ on the first line, controls on the second -->
-  <div class="relative flex flex-col items-stretch gap-2.5 border-b border-(--surface-4) bg-(--surface) px-5 py-[14px]">
+  <div [style.--qa-i]="reveal()" class="qa-reveal relative flex flex-col items-stretch gap-2.5 border-b border-(--surface-4) bg-(--surface) px-5 py-[14px]">
     @if (r.changed) {
       <span aria-hidden="true" class="absolute top-0 bottom-0 left-0 w-[3px] bg-(--primary)"></span>
     }
@@ -88,7 +88,7 @@
   </div>
 } @else {
   <!-- Wide: one grid row, same columns as the sticky header -->
-  <div class="relative grid min-h-[52px] grid-cols-[minmax(0,1fr)_352px_64px_64px_28px] items-center gap-4 border-b border-(--surface-4) bg-(--surface) px-5 hover:bg-(--surface-2)">
+  <div [style.--qa-i]="reveal()" class="qa-reveal relative grid min-h-[52px] grid-cols-[minmax(0,1fr)_352px_64px_64px_28px] items-center gap-4 border-b border-(--surface-4) bg-(--surface) px-5 hover:bg-(--surface-2)">
     @if (r.changed) {
       <span aria-hidden="true" class="absolute top-0 bottom-0 left-0 w-[3px] bg-(--primary)"></span>
     }

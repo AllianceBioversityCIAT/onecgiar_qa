@@ -37,6 +37,15 @@ You are an expert in TypeScript, Angular, and scalable web application developme
 - Do NOT import `CommonModule`, import only the directives and pipes the template uses, such as `AsyncPipe` or `DatePipe`
 - When using external templates/styles, use paths relative to the component TS file.
 
+## Loading states (fixed rule, 2026-10-28)
+
+Kit: `src/app/ui/loading/qa-loading.ts` + `qaBtn [loading]` (`src/app/ui/button/qa-button.ts`). Every screen and every button, no exceptions:
+
+- A view waiting for data shows a **skeleton with the shape of what is coming** (same frame, header, grid and row height as the real view), wrapped in `<qa-loading label="…">`. Never a "Loading…" line or a lone spinner. Lists show 10 placeholder rows (`skeletonRows()`). One `<feature>-skeleton.ts` per view; reuse the real view's layout classes (e.g. `assessors-table.ts`).
+- When the data lands, items come in **one after another** (1, 2, 3…): `[qaReveal]="$index"` on the root element of each item.
+- A button that runs an action passes **`[loading]`** while it runs: it spins and is disabled, so a second tap does nothing. Keep `[disabled]` for the other reasons.
+- Screens still on mock data (`*.mock.ts`) adopt this the day they connect to the API.
+
 ## State Management
 
 - Use signals for local component state
