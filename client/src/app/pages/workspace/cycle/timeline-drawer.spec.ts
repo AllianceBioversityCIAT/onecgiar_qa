@@ -57,4 +57,30 @@ describe('TimelineDrawer', () => {
 
     expect(nameError()).toBe('Enter a name for the timeline.');
   });
+
+  it('a new timeline starts every step at the server defaults, 00:00 to 23:59 Rome time (P2-4021)', async () => {
+    const fixture = TestBed.createComponent(Host);
+    fixture.componentInstance.request.set({ timeline: null });
+    await settle(fixture);
+
+    const times = (kind: 'opening' | 'closing') =>
+      OFFICIAL_TIMELINE.steps.map((_, i) => document.querySelector<HTMLInputElement>(`input[aria-label="Step ${i + 1} ${kind} time, 24-hour, Rome"]`)?.value);
+    expect(times('opening').every((v) => v === '00:00')).toBe(true);
+    expect(times('closing').every((v) => v === '23:59')).toBe(true);
+    expect(document.body.textContent).toContain('Rome time (CET / CEST), 24-hour clock');
+  });
+
+  it('tidies a typed time when the admin leaves it', async () => {
+    const fixture = TestBed.createComponent(Host);
+    fixture.componentInstance.request.set({ timeline: null });
+    await settle(fixture);
+
+    const input = document.querySelector<HTMLInputElement>('input[aria-label="Step 2 opening time, 24-hour, Rome"]')!;
+    input.value = '1305';
+    input.dispatchEvent(new Event('input'));
+    input.dispatchEvent(new Event('blur'));
+    await settle(fixture);
+
+    expect(input.value).toBe('13:05');
+  });
 });

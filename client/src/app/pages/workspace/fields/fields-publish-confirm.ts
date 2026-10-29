@@ -1,6 +1,6 @@
 import { Component, computed, input, linkedSignal, model, output } from '@angular/core';
 import { PublishTimelines } from '../../../core/api/field-config.models';
-import { opensLabel } from '../../../core/domain/rome-date';
+import { opensDayLabel } from '../../../core/domain/rome-date';
 import { QaButtonImports, QaDialogImports } from '../../../ui';
 import { FieldChangeGroupVm } from './fields-config';
 
@@ -149,7 +149,7 @@ export class FieldsPublishConfirm {
   /** Changes across all groups. */
   protected readonly count = computed(() => this.groups().reduce((n, g) => n + g.changes.length, 0));
   protected readonly receive = computed(() =>
-    this.timelines().receive.map((t) => ({ id: t.id, name: t.name, opens: t.opensOn ? opensLabel(t.opensOn) : 'No steps yet' })),
+    this.timelines().receive.map((t) => ({ id: t.id, name: t.name, opens: t.opensOn ? opensDayLabel(t.opensOn) : 'No steps yet' })),
   );
   protected readonly keep = computed(() =>
     this.timelines().keep.map((t) => ({
