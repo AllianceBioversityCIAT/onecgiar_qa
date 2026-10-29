@@ -269,6 +269,8 @@ export interface TimelineVM {
   id: string;
   name: string;
   kind: string;
+  /** What the screen calls the kind: "Main batch" / "Complementary batch" (María Julia, 2026-10-27); `kind` stays for the logic. */
+  kindLabel: string;
   status: string;
   statusClass: string;
   isTest: boolean;
@@ -363,6 +365,7 @@ export function timelineVM(t: Timeline): TimelineVM {
     id: t.id,
     name: t.name,
     kind: t.kind,
+    kindLabel: t.kind === 'Sub-timeline' ? 'Complementary batch' : 'Main batch',
     status: t.status,
     statusClass: STATUS_CLASS[t.status] ?? STATUS_CLASS['Live'],
     isTest: !!t.test,
