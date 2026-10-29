@@ -59,13 +59,13 @@ const bell = (f: ComponentFixture<unknown>): HTMLAnchorElement => hostEl(f).quer
 
 describe('NotificationsBell', () => {
   // (a) FR-1: as in PRMS, the bell says "Notifications" and shows the unread count in a pill; the accessible name says it too.
-  it('(a) names the bell "Notifications, 4 unread" and shows "Notifications" with a 4 pill', async () => {
+  it('(a) names the bell "Notifications, 2 unread" and shows "Notifications" with a 2 pill', async () => {
     const f = await renderBell();
     expect(bell(f), 'the bell').not.toBeNull();
 
-    expect(bell(f).getAttribute('aria-label')).toBe('Notifications, 4 unread');
-    expect(text(bell(f).querySelector('[data-count]')!), 'the pill').toBe('4');
-    expect(text(bell(f)), 'the visible text').toBe('Notifications4');
+    expect(bell(f).getAttribute('aria-label')).toBe('Notifications, 2 unread');
+    expect(text(bell(f).querySelector('[data-count]')!), 'the pill').toBe('2');
+    expect(text(bell(f)), 'the visible text').toBe('Notifications2');
   });
 
   // (b) FR-1: nothing unread, no pill and the plain name.

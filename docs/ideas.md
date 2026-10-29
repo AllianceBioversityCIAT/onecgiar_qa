@@ -56,3 +56,14 @@
   1. Business (Santi / Ángel): decide whether in-app notifications for the ADMIN enter v1.
   2. María Julia: pick the panel layout (newest first vs "Needs you" first) and confirm the event list and the grouping.
   3. Juanda: a `notifications` server module and the new `notifications` domain in the `AGENTS.md` spec taxonomy, once the source specs exist.
+- **Narrowed (Juanpa, 2026-10-29):** the page now shows only what María Julia asked for at the 2026-10-27 meeting:
+  - "Step complete": the assessors, the lead assessor or the third-party broker finished a batch.
+  - "Slow program": a science program has not started, or goes too slowly, replying.
+
+  Removed, kept here as ideas to ask her about later:
+  - **At risk:** a step closes soon with many results left. She did say dates and hours matter.
+  - **Load:** a load of results finished. She asked for a manual "data transfer" button.
+  - **Escalation:** a result went up to the third-party broker.
+  - **Program response:** a program answered its returned results.
+  - **Stage** and **Quality assessed:** these repeat Overview counts.
+  - **"Mark all as read":** removed for now; each notification is read when she acts on it.
