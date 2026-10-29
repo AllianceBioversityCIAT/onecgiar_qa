@@ -38,7 +38,7 @@
   @case ('no-cycle') {
     <section class="flex flex-col items-start gap-1 rounded-[12px] border border-(--border) bg-(--surface) px-5 py-6">
       <h2 class="m-0 text-(length:--fs-16) font-bold text-(--text)">No active cycle</h2>
-      <p class="m-0 text-(length:--fs-14) text-pretty text-(--text-3)">Timelines belong to the active cycle. Once a cycle is activated, its official timeline and sub-timelines show here.</p>
+      <p class="m-0 text-(length:--fs-14) text-pretty text-(--text-3)">Timelines belong to the active cycle. Once a cycle is activated, its main batch and complementary batches show here.</p>
     </section>
   }
   @default {
@@ -52,7 +52,7 @@
     <div class="flex min-h-16 flex-wrap items-center gap-3 border-b border-(--surface-4) px-5 py-4">
       <div class="flex min-w-0 flex-[1_1_14rem] flex-col gap-[3px]">
         <h2 id="cycle-ot-title" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">{{ ot.name }}</h2>
-        <div class="text-(length:--fs-13) leading-[1.5] font-normal text-(--text-3)">Official timeline · <span class="font-(family-name:--qa-mono) font-medium text-(--text-2) tabular-nums"><span class="whitespace-nowrap">{{ ot.rangeParts[0] }}</span>&ngsp;<span class="whitespace-nowrap">{{ ot.rangeParts[1] }}</span></span> · <span class="whitespace-nowrap"><span class="font-(family-name:--qa-mono) font-medium text-(--text-2) tabular-nums">{{ ot.stepCount }}</span> steps</span> · all programs</div>
+        <div class="text-(length:--fs-13) leading-[1.5] font-normal text-(--text-3)">Main batch · <span class="font-(family-name:--qa-mono) font-medium text-(--text-2) tabular-nums"><span class="whitespace-nowrap">{{ ot.rangeParts[0] }}</span>&ngsp;<span class="whitespace-nowrap">{{ ot.rangeParts[1] }}</span></span> · <span class="whitespace-nowrap"><span class="font-(family-name:--qa-mono) font-medium text-(--text-2) tabular-nums">{{ ot.stepCount }}</span> steps</span> · all programs</div>
       </div>
       @if (ot.canEdit && store.canWrite()) {
         <div class="flex flex-none flex-wrap items-center gap-2 max-sm:w-full">
@@ -66,10 +66,10 @@
   </section>
   } @else {
     <section class="flex flex-col items-start gap-1 rounded-[12px] border border-(--border) bg-(--surface) px-5 py-6">
-      <h2 class="m-0 text-(length:--fs-16) font-bold text-(--text)">No official timeline yet</h2>
-      <p class="m-0 text-(length:--fs-14) text-pretty text-(--text-3)">The first timeline of the cycle is its official calendar. Every program follows it unless you add a sub-timeline.</p>
+      <h2 class="m-0 text-(length:--fs-16) font-bold text-(--text)">No main batch yet</h2>
+      <p class="m-0 text-(length:--fs-14) text-pretty text-(--text-3)">The first timeline of the cycle is its main batch. Every program follows it unless you add a complementary batch.</p>
       @if (store.canWrite()) {
-        <button hlmBtn qaBtn tone="primary" type="button" (click)="newSubTimeline()" class="mt-3">Create the official timeline</button>
+        <button hlmBtn qaBtn tone="primary" type="button" (click)="newSubTimeline()" class="mt-3">Create the main batch</button>
       }
     </section>
   }
@@ -79,12 +79,12 @@
   <div class="flex flex-col">
     <div qaReveal="1" class="mb-4 flex flex-wrap items-end gap-4">
       <div class="flex min-w-0 flex-[1_1_15rem] flex-col gap-1">
-        <h2 class="m-0 text-(length:--fs-20) font-bold tracking-[-0.01em] text-(--text)">Sub-timelines</h2>
+        <h2 class="m-0 text-(length:--fs-20) font-bold tracking-[-0.01em] text-(--text)">Complementary batches</h2>
         <p class="m-0 text-(length:--fs-13) font-normal text-(--text-3)">A second calendar for programs and result types running late. Each one has its own dates and loads its results when its first step opens.</p>
       </div>
       <div class="flex flex-none items-center gap-2 max-sm:w-full">
         <button hlmBtn qaBtn tone="primary" type="button" (click)="newSubTimeline()" [disabled]="!store.canWrite()" class="gap-[7px] max-sm:flex-1">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>New sub-timeline
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>New complementary batch
         </button>
       </div>
     </div>
@@ -113,9 +113,9 @@
               />
             } @empty {
               <section class="flex flex-col items-start gap-1 rounded-[12px] border border-(--border) bg-(--surface) px-5 py-6">
-                <h3 class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">No live sub-timelines</h3>
-                <p class="m-0 text-(length:--fs-14) font-normal text-pretty text-(--text-3)">Sub-timelines show here while their steps are running. Add one for programs that submit late.</p>
-                <button hlmBtn qaBtn tone="secondary" type="button" (click)="newSubTimeline()" [disabled]="!store.canWrite()" class="mt-3">New sub-timeline</button>
+                <h3 class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">No live complementary batches</h3>
+                <p class="m-0 text-(length:--fs-14) font-normal text-pretty text-(--text-3)">Complementary batches show here while their steps are running. Add one for programs that submit late.</p>
+                <button hlmBtn qaBtn tone="secondary" type="button" (click)="newSubTimeline()" [disabled]="!store.canWrite()" class="mt-3">New complementary batch</button>
               </section>
             }
           </div>
@@ -129,8 +129,8 @@
               <qa-cycle-timeline-card [qaReveal]="$index" [timeline]="t" (openStep)="openStep(t.id, $event)" (viewProgress)="openProgress(t.id, $event)" />
             } @empty {
               <section class="flex flex-col items-start gap-1 rounded-[12px] border border-(--border) bg-(--surface) px-5 py-6">
-                <h3 class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">No closed sub-timelines yet</h3>
-                <p class="m-0 text-(length:--fs-14) font-normal text-pretty text-(--text-3)">When a sub-timeline finishes its last step, it moves here and stays as the record of the cycle.</p>
+                <h3 class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">No closed complementary batches yet</h3>
+                <p class="m-0 text-(length:--fs-14) font-normal text-pretty text-(--text-3)">When a complementary batch finishes its last step, it moves here and stays as the record of the cycle.</p>
               </section>
             }
           </div>
