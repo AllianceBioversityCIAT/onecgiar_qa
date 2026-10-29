@@ -3,7 +3,8 @@ import { BrnDialogState } from '@spartan-ng/brain/dialog';
 import { BrnSheet, BrnSheetImports } from '@spartan-ng/brain/sheet';
 import { injectQaTokens } from '../tokens/qa-tokens';
 
-export type QaDrawerWidth = '480px' | '720px';
+/** 880px: forms with a wide table (the timeline steps, date + time per boundary). */
+export type QaDrawerWidth = '480px' | '720px' | '880px';
 
 /** Returns true to let the drawer close, false to keep it open (e.g. to ask "Discard what you wrote?"). */
 export type QaDrawerCloseGuard = () => boolean | Promise<boolean>;
@@ -99,7 +100,7 @@ export class QaDrawer {
   readonly closeGuard = input<QaDrawerCloseGuard | null>(null);
 
   protected readonly footer = contentChild(QaDrawerFooter);
-  protected readonly widthClass = computed(() => (this.width() === '720px' ? 'w-[720px]' : 'w-[480px]'));
+  protected readonly widthClass = computed(() => ({ '480px': 'w-[480px]', '720px': 'w-[720px]', '880px': 'w-[880px]' })[this.width()]);
   private readonly sheet = viewChild.required(BrnSheet);
 
   constructor() {

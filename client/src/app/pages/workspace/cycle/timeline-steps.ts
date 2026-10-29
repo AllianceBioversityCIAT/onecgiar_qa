@@ -103,7 +103,12 @@ import { TimelineVM } from './cycle.logic';
             >
               <span class="line-clamp-3 text-(length:--fs-14) leading-[1.3] font-semibold text-pretty text-(--text)">{{ s.name }}</span>
             </button>
-            <div class="font-(family-name:--qa-mono) text-(length:--fs-12) font-medium text-(--text-4) tabular-nums">{{ s.dates }}</div>
+            <div class="flex flex-col font-(family-name:--qa-mono) text-(length:--fs-12) font-medium text-(--text-4) tabular-nums">
+              <span>{{ s.from }}</span>
+              @if (s.to) {
+                <span>{{ s.to }}</span>
+              }
+            </div>
             @if (s.hasBatch) {
               <span class="inline-flex items-center gap-1 self-start rounded-full bg-(--tint-2) px-1.5 py-px text-(length:--fs-10) font-semibold whitespace-nowrap text-(--accent)"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M12 3v12M8 11l4 4 4-4M8 5H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-4" /></svg>Loads results</span>
             }
@@ -144,7 +149,7 @@ import { TimelineVM } from './cycle.logic';
                   @if (s.waiting) {
                     <span class="rounded-full bg-(--st-editing-bg) px-2 py-[2px] text-(length:--fs-11) font-semibold text-(--st-editing-fg)">Waiting for results</span>
                   } @else if (s.days === 0) {
-                    <span class="text-(length:--fs-12) text-(--text-muted)">Opens today</span>
+                    <span class="text-(length:--fs-12) text-(--text-muted)">Opens today at <span class="font-(family-name:--qa-mono) tabular-nums">{{ s.opensTime }}</span></span>
                   } @else {
                     <span class="text-(length:--fs-12) text-(--text-muted)">Opens in <span class="font-(family-name:--qa-mono) tabular-nums">{{ s.days }}</span> {{ s.dayWord }}</span>
                   }
