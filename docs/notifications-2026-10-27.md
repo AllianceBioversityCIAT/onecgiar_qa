@@ -63,3 +63,8 @@ Branch: `jp-design/mockup-completo` · Author: Juanpa (with Claude Code) · Spec
   - AXE: no AXE tool is installed in `client/`.
 - Tokens `--surface-4` (bell hover) and `--text-3` (bell icon) are not yet listed in the UX design's token section.
 - Other kit parts still use `--text-muted`: `qa-menu`, `qa-tabs`, `qa-date-picker`, `qa-pagination` and `qa-badge`.
+
+## Update 2026-10-29 — top bar, as in PRMS
+- On `/notifications` the bell takes the sidebar's selected look: light green `--tint-2` background with green `--accent` text and icon. PRMS does the same in purple. Contrast is about 6.5:1 in light and 7:1 in dark mode.
+- A thin vertical line (`--border-strong`, 24 px) now separates the top-bar actions from the user menu. It shows only for admins and only from 768 px. This is a one-line addition in `qa-shell.html`.
+- Tested: 5 bell tests pass and eslint is clean. Checked at 1440 px in light and dark mode, both on Notifications and on the Overview.

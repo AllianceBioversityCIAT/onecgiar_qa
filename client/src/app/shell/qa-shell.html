@@ -121,6 +121,11 @@
     <div class="flex items-center justify-end gap-1 sm:flex-[1_0_auto]">
       <qa-notifications-bell />
       <qa-unsent-center />
+      <!-- A thin line between the top bar's actions and the user menu, as in PRMS (Juanpa, 2026-10-29). Only for admins,
+           who have the bell on its left, and from 768 px, where the bell shows its name. -->
+      @if (administration().length) {
+        <span aria-hidden="true" class="mx-1.5 hidden h-6 w-px flex-none bg-(--border-strong) md:block"></span>
+      }
       <div class="relative">
         <button
           type="button"
