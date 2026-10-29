@@ -623,8 +623,8 @@ describe('list and detail (FR-2, design 7.4)', () => {
   const step = (
     id: number,
     timelineId: number,
-    opensOn: string,
-    closesOn: string,
+    opensAt: string,
+    closesAt: string,
   ) =>
     ({
       id,
@@ -632,8 +632,8 @@ describe('list and detail (FR-2, design 7.4)', () => {
       position: id,
       name: `Step ${id}`,
       audience: 'assessors',
-      opensOn,
-      closesOn,
+      opensAt,
+      closesAt,
       round: 1,
       requiresLoad: id === 1,
     }) as TimelineStep;

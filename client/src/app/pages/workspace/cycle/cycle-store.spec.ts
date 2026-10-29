@@ -3,6 +3,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { TestBed } from '@angular/core/testing';
 import { APP_CONFIG } from '../../../core/config/app-config';
 import { CycleStore } from './cycle-store';
+import { stepRow } from './cycle.logic';
 
 const API = 'https://api.test/api/v1';
 const meta = { requestId: 'r', timestamp: 't' };
@@ -23,7 +24,7 @@ const timeline = (over: Record<string, unknown> = {}) => ({
   allResultTypes: true,
   resultTypeKeys: [],
   steps: [
-    { position: 1, name: 'Open', audience: 'assessors', opensOn: '2027-07-06', closesOn: '2027-07-07', round: 1, requiresLoad: true, state: 'in_progress' },
+    { position: 1, name: 'Open', audience: 'assessors', opensAt: '2027-07-06T00:00', closesAt: '2027-07-07T23:59', round: 1, requiresLoad: true, state: 'in_progress' },
   ],
   status: 'live',
   currentStep: 1,
@@ -31,6 +32,7 @@ const timeline = (over: Record<string, unknown> = {}) => ({
   readiness: [],
   assignedCount: { ASSESSOR: 0, LEAD_ASSESSOR: 0, TPB: 0, PPU: 0 },
   version: 1,
+  timeZone: 'Europe/Rome',
   createdAt: '2026-10-22T10:00:00Z',
   ...over,
 });
@@ -98,7 +100,7 @@ describe('CycleStore', () => {
 
   it('create: the new sub-timeline goes right after the official one', async () => {
     await load([{ id: 2, status: 'active' }]);
-    const saved = store.create({ name: 'Sept', programs: [], types: [], steps: [{ name: 'Open', start: '01 Sep 2027', end: '02 Sep 2027', batch: true, audience: 'assessors' }] });
+    const saved = store.create({ name: 'Sept', programs: [], types: [], steps: [{ name: 'Open', start: '01 Sep 2027', startTime: '00:00', end: '02 Sep 2027', endTime: '23:59', batch: true, audience: 'assessors' }] });
     const req = http.expectOne(`${API}/cycles/2/timelines`);
     expect(req.request.body).toMatchObject({ name: 'Sept', allPrograms: true, allResultTypes: true });
     req.flush(ok(timeline({ id: 8, name: 'Sept' })), { status: 201, statusText: 'Created' });
@@ -111,19 +113,19 @@ describe('CycleStore', () => {
     const saved = store.create({ name: '', programs: [], types: [], steps: [] });
     http
       .expectOne(`${API}/cycles/2/timelines`)
-      .flush(fail(400, 'VALIDATION_FAILED', [{ field: 'steps[0].opensOn', code: 'BEFORE_TODAY', message: 'Too early' }]), { status: 400, statusText: 'Bad' });
+      .flush(fail(400, 'VALIDATION_FAILED', [{ field: 'steps[0].opensAt', code: 'BEFORE_TODAY', message: 'Too early' }]), { status: 400, statusText: 'Bad' });
     const outcome = await saved;
-    expect(outcome).toMatchObject({ ok: false, fields: [{ field: 'steps[0].opensOn' }] });
+    expect(outcome).toMatchObject({ ok: false, fields: [{ field: 'steps[0].opensAt' }] });
     expect(store.subTimelines()).toHaveLength(1);
   });
 
   it('edit asks to confirm a step in progress, then sends confirmInProgress up front', async () => {
     await load([{ id: 2, status: 'active' }]);
     const before = store.subTimelines()[0];
-    const draft = { name: 'July', programs: [], types: [], steps: [{ name: 'Open', start: '06 Jul 2027', end: '10 Jul 2027', batch: true }] };
+    const draft = { name: 'July', programs: [], types: [], steps: [{ name: 'Open', start: '06 Jul 2027', startTime: '00:00', end: '10 Jul 2027', endTime: '23:59', batch: true }] };
     const first = store.update(before, draft);
     const r1 = http.expectOne(`${API}/timelines/7`);
-    expect(r1.request.body).toEqual({ version: 1, steps: [{ position: 1, closesOn: '2027-07-10' }] });
+    expect(r1.request.body).toEqual({ version: 1, steps: [{ position: 1, closesAt: '2027-07-10T23:59' }] });
     r1.flush(fail(409, 'TIMELINES_IN_PROGRESS_UNCONFIRMED'), { status: 409, statusText: 'Conflict' });
     expect(await first).toMatchObject({ ok: false, needsConfirm: true });
 
@@ -149,7 +151,7 @@ describe('CycleStore', () => {
   it('nothing changed: no call', async () => {
     await load([{ id: 2, status: 'active' }]);
     const before = store.subTimelines()[0];
-    const steps = before.steps.map((s) => ({ name: s.name, start: s.start, end: s.end, batch: s.batch }));
+    const steps = before.steps.map(stepRow);
     expect(await store.update(before, { name: before.name, programs: [], types: [], steps })).toEqual({ ok: true });
   });
 });

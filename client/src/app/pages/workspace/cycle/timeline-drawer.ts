@@ -5,9 +5,9 @@ import { FormField, applyEach, form, required, validate } from '@angular/forms/s
 import { HlmInput } from '@spartan/input';
 import { QaButtonImports, QaDatePicker, QaDialogImports, QaDrawerImports, QaMultiSelect, QaSelectOption, QaSwitch, QaTooltipImports, discardGuard } from '../../../ui';
 import { DEFAULT_STEP_DATES, PROGRAMS, STEP_NAMES, Timeline } from './cycle.mock';
-import { StepDraftRow, formatNumber, officialRelative, stepOrderErrors, stepState } from './cycle.logic';
-import { StepDateIssue, nextAudience, stepDateIssues, toApiDay } from './cycle.mapper';
-import { todayInRome } from '../../../core/domain/rome-date';
+import { StepDraftRow, formatNumber, officialRelative, stepOrderErrors, stepRow, stepState } from './cycle.logic';
+import { StepDateIssue, boundaryPart, nextAudience, stepDateIssues, toApiDay } from './cycle.mapper';
+import { DEFAULT_CLOSES_TIME, DEFAULT_OPENS_TIME, nowInRome, parseTime } from '../../../core/domain/rome-date';
 import { PROGRAM_OPTIONS, TYPE_OPTIONS } from './load-drawer';
 
 /** Edit an existing timeline (official or not) or create a new sub-timeline (timeline null). */
@@ -52,7 +52,7 @@ interface TimelineDraft {
   selector: 'qa-cycle-timeline-drawer',
   imports: [FormField, QaButtonImports, HlmInput, QaDatePicker, QaDialogImports, QaDrawerImports, QaSwitch, QaTooltipImports, QaMultiSelect],
   template: `
-    <qa-drawer [(open)]="open" [closeGuard]="discard.guard" [title]="title()" [subtitle]="subtitle()" width="720px">
+    <qa-drawer [(open)]="open" [closeGuard]="discard.guard" [title]="title()" [subtitle]="subtitle()" width="880px">
       @if (open()) {
         @let d = draft();
         @if (feedbackMessage(); as message) {
@@ -88,7 +88,7 @@ interface TimelineDraft {
             <div class="flex flex-col items-start gap-[6px]">
               <span class="text-(length:--fs-13) font-semibold text-(--text-2)">Result types</span>
               <span class="text-(length:--fs-14) text-(--text)">{{ d.types.length ? d.types.join(', ') : 'All result types' }}</span>
-              <span class="text-(length:--fs-13) leading-[1.5] font-normal text-pretty text-(--text-4)">Set when step 1 opened on {{ d.steps[0]?.start }}. To cover other programs or result types, create a new sub-timeline.</span>
+              <span class="text-(length:--fs-13) leading-[1.5] font-normal text-pretty text-(--text-4)">Set when step 1 opened on {{ d.steps[0]?.start }} at {{ d.steps[0]?.startTime }} (Rome time). To cover other programs or result types, create a new sub-timeline.</span>
             </div>
           } @else {
           <div class="flex flex-col items-start gap-[6px]">
@@ -129,60 +129,69 @@ interface TimelineDraft {
         }
 
         <div class="flex flex-col items-stretch gap-[6px] @container">
-          <span id="cycle-tl-steps" class="text-(length:--fs-13) font-semibold text-(--text-2)">Steps</span>
-          <!-- Wide drawer: table-like grid with a sticky header. Narrow (< 36rem): each step stacks as a card row with inline labels. -->
+          <div class="flex flex-wrap items-baseline justify-between gap-x-3">
+            <span id="cycle-tl-steps" class="text-(length:--fs-13) font-semibold text-(--text-2)">Steps</span>
+            <span class="text-(length:--fs-12) font-normal text-(--text-4)">Rome time (CET / CEST), 24-hour clock</span>
+          </div>
+          <!-- Wide drawer: table-like grid with a sticky header. Narrow (< 48rem): each step stacks as a card row with inline labels. -->
           <div class="rounded-[8px] border border-(--border)">
-            <div aria-hidden="true" class="sticky top-0 z-10 hidden min-h-9 grid-cols-[24px_minmax(0,1fr)_148px_148px_44px_22px] items-center gap-3 rounded-t-[8px] border-b border-(--surface-4) bg-(--surface-3) px-[14px] text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase @xl:grid">
+            <div aria-hidden="true" class="sticky top-0 z-10 hidden min-h-9 grid-cols-[24px_minmax(0,1fr)_200px_200px_44px_22px] items-center gap-3 rounded-t-[8px] border-b border-(--surface-4) bg-(--surface-3) px-[14px] text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase @3xl:grid">
               <span></span><span>Step name</span><span>Opens</span><span>Closes</span><span class="text-center">Load</span><span></span>
             </div>
             @for (rf of tlForm.steps; track $index; let i = $index, last = $last) {
               @let row = rf().value();
               <div [class]="last ? '' : 'border-b border-(--surface-4)'">
                 @if (confirmRow() === i) {
-                  <div class="flex min-h-[52px] flex-wrap items-center gap-2 px-[14px] py-2 @xl:py-0">
+                  <div class="flex min-h-[52px] flex-wrap items-center gap-2 px-[14px] py-2 @3xl:py-0">
                     <span class="mr-auto text-(length:--fs-13) text-(--text-2)">Remove step {{ i + 1 }}?</span>
                     <button hlmBtn qaBtn tone="link" size="sm" type="button" (click)="confirmRow.set(null)">Keep it</button>
                     <button hlmBtn qaBtn tone="danger" size="sm" type="button" (click)="removeRow(i)">Remove</button>
                   </div>
                 } @else {
-                  <div class="grid grid-cols-[24px_minmax(0,1fr)_minmax(0,1fr)_40px] items-center gap-x-3 gap-y-2 px-[14px] py-3 @xl:min-h-[52px] @xl:grid-cols-[24px_minmax(0,1fr)_148px_148px_44px_22px] @xl:gap-y-0 @xl:py-0">
+                  <div class="grid grid-cols-[24px_minmax(0,1fr)_minmax(0,1fr)_40px] items-center gap-x-3 gap-y-2 px-[14px] py-3 @3xl:min-h-[52px] @3xl:grid-cols-[24px_minmax(0,1fr)_200px_200px_44px_22px] @3xl:gap-y-0 @3xl:py-0">
                     <span class="font-(family-name:--qa-mono) text-(length:--fs-12) font-semibold text-(--text-muted)">{{ i + 1 }}</span>
-                    <span class="col-span-2 min-w-0 @xl:col-span-1">
-                      <input hlmInput type="text" [formField]="rf.name" [attr.aria-label]="'Step ' + (i + 1) + ' name'" [title]="row.name" placeholder="QA platform open for assessors" [attr.data-error]="tried() && !row.name.trim()" class="h-10 min-w-0 rounded-[8px] border-(--border) bg-(--field-bg) px-[10px] py-0 text-(length:--fs-13) text-ellipsis text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) @xl:h-8 dark:bg-(--field-bg)" />
+                    <span class="col-span-2 min-w-0 @3xl:col-span-1">
+                      <input hlmInput type="text" [formField]="rf.name" [attr.aria-label]="'Step ' + (i + 1) + ' name'" [title]="row.name" placeholder="QA platform open for assessors" [attr.data-error]="tried() && !row.name.trim()" class="h-10 min-w-0 rounded-[8px] border-(--border) bg-(--field-bg) px-[10px] py-0 text-(length:--fs-13) text-ellipsis text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) @3xl:h-8 dark:bg-(--field-bg)" />
                     </span>
-                    <span class="col-span-2 col-start-2 flex min-w-0 flex-col gap-1 @xl:col-span-1 @xl:col-start-auto">
-                      <span aria-hidden="true" class="text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase @xl:hidden">Opens</span>
+                    <span class="col-span-2 col-start-2 flex min-w-0 flex-col gap-1 @3xl:col-span-1 @3xl:col-start-auto">
+                      <span aria-hidden="true" class="text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase @3xl:hidden">Opens</span>
                       @if (i < closedCount() || i === activeIndex()) {
-                        <span class="flex min-h-10 items-center font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text-3) tabular-nums @xl:min-h-8">{{ row.start }}</span>
+                        <span class="flex min-h-10 items-center font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text-3) tabular-nums @3xl:min-h-8">{{ row.start }}, {{ row.startTime }}</span>
                       } @else {
-                      <span class="relative flex">
-                        <input hlmInput type="text" [formField]="rf.start" [attr.aria-label]="'Step ' + (i + 1) + ' opens'" placeholder="06 Jul 2026" [attr.data-error]="!!issue(i, 'start')" [attr.aria-invalid]="!!issue(i, 'start') || null" class="h-10 min-w-0 rounded-[8px] border-(--border) bg-(--field-bg) py-0 pr-9 pl-[10px] font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) @xl:h-8 dark:bg-(--field-bg)" />
+                      <span class="flex min-w-0 gap-1.5">
+                      <span class="relative flex min-w-0 flex-1">
+                        <input hlmInput type="text" [formField]="rf.start" [attr.aria-label]="'Step ' + (i + 1) + ' opens'" placeholder="06 Jul 2026" [attr.data-error]="bad(i, 'start')" [attr.aria-invalid]="bad(i, 'start') || null" class="h-10 w-full min-w-0 rounded-[8px] border-(--border) bg-(--field-bg) py-0 pr-9 pl-[10px] font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) @3xl:h-8 dark:bg-(--field-bg)" />
                         <qa-date-picker [value]="rf.start().value()" (valueChange)="rf.start().value.set($event)" [label]="'Pick step ' + (i + 1) + ' opening date'" class="absolute top-1/2 right-1 -translate-y-1/2" />
                       </span>
-                      }
-                    </span>
-                    <span class="col-span-2 col-start-2 flex min-w-0 flex-col gap-1 @xl:col-span-1 @xl:col-start-auto">
-                      <span aria-hidden="true" class="text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase @xl:hidden">Closes</span>
-                      @if (i < closedCount()) {
-                        <span class="flex min-h-10 items-center font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text-3) tabular-nums @xl:min-h-8">{{ row.end || '—' }}</span>
-                      } @else {
-                      <span class="relative flex">
-                        <input hlmInput type="text" [formField]="rf.end" [attr.aria-label]="'Step ' + (i + 1) + ' closes'" [placeholder]="last && !live() ? 'Optional' : '11 Jul 2026'" [attr.data-error]="!!issue(i, 'end')" [attr.aria-invalid]="!!issue(i, 'end') || null" class="h-10 min-w-0 rounded-[8px] border-(--border) bg-(--field-bg) py-0 pr-9 pl-[10px] font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) @xl:h-8 dark:bg-(--field-bg)" />
-                        <qa-date-picker [value]="rf.end().value()" (valueChange)="rf.end().value.set($event)" [label]="'Pick step ' + (i + 1) + ' closing date'" class="absolute top-1/2 right-1 -translate-y-1/2" />
+                      <input hlmInput type="text" inputmode="numeric" [formField]="rf.startTime" [attr.aria-label]="'Step ' + (i + 1) + ' opening time, 24-hour, Rome'" placeholder="00:00" (blur)="tidyTime(i, 'startTime')" [attr.data-error]="bad(i, 'startTime')" [attr.aria-invalid]="bad(i, 'startTime') || null" class="h-10 w-[60px] flex-none rounded-[8px] border-(--border) bg-(--field-bg) px-[10px] py-0 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) @3xl:h-8 dark:bg-(--field-bg)" />
                       </span>
                       }
                     </span>
-                    <span class="col-span-3 col-start-2 flex min-h-10 items-center justify-between gap-3 @xl:col-span-1 @xl:col-start-auto @xl:min-h-0 @xl:justify-center">
-                      <span aria-hidden="true" class="text-(length:--fs-13) font-medium text-(--text-2) @xl:hidden">Loads results</span>
+                    <span class="col-span-2 col-start-2 flex min-w-0 flex-col gap-1 @3xl:col-span-1 @3xl:col-start-auto">
+                      <span aria-hidden="true" class="text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase @3xl:hidden">Closes</span>
+                      @if (i < closedCount()) {
+                        <span class="flex min-h-10 items-center font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text-3) tabular-nums @3xl:min-h-8">{{ row.end ? row.end + ', ' + row.endTime : '—' }}</span>
+                      } @else {
+                      <span class="flex min-w-0 gap-1.5">
+                      <span class="relative flex min-w-0 flex-1">
+                        <input hlmInput type="text" [formField]="rf.end" [attr.aria-label]="'Step ' + (i + 1) + ' closes'" [placeholder]="last && !live() ? 'Optional' : '11 Jul 2026'" [attr.data-error]="bad(i, 'end')" [attr.aria-invalid]="bad(i, 'end') || null" class="h-10 w-full min-w-0 rounded-[8px] border-(--border) bg-(--field-bg) py-0 pr-9 pl-[10px] font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) @3xl:h-8 dark:bg-(--field-bg)" />
+                        <qa-date-picker [value]="rf.end().value()" (valueChange)="rf.end().value.set($event)" [label]="'Pick step ' + (i + 1) + ' closing date'" class="absolute top-1/2 right-1 -translate-y-1/2" />
+                      </span>
+                      <input hlmInput type="text" inputmode="numeric" [formField]="rf.endTime" [attr.aria-label]="'Step ' + (i + 1) + ' closing time, 24-hour, Rome'" placeholder="23:59" (blur)="tidyTime(i, 'endTime')" [attr.data-error]="bad(i, 'endTime')" [attr.aria-invalid]="bad(i, 'endTime') || null" class="h-10 w-[60px] flex-none rounded-[8px] border-(--border) bg-(--field-bg) px-[10px] py-0 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) @3xl:h-8 dark:bg-(--field-bg)" />
+                      </span>
+                      }
+                    </span>
+                    <span class="col-span-3 col-start-2 flex min-h-10 items-center justify-between gap-3 @3xl:col-span-1 @3xl:col-start-auto @3xl:min-h-0 @3xl:justify-center">
+                      <span aria-hidden="true" class="text-(length:--fs-13) font-medium text-(--text-2) @3xl:hidden">Loads results</span>
                       @if (i < closedCount() || fixedSteps()) {
                         <span class="text-(length:--fs-13) text-(--text-3)">{{ row.batch ? 'Yes' : 'No' }}</span>
                       } @else {
                         <qa-switch [checked]="row.batch" (checkedChange)="patchRow(i, { batch: $event })" [aria-label]="'Step ' + (i + 1) + ' loads results'" />
                       }
                     </span>
-                    <span class="col-start-4 row-start-1 flex justify-end @xl:col-start-auto @xl:row-start-auto @xl:block">
+                    <span class="col-start-4 row-start-1 flex justify-end @3xl:col-start-auto @3xl:row-start-auto @3xl:block">
                       @if (i >= closedCount() && !fixedSteps()) {
-                      <button type="button" (click)="confirmRow.set(i)" [attr.aria-label]="'Remove step ' + (i + 1)" class="flex size-10 cursor-pointer items-center justify-center rounded-[6px] border-0 bg-transparent p-0 text-(--text-3) outline-none hover:text-(--danger) focus-visible:shadow-(--focus-ring) @xl:size-[22px]"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12" /></svg></button>
+                      <button type="button" (click)="confirmRow.set(i)" [attr.aria-label]="'Remove step ' + (i + 1)" class="flex size-10 cursor-pointer items-center justify-center rounded-[6px] border-0 bg-transparent p-0 text-(--text-3) outline-none hover:text-(--danger) focus-visible:shadow-(--focus-ring) @3xl:size-[22px]"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12" /></svg></button>
                       }
                     </span>
                   </div>
@@ -194,7 +203,7 @@ interface TimelineDraft {
             } @empty {
               <p class="m-0 px-[14px] py-4 text-(length:--fs-13) text-pretty text-(--text-3)">No steps yet. Add the first step, or start from the official timeline.</p>
             }
-            <div class="flex min-h-11 flex-wrap items-center gap-x-4 gap-y-1 border-t border-(--surface-4) px-[6px] py-1 @xl:py-0">
+            <div class="flex min-h-11 flex-wrap items-center gap-x-4 gap-y-1 border-t border-(--surface-4) px-[6px] py-1 @3xl:py-0">
               @if (!fixedSteps() && d.steps.length < maxSteps()) {
                 <button hlmBtn qaBtn tone="link" size="sm" type="button" (click)="addRow()">Add step</button>
               } @else if (fixedSteps()) {
@@ -248,7 +257,7 @@ interface TimelineDraft {
           <button hlmBtn qaBtn tone="danger" type="button" (click)="discard.discard()">Discard and close</button>
         } @else {
           <button hlmBtn qaBtn tone="secondary" type="button" (click)="discard.requestClose()">Cancel</button>
-          <button hlmBtn qaBtn tone="primary" type="button" (click)="save()" [disabled]="saving()">{{ saving() ? 'Saving…' : isNew() ? (creatingOfficial() ? 'Create official timeline' : 'Create sub-timeline') : 'Save changes' }}</button>
+          <button hlmBtn qaBtn tone="primary" type="button" (click)="save()" [loading]="saving()">{{ saving() ? 'Saving…' : isNew() ? (creatingOfficial() ? 'Create official timeline' : 'Create sub-timeline') : 'Save changes' }}</button>
         }
       </div>
     </qa-drawer>
@@ -321,7 +330,18 @@ export class TimelineDrawer {
     const i = this.runningIndex();
     const p = this.request().timeline?.steps[i];
     const r = this.draft().steps[i];
-    return !!p && (!r || r.name.trim() !== p.name || r.start.trim() !== p.start || r.end.trim() !== p.end || r.batch !== p.batch);
+    if (!p) return false;
+    const saved = stepRow(p);
+    const time = (t: string) => parseTime(t) ?? t.trim();
+    return (
+      !r ||
+      r.name.trim() !== p.name ||
+      r.start.trim() !== p.start ||
+      r.end.trim() !== p.end ||
+      time(r.startTime) !== saved.startTime ||
+      time(r.endTime) !== saved.endTime ||
+      r.batch !== p.batch
+    );
   });
   /** Also opens when the server asks (409 TIMELINES_IN_PROGRESS_UNCONFIRMED). */
   protected readonly confirmActive = linkedSignal({
@@ -351,24 +371,33 @@ export class TimelineDrawer {
         name: t.name,
         programs: [...t.programs],
         types: [...t.types],
-        steps: t.steps.map((p) => ({ name: p.name, start: p.start, end: p.end, batch: p.batch, audience: p.audienceKey })),
+        steps: t.steps.map(stepRow),
         test: !!t.test,
         runNow: false,
       };
     }
     const off = this.official();
     if (this.live()) {
-      // Same steps as the official timeline (or the server's proposal), dates left for the admin.
+      // Same steps as the official timeline (or the server's proposal), days left for the admin; times
+      // start at the server's own defaults (00:00 / 23:59), so an admin who ignores them changes nothing.
+      const blank = { start: '', end: '', startTime: DEFAULT_OPENS_TIME, endTime: DEFAULT_CLOSES_TIME };
       const steps: StepDraftRow[] = off
-        ? off.steps.map((p) => ({ name: p.name, start: '', end: '', batch: p.batch, audience: p.audienceKey }))
-        : this.defaults().map((p) => ({ name: p.name, start: '', end: '', batch: p.requiresLoad, audience: p.audience }));
+        ? off.steps.map((p) => ({ name: p.name, ...blank, batch: p.batch, audience: p.audienceKey }))
+        : this.defaults().map((p) => ({ name: p.name, ...blank, batch: p.requiresLoad, audience: p.audience }));
       return { name: '', programs: [], types: [], steps, test: false, runNow: false };
     }
     return {
       name: '',
       programs: [],
       types: [],
-      steps: DEFAULT_STEP_DATES.map(([start, end], i) => ({ name: off?.steps[i]?.name ?? STEP_NAMES[i], start, end, batch: i === 0 })),
+      steps: DEFAULT_STEP_DATES.map(([start, end], i) => ({
+        name: off?.steps[i]?.name ?? STEP_NAMES[i],
+        start,
+        end,
+        startTime: DEFAULT_OPENS_TIME,
+        endTime: DEFAULT_CLOSES_TIME,
+        batch: i === 0,
+      })),
       test: false,
       runNow: true,
     };
@@ -384,6 +413,8 @@ export class TimelineDrawer {
       // Live data: both dates of every step are required (the API has no open-ended step).
       validate(s.start, ({ value }) => (this.live() && !toApiDay(value()) ? { kind: 'date', message: 'Enter an opening date, for example 06 Jul 2026.' } : undefined));
       validate(s.end, ({ value }) => (this.live() && !toApiDay(value()) ? { kind: 'date', message: 'Enter a closing date, for example 11 Jul 2026.' } : undefined));
+      validate(s.startTime, ({ value }) => (this.live() && !parseTime(value()) ? { kind: 'time', message: 'Enter an opening time, for example 09:00.' } : undefined));
+      validate(s.endTime, ({ value }) => (this.live() && !parseTime(value()) ? { kind: 'time', message: 'Enter a closing time, for example 17:30.' } : undefined));
     });
   });
 
@@ -415,12 +446,21 @@ export class TimelineDrawer {
   private readonly dateIssues = computed((): readonly StepDateIssue[] => {
     const rows = this.draft().steps;
     if (!this.live()) return stepOrderErrors(rows).map((bad) => (bad ? { start: 'Starts before the previous step closes.' } : {}));
-    return stepDateIssues(rows, { today: this.isNew() ? todayInRome() : undefined });
+    return stepDateIssues(rows, { now: this.isNew() ? nowInRome() : undefined });
   });
 
   protected issue(i: number, key: 'start' | 'end'): string {
     if (i < this.closedCount()) return '';
     return this.dateIssues()[i]?.[key] ?? '';
+  }
+
+  /** Outline only the input a row problem points at (the day, the time, or both for an order rule). */
+  protected bad(i: number, input: 'start' | 'startTime' | 'end' | 'endTime'): boolean {
+    const side = input.startsWith('start') ? 'start' : 'end';
+    const r = this.draft().steps[i];
+    if (!r || !this.issue(i, side)) return false;
+    const part = side === 'start' ? boundaryPart(r.start, r.startTime) : boundaryPart(r.end, r.endTime);
+    return input.endsWith('Time') ? part !== 'day' : part !== 'time';
   }
 
   /** Rows as they were when the server answered: its row errors hide as soon as that row is edited. */
@@ -440,7 +480,7 @@ export class TimelineDrawer {
     if (live) return live;
     if (this.tried()) {
       const row = this.tlForm.steps[i];
-      const local = row ? [...row.start().errors(), ...row.end().errors()][0]?.message : '';
+      const local = row ? [...row.start().errors(), ...row.startTime().errors(), ...row.end().errors(), ...row.endTime().errors()][0]?.message : '';
       if (local) return local;
     }
     if (this.feedbackRows()[i] !== JSON.stringify(this.draft().steps[i])) return '';
@@ -467,8 +507,15 @@ export class TimelineDrawer {
     this.draft.update((d) => {
       if (d.steps.length >= this.maxSteps()) return d;
       const audience = this.live() ? nextAudience(d.steps.flatMap((s) => (s.audience ? [s.audience] : []))) ?? undefined : undefined;
-      return { ...d, steps: [...d.steps, { name: '', start: '', end: '', batch: false, audience }] };
+      return { ...d, steps: [...d.steps, { name: '', start: '', end: '', startTime: DEFAULT_OPENS_TIME, endTime: DEFAULT_CLOSES_TIME, batch: false, audience }] };
     });
+  }
+
+  /** `9` → `09:00` once the admin leaves the field. */
+  protected tidyTime(i: number, key: 'startTime' | 'endTime'): void {
+    const typed = this.draft().steps[i]?.[key] ?? '';
+    const t = parseTime(typed);
+    if (t && t !== typed) this.patchRow(i, { [key]: t });
   }
 
   protected removeRow(i: number): void {
@@ -506,7 +553,15 @@ export class TimelineDrawer {
       runNow: d.runNow,
       steps: d.steps
         .filter((s) => s.start.trim())
-        .map((s) => ({ name: s.name.trim(), start: s.start.trim(), end: s.end.trim(), batch: s.batch, audience: s.audience })),
+        .map((s) => ({
+          name: s.name.trim(),
+          start: s.start.trim(),
+          end: s.end.trim(),
+          startTime: parseTime(s.startTime) ?? s.startTime.trim(),
+          endTime: parseTime(s.endTime) ?? s.endTime.trim(),
+          batch: s.batch,
+          audience: s.audience,
+        })),
       confirmed,
     });
     // Live data: the parent closes the drawer once the server saved it.

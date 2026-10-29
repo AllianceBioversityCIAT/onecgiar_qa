@@ -14,7 +14,7 @@ For the front lead (P2-3907). Five routes under `/api/v1/cycles/:id/field-config
 | Method and path | Body | Answers | Refusals (besides 401, 403 and a bad `:id` as 400 `VALIDATION_FAILED`) |
 |---|---|---|---|
 | `GET /cycles/:id/field-config` | none | 200 view | 404 `CYCLES_NOT_FOUND`, 409 `FIELD_CONFIG_CATALOG_MISSING`, 503 |
-| `PATCH /cycles/:id/field-config/draft` | `{ items }`, 1 to 2,000 | 200 view | 400 `VALIDATION_FAILED` or `MALFORMED_JSON`, 404, 409 `CYCLES_CLOSED` or `FIELD_CONFIG_CATALOG_MISSING`, 503 |
+| `PATCH /cycles/:id/field-config/draft` | `{ items }`, 1 to 2,000 (JSON body up to 640 KB; every other route keeps 100 KB) | 200 view | 400 `VALIDATION_FAILED` or `MALFORMED_JSON`, 404, 409 `CYCLES_CLOSED` or `FIELD_CONFIG_CATALOG_MISSING`, 413 `PAYLOAD_TOO_LARGE` (body over 640 KB, refused before validation), 503 |
 | `DELETE /cycles/:id/field-config/draft` | none | 200 view | 404, 409 `CYCLES_CLOSED` or `FIELD_CONFIG_CATALOG_MISSING`, 503 |
 | `GET /cycles/:id/field-config/publish-preview` | none | 200 preview | 404, 409 `FIELD_CONFIG_CATALOG_MISSING`, 503 |
 | `POST /cycles/:id/field-config/publish` | `{ revision }` | **201** publish result | 400, 404, 409 `CYCLES_CLOSED`, `FIELD_CONFIG_REVISION_STALE`, `FIELD_CONFIG_NOTHING_TO_PUBLISH`, `FIELD_CONFIG_CATALOG_MISSING`, 409 `IDEMPOTENCY_IN_PROGRESS`, 422 `IDEMPOTENCY_KEY_REUSED`, 503 |

@@ -10,9 +10,9 @@ import {
 } from 'class-validator';
 import { stepAudiences } from '../../../database/drizzle/schema/timeline-steps.js';
 import type {
-  TimelineCreateInput,
-  TimelineStepInput,
-} from '../timeline-rules.js';
+  CreateTimelineCommand,
+  TimelineStepCommand,
+} from '../timelines.service.js';
 
 /**
  * One step of `POST /cycles/:id/timelines`. The pipe judges the shape only
@@ -23,7 +23,7 @@ import type {
  * string and the dates are optional here: a missing date must reach the rules
  * to be named, never be dropped (FR-8).
  */
-export class TimelineStepDto implements TimelineStepInput {
+export class TimelineStepDto implements TimelineStepCommand {
   @ApiProperty({
     type: String,
     maxLength: 120,
@@ -45,10 +45,36 @@ export class TimelineStepDto implements TimelineStepInput {
 
   @ApiProperty({
     type: String,
+    required: false,
+    nullable: true,
+    example: '2026-11-10T14:00',
+    description:
+      'Opening moment, Rome time, `YYYY-MM-DDTHH:mm` (no seconds, no offset). Send this or `opensOn`, not both: send only one key per boundary; a null key counts as sent. The first step cannot open before the current Rome minute, and a step opens after the closing minute of the one before it',
+  })
+  @IsOptional()
+  @IsString()
+  opensAt?: string | null;
+
+  @ApiProperty({
+    type: String,
+    required: false,
+    nullable: true,
+    example: '2026-11-12T17:30',
+    description:
+      'Closing moment, Rome time, `YYYY-MM-DDTHH:mm`. Send this or `closesOn`, not both: send only one key per boundary; a null key counts as sent. It is after the opening moment',
+  })
+  @IsOptional()
+  @IsString()
+  closesAt?: string | null;
+
+  @ApiProperty({
+    type: String,
     format: 'date',
+    required: false,
+    nullable: true,
     example: '2026-11-02',
     description:
-      'Rome calendar day, `YYYY-MM-DD`. Required; the first step cannot open before today in Rome, and a step opens after the closing day of the one before it',
+      'Rome calendar day, `YYYY-MM-DD`: the day-only form of the opening, meaning 00:00 that day. Send this or `opensAt`; the first step cannot open before the current Rome minute, and a step opens after the closing minute of the one before it',
   })
   @IsOptional()
   @IsString()
@@ -57,9 +83,11 @@ export class TimelineStepDto implements TimelineStepInput {
   @ApiProperty({
     type: String,
     format: 'date',
+    required: false,
+    nullable: true,
     example: '2026-11-06',
     description:
-      'Rome calendar day, `YYYY-MM-DD`. Required; the same day as the opening is valid',
+      'Rome calendar day, `YYYY-MM-DD`: the day-only form of the closing, meaning 23:59 that day. Send this or `closesAt`',
   })
   @IsOptional()
   @IsString()
@@ -92,7 +120,7 @@ export class TimelineStepDto implements TimelineStepInput {
  * `REQUIRED` in the same round as the other rule problems (FR-6, FR-11, design
  * 7.2 step 1). A list that is present is still type-checked here.
  */
-export class CreateTimelineDto implements TimelineCreateInput {
+export class CreateTimelineDto implements CreateTimelineCommand {
   @ApiProperty({
     type: String,
     maxLength: 120,

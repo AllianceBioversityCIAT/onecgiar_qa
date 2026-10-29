@@ -42,6 +42,29 @@ describe('UpdateTimelineDto (the pipe judges the shape only)', () => {
     expect(await fieldsOf({ version: 3, name: 'July' })).toEqual([]);
   });
 
+  it('accepts opensAt and closesAt on a step, beside the day-only keys (timeline-step-times FR-1, FR-9)', async () => {
+    expect(
+      await fieldsOf({
+        version: 3,
+        steps: [
+          {
+            position: 1,
+            opensAt: '2026-11-10T14:00',
+            closesAt: '2026-11-12T17:30',
+          },
+          { position: 2, opensOn: '2026-11-13', closesOn: '2026-11-14' },
+          { position: 3, opensAt: '2026-11-16T09:00', opensOn: '2026-11-16' },
+        ],
+      }),
+    ).toEqual([]);
+  });
+
+  it('refuses an opensAt that is not a string, on that key', async () => {
+    expect(
+      await fieldsOf({ version: 3, steps: [{ position: 1, opensAt: 5 }] }),
+    ).toEqual([expect.objectContaining({ field: 'steps[0].opensAt' })]);
+  });
+
   it.each(['audience', 'round', 'requiresLoad'])(
     'refuses the structural key %s on a step (NFR-2)',
     async (key) => {

@@ -281,14 +281,14 @@
         }
       </div>
       <button hlmBtn qaBtn tone="secondary" type="button" (click)="confirmRemove.set(false)">Keep them</button>
-      <button hlmBtn qaBtn tone="danger" type="button" [disabled]="busy()" (click)="remove()">Remove</button>
+      <button hlmBtn qaBtn tone="danger" type="button" [loading]="busy()" (click)="remove()">Remove</button>
     } @else if (isNew()) {
       <button hlmBtn qaBtn tone="secondary" type="button" (click)="requestClose()">Cancel</button>
-      <button hlmBtn qaBtn tone="primary" type="button" [disabled]="busy()" (click)="save()">{{ busy() ? 'Sending…' : 'Send invitation' }}</button>
+      <button hlmBtn qaBtn tone="primary" type="button" [loading]="busy()" (click)="save()">{{ busy() ? 'Sending…' : 'Send invitation' }}</button>
     } @else {
       <button hlmBtn qaBtn tone="danger-quiet" type="button" (click)="confirmRemove.set(true)" class="mr-auto">Remove from team</button>
       <button hlmBtn qaBtn tone="secondary" type="button" (click)="open.set(false)">Cancel</button>
-      <button hlmBtn qaBtn tone="primary" type="button" [disabled]="busy()" (click)="save()">{{ busy() ? 'Saving…' : 'Save changes' }}</button>
+      <button hlmBtn qaBtn tone="primary" type="button" [loading]="busy()" (click)="save()">{{ busy() ? 'Saving…' : 'Save changes' }}</button>
     }
   </div>
 </qa-drawer>

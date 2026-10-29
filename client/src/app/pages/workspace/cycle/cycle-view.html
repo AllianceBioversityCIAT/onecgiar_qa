@@ -26,7 +26,7 @@
 <div data-screen-label="Cycle" class="flex flex-col items-stretch gap-6 px-4 pt-6 pb-8 sm:px-6 lg:px-8">
   @switch (store.state()) {
   @case ('loading') {
-    <p role="status" class="m-0 text-(length:--fs-14) text-(--text-3)">Loading the cycle…</p>
+    <qa-cycle-skeleton />
   }
   @case ('error') {
     <section role="alert" class="flex flex-col items-start gap-1 rounded-[12px] border border-(--border) bg-(--surface) px-5 py-6">
@@ -48,11 +48,11 @@
 
   <!-- Official timeline -->
   @if (officialVM(); as ot) {
-  <section class="rounded-[12px] border border-(--border) bg-(--surface)" aria-labelledby="cycle-ot-title">
+  <section qaReveal="0" class="rounded-[12px] border border-(--border) bg-(--surface)" aria-labelledby="cycle-ot-title">
     <div class="flex min-h-16 flex-wrap items-center gap-3 border-b border-(--surface-4) px-5 py-4">
       <div class="flex min-w-0 flex-[1_1_14rem] flex-col gap-[3px]">
         <h2 id="cycle-ot-title" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">{{ ot.name }}</h2>
-        <div class="text-(length:--fs-13) leading-[1.5] font-normal text-(--text-3)">Official timeline · <span class="font-(family-name:--qa-mono) font-medium whitespace-nowrap text-(--text-2) tabular-nums">{{ ot.range }}</span> · <span class="font-(family-name:--qa-mono) font-medium text-(--text-2) tabular-nums">{{ ot.stepCount }}</span> steps · all programs</div>
+        <div class="text-(length:--fs-13) leading-[1.5] font-normal text-(--text-3)">Official timeline · <span class="font-(family-name:--qa-mono) font-medium text-(--text-2) tabular-nums"><span class="whitespace-nowrap">{{ ot.rangeParts[0] }}</span>&ngsp;<span class="whitespace-nowrap">{{ ot.rangeParts[1] }}</span></span> · <span class="whitespace-nowrap"><span class="font-(family-name:--qa-mono) font-medium text-(--text-2) tabular-nums">{{ ot.stepCount }}</span> steps</span> · all programs</div>
       </div>
       @if (ot.canEdit && store.canWrite()) {
         <div class="flex flex-none flex-wrap items-center gap-2 max-sm:w-full">
@@ -77,7 +77,7 @@
   <!-- Sub-timelines (once the cycle has its official timeline) -->
   @if (official()) {
   <div class="flex flex-col">
-    <div class="mb-4 flex flex-wrap items-end gap-4">
+    <div qaReveal="1" class="mb-4 flex flex-wrap items-end gap-4">
       <div class="flex min-w-0 flex-[1_1_15rem] flex-col gap-1">
         <h2 class="m-0 text-(length:--fs-20) font-bold tracking-[-0.01em] text-(--text)">Sub-timelines</h2>
         <p class="m-0 text-(length:--fs-13) font-normal text-(--text-3)">A second calendar for programs and result types running late. Each one has its own dates and loads its results when its first step opens.</p>
@@ -100,6 +100,7 @@
           <div class="flex flex-col gap-5">
             @for (t of liveVMs(); track t.id) {
               <qa-cycle-timeline-card
+                [qaReveal]="$index + 2"
                 [timeline]="t"
                 [canAddStep]="false"
                 [confirmClose]="closeConfirmId() === t.id"
@@ -125,7 +126,7 @@
         @if (tab() === 'closed') {
           <div class="flex flex-col gap-5">
             @for (t of closedVMs(); track t.id) {
-              <qa-cycle-timeline-card [timeline]="t" (openStep)="openStep(t.id, $event)" (viewProgress)="openProgress(t.id, $event)" />
+              <qa-cycle-timeline-card [qaReveal]="$index" [timeline]="t" (openStep)="openStep(t.id, $event)" (viewProgress)="openProgress(t.id, $event)" />
             } @empty {
               <section class="flex flex-col items-start gap-1 rounded-[12px] border border-(--border) bg-(--surface) px-5 py-6">
                 <h3 class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">No closed sub-timelines yet</h3>

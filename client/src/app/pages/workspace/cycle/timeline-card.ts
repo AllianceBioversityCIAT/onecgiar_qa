@@ -21,7 +21,7 @@ import { TimelineSteps } from './timeline-steps';
             }
             <span class="rounded-full px-2 py-[2px] text-(length:--fs-11) font-semibold whitespace-nowrap" [class]="t.statusClass">{{ t.status }}</span>
           </div>
-          <div class="text-(length:--fs-13) leading-[1.5] font-normal text-(--text-3)"><span class="font-(family-name:--qa-mono) font-medium text-(--text-2) whitespace-nowrap tabular-nums">{{ t.range }}</span> · <span class="font-(family-name:--qa-mono) font-medium text-(--text-2) tabular-nums">{{ t.results }}</span> results · {{ t.progText }} · {{ t.typeText }}</div>
+          <div class="text-(length:--fs-13) leading-[1.5] font-normal text-(--text-3)"><span class="font-(family-name:--qa-mono) font-medium text-(--text-2) tabular-nums"><span class="whitespace-nowrap">{{ t.rangeParts[0] }}</span>&ngsp;<span class="whitespace-nowrap">{{ t.rangeParts[1] }}</span></span> · <span class="whitespace-nowrap"><span class="font-(family-name:--qa-mono) font-medium text-(--text-2) tabular-nums">{{ t.results }}</span> results</span> · {{ t.progText }} · {{ t.typeText }}</div>
         </div>
         @if (t.canEdit) {
           <div class="flex flex-none items-center gap-2 max-sm:w-full">

@@ -1,6 +1,12 @@
 import request from 'supertest';
 import { GRANTABLE_ROLES } from '../src/users/permissions.js';
 import {
+  dayEnd,
+  dayStart,
+  type RomeMinute,
+} from '../src/admin-config/rome-date.js';
+
+import {
   bearer,
   buildAdminConfigApp,
   type AdminConfigApp,
@@ -244,8 +250,9 @@ describe('Field configuration routes (e2e)', () => {
       position: 1,
       name: 'QA Platform open for assessors',
       audience: 'assessors',
-      opensOn,
-      closesOn: '2026-12-18',
+      // A whole day: opens at 00:00, closes at 23:59 (S-6).
+      opensAt: dayStart(opensOn),
+      closesAt: dayEnd('2026-12-18'),
       round: 1,
       requiresLoad: false,
     });
@@ -820,6 +827,91 @@ describe('Field configuration routes (e2e)', () => {
         409,
         'CYCLES_CLOSED',
       );
+    });
+
+    describe('R-5, FR-5 and NFR-2: the body limit of the draft edit', () => {
+      const bulk = (count: number, pad = 0) =>
+        Array.from({ length: count }, (_, n) =>
+          item(
+            TYPES[n % TYPES.length],
+            `general.field_${n}${'x'.repeat(pad)}`,
+            { visibility: 'view_only', isCore: false, isAiInput: false },
+          ),
+        );
+
+      it('R-5 and FR-5: 2,000 items whose JSON is over 100 KB reach validation (400 VALIDATION_FAILED, not 413) and write nothing', async () => {
+        const id = await createCycle(2026);
+        const items = bulk(2000);
+        expect(JSON.stringify({ items }).length).toBeGreaterThan(100 * 1024);
+
+        // The world catalog does not hold these keys, so the answer is the
+        // domain 400 listing them; what the test pins is that the parser let
+        // the body through to the pipe and the service.
+        const res = await refused(
+          id,
+          () => patch(id, items),
+          400,
+          'VALIDATION_FAILED',
+        );
+
+        // per-item domain errors from the service, not a body the pipe never saw
+        const fields = fieldsOf(res);
+        expect(fields.length).toBeGreaterThan(0);
+        expect(fields).not.toEqual([['items', expect.anything()]]);
+        for (const [field] of fields) {
+          expect(field).toMatch(/^items\[\d+\]\.(resultTypeKey|fieldKey)$/);
+        }
+      });
+
+      it('R-5 and NFR-2: 2,000 items near the limit (about 500 KB, under it) are parsed, not 413', async () => {
+        const id = await createCycle(2026);
+        const items = bulk(2000, 130);
+        const size = JSON.stringify({ items }).length;
+        expect(size).toBeGreaterThan(450 * 1024);
+        expect(size).toBeLessThan(640 * 1024);
+
+        const res = await refused(
+          id,
+          () => patch(id, items),
+          400,
+          'VALIDATION_FAILED',
+        );
+
+        expect(fieldsOf(res).length).toBeGreaterThan(0);
+      });
+
+      it('R-5 and NFR-2: 2,001 items are a 400 VALIDATION_FAILED on `items` (the array bound), not a 413', async () => {
+        const id = await createCycle(2026);
+        const items = bulk(2001);
+        expect(JSON.stringify({ items }).length).toBeGreaterThan(100 * 1024);
+
+        const res = await refused(
+          id,
+          () => patch(id, items),
+          400,
+          'VALIDATION_FAILED',
+        );
+
+        expect(fieldsOf(res).map(([field]) => field)).toEqual(['items']);
+      });
+
+      it('R-5 and NFR-2: a body over the 640 KB limit of the draft edit is 413 PAYLOAD_TOO_LARGE and writes nothing', async () => {
+        const id = await createCycle(2026);
+        const items = bulk(2000, 400);
+        expect(JSON.stringify({ items }).length).toBeGreaterThan(640 * 1024);
+
+        await refused(id, () => patch(id, items), 413, 'PAYLOAD_TOO_LARGE');
+      });
+
+      it('R-5 and NFR-2: the larger limit stays on that route; another JSON route over 100 KB is still 413', async () => {
+        const padding = 'x'.repeat(150 * 1024);
+
+        const created = await w.send('post', '/cycles', {
+          body: { year: 2027, padding },
+        });
+
+        expectError(created, 413, 'PAYLOAD_TOO_LARGE');
+      });
     });
   });
 
@@ -1510,6 +1602,77 @@ describe('Field configuration routes (e2e)', () => {
       expect(lineOf(refusedClosed, 'field_config_update')).toMatchObject([
         { outcome: 'refused', reason: 'CYCLES_CLOSED', targetId: closed },
       ]);
+    });
+  });
+
+  // --- timeline-step-times (P2-4019) FR-8: versions use the opening moment ------
+
+  describe('step times (P2-4019)', () => {
+    /** Two published versions a month ago, then the clock at this instant (UTC; Rome is UTC+1 in November). */
+    const versionsThenAt = async (id: number, iso: string) => {
+      w.adminClock.advance(-days(30));
+      await edit(id, [item('policy_change', 'general.title')]);
+      await edit(id, [item('policy_change', 'policy_change.policy_type')]);
+      w.adminClock.advance(
+        new Date(iso).getTime() - w.adminClock.now().getTime(),
+      );
+    };
+    /**
+     * A timeline whose step 1 opens at this Rome minute (not at the day's 00:00).
+     * Only `opensAt` is overridden: `closesAt` keeps the seeded default because
+     * FR-8 judges only the start of the timeline.
+     */
+    const seedOpeningAt = (
+      id: number,
+      cycleId: number,
+      opensAt: RomeMinute,
+    ) => {
+      seedTimeline(id, cycleId, opensAt.slice(0, 10), ['policy_change']);
+      w.world.steps.find((s) => s.timelineId === id)!.opensAt = opensAt;
+    };
+
+    it('FR-8 Published the same morning: at 09:00 Rome on 10 Nov, the timeline opening at 14:00 receives version 3 and the one that opened at 08:00 keeps version 2', async () => {
+      const id = await createCycle(2026);
+      await versionsThenAt(id, '2026-11-10T08:00:00.000Z');
+      seedOpeningAt(1, id, '2026-11-10T14:00' as RomeMinute); // A
+      seedOpeningAt(2, id, '2026-11-10T08:00' as RomeMinute); // B
+
+      const edited = await patch(id, [
+        item('policy_change', 'general.title', { visibility: 'view_only' }),
+      ]);
+      const res = await publish(id, edited.body.data.revision);
+
+      expect(res.status).toBe(201);
+      expect(res.body.data.version.number).toBe(3);
+      expect(res.body.data.timelines).toEqual({
+        receive: [{ id: 1, name: 'Timeline 1', opensOn: '2026-11-10' }],
+        keep: [
+          { id: 2, name: 'Timeline 2', opensOn: '2026-11-10', version: 2 },
+        ],
+      });
+      expect(w.fieldConfigWorld.auditEvents.at(-1)).toMatchObject({
+        timelines: { receive: [1], keep: [{ id: 2, version: 2 }] },
+      });
+    });
+
+    it('FR-8 Published in the opening minute: at 14:00:10 Rome the timeline opening at 14:00 keeps version 2', async () => {
+      const id = await createCycle(2026);
+      await versionsThenAt(id, '2026-11-10T13:00:10.000Z');
+      seedOpeningAt(1, id, '2026-11-10T14:00' as RomeMinute); // A
+
+      const edited = await patch(id, [
+        item('policy_change', 'general.title', { visibility: 'view_only' }),
+      ]);
+      const res = await publish(id, edited.body.data.revision);
+
+      expect(res.status).toBe(201);
+      expect(res.body.data.version.number).toBe(3);
+      expect(res.body.data.timelines).toEqual({
+        receive: [],
+        keep: [
+          { id: 1, name: 'Timeline 1', opensOn: '2026-11-10', version: 2 },
+        ],
+      });
     });
   });
 });

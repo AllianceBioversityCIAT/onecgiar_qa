@@ -291,6 +291,11 @@ describe('OpenAPI document (e2e)', () => {
         'FIELD_CONFIG_CATALOG_MISSING',
       );
     }
+    // The draft edit alone takes up to 2,000 items, so its body limit is 640 KB
+    // (R-5); the parser answers 413 above it.
+    expect(
+      codesOf('PATCH /api/v1/cycles/:id/field-config/draft', '413'),
+    ).toEqual(['PAYLOAD_TOO_LARGE']);
     // Reads work in any cycle status (FR-13); the three writes refuse a closed one.
     for (const key of view) {
       expect(codesOf(key, '409'), key).not.toContain('CYCLES_CLOSED');
@@ -323,6 +328,54 @@ describe('OpenAPI document (e2e)', () => {
       required: ['items'],
       properties: { items: { type: 'array', minItems: 1, maxItems: 2000 } },
     });
+  });
+
+  it('timeline-step-times FR-1, FR-9, FR-10: documents the step moments, the deprecated day keys and the time zone, and how to send a boundary', () => {
+    const schemas = doc.components?.schemas as Record<string, any>;
+    const step = schemas.TimelineStepModel;
+    expect(step.required).toEqual(
+      expect.arrayContaining(['opensAt', 'closesAt', 'opensOn', 'closesOn']),
+    );
+    for (const key of ['opensAt', 'closesAt']) {
+      expect(step.properties[key], key).toMatchObject({ type: 'string' });
+      expect(step.properties[key].deprecated, key).not.toBe(true);
+      expect(step.properties[key].example, key).toMatch(
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/,
+      );
+    }
+    for (const key of ['opensOn', 'closesOn']) {
+      expect(step.properties[key], key).toMatchObject({
+        type: 'string',
+        format: 'date',
+        deprecated: true,
+      });
+    }
+    for (const name of ['TimelineModel', 'TimelineDetailModel']) {
+      const model = schemas[name];
+      expect(model.required, name).toContain('timeZone');
+      expect(model.properties.timeZone, name).toMatchObject({
+        type: 'string',
+        example: 'Europe/Rome',
+      });
+    }
+    // One key per boundary on write; a null key counts as sent (T-4 pointer).
+    for (const dto of ['TimelineStepDto', 'TimelineStepUpdateDto']) {
+      const model = schemas[dto];
+      expect(model, dto).toBeDefined();
+      // A boundary may be sent in either form, so no moment key is required.
+      for (const key of ['opensAt', 'closesAt', 'opensOn', 'closesOn']) {
+        expect(model.required ?? [], `${dto}.required`).not.toContain(key);
+      }
+      for (const key of ['opensAt', 'closesAt']) {
+        expect(model.properties[key], `${dto}.${key}`).toMatchObject({
+          type: 'string',
+          nullable: true,
+        });
+        expect(model.properties[key].description, `${dto}.${key}`).toContain(
+          'a null key counts as sent',
+        );
+      }
+    }
   });
 
   it('carries no secret or token value', () => {

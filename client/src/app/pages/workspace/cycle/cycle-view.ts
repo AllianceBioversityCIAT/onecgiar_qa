@@ -1,9 +1,10 @@
 import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { Toasts } from '../../../core/http/toasts';
-import { QaButtonImports, QaTabsImports } from '../../../ui';
+import { QaButtonImports, QaReveal, QaTabsImports } from '../../../ui';
+import { CycleSkeleton } from './cycle-skeleton';
 import { CycleStore, TimelineSaveOutcome } from './cycle-store';
 import { RUN_TARGETS, Timeline } from './cycle.mock';
-import { MenuAction, formatNumber, stepState, timelineStart, timelineVM } from './cycle.logic';
+import { MenuAction, formatNumber, stepRow, stepState, timelineStart, timelineVM } from './cycle.logic';
 import { RunRequest } from './load-drawer';
 import { ProgressDrawer, StepProgress } from './progress-drawer';
 import { StepDrawer, StepRequest, StepSaveEvent } from './step-drawer';
@@ -23,7 +24,7 @@ const EMPTY_TIMELINE: Timeline = { id: '', name: '', kind: 'Sub-timeline', statu
  */
 @Component({
   selector: 'qa-cycle-view',
-  imports: [QaButtonImports, QaTabsImports, TimelineSteps, TimelineCard, TimelineDrawer, StepDrawer, ProgressDrawer],
+  imports: [QaButtonImports, QaTabsImports, QaReveal, CycleSkeleton, TimelineSteps, TimelineCard, TimelineDrawer, StepDrawer, ProgressDrawer],
   providers: [CycleStore],
   templateUrl: './cycle-view.html',
 })
@@ -136,9 +137,7 @@ export class CycleView implements OnInit {
   protected async saveStep(e: StepSaveEvent): Promise<void> {
     const before = this.timelineById(e.timelineId);
     if (!before || e.index == null || this.saving()) return;
-    const steps = before.steps.map((p, i) =>
-      i === e.index ? { name: e.step.name, start: e.step.start, end: e.step.end, batch: p.batch } : { name: p.name, start: p.start, end: p.end, batch: p.batch },
-    );
+    const steps = before.steps.map((p, i) => (i === e.index ? { ...stepRow({ ...p, ...e.step }), batch: p.batch } : stepRow(p)));
     const asked = this.stepRequest();
     const outcome = await this.save(() =>
       this.store.update(before, { name: before.name, programs: before.programs, types: before.types, steps }, e.confirmed),

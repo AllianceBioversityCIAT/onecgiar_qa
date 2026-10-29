@@ -10,8 +10,10 @@ import {
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
-import type { TimelineStepUpdate } from '../timeline-rules.js';
-import type { UpdateTimelineCommand } from '../timelines.service.js';
+import type {
+  TimelineStepUpdateCommand,
+  UpdateTimelineCommand,
+} from '../timelines.service.js';
 
 // A key the client left out is `undefined`; `null` is a value and not a way to
 // leave a key out, so for a field that cannot hold null the check runs on
@@ -26,7 +28,7 @@ const sentOnly = ValidateIf((_, value) => value !== undefined);
  * lacks, or sent twice, is named by the rules as `steps[i].position`, with the
  * other rule problems of the request (FR-11 of *timelines*).
  */
-export class TimelineStepUpdateDto implements TimelineStepUpdate {
+export class TimelineStepUpdateDto implements TimelineStepUpdateCommand {
   @ApiProperty({
     type: Number,
     minimum: 1,
@@ -49,6 +51,30 @@ export class TimelineStepUpdateDto implements TimelineStepUpdate {
   @sentOnly
   @IsString()
   name?: string;
+
+  @ApiProperty({
+    type: String,
+    required: false,
+    nullable: true,
+    example: '2026-11-10T14:00',
+    description:
+      'New opening moment, Rome time, `YYYY-MM-DDTHH:mm`; left out keeps the stored one. Not together with `opensOn`: send only one key per boundary; a null key counts as sent. Refused when the step is already open or closed',
+  })
+  @IsOptional()
+  @IsString()
+  opensAt?: string | null;
+
+  @ApiProperty({
+    type: String,
+    required: false,
+    nullable: true,
+    example: '2026-11-12T17:30',
+    description:
+      'New closing moment, Rome time, `YYYY-MM-DDTHH:mm`; left out keeps the stored one. Not together with `closesOn`: send only one key per boundary; a null key counts as sent. A step in progress can be moved to the current minute or later',
+  })
+  @IsOptional()
+  @IsString()
+  closesAt?: string | null;
 
   @ApiProperty({
     type: String,

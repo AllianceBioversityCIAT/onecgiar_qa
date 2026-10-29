@@ -39,7 +39,7 @@
           emptyText="Nothing matches that search."
         />
       }
-      <button hlmBtn qaBtn tone="link" size="sm" type="button" [attr.aria-pressed]="showRemoved()" (click)="toggleRemoved()">
+      <button hlmBtn qaBtn tone="link" size="sm" type="button" [attr.aria-pressed]="showRemoved()" [loading]="loadingRemoved()" (click)="toggleRemoved()">
         {{ showRemoved() ? 'Show the team' : 'Show removed people' }}
       </button>
     </div>
@@ -72,7 +72,7 @@
     </div>
   }
   @if (store.state() === 'loading') {
-    <p class="m-0 text-(length:--fs-14) text-(--text-3)" role="status">Loading the team…</p>
+    <qa-assessors-skeleton />
   } @else if (store.state() === 'error') {
     <div class="flex max-w-[420px] flex-col items-start gap-2" role="alert">
       <p class="m-0 text-(length:--fs-14) text-(--text-2)">The team could not load. {{ store.loadError() }}</p>
@@ -107,7 +107,7 @@
         </thead>
         <tbody class="block">
           @for (r of rows(); track r.member.id; let first = $first; let last = $last) {
-            <tr [class]="cell.row + (last ? ' rounded-b-[11px]' : ' border-b border-(--surface-4)') + (first ? ' @max-[640px]:rounded-t-[11px]' : '')">
+            <tr [qaReveal]="$index" [class]="cell.row + (last ? ' rounded-b-[11px]' : ' border-b border-(--surface-4)') + (first ? ' @max-[640px]:rounded-t-[11px]' : '')">
               <td class="flex min-w-0 items-center gap-2.5 p-0" [class]="cell.person">
                 <span aria-hidden="true" class="flex size-7 flex-none items-center justify-center rounded-full bg-(--tint-2) font-(family-name:--qa-mono) tabular-nums text-(length:--fs-11) font-semibold text-(--accent)">{{ r.initials }}</span>
                 <div class="flex min-w-0 flex-col gap-px">

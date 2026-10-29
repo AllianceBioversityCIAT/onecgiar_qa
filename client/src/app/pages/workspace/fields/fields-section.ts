@@ -1,7 +1,7 @@
+import { QaReveal } from '../../../ui';
 import { Component, input, output } from '@angular/core';
-import { FieldSectionVm } from './fields-config';
+import { FieldSectionVm, FieldState } from './fields-config';
 import { FieldsRow } from './fields-row';
-import { FieldState } from './fields.mock';
 
 export interface FieldRowEvent<T> {
   readonly id: string;
@@ -14,12 +14,13 @@ export interface FieldRowEvent<T> {
  */
 @Component({
   selector: 'qa-fields-section',
-  imports: [FieldsRow],
+  imports: [FieldsRow, QaReveal],
   host: { class: 'contents' },
   template: `
     @let s = section();
     <button
       type="button"
+      [qaReveal]="revealFrom()"
       [attr.aria-expanded]="s.open"
       (click)="toggle.emit()"
       class="sticky z-11 flex min-h-10 w-full cursor-pointer items-center gap-2.5 border-0 border-b border-solid border-(--surface-4) bg-(--surface-2) px-5 text-left select-none focus-visible:shadow-(--focus-ring) focus-visible:outline-none"
@@ -33,11 +34,12 @@ export interface FieldRowEvent<T> {
       @for (row of s.rows; track row.id) {
         <qa-fields-row
           [row]="row"
+          [reveal]="revealFrom() + 1 + $index"
           [compact]="compact()"
+          [readOnly]="readOnly()"
           (stateChange)="stateChange.emit({ id: row.id, value: $event })"
           (coreChange)="coreChange.emit({ id: row.id, value: $event })"
           (aiChange)="aiChange.emit({ id: row.id, value: $event })"
-          (reset)="reset.emit(row.id)"
         />
       }
     }
@@ -46,10 +48,13 @@ export interface FieldRowEvent<T> {
 export class FieldsSection {
   readonly section = input.required<FieldSectionVm>();
   readonly compact = input(false);
+  /** Position of this section's bar in the page's one-after-another entrance (rows follow it). */
+  readonly revealFrom = input(0);
+  /** Closed cycle: the controls show the configuration but do not change it. */
+  readonly readOnly = input(false);
 
   readonly toggle = output<void>();
   readonly stateChange = output<FieldRowEvent<FieldState>>();
   readonly coreChange = output<FieldRowEvent<boolean>>();
   readonly aiChange = output<FieldRowEvent<boolean>>();
-  readonly reset = output<string>();
 }

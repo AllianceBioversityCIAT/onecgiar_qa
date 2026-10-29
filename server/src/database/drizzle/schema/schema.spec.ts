@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { MySqlDialect, getTableConfig } from 'drizzle-orm/mysql-core';
 import type { SQL } from 'drizzle-orm';
@@ -300,8 +300,8 @@ describe('committed migrations', () => {
     .filter((f) => f.endsWith('.sql'))
     .sort();
 
-  it('are exactly six SQL files', () => {
-    expect(files).toHaveLength(6);
+  it('are exactly seven SQL files', () => {
+    expect(files).toHaveLength(7);
   });
 
   const sql = readFileSync(`${migrationsDir}${files[0]}`, 'utf8');
@@ -782,18 +782,30 @@ describe('timeline_steps schema (design 5, FR-8, FR-9)', () => {
       name: 'varchar(120) NOT NULL',
       audience:
         "enum('assessors','programs','lead_assessors','tpb','ppu') NOT NULL",
-      opens_on: 'date NOT NULL',
-      closes_on: 'date NOT NULL',
+      opens_at: 'datetime NOT NULL',
+      closes_at: 'datetime NOT NULL',
       round: 'tinyint unsigned NOT NULL',
       requires_load: 'boolean NOT NULL',
     });
   });
 
-  it('reads and writes opens_on and closes_on as YYYY-MM-DD strings, not Date (DD-5, P-12)', () => {
-    for (const n of ['opens_on', 'closes_on']) {
+  it('reads and writes opens_at and closes_at as Rome minutes, never a Date (DD-3, P-2)', () => {
+    for (const n of ['opens_at', 'closes_at']) {
       const column = columnOf(schema.timelineSteps, n);
-      expect(column.dataType, n).toBe('string');
-      expect(column.columnType, n).toBe('MySqlDateString');
+      // A custom column: the application sees `YYYY-MM-DDTHH:mm`, the database `YYYY-MM-DD HH:mm:00`.
+      expect(column.columnType, n).toBe('MySqlCustomColumn');
+      expect(column.mapFromDriverValue('2026-11-10 14:00:00'), n).toBe(
+        '2026-11-10T14:00',
+      );
+      expect(column.mapFromDriverValue('2026-11-02 00:00:00'), n).toBe(
+        '2026-11-02T00:00',
+      );
+      expect(column.mapToDriverValue('2026-11-12T17:30'), n).toBe(
+        '2026-11-12 17:30:00',
+      );
+      expect(column.mapToDriverValue('2026-11-06T23:59'), n).toBe(
+        '2026-11-06 23:59:00',
+      );
     }
   });
 
@@ -829,10 +841,10 @@ describe('timeline_steps schema (design 5, FR-8, FR-9)', () => {
     );
   });
 
-  it('CHECK: a step closes on or after the day it opens; the same day is valid (FR-8)', () => {
-    // `>=`, not `>`: a one-day step is valid.
+  it('CHECK: a step closes strictly after it opens; the same day is valid, the same minute is not (timeline-step-times FR-3)', () => {
+    // `>`, not `>=`: with minutes, "the same moment" is the invalid case.
     expect(checkOf(schema.timelineSteps, 'chk_timeline_steps_dates')).toBe(
-      '`closes_on` >= `opens_on`',
+      '`closes_at` > `opens_at`',
     );
   });
 
@@ -1571,7 +1583,9 @@ describe('committed migration 0005 (field configuration)', () => {
     expect(journal.entries.map((e) => e.tag)).toEqual(
       files.map((f) => f.replace(/\.sql$/, '')),
     );
-    expect(journal.entries.map((e) => e.idx)).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(journal.entries.map((e) => e.idx).slice(0, 6)).toEqual([
+      0, 1, 2, 3, 4, 5,
+    ]);
   });
 
   it('is additive only: it creates exactly the five new tables and touches no existing one (design 5)', () => {
@@ -1693,5 +1707,84 @@ describe('committed migration 0005 (field configuration)', () => {
         /`(updated|ended|revoked|removed|deleted)_\w+`/,
       );
     }
+  });
+});
+
+// timeline-step-times (design 5, DD-6): migration 0006 is the one that is NOT
+// additive. It renames and retypes the two step columns and rewrites the
+// closing time of every stored step, so it carries a manual down script (NFR-3).
+describe('committed migration 0006 (timeline step times)', () => {
+  const files = readdirSync(migrationsDir)
+    .filter((f) => f.endsWith('.sql'))
+    .sort();
+  const read = (path: string) => readFileSync(path, 'utf8');
+  const statementsOf = (text: string) =>
+    text
+      .replace(/^--(?!>).*$/gm, '')
+      .split('--> statement-breakpoint')
+      .map((x) => x.trim())
+      .filter(Boolean);
+  const up = files[6] ? read(`${migrationsDir}${files[6]}`) : '';
+  const downPath = `${migrationsDir}rollback/0006_timeline_step_times.down.sql`;
+  const down = existsSync(downPath) ? read(downPath) : '';
+
+  it('is named 0006_timeline_step_times and registered in the journal as the seventh entry', () => {
+    expect(files[6]).toBe('0006_timeline_step_times.sql');
+    const journal = JSON.parse(read(`${migrationsDir}meta/_journal.json`)) as {
+      entries: { idx: number; tag: string }[];
+    };
+    expect(journal.entries.map((e) => e.tag)).toEqual(
+      files.map((f) => f.replace(/\.sql$/, '')),
+    );
+    expect(journal.entries.at(-1)).toMatchObject({
+      idx: 6,
+      tag: '0006_timeline_step_times',
+    });
+  });
+
+  it('holds exactly the four steps of design 5, in order: drop the check, rename and retype, rewrite closes_at, add the strict check', () => {
+    expect(statementsOf(up)).toEqual([
+      'ALTER TABLE `timeline_steps` DROP CHECK `chk_timeline_steps_dates`;',
+      'ALTER TABLE `timeline_steps` CHANGE COLUMN `opens_on` `opens_at` datetime NOT NULL, CHANGE COLUMN `closes_on` `closes_at` datetime NOT NULL;',
+      "UPDATE `timeline_steps` SET `closes_at` = TIMESTAMP(DATE(`closes_at`), '23:59:00');",
+      'ALTER TABLE `timeline_steps` ADD CONSTRAINT `chk_timeline_steps_dates` CHECK (`closes_at` > `opens_at`);',
+    ]);
+  });
+
+  it('sets every stored closing time to 23:59 of its day, with no row filter (S-6, FR-11)', () => {
+    const update = statementsOf(up).find((st) => st.startsWith('UPDATE')) ?? '';
+    expect(update).toContain("'23:59:00'");
+    expect(update).not.toMatch(/\bWHERE\b/);
+    // The opening time is not touched: the type change already makes it 00:00:00.
+    expect(update).not.toContain('`opens_at`');
+  });
+
+  it('touches only timeline_steps and stays out of the audit table (FR-12: old records are not rewritten)', () => {
+    const touched = statementsOf(up).map((st) => /`(\w+)`/.exec(st)?.[1]);
+    expect(touched).toEqual(Array<string>(4).fill('timeline_steps'));
+    expect(up).not.toContain('timeline_audit_events');
+    expect(up).not.toMatch(/\bDROP TABLE\b|\bDELETE FROM\b|\bTRUNCATE\b/);
+  });
+
+  it('has a down script that reverses the four steps: drop the strict check, retype and rename back to DATE, add the old check', () => {
+    expect(statementsOf(down)).toEqual([
+      'ALTER TABLE `timeline_steps` DROP CHECK `chk_timeline_steps_dates`;',
+      'ALTER TABLE `timeline_steps` CHANGE COLUMN `opens_at` `opens_on` date NOT NULL, CHANGE COLUMN `closes_at` `closes_on` date NOT NULL;',
+      'ALTER TABLE `timeline_steps` ADD CONSTRAINT `chk_timeline_steps_dates` CHECK (`closes_on` >= `opens_on`);',
+    ]);
+  });
+
+  it('documents that the down script is lossy for times other than 00:00 and 23:59 (NFR-3)', () => {
+    expect(down).toMatch(/lossy/i);
+    expect(down).toMatch(/00:00/);
+    expect(down).toMatch(/23:59/);
+  });
+
+  it('leaves the applied migrations alone: 0003 still creates the day columns and the old check', () => {
+    const created = read(`${migrationsDir}${files[3]}`);
+    expect(created).toContain('`opens_on` date NOT NULL,');
+    expect(created).toContain(
+      'CONSTRAINT `chk_timeline_steps_dates` CHECK(`closes_on` >= `opens_on`)',
+    );
   });
 });
