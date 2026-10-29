@@ -90,8 +90,8 @@ export class ResultsView {
       .map((t) => ({
         value: t.id,
         label: t.name,
-        group: t.kind === 'Official timeline' ? 'Official timeline' : 'Sub-timelines',
-        tag: t.kind === 'Official timeline' ? 'Official' : 'Sub',
+        group: t.kind === 'Official timeline' ? 'Main batch' : 'Complementary batches',
+        tag: t.kind === 'Official timeline' ? 'Main' : undefined,
         count: RESULTS.filter((r) => r.batch === t.name && qaStage(r)).length.toLocaleString('en-US'),
       })),
   ];

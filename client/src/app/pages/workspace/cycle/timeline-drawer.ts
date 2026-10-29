@@ -69,7 +69,7 @@ interface TimelineDraft {
               id="cycle-tl-name"
               type="text"
               [formField]="tlForm.name"
-              placeholder="September 2026 sub-timeline"
+              placeholder="September 2026 complementary batch"
               [attr.data-error]="!!nameError()"
               [attr.aria-invalid]="nameError() ? true : null"
               [attr.aria-describedby]="nameError() ? 'cycle-tl-name-err' : null"
@@ -88,7 +88,7 @@ interface TimelineDraft {
             <div class="flex flex-col items-start gap-[6px]">
               <span class="text-(length:--fs-13) font-semibold text-(--text-2)">Result types</span>
               <span class="text-(length:--fs-14) text-(--text)">{{ d.types.length ? d.types.join(', ') : 'All result types' }}</span>
-              <span class="text-(length:--fs-13) leading-[1.5] font-normal text-pretty text-(--text-4)">Set when step 1 opened on {{ d.steps[0]?.start }} at {{ d.steps[0]?.startTime }} (Rome time). To cover other programs or result types, create a new sub-timeline.</span>
+              <span class="text-(length:--fs-13) leading-[1.5] font-normal text-pretty text-(--text-4)">Set when step 1 opened on {{ d.steps[0]?.start }} at {{ d.steps[0]?.startTime }} (Rome time). To cover other programs or result types, create a new complementary batch.</span>
             </div>
           } @else {
           <div class="flex flex-col items-start gap-[6px]">
@@ -96,7 +96,7 @@ interface TimelineDraft {
               <label for="cycle-tl-programs" class="text-(length:--fs-13) font-semibold text-(--text-2)">Science programs</label>
               @if (!isMain()) {
                 <span aria-hidden="true" class="text-(length:--fs-13) font-semibold text-(--danger-strong)">*</span>
-                <button type="button" qaTooltip="Only results from these programs enter this timeline. Everyone else stays on the official timeline calendar." aria-label="More about Science programs" class="flex size-4 flex-none cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-0 text-(--text-muted) outline-none hover:text-(--primary) focus-visible:shadow-(--focus-ring)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01" /></svg></button>
+                <button type="button" qaTooltip="Only results from these programs enter this timeline. Everyone else stays on the main batch calendar." aria-label="More about Science programs" class="flex size-4 flex-none cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-0 text-(--text-muted) outline-none hover:text-(--primary) focus-visible:shadow-(--focus-ring)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01" /></svg></button>
               }
             </div>
             <qa-multi-select
@@ -201,7 +201,7 @@ interface TimelineDraft {
                 }
               </div>
             } @empty {
-              <p class="m-0 px-[14px] py-4 text-(length:--fs-13) text-pretty text-(--text-3)">No steps yet. Add the first step, or start from the official timeline.</p>
+              <p class="m-0 px-[14px] py-4 text-(length:--fs-13) text-pretty text-(--text-3)">No steps yet. Add the first step, or start from the main batch.</p>
             }
             <div class="flex min-h-11 flex-wrap items-center gap-x-4 gap-y-1 border-t border-(--surface-4) px-[6px] py-1 @3xl:py-0">
               @if (!fixedSteps() && d.steps.length < maxSteps()) {
@@ -210,7 +210,7 @@ interface TimelineDraft {
                 <span class="px-2 text-(length:--fs-13) text-(--text-4)">Steps can't be added, removed or reordered once a timeline exists.</span>
               }
               @if (!closedCount() && !fixedSteps() && official()) {
-                <button hlmBtn qaBtn tone="link" size="sm" type="button" (click)="resetRows()">Reset to official timeline</button>
+                <button hlmBtn qaBtn tone="link" size="sm" type="button" (click)="resetRows()">Reset to main batch</button>
               }
             </div>
           </div>
@@ -257,7 +257,7 @@ interface TimelineDraft {
           <button hlmBtn qaBtn tone="danger" type="button" (click)="discard.discard()">Discard and close</button>
         } @else {
           <button hlmBtn qaBtn tone="secondary" type="button" (click)="discard.requestClose()">Cancel</button>
-          <button hlmBtn qaBtn tone="primary" type="button" (click)="save()" [loading]="saving()">{{ saving() ? 'Saving…' : isNew() ? (creatingOfficial() ? 'Create official timeline' : 'Create sub-timeline') : 'Save changes' }}</button>
+          <button hlmBtn qaBtn tone="primary" type="button" (click)="save()" [loading]="saving()">{{ saving() ? 'Saving…' : isNew() ? (creatingOfficial() ? 'Create main batch' : 'Create complementary batch') : 'Save changes' }}</button>
         }
       </div>
     </qa-drawer>
@@ -350,14 +350,14 @@ export class TimelineDrawer {
   });
 
   protected readonly title = computed(() =>
-    this.isOfficialEdit() ? 'Edit official timeline' : this.creatingOfficial() ? 'New official timeline' : this.isNew() ? 'New sub-timeline' : 'Edit timeline',
+    this.isOfficialEdit() ? 'Edit main batch' : this.creatingOfficial() ? 'New main batch' : this.isNew() ? 'New complementary batch' : 'Edit timeline',
   );
   protected readonly subtitle = computed(() =>
     this.isOfficialEdit() || this.creatingOfficial()
-      ? 'The official calendar of the cycle. Every program follows it unless you add a sub-timeline.'
+      ? 'The main batch of the cycle. Every program follows it unless you add a complementary batch.'
       : this.isMain()
         ? 'Covers the whole cycle for every program.'
-        : 'Runs on its own calendar, alongside the official timeline.',
+        : 'Runs on its own calendar, alongside the main batch.',
   );
 
   protected readonly draft = linkedSignal<TimelineDraft>(() => this.initialDraft());

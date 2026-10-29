@@ -37,7 +37,7 @@ const BUCKETS = [
           <li>
             <a
               routerLink="/results"
-              [queryParams]="{ type: r.type }"
+              [queryParams]="link(r.type)"
               [attr.aria-label]="r.type + ': ' + r.r1 + ' in Round 1, ' + r.r2 + ' in Round 2, ' + r.qaText + ' quality assessed'"
               class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 px-5 py-2 no-underline hover:bg-(--surface-2) focus-visible:shadow-(--focus-ring) focus-visible:outline-none @xl:grid-cols-[13rem_minmax(0,1fr)_6.5rem]"
             >
@@ -54,6 +54,8 @@ const BUCKETS = [
               >
             </a>
           </li>
+        } @empty {
+          <li class="px-5 py-2 text-(length:--fs-13) text-(--text-3)">No results match these filters.</li>
         }
       </ul>
 
@@ -67,5 +69,11 @@ const BUCKETS = [
 })
 export class OvTypeProgress {
   readonly rows = input.required<readonly TypeProgressVm[]>();
+  /** The Overview's filters as Results query params; a row sets its own type. */
+  readonly query = input<Readonly<Record<string, string | null>>>({});
   protected readonly buckets = BUCKETS;
+
+  protected link(type: string): Record<string, string | null> {
+    return { ...this.query(), type };
+  }
 }

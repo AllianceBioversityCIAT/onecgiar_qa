@@ -15,7 +15,7 @@ import { TimelineSteps } from './timeline-steps';
         <div class="flex min-w-0 flex-[1_1_14rem] flex-col gap-[3px]">
           <div class="flex flex-wrap items-center gap-2">
             <h3 [id]="titleId()" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">{{ t.name }}</h3>
-            <span class="rounded-full bg-(--surface-3) px-2 py-[2px] text-(length:--fs-11) font-semibold whitespace-nowrap text-(--text-muted)">{{ t.kind }}</span>
+            <span class="rounded-full bg-(--surface-3) px-2 py-[2px] text-(length:--fs-11) font-semibold whitespace-nowrap text-(--text-muted)">{{ t.kindLabel }}</span>
             @if (t.isTest) {
               <span class="rounded-full bg-(--st-editing-bg) px-2 py-[2px] text-(length:--fs-11) font-semibold whitespace-nowrap text-(--st-editing-fg)">Test</span>
             }

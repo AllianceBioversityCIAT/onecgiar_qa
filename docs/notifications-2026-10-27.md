@@ -5,9 +5,7 @@ Branch: `jp-design/mockup-completo` · Author: Juanpa (with Claude Code) · Spec
 **Status: provisional and not a priority** (team meeting, 2026-10-27). Juanpa will adjust it after the conversation with María Julia.
 
 ## Done
-- **Bell in the top bar**, for admins only. A dot shows when something is unread.
-  - From 640 px it opens a panel: the 8 newest, All / Unread with a grey count, "Mark all as read" and "View all notifications".
-  - Below 640 px it is a link to the page.
+- **Bell in the top bar**, for admins only. A dot shows when something is unread. It opens the page directly at every width. A panel was built first and removed the same day at Juanpa's request.
 - **Page `/notifications`** with timeline, Type, search and All / Unread. Rows are grouped Today · Yesterday · Earlier. Each row opens Results with the matching filter.
 - **Data:** a mock (`notifications.mock.ts`) behind one store (`notifications-store.ts`). Every count in a sentence is computed from the Results mock, so it equals what Results shows.
 - **Results** now re-reads its filters on every navigation to it, so a notification updates an open Results page. Juanpa confirmed this logic change in writing. It touches only the filter-reading lines; Yeck's TableSort lines in `results-view.ts` are untouched.
@@ -29,8 +27,20 @@ Branch: `jp-design/mockup-completo` · Author: Juanpa (with Claude Code) · Spec
   - Each notification count matches Results.
   - The 7 Overview stage links still show 148, 200, 71, 180, 334, 40 and 357.
 
+## Update 2026-10-28 — PRMS pattern adapted to QA
+- **Done:** the page follows the PRMS notifications page, adapted to QA (Juanpa, from a PRMS screenshot and the 2026-10-27 meeting).
+  - Tabs All · Needs your action · For your information, each with its count under the current filters.
+  - Filters: Viewing <timeline>, search, Type (only the current tab's types), Science program; chips with Clear all; "Mark all as read".
+  - Rows: unread dot, tinted icon, one sentence, meta line (type · Main batch / Complementary batch · step · time).
+  - Needs your action: step complete ("Open next step" → Cycle), slow program ("View results"), at risk; each with "Not now". Any button marks the row read.
+  - Removed: the Third-party broker, PPU and Waiting types, the unused `panel` variant and the All / Unread control.
+  - Timeline kinds read "Main batch" / "Complementary batches" (O-8 of `overview-feedback-2026-10-27.md`).
+- **Tested:** 85 unit tests in notifications, overview and results pass; eslint clean; `ng build` exit 0 (initial bundle 605.96 kB, budget warning already there). Browser check at 1440 and 390 px and in dark mode: no horizontal scroll; every count matches Results.
+- **Top bar, as in PRMS:** the bell now reads "Notifications" with the unread count in a pill from 768 px; below that only the bell, with the pill on its corner. Tested: 79 notifications tests pass, eslint clean; checked at 1440 and 375 px; pill contrast 5.5:1 light (white on #0F766E) and about 8:1 dark; no horizontal scroll.
+- **Not verified:** "Open next step" with a real admin (the design account is signed out by Cycle's API); AXE (no tool in `client/`).
+
 ## Pending
-- María Julia: event list and grouping, and the panel layout (spec OQ-1, OQ-2).
+- María Julia: event list and grouping (spec OQ-1, OQ-2).
 - Business: PRD § 5 keeps notifications out of v1.
 - Juanda: a server module for real data, when this becomes a priority.
 - Not verified:
