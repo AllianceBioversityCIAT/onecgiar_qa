@@ -1,11 +1,12 @@
-import { QA_STAGE_LABELS, RESULTS, SINGLE_CHECK_TYPES, TIMELINES, qaStage, type QaStage, type ResultStatus } from '../results/results.mock';
+import { RESULTS, SINGLE_CHECK_TYPES, TIMELINES, qaStage, type QaStage, type ResultStatus } from '../results/results.mock';
 import type { DayGroup, Notification, NotificationTarget, SentencePart } from './notifications.model';
 
-// Mock notifications for the QA Admin, after the PRMS notifications pattern adapted to QA.
+// Mock notifications for the QA Admin: only the ones María Julia asked for (meeting, 2026-10-27). A step finished for a
+// batch (assessors, lead assessor, third-party broker), and science programs that have not started or go too slowly.
 // "Today" is 17 Jul 2026, the same mock day as the mockup.
 // Every `total` is computed from the Results mock with the rules Results applies, so a sentence and the list it leads to
-// cannot drift apart; `delta` ("since yesterday") is authored: the Results mock has no dates.
-// TODO(api): the server returns these notifications, with `sentence`, `total`, `delta` and `target` computed there.
+// cannot drift apart.
+// TODO(api): the server returns these notifications, with `sentence`, `total` and `target` computed there.
 
 interface ListFilter {
   /** A `TIMELINES` id; omitted for "all timelines". */
@@ -50,12 +51,6 @@ function sentence(text: string): readonly SentencePart[] {
     .filter((p) => p.text !== '');
 }
 
-/** "Round 1 · Assessed by 2 assessors" → stage "Assessed by 2 assessors", round "Round 1". */
-function stageAndRound(stage: QaStage): { readonly stage: string; readonly round: string } {
-  const [round, word] = QA_STAGE_LABELS[stage].split(' · ');
-  return { round, stage: word };
-}
-
 const timelineName = (id: string): string => TIMELINES.find((t) => t.id === id)!.name;
 
 /** Day, relative time and read state of one entry. */
@@ -63,9 +58,7 @@ type When = Pick<Notification, 'day' | 'when' | 'unread'>;
 const at = (day: DayGroup, when: string, unread = false): When => ({ day, when, unread });
 
 /** Fields every entry starts from. */
-const base = { detail: null, program: null, step: null, delta: null, action: null } as const;
-
-// ---------- Needs your action ----------
+const base = { detail: null, program: null, step: null, action: null } as const;
 
 /** Who finished a step, what their results are now, and where they can go next. */
 const HAND_OFFS = {
@@ -125,126 +118,14 @@ function slowProgramEntry(id: string, program: string, timelineId: string, phase
   };
 }
 
-function atRiskEntry(id: string, timelineId: string, daysLeft: number, stage: QaStage, when: When): Notification {
-  const filter = { timelineId, stage };
-  const total = totalInResults(filter);
-  const words = stageAndRound(stage);
-  return {
-    ...base,
-    id,
-    type: 'At risk',
-    sentence: sentence(`**Third-party broker** of **${timelineName(timelineId)}** closes in ${daysLeft} days with **${num(total)}** results still ${words.stage} in ${words.round}.`),
-    timelineId,
-    step: 'Third-party broker',
-    ...when,
-    target: listTarget(filter),
-    total,
-    action: 'View results',
-  };
-}
-
-// ---------- For your information ----------
-
-/** Stage: one per assessed stage reached, per timeline, per day. */
-function stageEntry(id: string, timelineId: string, stage: QaStage, delta: number, when: When): Notification {
-  const filter = { timelineId, stage };
-  const total = totalInResults(filter);
-  const words = stageAndRound(stage);
-  return {
-    ...base,
-    id,
-    type: 'Stage',
-    sentence: sentence(`**${num(total)} results** reached ${words.stage} in ${words.round}. ${num(delta)} since yesterday.`),
-    timelineId,
-    ...when,
-    target: listTarget(filter),
-    total,
-    delta,
-  };
-}
-
-function qualityAssessedEntry(id: string, timelineId: string, delta: number, when: When): Notification {
-  const filter = { timelineId, stage: 'quality-assessed' } as const;
-  const total = totalInResults(filter);
-  return {
-    ...base,
-    id,
-    type: 'Quality assessed',
-    sentence: sentence(`**${num(total)} results** are ${QA_STAGE_LABELS['quality-assessed']}. ${num(delta)} since yesterday.`),
-    timelineId,
-    ...when,
-    target: listTarget(filter),
-    total,
-    delta,
-  };
-}
-
-function programResponseEntry(id: string, program: string, when: When): Notification {
-  const filter = { program, status: 'Answered' } as const;
-  const total = totalInResults(filter);
-  return {
-    ...base,
-    id,
-    type: 'Program response',
-    sentence: sentence(`**${program}** has answered **${num(total)}** returned results.`),
-    timelineId: 'all',
-    program,
-    ...when,
-    target: listTarget(filter),
-    total,
-  };
-}
-
-function loadEntry(id: string, timelineId: string, when: When): Notification {
-  const filter = { timelineId };
-  const total = totalInResults(filter);
-  return {
-    ...base,
-    id,
-    type: 'Load',
-    sentence: sentence(`**${timelineName(timelineId)}** was loaded with **${num(total)}** results for QA.`),
-    timelineId,
-    ...when,
-    target: listTarget(filter),
-    total,
-    // A first load: everything in the timeline is new.
-    delta: total,
-  };
-}
-
-// Codes exist in review.mock.ts and are not Automatic (QA-2026-0806 and QA-2026-0803 are): Review would not show a result's flow for them.
-function escalationEntry(id: string, code: string, when: When): Notification {
-  const result = RESULTS.find((r) => r.code === code)!;
-  return {
-    ...base,
-    id,
-    type: 'Escalation',
-    sentence: sentence(`**${code}** was escalated to the third-party broker.`),
-    timelineId: TIMELINES.find((t) => t.name === result.batch)!.id,
-    program: result.program,
-    ...when,
-    target: { path: `/results/${code}` },
-    total: null,
-  };
-}
-
 /** Newest first, as the page lists them. */
 export const NOTIFICATIONS: readonly Notification[] = [
   // Today
   stepCompleteEntry('n-01', 'assessors', 'jul', at('today', '20 minutes ago', true)),
-  escalationEntry('n-02', 'QA-2026-0841', at('today', '1 hour ago', true)),
-  stageEntry('n-03', 'annual', 'r1-two', 18, at('today', '2 hours ago')),
   slowProgramEntry('n-04', 'SP12', 'kp', '3 days into Programs correct', at('today', '4 hours ago', true)),
-  programResponseEntry('n-05', 'SP09', at('today', '6 hours ago')),
   // Yesterday
-  atRiskEntry('n-06', 'annual', 6, 'r2-pending', at('yesterday', 'Yesterday', true)),
   slowProgramEntry('n-07', 'SP05', 'kp', 'with 2 days left', at('yesterday', 'Yesterday')),
-  qualityAssessedEntry('n-08', 'annual', 12, at('yesterday', 'Yesterday')),
-  stageEntry('n-09', 'jul', 'r1-one', 7, at('yesterday', 'Yesterday')),
   // Earlier
   stepCompleteEntry('n-10', 'broker', 'sp03', at('earlier', '2 days ago')),
-  escalationEntry('n-11', 'QA-2026-0830', at('earlier', '3 days ago')),
   stepCompleteEntry('n-12', 'lead', 'annual', at('earlier', '4 days ago')),
-  loadEntry('n-13', 'kp', at('earlier', '5 days ago')),
-  stageEntry('n-14', 'annual', 'r2-assessed', 9, at('earlier', '6 days ago')),
 ];

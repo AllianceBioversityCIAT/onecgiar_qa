@@ -1,4 +1,4 @@
-import { Component, computed, input, model } from '@angular/core';
+import { Component, ElementRef, computed, effect, input, model, signal, viewChild } from '@angular/core';
 import { QaSelectImports, QaSelectOption } from '../../../ui';
 
 /** Pace of one timeline's open step: results done day by day against what is needed to close on time. */
@@ -19,8 +19,10 @@ export interface PaceVm {
   readonly byAssessor: boolean;
 }
 
-const W = 640;
-const H = 360;
+/** Chart width before the box is measured (and on the server); its height follows the width, between these bounds. */
+const START_W = 640;
+const MIN_H = 220;
+const MAX_H = 300;
 const PL = 40;
 const PR = 16;
 const PT = 16;
@@ -80,10 +82,10 @@ function yTicks(v: number): number[] {
         <p class="m-0 mt-3 text-(length:--fs-14) text-(--text-3)">No open step matches these filters.</p>
       }
       @if (view(); as v) {
-        <!-- From a wide card the figures sit left and the chart right, so the chart does not grow too tall.
-             No projection sentence: the "Behind pace" status and the dotted line already say it. -->
-        <div class="mt-5 flex flex-1 flex-col gap-6 @4xl:grid @4xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] @4xl:items-end @4xl:gap-10">
-          <dl class="m-0 grid grid-cols-2 gap-2 @lg:grid-cols-4 @4xl:grid-cols-2 @4xl:self-start">
+        <!-- The figures in one row (two on phones), then the chart across the whole card (Juanpa, 2026-10-29: no empty
+             space under the figures). No projection sentence: the "Behind pace" status and the dotted line already say it. -->
+        <div class="mt-5 flex flex-col gap-6">
+          <dl class="m-0 grid grid-cols-2 gap-2 @lg:grid-cols-4">
             @for (k of v.kpis; track k.label) {
               <div class="flex flex-col-reverse gap-0.5 rounded-[10px] border border-(--surface-4) bg-(--surface-2) px-3 py-2.5">
                 <dt class="text-(length:--fs-12) text-(--text-3)">{{ k.label }}</dt>
@@ -92,16 +94,17 @@ function yTicks(v: number): number[] {
             }
           </dl>
 
-          <div class="flex flex-col justify-end">
-            <svg [attr.viewBox]="'0 0 ' + w + ' ' + h" class="block h-auto w-full" role="img" [attr.aria-label]="v.ariaLabel">
+          <div #chartBox class="flex flex-col">
+            <!-- The chart is drawn at the box's own width, so it stays low on a wide card and its labels stay 11 px. -->
+            <svg [attr.viewBox]="'0 0 ' + v.w + ' ' + v.h" class="block h-auto w-full" role="img" [attr.aria-label]="v.ariaLabel">
               @for (g of v.grid; track g.v) {
-                <line [attr.x1]="pl" [attr.x2]="w - pr" [attr.y1]="g.y" [attr.y2]="g.y" class="stroke-(--surface-4)" stroke-width="1"></line>
+                <line [attr.x1]="pl" [attr.x2]="v.w - pr" [attr.y1]="g.y" [attr.y2]="g.y" class="stroke-(--surface-4)" stroke-width="1"></line>
                 <text [attr.x]="pl - 8" [attr.y]="g.y + 4" text-anchor="end" class="fill-(--text-muted) text-[11px]">{{ g.label }}</text>
               }
               @for (t of v.ticks; track t.label) {
-                <text [attr.x]="t.x" [attr.y]="h - 8" [attr.text-anchor]="t.anchor" class="fill-(--text-muted) text-[11px]">{{ t.label }}</text>
+                <text [attr.x]="t.x" [attr.y]="v.h - 8" [attr.text-anchor]="t.anchor" class="fill-(--text-muted) text-[11px]">{{ t.label }}</text>
               }
-              <line [attr.x1]="v.todayX" [attr.x2]="v.todayX" [attr.y1]="pt" [attr.y2]="h - pb" class="stroke-(--border-strong)" stroke-dasharray="3 3"></line>
+              <line [attr.x1]="v.todayX" [attr.x2]="v.todayX" [attr.y1]="pt" [attr.y2]="v.h - pb" class="stroke-(--border-strong)" stroke-dasharray="3 3"></line>
               <polyline [attr.points]="v.needLine" fill="none" class="stroke-(--text-muted)" stroke-width="2" stroke-dasharray="6 5"></polyline>
               <polyline [attr.points]="v.projLine" fill="none" class="stroke-(--primary)" stroke-width="2" stroke-dasharray="2 4" opacity=".7"></polyline>
               <polyline [attr.points]="v.actLine" fill="none" class="stroke-(--primary)" stroke-width="2.5" stroke-linejoin="round"></polyline>
@@ -131,8 +134,6 @@ export class OvPace {
   /** Assessor the assessors' step is narrowed to (empty for all assessors, so the filter shows no selection); the page recomputes the series with it. */
   readonly assessor = model('');
 
-  protected readonly w = W;
-  protected readonly h = H;
   protected readonly pl = PL;
   protected readonly pr = PR;
   protected readonly pt = PT;
@@ -141,9 +142,25 @@ export class OvPace {
   /** The step shown: the riskiest one the filters keep (the series comes sorted, most behind first). */
   protected readonly current = computed(() => this.series()[0] ?? null);
 
+  private readonly chartBox = viewChild<ElementRef<HTMLElement>>('chartBox');
+  /** Width of the chart's box in pixels, kept up to date as the card resizes. */
+  private readonly chartWidth = signal(START_W);
+
+  constructor() {
+    effect((onCleanup) => {
+      const el = this.chartBox()?.nativeElement;
+      if (!el || typeof ResizeObserver === 'undefined') return;
+      const ro = new ResizeObserver(([entry]) => this.chartWidth.set(Math.round(entry.contentRect.width)));
+      ro.observe(el);
+      onCleanup(() => ro.disconnect());
+    });
+  }
+
   protected readonly view = computed(() => {
     const s = this.current();
     if (!s || !s.done.length) return null;
+    const W = Math.max(280, this.chartWidth());
+    const H = Math.round(Math.min(MAX_H, Math.max(MIN_H, W * 0.5625)));
     const today = s.done.length - 1;
     const done = s.done[today];
     const left = Math.max(0, s.target - done);
@@ -161,6 +178,8 @@ export class OvPace {
     const proj = Array.from({ length: daysLeft + 1 }, (_, k) => [today + k, Math.min(s.target, done + perDay * k)] as const);
 
     return {
+      w: W,
+      h: H,
       behind: projected < s.target,
       kpis: [
         { label: 'still to do', value: left.toLocaleString('en-US') },

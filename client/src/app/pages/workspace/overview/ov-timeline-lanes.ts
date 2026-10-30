@@ -6,17 +6,17 @@ export type LaneStepState = 'done' | 'active' | 'future';
 
 export interface LaneStepVm {
   readonly state: LaneStepState;
-  /** "4 · Third-party broker", under the bar. */
+  /** "Third-party broker", under the bar (no number: it differs across timelines). */
   readonly label: string;
-  /** "Step 4 · QA platform open for third-party broker", on hover. */
+  /** "QA platform open for third-party broker", on hover. */
   readonly title: string;
 }
 
 export interface TimelineLaneVm {
   readonly id: string;
   readonly name: string;
-  /** "Main batch · All programs · 989 results". */
-  readonly meta: string;
+  /** ["Main batch", "All programs", "989 results"]: shown with " · " between them, each part kept on one line. */
+  readonly meta: readonly string[];
   readonly scheduled: boolean;
   /** One entry per step of this timeline (each timeline has its own steps). */
   readonly steps: readonly LaneStepVm[];
@@ -79,11 +79,14 @@ const LABEL_CLASS: Record<LaneStepState, string> = {
                     <span class="flex-none rounded-full bg-(--st-submitted-bg) px-2 py-px text-(length:--fs-11) font-semibold text-(--st-submitted-fg)">Scheduled</span>
                   }
                 </span>
-                <span class="text-(length:--fs-12) leading-[1.4] text-(--text-muted)">{{ l.meta }}</span>
+                <!-- Each part stays whole ("84 results" never splits); a narrow column wraps only between parts. -->
+                <span class="text-(length:--fs-12) leading-[1.4] text-(--text-muted)"
+                  >@for (part of l.meta; track $index; let first = $first) {@if (!first) {<span> · </span>}<span class="whitespace-nowrap">{{ part }}</span>}</span
+                >
               </span>
 
               <!-- One bar: the steps of this timeline side by side, each named under it. The open one is outlined, says "Now · N%" and fills up. -->
-              <span class="flex min-w-0 gap-1 pt-[18px]" aria-hidden="true">
+              <span class="flex min-w-0 gap-1.5 pt-[18px]" aria-hidden="true">
                 @for (s of l.steps; track $index; let last = $last) {
                   <!-- The open step is a bit wider so its name fits in bold. -->
                   <span class="relative flex min-w-0 flex-col gap-1.5" [class]="s.state === 'active' ? 'flex-[1.4]' : 'flex-1'" [title]="s.title">
@@ -97,11 +100,12 @@ const LABEL_CLASS: Record<LaneStepState, string> = {
                         <svg class="text-(--primary)" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>
                       }
                     </span>
-                    <!-- Narrow cards only name the open step (whole name, may run past its segment); wider ones name every step. -->
+                    <!-- Narrow cards only name the open step (whole name, may run past its segment); wider ones name every step.
+                         A name never gets cut: when its segment is narrow it wraps onto a second line. -->
                     @if (s.state === 'active') {
-                      <span class="text-(length:--fs-11) whitespace-nowrap @lg:truncate" [class]="labelClass[s.state] + (last ? ' self-end' : '')">{{ s.label }}</span>
+                      <span class="text-(length:--fs-11) leading-[1.3] whitespace-nowrap @lg:whitespace-normal" [class]="labelClass[s.state] + (last ? ' self-end text-right' : '')">{{ s.label }}</span>
                     } @else {
-                      <span class="hidden truncate text-(length:--fs-11) @lg:block" [class]="labelClass[s.state]">{{ s.label }}</span>
+                      <span class="hidden text-(length:--fs-11) leading-[1.3] @lg:block" [class]="labelClass[s.state] + (last ? ' text-right' : '')">{{ s.label }}</span>
                     }
                   </span>
                 }
@@ -110,7 +114,7 @@ const LABEL_CLASS: Record<LaneStepState, string> = {
               <!-- What the bar can't say: how many are done in the open step, and when it closes. -->
               <span class="flex min-w-0 flex-col gap-0.5 @3xl:text-right">
                 @if (l.progress; as p) {
-                  <span class="text-(length:--fs-13) text-(--text-2)"><span class="font-semibold tabular-nums text-(--text)">{{ p.done }} of {{ p.of }}</span> done in step {{ l.step }}</span>
+                  <span class="text-(length:--fs-13) text-(--text-2)"><span class="font-semibold tabular-nums text-(--text)">{{ p.done }} of {{ p.of }}</span> done in this step</span>
                 } @else {
                   <span class="text-(length:--fs-13) text-(--text-2)">Not started</span>
                 }
