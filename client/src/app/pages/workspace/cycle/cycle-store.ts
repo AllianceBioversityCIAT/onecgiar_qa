@@ -5,6 +5,7 @@ import { CyclesApi } from '../../../core/api/cycles-api';
 import { CYCLE_ERROR, Cycle, DefaultStep } from '../../../core/api/cycles.models';
 import { ApiFieldError, toApiError } from '../../../core/http/api-envelope';
 import { Toasts } from '../../../core/http/toasts';
+import { reloadAfterReplay } from '../../../core/http/write-events';
 import { CreateDraft, CycleCatalogs, OFFICIAL_ID, toCreateBody, toUpdateBody, toViewTimeline } from './cycle.mapper';
 import { Timeline } from './cycle.mock';
 
@@ -53,6 +54,14 @@ export class CycleStore {
   readonly typeOptions = computed(() => this.catalogState().types.map((t) => ({ value: t.name, label: t.name })));
   /** A closed cycle takes no new timeline and no edit (409 CYCLES_CLOSED). */
   readonly canWrite = computed(() => this.cycle()?.status !== 'closed');
+
+  constructor() {
+    // A cycle or timeline write the unsent queue sent later: show what the server holds now, in place.
+    reloadAfterReplay(
+      (path) => (path.startsWith('/cycles') || path.startsWith('/timelines')) && !path.includes('/field-config'),
+      () => void this.load(true),
+    );
+  }
 
   programName(code: string): string {
     return this.catalogState().programs.find((p) => p.code === code)?.name ?? '';

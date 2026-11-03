@@ -2,6 +2,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { APP_CONFIG } from '../../../core/config/app-config';
+import { WriteEvents } from '../../../core/http/write-events';
 import { CycleStore } from './cycle-store';
 import { stepRow } from './cycle.logic';
 
@@ -153,5 +154,22 @@ describe('CycleStore', () => {
     const before = store.subTimelines()[0];
     const steps = before.steps.map(stepRow);
     expect(await store.update(before, { name: before.name, programs: [], types: [], steps })).toEqual({ ok: true });
+  });
+
+  it('reloads in place after the unsent queue replays a timeline write; not after a field-config one', async () => {
+    await load([{ id: 2, status: 'active' }]);
+    const events = TestBed.inject(WriteEvents);
+    events.recordReplay('PATCH', `${API}/cycles/2/field-config/draft`);
+    TestBed.tick();
+    await settle();
+    http.expectNone(`${API}/cycles`);
+
+    events.recordReplay('PATCH', `${API}/timelines/7`);
+    TestBed.tick();
+    expect(store.state()).toBe('ready');
+    await answerLoad([{ id: 2, status: 'active' }], [official, timeline({ version: 6 })]);
+    await settle();
+    expect(store.state()).toBe('ready');
+    expect(store.subTimelines()[0].version).toBe(6);
   });
 });

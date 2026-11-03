@@ -6,7 +6,7 @@ import {
   HttpResponse,
 } from '@angular/common/http';
 import { Injector, Service, inject } from '@angular/core';
-import { Observable, catchError, finalize, share, tap, throwError, timeout } from 'rxjs';
+import { Observable, catchError, defer, finalize, share, switchMap, tap, throwError, timeout } from 'rxjs';
 import { AuthSession } from '../auth/auth-session';
 import { isApiUrl, isAuthUrl } from '../auth/auth.interceptor';
 import { APP_CONFIG } from '../config/app-config';
@@ -14,6 +14,7 @@ import { toApiError } from './api-envelope';
 import { NO_QUEUE, QUEUE_REPLAY, SILENT_ERRORS, TIMEOUT_MS, isWrite } from './request-context';
 import { Toasts } from './toasts';
 import { IDEMPOTENCY_HEADER, UnsentQueue, actionSignature, isRetryLater, newId } from './unsent-queue';
+import { WriteEvents } from './write-events';
 
 /** Identical writes still in flight, shared so a second click never sends a second request. */
 @Service()
@@ -30,6 +31,11 @@ export class InFlightWrites {
  * - a write that could not reach the server (no answer, timeout, 502/503/504, or a 401 whose token
  *   refresh could not reach the server while the session is still alive) goes to the unsent queue;
  * - saving again something already in the queue reuses its key, and drops the stored copy on success;
+ * - order: a new write first waits for the writes the queue holds (`drain`), so it never overtakes
+ *   an older one; if one still cannot get through, the new write counts as unreachable too (a
+ *   queued kind goes to the queue behind it). With nothing stored it leaves at once;
+ * - writes in flight are counted in `WriteEvents`, so a screen reloads after a replay only once
+ *   they answered;
  * - any other unhandled error shows one toast with the catalog message, unless the request is
  *   silent, is an auth call (login renders its own errors), is a 401 (the session handles it) or
  *   is a 422 with field errors (the form shows them).
@@ -51,17 +57,26 @@ export const requestSafetyInterceptor: HttpInterceptorFn = (req, next) => {
   if (shared) return shared;
 
   const queue = () => injector.get(UnsentQueue);
-  const tracked = write && !auth && !replay && !req.context.get(NO_QUEUE);
+  const ordered = write && !auth && !replay;
+  const tracked = ordered && !req.context.get(NO_QUEUE);
   const prepared =
     write && !req.headers.has(IDEMPOTENCY_HEADER)
       ? req.clone({ setHeaders: { [IDEMPOTENCY_HEADER]: (tracked && queue().keyFor(key)) || newId() } })
       : req;
 
-  const call = next(prepared).pipe(
+  // The timeout counts the write itself, not the time spent behind the stored ones.
+  const sent = next(prepared).pipe(
+    timeout({ each: req.context.get(TIMEOUT_MS), with: () => throwError(() => timedOut(req)) }),
+  );
+  const inOrder =
+    ordered && queue().waiting(key)
+      ? defer(() => queue().drain(key)).pipe(switchMap((clear) => (clear ? sent : throwError(() => behindQueue(req)))))
+      : sent;
+
+  const call = inOrder.pipe(
     tap((event) => {
       if (tracked && event instanceof HttpResponse) queue().confirmedElsewhere(key);
     }),
-    timeout({ each: req.context.get(TIMEOUT_MS), with: () => throwError(() => timedOut(req)) }),
     catchError((error: unknown) => {
       if (!(error instanceof HttpErrorResponse) || replay) return throwError(() => error);
       const lostRefresh = error.status === 401 && injector.get(AuthSession).isSignedIn();
@@ -73,9 +88,10 @@ export const requestSafetyInterceptor: HttpInterceptorFn = (req, next) => {
       return throwError(() => error);
     }),
   );
-  if (!key) return call;
+  const counted = ordered ? countInFlight(call, inject(WriteEvents)) : call;
+  if (!key) return counted;
 
-  const once = call.pipe(
+  const once = counted.pipe(
     finalize(() => inFlight.delete(key)),
     share(),
   );
@@ -91,4 +107,17 @@ function shouldToast(error: HttpErrorResponse, req: HttpRequest<unknown>, auth: 
 
 function timedOut(req: HttpRequest<unknown>): HttpErrorResponse {
   return new HttpErrorResponse({ status: 0, statusText: 'Timeout', url: req.urlWithParams });
+}
+
+/** A stored write before this one still cannot get through: this one is not sent either. */
+function behindQueue(req: HttpRequest<unknown>): HttpErrorResponse {
+  return new HttpErrorResponse({ status: 0, statusText: 'Behind unsent writes', url: req.urlWithParams });
+}
+
+/** Counts the write from subscription until it answers, fails or is cancelled. */
+function countInFlight<T>(call: Observable<T>, events: WriteEvents): Observable<T> {
+  return defer(() => {
+    events.inFlight.update((n) => n + 1);
+    return call.pipe(finalize(() => events.inFlight.update((n) => n - 1)));
+  });
 }
