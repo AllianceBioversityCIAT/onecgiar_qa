@@ -1,0 +1,65 @@
+[
+  {
+    "code": "SP01",
+    "name": "Breeding for Tomorrow",
+    "id": 441,
+    "compose_code": "SP01",
+    "year": 2026,
+    "short_name": null,
+    "acronym": null,
+    "start_date": "2025-01-01",
+    "end_date": "2030-12-31",
+    "level": 1,
+    "is_active": 1,
+    "entity_type": {
+      "code": 22,
+      "name": "Science programs"
+    },
+    "portfolio": {
+      "code": 3,
+      "name": "CGIAR portfolio 2025-2030"
+    }
+  },
+  {
+    "code": "SP12",
+    "name": "Digital Transformation ",
+    "id": 452,
+    "compose_code": "SP12",
+    "year": 2026,
+    "short_name": null,
+    "acronym": null,
+    "start_date": "2025-01-01",
+    "end_date": "2030-12-31",
+    "level": 1,
+    "is_active": 1,
+    "entity_type": {
+      "code": 24,
+      "name": "Accelerators"
+    },
+    "portfolio": {
+      "code": 3,
+      "name": "CGIAR portfolio 2025-2030"
+    }
+  },
+  {
+    "code": "SGP-02",
+    "name": "Accelerated varietal improvement and seed delivery of legumes and dryland cereals in Africa (AVISA).",
+    "id": 519,
+    "compose_code": "SGP-02",
+    "year": 2026,
+    "short_name": "AVISA",
+    "acronym": null,
+    "start_date": "2023-05-01",
+    "end_date": "2024-12-31",
+    "level": 1,
+    "is_active": 0,
+    "entity_type": {
+      "code": 22,
+      "name": "Science programs"
+    },
+    "portfolio": {
+      "code": 3,
+      "name": "CGIAR portfolio 2025-2030"
+    }
+  }
+]

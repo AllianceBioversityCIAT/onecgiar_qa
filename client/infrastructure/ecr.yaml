@@ -1,0 +1,86 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  OneCGIAR QA frontend — ECR repository for the Angular SSR Lambda image.
+  Separate, long-lived stack: the application stack (template.yaml) needs an image
+  in this repository before its Lambda function can be created.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: onecgiar-qa-frontend
+    Description: Base name for resources and value of the Project tag.
+
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+    Description: Environment label (appended to resource names and Environment tag).
+
+  ImagesToKeep:
+    Type: Number
+    Default: 20
+    MinValue: 5
+    Description: Number of most recent images kept by the lifecycle policy.
+
+Resources:
+  EcrRepository:
+    Type: AWS::ECR::Repository
+    # The repository holds the image the running Lambda uses: never delete it with the stack.
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      RepositoryName: !Sub '${ProjectName}-${Environment}'
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      # Every deploy uses a new tag; an existing tag can never point to another image.
+      ImageTagMutability: IMMUTABLE
+      EncryptionConfiguration:
+        EncryptionType: AES256
+      LifecyclePolicy:
+        LifecyclePolicyText: !Sub |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Keep the last ${ImagesToKeep} images",
+                "selection": {
+                  "tagStatus": "any",
+                  "countType": "imageCountMoreThan",
+                  "countNumber": ${ImagesToKeep}
+                },
+                "action": { "type": "expire" }
+              }
+            ]
+          }
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}'
+        - Key: ManagedBy
+          Value: CloudFormation
+
+Outputs:
+  EcrRepositoryName:
+    Description: ECR repository name (ECR_REPO)
+    Value: !Ref EcrRepository
+    Export:
+      Name: !Sub '${AWS::StackName}-EcrRepositoryName'
+
+  EcrRepositoryArn:
+    Description: ECR repository ARN
+    Value: !GetAtt EcrRepository.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-EcrRepositoryArn'
+
+  EcrRepositoryUri:
+    Description: ECR repository URI without tag
+    Value: !GetAtt EcrRepository.RepositoryUri
+    Export:
+      Name: !Sub '${AWS::StackName}-EcrRepositoryUri'
+
+  EcrRegistry:
+    Description: ECR registry host (ECR_REGISTRY)
+    Value: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com'

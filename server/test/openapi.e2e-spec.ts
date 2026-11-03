@@ -83,7 +83,11 @@ function documentedRoutes(doc: OpenAPIObject): string[] {
 
 function operationOf(doc: OpenAPIObject, key: string): Operation {
   const [method, path] = key.split(' ');
-  const item = doc.paths[path] as Record<string, Operation>;
+  // `documentedRoutes` writes `{id}` as `:id` to match the router; the document keeps `{id}`.
+  const item = doc.paths[path.replace(/:(\w+)/g, '{$1}')] as Record<
+    string,
+    Operation
+  >;
   return item[method.toLowerCase()];
 }
 
@@ -241,9 +245,151 @@ describe('OpenAPI document (e2e)', () => {
     }
   });
 
+  it('documents USERS_LAST_ADMIN on deactivate but never on activate (reactivation adds an admin)', () => {
+    const responses = (key: string) =>
+      JSON.stringify(operationOf(doc, key).responses);
+    expect(responses('POST /api/v1/users/:id/deactivate')).toContain(
+      'USERS_LAST_ADMIN',
+    );
+    expect(responses('POST /api/v1/users/:id/activate')).not.toContain(
+      'USERS_LAST_ADMIN',
+    );
+  });
+
+  it('field-configuration FR-1, FR-8, NFR-2: documents its five admin routes, the codes each can answer, and the bounds of its two bodies', () => {
+    const codesOf = (key: string, status: string): string[] => {
+      const response = operationOf(doc, key).responses[status] as
+        { description?: string } | undefined;
+      return [...String(response?.description).matchAll(/`([A-Z_]+)`/g)]
+        .map((match) => match[1])
+        .sort();
+    };
+    const view = [
+      'GET /api/v1/cycles/:id/field-config',
+      'GET /api/v1/cycles/:id/field-config/publish-preview',
+    ];
+    const writes = [
+      'PATCH /api/v1/cycles/:id/field-config/draft',
+      'DELETE /api/v1/cycles/:id/field-config/draft',
+      'POST /api/v1/cycles/:id/field-config/publish',
+    ];
+    const documented = documentedRoutes(doc);
+    for (const key of [...view, ...writes]) {
+      expect(documented, key).toContain(key);
+      // admin only: the guard answers 401 and 403 on every one
+      expect(codesOf(key, '403'), `${key} 403`).toContain(
+        'AUTH_PERMISSION_DENIED',
+      );
+      expect(Object.keys(operationOf(doc, key).responses), key).toContain(
+        '401',
+      );
+      expect(codesOf(key, '404'), `${key} 404`).toEqual(['CYCLES_NOT_FOUND']);
+      expect(codesOf(key, '503'), `${key} 503`).toContain(
+        'SERVICE_UNAVAILABLE',
+      );
+      expect(codesOf(key, '409'), `${key} 409`).toContain(
+        'FIELD_CONFIG_CATALOG_MISSING',
+      );
+    }
+    // The draft edit alone takes up to 2,000 items, so its body limit is 640 KB
+    // (R-5); the parser answers 413 above it.
+    expect(
+      codesOf('PATCH /api/v1/cycles/:id/field-config/draft', '413'),
+    ).toEqual(['PAYLOAD_TOO_LARGE']);
+    // Reads work in any cycle status (FR-13); the three writes refuse a closed one.
+    for (const key of view) {
+      expect(codesOf(key, '409'), key).not.toContain('CYCLES_CLOSED');
+    }
+    for (const key of writes) {
+      expect(codesOf(key, '409'), key).toContain('CYCLES_CLOSED');
+    }
+    expect(
+      codesOf('POST /api/v1/cycles/:id/field-config/publish', '409'),
+    ).toEqual(
+      expect.arrayContaining([
+        'FIELD_CONFIG_NOTHING_TO_PUBLISH',
+        'FIELD_CONFIG_REVISION_STALE',
+      ]),
+    );
+    // The publish is the one idempotent route; the replay is declared on its 201.
+    expect(
+      JSON.stringify(
+        operationOf(doc, 'POST /api/v1/cycles/:id/field-config/publish')
+          .responses['201'],
+      ),
+    ).toContain('Idempotency-Replayed');
+
+    const schemas = doc.components?.schemas as Record<string, any>;
+    expect(schemas.PublishFieldConfigDto).toMatchObject({
+      required: ['revision'],
+      properties: { revision: { type: 'number', minimum: 0 } },
+    });
+    expect(schemas.UpdateFieldConfigDraftDto).toMatchObject({
+      required: ['items'],
+      properties: { items: { type: 'array', minItems: 1, maxItems: 2000 } },
+    });
+  });
+
+  it('timeline-step-times FR-1, FR-9, FR-10: documents the step moments, the deprecated day keys and the time zone, and how to send a boundary', () => {
+    const schemas = doc.components?.schemas as Record<string, any>;
+    const step = schemas.TimelineStepModel;
+    expect(step.required).toEqual(
+      expect.arrayContaining(['opensAt', 'closesAt', 'opensOn', 'closesOn']),
+    );
+    for (const key of ['opensAt', 'closesAt']) {
+      expect(step.properties[key], key).toMatchObject({ type: 'string' });
+      expect(step.properties[key].deprecated, key).not.toBe(true);
+      expect(step.properties[key].example, key).toMatch(
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/,
+      );
+    }
+    for (const key of ['opensOn', 'closesOn']) {
+      expect(step.properties[key], key).toMatchObject({
+        type: 'string',
+        format: 'date',
+        deprecated: true,
+      });
+    }
+    for (const name of ['TimelineModel', 'TimelineDetailModel']) {
+      const model = schemas[name];
+      expect(model.required, name).toContain('timeZone');
+      expect(model.properties.timeZone, name).toMatchObject({
+        type: 'string',
+        example: 'Europe/Rome',
+      });
+    }
+    // One key per boundary on write; a null key counts as sent (T-4 pointer).
+    for (const dto of ['TimelineStepDto', 'TimelineStepUpdateDto']) {
+      const model = schemas[dto];
+      expect(model, dto).toBeDefined();
+      // A boundary may be sent in either form, so no moment key is required.
+      for (const key of ['opensAt', 'closesAt', 'opensOn', 'closesOn']) {
+        expect(model.required ?? [], `${dto}.required`).not.toContain(key);
+      }
+      for (const key of ['opensAt', 'closesAt']) {
+        expect(model.properties[key], `${dto}.${key}`).toMatchObject({
+          type: 'string',
+          nullable: true,
+        });
+        expect(model.properties[key].description, `${dto}.${key}`).toContain(
+          'a null key counts as sent',
+        );
+      }
+    }
+  });
+
   it('carries no secret or token value', () => {
     const text = JSON.stringify(doc);
-    expect(text).not.toContain(process.env.COGNITO_CLIENT_SECRET!);
+    for (const name of [
+      'COGNITO_CLIENT_SECRET',
+      'CLARISA_API_KEY',
+      'COGNITO_ADMIN_SECRET_ACCESS_KEY',
+      'COGNITO_ADMIN_ACCESS_KEY_ID',
+    ]) {
+      const value = process.env[name];
+      expect(value, `${name} must be set in vitest.config.e2e.ts`).toBeTruthy();
+      expect(text).not.toContain(value!);
+    }
     expect(text).not.toMatch(/eyJ[\w-]+\.[\w-]+\./);
   });
 });

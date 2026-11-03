@@ -1,7 +1,6 @@
 import { applyDecorators, type Type } from '@nestjs/common';
 import {
   ApiExtraModels,
-  ApiOkResponse,
   ApiProperty,
   ApiPropertyOptional,
   ApiResponse,
@@ -26,10 +25,28 @@ import {
  * `ResponseEnvelopeInterceptor`, errors built by `HttpExceptionFilter`.
  */
 
+export interface ApiPageMeta {
+  /** Opaque; pass it back as `cursor` for the next page. `null` on the last page. */
+  nextCursor: string | null;
+}
+
 export interface ApiMeta {
   requestId: string;
   /** ISO 8601, when the response was produced. */
   timestamp: string;
+  /** Only on a paginated list. */
+  page?: ApiPageMeta;
+}
+
+/**
+ * What a list handler returns: the items become `data`, the cursor becomes
+ * `meta.page.nextCursor` (TRD section 6, cursor pagination).
+ */
+export class Paged<T> {
+  constructor(
+    readonly items: readonly T[],
+    readonly nextCursor: string | null,
+  ) {}
 }
 
 export interface ApiFieldError {
@@ -83,6 +100,17 @@ export class ApiMetaModel implements ApiMeta {
     example: '2026-10-15T14:16:19.000Z',
   })
   timestamp!: string;
+}
+
+export class ApiPageMetaModel implements ApiPageMeta {
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    description:
+      'Opaque; pass it back as `cursor` for the next page. null on the last page',
+    example: 'eyJuIjoiQWRhIiwiaSI6MX0',
+  })
+  nextCursor!: string | null;
 }
 
 export class ApiFieldErrorModel implements ApiFieldError {
@@ -144,6 +172,11 @@ export class ApiErrorResponseModel implements ApiFailure {
   meta!: ApiMeta;
 }
 
+export class ApiPagedMetaModel extends ApiMetaModel {
+  @ApiProperty({ type: ApiPageMetaModel })
+  page!: ApiPageMeta;
+}
+
 type DataSchema = Type<unknown> | Record<string, unknown>;
 
 const dataSchemaOf = (data: DataSchema) =>
@@ -151,27 +184,43 @@ const dataSchemaOf = (data: DataSchema) =>
 
 /**
  * Documents a 2xx answer wrapped in `{ success: true, data, meta }`. `data` is
- * a model class or an inline schema (e.g. a `oneOf`).
+ * a model class or an inline schema (e.g. a `oneOf`). `status` is 200 unless
+ * the route answers 201; `paged` adds `meta.page` for a cursor-paginated list;
+ * `headers` documents response headers of the answer.
  */
 export const ApiOkEnvelope = (
   data: DataSchema,
-  options: { description?: string; extraModels?: Type<unknown>[] } = {},
+  options: {
+    description?: string;
+    extraModels?: Type<unknown>[];
+    status?: 200 | 201;
+    paged?: boolean;
+    /** Response headers of the answer (e.g. `Idempotency-Replayed`). */
+    headers?: Record<string, { description: string; schema: object }>;
+  } = {},
 ) =>
   applyDecorators(
     ApiExtraModels(
       ApiMetaModel,
+      ApiPagedMetaModel,
       ...(typeof data === 'function' ? [data] : []),
       ...(options.extraModels ?? []),
     ),
-    ApiOkResponse({
+    ApiResponse({
+      status: options.status ?? 200,
       description: options.description,
+      headers: options.headers,
       schema: {
         type: 'object',
         required: ['success', 'data', 'meta'],
         properties: {
           success: { type: 'boolean', enum: [true] },
           data: dataSchemaOf(data),
-          meta: { $ref: getSchemaPath(ApiMetaModel) },
+          meta: {
+            $ref: getSchemaPath(
+              options.paged ? ApiPagedMetaModel : ApiMetaModel,
+            ),
+          },
         },
       },
     }),

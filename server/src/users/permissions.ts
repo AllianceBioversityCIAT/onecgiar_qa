@@ -48,7 +48,9 @@ export const ROLE_DEFINITIONS: readonly RoleDefinition[] = [
     code: RoleCode.ADMIN,
     name: 'Administrator',
     scopeType: 'global',
-    grants: [Permission.ADMIN_ACCESS],
+    // FR-14, DD-10: every permission of the catalog, derived so a permission
+    // added later is granted to ADMIN without touching this list.
+    grants: Object.values(Permission),
   },
   {
     code: RoleCode.LEAD_ASSESSOR,
@@ -84,4 +86,16 @@ export const ROLE_DEFINITIONS: readonly RoleDefinition[] = [
 
 export function findRoleDefinition(code: string): RoleDefinition | undefined {
   return ROLE_DEFINITIONS.find((role) => role.code === code);
+}
+
+/**
+ * Roles an admin may grant (FR-2, D6): every role but PROGRAM, which user
+ * management does not grant (its future belongs to the comments spec). The
+ * role catalog and the admin validators read this single list.
+ */
+export const GRANTABLE_ROLES: readonly RoleDefinition[] =
+  ROLE_DEFINITIONS.filter((role) => role.code !== RoleCode.PROGRAM);
+
+export function isGrantableRole(code: string): boolean {
+  return GRANTABLE_ROLES.some((role) => role.code === code);
 }

@@ -29,7 +29,7 @@ These documents are the constitution. Read them before proposing, specifying or 
 | Domain | Covers |
 |---|---|
 | `auth` | Cognito login/refresh, token verification, users and scoped roles |
-| `admin-config` | Cycles, windows, batches, field configuration per result type |
+| `admin-config` | Cycles and QA timelines (dated steps, rounds, scope, assigned users — `server/src/admin-config/`), field configuration per result type |
 | `ingestion` | Reporting API integration, snapshots, sync |
 | `evaluation` | Field-by-field review |
 | `comments` | Comment flow and state machine |
@@ -81,6 +81,7 @@ Root rules always apply; a child guide only adds or narrows. Guides follow the [
   - `server/src/users/AGENTS.md` — users, roles, role assignments, permission catalog, `can()`, current-user cache.
   - `server/src/database/AGENTS.md` — Drizzle/MySQL and DynamoDB wiring, schema guarantees, migrations and seeds.
   - `server/src/config/AGENTS.md` — environment variables, validation, typed config, secrets.
+  - `server/src/admin-config/AGENTS.md` — cycles, QA timelines and the field configuration per cycle: modules, lock order, activation retry, validation flow, draft revision and publish race, Europe/Rome clock.
   - `server/src/common/AGENTS.md` — HTTP bootstrap (`configureApp`), the response standard (envelope, error catalog, field errors), request id.
   - `server/test/AGENTS.md` — e2e suites, test world, fakes and test rules.
 

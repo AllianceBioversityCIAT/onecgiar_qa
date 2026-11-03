@@ -9,6 +9,7 @@ import { ApiErrorResponses, ApiOkEnvelope } from '../common/api-response.js';
 import { ACCESS_TOKEN_SCHEME } from '../common/openapi.js';
 import { Controller, Get } from '@nestjs/common';
 import {
+  type AdmittedUser,
   type AuthenticatedUser,
   isLiveAssignment,
 } from '../users/current-user.cache.js';
@@ -49,6 +50,15 @@ export class UserProfile {
   @ApiProperty({ type: String, nullable: true, example: 'Lovelace' })
   lastName!: string | null;
 
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    example: 'Ada',
+    description:
+      "The user's own nickname (FR-12); null when none is set, as for a GUEST",
+  })
+  nickname!: string | null;
+
   @ApiProperty({ type: String, enum: ['sso', 'custom'], example: 'sso' })
   authSource!: AuthSource;
 
@@ -59,12 +69,13 @@ export class UserProfile {
   assignments!: ProfileAssignment[];
 }
 
-export function toUserProfile(user: AuthenticatedUser): UserProfile {
+export function toUserProfile(user: AdmittedUser): UserProfile {
   return {
     id: user.id,
     email: user.email,
     firstName: user.firstName,
     lastName: user.lastName,
+    nickname: user.nickname,
     authSource: user.authSource,
     assignments: user.assignments
       .filter(isLiveAssignment)

@@ -1,0 +1,168 @@
+<!-- Cycle view on the cycles API (cycle-store.ts). Loads, results, export and close have no API yet: "Coming soon". -->
+
+<!-- Page header -->
+<div class="flex flex-wrap items-start gap-4 px-4 pt-8 sm:px-6 lg:px-8">
+  <div class="flex min-w-0 flex-[1_1_16rem] flex-col gap-1">
+    <h1 class="m-0 text-balance text-(length:--fs-26) leading-[1.2] font-bold tracking-[-0.02em] text-(--text)">{{ store.cycle()?.name ?? 'Assessment cycle' }}</h1>
+    <p class="m-0 text-(length:--fs-14) font-normal text-(--text-3)">Only results submitted by a science program can enter QA.</p>
+  </div>
+  <div class="flex flex-none items-center gap-2 max-sm:w-full">
+    @if (running(); as r) {
+      <div role="status" aria-live="polite" class="flex h-9 items-center gap-2 rounded-[8px] border border-(--tint-border-2) max-sm:h-10 max-sm:flex-1 max-sm:justify-center bg-(--tint-2) px-[14px] whitespace-nowrap">
+        <span aria-hidden="true" class="size-[7px] rounded-full bg-(--primary)"></span>
+        <span class="text-(length:--fs-14) font-semibold text-(--accent)">Loading results</span>
+        <span class="font-(family-name:--qa-mono) text-(length:--fs-13) font-semibold text-(--accent) tabular-nums">{{ fmt(r.done) }} of {{ fmt(r.total) }}</span>
+      </div>
+    } @else {
+      <button hlmBtn qaBtn tone="primary" type="button" disabled title="Coming soon: loads are not built yet" class="gap-2 max-sm:flex-1">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M8 11l4 4 4-4M8 5H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-4" /></svg>
+        Load results into QA
+        <span class="text-(length:--fs-11) font-semibold opacity-80">Coming soon</span>
+      </button>
+    }
+  </div>
+</div>
+
+<div data-screen-label="Cycle" class="flex flex-col items-stretch gap-6 px-4 pt-6 pb-8 sm:px-6 lg:px-8">
+  @switch (store.state()) {
+  @case ('loading') {
+    <qa-cycle-skeleton />
+  }
+  @case ('error') {
+    <section role="alert" class="flex flex-col items-start gap-1 rounded-[12px] border border-(--border) bg-(--surface) px-5 py-6">
+      <h2 class="m-0 text-(length:--fs-16) font-bold text-(--text)">We couldn't load the cycle</h2>
+      <p class="m-0 text-(length:--fs-14) text-(--text-3)">{{ store.loadError() }}</p>
+      <button hlmBtn qaBtn tone="secondary" type="button" (click)="store.load()" class="mt-3">Try again</button>
+    </section>
+  }
+  @case ('no-cycle') {
+    <section class="flex flex-col items-start gap-1 rounded-[12px] border border-(--border) bg-(--surface) px-5 py-6">
+      <h2 class="m-0 text-(length:--fs-16) font-bold text-(--text)">No active cycle</h2>
+      <p class="m-0 text-(length:--fs-14) text-pretty text-(--text-3)">Timelines belong to the active cycle. Once a cycle is activated, its main batch and complementary batches show here.</p>
+    </section>
+  }
+  @default {
+  @if (store.missingCatalogs().length) {
+    <p role="status" class="m-0 rounded-[8px] bg-(--st-editing-bg) px-3 py-2 text-(length:--fs-13) text-(--st-editing-fg)">Some lists could not be loaded ({{ store.missingCatalogs().join(', ') }}). Ids are shown instead of names and those pickers are empty; reload later.</p>
+  }
+
+  <!-- Official timeline -->
+  @if (officialVM(); as ot) {
+  <section qaReveal="0" class="rounded-[12px] border border-(--border) bg-(--surface)" aria-labelledby="cycle-ot-title">
+    <div class="flex min-h-16 flex-wrap items-center gap-3 border-b border-(--surface-4) px-5 py-4">
+      <div class="flex min-w-0 flex-[1_1_14rem] flex-col gap-[3px]">
+        <h2 id="cycle-ot-title" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">{{ ot.name }}</h2>
+        <div class="text-(length:--fs-13) leading-[1.5] font-normal text-(--text-3)">Main batch · <span class="font-(family-name:--qa-mono) font-medium text-(--text-2) tabular-nums"><span class="whitespace-nowrap">{{ ot.rangeParts[0] }}</span>&ngsp;<span class="whitespace-nowrap">{{ ot.rangeParts[1] }}</span></span> · <span class="whitespace-nowrap"><span class="font-(family-name:--qa-mono) font-medium text-(--text-2) tabular-nums">{{ ot.stepCount }}</span> steps</span> · all programs</div>
+      </div>
+      @if (ot.canEdit && store.canWrite()) {
+        <div class="flex flex-none flex-wrap items-center gap-2 max-sm:w-full">
+          <button hlmBtn qaBtn tone="secondary" type="button" (click)="editTimeline('official')" class="gap-[7px] max-sm:flex-1">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4z" /></svg>Edit timeline
+          </button>
+        </div>
+      }
+    </div>
+    <qa-cycle-timeline-steps [timeline]="ot" (openStep)="openStep('official', $event)" (viewProgress)="openProgress('official', $event)" />
+  </section>
+  } @else {
+    <section class="flex flex-col items-start gap-1 rounded-[12px] border border-(--border) bg-(--surface) px-5 py-6">
+      <h2 class="m-0 text-(length:--fs-16) font-bold text-(--text)">No main batch yet</h2>
+      <p class="m-0 text-(length:--fs-14) text-pretty text-(--text-3)">The first timeline of the cycle is its main batch. Every program follows it unless you add a complementary batch.</p>
+      @if (store.canWrite()) {
+        <button hlmBtn qaBtn tone="primary" type="button" (click)="newSubTimeline()" class="mt-3">Create the main batch</button>
+      }
+    </section>
+  }
+
+  <!-- Sub-timelines (once the cycle has its official timeline) -->
+  @if (official()) {
+  <div class="flex flex-col">
+    <div qaReveal="1" class="mb-4 flex flex-wrap items-end gap-4">
+      <div class="flex min-w-0 flex-[1_1_15rem] flex-col gap-1">
+        <h2 class="m-0 text-(length:--fs-20) font-bold tracking-[-0.01em] text-(--text)">Complementary batches</h2>
+        <p class="m-0 text-(length:--fs-13) font-normal text-(--text-3)">A second calendar for programs and result types running late. Each one has its own dates and loads its results when its first step opens.</p>
+      </div>
+      <div class="flex flex-none items-center gap-2 max-sm:w-full">
+        <button hlmBtn qaBtn tone="primary" type="button" (click)="newSubTimeline()" [disabled]="!store.canWrite()" class="gap-[7px] max-sm:flex-1">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>New complementary batch
+        </button>
+      </div>
+    </div>
+
+    <div qaTabs [(value)]="tab">
+      <div qaTabList aria-label="Timelines" class="mb-4">
+        <button qaTab="live">Live <span qaTabCount>{{ liveVMs().length }}</span></button>
+        <button qaTab="closed">Closed <span qaTabCount>{{ closedTotal() }}</span></button>
+      </div>
+
+      <div qaTabPanel="live">
+        @if (tab() === 'live') {
+          <div class="flex flex-col gap-5">
+            @for (t of liveVMs(); track t.id) {
+              <qa-cycle-timeline-card
+                [qaReveal]="$index + 2"
+                [timeline]="t"
+                [canAddStep]="false"
+                [confirmClose]="closeConfirmId() === t.id"
+                (addStep)="openStep(t.id, null)"
+                (menuAction)="onMenu(t.id, $event)"
+                (keepOpen)="closeConfirmId.set(null)"
+                (closeTimeline)="closeTimeline(t.id)"
+                (openStep)="openStep(t.id, $event)"
+                (viewProgress)="openProgress(t.id, $event)"
+              />
+            } @empty {
+              <section class="flex flex-col items-start gap-1 rounded-[12px] border border-(--border) bg-(--surface) px-5 py-6">
+                <h3 class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">No live complementary batches</h3>
+                <p class="m-0 text-(length:--fs-14) font-normal text-pretty text-(--text-3)">Complementary batches show here while their steps are running. Add one for programs that submit late.</p>
+                <button hlmBtn qaBtn tone="secondary" type="button" (click)="newSubTimeline()" [disabled]="!store.canWrite()" class="mt-3">New complementary batch</button>
+              </section>
+            }
+          </div>
+        }
+      </div>
+
+      <div qaTabPanel="closed">
+        @if (tab() === 'closed') {
+          <div class="flex flex-col gap-5">
+            @for (t of closedVMs(); track t.id) {
+              <qa-cycle-timeline-card [qaReveal]="$index" [timeline]="t" (openStep)="openStep(t.id, $event)" (viewProgress)="openProgress(t.id, $event)" />
+            } @empty {
+              <section class="flex flex-col items-start gap-1 rounded-[12px] border border-(--border) bg-(--surface) px-5 py-6">
+                <h3 class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">No closed complementary batches yet</h3>
+                <p class="m-0 text-(length:--fs-14) font-normal text-pretty text-(--text-3)">When a complementary batch finishes its last step, it moves here and stays as the record of the cycle.</p>
+              </section>
+            }
+          </div>
+        }
+      </div>
+    </div>
+  </div>
+  }
+  }
+  }
+</div>
+
+<!-- Drawers (720px, right side) -->
+<qa-cycle-timeline-drawer
+  [(open)]="timelineOpen"
+  [request]="timelineRequest()"
+  [official]="official()"
+  [live]="true"
+  [saving]="saving()"
+  [feedback]="timelineFeedback()"
+  [defaults]="store.defaults()"
+  [programOptions]="store.programOptions()"
+  [typeOptions]="store.typeOptions()"
+  (saveTimeline)="saveTimeline($event)"
+/>
+<qa-cycle-step-drawer
+  [(open)]="stepOpen"
+  [request]="stepRequest()"
+  [live]="true"
+  [saving]="saving()"
+  [feedback]="stepFeedback()"
+  (saveStep)="saveStep($event)"
+  (loadIntoStep)="loadIntoStep()"
+/>
+<qa-cycle-progress-drawer [(open)]="progressOpen" [progress]="progress()" />

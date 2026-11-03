@@ -3,7 +3,11 @@ import {
   ConflictException,
   NotFoundException,
 } from '@nestjs/common';
-import { errorBody } from '../common/error-codes.js';
+import {
+  errorBody,
+  FIELD_ERRORS,
+  type FieldErrorCode,
+} from '../common/error-codes.js';
 
 // Typed domain errors of the users module (TRD section 11). They extend the
 // Nest HTTP exceptions so the global filter maps them to the error envelope
@@ -28,15 +32,159 @@ export class DuplicateActiveAssignmentError extends ConflictException {
   }
 }
 
+/**
+ * Assessor and Lead Assessor on one result type, `*` included (FR-3, DD-2,
+ * DD-11). Which two grants clash stays in `detail`, for logs and tests only.
+ */
+export class RoleConflictError extends ConflictException {
+  constructor(readonly detail: string) {
+    super(errorBody('USERS_ROLE_CONFLICT'));
+  }
+}
+
 export class AssignmentNotFoundError extends NotFoundException {
   constructor(readonly assignmentId: number) {
     super(errorBody('USERS_ASSIGNMENT_NOT_FOUND'));
   }
 }
 
+/** The target user of an admin change does not exist (design 7, step 1). */
+export class UserNotFoundError extends NotFoundException {
+  constructor(readonly userId: number) {
+    super(errorBody('USERS_NOT_FOUND'));
+  }
+}
+
+/** The change would leave no active ADMIN (FR-7, DD-3). */
+export class LastAdminError extends ConflictException {
+  constructor() {
+    super(errorBody('USERS_LAST_ADMIN'));
+  }
+}
+
+/** An active exclusion of this user and program already exists (DD-5). */
+export class ExclusionExistsError extends ConflictException {
+  constructor() {
+    super(errorBody('USERS_EXCLUSION_EXISTS'));
+  }
+}
+
+/** No active exclusion with this id for this user (ended rows count as absent). */
+export class ExclusionNotFoundError extends NotFoundException {
+  constructor(readonly exclusionId: number) {
+    super(errorBody('USERS_EXCLUSION_NOT_FOUND'));
+  }
+}
+
+export class ExclusionNotManualError extends ConflictException {
+  constructor() {
+    super(errorBody('USERS_EXCLUSION_NOT_MANUAL'));
+  }
+}
+
+export class ExclusionNotReportingError extends ConflictException {
+  constructor() {
+    super(errorBody('USERS_EXCLUSION_NOT_REPORTING'));
+  }
+}
+
+/** The `reason` of an exclusion is empty or too long (FR-4): a 400 on the `reason` field. */
+export class ExclusionReasonError extends BadRequestException {
+  constructor(code: 'REQUIRED' | 'TOO_LONG', max: number) {
+    super({
+      ...errorBody('VALIDATION_FAILED'),
+      fields: [{ field: 'reason', code, message: FIELD_ERRORS[code](max) }],
+    });
+  }
+}
+
+/** A program id that cannot be a CLARISA id (not a positive integer within the column). Whether it exists is the catalog's call (FR-4). */
+export class InvalidProgramIdError extends BadRequestException {
+  constructor() {
+    super({
+      ...errorBody('VALIDATION_FAILED'),
+      fields: [
+        {
+          field: 'programIds',
+          code: 'INVALID',
+          message: FIELD_ERRORS.INVALID(),
+        },
+      ],
+    });
+  }
+}
+
 export class InvalidEmailError extends BadRequestException {
   constructor() {
     super(errorBody('USERS_INVALID_EMAIL'));
+  }
+}
+
+/** Another QA user already has this email (FR-2), whatever its case. */
+export class EmailTakenError extends ConflictException {
+  constructor() {
+    super(errorBody('USERS_EMAIL_TAKEN'));
+  }
+}
+
+/** Another QA user already has this nickname, whatever its case (FR-2, NFR-5). */
+export class NicknameTakenError extends ConflictException {
+  constructor() {
+    super(errorBody('USERS_NICKNAME_TAKEN'));
+  }
+}
+
+/** The name can no longer be edited here: the user has signed in (FR-5, DD-8). */
+export class NameLockedError extends ConflictException {
+  constructor() {
+    super(errorBody('USERS_NAME_LOCKED'));
+  }
+}
+
+/** The invitation cannot be resent for this user (FR-8). Why stays in `detail`, for logs and tests only. */
+export class InvitationNotApplicableError extends ConflictException {
+  constructor(readonly detail: string) {
+    super(errorBody('USERS_INVITATION_NOT_APPLICABLE'));
+  }
+}
+
+/** One field of a `VALIDATION_FAILED` answer, named as the API names it (design 6). */
+export interface FieldIssue {
+  field: string;
+  code: FieldErrorCode;
+  max?: number;
+}
+
+/**
+ * A request the DTO pipe cannot judge: catalog references and combinations
+ * (an unknown role, result type or program, an ambiguous role list). The
+ * field names are the API's (`programs`, `programId`, `roles[0].resultTypes`),
+ * not the repositories' (FR-2, FR-4).
+ */
+export class FieldValidationError extends BadRequestException {
+  constructor(readonly issues: readonly FieldIssue[]) {
+    super({
+      ...errorBody('VALIDATION_FAILED'),
+      fields: issues.map(({ field, code, max }) => ({
+        field,
+        code,
+        message: FIELD_ERRORS[code](max),
+      })),
+    });
+  }
+}
+
+/**
+ * The cursor or the limit of a list request is unusable (FR-9). A 400
+ * `VALIDATION_FAILED` on `field`; the body comes from the catalog so no
+ * message of its own reaches the client.
+ */
+export class InvalidListQueryError extends BadRequestException {
+  constructor(readonly field: 'cursor' | 'limit') {
+    super({
+      ...errorBody('VALIDATION_FAILED'),
+      fields: [{ field, code: 'INVALID', message: FIELD_ERRORS.INVALID() }],
+    });
   }
 }
 

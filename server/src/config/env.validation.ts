@@ -8,6 +8,9 @@ const REQUIRED_ENV_VARS = [
   'COGNITO_CLIENT_SECRET',
   'COGNITO_URL',
   'ALLOWED_ORIGINS',
+  'REPORTING_API_URL',
+  'CLARISA_API_URL',
+  'CLARISA_API_KEY',
 ] as const;
 
 /**
@@ -77,22 +80,29 @@ export function validateEnv(
   ) {
     throw new Error('Invalid OPENAPI_ENABLED: expected "true" or "false"');
   }
-  // DynamoDB keys: both or neither (local development only).
-  const dynamoKeys = [
-    'DYNAMODB_ACCESS_KEY_ID',
-    'DYNAMODB_SECRET_ACCESS_KEY',
-  ] as const;
-  const present = dynamoKeys.filter((key) => !!config[key]);
-  if (present.length === 1) {
-    const absent = dynamoKeys.find((key) => !config[key]);
-    throw new Error(
-      `Missing ${absent}: DYNAMODB_ACCESS_KEY_ID and DYNAMODB_SECRET_ACCESS_KEY go together`,
-    );
+  // IAM keys of a local service user: both or neither (local development only).
+  for (const keys of [
+    ['DYNAMODB_ACCESS_KEY_ID', 'DYNAMODB_SECRET_ACCESS_KEY'],
+    ['COGNITO_ADMIN_ACCESS_KEY_ID', 'COGNITO_ADMIN_SECRET_ACCESS_KEY'],
+  ] as const) {
+    const present = keys.filter((key) => !!config[key]);
+    if (present.length === 1) {
+      const absent = keys.find((key) => !config[key]);
+      throw new Error(
+        `Missing ${absent}: ${keys[0]} and ${keys[1]} go together`,
+      );
+    }
   }
   // Passwords, SECRET_HASH and the client secret travel to these (FR-18).
   for (const key of ['COGNITO_URL', 'COGNITO_USER_POOL_URL'] as const) {
     const value = config[key];
     if (value !== undefined && value !== '' && !isHttpsUrl(value as string)) {
+      throw new Error(`Invalid ${key}: expected an https:// URL`);
+    }
+  }
+  // Catalog sources (FR-11): their answers decide who may be granted what.
+  for (const key of ['REPORTING_API_URL', 'CLARISA_API_URL'] as const) {
+    if (!isHttpsUrl(config[key] as string)) {
       throw new Error(`Invalid ${key}: expected an https:// URL`);
     }
   }

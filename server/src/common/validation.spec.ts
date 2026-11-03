@@ -1,5 +1,5 @@
 import { plainToInstance, Type } from 'class-transformer';
-import { ValidateNested, validate } from 'class-validator';
+import { IsString, ValidateNested, validate } from 'class-validator';
 import { describe, expect, it } from 'vitest';
 import { LoginDto } from '../auth/dto/login.dto.js';
 import { toFieldErrors, validationExceptionFactory } from './validation.js';
@@ -99,6 +99,27 @@ describe('validation → field errors in our words', () => {
     expect(fields.map((f) => [f.field, f.code])).toEqual([
       ['login.email', 'INVALID_EMAIL'],
       ['login.password', 'REQUIRED'],
+    ]);
+  });
+
+  it('names an item of a list with its index in brackets, as the service does', async () => {
+    class Item {
+      @IsString()
+      name!: string;
+    }
+    class List {
+      @ValidateNested({ each: true })
+      @Type(() => Item)
+      items!: Item[];
+    }
+    expect(
+      await fieldErrorsOf(List, { items: [{ name: 'a' }, { name: 5 }] }),
+    ).toEqual([
+      {
+        field: 'items[1].name',
+        code: 'INVALID_TYPE',
+        message: 'This field has the wrong type.',
+      },
     ]);
   });
 

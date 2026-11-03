@@ -18,6 +18,7 @@ import {
   ROLE_ASSIGNMENTS_STORE,
   RoleAssignmentsRepository,
 } from '../src/users/role-assignments.repository.js';
+import { USER_PROGRAMS_STORE } from '../src/users/user-programs.repository.js';
 import { USERS_STORE, UsersRepository } from '../src/users/users.repository.js';
 import {
   b64url,
@@ -27,6 +28,7 @@ import {
 } from './support/jwt-test-keys.js';
 import {
   InMemoryRoleAssignmentsStore,
+  InMemoryUserProgramsStore,
   InMemoryUsersStore,
 } from './support/in-memory-stores.js';
 
@@ -202,6 +204,8 @@ async function buildWorld(): Promise<World> {
     .useValue(usersStore)
     .overrideProvider(ROLE_ASSIGNMENTS_STORE)
     .useValue(assignmentsStore)
+    .overrideProvider(USER_PROGRAMS_STORE)
+    .useValue(new InMemoryUserProgramsStore())
     .overrideProvider(JWKS_CACHE)
     .useValue(localJwksCache(signer))
     .overrideProvider(CURRENT_USER_CLOCK)
@@ -238,7 +242,11 @@ let seq = 0;
 /** Registers a user as the admission step would have left it. */
 async function addUser(
   world: World,
-  options: { authSource?: 'sso' | 'custom'; isActive?: boolean } = {},
+  options: {
+    authSource?: 'sso' | 'custom';
+    isActive?: boolean;
+    nickname?: string;
+  } = {},
 ): Promise<User> {
   const n = ++seq;
   const user = await world.users.create({
@@ -247,6 +255,7 @@ async function addUser(
     firstName: 'Ada',
     lastName: `Lovelace ${n}`,
     authSource: options.authSource ?? 'sso',
+    nickname: options.nickname ?? null,
   });
   // The in-memory store hands out its own row, so this changes the stored user.
   if (options.isActive === false) user.isActive = false;
@@ -509,13 +518,23 @@ describe('Global guards (e2e)', () => {
       expect(handlerSpy).toHaveBeenCalledTimes(1);
     });
 
+    // FR-14: ADMIN holds every permission, so the refused role here is PPU.
     it('refuses a role that does not hold the declared permission', async () => {
+      const ppu = await addUser(world);
+      await world.assignments.create({ userId: ppu.id, roleCode: 'PPU' });
+      await world
+        .call('post', '/probe/tpb', world.bearer(sub(ppu)))
+        .expect(403);
+      expect(handlerSpy).not.toHaveBeenCalled();
+    });
+
+    it('lets ADMIN through a route that declares another role permission (FR-14)', async () => {
       const admin = await addUser(world);
       await world.assignments.create({ userId: admin.id, roleCode: 'ADMIN' });
       await world
         .call('post', '/probe/tpb', world.bearer(sub(admin)))
-        .expect(403);
-      expect(handlerSpy).not.toHaveBeenCalled();
+        .expect(201);
+      expect(handlerSpy).toHaveBeenCalledTimes(1);
     });
 
     it('passes a scoped permission at route level whatever the scope (DD-4)', async () => {
@@ -627,6 +646,24 @@ describe('Global guards (e2e)', () => {
         firstName: 'Ada',
         lastName: guest.lastName,
         authSource: 'sso',
+        nickname: null,
+        assignments: [],
+      });
+    });
+
+    it("returns the nickname of a user who has one, and no other user's", async () => {
+      const user = await addUser(world, { nickname: 'Countess' });
+      await addUser(world, { nickname: 'Someone else' });
+      const res = await world
+        .call('get', '/auth/me', world.bearer(sub(user)))
+        .expect(200);
+      expect(res.body.data).toEqual({
+        id: user.id,
+        email: user.email,
+        firstName: 'Ada',
+        lastName: user.lastName,
+        authSource: 'sso',
+        nickname: 'Countess',
         assignments: [],
       });
     });
@@ -677,6 +714,7 @@ describe('Global guards (e2e)', () => {
         'firstName',
         'id',
         'lastName',
+        'nickname',
       ]);
     });
   });

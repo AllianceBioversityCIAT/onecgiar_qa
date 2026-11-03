@@ -34,9 +34,11 @@ import {
   RoleAssignmentsRepository,
 } from '../src/users/role-assignments.repository.js';
 import { DuplicateUserError } from '../src/users/users.errors.js';
+import { USER_PROGRAMS_STORE } from '../src/users/user-programs.repository.js';
 import { USERS_STORE, UsersRepository } from '../src/users/users.repository.js';
 import {
   InMemoryRoleAssignmentsStore,
+  InMemoryUserProgramsStore,
   InMemoryUsersStore,
 } from './support/in-memory-stores.js';
 import {
@@ -261,6 +263,8 @@ async function buildWorld(): Promise<World> {
     .useValue(usersStore)
     .overrideProvider(ROLE_ASSIGNMENTS_STORE)
     .useValue(assignmentsStore)
+    .overrideProvider(USER_PROGRAMS_STORE)
+    .useValue(new InMemoryUserProgramsStore())
     .overrideProvider(ADMISSION_UNIT_OF_WORK)
     .useValue(unitOfWork)
     .overrideProvider(JWKS_CACHE)

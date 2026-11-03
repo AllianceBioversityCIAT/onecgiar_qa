@@ -58,6 +58,18 @@ export const ERROR_CATALOG = {
       'Something went wrong on our side. Try again; if it keeps happening, contact support and share the reference code.',
   },
 
+  // --- Idempotency (keyed writes) -----------------------------------------
+  IDEMPOTENCY_IN_PROGRESS: {
+    status: 409,
+    message:
+      'This request is already being processed. Wait a moment and try again.',
+  },
+  IDEMPOTENCY_KEY_REUSED: {
+    status: 422,
+    message:
+      'This request identifier was already used for a different request. Start the change again.',
+  },
+
   // --- Auth: credentials and session --------------------------------------
   AUTH_INVALID_CREDENTIALS: {
     status: 401,
@@ -161,9 +173,118 @@ export const ERROR_CATALOG = {
     status: 409,
     message: 'This user already has this role in this scope.',
   },
+  USERS_ROLE_CONFLICT: {
+    status: 409,
+    message:
+      'A user cannot be both Assessor and Lead Assessor for the same result type. Remove one of the two roles and try again.',
+  },
   USERS_ASSIGNMENT_NOT_FOUND: {
     status: 404,
     message: 'This role assignment does not exist.',
+  },
+  USERS_NOT_FOUND: { status: 404, message: 'This user does not exist.' },
+  USERS_EMAIL_TAKEN: {
+    status: 409,
+    message:
+      'A user with this email already exists. Open that user instead, or use a different email.',
+  },
+  USERS_NICKNAME_TAKEN: {
+    status: 409,
+    message:
+      'This nickname is already used by another user. Choose a different nickname.',
+  },
+  USERS_NAME_LOCKED: {
+    status: 409,
+    message:
+      'The name comes from the identity provider once the user has signed in, so it can no longer be edited here.',
+  },
+  USERS_INVITATION_NOT_APPLICABLE: {
+    status: 409,
+    message:
+      'An invitation can only be resent to a custom-account user, invited by QA, who has not signed in yet.',
+  },
+  USERS_LAST_ADMIN: {
+    status: 409,
+    message:
+      'This change would leave QA without an active administrator. Make another user an administrator first.',
+  },
+  USERS_EXCLUSION_EXISTS: {
+    status: 409,
+    message: 'This program is already excluded for this user.',
+  },
+  USERS_EXCLUSION_NOT_FOUND: {
+    status: 404,
+    message: 'This program exclusion does not exist or is no longer active.',
+  },
+  USERS_EXCLUSION_NOT_MANUAL: {
+    status: 409,
+    message:
+      'Only an exclusion added by an administrator can be removed. Dismiss an exclusion that comes from Reporting instead.',
+  },
+  USERS_EXCLUSION_NOT_REPORTING: {
+    status: 409,
+    message:
+      'Only an exclusion that comes from Reporting can be dismissed. Remove an exclusion added by an administrator instead.',
+  },
+
+  // --- Cycles and timelines ------------------------------------------------
+  CYCLES_NOT_FOUND: { status: 404, message: 'This cycle does not exist.' },
+  CYCLES_YEAR_TAKEN: {
+    status: 409,
+    message:
+      'A cycle for this year already exists. Open that cycle instead, or choose a different year.',
+  },
+  CYCLES_NOT_DRAFT: {
+    status: 409,
+    message: 'Only a draft cycle can be activated.',
+  },
+  CYCLES_CLOSED: {
+    status: 409,
+    message:
+      'This cycle is closed, so its timelines and assignments can no longer change.',
+  },
+  TIMELINES_NOT_FOUND: {
+    status: 404,
+    message: 'This timeline does not exist.',
+  },
+  TIMELINES_NAME_TAKEN: {
+    status: 409,
+    message:
+      'Another timeline in this cycle already has this name. Choose a different name.',
+  },
+  TIMELINES_VERSION_STALE: {
+    status: 409,
+    message:
+      'Someone else changed this timeline. Reload it and make your change again.',
+  },
+  TIMELINES_IN_PROGRESS_UNCONFIRMED: {
+    status: 409,
+    message:
+      'This change affects a step that is in progress. Confirm it to save.',
+  },
+  TIMELINES_USER_NOT_ELIGIBLE: {
+    status: 409,
+    message:
+      'This user is inactive or does not hold the role this step needs. Choose another user.',
+  },
+  TIMELINES_ASSIGNMENT_NOT_FOUND: {
+    status: 404,
+    message: 'This assignment does not exist or was already removed.',
+  },
+
+  // --- Field configuration -------------------------------------------------
+  FIELD_CONFIG_CATALOG_MISSING: {
+    status: 409,
+    message: "No Reporting catalog exists for this cycle's year.",
+  },
+  FIELD_CONFIG_REVISION_STALE: {
+    status: 409,
+    message:
+      'The draft changed after you reviewed it. Reload and review the changes again.',
+  },
+  FIELD_CONFIG_NOTHING_TO_PUBLISH: {
+    status: 409,
+    message: 'There are no changes to publish.',
   },
 } as const satisfies Record<string, { status: number; message: string }>;
 
@@ -221,6 +342,21 @@ export const FIELD_ERRORS = {
       : `Must be at most ${max} characters.`,
   UNKNOWN_FIELD: () => 'This field is not allowed.',
   INVALID: () => 'This value is not valid.',
+  OUT_OF_RANGE: () => 'This value is outside the allowed range.',
+  CLOSES_BEFORE_OPENS: () =>
+    'The closing date cannot be before the opening date.',
+  OVERLAPS_PREVIOUS_STEP: () =>
+    'This step must open after the previous step closes.',
+  BEFORE_TODAY: () => 'This date cannot be in the past.',
+  DST_HOUR: () =>
+    'This time does not exist or happens twice in Rome on this day (daylight-saving change). Choose another time.',
+  AUDIENCE_ORDER: () =>
+    'Each audience can be used once, in the workflow order.',
+  ROUND_SEQUENCE: () =>
+    'Rounds start at 1 and either stay the same or go up by one.',
+  FIRST_STEP_LOAD: () => 'The first step must require a load.',
+  LOCKED: () => 'This can no longer be changed.',
+  NOT_ASSESSED: () => 'Core and AI input can only be set on an assessed field.',
 } as const;
 
 export type FieldErrorCode = keyof typeof FIELD_ERRORS;

@@ -13,6 +13,11 @@ import {
 export const authSources = ['sso', 'custom'] as const;
 export type AuthSource = (typeof authSources)[number];
 
+// State of the Cognito invitation (user-management FR-8): `existing_account`
+// = the email already had a pool account, so QA sent nothing.
+export const invitationStates = ['none', 'sent', 'existing_account'] as const;
+export type InvitationState = (typeof invitationStates)[number];
+
 const email = sql.identifier('email');
 
 export const users = mysqlTable(
@@ -41,6 +46,14 @@ export const users = mysqlTable(
     createdBy: int('created_by', { unsigned: true }).references(
       (): AnyMySqlColumn => users.id,
     ),
+    // Declared last, in the order migration 0001 appends them to the table:
+    // row readers that map by position (the admission stub driver) keep working.
+    // Unique under the column's case-insensitive collation (NFR-5, P-7).
+    nickname: varchar('nickname', { length: 50 }).unique('uq_users_nickname'),
+    invitation: mysqlEnum('invitation', invitationStates)
+      .notNull()
+      .default('none'),
+    invitedAt: datetime('invited_at'),
   },
   () => [
     // The comparison is binary on purpose: under the default case-insensitive

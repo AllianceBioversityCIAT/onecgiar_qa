@@ -12,6 +12,9 @@ const VALID = {
   COGNITO_CLIENT_SECRET: 'secret',
   COGNITO_URL: 'https://example.auth.us-east-1.amazoncognito.com',
   ALLOWED_ORIGINS: 'http://localhost:4200',
+  REPORTING_API_URL: 'https://reporting.example.org/api/',
+  CLARISA_API_URL: 'https://clarisa.example.org/api/',
+  CLARISA_API_KEY: 'key',
 };
 
 describe('openApiConfig', () => {
