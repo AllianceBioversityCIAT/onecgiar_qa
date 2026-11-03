@@ -1,30 +1,13 @@
-/** The closed set of notification types: first the ones that need the QA Admin's action, then the updates. */
-export const NOTIFICATION_TYPES = [
-  'Step complete',
-  'Slow program',
-  'At risk',
-  'Stage',
-  'Program response',
-  'Escalation',
-  'Quality assessed',
-  'Load',
-] as const;
+/**
+ * The closed set of notification types: only what María Julia asked for (meeting, 2026-10-27; Juanpa, 2026-10-29).
+ * - "Step complete": the assessors, the lead assessor or the third-party broker finished a batch.
+ * - "Slow program": a science program has not started, or goes too slowly, replying.
+ * Both need her action, so every notification carries a button. At risk, Escalation, Program response and Load were
+ * dropped and are kept as ideas in `docs/ideas.md`.
+ */
+export const NOTIFICATION_TYPES = ['Step complete', 'Slow program'] as const;
 
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
-
-/** The page's tabs split notifications in two: the ones with buttons, and the updates that only open their target. */
-export type NotificationCategory = 'action' | 'info';
-
-export const NOTIFICATION_CATEGORY: Readonly<Record<NotificationType, NotificationCategory>> = {
-  'Step complete': 'action',
-  'Slow program': 'action',
-  'At risk': 'action',
-  Stage: 'info',
-  'Program response': 'info',
-  Escalation: 'info',
-  'Quality assessed': 'info',
-  Load: 'info',
-};
 
 /** Day group of the page, newest first. */
 export type DayGroup = 'today' | 'yesterday' | 'earlier';
@@ -47,7 +30,7 @@ export interface SentencePart {
 
 /**
  * One notification for the QA Admin.
- * TODO(api): the server returns this same shape; `sentence`, `total`, `delta` and `target` are computed there.
+ * TODO(api): the server returns this same shape; `sentence`, `total` and `target` are computed there.
  */
 export interface Notification {
   readonly id: string;
@@ -56,7 +39,7 @@ export interface Notification {
   readonly sentence: readonly SentencePart[];
   /** Optional third line in grey ("Assessed by 2 assessors, or by 1 for…"). */
   readonly detail: string | null;
-  /** A `TIMELINES` id, or `all`: the update is about every timeline and shows only under "All timelines". */
+  /** A `TIMELINES` id, or `all` when the update is about every timeline. */
   readonly timelineId: string;
   /** Science program the notification is about, or `null` when it is about every program. */
   readonly program: string | null;
@@ -70,11 +53,9 @@ export interface Notification {
   readonly target: NotificationTarget;
   /** The number the sentence compares with what Results shows for it. `null` when it opens one result. */
   readonly total: number | null;
-  /** Change since yesterday ("18 since yesterday"). Authored: never compared with a target. */
-  readonly delta: number | null;
   /** Label of the main button of an `action` notification ("Open next step", "View results"); `null` for updates. */
   readonly action: 'Open next step' | 'View results' | null;
 }
 
-/** The sentence as plain text, for search and accessible names. */
+/** The sentence as plain text, for accessible names and tests. */
 export const sentenceText = (n: Notification): string => n.sentence.map((p) => p.text).join('');
