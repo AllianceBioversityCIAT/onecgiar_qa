@@ -14,7 +14,7 @@ import { toApiError } from './api-envelope';
 import { NO_QUEUE, QUEUE_REPLAY, SILENT_ERRORS, TIMEOUT_MS, isWrite } from './request-context';
 import { Toasts } from './toasts';
 import { IDEMPOTENCY_HEADER, UnsentQueue, actionSignature, isRetryLater, newId } from './unsent-queue';
-import { WriteEvents } from './write-events';
+import { WriteEvents, resourceOf } from './write-events';
 
 /** Identical writes still in flight, shared so a second click never sends a second request. */
 @Service()
@@ -31,9 +31,10 @@ export class InFlightWrites {
  * - a write that could not reach the server (no answer, timeout, 502/503/504, or a 401 whose token
  *   refresh could not reach the server while the session is still alive) goes to the unsent queue;
  * - saving again something already in the queue reuses its key, and drops the stored copy on success;
- * - order: a new write first waits for the writes the queue holds (`drain`), so it never overtakes
- *   an older one; if one still cannot get through, the new write counts as unreachable too (a
- *   queued kind goes to the queue behind it). With nothing stored it leaves at once;
+ * - order: a new write first waits for the writes the queue holds for the same record
+ *   (`resourceOf`, `drain`), so it never overtakes an older one; if one still cannot get through,
+ *   the new write counts as unreachable too (a queued kind goes to the queue behind it). With
+ *   nothing stored for that record it leaves at once;
  * - writes in flight are counted in `WriteEvents`, so a screen reloads after a replay only once
  *   they answered;
  * - any other unhandled error shows one toast with the catalog message, unless the request is
@@ -53,7 +54,9 @@ export const requestSafetyInterceptor: HttpInterceptorFn = (req, next) => {
   const replay = req.context.get(QUEUE_REPLAY);
 
   const key = write ? actionSignature(req.method, req.urlWithParams, req.body) : null;
-  const shared = key ? inFlight.get(key) : undefined;
+  // A replay never joins a new write in flight: that write may be waiting behind this very replay
+  // (`drain`), and joining it would make each wait for the other forever.
+  const shared = key && !replay ? inFlight.get(key) : undefined;
   if (shared) return shared;
 
   const queue = () => injector.get(UnsentQueue);
@@ -68,9 +71,10 @@ export const requestSafetyInterceptor: HttpInterceptorFn = (req, next) => {
   const sent = next(prepared).pipe(
     timeout({ each: req.context.get(TIMEOUT_MS), with: () => throwError(() => timedOut(req)) }),
   );
+  const resource = resourceOf(req.urlWithParams);
   const inOrder =
-    ordered && queue().waiting(key)
-      ? defer(() => queue().drain(key)).pipe(switchMap((clear) => (clear ? sent : throwError(() => behindQueue(req)))))
+    ordered && queue().waiting(key, resource)
+      ? defer(() => queue().drain(key, resource)).pipe(switchMap((clear) => (clear ? sent : throwError(() => behindQueue(req)))))
       : sent;
 
   const call = inOrder.pipe(
@@ -117,7 +121,7 @@ function behindQueue(req: HttpRequest<unknown>): HttpErrorResponse {
 /** Counts the write from subscription until it answers, fails or is cancelled. */
 function countInFlight<T>(call: Observable<T>, events: WriteEvents): Observable<T> {
   return defer(() => {
-    events.inFlight.update((n) => n + 1);
-    return call.pipe(finalize(() => events.inFlight.update((n) => n - 1)));
+    events.writeStarted();
+    return call.pipe(finalize(() => events.writeEnded()));
   });
 }

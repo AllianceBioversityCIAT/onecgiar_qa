@@ -101,9 +101,10 @@ export class AssessorsStore {
     // A team write the unsent queue sent later: show what the server holds now, in place.
     reloadAfterReplay(
       (path) => path.startsWith('/users'),
-      () => {
-        void this.load(true);
-        if (this.removedMembers() !== null) void this.loadRemoved(true);
+      async (fresh) => {
+        const removed = this.removedMembers() !== null;
+        const [team, gone] = await Promise.all([this.load(true, fresh), removed ? this.loadRemoved(true, fresh) : true]);
+        return team && gone;
       },
     );
   }
@@ -116,8 +117,12 @@ export class AssessorsStore {
     return this.catalogState().programs.find((p) => p.code === code)?.name ?? '';
   }
 
-  /** `quiet`: refresh in place (after a replay) without the skeleton; a failure keeps what is shown. */
-  async load(quiet = false): Promise<void> {
+  /**
+   * `quiet`: refresh in place (after a replay) without the skeleton; a failure keeps what is shown.
+   * `fresh`: false once a write started or ended after the load began; then nothing is painted (it
+   * could undo that write on screen) and the answer is false.
+   */
+  async load(quiet = false, fresh: () => boolean = () => true): Promise<boolean> {
     if (!quiet) this.state.set('loading');
     const seq = ++this.loadSeq;
     const missing: ('types' | 'programs')[] = [];
@@ -131,24 +136,29 @@ export class AssessorsStore {
           team: this.users.listAll(),
         }),
       );
-      if (seq !== this.loadSeq) return;
+      if (seq !== this.loadSeq) return true;
+      if (!fresh()) return false;
       this.missingCatalogs.set(missing);
       this.catalogState.set({ types, programs });
       this.members.set(this.toMembers(team));
       this.state.set('ready');
     } catch (error) {
-      if (seq !== this.loadSeq || (quiet && this.state() === 'ready')) return;
+      if (seq !== this.loadSeq || (quiet && this.state() === 'ready')) return true;
       this.loadError.set(toApiError(error).message);
       this.state.set('error');
     }
+    return true;
   }
 
-  async loadRemoved(quiet = false): Promise<void> {
+  async loadRemoved(quiet = false, fresh: () => boolean = () => true): Promise<boolean> {
     try {
-      this.removedMembers.set(this.toMembers(await firstValueFrom(this.users.listAll({ status: 'inactive' }))));
+      const removed = await firstValueFrom(this.users.listAll({ status: 'inactive' }));
+      if (!fresh()) return false;
+      this.removedMembers.set(this.toMembers(removed));
     } catch (error) {
       if (!quiet) this.toasts.error(toApiError(error).message);
     }
+    return true;
   }
 
   find(id: string): TeamMember | undefined {

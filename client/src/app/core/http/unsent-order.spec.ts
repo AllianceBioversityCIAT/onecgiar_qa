@@ -103,18 +103,73 @@ describe('Unsent queue — order and reload after a replay', () => {
     expect(queue.items().map((i) => i.url)).toEqual([REMOVE, BRING_BACK]);
   });
 
-  it('a write that never goes to the queue fails instead of overtaking a stored one', async () => {
-    await storeOffline(REMOVE);
+  it('a write that never goes to the queue fails instead of overtaking a stored one of the same record', async () => {
+    const DRAFT = `${API}/cycles/3/field-config/draft`;
+    await storeOffline(DRAFT, { items: [1] });
     queue.keepAwaiting();
 
-    const discard = firstValueFrom(client.delete(`${API}/cycles/3/field-config/draft`, { context: new HttpContext().set(NO_QUEUE, true) }))
-      .then(() => 'sent', () => 'not sent');
+    const discard = firstValueFrom(client.delete(DRAFT, { context: new HttpContext().set(NO_QUEUE, true) })).then(() => 'sent', () => 'not sent');
     await tick();
-    http.expectOne(REMOVE).error(new ProgressEvent('error'), { status: 0, statusText: 'x' });
+    http.expectOne((r) => r.url === DRAFT && r.method === 'POST').error(new ProgressEvent('error'), { status: 0, statusText: 'x' });
     await tick();
-    http.expectNone(`${API}/cycles/3/field-config/draft`);
+    http.expectNone((r) => r.url === DRAFT && r.method === 'DELETE');
     expect(await discard).toBe('not sent');
-    expect(queue.items().map((i) => i.url)).toEqual([REMOVE]);
+    expect(queue.items().map((i) => i.url)).toEqual([DRAFT]);
+  });
+
+  it('a write stuck on another record does not hold this one', async () => {
+    await storeOffline(REMOVE);
+    queue.keepAwaiting();
+    void firstValueFrom(client.patch(`${API}/timelines/3`, { name: 'x' })).catch(() => undefined);
+    http.expectOne(`${API}/timelines/3`).flush(ok({}));
+    http.expectNone(REMOVE);
+  });
+
+  it('a replay never joins a new identical write waiting behind it (no deadlock)', async () => {
+    const X = `${API}/users/7/exclusions`;
+    const S = `${API}/users/7/roles`;
+    await storeOffline(X, { programId: 1 });
+    queue.keepAwaiting();
+    // S waits behind X, X is still offline: both stored, in order.
+    const first = firstValueFrom(client.post(S, { roles: [] })).catch(() => undefined);
+    await tick();
+    http.expectOne(X).error(new ProgressEvent('error'), { status: 0, statusText: 'x' });
+    await first;
+    queue.keepAwaiting();
+    expect(queue.items().map((i) => i.url)).toEqual([X, S]);
+
+    // A resend pass is in the runner and the admin saves S again at that moment.
+    void queue.sendPending();
+    const again = firstValueFrom(client.post(S, { roles: [] }));
+    await tick();
+    http.expectOne(X).flush(ok({}));
+    await tick();
+    http.expectOne(S).flush(ok({}));
+    await tick();
+    http.expectOne(S).flush(ok({}));
+    await again;
+    expect(queue.count()).toBe(0);
+  });
+
+  it('Retry sends a kept older write before the ones it asked about', async () => {
+    const X = `${API}/users/7/exclusions`;
+    const S = `${API}/users/7/roles`;
+    await storeOffline(X, { programId: 1 });
+    queue.keepAwaiting();
+    const behind = firstValueFrom(client.post(S, { roles: [] })).catch(() => undefined);
+    await tick();
+    http.expectOne(X).flush(null, { status: 503, statusText: 'Service Unavailable' });
+    await behind;
+    expect(queue.awaitingDecision().map((i) => i.url)).toEqual([S]);
+
+    const retry = queue.retryAwaiting();
+    await tick();
+    http.expectNone(S);
+    http.expectOne(X).flush(ok({}));
+    await tick();
+    http.expectOne(S).flush(ok({}));
+    await retry;
+    expect(queue.count()).toBe(0);
   });
 
   it('saving the same action again sends ONE request with the stored key', async () => {
@@ -157,7 +212,7 @@ describe('Unsent queue — order and reload after a replay', () => {
   });
 
   it('a screen reloads after a matching replay, only once the newer write answered', async () => {
-    const reload = vi.fn();
+    const reload = vi.fn(async () => true);
     TestBed.runInInjectionContext(() => reloadAfterReplay((path) => path.startsWith('/users'), reload));
     await storeOffline(REMOVE);
     queue.keepAwaiting();
@@ -172,11 +227,12 @@ describe('Unsent queue — order and reload after a replay', () => {
     http.expectOne(BRING_BACK).flush(ok({}));
     await bringBack;
     TestBed.tick();
+    TestBed.tick();
     expect(reload).toHaveBeenCalledOnce();
   });
 
   it('a replay of another area does not reload the screen', async () => {
-    const reload = vi.fn();
+    const reload = vi.fn(async () => true);
     TestBed.runInInjectionContext(() => reloadAfterReplay((path) => path.startsWith('/users'), reload));
     await storeOffline(`${API}/timelines/3/users`, { userId: 7 });
     queue.keepAwaiting();
@@ -188,5 +244,39 @@ describe('Unsent queue — order and reload after a replay', () => {
     TestBed.tick();
     expect(reload).not.toHaveBeenCalled();
     expect(TestBed.inject(WriteEvents).replayed().map((r) => r.url)).toEqual([`${API}/timelines/3/users`]);
+  });
+
+  it('a reload that saw a write move is not painted and runs again once the app is idle', async () => {
+    const events = TestBed.inject(WriteEvents);
+    const painted: boolean[] = [];
+    let finish: () => void = () => undefined;
+    const reload = vi.fn(
+      (fresh: () => boolean) =>
+        new Promise<boolean>((done) => {
+          finish = () => {
+            painted.push(fresh());
+            done(fresh());
+          };
+        }),
+    );
+    TestBed.runInInjectionContext(() => reloadAfterReplay(() => true, reload));
+    events.recordReplay('PUT', `${API}/users/7`);
+    TestBed.tick();
+    TestBed.tick();
+    expect(reload).toHaveBeenCalledTimes(1);
+
+    // A write starts and ends while the reload is reading.
+    events.writeStarted();
+    events.writeEnded();
+    finish();
+    await tick();
+    TestBed.tick();
+    TestBed.tick();
+    expect(reload).toHaveBeenCalledTimes(2);
+    finish();
+    await tick();
+    TestBed.tick();
+    expect(reload).toHaveBeenCalledTimes(2);
+    expect(painted).toEqual([false, true]);
   });
 });

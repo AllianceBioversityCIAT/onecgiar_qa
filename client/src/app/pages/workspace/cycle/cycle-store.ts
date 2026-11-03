@@ -59,7 +59,7 @@ export class CycleStore {
     // A cycle or timeline write the unsent queue sent later: show what the server holds now, in place.
     reloadAfterReplay(
       (path) => (path.startsWith('/cycles') || path.startsWith('/timelines')) && !path.includes('/field-config'),
-      () => void this.load(true),
+      (fresh) => this.load(true, fresh),
     );
   }
 
@@ -67,8 +67,12 @@ export class CycleStore {
     return this.catalogState().programs.find((p) => p.code === code)?.name ?? '';
   }
 
-  /** `quiet`: refresh in place (after a stale edit) without the loading state. */
-  async load(quiet = false): Promise<void> {
+  /**
+   * `quiet`: refresh in place (after a stale edit or a replay) without the loading state.
+   * `fresh`: false once a write started or ended after the load began; then nothing is painted and
+   * the answer is false.
+   */
+  async load(quiet = false, fresh: () => boolean = () => true): Promise<boolean> {
     if (!quiet) this.state.set('loading');
     const seq = ++this.loadSeq;
     const missing: ('types' | 'programs' | 'step proposal')[] = [];
@@ -83,7 +87,8 @@ export class CycleStore {
           defaults: this.api.defaults().pipe(catchError(() => (missing.push('step proposal'), of([] as readonly DefaultStep[])))),
         }),
       );
-      if (seq !== this.loadSeq) return;
+      if (seq !== this.loadSeq) return true;
+      if (!fresh()) return false;
       this.missingCatalogs.set(missing);
       this.catalogState.set({ programs, types });
       this.defaults.set(defaults);
@@ -92,17 +97,19 @@ export class CycleStore {
       if (!active) {
         this.all.set([]);
         this.state.set('no-cycle');
-        return;
+        return true;
       }
       const timelines = await firstValueFrom(this.api.timelines(active.id));
-      if (seq !== this.loadSeq) return;
+      if (seq !== this.loadSeq) return true;
+      if (!fresh()) return false;
       this.all.set(timelines.map((t) => toViewTimeline(t, { programs, types })));
       this.state.set('ready');
     } catch (error) {
-      if (seq !== this.loadSeq) return;
+      if (seq !== this.loadSeq) return true;
       this.loadError.set(toApiError(error).message);
       this.state.set('error');
     }
+    return true;
   }
 
   async create(draft: CreateDraft): Promise<TimelineSaveOutcome> {
