@@ -12,6 +12,7 @@ import {
 import { toApiError } from '../../../core/http/api-envelope';
 import { Toasts } from '../../../core/http/toasts';
 import { isRetryLater } from '../../../core/http/unsent-queue';
+import { reloadAfterReplay } from '../../../core/http/write-events';
 import { FieldConfig, editKey, fromOptions, toEdit } from './fields-config';
 
 export type FieldsLoadState = 'loading' | 'ready' | 'no-cycle' | 'no-catalog' | 'error';
@@ -62,6 +63,18 @@ export class FieldsStore {
 
   /** Only the newest load writes its answer. */
   private loadSeq = 0;
+
+  constructor() {
+    // A draft write the unsent queue sent later: refresh the server copy in place. Skipped while
+    // clicks are pending or saving, publishing or discarding: their own answer brings the copy.
+    reloadAfterReplay(
+      (path) => path.includes('/field-config'),
+      async (fresh) => {
+        if (this.state() !== 'ready' || this.pending.size > 0 || this.flushing || this.publishing() || this.discarding()) return true;
+        return this.reloadView(fresh);
+      },
+    );
+  }
 
   /** The configuration shown for one field: the pending click, else the server draft. */
   configOf(typeKey: string, fieldKey: string, draft: FieldConfig): FieldConfig {
@@ -232,15 +245,18 @@ export class FieldsStore {
   }
 
   /** Quiet refresh of the server copy (keeps the screen; pending clicks stay on top). */
-  private async reloadView(): Promise<void> {
+  private async reloadView(fresh: () => boolean = () => true): Promise<boolean> {
     const cycle = this.cycle();
-    if (!cycle) return;
+    if (!cycle) return true;
     try {
       const view = await firstValueFrom(this.api.view(cycle.id));
+      // A write moved meanwhile: painting this copy could undo it on screen.
+      if (!fresh()) return false;
       if (this.cycle()?.id === cycle.id) this.view.set(view);
     } catch {
       // Keep what is shown: the next action reports the problem.
     }
+    return true;
   }
 
   private async refreshReview(notice: string): Promise<void> {

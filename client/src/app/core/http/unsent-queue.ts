@@ -6,6 +6,7 @@ import { AuthSession } from '../auth/auth-session';
 import { toApiError } from './api-envelope';
 import { QUEUE_REPLAY, SILENT_ERRORS, UNSENT_LABEL } from './request-context';
 import { Toasts } from './toasts';
+import { WriteEvents, resourceOf } from './write-events';
 
 export const IDEMPOTENCY_HEADER = 'Idempotency-Key';
 const STORAGE_KEY = 'qa.unsent.v1';
@@ -60,18 +61,26 @@ export function actionSignature(method: string, url: string, body: unknown): str
  * Retry or Keep in queue. Stored writes are sent again when the browser is back online, on sign-in,
  * every minute while online, or on "Send now", and leave the list only when the server confirms.
  * A real rejection is shown and never retried by itself.
+ *
+ * Order (BUG-2, 2026-11-03): every send goes through one serial runner, oldest first, and a new
+ * write of the app first waits for the stored ones (`drain`), so the server gets them in the order
+ * the user made them. Each confirmed replay is recorded in `WriteEvents` for the screens to reload.
  */
 @Service()
 export class UnsentQueue {
   private readonly http = inject(HttpClient);
   private readonly session = inject(AuthSession);
   private readonly toasts = inject(Toasts);
+  private readonly events = inject(WriteEvents);
   private readonly isBrowser = isPlatformBrowser(inject(PLATFORM_ID));
 
   private readonly stored = signal<readonly UnsentItem[]>(this.load());
   /** Ids that just failed and wait for the Retry / Keep in queue answer. */
   private readonly undecided = signal<readonly string[]>([]);
-  private sending = false;
+  /** Tail of the serial runner: one send of stored writes at a time. */
+  private chain: Promise<unknown> = Promise.resolve();
+  /** A resend pass already waiting in the runner covers the next resend call. */
+  private queuedPass: Promise<void> | null = null;
 
   /** Writes of the signed-in user. */
   readonly items = computed(() => {
@@ -141,14 +150,19 @@ export class UnsentQueue {
     if (same) this.remove(same.id);
   }
 
-  /** Retry: send the undecided writes now; the ones that still cannot get through ask again. */
-  async retryAwaiting(): Promise<void> {
-    const batch = this.awaitingDecision();
+  /**
+   * Retry: send what is stored now, oldest first (a kept older write goes before the ones asked
+   * about, so nothing overtakes it). It stops at the first one that still cannot get through; the
+   * ones that were asked about and are still there ask again.
+   */
+  retryAwaiting(): Promise<void> {
+    const asked = new Set(this.awaitingDecision().map((item) => item.id));
     this.undecided.set([]);
-    for (const item of batch) {
-      const outcome = await this.sendOne(item);
-      if (outcome === 'unreachable') this.undecided.update((ids) => [...ids, item.id]);
-    }
+    return this.serial(async () => {
+      await this.sendInOrder(() => false);
+      const left = this.items().filter((item) => asked.has(item.id) && item.state === 'pending');
+      if (left.length) this.undecided.update((ids) => [...ids, ...left.map((item) => item.id).filter((id) => !ids.includes(id))]);
+    });
   }
 
   /** Keep in queue: they are already stored; just close the question. */
@@ -164,19 +178,71 @@ export class UnsentQueue {
   }
 
   /** Sends every pending, decided item of the signed-in user, one at a time, oldest first. */
-  async sendPending(): Promise<void> {
-    if (this.sending || !this.session.isSignedIn()) return;
-    this.sending = true;
-    try {
+  sendPending(): Promise<void> {
+    if (!this.session.isSignedIn()) return Promise.resolve();
+    return (this.queuedPass ??= this.serial(async () => {
+      this.queuedPass = null;
+      // A write waiting for the Retry / Keep answer holds the newer ones of its record.
       const undecided = new Set(this.undecided());
-      for (const item of this.items()) {
-        if (item.state !== 'pending' || undecided.has(item.id)) continue;
-        // Offline again: stop here, the next `online` event or tick resumes.
-        if ((await this.sendOne(item)) === 'unreachable') break;
+      await this.sendInOrder((item) => undecided.has(item.id));
+    }));
+  }
+
+  /**
+   * Sends the stored writes oldest first. A write that cannot get through yet (or `hold`s) keeps
+   * the newer writes of its record back, never the other records; no answer at all (offline)
+   * stops the pass, since nothing else would get through either.
+   */
+  private async sendInOrder(hold: (item: UnsentItem) => boolean): Promise<void> {
+    const stuck = new Set<string>();
+    for (const { id } of this.items()) {
+      // Sent (or dismissed) meanwhile by an earlier pass.
+      const item = this.pendingItem(id);
+      if (!item) continue;
+      const resource = resourceOf(item.url);
+      if (stuck.has(resource)) continue;
+      if (hold(item)) {
+        stuck.add(resource);
+        continue;
       }
-    } finally {
-      this.sending = false;
+      const outcome = await this.sendOne(item);
+      if (outcome === 'offline') return;
+      if (outcome === 'later') stuck.add(resource);
     }
+  }
+
+  /**
+   * Stored writes of the signed-in user for `resource` (see `resourceOf`) still to send (rejected
+   * ones wait for the user), leaving out the same action as `except` (that new write carries the
+   * stored key and drops the copy).
+   */
+  waiting(except: string | null, resource: string): boolean {
+    return this.items().some((item) => this.holds(item, except, resource));
+  }
+
+  /**
+   * A new write waits for the stored ones of the same record, so an old "Remove" never lands after
+   * a newer "Bring back". Sends them in order, the ones waiting for the Retry / Keep answer too
+   * (both answers mean "send it"). True when nothing is left before the new write; false when one
+   * still cannot get through (the new write must not overtake it). Other records never wait: one
+   * write stuck on a down dependency does not block the rest of the app.
+   */
+  drain(except: string | null, resource: string): Promise<boolean> {
+    if (!this.session.isSignedIn()) return Promise.resolve(true);
+    return this.serial(async () => {
+      for (const { id } of this.items()) {
+        const item = this.pendingItem(id);
+        if (!item || !this.holds(item, except, resource)) continue;
+        const asked = this.undecided().includes(id);
+        if (asked) this.undecided.update((ids) => ids.filter((i) => i !== id));
+        const outcome = await this.sendOne(item);
+        if (outcome === 'offline' || outcome === 'later') {
+          if (asked) this.undecided.update((ids) => [...ids, id]);
+          return false;
+        }
+      }
+      return !this.waiting(except, resource);
+    });
   }
 
   /** "Try again" on a rejected item: back to pending, sent with the rest. */
@@ -199,7 +265,8 @@ export class UnsentQueue {
     this.save(this.stored().filter((item) => !mine.has(item.id)));
   }
 
-  private async sendOne(item: UnsentItem): Promise<'sent' | 'unreachable' | 'rejected'> {
+  /** `offline`: no answer at all (nothing gets through now) · `later`: the server said try again. */
+  private async sendOne(item: UnsentItem): Promise<'sent' | 'offline' | 'later' | 'rejected'> {
     this.replace(item.id, { ...item, state: 'sending' });
     try {
       await firstValueFrom(
@@ -210,6 +277,7 @@ export class UnsentQueue {
         }),
       );
       this.remove(item.id);
+      this.events.recordReplay(item.method, item.url);
       this.toasts.success(`Sent: ${item.label}`);
       return 'sent';
     } catch (error) {
@@ -218,13 +286,31 @@ export class UnsentQueue {
       // front contract). 422 IDEMPOTENCY_KEY_REUSED falls through: a client bug, never retried.
       if (isRetryLater(status, toApiError(error).code) || (status === 401 && this.session.isSignedIn())) {
         this.replace(item.id, { ...item, state: 'pending', attempts: item.attempts + 1 });
-        return 'unreachable';
+        return status === 0 ? 'offline' : 'later';
       }
       const message = toApiError(error).message;
       this.replace(item.id, { ...item, state: 'rejected', error: message });
       this.toasts.error(`Not sent: ${item.label}. ${message}`);
       return 'rejected';
     }
+  }
+
+  /** Runs `work` after every send already in the runner (one at a time, in call order). */
+  private serial<T>(work: () => Promise<T>): Promise<T> {
+    const run = this.chain.then(work, work);
+    this.chain = run.catch(() => undefined);
+    return run;
+  }
+
+  /** A stored write a new one of `resource` must not overtake. */
+  private holds(item: UnsentItem, except: string | null, resource: string): boolean {
+    return item.state !== 'rejected' && !isSameAction(item, except) && resourceOf(item.url) === resource;
+  }
+
+  /** The stored item as it is now, if it still waits to be sent. */
+  private pendingItem(id: string): UnsentItem | undefined {
+    const item = this.stored().find((i) => i.id === id);
+    return item?.state === 'pending' ? item : undefined;
   }
 
   private findPending(signature: string | null): UnsentItem | undefined {
@@ -265,6 +351,10 @@ export class UnsentQueue {
       return [];
     }
   }
+}
+
+function isSameAction(item: UnsentItem, signature: string | null): boolean {
+  return signature !== null && actionSignature(item.method, item.url, item.body) === signature;
 }
 
 function defaultLabel(req: HttpRequest<unknown>): string {

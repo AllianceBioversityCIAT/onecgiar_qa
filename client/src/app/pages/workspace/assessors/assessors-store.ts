@@ -5,6 +5,7 @@ import { UsersApi } from '../../../core/api/users-api';
 import { RoleGrant, USERS_ERROR, UserSummary } from '../../../core/api/users.models';
 import { CLIENT_ERROR, toApiError } from '../../../core/http/api-envelope';
 import { Toasts } from '../../../core/http/toasts';
+import { reloadAfterReplay } from '../../../core/http/write-events';
 import { TeamMember, TeamRole } from './assessors.models';
 import { TeamCatalogs, accountTypeFor, programIdOf, programsFor, rolesFor, sameGrants, toMember } from './assessors.mapper';
 
@@ -93,6 +94,20 @@ export class AssessorsStore {
   readonly programCodes = computed(() => this.catalogState().programs.map((p) => p.code));
   /** Rows with an inline save in flight: their cells are locked so two quick clicks never race. */
   private readonly busyRows = signal<ReadonlySet<string>>(new Set());
+  /** Only the newest load writes its answer (a quiet reload never lets an older one win). */
+  private loadSeq = 0;
+
+  constructor() {
+    // A team write the unsent queue sent later: show what the server holds now, in place.
+    reloadAfterReplay(
+      (path) => path.startsWith('/users'),
+      async (fresh) => {
+        const removed = this.removedMembers() !== null;
+        const [team, gone] = await Promise.all([this.load(true, fresh), removed ? this.loadRemoved(true, fresh) : true]);
+        return team && gone;
+      },
+    );
+  }
 
   isBusy(id: string): boolean {
     return this.busyRows().has(id);
@@ -102,8 +117,14 @@ export class AssessorsStore {
     return this.catalogState().programs.find((p) => p.code === code)?.name ?? '';
   }
 
-  async load(): Promise<void> {
-    this.state.set('loading');
+  /**
+   * `quiet`: refresh in place (after a replay) without the skeleton; a failure keeps what is shown.
+   * `fresh`: false once a write started or ended after the load began; then nothing is painted (it
+   * could undo that write on screen) and the answer is false.
+   */
+  async load(quiet = false, fresh: () => boolean = () => true): Promise<boolean> {
+    if (!quiet) this.state.set('loading');
+    const seq = ++this.loadSeq;
     const missing: ('types' | 'programs')[] = [];
     const optional = <T>(list: Observable<readonly T[]>, name: 'types' | 'programs') =>
       list.pipe(catchError(() => (missing.push(name), of([] as readonly T[]))));
@@ -115,22 +136,29 @@ export class AssessorsStore {
           team: this.users.listAll(),
         }),
       );
+      if (seq !== this.loadSeq) return true;
+      if (!fresh()) return false;
       this.missingCatalogs.set(missing);
       this.catalogState.set({ types, programs });
       this.members.set(this.toMembers(team));
       this.state.set('ready');
     } catch (error) {
+      if (seq !== this.loadSeq || (quiet && this.state() === 'ready')) return true;
       this.loadError.set(toApiError(error).message);
       this.state.set('error');
     }
+    return true;
   }
 
-  async loadRemoved(): Promise<void> {
+  async loadRemoved(quiet = false, fresh: () => boolean = () => true): Promise<boolean> {
     try {
-      this.removedMembers.set(this.toMembers(await firstValueFrom(this.users.listAll({ status: 'inactive' }))));
+      const removed = await firstValueFrom(this.users.listAll({ status: 'inactive' }));
+      if (!fresh()) return false;
+      this.removedMembers.set(this.toMembers(removed));
     } catch (error) {
-      this.toasts.error(toApiError(error).message);
+      if (!quiet) this.toasts.error(toApiError(error).message);
     }
+    return true;
   }
 
   find(id: string): TeamMember | undefined {
