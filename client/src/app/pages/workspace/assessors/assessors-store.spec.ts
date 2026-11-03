@@ -5,6 +5,7 @@ import { UsersApi } from '../../../core/api/users-api';
 import { UserSummary } from '../../../core/api/users.models';
 import { ApiError } from '../../../core/http/api-envelope';
 import { Toasts } from '../../../core/http/toasts';
+import { WriteEvents } from '../../../core/http/write-events';
 import { AssessorsStore, PersonInput } from './assessors-store';
 
 const u = (over: Partial<UserSummary> = {}): UserSummary => ({
@@ -272,5 +273,25 @@ describe('AssessorsStore', () => {
   it('remove = deactivate; the person leaves the team list', async () => {
     expect(await store.deactivate('7')).toEqual({ ok: true });
     expect(store.team().length).toBe(0);
+  });
+
+  it('reloads in place after the unsent queue replays a team change (no skeleton); not for other areas', async () => {
+    const seen: string[] = [];
+    users['listAll'].mockClear();
+    users['listAll'].mockImplementation(() => {
+      seen.push(store.state());
+      return of([u({ status: 'inactive' })]);
+    });
+    const events = TestBed.inject(WriteEvents);
+    events.recordReplay('PATCH', 'https://api.test/api/v1/timelines/3');
+    TestBed.tick();
+    expect(users['listAll']).not.toHaveBeenCalled();
+
+    events.recordReplay('POST', 'https://api.test/api/v1/users/7/deactivate');
+    TestBed.tick();
+    await Promise.resolve();
+    expect(users['listAll']).toHaveBeenCalledOnce();
+    expect(seen).toEqual(['ready']);
+    expect(store.state()).toBe('ready');
   });
 });

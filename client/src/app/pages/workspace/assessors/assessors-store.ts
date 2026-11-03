@@ -5,6 +5,7 @@ import { UsersApi } from '../../../core/api/users-api';
 import { RoleGrant, USERS_ERROR, UserSummary } from '../../../core/api/users.models';
 import { CLIENT_ERROR, toApiError } from '../../../core/http/api-envelope';
 import { Toasts } from '../../../core/http/toasts';
+import { reloadAfterReplay } from '../../../core/http/write-events';
 import { TeamMember, TeamRole } from './assessors.models';
 import { TeamCatalogs, accountTypeFor, programIdOf, programsFor, rolesFor, sameGrants, toMember } from './assessors.mapper';
 
@@ -93,6 +94,19 @@ export class AssessorsStore {
   readonly programCodes = computed(() => this.catalogState().programs.map((p) => p.code));
   /** Rows with an inline save in flight: their cells are locked so two quick clicks never race. */
   private readonly busyRows = signal<ReadonlySet<string>>(new Set());
+  /** Only the newest load writes its answer (a quiet reload never lets an older one win). */
+  private loadSeq = 0;
+
+  constructor() {
+    // A team write the unsent queue sent later: show what the server holds now, in place.
+    reloadAfterReplay(
+      (path) => path.startsWith('/users'),
+      () => {
+        void this.load(true);
+        if (this.removedMembers() !== null) void this.loadRemoved(true);
+      },
+    );
+  }
 
   isBusy(id: string): boolean {
     return this.busyRows().has(id);
@@ -102,8 +116,10 @@ export class AssessorsStore {
     return this.catalogState().programs.find((p) => p.code === code)?.name ?? '';
   }
 
-  async load(): Promise<void> {
-    this.state.set('loading');
+  /** `quiet`: refresh in place (after a replay) without the skeleton; a failure keeps what is shown. */
+  async load(quiet = false): Promise<void> {
+    if (!quiet) this.state.set('loading');
+    const seq = ++this.loadSeq;
     const missing: ('types' | 'programs')[] = [];
     const optional = <T>(list: Observable<readonly T[]>, name: 'types' | 'programs') =>
       list.pipe(catchError(() => (missing.push(name), of([] as readonly T[]))));
@@ -115,21 +131,23 @@ export class AssessorsStore {
           team: this.users.listAll(),
         }),
       );
+      if (seq !== this.loadSeq) return;
       this.missingCatalogs.set(missing);
       this.catalogState.set({ types, programs });
       this.members.set(this.toMembers(team));
       this.state.set('ready');
     } catch (error) {
+      if (seq !== this.loadSeq || (quiet && this.state() === 'ready')) return;
       this.loadError.set(toApiError(error).message);
       this.state.set('error');
     }
   }
 
-  async loadRemoved(): Promise<void> {
+  async loadRemoved(quiet = false): Promise<void> {
     try {
       this.removedMembers.set(this.toMembers(await firstValueFrom(this.users.listAll({ status: 'inactive' }))));
     } catch (error) {
-      this.toasts.error(toApiError(error).message);
+      if (!quiet) this.toasts.error(toApiError(error).message);
     }
   }
 

@@ -3,6 +3,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { TestBed } from '@angular/core/testing';
 import { APP_CONFIG } from '../../../core/config/app-config';
 import { Toasts } from '../../../core/http/toasts';
+import { WriteEvents } from '../../../core/http/write-events';
 import { FieldsStore } from './fields-store';
 
 const API = 'https://api.test/api/v1';
@@ -241,5 +242,26 @@ describe('FieldsStore', () => {
     http.expectOne(`${FC}/publish-preview`).flush(ok({ ...preview(2), changes: [] }));
     await publishing;
     expect(store.review()?.notice).toContain('nothing new to publish');
+  });
+
+  it('reloads the server copy after a replayed draft write, but not while clicks are being saved', async () => {
+    await ready();
+    const events = TestBed.inject(WriteEvents);
+    store.edit('policy_change', 'title', { state: 'assessed', core: true, ai: false });
+    const save = http.expectOne(`${FC}/draft`);
+    events.recordReplay('PATCH', `${FC}/draft`);
+    TestBed.tick();
+    await tick();
+    http.expectNone(FC);
+    save.flush(ok(view(3, assessed)));
+    await store.settle();
+
+    events.recordReplay('PATCH', `${FC}/draft`);
+    TestBed.tick();
+    await tick();
+    http.expectOne(FC).flush(ok(view(5)));
+    await tick();
+    expect(store.view()?.revision).toBe(5);
+    expect(store.state()).toBe('ready');
   });
 });
