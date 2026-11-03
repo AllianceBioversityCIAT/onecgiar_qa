@@ -1,7 +1,7 @@
 // Pure helpers and view models of the Cycle view (ported from the mockup's cyPhaseState,
 // cardVM, runEstimate, officialRelative and runTargets).
 import { StepAudience } from '../../../core/api/cycles.models';
-import { DEFAULT_CLOSES_TIME, DEFAULT_OPENS_TIME, todayInRome, zoneAt } from '../../../core/domain/rome-date';
+import { DEFAULT_CLOSES_TIME, DEFAULT_OPENS_TIME, nowInRome, todayInRome, zoneAt } from '../../../core/domain/rome-date';
 import {
   CORRECTION_AUDIENCE,
   CycleStep,
@@ -201,10 +201,29 @@ export function stepRow(p: CycleStep): StepDraftRow {
   return { name: p.name, start: p.start, end: p.end, startTime: opensTimeOf(p), endTime: closesTimeOf(p), batch: p.batch, audience: p.audienceKey };
 }
 
-/** "Reset to official timeline": the official steps, shifted to start on `startText`, each keeping its hour and minute. */
+/** Opening minute of a step as `YYYY-MM-DDTHH:mm` in Rome (null when its day is unreadable), comparable with `nowInRome()`. */
+function opensMoment(p: Pick<CycleStep, 'start' | 'startTime'>): string | null {
+  const day = isoDay(p.start);
+  return day ? `${day}T${opensTimeOf(p)}` : null;
+}
+
+/**
+ * First day step 1 can open on at its own opening minute: today in Rome, or tomorrow when that minute already
+ * went by today (a new timeline's step 1 cannot open before now).
+ */
+function firstOpenDay(first: Pick<CycleStep, 'startTime'> | undefined, now: string): Date {
+  const [day, time] = now.split('T');
+  const [y, m, d] = day.split('-').map(Number);
+  return new Date(y, m - 1, d + (first && opensTimeOf(first) < time ? 1 : 0));
+}
+
+/**
+ * "Reset to main batch": the official steps, shifted to start on `startText`, each keeping its hour and minute.
+ * With no day typed in step 1 yet, they start on the first day step 1 can open (never on a fixed past date).
+ */
 export function officialRelative(startText: string, official: Timeline): StepDraftRow[] {
   const o0 = parseDate(official.steps[0]?.start);
-  const base = parseDate(startText) ?? new Date(2026, 8, 1);
+  const base = parseDate(startText) ?? firstOpenDay(official.steps[0], nowInRome());
   // Whole days, never milliseconds: a summer-time change in between would land on 23:00 of the day before.
   const at = (d: Date | null) => {
     if (!d || !o0) return '';
@@ -259,8 +278,9 @@ export interface StepCardVM {
   /** Progress numbers exist (mock data; the API has no loads yet). Without them the card says until when it is open. */
   hasProgress: boolean;
   /**
-   * The timeline is on hold: step 1's day came and nothing is loaded yet (`waiting_for_load`). Its first
-   * step shows "Waiting for results", never "Opens in 0 days" (timeline-edit front contract § 3).
+   * The timeline is on hold: step 1's day came and nothing is loaded yet (`waiting_for_load`), so the server
+   * sends every step as `upcoming`. Step 1 and every step whose opening minute already went by show
+   * "Waiting for results", never "Opens today at 00:00" (timeline-edit front contract § 3).
    */
   waiting: boolean;
 }
@@ -305,8 +325,11 @@ export function timelineVM(t: Timeline): TimelineVM {
   const n = t.steps.length;
   const closed = t.status === 'Closed';
   const states = t.steps.map((p) => stepState(p, t));
+  const held = t.status === 'Waiting for results';
+  const now = held ? nowInRome() : '';
   const steps: StepCardVM[] = t.steps.map((p, i) => {
     const st = states[i];
+    const opens = opensMoment(p);
     const joinTypes =
       i > 0 && p.batch
         ? RT_ORDER.filter((rt) => RESULT_TYPE_RULES[rt]?.phase === i + 1 && (!t.types.length || t.types.includes(rt)))
@@ -331,7 +354,7 @@ export function timelineVM(t: Timeline): TimelineVM {
       days: st.kind === 'future' ? st.days : 0,
       dayWord: st.kind === 'future' && st.days === 1 ? 'day' : 'days',
       hasProgress: st.kind === 'active' && st.of > 0,
-      waiting: t.status === 'Waiting for results' && i === 0,
+      waiting: held && (i === 0 || (opens != null && opens <= now)),
     };
   });
   const rail = states.map((s) => (closed ? 'done' : s.kind));

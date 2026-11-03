@@ -273,6 +273,13 @@ describe('timeline cards show Rome times', () => {
 });
 
 describe('timeline cards on the hold', () => {
+  // 23 Oct 2026, 10:00 in Rome: step 2 (31 Oct) has not come yet. Pinned so the test does not change with the date.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-23T08:00:00Z'));
+  });
+  afterEach(() => vi.useRealTimers());
+
   it('waiting_for_load: step 1 says "Waiting for results", not "Opens in 0 days"', () => {
     const vm = timelineVM(toViewTimeline(api({ status: 'waiting_for_load', steps: [step(1, '2026-10-22', '2026-10-30'), step(2, '2026-10-31', '2026-11-01')] }), cat));
     expect(vm.steps.map((s) => [s.state, s.waiting])).toEqual([
