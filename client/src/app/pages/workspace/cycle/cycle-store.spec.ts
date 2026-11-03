@@ -174,4 +174,19 @@ describe('CycleStore', () => {
     expect(store.state()).toBe('ready');
     expect(store.subTimelines()[0].version).toBe(6);
   });
+
+  it('a quiet reload after a replay that fails keeps the screen instead of the error state', async () => {
+    await load([{ id: 2, status: 'active' }]);
+    TestBed.inject(WriteEvents).recordReplay('PATCH', `${API}/timelines/7`);
+    TestBed.tick();
+    TestBed.tick();
+    await settle();
+    http.expectOne(`${API}/catalogs/science-programs`).flush(ok([]));
+    http.expectOne(`${API}/catalogs/result-types`).flush(ok([]));
+    http.expectOne(`${API}/timeline-defaults`).flush(ok([]));
+    http.expectOne(`${API}/cycles`).flush(fail(503, 'SERVICE_UNAVAILABLE'), { status: 503, statusText: 'Unavailable' });
+    await settle();
+    expect(store.state()).toBe('ready');
+    expect(store.subTimelines().map((t) => t.apiId)).toEqual([7]);
+  });
 });

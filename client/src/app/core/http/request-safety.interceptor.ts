@@ -95,11 +95,15 @@ export const requestSafetyInterceptor: HttpInterceptorFn = (req, next) => {
   const counted = ordered ? countInFlight(call, inject(WriteEvents)) : call;
   if (!key) return counted;
 
-  const once = counted.pipe(
-    finalize(() => inFlight.delete(key)),
+  // A replay running next to a new identical write (waiting behind it) must not take its place
+  // nor remove it when done: a later tap would then leave with another key and apply twice.
+  const once: Observable<HttpEvent<unknown>> = counted.pipe(
+    finalize(() => {
+      if (inFlight.get(key) === once) inFlight.delete(key);
+    }),
     share(),
   );
-  inFlight.set(key, once);
+  if (!inFlight.has(key)) inFlight.set(key, once);
   return once;
 };
 

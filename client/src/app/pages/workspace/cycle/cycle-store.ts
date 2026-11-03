@@ -105,7 +105,8 @@ export class CycleStore {
       this.all.set(timelines.map((t) => toViewTimeline(t, { programs, types })));
       this.state.set('ready');
     } catch (error) {
-      if (seq !== this.loadSeq) return true;
+      // A quiet refresh that fails keeps the screen as it was (the next action reports the problem).
+      if (seq !== this.loadSeq || (quiet && this.state() === 'ready')) return true;
       this.loadError.set(toApiError(error).message);
       this.state.set('error');
     }

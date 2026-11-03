@@ -144,11 +144,38 @@ describe('Unsent queue — order and reload after a replay', () => {
     await tick();
     http.expectOne(X).flush(ok({}));
     await tick();
+    const key = queue.items().find((i) => i.url === S)?.idempotencyKey;
     http.expectOne(S).flush(ok({}));
     await tick();
-    http.expectOne(S).flush(ok({}));
-    await again;
+    // A third identical tap now joins the waiting write: one request, the stored key, applied once.
+    const third = firstValueFrom(client.post(S, { roles: [] }));
+    const waiting = http.match(S);
+    expect(waiting.length).toBe(1);
+    expect(waiting[0].request.headers.get(IDEMPOTENCY_HEADER)).toBe(key);
+    waiting[0].flush(ok({}));
+    await Promise.all([again, third]);
     expect(queue.count()).toBe(0);
+  });
+
+  it('a write stuck on one record does not stop Retry from sending another record', async () => {
+    const A = `${API}/users/7/roles`;
+    const B = `${API}/users/8/roles`;
+    await storeOffline(A, { roles: [] });
+    queue.keepAwaiting();
+    void queue.sendPending();
+    await tick();
+    http.expectOne(A).flush(null, { status: 503, statusText: 'Service Unavailable' });
+    await tick();
+    await storeOffline(B, { roles: [] });
+
+    const retry = queue.retryAwaiting();
+    await tick();
+    http.expectOne(A).flush(null, { status: 503, statusText: 'Service Unavailable' });
+    await tick();
+    http.expectOne(B).flush(ok({}));
+    await retry;
+    expect(queue.items().map((i) => i.url)).toEqual([A]);
+    expect(queue.awaitingDecision().length).toBe(0);
   });
 
   it('Retry sends a kept older write before the ones it asked about', async () => {

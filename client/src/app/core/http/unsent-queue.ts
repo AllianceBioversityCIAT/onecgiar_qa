@@ -159,12 +159,7 @@ export class UnsentQueue {
     const asked = new Set(this.awaitingDecision().map((item) => item.id));
     this.undecided.set([]);
     return this.serial(async () => {
-      for (const { id } of this.items()) {
-        const item = this.pendingItem(id);
-        // Sent (or dismissed) meanwhile by an earlier pass.
-        if (!item) continue;
-        if ((await this.sendOne(item)) === 'unreachable') break;
-      }
+      await this.sendInOrder(() => false);
       const left = this.items().filter((item) => asked.has(item.id) && item.state === 'pending');
       if (left.length) this.undecided.update((ids) => [...ids, ...left.map((item) => item.id).filter((id) => !ids.includes(id))]);
     });
@@ -187,16 +182,33 @@ export class UnsentQueue {
     if (!this.session.isSignedIn()) return Promise.resolve();
     return (this.queuedPass ??= this.serial(async () => {
       this.queuedPass = null;
+      // A write waiting for the Retry / Keep answer holds the newer ones of its record.
       const undecided = new Set(this.undecided());
-      for (const { id } of this.items()) {
-        // Waiting for the Retry / Keep answer: the ones after it are newer, they wait too.
-        if (undecided.has(id)) break;
-        const item = this.pendingItem(id);
-        if (!item) continue;
-        // Offline again: stop here, the next `online` event or tick resumes.
-        if ((await this.sendOne(item)) === 'unreachable') break;
-      }
+      await this.sendInOrder((item) => undecided.has(item.id));
     }));
+  }
+
+  /**
+   * Sends the stored writes oldest first. A write that cannot get through yet (or `hold`s) keeps
+   * the newer writes of its record back, never the other records; no answer at all (offline)
+   * stops the pass, since nothing else would get through either.
+   */
+  private async sendInOrder(hold: (item: UnsentItem) => boolean): Promise<void> {
+    const stuck = new Set<string>();
+    for (const { id } of this.items()) {
+      // Sent (or dismissed) meanwhile by an earlier pass.
+      const item = this.pendingItem(id);
+      if (!item) continue;
+      const resource = resourceOf(item.url);
+      if (stuck.has(resource)) continue;
+      if (hold(item)) {
+        stuck.add(resource);
+        continue;
+      }
+      const outcome = await this.sendOne(item);
+      if (outcome === 'offline') return;
+      if (outcome === 'later') stuck.add(resource);
+    }
   }
 
   /**
@@ -223,7 +235,8 @@ export class UnsentQueue {
         if (!item || !this.holds(item, except, resource)) continue;
         const asked = this.undecided().includes(id);
         if (asked) this.undecided.update((ids) => ids.filter((i) => i !== id));
-        if ((await this.sendOne(item)) === 'unreachable') {
+        const outcome = await this.sendOne(item);
+        if (outcome === 'offline' || outcome === 'later') {
           if (asked) this.undecided.update((ids) => [...ids, id]);
           return false;
         }
@@ -252,7 +265,8 @@ export class UnsentQueue {
     this.save(this.stored().filter((item) => !mine.has(item.id)));
   }
 
-  private async sendOne(item: UnsentItem): Promise<'sent' | 'unreachable' | 'rejected'> {
+  /** `offline`: no answer at all (nothing gets through now) · `later`: the server said try again. */
+  private async sendOne(item: UnsentItem): Promise<'sent' | 'offline' | 'later' | 'rejected'> {
     this.replace(item.id, { ...item, state: 'sending' });
     try {
       await firstValueFrom(
@@ -272,7 +286,7 @@ export class UnsentQueue {
       // front contract). 422 IDEMPOTENCY_KEY_REUSED falls through: a client bug, never retried.
       if (isRetryLater(status, toApiError(error).code) || (status === 401 && this.session.isSignedIn())) {
         this.replace(item.id, { ...item, state: 'pending', attempts: item.attempts + 1 });
-        return 'unreachable';
+        return status === 0 ? 'offline' : 'later';
       }
       const message = toApiError(error).message;
       this.replace(item.id, { ...item, state: 'rejected', error: message });
