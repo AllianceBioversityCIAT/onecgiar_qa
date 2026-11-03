@@ -93,6 +93,9 @@ export class QaUnsentCenter {
     effect(() => {
       if (this.shownOnStart || this.queue.count() === 0) return;
       this.shownOnStart = true;
+      // A write that just failed is asked in the dialog: the list opening too would cover it (its
+      // Retry / Keep buttons could not be pressed). Only writes kept from before open the list.
+      if (untracked(() => this.queue.awaitingDecision().length > 0)) return;
       untracked(() => this.listOpen.set(true));
     });
   }
