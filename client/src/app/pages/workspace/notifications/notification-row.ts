@@ -19,20 +19,10 @@ interface TypeLook {
 }
 
 const CIRCLE = 'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z';
-const NEUTRAL = 'bg-(--surface-3) text-(--text-3)';
 
 const LOOKS: Readonly<Record<NotificationType, TypeLook>> = {
   'Step complete': { tone: 'bg-(--st-approved-bg) text-(--st-approved-fg)', paths: [CIRCLE, 'm8.5 12.5 2.5 2.5 4.5-5'] },
   'Slow program': { tone: 'bg-(--st-editing-bg) text-(--st-editing-fg)', paths: [CIRCLE, 'M12 7.5V12l3 2'] },
-  'At risk': {
-    tone: 'bg-(--danger-bg) text-(--danger)',
-    paths: ['M10.3 3.9 2.4 17.5a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z', 'M12 9v4M12 17h.01'],
-  },
-  Stage: { tone: NEUTRAL, paths: ['M3 12h4l3 7 4-14 3 7h4'] },
-  'Program response': { tone: NEUTRAL, paths: ['M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'] },
-  Escalation: { tone: NEUTRAL, paths: ['M7 17 17 7M8 7h9v9'] },
-  'Quality assessed': { tone: NEUTRAL, paths: ['M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z', 'm9 12 2 2 4-4'] },
-  Load: { tone: NEUTRAL, paths: ['M12 3v12M7 10l5 5 5-5M5 17v2a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2'] },
 };
 
 /**

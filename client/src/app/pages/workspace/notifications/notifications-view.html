@@ -1,89 +1,23 @@
 <!-- Notifications. Data: notifications-store.ts (the one source; mock for now). State lives in notifications-view.ts. -->
 
-<!-- Page header -->
+<!-- Page header. No "Mark all as read" for now (Juanpa, 2026-10-29): each notification is read when she acts on it. -->
 <div class="flex flex-col gap-1 px-4 pt-6 sm:px-6 sm:pt-8 lg:px-8">
   <h1 class="m-0 text-balance text-(length:--fs-26) leading-[1.2] font-bold tracking-[-0.02em] text-(--text)">Notifications</h1>
-  <p class="m-0 text-pretty text-(length:--fs-14) text-(--text-3)">Steps ready to move on, and updates about the review of results.</p>
+  <p class="m-0 text-pretty text-(length:--fs-14) text-(--text-3)">Batches ready for the next step, and science programs that need a nudge.</p>
 </div>
 
-<div class="flex flex-col items-stretch px-4 pt-4 pb-8 sm:px-6 lg:px-8">
-  <!-- Tabs: what needs the Admin's action, and the updates. Each count follows the filters below. -->
-  <div qaTabs [value]="tab()" (valueChange)="setTab($event)">
-    <div qaTabList aria-label="Notifications" class="max-sm:gap-3">
-      @for (t of tabs(); track t.value) {
-        <button [qaTab]="t.value">
-          {{ t.label }}
-          <span data-tab-count class="font-(family-name:--qa-mono) text-(length:--fs-12) font-semibold text-(--text-4) tabular-nums group-aria-selected:text-(--text-3)">{{ t.count }}</span>
-        </button>
-      }
-    </div>
-    @for (t of tabs(); track t.value) {
-      <div [qaTabPanel]="t.value" class="pt-5">
-        @if (tab() === t.value) {
-          <ng-container *ngTemplateOutlet="panel" />
-        }
-      </div>
-    }
+<!-- One list, newest first, in day groups; each notification carries its own button (Juanpa, 2026-10-29: no tabs, no
+     filters, only what María Julia asked for). -->
+<div class="px-4 pt-5 pb-8 sm:px-6 lg:px-8">
+  <div class="overflow-hidden rounded-xl border border-(--border) bg-(--surface)">
+    <qa-notification-list
+      [items]="store.items()"
+      [state]="store.state()"
+      [timelineNames]="timelineNames"
+      [batchLabels]="batchLabels"
+      (opened)="open($event)"
+      (dismissed)="dismiss($event)"
+      (retry)="store.retry()"
+    />
   </div>
 </div>
-
-<ng-template #panel>
-  <div class="flex flex-col gap-5">
-    <!-- Context line ("Viewing All timelines ⌄"): it sets what the whole page shows, so it reads as context, not as one more
-         filter. Below it, the filters, "Mark all as read" and what is applied. -->
-    <div class="flex flex-col gap-3">
-      <qa-select
-        [(value)]="timelineId"
-        [options]="timelineOptions"
-        label="Viewing"
-        appearance="inline"
-        searchable
-        searchPlaceholder="Search timelines"
-        panelWidth="340px"
-        listMaxHeight="320px"
-        class="self-start"
-      />
-      <div class="flex flex-wrap items-center gap-2 lg:gap-3">
-        <label class="box-border flex h-9 w-[320px] max-w-full flex-none cursor-text items-center gap-2 rounded-lg border border-(--border) bg-(--surface) px-3 focus-within:shadow-(--focus-ring) max-sm:h-10 max-sm:w-full">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-4)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="flex-none"><path d="M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.35-4.35" /></svg>
-          <input hlmInput type="text" placeholder="Search notifications..." aria-label="Search notifications" [value]="search()" (input)="onSearch($event)" class="h-auto min-w-0 flex-1 rounded-none border-none bg-transparent p-0 text-(length:--fs-14) text-(--text) shadow-none placeholder:text-(--text-4) focus-visible:ring-0 md:text-(length:--fs-14)" />
-        </label>
-        <qa-multi-select [(value)]="types" [options]="typeOptions()" label="Type" [searchable]="false" panelWidth="260px" listMaxHeight="none" />
-        <qa-multi-select [(value)]="programs" [options]="programOptions" label="Science program" [searchable]="false" panelWidth="320px" listMaxHeight="none" />
-        @if (store.unreadCount() > 0 && store.state() === 'ready') {
-          <button hlmBtn qaBtn tone="link" size="sm" flush="end" type="button" class="sm:ml-auto" (click)="store.markAllRead()">Mark all as read</button>
-        }
-      </div>
-
-      @if (applied().length) {
-        <div class="flex flex-wrap items-center gap-2">
-          @for (f of applied(); track f.key) {
-            <span class="inline-flex h-7 max-w-[min(380px,100%)] items-center gap-1.5 rounded-full bg-(--tint) pr-1.5 pl-2.5 text-(length:--fs-12) font-medium text-(--accent)">
-              <span class="flex-none font-semibold">{{ f.label }}</span>
-              <span class="min-w-0 truncate">{{ f.values }}</span>
-              <button type="button" (click)="clearFilter(f.key)" [attr.aria-label]="'Remove ' + f.label + ' filter'" class="flex size-[18px] flex-none items-center justify-center rounded-full p-0 text-(--accent) outline-none hover:bg-(--tint-3) focus-visible:shadow-(--focus-ring)">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12" /></svg>
-              </button>
-            </span>
-          }
-          <button hlmBtn qaBtn tone="link" size="sm" type="button" (click)="clearFilters()">Clear all</button>
-        </div>
-      }
-    </div>
-
-    <!-- One card; day groups inside it, each opened by a grey band, lines between rows. -->
-    <div class="overflow-hidden rounded-xl border border-(--border) bg-(--surface)">
-      <qa-notification-list
-        [items]="visible()"
-        [state]="store.state()"
-        [timelineNames]="timelineNames"
-        [batchLabels]="batchLabels"
-        [empty]="empty()"
-        (opened)="open($event)"
-        (dismissed)="dismiss($event)"
-        (retry)="store.retry()"
-        (emptyAction)="clearFilters()"
-      />
-    </div>
-  </div>
-</ng-template>
