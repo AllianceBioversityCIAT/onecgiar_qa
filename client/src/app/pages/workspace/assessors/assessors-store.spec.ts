@@ -285,13 +285,41 @@ describe('AssessorsStore', () => {
     const events = TestBed.inject(WriteEvents);
     events.recordReplay('PATCH', 'https://api.test/api/v1/timelines/3');
     TestBed.tick();
+    TestBed.tick();
     expect(users['listAll']).not.toHaveBeenCalled();
 
     events.recordReplay('POST', 'https://api.test/api/v1/users/7/deactivate');
+    TestBed.tick();
     TestBed.tick();
     await Promise.resolve();
     expect(users['listAll']).toHaveBeenCalledOnce();
     expect(seen).toEqual(['ready']);
     expect(store.state()).toBe('ready');
+  });
+
+  it('a quiet reload that saw a write move paints nothing and runs again once the app is idle', async () => {
+    const flush = async () => {
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+    };
+    const events = TestBed.inject(WriteEvents);
+    let reads = 0;
+    users['listAll'].mockImplementation(() => {
+      reads++;
+      // An inline save starts while the first reload reads the team.
+      if (reads === 1) events.writeStarted();
+      return of([u({ nickname: reads === 1 ? 'Read before the save' : 'After the save' })]);
+    });
+    events.recordReplay('POST', 'https://api.test/api/v1/users/7/deactivate');
+    TestBed.tick();
+    TestBed.tick();
+    await flush();
+    expect(store.team()[0].nick).toBe('Assessor AL');
+
+    events.writeEnded();
+    TestBed.tick();
+    TestBed.tick();
+    await flush();
+    expect(reads).toBe(2);
+    expect(store.team()[0].nick).toBe('After the save');
   });
 });

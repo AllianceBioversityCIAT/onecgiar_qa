@@ -251,12 +251,14 @@ describe('FieldsStore', () => {
     const save = http.expectOne(`${FC}/draft`);
     events.recordReplay('PATCH', `${FC}/draft`);
     TestBed.tick();
+    TestBed.tick();
     await tick();
     http.expectNone(FC);
     save.flush(ok(view(3, assessed)));
     await store.settle();
 
     events.recordReplay('PATCH', `${FC}/draft`);
+    TestBed.tick();
     TestBed.tick();
     await tick();
     http.expectOne(FC).flush(ok(view(5)));

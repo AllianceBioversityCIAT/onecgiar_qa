@@ -69,9 +69,9 @@ export class FieldsStore {
     // clicks are pending or saving, publishing or discarding: their own answer brings the copy.
     reloadAfterReplay(
       (path) => path.includes('/field-config'),
-      () => {
-        if (this.state() !== 'ready' || this.pending.size > 0 || this.flushing || this.publishing() || this.discarding()) return;
-        void this.reloadView();
+      async (fresh) => {
+        if (this.state() !== 'ready' || this.pending.size > 0 || this.flushing || this.publishing() || this.discarding()) return true;
+        return this.reloadView(fresh);
       },
     );
   }
@@ -245,15 +245,18 @@ export class FieldsStore {
   }
 
   /** Quiet refresh of the server copy (keeps the screen; pending clicks stay on top). */
-  private async reloadView(): Promise<void> {
+  private async reloadView(fresh: () => boolean = () => true): Promise<boolean> {
     const cycle = this.cycle();
-    if (!cycle) return;
+    if (!cycle) return true;
     try {
       const view = await firstValueFrom(this.api.view(cycle.id));
+      // A write moved meanwhile: painting this copy could undo it on screen.
+      if (!fresh()) return false;
       if (this.cycle()?.id === cycle.id) this.view.set(view);
     } catch {
       // Keep what is shown: the next action reports the problem.
     }
+    return true;
   }
 
   private async refreshReview(notice: string): Promise<void> {

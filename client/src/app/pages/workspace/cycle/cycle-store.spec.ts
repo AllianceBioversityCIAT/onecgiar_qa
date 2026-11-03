@@ -161,10 +161,12 @@ describe('CycleStore', () => {
     const events = TestBed.inject(WriteEvents);
     events.recordReplay('PATCH', `${API}/cycles/2/field-config/draft`);
     TestBed.tick();
+    TestBed.tick();
     await settle();
     http.expectNone(`${API}/cycles`);
 
     events.recordReplay('PATCH', `${API}/timelines/7`);
+    TestBed.tick();
     TestBed.tick();
     expect(store.state()).toBe('ready');
     await answerLoad([{ id: 2, status: 'active' }], [official, timeline({ version: 6 })]);
