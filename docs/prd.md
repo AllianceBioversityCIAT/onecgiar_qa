@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Status | Draft v0.1 — awaiting team approval |
-| Last updated | 2026-10-15 |
+| Last updated | 2026-11-04 |
 | Owners | Product: QA business owner · Tech: front lead, back lead |
 | Related | `docs/trd/trd.md` · `docs/ux-ui/design.md` · `docs/infrastructure.md` · `docs/qa-context.md` (team glossary, on `staging-center`) |
 
@@ -21,7 +21,7 @@ QA is where assessors evaluate the quality of the results that CGIAR programs re
 
 | # | Today | Consequence | Rebuild must |
 |---|---|---|---|
-| P1 | Results are loaded into QA by SQL scripts the tech team runs manually each cycle (views, materialized tables, procedures) | Each cycle blocks on the tech team; errors are silent | Ingest automatically from the Reporting API when a batch opens |
+| P1 | Results are loaded into QA by SQL scripts the tech team runs manually each cycle (views, materialized tables, procedures) | Each cycle blocks on the tech team; errors are silent | Ingest from the Reporting API through a manual load per timeline step, step 1 by the ADMIN |
 | P2 | Cycles, windows, batches and fields are hard-coded in code or the DB | Coordination cannot open/close phases or change fields on its own | Make them admin-configurable |
 | P3 | No reliable history of how a result entered QA, how it left, and what changed in Reporting between batches | Disputes and round 2 cannot be audited | Keep immutable snapshots and diffs per result |
 | P4 | Authentication issues its own tokens without verifying them | Security risk | Use Cognito natively and verify every access token (JWKS) |
@@ -59,7 +59,7 @@ Example: one user can be ASSESSOR for *Knowledge Product* and LEAD_ASSESSOR for 
 ### In scope (v1)
 
 1. **Configuration** — cycles (e.g. 2026), windows, batches; per result type: which catalog fields are shown, core, commentable, AI input.
-2. **Ingestion** — on batch open, pull eligible results from Reporting, validate against the catalog, store an immutable snapshot; sync changes during evaluation.
+2. **Ingestion** — a manual load per timeline step (step 1 by the ADMIN): pull eligible results from Reporting, validate against the catalog, store an immutable snapshot; sync changes during evaluation.
 3. **Evaluation** — field-by-field review; comment or approve without comment; AI suggestions on AI-input fields.
 4. **Comments** — program responses; lead escalation of core-field disagreements to TPB; TPB decision; PPU "Done".
 5. **Closure** — result becomes *Quality Assessed* when no cases are pending; QA notifies Reporting.
@@ -81,7 +81,7 @@ Example: one user can be ASSESSOR for *Knowledge Product* and LEAD_ASSESSOR for 
 | US-1 | ADMIN | create a cycle with windows and batches | coordination runs QA without the tech team |
 | US-2 | ADMIN | configure, per result type, which catalog fields are shown/core/commentable/AI input | each result type is assessed on the right fields |
 | US-3 | ADMIN | grant and revoke roles, scoped per result type or program | the right people see and act on the right results |
-| US-4 | ADMIN | open a batch and see its results arrive automatically | no SQL scripts are needed |
+| US-4 | ADMIN | start the load of a timeline step (step 1 in v1) and see its results arrive | no SQL scripts are needed |
 | US-5 | ASSESSOR | review each field and comment or approve it | programs get precise, actionable feedback |
 | US-6 | ASSESSOR | see an AI suggestion on AI-input fields and copy it if useful | I review faster without the AI acting on its own |
 | US-7 | PROGRAM | respond to each comment (accept / accept with comment / disagree / clarify) | the assessment reflects our view |
@@ -95,7 +95,7 @@ Example: one user can be ASSESSOR for *Knowledge Product* and LEAD_ASSESSOR for 
 
 | Story | Criteria (Given / When / Then) |
 |---|---|
-| US-4 | Given an open cycle and a configured batch, when the admin opens the batch, then every eligible result is fetched from Reporting, validated against the catalog version, and stored as a snapshot — with no manual step; results failing validation are listed with the reason. |
+| US-4 | Given an open cycle and a configured timeline, when the admin starts the load of the timeline's step 1, then every eligible result is fetched from Reporting, validated against the catalog version, and stored as a snapshot — with no SQL or other manual step by the tech team; results not loaded are listed with the reason. |
 | US-4 | Given a result whose Reporting payload is unchanged (same hash), when sync runs, then no new snapshot is created. |
 | US-2 | Given a catalog `field_key`, when the admin configures it, then its key is never renamed; a type change in the catalog appears as a new key. |
 | US-5 | Given an assessor without the ASSESSOR role for that result type, when they open the result, then they can read but not comment or approve. |

@@ -1,0 +1,23 @@
+{
+  "phase": 2026,
+  "catalog_version": "2026.31",
+  "results": [
+    {
+      "result_id": 900001,
+      "result_code": 5120,
+      "result_type_key": "capacity_sharing",
+      "values": {
+        "capacity_sharing.length_of_training": {
+          "value": 4,
+          "degree": 2
+        }
+      }
+    }
+  ],
+  "not_eligible": [
+    {
+      "result_id": 900003,
+      "reason": "not_submitted"
+    }
+  ]
+}

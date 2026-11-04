@@ -11,6 +11,7 @@ import { openApiConfig } from './config/openapi.config.js';
 import { validateEnv } from './config/env.validation.js';
 import { DrizzleModule } from './database/drizzle/drizzle.module.js';
 import { DynamoDbModule } from './database/dynamodb/dynamodb.module.js';
+import { IngestionModule } from './ingestion/ingestion.module.js';
 import { UsersModule } from './users/users.module.js';
 
 @Module({
@@ -27,6 +28,7 @@ import { UsersModule } from './users/users.module.js';
     UsersModule,
     AuthModule,
     AdminConfigModule,
+    IngestionModule,
   ],
   controllers: [AppController],
   providers: [
