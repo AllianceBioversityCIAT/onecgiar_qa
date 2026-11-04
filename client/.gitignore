@@ -45,3 +45,9 @@ Thumbs.db
 
 # Jenkins pipeline: kept local, configured manually in Jenkins
 /Jenkinsfile
+
+# Environments: never versioned (CIAT rule). The CD (Jenkins) writes them from AWS
+# Secrets Manager before `ng build`; locally copy environment.example.ts.
+/src/environments/*.ts
+!/src/environments/environment.model.ts
+!/src/environments/environment.example.ts
