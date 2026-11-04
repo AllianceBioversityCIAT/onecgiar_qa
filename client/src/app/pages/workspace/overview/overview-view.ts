@@ -24,7 +24,7 @@ type StepStatus = 'pending' | 'review' | 'one' | 'two' | 'reply' | 'replied' | '
 
 /**
  * Rounds of the hero, each with its steps and each step with its statuses (María Julia, 2026-10-27: "status inside the
- * step"; names to confirm with her). Step names match the Timeline progress lanes. PPU (step 5) is left out: she said
+ * step"; names to confirm with her). Step names match the Progress by timeline lanes. PPU (step 5) is left out: she said
  * it was not important. `stage` is the Results filter a row opens, null while Results has none for that status.
  * Colors: grey while waiting, the round's color as work gets done (indigo Round 1, blue Round 2); green is the final state.
  */
@@ -450,7 +450,7 @@ export class OverviewView {
     return names.length ? `Timelines in the assessors' step: ${names.join(', ')}` : 'No timeline in these filters is in the assessors’ step';
   });
   // ---------- Actions ----------
-  /** A row in "Timeline progress": open its stages pop-up. */
+  /** A row in "Progress by timeline": open its stages pop-up. */
   protected openStages(id: string): void {
     this.stagesId.set(id);
     this.stagesOpen.set(true);

@@ -23,7 +23,7 @@ export interface RoundStageVm {
 export interface RoundStepVm {
   /** Position among the five steps (1 Assessors … 4 Third-party broker); a key, not shown. */
   readonly n: number;
-  /** "Assessors", "Programs correct"… the same short names as the Timeline progress lanes. */
+  /** "Assessors", "Programs correct"… the same short names as the Progress by timeline lanes. */
   readonly name: string;
   readonly stages: readonly RoundStageVm[];
 }
