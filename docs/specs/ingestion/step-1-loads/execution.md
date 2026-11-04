@@ -550,3 +550,41 @@ Leader adjudication: assumptions-only, no owed item; the Reviewer verified the A
 **Budget running totals (after T-10):** tasks 10 / 11 · production LOC ≈ 4,220 + 78 ≈ 4,298 of ≈ 4,500 (96 %) · test LOC ≈ 8,459 + 323 ≈ 8,782 of ≈ 9,000 (98 %) · review rounds 15 + 1 = 16 / ≈ 20. **Not exceeded.** T-11 is documents only (no test LOC).
 
 **Final verification:** server command green (71 + 1 skipped files, 2,827 + 3 skipped unit tests) and `pnpm test:e2e` green (16 files, 955 tests).
+
+### T-11: Documents — PASS (attempt 1)
+- **Final status:** PASS on attempt 1 (date 2026-11-04). Implementer attempts: 1.
+- Effort: **medium** (documents against code). Skills: api-design-principles + **`cognitive-doc-design` added by the Leader** (guides and a contract read by other people).
+- Files changed (`git status --porcelain` after the last edit, re-checked by the Leader): `M docs/prd.md` (5 lines: Last updated, P1, § 5 item 2, US-4 story, US-4 first § 7 row), `M docs/infrastructure.md` (1 line, :29 DynamoDB row with P-3 / P-6), new `docs/specs/ingestion/step-1-loads/front-contract.md` (134), new `server/src/ingestion/AGENTS.md` (60).
+- Implementer verification (manual): `git grep -n "automatically when a batch opens" -- docs/prd.md` → 0 hits (exit 1); `grep -in automatic docs/prd.md` → only line 10 (the "In one line" pitch), none in US-4, P1, § 5 item 2; `LOADS_` cross-check → the 3 catalog codes all in the contract (`LOADS_RUNNING_KEY`, `LOADS_STORE`, `LOADS_TRANSACTIONS` are a SQL key and DI tokens, correctly absent); every skip reason (3 QA + 6 Reporting) and failure reason (7) present; contract § 2 codes match the controller's `@ApiErrorResponses`, messages verbatim from `error-codes.ts`.
+- Evidence re-run (Leader-inline, non-author): **VERIFIED** — old phrase 0 hits; `git diff --stat -- AGENTS.md CLAUDE.md docs/trd/trd.md` empty; `LOADS_ALREADY_RUNNING`, `LOADS_NOT_FOUND`, `LOADS_WINDOW_CLOSED` each found in `front-contract.md`.
+- Review intensity: task `Review` = checklist; verification is manual (not fully deterministic) → conformance Reviewer.
+- Reviewer verdict: **PASS** — no mismatch between docs and code: 4 routes and per-route codes match `loads.controller.ts`; all 13 contract messages verbatim from `common/error-codes.ts`; falsifier holds (3 `loads.errors.ts` codes present); 3 statuses, 3 QA skip reasons, 7 failure reasons match; start order (probe, then cycle → window → already-running) matches code and design § 7.2; all four contract forward pointers and all module-guide forward pointers present with code citations; infrastructure line matches P-3/P-6. **Ruling:** PRD line 10 "automatic ingestion" is advisory, not a FAIL (a pitch line outside the conformance surface named by FR-15 and the task scope; loose, not contradictory).
+- runtime events: none
+- spawns: implementer 25 calls, 133,976 tokens, ended partial (assumptions-only); reviewer not reported by host at write time, ended complete (PASS)
+
+**Not Done / Assumptions (Implementer, verbatim, condensed)**
+> - The PRD "In one line" (line 10) still says "automatic ingestion", and other "batch" wording remains in P2, P3, personas, M2, US-1, US-11 and other § 7 rows. Out of the PRD scope the task allowed; the Leader may want a follow-up.
+> - In `front-contract.md` I stated that after a `failed` load a new start re-skips already loaded results as `ALREADY_IN_THIS_TIMELINE`. That follows from FR-8 and `skipVerdict`, but I did not run it.
+> - TRD item 4 (D-2) is relayed as listed in design § 9, without detail.
+
+Leader adjudication: assumptions-only, no owed item. The re-skip after a failed load is covered by T-8's "re-run skips the 47" test (FR-3 Re-run). D-2 detail filled in below from requirements FR-4.
+
+**ADVISORY (4R, not gating)**
+- READABILITY: `docs/prd.md:10` "automatic ingestion" → "ingestion from the Reporting API (a manual load per timeline step, no SQL scripts)"; same pass could clean the "batch" wording in P2, P3, M2, US-1, US-11 (follow-up candidate, not a task of this spec).
+- RISK (scope promise): PRD § 5 item 2 "validate against the catalog" vs requirements § 4 out of scope "validating values against the catalog beyond `catalog_version`" — align with US-4's "validated against the catalog version".
+- READABILITY: US-4 criterion "results not loaded are listed with the reason" vs contract § 8 (counts by reason, no per-result list) — "counted by reason in the load summary".
+- READABILITY: contract § 6 "The server first makes one cheap call to Reporting" — the 404 lookup comes first (`loads.service.ts:381-386`).
+- READABILITY: module guide "imports only `LOAD_LEASE_MS`" holds for production code; `timeline-loads.spec.ts:11` imports `LoadsUnitOfWork`.
+
+**TRD pending items (shared-file discipline — apply on `staging`, not on this branch)**
+1. ADR-005: record the deviation — the run record for step-1 loads is `timeline_loads` in MySQL (DD-1), not `IngestionRun` in DynamoDB.
+2. § 5.1: `timeline_loads` and `timeline_results` are real (migration `0007`), no longer "Reserved, not created"; `timeline_audit_events.action` gains `load_start`, `load_end`.
+3. § 5.2: `ResultSnapshot` is the first ElectroDB entity — pk `RESULT#{result_code}`, sk `SNAP#{phase_year}#{cycle_id:06}#{timeline_id:08}#{load_id:010}`, no GSI; table `cgiar-qa-test` verified (P-3).
+4. *timelines* D-2 made concrete: "a result in one timeline at once" means **at most one active membership per `(cycle, result_code)`** (FR-4), enforced by the `active_key` unique index; ended memberships are kept.
+5. Loads-port note: the timeline list runs 7 queries, not 6 (`DrizzleTimelineLoads`, T-10).
+
+**Other pending items for `staging` (from T-9 Constitution Impact, recorded here for the archive):** root `AGENTS.md` § Module Guides and `server/AGENTS.md` § Layout / `app.module.ts` row gain `server/src/ingestion/` and its guide.
+
+**Budget running totals (after T-11):** tasks 11 / 11 build tasks done (+ T-12 HITL) · production LOC ≈ 4,298 of ≈ 4,500 (96 %) · test LOC ≈ 8,782 of ≈ 9,000 (98 %) · review rounds 17 / ≈ 20. **Not exceeded.**
+
+**Final verification:** manual checks above; no code changed in this task (server suites last green at T-10: 2,827 + 3 skipped unit, 955 e2e).

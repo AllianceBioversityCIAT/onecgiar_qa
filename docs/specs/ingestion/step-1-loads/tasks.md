@@ -340,7 +340,7 @@ T-6 ─────────────┘
 - **Skills:** nestjs-expert
 
 ## T-11: Documents
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** S
 - **Depends on:** T-9, T-10
 - **Requirements:** FR-15 (every listed document)
