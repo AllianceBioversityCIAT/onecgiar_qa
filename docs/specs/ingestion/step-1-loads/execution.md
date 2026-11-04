@@ -670,3 +670,20 @@ Leader adjudication: assumptions-only, no owed item. The re-skip after a failed 
 ## Summary
 
 All 12 tasks of `ingestion/step-1-loads` are `[x]`: 11 build tasks with a Reviewer PASS, and the HITL on dev with the back lead's PASS (2026-11-04). Open after the spec, for the archive: TRD pending items (T-11 entry), root and `server/` module-guide index entries (T-9 Constitution Impact), `akili doctor --agents --fix` on `staging`, NFR-5 at 1,200 results (OQ-6), P-1 on PROD, Angel's confirmation of S-4 / S-5 / S-8 / S-9 and R-13, and the credential-in-chat recurrence (KZ-admin-config--cycle-timelines-3) for the Kaizen step.
+
+---
+
+## Follow-up after T-12: KP rule correction (outside the triad, at the back lead's request)
+
+- **Date:** 2026-11-04 · **Branch:** `fix/ingestion-kp-rules` (from `feat/step-1-loads`; `staging` does not hold the module yet) · **Run by:** the Leader inline, no Implementer/Reviewer — the back lead asked for this change "without AKILI".
+- **Decisions (back lead, 2026-11-04):**
+  - **S-9 corrected:** a KP to review is assessed **in step 1**, like any result. P2-3905 AC13 and P2-3906 AC6 said "step 3"; Jira comments 44591 / 44592 propose the corrected AC text for Angel.
+  - **S-8 / R-13 settled:** a completed load releases its `not_in_qa` and `auto_validated` KPs as `qaed` (the port is on).
+  - **S-5:** confirmed. **S-4:** still for Angel. The back lead noted that marking a result `qaed` in the later QA flow ends its membership, which S-4 already covers.
+  - `awaits_step` stays in migration `0007`, always null.
+- **Code:** `kp-classifier.ts` (review → `awaitsStep: null`), `load-runner.ts` (`KP_RELEASE_ENABLED = true`); tests `kp-classifier.spec.ts`, `load-runner.spec.ts` (the off case injects `release: false`; the default case proves the release), `test/support/ingestion-app.ts` (the e2e fake answers `release`).
+- **Falsifiers (run red, then restored):** constant back to `false` → `load-runner.spec.ts` "by default (the constant is on)…" fails (1 failed / 28); review back to `awaitsStep: 3` → 25 failures in `kp-classifier.spec.ts`.
+- **Verification:** `pnpm lint` clean · `pnpm build` green · unit `2827 passed | 3 skipped` · e2e `955 passed` (`--maxWorkers=2`, local RAM guard).
+- **Spec documents amended:** requirements Document Control, S-8, S-9, FR-7 table, FR-14 (+ scenario "On"), traceability row; design `awaits_step` row, § 7.3 step 3, env-var note; proposal § 6, § 12.1; `front-contract.md` § 6 note; `server/src/ingestion/AGENTS.md`; `docs/qa-context.md` (translated to English per `CLAUDE.md` § 2.1, plus the KP rule).
+- **Not run:** a live check of the release on dev (needs a new admin token; the HITL already proved `release` against Reporting TEST: 33 released).
+- **Open gap found (not fixed here):** if `release` fails after its 3 attempts, the load ends `failed`; a re-run skips those KPs as `ALREADY_IN_THIS_TIMELINE` and never adds them to the release list, so they stay locked In QA in Reporting.

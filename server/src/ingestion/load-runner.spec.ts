@@ -846,8 +846,8 @@ describe('KP groups and the release port (FR-7, FR-14)', () => {
     1003: { ...KP_AUTO, 'knowledge_product.issue_date_wos': null },
   };
 
-  it('with the release constant off, a completed load of auto-checked KPs makes no release call', async () => {
-    const ctx = build();
+  it('with the setting turned off, a completed load of auto-checked KPs makes no release call; a KP to review carries no step-3 marker', async () => {
+    const ctx = build({ release: false });
     script(ctx.feed, kps, { values });
 
     const load = await runToEnd(ctx);
@@ -863,7 +863,7 @@ describe('KP groups and the release port (FR-7, FR-14)', () => {
     ).toEqual([
       [5001, 'auto_validated', 'auto_checked', null],
       [5002, 'not_in_qa', 'not_in_qa', null],
-      [5003, 'pending', 'review', 3],
+      [5003, 'pending', 'review', null],
     ]);
     expect(ctx.feed.callsOf('release')).toHaveLength(0);
     expect(ctx.feed.calls.map((c) => c.op)).toEqual([
@@ -873,8 +873,8 @@ describe('KP groups and the release port (FR-7, FR-14)', () => {
     ]);
   });
 
-  it('with the setting on, only the auto-checked and not-in-QA KPs are released as qaed, after the lots', async () => {
-    const ctx = build({ release: true });
+  it('by default (the constant is on), only the auto-checked and not-in-QA KPs are released as qaed, after the lots', async () => {
+    const ctx = build();
     script(ctx.feed, kps, { values });
     ctx.feed.script('release', (q) => ({
       phaseYear: q.phaseYear,

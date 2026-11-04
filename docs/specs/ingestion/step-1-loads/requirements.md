@@ -11,7 +11,7 @@
 | Approval Mode | gated |
 | Status | Draft |
 | Source | `proposal.md` revision 2 (2026-11-04). Jira P2-3905 (14 AC). Reporting contract `qa-catalog.en.md` v1.29, § *Results feed* and § *Intake and release* |
-| BA confirmation | Pending (Angel). S-4, S-5, S-8 and S-9 are business choices taken at their proposed defaults; an overrule reopens this spec |
+| BA confirmation | S-5 confirmed, S-8 and S-9 corrected by the back lead on 2026-11-04 (Jira comments on P2-3905 / P2-3906 for Angel). S-4 pending (Angel) |
 | Builds on | *timelines* = `docs/specs/archive/2026-10-21-admin-config--cycle-timelines/`; *edit* = `docs/specs/admin-config/timeline-edit/`; *times* = `docs/specs/archive/2026-10-27-admin-config--timeline-step-times/`; *fields* = `docs/specs/archive/2026-10-27-admin-config--field-configuration/` |
 | PRD stories | US-4 (corrected by this spec: manual load per step) |
 | Scope | Server (`server/`). The front adapts through `front-contract.md` |
@@ -28,8 +28,8 @@
 | S-5 | A result whose membership in a timeline ended does **not** re-enter that same timeline; it may enter a later one | Q11, default | **Angel to confirm** |
 | S-6 | A timeline "has a load" when it has at least one membership (active or ended) or at least one `completed` load | Q5, default | Back lead to confirm at the requirements gate |
 | S-7 | KPs are classified with the 2025 rule into three groups; every group is intaken | Brief § 5; proposal § 12.1 | Back lead; Q7 open for 2026 |
-| S-8 | Releasing "not in QA" and auto-checked KPs as `qaed` exists but is **off** | Q9, default | **Angel to confirm** |
-| S-9 | A KP waiting for step 3 has status `pending` and a separate `awaits_step: 3` marker | Q2, default | **Angel to confirm** |
+| S-8 | A completed load releases its "not in QA" and auto-checked KPs as `qaed` in Reporting (**on**). They are not assessed, so they must not stay locked In QA | Q9 | Back lead, 2026-11-04 (was: off) |
+| S-9 | A KP to review is assessed **in step 1**, like any result: status `pending`, no step marker. The `awaits_step` column stays in `0007`, always null | Q2 | Back lead, 2026-11-04 (was: waits for step 3, per P2-3905 AC13) |
 | S-10 | Which feed keys the snapshot keeps (person-bearing keys in or out) | Q3 | **Open. Blocks the snapshot item in design** |
 
 ## 2. Executive Summary
@@ -275,7 +275,7 @@ Every knowledge product taken in SHALL be classified with the 2025 rule (proposa
 |---|---|---|
 | Not in QA | Not MELIA **and** type ≠ `Journal Article` | `not_in_qa`; not reviewed |
 | Auto-checked | `Journal Article` **and** CGSpace year = WoS year **and** ISI = 1 in both **and** peer reviewed = 1 in both **and** accessibility equal in both (a MELIA journal article that meets it too) | `auto_validated` |
-| Review | Any other KP | `pending`, marked `awaits_step: 3` (S-9) |
+| Review | Any other KP | `pending`, assessed in step 1 (S-9) |
 
 Every group is intaken and gets a snapshot.
 
@@ -362,12 +362,17 @@ Each load start and each load end SHALL write one `timeline_audit_events` row: a
 
 Every route of this spec SHALL require `ADMIN_ACCESS`. Any other role gets 403 `AUTH_PERMISSION_DENIED` and nothing is read from Reporting.
 
-### FR-14: Release port off by default (S-8)
+### FR-14: Release of the KPs that are not assessed (S-8)
 
-The system SHALL be able to release a batch of results as `qaed` or `not_qaed` through the feed port. In this spec nothing calls it unless the KP release setting is on, and it is **off**.
+The system SHALL release, once a load's lots are done, its "not in QA" and auto-checked KPs as `qaed` through the feed port. KPs to review and non-KP results are never released by a load. The setting is **on** (amended 2026-11-04; it was off).
+
+#### Scenario: On
+- GIVEN the setting is on (the default)
+- WHEN a load completes with an auto-checked, a not-in-QA and a review KP
+- THEN one release call carries the first two as `qaed`, after the lots
 
 #### Scenario: Off
-- GIVEN the setting is off
+- GIVEN the setting is turned off
 - WHEN a load completes with auto-checked KPs
 - THEN no release call is made
 
@@ -424,6 +429,6 @@ The spec SHALL deliver:
 | FR-11 | Has a load / edit | 4 | T-10 |
 | FR-12 | Audit and log | — | T-5, T-8, T-9 |
 | FR-13 | Access | — | T-9 |
-| FR-14 | Release port off | 1 | T-8 |
+| FR-14 | KP release (on since 2026-11-04) | 2 | T-8, fix `fix/ingestion-kp-rules` |
 | FR-15 | Documents | — | T-11 |
 | NFR-1…7 | — | — | T-1, T-2, T-3, T-9, T-12 (see `tasks.md` § Coverage) |
