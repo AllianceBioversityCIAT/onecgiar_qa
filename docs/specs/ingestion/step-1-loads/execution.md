@@ -210,7 +210,7 @@ Leader adjudication: no owed item of T-2 and no blocker (assumptions-only) → n
 
 ### T-5: Loads store and unit of work, with an in-memory world that emulates the keys
 
-- **Status:** in progress (`[~]`) — attempt 1 FAIL; stopped before attempt 2 by the budget tripwire and an FR-12 spec tension (both escalated to the user, 2026-11-04)
+- **Status:** PASS on attempt 2 (see below). Attempt 1 FAIL; stopped before attempt 2 by the budget tripwire and an FR-12 spec tension (both escalated to the user, 2026-11-04)
 - **Date:** 2026-11-04
 - **Requirements in scope:** FR-2 "Start" / "One running load per cycle", FR-4 "Race" / "Later timeline after U closed", FR-9, FR-12
 
@@ -265,3 +265,43 @@ Leader adjudication: no owed item of T-2 and no blocker (assumptions-only) → n
 - **Budget tripwire:** answer "Re-estimar y seguir". Production LOC ≈ 3,200 → ≈ 4,500; test LOC ≈ 3,800 → ≈ 7,000 (design § 10, tasks.md header). Review rounds stay 14.
 - **FR-12 spec tension:** answer "Sí, agregar id a load_end". `design.md` § 5.3 `load_end` → `{load: {before: 'running', after: {id, status, total, processed, loaded, skipped, failureReason}}}`; step = the load row's `timeline_step_id`. Carried into the T-5 attempt-2 brief and as a named conformance check into its Reviewer brief.
 - Attempt 2 effort: attempt 1 ran at `xhigh` (the T2 ceiling). No in-host Reviewer model differs from the T3 pick and is at least as strong, so **effort ceiling: held xhigh** — fresh T2 Implementer at xhigh with the full Attempt History; Reviewer stays `opus`.
+
+**T-5 Attempt 2 — PASS (parallel lens review: lens 1 PASS, lens 2 PASS)**
+- **Final status of T-5:** PASS on attempt 2 (date 2026-11-04). Implementer attempts: 2.
+- Effort: xhigh — **effort ceiling: held xhigh** (no in-host Reviewer model differs from the T3 pick and is at least as strong); fresh T2 Implementer with the verbatim FAIL report and the Attempt History.
+- Files changed (same four, still new): `server/src/ingestion/loads.store.ts` (564; + `findLoadById`, `findRunningLoad` plain reads, `lockTimelineShared`), `server/src/ingestion/loads.unit-of-work.ts` (551), `server/src/ingestion/loads.unit-of-work.spec.ts` (2,719), `server/test/support/in-memory-loads.ts` (667; FK parent S-locks modelled)
+- New lock orders: `recordLot` and `end` — plain read of the load → cycle `FOR SHARE` → timeline `FOR SHARE` → load `FOR UPDATE` → writes; `endExpired` — no cycle/timeline/load lock (its UPDATE writes no FK column); abandon in `start` — cycle `FOR SHARE` → own timeline `FOR UPDATE` → step → plain read of the running load → if stale and of another timeline, that timeline `FOR SHARE` → running load `FOR UPDATE` → abandon, insert, rest. A second deadlock (start(11) abandoning a load of 12 vs start(12)) was found and fixed by the Implementer.
+- Amendment applied: `load_end.after.id` on both paths; test `load_end names its load: changes.load.after.id is the id of the load that ended, for a normal end and for the abandon of a stale one (FR-12, design 5.3)`.
+- Implementer verification: lint/build exit 0; `Test Files 68 passed | 1 skipped (69)`, `Tests 2738 passed | 3 skipped (2741)` (+39: 6 FK guard, 30 race, 2 stub, 1 `load_end` id).
+- Red runs (each restored, compared against backups):
+  - F1 (timeline `FOR UPDATE` before cycle `FOR SHARE`): `Tests 3 failed | 102 passed (105)` — e.g. `AssertionError: expected 'select \`id\`, \`cycle_id\`, \`name\`, \`kin…' to match /^select \`status\`, \`year\` from \`cycles…/`; `an edit that commits first…`: `expected { kind: 'stale', seen: 5 } to deeply equal { kind: 'updated', seen: 4 }`.
+  - F2 (every duplicate → `ALREADY_IN_THIS_TIMELINE`): `Tests 4 failed | 101 passed (105)` — incl. `two lots inserting the same code in one cycle…`.
+  - FK-lock falsifier (fake without FK parent S-locks): `Tests 6 failed | 99 passed (105)` — the six `the INSERT of $what takes S on its foreign-key parent $parent` guard cases, `AssertionError: expected true to be false`.
+  - Production order reverted to attempt 1 (FK locks present): `Tests 17 failed | 13 passed | 75 skipped` — 5/10 lot, 6/10 end, 6/10 abandon with `Error: DEADLOCK: the transactions wait for each other (InnoDB answers ER_LOCK_DEADLOCK 1213)`.
+- Evidence re-run (Leader-inline, non-author): **VERIFIED** — lint OK, build OK, `Test Files 68 passed | 1 skipped (69)`, `Tests 2738 passed | 3 skipped (2741)`.
+- Reviewer lens 1 (reliability / concurrency): **PASS** — every pair among start, recordLot, end, endExpired, abandon and the timeline edit traced against InnoDB locking incl. FK parent S-locks: no cycle, no S→X upgrade; plain-read-before-lock safe in lot/end (a load's cycle/timeline never change; status judged on the locked re-read); SQL-order tests assert the four locks (`expectLoadLockOrder`).
+- Reviewer lens 2 (risk / data integrity + audit): **PASS** — `load_end` shape matches amended § 5.3 on both paths (`loadEndAudit`); exactly one `load_end` per load (row lock + conditional update; tests for abandon racing an end and double end); no deletes; only membership update is ending it; typed failure reason; no PII; NFR-6 races decided by unique keys; protected files untouched.
+- runtime events: none
+- spawns: implementer 36 calls, 227,842 tokens, ended partial (assumptions-only); reviewer lens 1 not reported by host at write time (ended complete, PASS); reviewer lens 2 10 calls, 51,069 tokens, ended complete
+
+**Not Done / Assumptions (attempt 2, verbatim):** "The FKs to `users` and `timeline_steps` are not modelled in the fake. No transaction in this world locks those rows, and the fake's header says so." — Leader: assumptions-only, no owed item; lens 1 confirmed those parent S-locks are compatible with every transaction here.
+
+**ADVISORY (attempt 2, not gating)**
+- RESILIENCE: abandon path — if `lockRunningLoad` returns a different load than the plain read saw (`running.id !== seen?.id`), its timeline S-lock was never taken → possible 1213. Needs a competing start lasting longer than the 5-min lease; cheap guard: lock that timeline or refuse `already_running` when ids differ.
+- RESILIENCE: `endExpired` from a zombie runner never checks its load is still running and can deadlock with the live load's lot (DD-8 retries would recover) — **forward pointer → T-8**: skip `endExpired` once the run learns its load ended.
+- RELIABILITY: three concurrent starts on the same `running_key` with a rollback after insert → classic InnoDB 1213 → 500. Rare; **forward pointer → T-7**: consider mapping 1213 in `start` to `already_running` or a retry.
+- TEST EVIDENCE: no race case for abandon-start vs the abandoned load's own lot/end, nor edit vs lot (both traced safe). The 1 s timeout harness does not model InnoDB queueing S behind a waiting X nor S locks on duplicate unique entries; no test on real MySQL — **known gap → T-12**.
+- RISK (from attempt 1, still present): `LoadsDb` still grants `delete`; `load_end.request_id` still differs by path (normal end: the start's; abandon: the abandoning start's).
+- RELIABILITY: `end()` returns `{kind:'load_not_running', status: 'running'}` in an unreachable branch — use a fixed sentinel.
+- READABILITY: the `LoadsUnitOfWork` doc and one `describe` cite "DD-9" for the lock order (it is DD-7 / P-8); lot/end SQL-order test titles still say "the load row FOR UPDATE".
+
+**Forward pointers (to carry into later briefs):**
+- T-7: `LoadsUnitOfWork.start` returns typed results `cycle_closed`, `window_closed`, `already_running`, `timeline_not_found` → map to `CYCLES_CLOSED`, `LOADS_WINDOW_CLOSED`, `LOADS_ALREADY_RUNNING`, `TIMELINES_NOT_FOUND`; consider 1213 → `already_running`.
+- T-8: `setTotal` and the 60 s heartbeat write (design § 7.3 steps 1 and 5) have no store method yet; skip `endExpired` once the load is no longer running; `findMemberships` throws on a timeline with no steps (log line); `recordLot` checks status not lease (a late lot revives a load readers see as ABANDONED — DD-6).
+- T-12: InnoDB key-report order on a double-key duplicate; real-MySQL confirmation of the lock orders.
+
+**Decisions made (attempt 2):** ids for lot/end from a plain `findLoadById` read (command shapes unchanged for the runner); the abandon path takes the foreign timeline S-lock only when the plain read sees the load stale; the fake has no deadlock detector (would need `in-memory-stores.ts`) → races run under `withoutDeadlock` (1 s) with `race(lag, first, second)` over lags −3…6 in both orders; cost: lot/end +3 statements, start +1 read, a lot now holds S on its timeline.
+
+**Budget running totals (after T-5):** tasks 5 / 11 · production LOC ≈ 1,208 + 1,115 ≈ 2,323 of ≈ 4,500 · test LOC ≈ 1,436 + 3,386 ≈ 4,822 of ≈ 7,000 · review rounds 8 / 14 (T-5: 4 lens verdicts). Not exceeded against the T-5 re-estimate.
+
+**Final verification:** `cd server && pnpm lint && pnpm build && pnpm test --reporter=dot` → green (68 + 1 skipped files, 2,738 + 3 skipped tests).

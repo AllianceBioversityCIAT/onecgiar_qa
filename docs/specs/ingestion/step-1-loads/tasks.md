@@ -161,7 +161,7 @@ T-6 ─────────────┘
 - **Skills:** nestjs-expert
 
 ## T-5: Loads store and unit of work, with an in-memory world that emulates the keys
-- **Status:** [~]
+- **Status:** [x]
 - **Size:** L → split at execution if it exceeds one session (store / unit of work)
 - **Depends on:** T-2
 - **Requirements:**
