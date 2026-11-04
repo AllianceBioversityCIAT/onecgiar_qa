@@ -512,3 +512,41 @@ Leader adjudication: assumptions-only, no owed item; lens B ruled on all five, l
 **Budget running totals (after T-9):** tasks 9 / 11 · production LOC ≈ 3,672 + 548 ≈ 4,220 of ≈ 4,500 (94 %) · test LOC ≈ 7,037 + 1,422 ≈ 8,459 of ≈ 9,000 (94 %) · review rounds 13 + 2 = 15 / ≈ 20. **Not exceeded** — but T-10 (adapter + race tests) is likely to cross the test-LOC line; flagged at this gate.
 
 **Final verification:** server command green (70 + 1 skipped files, 2,819 + 3 skipped unit tests) and `pnpm test:e2e` green (16 files, 955 tests).
+
+### T-10: Real "has a load" and the edit race — PASS (attempt 1)
+- **Final status:** PASS on attempt 1 (date 2026-11-04). Implementer attempts: 1.
+- Effort: **high** (default medium raised: a concurrency race on a delivered module). Skills: nestjs-expert + **`tdd` added by the Leader** (the task orders a red race test before the binding).
+- Files changed (`git status --porcelain` after the last edit, re-checked by the Leader): `M server/src/admin-config/AGENTS.md` (+3/−3: § *Loads port* real with 7 queries; line 40 query-count line; § *Reserved tables* sentence), `M server/src/admin-config/timelines/timeline-loads.ts` (+77/−4: `DrizzleTimelineLoads`, `NoTimelineLoads` kept), `M server/src/admin-config/timelines/timelines.module.ts` (+4/−5: binding), new `server/src/admin-config/timelines/timeline-loads.spec.ts` (323; 8 tests).
+- Disqualifier proof (Leader re-run): `git diff --stat` over `timelines.service.spec.ts`, `timelines.unit-of-work.spec.ts`, `server/test/**`, `timelines.service.ts`, `timeline-rules.ts`, `timeline-view.ts`, `server/src/ingestion/**` → empty.
+- Implementer verification: lint exit 0; build exit 0; unit `Test Files 71 passed | 1 skipped (72)`, `Tests 2827 passed | 3 skipped (2830)`; e2e `Test Files 16 passed (16)`, `Tests 955 passed (955)`.
+- Red runs (bump and `withLoad` exist already, so observed by temporary mutation; each restored):
+  - Bump removed in `loads.unit-of-work.ts` → `1 failed | 7 passed`: `promise resolved "{ id: 11, cycleId: 1, …(15) }" instead of rejecting`; the answer held `programIds: [2, 3]` (the edit committed over the scope the load read). Restored; `git diff -- server/src/ingestion/loads.unit-of-work.ts` 0 lines.
+  - `withLoad` counting failed loads (`inArray(status, ['completed','failed'])`) → `4 failed | 4 passed`, e.g. `expected [ 'completed', 'failed', 'running' ] to deeply equal [ 'completed', 'running' ]`. Restored; spec 8/8.
+  - The 5 SQL tests were not run red before the adapter existed (an import failure is a setup failure); their discrimination is shown by the second falsifier.
+- P-15 re-grep: the same 10 files, no new hit; T-9's `server/src/ingestion/**` and `test/support/ingestion-app.ts` neither bind nor read `TIMELINE_LOADS`.
+- Evidence re-run (Leader-inline, non-author): **VERIFIED** — lint clean, `pnpm build` exit 0, unit `Tests 2827 passed | 3 skipped (2830)`, e2e `Test Files 16 passed (16)`, `Tests 955 passed (955)`.
+- Review intensity: task `Review` = full → conformance Reviewer (lens checklist, all four lenses swept).
+- Reviewer verdict: **PASS** — § 7.6 SQL is one statement (`EXISTS timeline_results OR EXISTS timeline_loads WHERE completed OR (running AND heartbeat_at >= now − 5 min)`), failed never listed, completed-with-zero counts (S-6), empty list issues no statement; lease boundary `>= now − LOAD_LEASE_MS` is the exact inverse of `effectiveLoadStatus`'s `> LOAD_LEASE_MS` (`load-rules.ts:41`), 5:00 alive in both; time zone: `heartbeat_at` drizzle `datetime` Date mode, every writer passes a JS `Date`, no `NOW()` in SQL → session TZ irrelevant; FR-11 "judge under the timeline lock" met in effect by DD-7 (false→true only through a start, which bumps `version` under `FOR UPDATE`); race test is a real proof (real `TimelinesService.update` + real `LoadsUnitOfWork.start`, behavioral red, control test); count test runs the real `listByCycle` (6 + 1 = 7 for 1 and 50 timelines); reversion challenge honored (`NoTimelineLoads` kept, `admin-config-app.ts:153` overrides); AGENTS.md edits accurate against code; no contradiction with the T-9 falsifier amendment (named check).
+- runtime events: none
+- spawns: implementer 38 calls, 151,654 tokens, ended partial (assumptions-only); reviewer not reported by host at write time, ended complete (PASS)
+
+**Not Done / Assumptions (Implementer, verbatim, condensed)**
+> - In `AGENTS.md` I also reworded two nearby sentences that became stale (line 40, the query-count line; § *Reserved tables* "only the loads port exists"). Nothing else in the file changed.
+> - `timelines.module.ts` has no unit test of its own; the binding is covered by the build and the e2e suites, which override `TIMELINE_LOADS`. No suite runs `DrizzleTimelineLoads` against real MySQL; the lease predicate is verified by SQL text and params only.
+
+Leader adjudication: assumptions-only, no owed item; the Reviewer verified the AGENTS.md rewords against code. Real-MySQL coverage belongs to T-12 (forward pointer below).
+
+**ADVISORY (4R, not gating)**
+- RISK (boundary): `timeline-loads.ts` imports `LOAD_LEASE_MS` from `ingestion/load-rules.ts`; ADR-001 says modules talk through exported services. DD-9 forbids only the module import, and the reverse file import already exists (`load-rules.ts:7` → `admin-config/rome-date.js`). Candidate: note the exception in DD-9 at close-out, or move the constant to a neutral shared file later.
+- RELIABILITY: `DrizzleTimelineLoads` never ran on real MySQL — **forward pointer → T-12**: a running load with an expired lease and a completed load with zero members against `qadb`.
+- RESILIENCE: `heartbeat_at` has no fractional precision; stored values round to the second (both readers agree; ≈ 0.5 s drift from in-memory only).
+- READABILITY: comment in the race-test world that the race is proved by the version, not by the read, so nobody "fixes" it to use the real adapter.
+- COVERAGE: the order where the load wins before the edit reads (edit sees a live running load → scope `LOCKED`) is covered only indirectly (SQL tests + existing scope-lock suite).
+
+**Decisions made**
+- Lease single source: `LOAD_LEASE_MS` imported as a pure-constant file import (no `IngestionModule` import; DD-9 holds). Clock from `ADMIN_CONFIG_CLOCK`.
+- Query count asserted in the new spec, not in an existing edit suite (Disqualifier).
+
+**Budget running totals (after T-10):** tasks 10 / 11 · production LOC ≈ 4,220 + 78 ≈ 4,298 of ≈ 4,500 (96 %) · test LOC ≈ 8,459 + 323 ≈ 8,782 of ≈ 9,000 (98 %) · review rounds 15 + 1 = 16 / ≈ 20. **Not exceeded.** T-11 is documents only (no test LOC).
+
+**Final verification:** server command green (71 + 1 skipped files, 2,827 + 3 skipped unit tests) and `pnpm test:e2e` green (16 files, 955 tests).

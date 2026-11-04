@@ -313,7 +313,7 @@ T-6 ─────────────┘
 - **Skills:** nestjs-expert, api-design-principles
 
 ## T-10: Real "has a load" and the edit race
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-5, T-9
 - **Requirements:**
