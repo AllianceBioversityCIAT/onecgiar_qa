@@ -16,7 +16,10 @@ export interface ResultClassificationInput {
 export interface ResultClassification {
   status: TimelineResultStatus;
   kpGroup: TimelineResultKpGroup | null;
-  /** 3 for a KP that waits for the Lead's review (S-9), else null. */
+  /**
+   * Always null: a KP to review is assessed in step 1 like any result
+   * (S-9 as corrected 2026-11-04). The column stays in `0007`, unused.
+   */
   awaitsStep: number | null;
 }
 
@@ -108,7 +111,7 @@ export function classifyResult(
   if (!isTrue(values['knowledge_product.is_melia']) && !isJournal) {
     return { status: 'not_in_qa', kpGroup: 'not_in_qa', awaitsStep: null };
   }
-  return { status: 'pending', kpGroup: 'review', awaitsStep: 3 };
+  return { status: 'pending', kpGroup: 'review', awaitsStep: null };
 }
 
 export const DEFAULT_KP_RULES: KpRules = { classify: classifyResult };

@@ -51,9 +51,10 @@ import {
 
 /**
  * Whether a completed load releases its auto-checked and not-in-QA KPs to
- * Reporting (FR-14, S-8). It is OFF: in this spec nothing calls `release`.
+ * Reporting as `qaed` (FR-14, S-8). ON since 2026-11-04 (back lead): those KPs
+ * are not assessed, so they must not stay locked In QA in Reporting.
  */
-export const KP_RELEASE_ENABLED = false;
+export const KP_RELEASE_ENABLED = true;
 
 /** The KP release setting as a provider (default `KP_RELEASE_ENABLED`); a test turns it on without touching the constant. */
 export const KP_RELEASE_SETTING = Symbol('KP_RELEASE_SETTING');
@@ -311,6 +312,20 @@ export class LoadRunner implements LoadRunnerPort {
         continue;
       }
       count(verdict.reason);
+      // FR-14: a KP already in this timeline that a failed load never
+      // released (Reporting down at the release) is released again by the
+      // re-run. Reporting answers `not_released` for one already released.
+      if (this.releaseKp && verdict.reason === 'ALREADY_IN_THIS_TIMELINE') {
+        const own = rows.find(
+          (row) => row.timelineId === load.timelineId && row.endedAt === null,
+        );
+        if (
+          own &&
+          (own.status === 'auto_validated' || own.status === 'not_in_qa')
+        ) {
+          run.releasable.push({ resultId: own.resultId, outcome: 'qaed' });
+        }
+      }
       if (verdict.timelineId !== undefined) {
         const holder = rows.find(
           (row) => row.timelineId === verdict.timelineId,

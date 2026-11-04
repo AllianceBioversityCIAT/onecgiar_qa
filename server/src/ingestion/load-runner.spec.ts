@@ -846,8 +846,8 @@ describe('KP groups and the release port (FR-7, FR-14)', () => {
     1003: { ...KP_AUTO, 'knowledge_product.issue_date_wos': null },
   };
 
-  it('with the release constant off, a completed load of auto-checked KPs makes no release call', async () => {
-    const ctx = build();
+  it('with the setting turned off, a completed load of auto-checked KPs makes no release call; a KP to review carries no step-3 marker', async () => {
+    const ctx = build({ release: false });
     script(ctx.feed, kps, { values });
 
     const load = await runToEnd(ctx);
@@ -863,7 +863,7 @@ describe('KP groups and the release port (FR-7, FR-14)', () => {
     ).toEqual([
       [5001, 'auto_validated', 'auto_checked', null],
       [5002, 'not_in_qa', 'not_in_qa', null],
-      [5003, 'pending', 'review', 3],
+      [5003, 'pending', 'review', null],
     ]);
     expect(ctx.feed.callsOf('release')).toHaveLength(0);
     expect(ctx.feed.calls.map((c) => c.op)).toEqual([
@@ -873,8 +873,8 @@ describe('KP groups and the release port (FR-7, FR-14)', () => {
     ]);
   });
 
-  it('with the setting on, only the auto-checked and not-in-QA KPs are released as qaed, after the lots', async () => {
-    const ctx = build({ release: true });
+  it('by default (the constant is on), only the auto-checked and not-in-QA KPs are released as qaed, after the lots', async () => {
+    const ctx = build();
     script(ctx.feed, kps, { values });
     ctx.feed.script('release', (q) => ({
       phaseYear: q.phaseYear,
@@ -898,6 +898,63 @@ describe('KP groups and the release port (FR-7, FR-14)', () => {
         ],
       },
     ]);
+  });
+
+  it('a re-run releases the not-in-QA and auto-checked KPs already in the timeline (a failed load may have left them locked), never a KP to review', async () => {
+    const kp = (
+      id: number,
+      code: number,
+      status: TimelineResult['status'],
+      kpGroup: TimelineResult['kpGroup'],
+    ): TimelineResult => ({
+      ...memberRow(id, 11, code, 0),
+      resultTypeKey: 'knowledge_product',
+      status,
+      kpGroup,
+    });
+    const members = [
+      kp(1, 5001, 'auto_validated', 'auto_checked'),
+      kp(2, 5002, 'not_in_qa', 'not_in_qa'),
+      kp(3, 5003, 'pending', 'review'),
+    ];
+    const run = async (release?: boolean) => {
+      const ctx = build({
+        members,
+        ...(release === undefined ? {} : { release }),
+      });
+      script(ctx.feed, kps, { values });
+      ctx.feed.script('release', (q) => ({
+        phaseYear: q.phaseYear,
+        released: [],
+        notReleased: q.items.map((i) => ({
+          resultId: i.resultId,
+          resultCode: i.resultId + 4000,
+          reason: 'not_in_qa',
+        })),
+      }));
+      return { ctx, load: await runToEnd(ctx) };
+    };
+
+    const on = await run();
+    expect(on.load.status).toBe('completed');
+    expect(summaryOf(on.load)).toMatchObject({
+      loaded: 0,
+      skipped: { ALREADY_IN_THIS_TIMELINE: 3 },
+    });
+    expect(on.ctx.feed.callsOf('intake')).toHaveLength(0);
+    // Reporting answers `not_released` for one already released: still completed.
+    expect(on.ctx.feed.callsOf('release')).toEqual([
+      {
+        phaseYear: 2026,
+        items: [
+          { resultId: 1001, outcome: 'qaed' },
+          { resultId: 1002, outcome: 'qaed' },
+        ],
+      },
+    ]);
+
+    const off = await run(false);
+    expect(off.ctx.feed.callsOf('release')).toHaveLength(0);
   });
 });
 

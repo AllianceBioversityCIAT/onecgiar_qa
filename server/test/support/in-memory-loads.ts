@@ -157,6 +157,8 @@ export class InMemoryLoadsStore implements LoadsStore {
         return {
           id: r.id,
           resultCode: r.resultCode,
+          resultId: r.resultId,
+          status: r.status,
           timelineId: r.timelineId,
           endedAt: r.endedAt,
           lastStepClosesAt: last.closesAt,

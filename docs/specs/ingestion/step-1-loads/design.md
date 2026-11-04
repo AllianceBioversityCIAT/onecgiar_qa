@@ -111,7 +111,7 @@ Index: `(timeline_id, id)` for the list.
 | `result_type_key` | varchar(64) | |
 | `status` | enum `pending`, `auto_validated`, `not_in_qa` | FR-7 |
 | `kp_group` | enum `not_in_qa`, `auto_checked`, `review`, null | null for non-KP |
-| `awaits_step` | tinyint unsigned null | 3 for KP review (S-9) |
+| `awaits_step` | tinyint unsigned null | Always null since 2026-11-04: a KP to review is assessed in step 1 (S-9 corrected). Kept to avoid a migration |
 | `snapshot_sk` | varchar(160) | The DynamoDB sort key (pk is derived from `result_code`) |
 | `snapshot_hash` | char(64) | sha-256 of the canonical values JSON |
 | `catalog_version` | varchar(32) | |
@@ -197,7 +197,7 @@ Notes:
    5. **Snapshots**: one `put` per result, at most 10 in parallel.
    6. **Memberships**: one transaction, insert row by row. A duplicate on `active_key` or `(timeline_id, result_code)` is a race. It becomes a skip (`ACTIVE_IN_OTHER_TIMELINE` or `ALREADY_IN_THIS_TIMELINE`, judged by which key) and does not fail the lot (FR-4).
    7. **Progress**: `processed += lot size`, `heartbeat_at = now`, summary counts merged. All in the same transaction as step 6.
-3. End: `completed`. If the KP release setting is on (FR-14, off by default), release the lot's `not_in_qa` and `auto_validated` KPs as `qaed`. Then `finished_at`, the final summary, and the `load_end` audit row.
+3. End: `completed`. If the KP release setting is on (FR-14, on by default since 2026-11-04), release the lot's `not_in_qa` and `auto_validated` KPs as `qaed`. Then `finished_at`, the final summary, and the `load_end` audit row.
 4. **Retries** (DD-8). Every Reporting call and every store write retries on 5xx, timeout, network error or a store error: **3 attempts**, backoff 1 s then 4 s, ± 20 % jitter. A 4xx is never retried: 401 → `REPORTING_UNAUTHORIZED`, any other 4xx → `REPORTING_REJECTED`. Exhausted retries → `REPORTING_UNAVAILABLE` or `STORE_UNAVAILABLE`. A failure sets `failed`, the reason, `finished_at` and the `load_end` audit. What earlier lots recorded stays (FR-8).
 5. A separate timer renews `heartbeat_at` every 60 s while the run is alive (FR-9).
 
@@ -253,7 +253,7 @@ None in this spec. `front-contract.md` gives Yeck the four routes, the states (`
 ## 9. Shared Contracts or Package Extensions
 
 - **Reporting contract** `qa-catalog.en.md` v1.29. Fixtures for the adapter tests are copied from its examples (§ *Results feed*, § *Intake and release*).
-- **Env vars**: none new. `REPORTING_API_URL`, `CLARISA_API_KEY`, `AWS_REGION`, `DYNAMODB_TABLE_NAME`, and `DYNAMODB_ENDPOINT` for DynamoDB Local all exist. The KP release setting is a code constant, `false` (FR-14). A flag can come with Q9.
+- **Env vars**: none new. `REPORTING_API_URL`, `CLARISA_API_KEY`, `AWS_REGION`, `DYNAMODB_TABLE_NAME`, and `DYNAMODB_ENDPOINT` for DynamoDB Local all exist. The KP release setting is a code constant, `true` since 2026-11-04 (FR-14).
 - **TRD pending items** (shared-file discipline; not edited on this branch):
   - ADR-005 deviation: the run record is `timeline_loads` in MySQL.
   - The reserved tables are real.

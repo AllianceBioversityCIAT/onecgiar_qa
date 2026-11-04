@@ -103,7 +103,7 @@ Show one generic message per value; the admin cannot fix any of them except by r
 - **A non-401 Reporting 4xx at preview or start surfaces as 500** (`INTERNAL_ERROR`), not 503: it means QA sent Reporting a call it refuses, a defect on our side. In the run the same condition is the failure reason `REPORTING_REJECTED`.
 - **A catalog 401 surfaces as failure reason `REPORTING_UNAUTHORIZED`** on the load, not as an HTTP error: the catalog is read inside the run.
 
-**Releasing Knowledge Products to Reporting is off in this spec.** A completed load does not call Reporting's release; turning it on is a later decision. The three `kpGroups` are counts only.
+**A completed load releases its "not in QA" and auto-checked Knowledge Products to Reporting as `qaed`** (on since 2026-11-04). KPs to review are assessed in step 1 like any result. The three `kpGroups` are counts only.
 
 ## 7. Error codes
 

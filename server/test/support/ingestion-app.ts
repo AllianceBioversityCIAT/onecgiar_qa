@@ -18,6 +18,7 @@ import { RESULTS_FEED } from '../../src/ingestion/results-feed.port.js';
 import type {
   FeedDetailsQuery,
   FeedIntakeQuery,
+  FeedReleaseQuery,
   FeedListItem,
   FeedListQuery,
   FeedPage,
@@ -183,6 +184,16 @@ export function scriptFeed(
       changed: true,
     })),
     notTaken: [],
+  }));
+  // FR-14 (on since 2026-11-04): a load releases its not-in-QA / auto-checked KPs.
+  feed.script('release', (q: FeedReleaseQuery) => ({
+    phaseYear: q.phaseYear,
+    released: q.items.map((i) => ({
+      resultId: i.resultId,
+      resultCode: i.resultId - 4000,
+      outcome: i.outcome,
+    })),
+    notReleased: [],
   }));
   feed.script('details', (q: FeedDetailsQuery) => ({
     phase: q.phaseYear,
