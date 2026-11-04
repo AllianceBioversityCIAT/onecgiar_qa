@@ -1,6 +1,6 @@
 # src/ingestion — Agent Guide
 
-Step-1 loads: the ADMIN brings the eligible results of Reporting into one timeline, as a manual load per timeline step (step 1 in this spec). Spec: `docs/specs/ingestion/step-1-loads/` (`design.md`, DD-1…DD-11; known gaps in § 10). What the front may rely on: `front-contract.md` in the same folder. Root and `server/AGENTS.md` rules apply.
+Step-1 loads: the ADMIN brings the eligible results of Reporting into one timeline, as a manual load per timeline step (step 1 in this spec). Spec: `docs/specs/archive/2026-11-04-ingestion--step-1-loads/` (`design.md`, DD-1…DD-11; known gaps in § 10). What the front may rely on: `front-contract.md` in the same folder. Root and `server/AGENTS.md` rules apply.
 
 ## Model in one line
 
@@ -51,7 +51,7 @@ The other direction: `admin-config/timelines` reads the ingestion tables through
 
 ## Known gaps
 
-G-1 (lease revival), G-2 (lost commit acknowledgement on a lot) and G-3 (heartbeat without progress) are recorded in `docs/specs/ingestion/step-1-loads/design.md` § 10 with their effects and candidate fixes. They are not tasks of this spec; read them before touching `recordLot`, `renewHeartbeat` or the heartbeat timer.
+G-1 (lease revival), G-2 (lost commit acknowledgement on a lot) and G-3 (heartbeat without progress) are recorded in `docs/specs/archive/2026-11-04-ingestion--step-1-loads/design.md` § 10 with their effects and candidate fixes. They are not tasks of this spec; read them before touching `recordLot`, `renewHeartbeat` or the heartbeat timer.
 
 ## Testing
 
