@@ -128,7 +128,7 @@ Rows are never deleted. The only update is ending a membership (`ended_at`, `end
 
 The `action` enum gains `load_start` and `load_end`. This is additive: `ALTER … MODIFY` keeps `update`. `changes` follows the existing `{field: {before, after}}` shape:
 - `load_start`: `{load: {before: null, after: {id, phaseYear, scope}}}`;
-- `load_end`: `{load: {before: 'running', after: {status, total, processed, loaded, skipped, failureReason}}}`.
+- `load_end`: `{load: {before: 'running', after: {id, status, total, processed, loaded, skipped, failureReason}}}`. The `id` ties the end row to its load (FR-12; amended 2026-11-04 at the T-5 gate). The step is the load row's `timeline_step_id`.
 
 `actor_id` is the user who started the load. No PII.
 
@@ -287,8 +287,8 @@ None in this spec. `front-contract.md` gives Yeck the four routes, the states (`
 | Measure | Estimate |
 |---|---|
 | Tasks | 11 (+ 1 T-HITL) |
-| Production LOC | ≈ 3,200 — re-estimated 2026-11-04 at the T-4 gate, approved by the back lead ("Re-estimar y seguir"). Was ≈ 1,450 (adapter 200, migration and schema 160, entity and store 150, runner 320, service 250, controller and DTOs 200, rules and classifier 120, port binding 50; the loads store and unit of work had no line). T-1…T-4 ran ≈ 1,208 against 630 estimated (× 1.9); the rest re-scaled at × 1.9 plus ≈ 400 for T-5 |
-| Test LOC | ≈ 3,800 — re-estimated 2026-11-04 (was ≈ 1,800; T-1…T-4 ran ≈ 1,436) |
+| Production LOC | ≈ 4,500 — re-estimated again 2026-11-04 at the T-5 tripwire, approved by the back lead ("Re-estimar y seguir"); T-5 alone ran ≈ 1,027. Before that: ≈ 3,200 — re-estimated 2026-11-04 at the T-4 gate, approved by the back lead ("Re-estimar y seguir"). Was ≈ 1,450 (adapter 200, migration and schema 160, entity and store 150, runner 320, service 250, controller and DTOs 200, rules and classifier 120, port binding 50; the loads store and unit of work had no line). T-1…T-4 ran ≈ 1,208 against 630 estimated (× 1.9); the rest re-scaled at × 1.9 plus ≈ 400 for T-5 |
+| Test LOC | ≈ 7,000 — re-estimated again 2026-11-04 at the T-5 tripwire (T-1…T-5 ran ≈ 4,417). Before that ≈ 3,800 (was ≈ 1,800) |
 | Review rounds | 14 (1 per task, plus 3 margin for the runner, the migration and the e2e) |
 
 It is above the proposal's 900-LOC split line. Recommendation: **keep one spec and ship 3 PRs**:

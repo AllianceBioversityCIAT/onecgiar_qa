@@ -5,7 +5,7 @@
 | Spec path | `docs/specs/ingestion/step-1-loads` |
 | Branch | `feat/step-1-loads` (from `origin/staging` @ `7163227`) |
 | Commits | `[SPEC:ingestion/step-1-loads] <emoji> <type>(ingestion) P2-3905: …` |
-| Budget (design § 10) | 11 build tasks + 1 HITL · ≈ 3,200 production LOC + ≈ 3,800 test LOC (re-estimated 2026-11-04 at the T-4 gate; was 1,450 + 1,800) · ≈ 14 review rounds. Tripwire: stop and escalate when exceeded |
+| Budget (design § 10) | 11 build tasks + 1 HITL · ≈ 4,500 production LOC + ≈ 7,000 test LOC (re-estimated 2026-11-04 at the T-5 tripwire; before: 3,200 + 3,800 at the T-4 gate; originally 1,450 + 1,800) · ≈ 14 review rounds. Tripwire: stop and escalate when exceeded |
 | Verification (server) | `cd server && pnpm lint && pnpm build && pnpm test --reporter=dot`; plus `pnpm test:e2e --reporter=dot` where stated |
 | PRs | 3 PRs. **PR 1**: T-1 … T-6 (persistence, ports, pure rules). **PR 2**: T-7 … T-9 (service, runner, routes). **PR 3**: T-10, T-11 (edit binding, docs) |
 | Open at execution | S-10 (Q3) taken at its default: snapshots keep **every** key (no `field_keys`). An overrule before T-8 changes one constant; after real loads, it needs a rewrite of snapshots |
@@ -161,7 +161,7 @@ T-6 ─────────────┘
 - **Skills:** nestjs-expert
 
 ## T-5: Loads store and unit of work, with an in-memory world that emulates the keys
-- **Status:** [ ]
+- **Status:** [~]
 - **Size:** L → split at execution if it exceeds one session (store / unit of work)
 - **Depends on:** T-2
 - **Requirements:**

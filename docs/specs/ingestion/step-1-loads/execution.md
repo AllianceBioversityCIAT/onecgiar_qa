@@ -207,3 +207,61 @@ Leader adjudication: no owed item of T-2 and no blocker (assumptions-only) → n
 - **KP key count (spec tension from the T-4 review):** design § 7.1 step 4 and § 7.5, proposal R-9 ("9 keys") → "the 10 keys listed in proposal § 12.1"; tasks.md T-4 Tests ("5 pairs" → "each side of the 4 pairs") and Falsifier 2 (→ "the two-null-years row goes red"). User answer: "Sí, corrige a 10". Meaning of the rule unchanged. Carried as a named conformance check into the next Reviewer brief.
 - **Budget re-estimate (tripwire pre-empted, not fired):** production LOC ≈ 1,450 → ≈ 3,200; test LOC ≈ 1,800 → ≈ 3,800 (design § 10, tasks.md header). Basis: T-1…T-4 ran ≈ 1,208 vs 630 estimated (× 1.9); the loads store and unit of work (T-5) had no budget line. User answer: "Re-estimar y seguir". Review rounds stay 14. The tripwire now compares against the new figures.
 - Correction sweep (forward): `grep "1,450|1,800|9 keys|9 rule|5 pairs"` over the spec folder → no surviving stale value outside the amended lines and this log.
+
+### T-5: Loads store and unit of work, with an in-memory world that emulates the keys
+
+- **Status:** in progress (`[~]`) — attempt 1 FAIL; stopped before attempt 2 by the budget tripwire and an FR-12 spec tension (both escalated to the user, 2026-11-04)
+- **Date:** 2026-11-04
+- **Requirements in scope:** FR-2 "Start" / "One running load per cycle", FR-4 "Race" / "Later timeline after U closed", FR-9, FR-12
+
+**Attempt 1 — FAIL (parallel lens review: lens 1 FAIL, lens 2 PASS)**
+- Files changed (new, uncommitted): `server/src/ingestion/loads.store.ts` (519), `server/src/ingestion/loads.unit-of-work.ts` (508), `server/src/ingestion/loads.unit-of-work.spec.ts` (2,370), `server/test/support/in-memory-loads.ts` (611)
+- Implementer verification: `pnpm lint` 0 warnings; build ok; `pnpm test --reporter=dot` → `Test Files 68 passed | 1 skipped`, `Tests 2699 passed | 3 skipped`; `pnpm test:e2e` 14 files, 885 passed.
+- Start SQL order (asserted): begin; cycles `FOR SHARE`; timelines `FOR UPDATE`; timeline_steps; timeline_loads by `running_key` `FOR UPDATE`; programs; result types; insert timeline_loads; `update timelines set version = version + 1`; insert audit (`load_start`); `update idempotency_keys` (markExecuted); commit. A stale load adds `update timeline_loads` + `load_end` audit after the running_key lock.
+- Red run (observed in T-5): F1 swapped lock order → 3 reds, `AssertionError: expected 'select \`id\`, \`cycle_id\`, \`name\`, \`kin…' to match /^select \`status\`, \`year\` from \`cycles…/`; F2 every duplicate → `ALREADY_IN_THIS_TIMELINE` → 4 reds, `- "reason": "ACTIVE_IN_OTHER_TIMELINE" + "reason": "ALREADY_IN_THIS_TIMELINE"`; Disqualifier probe: fake `running_key` disabled → 9 reds incl. `[ 'started', 'started' ]`. Guard describe: "the in-memory loads world refuses what the unique keys refuse (the guard of every concurrency case below)".
+- Evidence re-run (Leader-inline): **VERIFIED** — lint OK, build OK, `Test Files 68 passed | 1 skipped (69)`, `Tests 2699 passed | 3 skipped (2702)`.
+- Reviewer lens 2 (risk / data integrity + audit): **PASS** — rows never deleted; only membership write is `endMemberships` (`ended_at IS NULL` guard, chunks of 500); `changes` shapes match § 5.3; failure reason typed; FR-9 stale → `failed`/`ABANDONED` with exactly one `load_end`; FR-4 lazy end via `membershipEnds` (DD-5) on other timelines only; idempotency mark in-tx; no PII; protected files untouched.
+- Reviewer lens 1 (reliability / concurrency): **FAIL** — verbatim:
+
+> 1. **Discovered Issue:** A start of timeline T deadlocks against a lot or an end of T's own running load. The class comment says "The lot and the end take only the load row" (`loads.unit-of-work.ts`, LoadsUnitOfWork doc), but that is not true on InnoDB. Migration 0007 adds foreign keys from `timeline_results` to `timelines`, `cycles` and `timeline_loads` (`server/drizzle/0007_timeline_loads.sql:53-55`). Migration 0004 adds a foreign key from `timeline_audit_events.timeline_id` to `timelines` (`0004_timeline_edit.sql:15`). InnoDB checks each foreign key on insert by taking an S record lock on the parent row. The interleaving:
+>    - `recordLot` takes X on `timeline_loads[L]` (`lockLoad`), then inserts a membership. That insert needs S on `timelines[T]`.
+>    - At the same time, `start(T)` holds X on `timelines[T]` and is waiting for X on `timeline_loads[L]` in `lockRunningLoad`.
+>    - That is a lock cycle, so MySQL returns error 1213. `end` hits the same cycle through its `load_end` audit insert.
+>
+>    A start that has written nothing yet is the likely victim. It then leaves `start()` as a generic error, which becomes a 500 instead of 409 `LOADS_ALREADY_RUNNING`. The trigger is ordinary: an ADMIN clicks Start again on the timeline that is already loading. The test at spec line 2534 avoids this case by starting timeline 12 against a load of timeline 11. The fake cannot show the problem because `TransactionalLoadsStore.insertMembership` and `insertAuditEvent` take no parent-row locks, even though the fake's header says "What each statement locks is what InnoDB locks".
+>    * **Violated Rule:** `requirements.md` FR-2 "One running load per cycle" ("the others get 409 `LOADS_ALREADY_RUNNING` … MUST hold under concurrent requests"). Also `design.md` § 7.2 step 2 and P-8, where the start's lock order exists so that the start serializes "without deadlocks"; a lot and an end that take a conflicting order break that premise. Under `docs/trd/trd.md`, this is the NFR-6 concurrency correctness that DD-2 relies on.
+>    * **Remediation Suggestion:**
+>      - In `recordLot` and `end`, take the locks in the same order as the start before writing: cycle `FOR SHARE`, then timeline `FOR SHARE`, then load `FOR UPDATE`. Get the ids either from the command or from a plain read of the load first.
+>      - In the fake, have `insertMembership`, `insertAuditEvent` and `insertLoad` take S on `timelines:<id>` and `cycles:<id>` (the foreign-key parent locks).
+>      - Add an in-memory case where `start` of timeline T runs alongside a lot of T's load and alongside an `end` of it. Expect `already_running` and a recorded lot.
+>      - Extend the stub-driver SQL-order tests of the lot and the end to assert the new lock order.
+
+- Leader adjudication: lens FAIL **in scope** (T-5's Review is "full — concurrency and lock order"; FR-2 `AND IT MUST` under concurrency). The mechanism was checked: an InnoDB FK check on insert takes an S lock on the parent row. Attempt 1 consumed.
+- runtime events: none
+- spawns: implementer 88 calls, 386,543 tokens, ended complete (exceeded the persona's 60-call bound without checkpointing — `implementer.md` reported CURRENT by `akili doctor`); reviewer lens 1 20 calls, 91,646 tokens, ended complete (FAIL); reviewer lens 2 22 calls, 79,682 tokens, ended complete
+
+**Not Done / Assumptions (Implementer, verbatim)**
+> FR-12 names the step in the audit row, but design 5.3 gives `after: {id, phaseYear, scope}` without it. I followed the design; the step id is on the load row.
+> `setTotal` and the 60 s timer heartbeat (single-statement writes) are not in T-5's scope. They are left for T-8.
+> When both unique keys refuse, I emulate InnoDB reporting `uq_timeline_results_timeline_code` first, matching the order in migration 0007. Unverified on real MySQL, since no disposable database exists.
+> I exceeded the 60-tool-call bound but finished verified, so no checkpoint.
+
+**Forward pointers:** `setTotal` and the 60 s heartbeat write → T-8 (design § 7.3 steps 1 and 5). InnoDB key-report order on a double-key duplicate → T-12.
+
+**Spec tension (lens 2, escalated):** FR-12 requires the load id on every load_start and load_end audit row. Design § 5.3's `load_end` shape has no `id`, and `timeline_audit_events` has no load column, so a `load_end` row cannot be tied to its load. Lens 2: "The requirement wins" → proposed amendment: add `id` to `load_end.after` (or `before: {id, status: 'running'}`). "Step" is met transitively (load row `timeline_step_id`). "Actor (start only)" vs NOT NULL `actor_id`: not a conflict (`started_by` on the end row is correct).
+
+**ADVISORY (both lenses, not gating)**
+- RELIABILITY: `recordLot` checks only `status === 'running'`, not the lease — a lot committing after its lease expired revives a load readers see as `failed`/ABANDONED (DD-6).
+- RESILIENCE: two lots inserting overlapping codes in different orders can deadlock on MySQL (only reachable with two running loads); the lot rolls back instead of skipping — for the runner's retry (DD-8).
+- RELIABILITY: double-key duplicate fallback — when no blocker is found, use `ALREADY_IN_THIS_TIMELINE`.
+- RISK: `LoadsDb` type grants `delete`, unused — drop it so "rows are never deleted" holds at the type level.
+- RISK: `load_end.request_id` differs by path (normal end: the start's; abandon: the new start's) — document which.
+- RELIABILITY: `endExpired` does not re-read `closesAt` under the lock (safe while the FR-11 hold blocks step edits).
+- RELIABILITY: `findMemberships` throws if a membership's timeline has no steps — one bad row aborts the lot; worth a log line in T-8.
+
+**Budget tripwire — FIRED (2026-11-04, during T-5):** test LOC ≈ 1,436 + 2,981 ≈ **4,417** against the re-estimated **3,800** (+ 617, + 16 %); production LOC ≈ 1,208 + 1,027 ≈ 2,235 of 3,200 (70 %) with 5 of 11 tasks; review rounds 6 of 14 (T-5 used 2 lens verdicts). Cause: T-5 alone produced ≈ 1,027 production and ≈ 2,981 test lines against ≈ 400 production assumed at the re-estimate — the concurrency spec (66 tests) and the in-memory world with key emulation are much larger than budgeted. Not logged `auto-approved`; escalated to the user before attempt 2.
+
+## Gate during T-5 — decisions of the back lead (2026-11-04)
+- **Budget tripwire:** answer "Re-estimar y seguir". Production LOC ≈ 3,200 → ≈ 4,500; test LOC ≈ 3,800 → ≈ 7,000 (design § 10, tasks.md header). Review rounds stay 14.
+- **FR-12 spec tension:** answer "Sí, agregar id a load_end". `design.md` § 5.3 `load_end` → `{load: {before: 'running', after: {id, status, total, processed, loaded, skipped, failureReason}}}`; step = the load row's `timeline_step_id`. Carried into the T-5 attempt-2 brief and as a named conformance check into its Reviewer brief.
+- Attempt 2 effort: attempt 1 ran at `xhigh` (the T2 ceiling). No in-host Reviewer model differs from the T3 pick and is at least as strong, so **effort ceiling: held xhigh** — fresh T2 Implementer at xhigh with the full Attempt History; Reviewer stays `opus`.
