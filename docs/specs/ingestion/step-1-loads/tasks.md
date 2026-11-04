@@ -66,7 +66,7 @@ T-6 ─────────────┘
 - **Skills:** nestjs-expert, api-design-principles, error-handling-patterns
 
 ## T-2: Migration `0007`, Drizzle schemas and the audit actions
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** none
 - **Requirements:**

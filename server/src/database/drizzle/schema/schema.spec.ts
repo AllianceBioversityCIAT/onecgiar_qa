@@ -300,8 +300,8 @@ describe('committed migrations', () => {
     .filter((f) => f.endsWith('.sql'))
     .sort();
 
-  it('are exactly seven SQL files', () => {
-    expect(files).toHaveLength(7);
+  it('are exactly eight SQL files', () => {
+    expect(files).toHaveLength(8);
   });
 
   const sql = readFileSync(`${migrationsDir}${files[0]}`, 'utf8');
@@ -931,7 +931,7 @@ describe('timeline_audit_events schema (timeline-edit design 5, DD-10, FR-10, NF
       id: 'bigint unsigned NOT NULL',
       timeline_id: 'int unsigned NOT NULL',
       actor_id: 'int unsigned NOT NULL',
-      action: "enum('update') NOT NULL",
+      action: "enum('update','load_start','load_end') NOT NULL",
       changes: 'json NOT NULL',
       request_id: 'varchar(64)',
       created_at: 'datetime NOT NULL',
@@ -948,9 +948,11 @@ describe('timeline_audit_events schema (timeline-edit design 5, DD-10, FR-10, NF
     expect(cols).not.toContain('version');
   });
 
-  it('records the one action an edit can have: update', () => {
+  it('records the actions of an edit and of a load: update, load_start, load_end (step-1-loads § 5.3)', () => {
     expect(columnOf(schema.timelineAuditEvents, 'action').enumValues).toEqual([
       'update',
+      'load_start',
+      'load_end',
     ]);
   });
 
@@ -1736,7 +1738,7 @@ describe('committed migration 0006 (timeline step times)', () => {
     expect(journal.entries.map((e) => e.tag)).toEqual(
       files.map((f) => f.replace(/\.sql$/, '')),
     );
-    expect(journal.entries.at(-1)).toMatchObject({
+    expect(journal.entries[6]).toMatchObject({
       idx: 6,
       tag: '0006_timeline_step_times',
     });
@@ -1786,5 +1788,241 @@ describe('committed migration 0006 (timeline step times)', () => {
     expect(created).toContain(
       'CONSTRAINT `chk_timeline_steps_dates` CHECK(`closes_on` >= `opens_on`)',
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// step-1-loads (design 5.1-5.3): timeline_loads, timeline_results and the two
+// new audit actions, migration 0007.
+// ---------------------------------------------------------------------------
+
+describe('timeline_loads schema (step-1-loads design 5.1, FR-2, FR-5, NFR-6)', () => {
+  it('has exactly these columns and types', () => {
+    expect(shape(schema.timelineLoads)).toEqual({
+      id: 'int unsigned NOT NULL',
+      cycle_id: 'int unsigned NOT NULL',
+      timeline_id: 'int unsigned NOT NULL',
+      timeline_step_id: 'int unsigned NOT NULL',
+      phase_year: 'smallint unsigned NOT NULL',
+      scope: 'json NOT NULL',
+      status: "enum('running','completed','failed') NOT NULL",
+      running_key: 'int unsigned',
+      total: 'int unsigned',
+      processed: 'int unsigned NOT NULL',
+      summary: 'json',
+      failure_reason: 'varchar(64)',
+      started_by: 'int unsigned NOT NULL',
+      started_at: 'datetime NOT NULL',
+      heartbeat_at: 'datetime NOT NULL',
+      finished_at: 'datetime',
+      request_id: 'varchar(64)',
+    });
+  });
+
+  it('derives running_key as the cycle id while running, NULL otherwise (FR-2, DD-2)', () => {
+    expect(generatedSql(schema.timelineLoads, 'running_key')).toBe(
+      "IF(`status` = 'running', `cycle_id`, NULL)",
+    );
+  });
+
+  it('keeps one running load per cycle with a unique key over running_key (FR-2, NFR-6)', () => {
+    expect(uniqueKeys(schema.timelineLoads)).toEqual({
+      uq_timeline_loads_running_key: ['running_key'],
+    });
+  });
+
+  it('indexes (timeline_id, id) for the list of a timeline (design 5.1)', () => {
+    expect(plainIndexes(schema.timelineLoads)).toEqual({
+      idx_timeline_loads_timeline_id: ['timeline_id', 'id'],
+    });
+  });
+
+  it('references the cycle, the timeline, the step and the starter', () => {
+    expect(foreignKeys(schema.timelineLoads)).toEqual([
+      'cycle_id -> cycles.id',
+      'started_by -> users.id',
+      'timeline_id -> timelines.id',
+      'timeline_step_id -> timeline_steps.id',
+    ]);
+  });
+
+  it('leaves total, summary, failure_reason, finished_at and request_id optional; the lease clocks have no default (DD-6)', () => {
+    const notNull = Object.fromEntries(
+      tableConfig(schema.timelineLoads).columns.map((c) => [c.name, c.notNull]),
+    );
+    expect(
+      Object.keys(notNull).filter((n) => !notNull[n] && n !== 'running_key'),
+    ).toEqual([
+      'total',
+      'summary',
+      'failure_reason',
+      'finished_at',
+      'request_id',
+    ]);
+    for (const n of ['started_at', 'heartbeat_at']) {
+      expect(columnOf(schema.timelineLoads, n).hasDefault, n).toBe(false);
+    }
+  });
+});
+
+describe('timeline_results schema (step-1-loads design 5.2, FR-4, FR-5, NFR-6)', () => {
+  it('has exactly these columns and types', () => {
+    expect(shape(schema.timelineResults)).toEqual({
+      id: 'bigint unsigned NOT NULL',
+      cycle_id: 'int unsigned NOT NULL',
+      timeline_id: 'int unsigned NOT NULL',
+      load_id: 'int unsigned NOT NULL',
+      result_code: 'int unsigned NOT NULL',
+      result_id: 'int unsigned NOT NULL',
+      phase_year: 'smallint unsigned NOT NULL',
+      program_clarisa_id: 'int unsigned NOT NULL',
+      result_type_key: 'varchar(64) NOT NULL',
+      status: "enum('pending','auto_validated','not_in_qa') NOT NULL",
+      kp_group: "enum('not_in_qa','auto_checked','review')",
+      awaits_step: 'tinyint unsigned',
+      snapshot_sk: 'varchar(160) NOT NULL',
+      snapshot_hash: 'char(64) NOT NULL',
+      catalog_version: 'varchar(32) NOT NULL',
+      created_at: 'datetime NOT NULL',
+      ended_at: 'datetime',
+      end_reason: "enum('timeline_closed','released_qaed','released_not_qaed')",
+      active_key: 'varchar(32)',
+    });
+  });
+
+  it('stores both the result code and the phase result id (FR-5)', () => {
+    expect(columnOf(schema.timelineResults, 'result_code').notNull).toBe(true);
+    expect(columnOf(schema.timelineResults, 'result_id').notNull).toBe(true);
+  });
+
+  it('derives active_key as cycle#result_code while the membership has not ended (FR-4, DD-2)', () => {
+    expect(generatedSql(schema.timelineResults, 'active_key')).toBe(
+      "IF(`ended_at` IS NULL, CONCAT(`cycle_id`, '#', `result_code`), NULL)",
+    );
+  });
+
+  it('keeps one active membership per result and cycle, and one membership per timeline and result, ended or not (FR-4, S-5, DD-3)', () => {
+    expect(uniqueKeys(schema.timelineResults)).toEqual({
+      uq_timeline_results_active_key: ['active_key'],
+      uq_timeline_results_timeline_code: ['timeline_id', 'result_code'],
+    });
+  });
+
+  it('indexes result_code for the history of a result', () => {
+    expect(plainIndexes(schema.timelineResults)).toEqual({
+      idx_timeline_results_result_code: ['result_code'],
+    });
+  });
+
+  it('references the cycle, the timeline and the load', () => {
+    expect(foreignKeys(schema.timelineResults)).toEqual([
+      'cycle_id -> cycles.id',
+      'load_id -> timeline_loads.id',
+      'timeline_id -> timelines.id',
+    ]);
+  });
+});
+
+describe('committed migration 0007 (step-1 loads)', () => {
+  const files = readdirSync(migrationsDir)
+    .filter((f) => f.endsWith('.sql'))
+    .sort();
+  const sql = files[7]
+    ? readFileSync(`${migrationsDir}${files[7]}`, 'utf8')
+    : '';
+  const statements = sql
+    .split('--> statement-breakpoint')
+    .map((x) => x.trim())
+    .filter(Boolean);
+
+  it('is named 0007_timeline_loads and is the eighth journal entry', () => {
+    expect(files[7]).toBe('0007_timeline_loads.sql');
+    const journal = JSON.parse(
+      readFileSync(`${migrationsDir}meta/_journal.json`, 'utf8'),
+    ) as { entries: { idx: number; tag: string }[] };
+    expect(journal.entries.map((e) => e.tag)).toEqual(
+      files.map((f) => f.replace(/\.sql$/, '')),
+    );
+    expect(journal.entries.at(-1)).toMatchObject({
+      idx: 7,
+      tag: '0007_timeline_loads',
+    });
+  });
+
+  it('is additive: only CREATE TABLE, CREATE INDEX, ALTER ... ADD and the MODIFY of the audit enum (NFR-3)', () => {
+    expect(sql).not.toBe('');
+    expect(sql).not.toMatch(
+      /\bDROP\b|\bINSERT INTO\b|\bUPDATE `\w+` SET\b|\bDELETE FROM\b|\bTRUNCATE\b|\bRENAME\b|\bCHANGE\b/,
+    );
+    for (const st of statements) {
+      expect(st).toMatch(
+        /^(CREATE TABLE|CREATE INDEX|ALTER TABLE `\w+` ADD CONSTRAINT|ALTER TABLE `timeline_audit_events` MODIFY COLUMN `action` )/,
+      );
+    }
+    expect(sql.match(/\bMODIFY\b/g) ?? []).toHaveLength(1);
+    expect(sql.match(/\bCREATE TABLE\b/g) ?? []).toHaveLength(2);
+  });
+
+  it('only alters its own two tables, plus the action column of the audit table', () => {
+    for (const a of sql.match(/\bALTER TABLE `\w+`/g) ?? []) {
+      expect(a).toMatch(
+        /`(timeline_loads|timeline_results|timeline_audit_events)`$/,
+      );
+    }
+    expect(sql).toContain(
+      "ALTER TABLE `timeline_audit_events` MODIFY COLUMN `action` enum('update','load_start','load_end') NOT NULL;",
+    );
+  });
+
+  it('keeps update first in the enum, so existing audit rows stay valid', () => {
+    expect(sql).toContain("enum('update','load_start','load_end')");
+  });
+
+  it('carries the running_key generated column and its unique key as SQL (FR-2, NFR-6)', () => {
+    expect(sql).toContain(
+      "`running_key` int unsigned GENERATED ALWAYS AS (IF(`status` = 'running', `cycle_id`, NULL)) STORED",
+    );
+    expect(sql).toContain(
+      'CONSTRAINT `uq_timeline_loads_running_key` UNIQUE(`running_key`)',
+    );
+  });
+
+  it('carries the active_key generated column and its unique key as SQL (FR-4, NFR-6)', () => {
+    expect(sql).toContain(
+      "`active_key` varchar(32) GENERATED ALWAYS AS (IF(`ended_at` IS NULL, CONCAT(`cycle_id`, '#', `result_code`), NULL)) STORED",
+    );
+    expect(sql).toContain(
+      'CONSTRAINT `uq_timeline_results_active_key` UNIQUE(`active_key`)',
+    );
+  });
+
+  it('carries the unique (timeline_id, result_code) over all memberships (S-5, DD-3)', () => {
+    expect(sql).toContain(
+      'CONSTRAINT `uq_timeline_results_timeline_code` UNIQUE(`timeline_id`,`result_code`)',
+    );
+  });
+
+  it('carries the two plain indexes of design 5.1 and 5.2', () => {
+    expect(sql).toContain(
+      'CREATE INDEX `idx_timeline_loads_timeline_id` ON `timeline_loads` (`timeline_id`,`id`)',
+    );
+    expect(sql).toContain(
+      'CREATE INDEX `idx_timeline_results_result_code` ON `timeline_results` (`result_code`)',
+    );
+  });
+
+  it('carries the foreign keys of both tables, none longer than 64 characters, all no action', () => {
+    const fks = sql.match(/ADD CONSTRAINT `(\w+)` FOREIGN KEY/g) ?? [];
+    expect(fks).toHaveLength(7);
+    for (const m of sql.matchAll(/CONSTRAINT `(\w+)`/g)) {
+      expect(m[1]!.length, m[1]).toBeLessThanOrEqual(64);
+    }
+    expect(sql.match(/ON DELETE no action ON UPDATE no action/g)).toHaveLength(
+      7,
+    );
+  });
+
+  it('gives neither new table a column that deletes or reopens a row (rows are never deleted)', () => {
+    expect(sql).not.toMatch(/`(deleted|removed|revoked)_\w+`/);
   });
 });
