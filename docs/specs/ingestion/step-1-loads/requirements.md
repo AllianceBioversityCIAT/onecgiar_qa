@@ -371,6 +371,11 @@ The system SHALL release, once a load's lots are done, its "not in QA" and auto-
 - WHEN a load completes with an auto-checked, a not-in-QA and a review KP
 - THEN one release call carries the first two as `qaed`, after the lots
 
+#### Scenario: Re-run after a failed release
+- GIVEN a load failed at the release (Reporting down), so its not-in-QA and auto-checked KPs are still In QA in Reporting
+- WHEN the timeline is loaded again
+- THEN those KPs, skipped `ALREADY_IN_THIS_TIMELINE`, are released as `qaed`; a KP to review is not; a `not_released` answer does not fail the load
+
 #### Scenario: Off
 - GIVEN the setting is turned off
 - WHEN a load completes with auto-checked KPs

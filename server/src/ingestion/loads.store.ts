@@ -69,6 +69,9 @@ export type StepOne = Pick<TimelineStep, 'id' | 'closesAt'>;
 export interface CycleMembershipRow extends CycleMembership {
   id: number;
   resultCode: number;
+  resultId: number;
+  /** The membership status, so a re-run can release a KP that was not released (FR-14). */
+  status: TimelineResultStatus;
   /** Name of the membership's timeline, for the summary of other timelines. */
   timelineName: string;
 }
@@ -277,7 +280,10 @@ export class DrizzleLoadsStore implements LoadsStore {
   ): Promise<CycleMembershipRow[]> {
     const codes = [...new Set(resultCodes)];
     const found: Array<
-      Pick<CycleMembershipRow, 'id' | 'resultCode' | 'timelineId' | 'endedAt'>
+      Pick<
+        CycleMembershipRow,
+        'id' | 'resultCode' | 'resultId' | 'status' | 'timelineId' | 'endedAt'
+      >
     > = [];
     for (let at = 0; at < codes.length; at += RESULT_CODE_CHUNK) {
       found.push(
@@ -285,6 +291,8 @@ export class DrizzleLoadsStore implements LoadsStore {
           .select({
             id: timelineResults.id,
             resultCode: timelineResults.resultCode,
+            resultId: timelineResults.resultId,
+            status: timelineResults.status,
             timelineId: timelineResults.timelineId,
             endedAt: timelineResults.endedAt,
           })
