@@ -366,7 +366,7 @@ T-6 ─────────────┘
 - **Skills:** api-design-principles
 
 ## T-12: HITL on dev (human check)
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-11, plus R-1 (intake on the Reporting environment QA calls), P-5 and P-6
 - **Requirements:**

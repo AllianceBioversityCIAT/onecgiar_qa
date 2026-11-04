@@ -588,3 +588,85 @@ Leader adjudication: assumptions-only, no owed item. The re-skip after a failed 
 **Budget running totals (after T-11):** tasks 11 / 11 build tasks done (+ T-12 HITL) · production LOC ≈ 4,298 of ≈ 4,500 (96 %) · test LOC ≈ 8,782 of ≈ 9,000 (98 %) · review rounds 17 / ≈ 20. **Not exceeded.**
 
 **Final verification:** manual checks above; no code changed in this task (server suites last green at T-10: 2,827 + 3 skipped unit, 955 e2e).
+
+---
+
+### T-12: HITL on dev (human check) — PASS (attempt 1)
+- **Final status:** PASS on attempt 1 (date 2026-11-04). Every check ran and matched (observations below).
+- **Reviewer verdict:** **PASS — human gate** (`Review: full — the human gate`), given by the back lead (Juanda) in the session on 2026-11-04 after reading the observations and the leftovers.
+- Evidence re-run: n/a — the checks are live observations against shared environments; the human verdict is the gate.
+- runtime events: none
+- spawns: none (Leader-run HITL scripts; no Implementer or Reviewer spawned)
+- **Prerequisites (back lead, 2026-11-04):**
+  - **R-1 settled:** intake and release (P2-4040) are on Reporting TEST, and `REPORTING_API_URL` in `server/.env` points at TEST (`https://prtest-back.ciat.cgiar.org`).
+  - **P-5 settled:** TEST enforces the v1.29 per-route grant (confirmed by the back lead).
+  - **P-6 settled:** the TEST/PROD hosts reach `cgiar-qa-{env}` (confirmed by the back lead).
+- **Environment (read-only checks by the Leader, 2026-11-04):** local server with `server/.env` → MySQL `qadb` (dev host), DynamoDB `cgiar-qa-test` (`us-east-1`), Reporting TEST.
+  - `qadb.__drizzle_migrations` has 7 rows; `drizzle/meta/_journal.json` has 8 → **`0007_timeline_loads` is not applied** (no `timeline_loads` / `timeline_results` tables).
+  - Reporting TEST `GET /qa/results`: `phase_year=2026` → 200, `total: 33` (8 programs, 8 result types); `phase_year=2025` → 404 "No QA catalog available".
+  - `qadb` cycles: 2026 (id 34, `draft`, no timelines); 2076 (id 33, `draft`, timelines 22 and 23, step 1 open until 2026-11-06 04:59 UTC); the `active` cycle is 2084 (id 21). Only 2026 has data in Reporting TEST, so the checks use **cycle 2026 (id 34)**. The active cycle is never used.
+
+**Plan (nothing runs before the back lead approves it)**
+0. Apply `0007` to `qadb`: `cd server && pnpm db:migrate`. Check that `timeline_loads` and `timeline_results` exist with the `running_key`, `active_key` and `(timeline_id, result_code)` unique indexes (`SHOW INDEX`).
+1. Through the admin API, create two timelines **A** and **B** in cycle 2026 (id 34). Step 1 is open now, and both have the same scope (or "all").
+2. **Preview A** → record `total / eligible / skips by reason`. Check that it wrote nothing (row counts of `timeline_loads`, `timeline_results` and `timeline_audit_events` unchanged).
+3. **Forced double start on A**: two concurrent `POST …/loads` with different `Idempotency-Key`s → exactly one 202 and one 409 `LOADS_ALREADY_RUNNING`; `SELECT COUNT(*) FROM timeline_loads WHERE status='running' AND cycle_id=34` = 1 (**falsifier**: 2 → FAIL).
+4. Poll `GET …/loads/:id` until `completed`; record the elapsed time and results per second (NFR-5, measured on 33 results; the 1,200-result figure is not available on TEST, see below).
+5. **Counts vs preview**: `loaded + skipped = total`, and `loaded` matches the preview's eligible count. `timeline_results` has one active membership per loaded result. `load_start` / `load_end` audit rows carry the load `id`.
+6. **DynamoDB**: one `ResultSnapshot` per membership (pk `RESULT#{code}`, sk `SNAP#2026#000034#{A:08}#{load:010}`), and the history query returns them. Record the largest item size (NFR-7).
+7. **Re-run A** → `loaded: 0`, everything skipped `ALREADY_IN_THIS_TIMELINE`.
+8. **Start B** (same cycle) → the A results are skipped as a collision, and the summary names it; no lot fails.
+9. **P-1 sampled again**: record what P-1 asks against the live responses.
+10. Lease / duplicate key check at the MySQL level: try inserting a second `running` row for cycle 34 by SQL inside a transaction that rolls back → `ER_DUP_ENTRY` on `running_key`.
+
+**Credentials handover (KZ-admin-config--cycle-timelines-3):** the admin token **is never pasted into chat**. The back lead saves it in a file outside the repo (`~/.qa-admin-token`, created with an editor). The check script reads it from there and never prints it. The Reporting key stays in `server/.env`, and the script never prints it.
+
+**What the checks leave behind, and how it is released**
+
+| Leftover | Where | Release |
+|---|---|---|
+| Timelines A and B, their steps and audit rows | `qadb` | Kept (draft cycle 2026, no deletes in this module) — listed here |
+| 2–3 `timeline_loads` rows, ≤ 33 active memberships per timeline | `qadb` | Kept. Memberships end on their own when the last step of A/B closes (DD-5); set the last step to close soon after the check |
+| ≤ 33 `ResultSnapshot` items | DynamoDB `cgiar-qa-test` | Kept (append-only history) — the keys are listed here after the run |
+| Up to 33 results **In QA** in Reporting TEST, including KPs "not in QA" / auto-checked (R-12, **R-13**) | Reporting TEST | Released at the end through `POST /qa/results/release` (the adapter's `release`), with the list of codes recorded here. The contract has only two outcomes, `qaed` and `not_qaed`; which one returns a result to its program unchanged is `UNVERIFIED — confirm at source before relying on it` (contract v1.29 § Intake and release), and the back lead chooses the outcome. If release fails, the codes are listed for Reporting |
+
+**NFR-5 gap:** TEST has 33 results for 2026, not 1,200. The throughput is measured and recorded on 33; the 1,200 figure stays open (PRD OQ-6).
+
+**Back lead decisions (2026-11-04, before the run):** apply `0007` on `qadb` — yes; cycle 2026 (id 34) — yes; leftovers in Reporting TEST — release them as **`qaed`**; credentials — the admin access token was **pasted into chat** (third occurrence of the KZ-admin-config--cycle-timelines-3 signal). It was kept in the session scratchpad (mode 600) outside the repo, read by the scripts, never printed and never written to the repo. It expires 1 h after issue. Recommended: Cognito global sign-out after the run.
+
+**Who ran the checks:** the Leader (Claude Code), with scripts in the session scratchpad, against a local server built from `feat/step-1-loads` @ `57789b1` (`node dist/main.js`, port 3400) → `qadb` (dev), DynamoDB `cgiar-qa-test`, Reporting TEST. Run window: 2026-11-04 20:03:03–20:03:27 UTC.
+
+**Observations**
+
+| # | Check | Observed | Verdict |
+|---|---|---|---|
+| 0 | `0007` on `qadb` | `pnpm db:migrate` → 8 migrations. Unique keys: `uq_timeline_loads_running_key`; `uq_timeline_results_timeline_code`, `uq_timeline_results_active_key` | ✅ |
+| 1 | Timelines | A = **27**, B = **28** in cycle 34 ("HITL step-1 loads A/B"), all programs × all result types, step 1 opens 2026-11-04 21:03 Rome, last step closes 2026-11-05 13:00 Rome | ✅ |
+| 2 | Preview A, no writes | 200, `window: open`, `toLoad.total 33` (8 programs, 8 types), `kpGroups {notInQa 7, autoChecked 2, review 0}`, `skipped []`. Counts before/after: loads 0/0, results 0/0, audit 28/28 | ✅ FR-1 |
+| 3 | Forced double start (falsifier) | two concurrent `POST` with different keys → **202 `{id:1}` + 409 `LOADS_ALREADY_RUNNING`**; `running` rows for cycle 34 = **1**. Auto-increment id 2 consumed by the refused insert (the index refused it, not code) | ✅ FR-2, NFR-6 |
+| 4 | Completion / NFR-5 | load 1 `completed`, 33/33, started 20:03:08, finished 20:03:17 → **≈ 9–10 s for 33 results (≈ 3.4 results/s)**, poll at 500 ms. 1,200 not available on TEST (PRD OQ-6 stays open) | ✅ measured |
+| 5 | Counts vs preview, audit | `loaded 33` = preview 33; memberships of A: 33, all active. `load_start.after {id:1, phaseYear 2026, scope}`; `load_end {before:'running', after:{id:1, status:completed, total 33, processed 33, loaded 33, skipped 0, failureReason null}}` | ✅ FR-3, FR-12 |
+| 6 | DynamoDB | 33 memberships → **33 items**, every `sk` equals the membership's `snapshot_sk` (e.g. `SNAP#2026#000034#00000027#0000000001`); history query `pk = RESULT#{code}, begins_with(sk,'SNAP#2026#')` non-empty for 33/33. Largest item ≈ 10.7 KB (code 9422, a JSON-size estimate), far below 400 KB | ✅ FR-6, NFR-7 |
+| 7 | Re-run A | load 3: `loaded 0`, `ALREADY_IN_THIS_TIMELINE 33` | ✅ FR-3 Re-run |
+| 8 | Start B (collision) | load 4: `loaded 0`, `ACTIVE_IN_OTHER_TIMELINE 33`, summary names `{id 27, "HITL step-1 loads A", 33}`; no lot failed; memberships of B: 0 | ✅ FR-4 |
+| 9 | P-1 sampled again (TEST) | memberships of A: 33 rows, 33 distinct `result_code`, 33 distinct `result_id`. PROD not sampled (no PROD access from here) | ✅ TEST · PROD open |
+| 10 | MySQL enforcement (in a rolled-back transaction) | 2nd `running` row for cycle 34 → `ER_DUP_ENTRY … uq_timeline_loads_running_key`; same `(timeline 27, code 8569)` → `ER_DUP_ENTRY … uq_timeline_results_timeline_code`; active in B for the same `(cycle 34, code 8569)` → `ER_DUP_ENTRY … uq_timeline_results_active_key`. Loads after rollback: 3 | ✅ FR-2, FR-4, NFR-6 |
+| — | Logs (NFR-1/2) | server log: 0 hits for the Reporting key, 0 for the token, 0 e-mail addresses; one `ingestion` line per request (preview / start / refused start with `LOADS_ALREADY_RUNNING` / get) | ✅ |
+
+**Leftovers after the run**
+
+| Leftover | Where | State |
+|---|---|---|
+| Timelines 27 and 28 (5 steps each) + their audit rows | `qadb`, cycle 34 (draft) | Kept. Last step closes 2026-11-05 13:00 Rome; the 33 memberships end then (DD-5) |
+| Loads 1, 3, 4 (`completed`); 33 memberships of A | `qadb` | Kept (no deletes in this module) |
+| 33 `ResultSnapshot` items, `SNAP#2026#000034#00000027#0000000001` | DynamoDB `cgiar-qa-test` | Kept (append-only history) |
+| 33 results intaken | Reporting TEST | **Released as `qaed`** via `POST /qa/results/release`: 200, `released 33`, `not_released []`. Codes: 8569, 8570, 8572, 8778, 8799, 8906, 8907, 8908, 8916, 8917, 8960, 8989, 8990, 9006, 9036, 9061, 9102, 9103, 9112, 9141, 9171, 9351, 9398, 9399, 9422, 9482, 9526, 9527, 9532, 9674, 9754, 9869, 10039 |
+| Migration `0007` | `qadb` | Applied (expected — the next deploy would apply it too) |
+
+**Still open (not this task's gate):** NFR-5 at 1,200 results (OQ-6); P-1 on PROD; R-13 / S-4 / S-5 / S-8 / S-9 confirmation by Angel; the release choice `qaed` for HITL leftovers is a test-data decision, not the product rule (Q9 stays off in code).
+
+**Budget running totals (after T-12):** tasks 12 / 12 (11 build + HITL) · production LOC ≈ 4,298 of ≈ 4,500 · test LOC ≈ 8,782 of ≈ 9,000 · review rounds 17 / ≈ 20 (+ the human gate). **Not exceeded.**
+
+## Summary
+
+All 12 tasks of `ingestion/step-1-loads` are `[x]`: 11 build tasks with a Reviewer PASS, and the HITL on dev with the back lead's PASS (2026-11-04). Open after the spec, for the archive: TRD pending items (T-11 entry), root and `server/` module-guide index entries (T-9 Constitution Impact), `akili doctor --agents --fix` on `staging`, NFR-5 at 1,200 results (OQ-6), P-1 on PROD, Angel's confirmation of S-4 / S-5 / S-8 / S-9 and R-13, and the credential-in-chat recurrence (KZ-admin-config--cycle-timelines-3) for the Kaizen step.
