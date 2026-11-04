@@ -282,7 +282,7 @@ Leader adjudication: no owed item of T-2 and no blocker (assumptions-only) → n
 - Reviewer lens 1 (reliability / concurrency): **PASS** — every pair among start, recordLot, end, endExpired, abandon and the timeline edit traced against InnoDB locking incl. FK parent S-locks: no cycle, no S→X upgrade; plain-read-before-lock safe in lot/end (a load's cycle/timeline never change; status judged on the locked re-read); SQL-order tests assert the four locks (`expectLoadLockOrder`).
 - Reviewer lens 2 (risk / data integrity + audit): **PASS** — `load_end` shape matches amended § 5.3 on both paths (`loadEndAudit`); exactly one `load_end` per load (row lock + conditional update; tests for abandon racing an end and double end); no deletes; only membership update is ending it; typed failure reason; no PII; NFR-6 races decided by unique keys; protected files untouched.
 - runtime events: none
-- spawns: implementer 36 calls, 227,842 tokens, ended partial (assumptions-only); reviewer lens 1 not reported by host at write time (ended complete, PASS); reviewer lens 2 10 calls, 51,069 tokens, ended complete
+- spawns: implementer 36 calls, 227,842 tokens, ended partial (assumptions-only); reviewer lens 1 16 calls, 98,129 tokens, ended complete (PASS); reviewer lens 2 10 calls, 51,069 tokens, ended complete
 
 **Not Done / Assumptions (attempt 2, verbatim):** "The FKs to `users` and `timeline_steps` are not modelled in the fake. No transaction in this world locks those rows, and the fake's header says so." — Leader: assumptions-only, no owed item; lens 1 confirmed those parent S-locks are compatible with every transaction here.
 
@@ -305,3 +305,28 @@ Leader adjudication: no owed item of T-2 and no blocker (assumptions-only) → n
 **Budget running totals (after T-5):** tasks 5 / 11 · production LOC ≈ 1,208 + 1,115 ≈ 2,323 of ≈ 4,500 · test LOC ≈ 1,436 + 3,386 ≈ 4,822 of ≈ 7,000 · review rounds 8 / 14 (T-5: 4 lens verdicts). Not exceeded against the T-5 re-estimate.
 
 **Final verification:** `cd server && pnpm lint && pnpm build && pnpm test --reporter=dot` → green (68 + 1 skipped files, 2,738 + 3 skipped tests).
+
+### T-6: Forced refresh of the catalog
+
+- **Final status:** PASS
+- **Date:** 2026-11-04
+- **Implementer attempts:** 1
+- **Requirements covered:** FR-8 (`catalog_version` differs → one forced reload); closes P-16
+
+**Attempt 1**
+- Files changed: `server/src/admin-config/field-config/reporting-qa-catalog.client.ts` (public `refresh(year)`; private `refresh` renamed `fetchAndStore`; in-flight logic in private `shared(year)`; `forYear` calls `shared`), `server/src/admin-config/field-config/field-catalog.ports.ts` (optional `refresh?(year)` on `FieldCatalogSource`), `server/src/admin-config/field-config/reporting-qa-catalog.client.spec.ts` (2 cases in `describe('refresh (forced)')`) — `3 files changed, 47 insertions(+), 9 deletions(-)`.
+- Implementer verification: lint/build clean; `Test Files 68 passed | 1 skipped (69)`, `Tests 2740 passed | 3 skipped (2743)`.
+- Red run: concurrent case before the change — `AssertionError: expected "vi.fn()" to be called 2 times, but got 3 times`. **Fetches-again pre-change red not observable** (the private `refresh` was reachable at runtime and already bypassed the fresh window; vitest does not type-check) — **the falsifier substitutes** (Reviewer ruling). A first run errored with `UpstreamUnavailableError` (a consumed Response body reused by `mockResolvedValue`, a setup fault fixed with `mockImplementation`; not counted as a red).
+- Falsifier (`refresh` returns `this.forYear(year)`): both cases red — `AssertionError: expected "vi.fn()" to be called 2 times, but got 1 times` (2 failed | 22 passed); reverted → 24 passed.
+- Consumers (`git grep -ln "ReportingQaCatalogClient\|FieldCatalogSource" -- server/src server/test`): `field-catalog.ports.ts`, `field-config.module.ts`, `field-config.service.ts`, `reporting-qa-catalog.client.spec.ts`, `reporting-qa-catalog.client.ts` — field-config suites unchanged and green.
+- Evidence re-run (Leader-inline, non-author): **VERIFIED** — lint OK, build OK, `Test Files 68 passed | 1 skipped (69)`, `Tests 2740 passed | 3 skipped (2743)`.
+- **Review intensity:** the task's `Review` field claimed `skip-eligible`; **not earned** — condition 3 fails (`Consumers` is a grep, not `none`) and override (b) applies (shared port `FieldCatalogSource`). A conformance Reviewer ran. Reported at the T-6 continue gate.
+- Reviewer verdict: **PASS** (checklist). `forYear` unchanged step for step (fresh check → in-flight get-or-create with `finally` delete → await inside the same try with the stale fallback); Disqualifier respected (no cache reset between calls; clock moved 1 s inside the fresh hour; concurrent case warms the cache first); the falsifier proves the target mutation is caught; optional port method leaves other implementers and fakes compiling unchanged. ADVISORY: none (diff < 50 LOC).
+- runtime events: none
+- spawns: implementer 10 calls, 78,221 tokens, ended complete; reviewer not reported by host at write time, ended complete (PASS)
+
+**Decisions made:** callers use `refresh?.()` (optional port method); tests call `client.refresh!` on the concrete class. Skills: nestjs-expert; effort **low** (small, mechanical).
+
+**Budget running totals:** tasks 6 / 11 · production LOC ≈ 2,323 + 22 ≈ 2,345 of ≈ 4,500 · test LOC ≈ 4,822 + 25 ≈ 4,847 of ≈ 7,000 · review rounds 9 / 14. Not exceeded.
+
+**Final verification:** server command green (68 + 1 skipped files, 2,740 + 3 skipped tests).

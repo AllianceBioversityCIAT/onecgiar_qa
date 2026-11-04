@@ -196,7 +196,7 @@ T-6 ─────────────┘
 - **Skills:** nestjs-expert, nestjs-best-practices, error-handling-patterns
 
 ## T-6: Forced refresh of the catalog
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** S
 - **Depends on:** none
 - **Requirements:** FR-8 (`catalog_version` differs → one forced reload)
