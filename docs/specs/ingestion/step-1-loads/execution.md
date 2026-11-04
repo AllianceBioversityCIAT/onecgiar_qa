@@ -161,3 +161,44 @@ Leader adjudication: no owed item of T-2 and no blocker (assumptions-only) → n
 - Module reshaped: `server/src/database/dynamodb` gains its first entity (`entities/result-snapshot.entity.ts`).
 - Stale guides: `server/src/database/AGENTS.md:58` (says no entities yet and to put entities next to the owning module — the task placed it under `database/dynamodb/entities/`) and `server/AGENTS.md:7` ("snapshots, not used yet"). Not in any task's scope → `/akili-archive`.
 - CodeGraph: not initialized.
+
+### T-4: Pure rules and the KP classifier
+
+- **Final status:** PASS
+- **Date:** 2026-11-04
+- **Implementer attempts:** 1
+- **Requirements covered:** FR-2 "Window closed" (17:30 open, 17:31 refused), FR-4 "Collision" / "Later timeline after U closed" (rules), FR-7 "Auto-checked" / "A null fails the check" / "Non-KP", FR-9 (lease reading), FR-11 "Completed with zero" (rule over counts), DD-11 (`DUPLICATE_RESULT_CODE`)
+
+**Attempt 1**
+- Files changed (all new): `server/src/ingestion/load-rules.ts`, `server/src/ingestion/load-rules.spec.ts`, `server/src/ingestion/kp-classifier.ts`, `server/src/ingestion/kp-classifier.spec.ts`
+- Implementer verification: `pnpm lint` clean; `pnpm build` ok; `pnpm test --reporter=dot` → `Test Files 67 passed | 1 skipped (68)`, `Tests 2633 passed | 3 skipped (2636)`.
+- Red run (observed in T-4; code was written before the specs, so these are mutation reds; each reverted and diffed against a backup):
+  - F1 accessibility compared with `===`: `FAIL kp-classifier.spec.ts > classifyResult: accessibility > "Open Access" equals "open access " ignoring case and trailing spaces` — `AssertionError: expected { status: 'pending', …(2) } to deeply equal { status: 'auto_validated', …(2) }` (2 failed | 70 passed).
+  - F2 null equals null (`yearCg !== null` guard removed): `FAIL … > a null or a missing key fails the check > two null years are not equal` — `AssertionError: expected { status: 'auto_validated', …(2) } to deeply equal { status: 'pending', …(2) }` (1 failed | 71 passed). The task's predicted row ("WoS year null") cannot go red under this mutation (null vs 2025 is unequal either way); the both-null row is the gate. Reviewer: intent met, task wording wrong.
+  - F3 window refused at the closing minute (inclusive comparison): `FAIL load-rules.spec.ts > loadWindow (FR-2) > active cycle at 2026-11-20T17:30 -> open` — `AssertionError: expected 'LOADS_WINDOW_CLOSED' to be 'open'` (2 failed | 70 passed).
+- Rows: 72 tests — window 7, lease 6, membership end 4, skip reason 13, summary merge 2, has-a-load 4, KP § 12.1 table 17, accessibility 2, null/missing 7 + 4 missing keys, non-KP and wiring 2. Every expected value is a literal.
+- Evidence re-run (Leader-inline, non-author): **VERIFIED** — lint OK, build OK, `Test Files 67 passed | 1 skipped (68)`, `Tests 2633 passed | 3 skipped (2636)`.
+- Reviewer verdict: **PASS** (checklist). Pure functions, clock injected, `compareMinutes` on Rome minutes; literals only; the three reds hit behavioural assertions. Adjudications: key count — list is authoritative, no fifth pair exists; F2 intent met by the both-null row; F3 reading correct; precedence, null `is_melia`, skip order, lease boundary (5:00 alive, FR-9 "older than"), year/accessibility parsing accepted; `timelineHasLoad`, `LoadSummary`, `EMPTY_SUMMARY` are within the task ("Completed with zero as a rule over counts", "Summary merge"), not widening.
+- runtime events: none
+- spawns: implementer 21 calls, 114,928 tokens, ended complete; reviewer 15 calls, 56,609 tokens, ended complete
+
+**ADVISORY (4R, not gating)**
+- RISK (spec hygiene): fix "9 keys" (design § 7.1 step 4, § 7.5, proposal R-9) → 10, and tasks.md T-4 "5 pairs" → 4 pairs + `is_melia`/`type`, and its falsifier 2 wording — else T-7 may build `field_keys` from the wrong number. **Presented to the user at the T-4 gate as an amendment proposal.**
+- RELIABILITY: proposal § 12.1 says accessibility ignores case and *trailing* spaces "as MySQL did"; design § 7.5 says "trimmed"; code uses `.trim()` (also drops leading spaces). Follows the design; a small difference from 2025 MySQL PAD SPACE.
+- RELIABILITY: `isTrue` accepts only `true` and `1`; a `"1"` string would silently go to review — check feed types in T-8 fixtures.
+- RELIABILITY: `yearOf` sends date strings not starting with a year to review — confirm against real feed samples.
+- RESILIENCE: `EMPTY_SUMMARY` is a shared mutable object — `Object.freeze` it.
+- READABILITY: `KP_RULE_KEYS` lists `accessibility_cg` (top-level, correct for `field_keys`); a comment that the sub-path is read in `cgAccessibility` would prevent a later "fix".
+
+**Decisions made**
+- Implementer followed proposal § 12.1's key list: `KP_RULE_KEYS` = 10 (`is_melia`, `type`, `issue_date_cg/wos`, `is_isi_cg/wos`, `peer_reviewed_cg/wos`, `accessibility_cg/wos`). T-7/T-8 must send these 10 as `field_keys`.
+- Accessibility CG read from the object's `.accessibility` (plain string also accepted); year from a number or a `YYYY…` string; classifier precedence auto-checked → not-in-QA → review; null `is_melia` = not MELIA; skip order other-open → this → duplicate; lease exactly 5:00 alive; `skipVerdict` also returns the blocking `timelineId`.
+- `LoadSummary` = `{loaded, byProgram, byType, kpGroups, skipped, otherTimelines: {id → {name, count}}}` (design § 5.1 names sections only) — T-7/T-9 may adapt it.
+- Reused the T-2 schema types (status, kp_group, failure reason), the cycle status type, `RomeMinute`/`compareMinutes`. `KP_RULES` symbol + `KpRules { classify }` + `DEFAULT_KP_RULES`; no module wiring, no error codes.
+- Skills: nestjs-expert + **`tdd` added by the Leader** (business rules with exhaustive tables). Effort medium.
+
+**Issues encountered:** spec miscount (9 keys / 5 pairs vs the 10-key list) and a mis-predicted falsifier row — both in the spec text, not the code.
+
+**Budget running totals:** tasks 4 / 11 · production LOC ≈ 932 + 276 ≈ 1,208 of ≈ 1,450 (83 %; rules & classifier estimated 120, ran 276) · test LOC ≈ 1,022 + 414 ≈ 1,436 of ≈ 1,800 · review rounds 4 / 14. **Not yet exceeded**, but T-5 (size L) alone will cross the production LOC line — flagged to the user at this gate.
+
+**Final verification:** `cd server && pnpm lint && pnpm build && pnpm test --reporter=dot` → green (67 + 1 skipped files, 2,633 + 3 skipped tests).

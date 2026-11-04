@@ -129,7 +129,7 @@ T-6 ─────────────┘
 - **Skills:** aws-serverless, nestjs-expert
 
 ## T-4: Pure rules and the KP classifier
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** none
 - **Requirements:**
