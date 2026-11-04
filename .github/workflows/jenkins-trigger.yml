@@ -3,10 +3,12 @@ name: Trigger Jenkins Job
 # STAGING cutover: pushes to staging are checked by qa-staging-ci.yml and finalized by the Jenkins job
 # qa-application-2026-staging-ci, so staging is no longer in `push`. The legacy job qa-application-2026-staging can
 # still be started manually (workflow_dispatch from staging).
+# DEV cutover: pushes to dev are built by qa-dev-cicd.yml and deployed by the Jenkins job qa-application-2026-dev-cd,
+# so dev is no longer in `push`. The legacy job qa-application-2026-dev can still be started manually
+# (workflow_dispatch from dev).
 on:
   push:
     branches:
-      - dev
       - main
   workflow_dispatch: # Allows the workflow to be triggered manually (only from dev, staging or main)
 
