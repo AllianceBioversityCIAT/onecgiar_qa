@@ -1,0 +1,141 @@
+# OneCGIAR QA STAGING: CI on GitHub Actions, finalization on Jenkins (same model as Reporting Tool STAGING,
+# onecgiar_pr reporting-tool-staging-ci.yml).
+#
+#   push to staging -> GitHub Actions (server lint and tests, client tests)
+#                   -> Jenkins qa-application-2026-staging-ci (record + Jira + final Slack)
+#
+# CI only, as the legacy job qa-application-2026-staging (devops PIPES/PRMS/V2/QA-2026/staging/Jenkinsfile): no
+# Docker build, no image, no ECR, no deploy, no migrations, no AWS access and no secret. The checks are the legacy
+# commands, on Node 24 (legacy tool "Node 24"): server `corepack pnpm install --frozen-lockfile`, `lint`, `test`,
+# `test:e2e` (no DB, no network); client `npm ci`, `ng test --watch=false`.
+# The legacy job is kept in Jenkins for manual runs; jenkins-trigger.yml no longer starts it on push to staging.
+# Jenkins finalization (jenkins-ci-finalize.reusable.yml, verbatim from onecgiar_pr@15d2ca63d): only when every check
+# passed; it does not wait. GitHub Environment qa-staging (deployment branch staging only, no variables, no secrets) is
+# the gate of that hand-over; it uses the repository secrets JENKINS_USERNAME / JENKINS_API_TOKEN.
+#
+# Slack (one message per event, never duplicated):
+#   started     GitHub Actions, at the start of the run (slack-notify.reusable.yml)
+#   failed      GitHub Actions, when a check (or the Jenkins hand-over) failed or was cancelled; Jenkins is not called
+#   succeeded   Jenkins qa-application-2026-staging-ci, after recording the run
+#
+# Action pinning: every `uses:` is a full commit SHA (same SHAs as the Reporting Tool STAGING pipeline):
+#   actions/checkout    v7.0.1  3d3c42e5aac5ba805825da76410c181273ba90b1
+#   actions/setup-node  v7.0.0  820762786026740c76f36085b0efc47a31fe5020
+name: qa-staging-ci
+
+on:
+  push:
+    branches: [staging]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: qa-staging-ci-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CI: 'true'
+  COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+
+jobs:
+  # ---------------------------------------------------------------- start notification
+  notify-start:
+    name: notify start (Slack)
+    permissions: {}
+    uses: ./.github/workflows/slack-notify.reusable.yml
+    with:
+      status: started
+      title: OneCGIAR QA NEW ENVIRONMENT
+      project: OneCGIAR QA
+      environment-label: STAGING
+    secrets:
+      SLACK_NOTIFICATIONS_WEBHOOK_URL: ${{ secrets.SLACK_NOTIFICATIONS_WEBHOOK_URL }}
+
+  # ---------------------------------------------------------------- checks (no secrets, no AWS)
+  server-checks:
+    name: server checks (lint, tests)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      # pnpm version from package.json "packageManager" through corepack, as the legacy job.
+      - name: Install dependencies (lockfile)
+        run: corepack pnpm install --frozen-lockfile
+      - name: Lint
+        run: corepack pnpm lint
+      # Unit and e2e suites need no DB and no network (server/AGENTS.md).
+      - name: Unit tests
+        run: corepack pnpm test --reporter=dot --maxWorkers=2
+      - name: e2e tests
+        run: corepack pnpm test:e2e --reporter=dot --maxWorkers=2
+
+  client-checks:
+    name: client checks (tests)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - name: Install dependencies (lockfile)
+        run: npm ci --no-audit --no-fund
+      # The client has no lint step in the legacy job; the production build runs only in the DEV image build.
+      - name: Unit tests
+        run: npx ng test --watch=false
+
+  # ---------------------------------------------------------------- Jenkins finalization
+  # Only when every check passed: Jenkins records the run, sends the Jira build info and posts the final Slack
+  # message. Does not wait.
+  finalize:
+    name: finalize (Jenkins qa-application-2026-staging-ci)
+    needs: [server-checks, client-checks]
+    if: needs.server-checks.result == 'success' && needs.client-checks.result == 'success'
+    permissions: {}
+    uses: ./.github/workflows/jenkins-ci-finalize.reusable.yml
+    with:
+      jenkins-job: qa-application-2026-staging-ci
+      environment: qa-staging
+    secrets:
+      JENKINS_USERNAME: ${{ secrets.JENKINS_USERNAME }}
+      JENKINS_API_TOKEN: ${{ secrets.JENKINS_API_TOKEN }}
+
+  # ---------------------------------------------------------------- CI failure notification
+  # Only when the run failed before Jenkins accepted the request. Jenkins is not called on failure.
+  notify-ci-failure:
+    name: notify CI failure (Slack)
+    needs: [server-checks, client-checks, finalize]
+    if: ${{ always() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
+    permissions: {}
+    uses: ./.github/workflows/slack-notify.reusable.yml
+    with:
+      status: failed
+      title: OneCGIAR QA NEW ENVIRONMENT
+      project: OneCGIAR QA
+      environment-label: STAGING
+      detail: >-
+        server-checks=${{ needs.server-checks.result }},
+        client-checks=${{ needs.client-checks.result }},
+        jenkins-hand-over=${{ needs.finalize.result }}
+    secrets:
+      SLACK_NOTIFICATIONS_WEBHOOK_URL: ${{ secrets.SLACK_NOTIFICATIONS_WEBHOOK_URL }}
