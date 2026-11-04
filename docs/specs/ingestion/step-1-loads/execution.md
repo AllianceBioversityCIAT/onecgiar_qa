@@ -459,3 +459,56 @@ Leader: assumptions-only, no owed item; both lenses ruled on them (all accepted;
 - **Budget tripwire:** answer "Re-estimate and continue". Test LOC ≈ 7,000 → ≈ 9,000; review rounds 14 → ≈ 20 (design § 10 Budget, tasks.md header). Production LOC stays ≈ 4,500 (≈ 3,672 used).
 - **Design gaps (lease revival, lost-ack double count, heartbeat without progress):** answer "Record as known gaps". Recorded in design § 10 *Known gaps* (G-1, G-2, G-3) as follow-up candidates — not tasks of this spec; T-8 not reopened.
 - Correction sweep (forward): `grep "7,000|14 review|≈ 14"` over the spec folder outside this log → no stale value left.
+
+### T-9: Controller, DTOs, module wiring, OpenAPI and the HTTP suites — PASS (attempt 1)
+- **Final status:** PASS on attempt 1 (date 2026-11-04). Implementer attempts: 1.
+- Effort: **high** (default medium raised: DI wiring of many ports + every-sink privacy proof). Skills: nestjs-expert, api-design-principles (task list, unchanged).
+- Files changed (`git status --porcelain` after the last edit, re-checked by the Leader): `M server/src/app.module.ts` (+2); new `server/src/ingestion/loads.controller.ts` (214), `server/src/ingestion/ingestion.module.ts` (94), `server/src/ingestion/dto/load-params.ts` (21), `server/src/ingestion/dto/start-load.dto.ts` (7), `server/src/ingestion/models/load.model.ts` (210), `server/test/ingestion-loads.e2e-spec.ts` (625; 60 tests), `server/test/ingestion-loads-privacy.e2e-spec.ts` (426; 10 tests), `server/test/support/ingestion-app.ts` (371). `test/auth-hardening.e2e-spec.ts` not edited (its route inventory is derived from the router).
+- Implementer verification: lint clean; `nest build` no errors; unit `Test Files 70 passed | 1 skipped (71)`, `Tests 2819 passed | 3 skipped (2822)`; e2e `Test Files 16 passed (16)`, `Tests 955 passed (955)`. Consumers: `openapi.e2e-spec.ts` + `auth-hardening.e2e-spec.ts` 24 green.
+- Red runs (greenfield, observed in T-9; each reverted, revert confirmed by `cmp` / `grep -c mutant` = 0):
+  - F1 as written (`@RequirePermission` removed): `Tests 1 failed | 29 passed | 30 skipped` on `-t "FR-13"` — only "an ADMIN gets through every route" red (`TypeError: Cannot read properties of undefined (reading 'id')`); the 24 non-admin 403 cases stay green because an undecorated route fails closed for everyone (`PermissionGuard`, `server/src/auth/guards/permission.guard.ts:72`). **The spec's prediction was wrong**, not the gate.
+  - F1 strengthened (`@ReadAccess()` in its place — a weaker gate): `Tests 24 failed | 6 passed | 30 skipped`, `AssertionError: expected 200 to be 403` (e.g. `GET /timelines/11/loads: ASSESSOR gets 403 …`).
+  - F2 (request headers logged in `context()`): `Tests 6 failed | 4 passed (10)`, `AssertionError: expected '{"authorization":"bearer eyjhbgcioijs…' not to contain 'sensitive-load-key'`.
+- Evidence re-run (Leader-inline, non-author): **VERIFIED** — lint OK, `pnpm build` exit 0, unit `Tests 2819 passed | 3 skipped (2822)`, e2e `Test Files 16 passed (16)`, `Tests 955 passed (955)`.
+- Review intensity: task `Review` = checklist; Consumers ≠ none; overrides (b) response shape / exported symbols and (f) authorization surface apply → **parallel lens reviewers** (2), each with baseline conformance.
+- Reviewer lens A (security / privacy): **PASS** — class-level `@RequirePermission(ADMIN_ACCESS)` covers the 4 routes; guards run before the idempotency interceptor and pipes, so a non-admin reserves no key and calls no Reporting; 6 non-admin profiles × 4 routes assert 403 `AUTH_PERMISSION_DENIED`, `feed.calls` empty, nothing written; a meta-test fails on a grantable role without a 403 row; the privacy suite captures `Logger.prototype`, `Logger.overrideLogger`, `console.*`, stdout and stderr (Disqualifier met); the key really travels in `x-api-key` and the stub echoes it in 401/503 bodies; one 5-field `ingestion` line per request id; DTO whitelist and `loadId` bounds tested; replay same id, other-timeline key → 422, a 503 not remembered. F1 observation ruled honest (fail-closed by design; the `@ReadAccess()` mutation is the meaningful gate).
+- Reviewer lens B (reliability / readability + § 6 conformance): **PASS** — 4 routes match § 6 on path, status (202 `{id, status:'running'}`, 404 `LOADS_NOT_FOUND`) and shape, each with OpenAPI; every port bound by its Symbol token (`RESULTS_FEED`, `SNAPSHOT_STORE`, `KP_RULES`, catalog source, `KP_RELEASE_SETTING` default off, `LOAD_RUNNER` via `useExisting`); no module cycle (DD-9); real adapters resolved by DI in `openapi.e2e-spec.ts` (boots `AppModule`); FR-2 replay proven over HTTP (one load, one probe, one `load_start`); NFR-3 proven by a real gate (202 while the runner's page reads are blocked). Rulings on the Implementer's assumptions: (1) own `TIMELINES_STORE` / `FIELD_CATALOG_SOURCE` bindings accepted — the store is stateless and the lock order is SQL in `LoadsUnitOfWork`; two catalog caches can drift but touch no load decision; § 3's "ingestion imports timelines" is not met literally (TimelinesModule exports nothing; changing its exports is outside T-9) → design note; (2) replay reader `{id, status:'running'}` accepted (mark written in the start transaction); (3) local `ApiAcceptedEnvelope` accepted; (4) empty `StartLoadDto` accepted; (5) NFR-3 proof accepted.
+- runtime events: none
+- spawns: implementer 78 calls, 256,582 tokens, ended partial (assumptions-only) — **ran past the 60-call checkpoint bound without a checkpoint** (recurrence of the T-2 signal); reviewer lens A 13 calls, 74,912 tokens, ended complete (PASS); reviewer lens B 16 calls, 79,271 tokens, ended complete (PASS)
+
+**Not Done / Assumptions (Implementer, verbatim, condensed list form)**
+> - Own bindings in `IngestionModule`: `TimelinesModule` and `FieldConfigModule` export nothing I need, so `IngestionModule` binds its own `TIMELINES_STORE` (`DrizzleTimelinesStore`, stateless) and `FIELD_CATALOG_SOURCE` (`ReportingQaCatalogClient`). The runner's forced catalog refresh updates only this module's catalog copy. Judgment call, not a blocker.
+> - Replay reader: the `IDEMPOTENCY_REPLAY_READER` for the crash window returns `{id: loadId, status: 'running'}`.
+> - 202 envelope: `ApiOkEnvelope` only allows 200 and 201, so the controller has a local `ApiAcceptedEnvelope`.
+> - Start body: `StartLoadDto` is an empty class; any key → 400 `VALIDATION_FAILED`; `{}` and no body accepted.
+> - Privacy suite runs the real `ReportingResultsFeedClient` over a stubbed `fetch`; adds stdout/stderr spies beyond `LogSpy`.
+> - "Probe 401" covered both ways (no/bad token; Reporting 401 at the start check and mid-run).
+> - FR-12 wording: followed design § 7.8 (`ingestion`).
+> - NFR-3 proven functionally; the < 2 s elapsed assertion runs against in-memory stores only.
+
+Leader adjudication: assumptions-only, no owed item; lens B ruled on all five, lens A on the bindings.
+
+**ADVISORY (4R, not gating)**
+- Lens A RISK: amend the T-9 falsifier text (done — see decisions).
+- Lens A RISK: the 403 matrix is a `NON_ADMINS` literal (holds `GUEST` and `MULTI_GRANT` profiles) plus a coverage meta-test; deriving rows from `GRANTABLE_ROLES` would prevent drift.
+- Lens A RELIABILITY: "an ADMIN gets through every route" reads `started.body.data.id` before asserting status — assert `started.status` first so a permission regression reads as `expected 403 to be 202`.
+- Lens A RISK: `expectCleanAnswer` checks key, internal secret and email in answer bodies, not the bearer tokens, `Idempotency-Key` prefix or titles (logs are checked against the full list).
+- Lens A / B RESILIENCE: two catalog caches and a second `DrizzleTimelinesStore` — **forward pointer → T-11**: say so in `server/src/ingestion/AGENTS.md`, so a later key or credential change in admin-config's binding is mirrored; a single exported `FIELD_CATALOG_SOURCE` from `FieldConfigModule` is a follow-up candidate.
+- Lens B RELIABILITY: `afterEach` wraps `w.settled(11)` in `catch {}`, which can hide a stuck runner ("never settled"); catch only in the test that forces the list to 500.
+- Lens B READABILITY: "409 LOADS_WINDOW_CLOSED one minute after step 1 closes" uses a timeline closed a day before `NOW`; the 17:30/17:31 boundary is exercised at unit level (T-4 rule, T-7 refusal) only.
+- Lens B READABILITY: "404 TIMELINES_NOT_FOUND … and the key not spent" never re-sends the key.
+- Lens B READABILITY: the idempotency-providers comment in `ingestion.module.ts` names no clock token.
+
+**Decisions made**
+- Execute-time spec edit (`tasks.md` T-9 *Falsifier*, 2026-11-04): first bullet amended to the mutation that catches a weaker gate (`@ReadAccess()` or a permission a non-admin holds), with the deletion case recorded as fail-closed. Reason: the written prediction was refuted by the red run; no requirement meaning changes (FR-13 unchanged). Carry as a named conformance check into the T-10 Reviewer brief.
+- Design note (not an edit): § 3 / DD-9 "ingestion imports timelines for the bundle and the lock" is met by own bindings of the stateless `DrizzleTimelinesStore`, not by a module import; DD-9's actual constraint (no cycle) holds.
+
+## Constitution Impact: T-9
+- Module created: `server/src/ingestion/` is now a registered Nest module (`IngestionModule` in `app.module.ts`) with a public HTTP surface (4 routes).
+- Child guide needed: `server/src/ingestion/AGENTS.md` — already a T-11 deliverable.
+- Parent indexes needing an entry: root `AGENTS.md` § Module Guides and `server/AGENTS.md` § Layout (and the `src/app.module.ts` row) — shared guides, **pending item for `staging`** (shared-file discipline; not named by `tasks.md`).
+- CodeGraph: not initialized — no re-index pending.
+
+**Budget running totals (after T-9):** tasks 9 / 11 · production LOC ≈ 3,672 + 548 ≈ 4,220 of ≈ 4,500 (94 %) · test LOC ≈ 7,037 + 1,422 ≈ 8,459 of ≈ 9,000 (94 %) · review rounds 13 + 2 = 15 / ≈ 20. **Not exceeded** — but T-10 (adapter + race tests) is likely to cross the test-LOC line; flagged at this gate.
+
+**Final verification:** server command green (70 + 1 skipped files, 2,819 + 3 skipped unit tests) and `pnpm test:e2e` green (16 files, 955 tests).

@@ -284,7 +284,7 @@ T-6 ─────────────┘
 - **Skills:** nestjs-expert, error-handling-patterns, aws-serverless
 
 ## T-9: Controller, DTOs, module wiring, OpenAPI and the HTTP suites
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-8
 - **Requirements:**
@@ -303,7 +303,7 @@ T-6 ─────────────┘
   - privacy: log spy over every route, a forced 5xx and a probe 401 → no key and no person field.
 - **Verification:** server command, then `cd server && pnpm test:e2e --reporter=dot`.
 - **Falsifier:**
-  - Remove `@RequirePermission` from the controller: the 403 cases go red.
+  - Replace `@RequirePermission(ADMIN_ACCESS)` with `@ReadAccess()` (or a permission a non-admin holds): the 403 cases go red. Removing the decorator outright does not: the route then fails closed for everyone and only the ADMIN case goes red (amended 2026-11-04 after the T-9 red run).
   - Log the request headers: the privacy suite goes red.
 - **Red run:** predicted — greenfield artifact (observed in T-9)
 - **Disqualifier:** a privacy spy on `Logger.prototype` only (see `test/AGENTS.md`: every sink).
