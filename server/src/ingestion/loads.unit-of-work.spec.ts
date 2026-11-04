@@ -2717,3 +2717,68 @@ describe('LoadsStore reads over the in-memory world', () => {
     expect((await world.store.findLoad(12, 3))?.load.id).toBe(3);
   });
 });
+
+describe('the total and the heartbeat of a run (design 7.3 steps 1 and 5, FR-9)', () => {
+  it('setTotal is one UPDATE of the load row, in one transaction, with no lock read before it (no new lock order)', async () => {
+    const { uow, log } = stub();
+
+    expect(await uow.setTotal(41, 1200)).toBe(true);
+
+    const inTx = inTransaction(log);
+    expect(inTx.map((s) => s.sql.split(' ').slice(0, 2).join(' '))).toEqual([
+      'begin',
+      'update `timeline_loads`',
+      'commit',
+    ]);
+    expect(inTx[1]!.sql).toMatch(
+      /^update `timeline_loads` set `total` = \? where \(`timeline_loads`\.`id` = \? and `timeline_loads`\.`status` = \?\)$/,
+    );
+    expect(inTx[1]!.params).toEqual([1200, 41, 'running']);
+  });
+
+  it('the heartbeat is one UPDATE of the load row only, conditional on running', async () => {
+    const { uow, log } = stub();
+
+    expect(await uow.heartbeat(41, NOW)).toBe(true);
+
+    const inTx = inTransaction(log);
+    expect(inTx.map((s) => s.sql.split(' ').slice(0, 2).join(' '))).toEqual([
+      'begin',
+      'update `timeline_loads`',
+      'commit',
+    ]);
+    expect(inTx[1]!.sql).toMatch(
+      /^update `timeline_loads` set `heartbeat_at` = \? where \(`timeline_loads`\.`id` = \? and `timeline_loads`\.`status` = \?\)$/,
+    );
+    expect(inTx[1]!.params).toEqual(['2026-11-10 08:00:00.000', 41, 'running']);
+  });
+
+  it('on a running load both write; on a load that ended or was abandoned both answer false and write nothing', async () => {
+    const world = seedWorld();
+    world.loads.push(
+      loadRow({ id: 41, timelineId: 11, heartbeatAt: ago(2 * MINUTE) }),
+      loadRow({
+        id: 42,
+        timelineId: 12,
+        status: 'failed',
+        heartbeatAt: ago(9 * MINUTE),
+      }),
+    );
+    const { uow } = inMemory(world);
+
+    expect(await uow.setTotal(41, 120)).toBe(true);
+    expect(await uow.heartbeat(41, NOW)).toBe(true);
+    expect(await uow.setTotal(42, 120)).toBe(false);
+    expect(await uow.heartbeat(42, NOW)).toBe(false);
+
+    expect(world.loads.find((l) => l.id === 41)).toMatchObject({
+      total: 120,
+      heartbeatAt: NOW,
+    });
+    expect(world.loads.find((l) => l.id === 42)).toMatchObject({
+      total: null,
+      heartbeatAt: ago(9 * MINUTE),
+    });
+    expect(world.history).toEqual(['total:41', 'heartbeat:41']);
+  });
+});

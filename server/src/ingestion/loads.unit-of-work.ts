@@ -520,6 +520,25 @@ export class LoadsUnitOfWork {
   }
 
   /**
+   * Design 7.3 step 1: `total`, once every page is listed. One statement on the
+   * load row alone (no foreign key is written), so it adds no lock order. `false`
+   * = the load is no longer running.
+   */
+  setTotal(loadId: number, total: number): Promise<boolean> {
+    return this.transactions.run(({ loads }) => loads.setTotal(loadId, total));
+  }
+
+  /**
+   * Design 7.3 step 5, FR-9: the timer's heartbeat. One statement on the load
+   * row alone. `false` = the load is no longer running (abandoned, or ended).
+   */
+  heartbeat(loadId: number, now: Date): Promise<boolean> {
+    return this.transactions.run(({ loads }) =>
+      loads.renewHeartbeat(loadId, now),
+    );
+  }
+
+  /**
    * Design 7.3 step 3 and 4, FR-12: the load becomes `completed` or `failed`
    * and its `load_end` row is written in the same transaction. The conditional
    * update decides, so a load that ended meanwhile is never ended again and has

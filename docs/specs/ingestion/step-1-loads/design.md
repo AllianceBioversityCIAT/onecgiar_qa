@@ -288,8 +288,8 @@ None in this spec. `front-contract.md` gives Yeck the four routes, the states (`
 |---|---|
 | Tasks | 11 (+ 1 T-HITL) |
 | Production LOC | ≈ 4,500 — re-estimated again 2026-11-04 at the T-5 tripwire, approved by the back lead ("Re-estimar y seguir"); T-5 alone ran ≈ 1,027. Before that: ≈ 3,200 — re-estimated 2026-11-04 at the T-4 gate, approved by the back lead ("Re-estimar y seguir"). Was ≈ 1,450 (adapter 200, migration and schema 160, entity and store 150, runner 320, service 250, controller and DTOs 200, rules and classifier 120, port binding 50; the loads store and unit of work had no line). T-1…T-4 ran ≈ 1,208 against 630 estimated (× 1.9); the rest re-scaled at × 1.9 plus ≈ 400 for T-5 |
-| Test LOC | ≈ 7,000 — re-estimated again 2026-11-04 at the T-5 tripwire (T-1…T-5 ran ≈ 4,417). Before that ≈ 3,800 (was ≈ 1,800) |
-| Review rounds | 14 (1 per task, plus 3 margin for the runner, the migration and the e2e) |
+| Test LOC | ≈ 9,000 — re-estimated a third time 2026-11-04 at the T-8 tripwire, approved by the back lead ("Re-estimate and continue"); T-1…T-8 ran ≈ 7,037. Before that ≈ 7,000 — re-estimated 2026-11-04 at the T-5 tripwire (T-1…T-5 ran ≈ 4,417). Before that ≈ 3,800 (was ≈ 1,800) |
+| Review rounds | ≈ 20 — re-estimated 2026-11-04 at the T-8 tripwire (T-1…T-8 used 13; T-5 and T-8 ran parallel lenses and a rework). Was 14 (1 per task, plus 3 margin for the runner, the migration and the e2e) |
 
 It is above the proposal's 900-LOC split line. Recommendation: **keep one spec and ship 3 PRs**:
 1. persistence and ports;
@@ -297,6 +297,16 @@ It is above the proposal's 900-LOC split line. Recommendation: **keep one spec a
 3. edit binding and documents.
 
 The preview is only ≈ 150 LOC, so splitting it out would not help.
+
+### Known gaps (recorded 2026-11-04 at the T-8 gate, back lead: "record as known gaps")
+
+DD-6 and DD-8 are silent on these. The runner ships without them; each is a candidate for a follow-up proposal, not a task of this spec.
+
+| # | Gap | Effect | Candidate fix |
+|---|---|---|---|
+| G-1 | Lease revival: `recordLot` and `renewHeartbeat` check `status = 'running'`, not the lease | A lot that commits after a > 5 min stall makes a load that readers showed as `failed`/`ABANDONED` read `running` again | Add `heartbeat_at >= now − lease` to both conditions |
+| G-2 | Lost commit acknowledgement on `recordLot` | The retry turns the lot's own inserts into `ALREADY_IN_THIS_TIMELINE` skips and adds the lot to `processed` again (`processed > total`; `loaded`/`skipped` skewed in `load_end`). Memberships and snapshots stay correct | Conditional progress (`WHERE processed = :expectedBefore`), or count a race skip whose row has this `load_id` as loaded |
+| G-3 | Heartbeat without progress | A hung store call (no query timeout) keeps renewing the lease, so the load stays `running` and the cycle stays blocked | A timeout per attempt, or stop beating after no progress for longer than the lease |
 
 ## 11. Premise Ledger
 

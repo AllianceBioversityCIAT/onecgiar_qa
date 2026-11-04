@@ -5,7 +5,7 @@
 | Spec path | `docs/specs/ingestion/step-1-loads` |
 | Branch | `feat/step-1-loads` (from `origin/staging` @ `7163227`) |
 | Commits | `[SPEC:ingestion/step-1-loads] <emoji> <type>(ingestion) P2-3905: …` |
-| Budget (design § 10) | 11 build tasks + 1 HITL · ≈ 4,500 production LOC + ≈ 7,000 test LOC (re-estimated 2026-11-04 at the T-5 tripwire; before: 3,200 + 3,800 at the T-4 gate; originally 1,450 + 1,800) · ≈ 14 review rounds. Tripwire: stop and escalate when exceeded |
+| Budget (design § 10) | 11 build tasks + 1 HITL · ≈ 4,500 production LOC + ≈ 9,000 test LOC (test LOC re-estimated 2026-11-04 at the T-8 tripwire; before: 7,000 at the T-5 tripwire, 3,800 at the T-4 gate, originally 1,800; production: 4,500 at T-5, 3,200 at T-4, originally 1,450) · ≈ 20 review rounds (was 14; re-estimated at the T-8 tripwire). Tripwire: stop and escalate when exceeded |
 | Verification (server) | `cd server && pnpm lint && pnpm build && pnpm test --reporter=dot`; plus `pnpm test:e2e --reporter=dot` where stated |
 | PRs | 3 PRs. **PR 1**: T-1 … T-6 (persistence, ports, pure rules). **PR 2**: T-7 … T-9 (service, runner, routes). **PR 3**: T-10, T-11 (edit binding, docs) |
 | Open at execution | S-10 (Q3) taken at its default: snapshots keep **every** key (no `field_keys`). An overrule before T-8 changes one constant; after real loads, it needs a rewrite of snapshots |
@@ -248,7 +248,7 @@ T-6 ─────────────┘
 - **Skills:** nestjs-expert, api-design-principles, error-handling-patterns
 
 ## T-8: `LoadRunner`: lots, retries, lease, catalog check, KP release port
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** L → split at execution if needed (lot pipeline / failure handling)
 - **Depends on:** T-1, T-3, T-4, T-5, T-6, T-7
 - **Requirements:**

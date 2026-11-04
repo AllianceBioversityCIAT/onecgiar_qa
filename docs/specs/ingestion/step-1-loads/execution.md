@@ -374,3 +374,88 @@ Leader adjudication: assumptions-only, no owed item from this field; the Reviewe
 **Budget running totals:** tasks 7 / 11 · production LOC ≈ 2,345 + 596 ≈ 2,941 of ≈ 4,500 · test LOC ≈ 4,847 + 1,167 ≈ 6,014 of ≈ 7,000 (86 %, with T-8, T-9, T-10 still to write — likely overrun, flagged at the T-7 gate) · review rounds 10 / 14. Not exceeded.
 
 **Final verification:** server command green (69 + 1 skipped files, 2,787 + 3 skipped tests).
+
+### T-8: `LoadRunner`: lots, retries, lease, catalog check, KP release port
+
+- **Status:** in progress — attempt 1 FAIL (parallel lens review: lens 1 FAIL, lens 2 PASS)
+- **Date:** 2026-11-04
+- Effort: **high** (core of the spec; headroom left for one bump). Skills: nestjs-expert, error-handling-patterns, **tdd** — deviation: `aws-serverless` dropped (the snapshot store is an existing port with a fake; no AWS code in scope), `tdd` added (logic-heavy, falsifiers required).
+- Kept as one task (the "split at execution if needed" option not taken): the checkpoint mechanism covers overflow.
+
+**Attempt 1 — FAIL**
+- Files changed: new `server/src/ingestion/load-runner.ts` (641), `server/src/ingestion/load-runner.spec.ts` (840, 22 tests), `server/src/ingestion/feed-paging.ts` (40; `listEveryPage` shared with `LoadsService`); `loads.store.ts` (+46/−1: `setTotal`, `renewHeartbeat`, `TimelineHasNoStepsError`), `loads.unit-of-work.ts` (+19), `loads.unit-of-work.spec.ts` (+65, 3 tests), `loads.service.ts` (+2/−29, extraction), `server/test/support/in-memory-loads.ts` (+32).
+- Implementer verification: lint clean, build clean, `Test Files 70 passed | 1 skipped (71)`, `Tests 2812 passed | 3 skipped (2815)`.
+- Red runs (greenfield, observed in T-8; each reverted, restore confirmed by `diff`):
+  - F1 details before intake → 9 red: `AssertionError: expected [ 'list', 'details', 'intake', …(1) ] to deeply equal [ 'list', 'intake', 'details' ]`; lot fixture `expected [ 1003, 1004, … ] to have a length of 47 but got 48`.
+  - F2 retry a 401 → `AssertionError: expected [ { phaseYear: 2026, …(1) }, …(2) ] to have a length of 1 but got 3`.
+  - F3 heartbeat timer dropped → `AssertionError: expected 2026-11-10T08:00:00.000Z to deeply equal 2026-11-10T08:01:00.000Z`.
+  - Backoff (Disqualifier): `Math.random` 0 / 0.5 / 1 → waits 800/3200, 1000/4000, 1200/4800 ms; call count asserted at boundary−1 ms and at boundary.
+- Evidence re-run (Leader-inline, non-author): **VERIFIED** — lint OK, build OK, `Test Files 70 passed | 1 skipped (71)`, `Tests 2812 passed | 3 skipped (2815)`.
+- Reviewer lens 2 (risk / data integrity + audit): **PASS** — skips with Reporting's reasons; FR-7 groups on memberships; snapshot key/`loadedAt` from the load, sha-256 canonical hash, retry rewrites identical items, hash conflict → `INTERNAL` no retry (§ 5.4, DD-4); `processed` only moves in `recordLot`; `load_end.after` asserted exactly `{id, status, total, processed, loaded, skipped, failureReason}` (amended § 5.3, named check met); exactly one `load_end`; every failure reason in the closed list of § 5.1; release off → no `release` call; logs ids/codes only, 401 log line pinned (NFR-1); no deletes; protected files untouched. Accepted every flagged assumption in its lens.
+- Reviewer lens 1 (reliability / resilience): **FAIL** — verbatim:
+
+> 1. **Discovered Issue:** A 4xx from the catalog call is retried and ends with the wrong reason. `ReportingQaCatalogClient` (a Reporting call, `GET /qa/catalog`) throws `UpstreamStatusError(httpStatus)` for any non-2xx (`server/src/users/catalogs/catalog-http.ts:25,68`), and that class extends `UpstreamUnavailableError`. In `LoadRunner.judge`, `if (error instanceof UpstreamUnavailableError) return 'retry'` catches it first. So a 401 or 403 from `catalogs.forYear` or `catalogs.refresh` (the forced refresh in `checkCatalog`) is tried 3 times with backoff and the load fails `REPORTING_UNAVAILABLE` instead of `REPORTING_UNAUTHORIZED` or `REPORTING_REJECTED`. No test covers a catalog 4xx; the only catalog test throws a bare `UpstreamUnavailableError`.
+>    * **Violated Rule:** `requirements.md` FR-8 error table: "Any 4xx (401 included) | The load is `failed` at once". `design.md` § 7.3 step 4: "Every Reporting call … A 4xx is never retried: 401 → `REPORTING_UNAUTHORIZED`, any other 4xx → `REPORTING_REJECTED`". § 7.7 says `UpstreamStatusError` keeps the status "so the adapter can map the FR-8 kinds".
+>    * **Remediation Suggestion:** In `judge`, check `error instanceof UpstreamStatusError` before the `UpstreamUnavailableError` branch. Map 401 to `REPORTING_UNAUTHORIZED`, any other 4xx to `REPORTING_REJECTED`, and retry only 5xx. Add tests where `refresh` and `forYear` reject with `new UpstreamStatusError(401)`: 1 call, failed `REPORTING_UNAUTHORIZED`. Run the falsifier red: drop the new branch and the "1 call" assertion should go red.
+
+- Leader adjudication: **in scope** — the catalog fetch is a Reporting call under § 7.3 step 4; mechanism confirmed inline (`catalog-http.ts`: `class UpstreamStatusError extends UpstreamUnavailableError`; `load-runner.ts` `judge`: `instanceof UpstreamUnavailableError → 'retry'` precedes any status check). Attempt 1 consumed. Attempt 2 effort: high → **xhigh**.
+- runtime events: none
+- spawns: implementer 42 calls, 238,448 tokens, ended partial (assumptions-only); reviewer lens 1 14 calls, 86,842 tokens, ended complete (FAIL); reviewer lens 2 12 calls, 82,897 tokens, ended complete (PASS)
+
+**Not Done / Assumptions (Implementer, verbatim, condensed list form)**
+> - Details sends no `field_keys`: S-10/Q3 still open; DD-10 says the default keeps all keys.
+> - Retry unit: the snapshot puts and `recordLot` are one retriable unit, so a retry rewrites the same snapshots (idempotent) and records again (FR-6 "retry of a lot"). An exhausted retry on a snapshot put counts as `STORE_UNAVAILABLE`.
+> - Failure-reason mapping that § 7.3.4 does not state: catalog `UpstreamUnavailableError` retried like a Reporting 5xx, then `REPORTING_UNAVAILABLE`; `FieldCatalogMissingError` → `REPORTING_REJECTED`; any unknown non-store error from a Reporting call → `INTERNAL`, no retry.
+> - Release implemented but off: `KP_RELEASE_ENABLED = false`; optional `KP_RELEASE_SETTING` provider token defaulting to the constant so a test can turn it on. When on, releases the inserted `auto_validated` and `not_in_qa` KPs as `qaed`, chunks of 50, after the last lot and before the end write.
+> - `total` is `items.length` (skips included), so it matches `processed`.
+> - Zombie handling: the run learns its load is gone from `heartbeat`, `setTotal`, `recordLot` or `end` returning false / not recorded; it stops, skips `endExpired` and the `end` write, logs `load_not_running`.
+> - Flagged, no rule invented (DD-6 silent): lease revival (`recordLot` checks status, not lease); possible double count of `processed` after a lost commit acknowledgement.
+> - Not wired into the Nest module (T-9). Store reads (`findLoadById`, `findMemberships`) also go through the 3-attempt store retry.
+
+Leader: assumptions-only, no owed item; both lenses ruled on them (all accepted; the catalog-4xx part became lens 1 Issue 1). Lease revival and the lost-ack double count are **design gaps** → user at the T-8 gate.
+
+**ADVISORY (attempt 1, not gating)**
+- Lens 2 RISK: lost commit ack → retry turns the lot's own inserts into `ALREADY_IN_THIS_TIMELINE` skips and adds the lot to `processed` again (`processed > total`; `loaded` understated, `skipped` overstated in `load_end`). Suggestion: conditional progress (`WHERE processed = :expectedBefore`) or count a race skip whose row has `load_id = this load` as loaded.
+- Lens 2 RELIABILITY: an id intake neither takes nor refuses, or details neither returns nor lists in `notEligible`, vanishes: counted in `processed`, not in `loaded + skipped`.
+- Lens 2 RISK: catalog 401 surfaces to the UI as a key problem — note in `front-contract.md` (T-11) once attempt 2 maps it.
+- Lens 2 RISK (setting on only): release runs before `end`; a release failure fails a fully recorded load, partial release leaves Reporting `qaed` for a `failed` load; released memberships not ended (`released_qaed`, FR-4). Revisit before Q9 turns it on.
+- Lens 2 READABILITY: "the snapshot is written before its membership" compares two separate arrays; the retry test is what proves DD-4.
+- Lens 1 RESILIENCE: the heartbeat proves the process is alive, not progress — a hung store call (no mysql2 query timeout by default) renews the lease forever and blocks the cycle; DD-8's bounded run time. Suggest per-attempt timeout or stop beating with no progress beyond the lease.
+- Lens 1 RESILIENCE: lease revival — add `AND heartbeat_at >= now - lease` to `renewHeartbeat` and `recordLot`.
+- Lens 1 RESILIENCE: lost-ack retry of `recordLot` (same as lens 2 RISK above).
+- Lens 1 RELIABILITY: `checkCatalog` falls back to `forYear` when `refresh` is missing, silently skipping the forced refresh.
+- Lens 1 RELIABILITY: overlapping beats if a write exceeds 60 s; a beat in flight at run end logs a false `load_not_running`.
+- Lens 1 RELIABILITY: the store `judge` retries any error, incl. programming errors (`TypeError` → `STORE_UNAVAILABLE` instead of `INTERNAL`).
+
+**Attempt 2 — PASS (rework; single lens 1 Reviewer, override (e))**
+- **Final status of T-8:** PASS on attempt 2 (date 2026-11-04). Implementer attempts: 2.
+- Effort: **xhigh** (bumped from high after the attempt-1 FAIL). Fresh T2 Implementer with the verbatim FAIL report and the Attempt History.
+- Files changed (vs the attempt-1 tree): `server/src/ingestion/load-runner.ts` (641 → 654: `UpstreamStatusError` checked in `judge` before the `UpstreamUnavailableError` branch — 401 → `REPORTING_UNAUTHORIZED`, 400–499 → `REPORTING_REJECTED`, else retry), `server/src/ingestion/load-runner.spec.ts` (840 → 926, +7 tests: catalog `forYear` 401 / 400 / 403, forced `refresh` 401 / 403, `forYear` 503 and `refresh` 503 still retried 3× → `REPORTING_UNAVAILABLE`; the 401 log line pinned verbatim, no key).
+- Implementer verification: lint/build exit 0; `Test Files 70 passed | 1 skipped (71)`, `Tests 2819 passed | 3 skipped (2822)`.
+- Red run (before the fix): `Tests 5 failed | 24 passed (29)` — `AssertionError: expected "vi.fn()" to be called 1 times, but got 3 times` (401 forYear, 401 refresh, 400, 403, 403 refresh). Falsifier after the fix (branch deleted): same 5 red; restored, `diff` empty.
+- Evidence re-run (Leader-inline, non-author): **VERIFIED** — lint OK, build OK, `Test Files 70 passed | 1 skipped (71)`, `Tests 2819 passed | 3 skipped (2822)`.
+- Reviewer lens 1 (reliability / resilience, rework): **PASS** — attempt-1 issue closed; both catalog call sites (`forYear`, forced refresh in `checkCatalog`) go through `judge`; the new branch sits after the store short-circuit and `FeedError`, so store and feed handling are unchanged; bare `UpstreamUnavailableError` still retried; `FieldCatalogMissingError` still `REPORTING_REJECTED`; 408/429 → `REPORTING_REJECTED` accepted as the literal reading of FR-8 "Any 4xx".
+- runtime events: none
+- spawns: implementer 31 calls, 134,317 tokens, ended partial (assumptions-only); reviewer not reported by host at write time, ended complete (PASS)
+
+**Not Done / Assumptions (attempt 2, verbatim, condensed):** "I took "4xx" as 400 to 499, with 401 split out. A 408 or 429 from the catalog is therefore `REPORTING_REJECTED` and not retried, as FR-8 says "Any 4xx"." · "The 404 path is unchanged … `FieldCatalogMissingError`, which still maps to `REPORTING_REJECTED`. I did not add a test for it." · ADVISORY items untouched as instructed. — Leader: assumptions-only, no owed item; the Reviewer accepted the 4xx reading.
+
+**ADVISORY (attempt 2, not gating):** RELIABILITY — an `UpstreamStatusError` with a 1xx/3xx status (unreachable with `redirect: 'error'`) falls to retry; for a literal "retry only 5xx", use `httpStatus >= 500 ? 'retry' : REPORTING_REJECTED`.
+
+**Design gaps for the user (from attempt-1 advisories; DD-6 / DD-8 silent — not minted as tasks):**
+1. Lease revival — `recordLot` / `renewHeartbeat` check `status`, not the lease; a lot after a > 5 min stall revives a load readers showed as ABANDONED.
+2. Lost commit ack — the `recordLot` retry double-counts `processed` (`processed > total`, `loaded`/`skipped` skewed in `load_end`).
+3. Heartbeat without progress — a hung store call renews the lease forever; the cycle stays blocked (DD-8 "bounded run time").
+
+**Forward pointers:** T-9 — wire `LOAD_RUNNER` → `LoadRunner`, `SNAPSHOT_STORE`, `KP_RULES`, the catalog source, optional `KP_RELEASE_SETTING`. T-11 — `front-contract.md`: a catalog 401 surfaces as `REPORTING_UNAUTHORIZED`; release-on caveats (Q9) before the setting is turned on. T-12 — real-MySQL check of `setTotal` / `renewHeartbeat` under a running lot.
+
+**Budget running totals (after T-8):** tasks 8 / 11 · production LOC ≈ 2,941 + 731 ≈ 3,672 of ≈ 4,500 · test LOC ≈ 6,014 + 1,023 ≈ **7,037 of ≈ 7,000 — EXCEEDED (+37, + 0.5 %)** · review rounds 13 / 14 (T-8: 3 verdicts) with T-9, T-10, T-11 and the T-12 HITL still to run.
+
+**Budget tripwire — FIRED (2026-11-04, at the T-8 finalize):** test LOC over the re-estimate; review rounds will exceed 14 with three build tasks left. Cause: the runner's retry/timer/lease matrix (29 tests) and the catalog-4xx rework. Not logged `auto-approved`; escalated to the user before `[x]` and the commit.
+
+**Final verification:** server command green (70 + 1 skipped files, 2,819 + 3 skipped tests).
+
+## Gate after T-8 — decisions of the back lead (2026-11-04)
+- **Budget tripwire:** answer "Re-estimate and continue". Test LOC ≈ 7,000 → ≈ 9,000; review rounds 14 → ≈ 20 (design § 10 Budget, tasks.md header). Production LOC stays ≈ 4,500 (≈ 3,672 used).
+- **Design gaps (lease revival, lost-ack double count, heartbeat without progress):** answer "Record as known gaps". Recorded in design § 10 *Known gaps* (G-1, G-2, G-3) as follow-up candidates — not tasks of this spec; T-8 not reopened.
+- Correction sweep (forward): `grep "7,000|14 review|≈ 14"` over the spec folder outside this log → no stale value left.

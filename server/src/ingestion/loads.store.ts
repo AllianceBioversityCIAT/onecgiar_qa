@@ -43,6 +43,18 @@ export const RESULTS_TIMELINE_CODE_KEY = 'uq_timeline_results_timeline_code';
 /** `IN` lists of `result_code` are cut at this many values per statement (design 7.1 step 3). */
 export const RESULT_CODE_CHUNK = 500;
 
+/**
+ * A membership's timeline has no steps: corrupt data (FR-9 of *timelines*),
+ * never a store outage. The runner tells it apart from a store error so it is
+ * not retried.
+ */
+export class TimelineHasNoStepsError extends Error {
+  constructor(readonly timelineId: number) {
+    super(`Timeline ${timelineId} has no steps`);
+    this.name = 'TimelineHasNoStepsError';
+  }
+}
+
 /** The cycle row as the start reads it under `FOR SHARE`. */
 export interface LockedCycle {
   status: CycleStatus;
@@ -201,6 +213,18 @@ export interface LoadsStore {
   /** `UPDATE timeline_loads SET processed, summary, heartbeat_at WHERE id = ?` (design 7.3 step 2.7). */
   recordProgress(loadId: number, values: LoadProgressValues): Promise<void>;
   /**
+   * `UPDATE timeline_loads SET total WHERE id = ? AND status = 'running'` (design
+   * 7.3 step 1): one statement. `false` = the load was no longer running.
+   */
+  setTotal(loadId: number, total: number): Promise<boolean>;
+  /**
+   * `UPDATE timeline_loads SET heartbeat_at WHERE id = ? AND status = 'running'`
+   * (design 7.3 step 5, FR-9): one statement, so it takes only the load row.
+   * `false` = the load was no longer running, which is how a run learns it was
+   * abandoned.
+   */
+  renewHeartbeat(loadId: number, at: Date): Promise<boolean>;
+  /**
    * `UPDATE timeline_results SET ended_at, end_reason WHERE id IN (...) AND
    * ended_at IS NULL`: the only update a membership ever gets. Returns the
    * number of rows that ended.
@@ -304,7 +328,7 @@ export class DrizzleLoadsStore implements LoadsStore {
         // Every timeline has a step 1 (FR-9 of *timelines*): a membership whose
         // timeline has none is corrupt data, never a result that may be loaded.
         if (!step) {
-          throw new Error(`Timeline ${row.timelineId} has no steps`);
+          throw new TimelineHasNoStepsError(row.timelineId);
         }
         return {
           ...row,
@@ -539,6 +563,26 @@ export class DrizzleLoadsStore implements LoadsStore {
         heartbeatAt: values.heartbeatAt,
       })
       .where(eq(timelineLoads.id, loadId));
+  }
+
+  async setTotal(loadId: number, total: number): Promise<boolean> {
+    const [header] = await this.db
+      .update(timelineLoads)
+      .set({ total })
+      .where(
+        and(eq(timelineLoads.id, loadId), eq(timelineLoads.status, 'running')),
+      );
+    return header.affectedRows > 0;
+  }
+
+  async renewHeartbeat(loadId: number, at: Date): Promise<boolean> {
+    const [header] = await this.db
+      .update(timelineLoads)
+      .set({ heartbeatAt: at })
+      .where(
+        and(eq(timelineLoads.id, loadId), eq(timelineLoads.status, 'running')),
+      );
+    return header.affectedRows > 0;
   }
 
   async endMemberships(

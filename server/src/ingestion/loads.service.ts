@@ -17,6 +17,7 @@ import {
 import type { Timeline } from '../database/drizzle/schema/timelines.js';
 import type { TimelineLoad } from '../database/drizzle/schema/timeline-loads.js';
 import { UpstreamUnavailableError } from '../users/catalogs/catalogs.errors.js';
+import { listEveryPage } from './feed-paging.js';
 import {
   KP_RULE_KEYS,
   KP_RULES,
@@ -46,7 +47,6 @@ import {
   FeedError,
   RESULTS_FEED,
   type FeedListItem,
-  type FeedListQuery,
   type ResultsFeed,
 } from './results-feed.port.js';
 
@@ -58,8 +58,6 @@ export interface LoadRunnerPort {
   run(loadId: number): void;
 }
 
-/** Feed pages are read 200 at a time (design 7.1 step 2). */
-const FEED_PAGE_SIZE = 200;
 /** KP details are read in lots of 50 (design 7.1 step 4). */
 const DETAILS_LOT = 50;
 
@@ -248,7 +246,7 @@ export class LoadsService {
       if (!stepOne) throw new Error(`Timeline ${timeline.id} has no step 1`);
 
       const items = await this.reporting(() =>
-        this.listEveryPage({
+        listEveryPage(this.feed, {
           phaseYear: cycle.year,
           // "All" sends no filter at all (FR-1): the key is left out.
           ...(timeline.allPrograms ? {} : { programIds: bundle.programIds }),
@@ -469,31 +467,6 @@ export class LoadsService {
     const cycle = await this.loads.lockCycleShared(timeline.cycleId);
     if (!cycle) throw new TimelineNotFoundError(timeline.id);
     return cycle;
-  }
-
-  /** Every page of the listing until `total` results are read (FR-1). */
-  private async listEveryPage(
-    query: Omit<FeedListQuery, 'page' | 'pageSize'>,
-  ): Promise<FeedListItem[]> {
-    const items: FeedListItem[] = [];
-    let page = 1;
-    let total: number;
-    do {
-      const read = await this.feed.list({
-        ...query,
-        page,
-        pageSize: FEED_PAGE_SIZE,
-      });
-      total = read.total;
-      // A page with nothing on it before `total` is reached would never end:
-      // the feed is not telling the truth, and a short count would be wrong.
-      if (read.items.length === 0 && items.length < total) {
-        throw new FeedError('unavailable');
-      }
-      items.push(...read.items);
-      page++;
-    } while (items.length < total);
-    return items;
   }
 
   /**

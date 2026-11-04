@@ -377,6 +377,24 @@ export class InMemoryLoadsStore implements LoadsStore {
     row.heartbeatAt = values.heartbeatAt;
   }
 
+  /** A conditional UPDATE on `status = 'running'`. */
+  async setTotal(loadId: number, total: number): Promise<boolean> {
+    const row = this.t.loads.find((l) => l.id === loadId);
+    if (!row || row.status !== 'running') return false;
+    this.world.history.push(`total:${loadId}`);
+    row.total = total;
+    return true;
+  }
+
+  /** A conditional UPDATE on `status = 'running'`. */
+  async renewHeartbeat(loadId: number, at: Date): Promise<boolean> {
+    const row = this.t.loads.find((l) => l.id === loadId);
+    if (!row || row.status !== 'running') return false;
+    this.world.history.push(`heartbeat:${loadId}`);
+    row.heartbeatAt = at;
+    return true;
+  }
+
   /** The only update a membership gets: `ended_at` and `end_reason`, on rows still active; `active_key` goes NULL. */
   async endMemberships(
     ids: readonly number[],
@@ -586,6 +604,20 @@ export class TransactionalLoadsStore extends InMemoryLoadsStore {
     return this.statement(
       { current: true, locks: [[`timeline_loads:${loadId}`, 'X']] },
       () => super.recordProgress(loadId, values),
+    );
+  }
+
+  override setTotal(loadId: number, total: number) {
+    return this.statement(
+      { current: true, locks: [[`timeline_loads:${loadId}`, 'X']] },
+      () => super.setTotal(loadId, total),
+    );
+  }
+
+  override renewHeartbeat(loadId: number, at: Date) {
+    return this.statement(
+      { current: true, locks: [[`timeline_loads:${loadId}`, 'X']] },
+      () => super.renewHeartbeat(loadId, at),
     );
   }
 
