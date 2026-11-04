@@ -330,3 +330,47 @@ Leader adjudication: no owed item of T-2 and no blocker (assumptions-only) → n
 **Budget running totals:** tasks 6 / 11 · production LOC ≈ 2,323 + 22 ≈ 2,345 of ≈ 4,500 · test LOC ≈ 4,822 + 25 ≈ 4,847 of ≈ 7,000 · review rounds 9 / 14. Not exceeded.
 
 **Final verification:** server command green (68 + 1 skipped files, 2,740 + 3 skipped tests).
+
+### T-7: `LoadsService`: preview, start and reads, plus the error codes — PASS (attempt 1)
+- **Final status:** PASS on attempt 1 (date 2026-11-04). Implementer attempts: 1. continuations: 1 (FR-2 "Safe retry" test).
+- Effort: **high** instead of the default medium — several concerns at once (full paging, chunked membership reads, KP details in the preview, refusal mapping, run-after-commit). Skills: nestjs-expert, api-design-principles, error-handling-patterns (task list, unchanged).
+- Files changed:
+  - new `server/src/ingestion/loads.service.ts` (552), `server/src/ingestion/loads.errors.ts` (30), `server/src/ingestion/loads.service.spec.ts` (1,117; 37 tests)
+  - `server/src/common/error-codes.ts` (+13: `LOADS_WINDOW_CLOSED` 409, `LOADS_ALREADY_RUNNING` 409, `LOADS_NOT_FOUND` 404), `server/src/common/error-codes.spec.ts` (+50)
+  - `server/src/ingestion/kp-classifier.ts` (1 line: export `KP_TYPE_KEY`; this spec's own T-4 file, Reviewer ruled acceptable)
+- Implementer verification: `cd server && pnpm lint && pnpm build && pnpm test --reporter=dot` → exit 0, `Test Files 69 passed | 1 skipped (70)`, `Tests 2785 passed | 3 skipped (2788)`; consumer `error-codes.spec.ts` 148 passed.
+- Red runs (greenfield, observed here; each reverted):
+  - F1 (preview stops after page 1; fixture 200 + 200 + 20, collisions on page 3: 10 in U, 2 already in T, 1 in a timeline whose last step closed): `AssertionError: expected { phaseYear: 2026, …(4) } to deeply equal …` — expected `total` 408, received 200; skipped expected U:10 / T:2, received `[]`; `Tests 1 failed | 34 passed (35)`.
+  - F2 (`runner.run(1)` before the unit of work): 6 red, e.g. `expected [ { loadId: 1, committed: +0, …(1) } ] to deeply equal [ { loadId: 1, committed: 1, …(1) } ]`.
+- Continuation 1 (owed item, Reviewer advisory: no test set `ctx.idempotency`): +2 tests — `carries the request key to the unit of work: the key is marked executed with the load id, in the same commit as the load row`; `a second start with the same key ends with one load, and the key still points at the first`. Falsifier (drop the `reservation` forward): `Tests 2 failed | 35 passed (37)`, `expected { … } to match object { state: 'executed', targetUserId: 1 }` (got `in_progress` / `null`). Reverted. Test-only addition after the PASS; no production change.
+- Evidence re-run (Leader-inline, non-author): **VERIFIED** — after attempt 1: lint OK, build OK, `Test Files 69 passed | 1 skipped (70)`, `Tests 2785 passed | 3 skipped (2788)`; after continuation 1: `Tests 2787 passed | 3 skipped (2790)`; `reservation:` forward present.
+- Review intensity: task `Review` = checklist; Consumers ≠ none → conformance Reviewer ran.
+- Reviewer verdict: **PASS** (lens checklist). FR-1/FR-2/FR-9/FR-10, § 6, § 7.1, § 7.2, DD-13 met; both falsifiers trace through the fixture; write counter wired to `world.history`; `transactions.begun === 0` for preview and failed probe; probe `page 1, pageSize 1` after the 404 and before `unitOfWork.start`; no duplication of unit-of-work steps; logs ids/codes only; DD-9 holds. Rulings: (1) non-401 4xx `rejected` → 500 conformant (§ 6 names 5xx/timeout/401 only); (2) a `notEligible` KP as a preview skip with Reporting's reason acceptable (FR-1 list is a floor); (3) 1213 → `LOADS_ALREADY_RUNNING` advisory; (4) runner throw caught, still 202, conformant with § 7.2.3; (5) `LOAD_RUNNER` / `LoadRunnerPort` in `loads.service.ts` acceptable; (6) unspecified nested field names stand; lease applied via `effectiveLoadStatus`; (7) `kp-classifier.ts` export acceptable; (8) summary with program ids only conformant.
+- runtime events: none
+- spawns: implementer 47 calls, 223,498 tokens, ended partial (assumptions-only); implementer continuation 5 calls, 229,713 tokens (cumulative, resumed context), ended complete; reviewer 13 calls, 74,672 tokens, ended complete (PASS)
+
+**Not Done / Assumptions (Implementer, verbatim)**
+> - The preview also lists a KP that Details reports as `notEligible` as a skip, under the reason Reporting gives, so the preview matches what the run will do. FR-1 names only two reasons, so this goes beyond it.
+> - The loop that reads every feed page is private to the service. T-8 needs the same logic and should extract or copy it.
+> - The detail `summary` has no program `code` (only `programId`), because the stored summary keeps ids only.
+> - An e2e run was not needed: there is no HTTP surface yet (T-9).
+
+Leader adjudication: assumptions-only, no owed item from this field; the Reviewer ruled on items 1 and 3. The owed item that did exist (Safe retry test) came from the Reviewer advisory against the task's Requirements list and was closed by continuation 1.
+
+**ADVISORY (4R, not gating)**
+- RISK: 1213 can also come from a concurrent timeline edit (DD-7); `LOADS_ALREADY_RUNNING` then names a load that may not exist. Accepted for now; candidate: a retryable 409/503.
+- RELIABILITY: `LoadRunnerPort.run` returns `void`; an `async` T-8 runner's rejection would escape the sync `try/catch` — **forward pointer → T-8**: keep `run` sync or attach `.catch` inside it.
+- READABILITY: a runner throw writes two `ingestion` lines (`runner_error` + `ok`); § 7.8 says one per request.
+- READABILITY (spec drift): FR-12 says "one `admin_config` log line"; design § 7.8 says `ingestion`. Code follows the design — fix FR-12 at close-out.
+- READABILITY: non-KP ineligibles surface only in the run, so preview and run counts can differ — **forward pointer → T-11** (`front-contract.md` line).
+- READABILITY: preview `byProgram` carries `code`, the detail summary does not.
+- READABILITY: `lockCycleShared` called on the pool just to read the cycle; a plain `findCycle` would say what is meant.
+
+**Forward pointers (to carry into later briefs):**
+- T-8: import `LOAD_RUNNER` / `LoadRunnerPort` from `loads.service.ts`; keep `run` sync (or `.catch` internally); the full-paging loop is private to `LoadsService` — extract or reuse, do not diverge.
+- T-9: the HTTP test must prove the `Idempotency-Key` replay (same load id twice, one load).
+- T-11: `front-contract.md` — preview vs run count difference for non-KP ineligibles; `rejected` 4xx surfaces as 500.
+
+**Budget running totals:** tasks 7 / 11 · production LOC ≈ 2,345 + 596 ≈ 2,941 of ≈ 4,500 · test LOC ≈ 4,847 + 1,167 ≈ 6,014 of ≈ 7,000 (86 %, with T-8, T-9, T-10 still to write — likely overrun, flagged at the T-7 gate) · review rounds 10 / 14. Not exceeded.
+
+**Final verification:** server command green (69 + 1 skipped files, 2,787 + 3 skipped tests).

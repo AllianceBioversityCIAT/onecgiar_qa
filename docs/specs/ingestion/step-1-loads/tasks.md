@@ -213,7 +213,7 @@ T-6 ─────────────┘
 - **Skills:** nestjs-expert
 
 ## T-7: `LoadsService`: preview, start and reads, plus the error codes
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-1, T-4, T-5
 - **Requirements:**

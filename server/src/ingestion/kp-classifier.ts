@@ -38,7 +38,7 @@ export const KP_RULE_KEYS = [
   'knowledge_product.accessibility_wos',
 ] as const;
 
-const KP_TYPE_KEY = 'knowledge_product';
+export const KP_TYPE_KEY = 'knowledge_product';
 const JOURNAL_ARTICLE = 'journal article';
 
 /** A year from a number (`2025`) or a date string (`2025-03-01`); null otherwise. */
