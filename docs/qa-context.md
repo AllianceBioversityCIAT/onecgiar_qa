@@ -1,49 +1,62 @@
-# Contexto de QA — memoria compartida del equipo
+# QA context — the team's shared memory
 
-> Lo vigente, no la historia. Cada dato con fuente y fecha. Lo dudoso va a *Preguntas abiertas*.
-> 🛑 Sin contraseñas, tokens, usuarios ni datos personales (reglas en `CLAUDE.md` § 5).
+> What holds now, not the history. Every fact with its source and date. Anything doubtful goes to *Open questions*.
+> 🛑 No passwords, tokens, user names or personal data (rules in `CLAUDE.md` § 5).
 
-## Qué es
-- Plataforma nueva de **Quality Assurance (QA)** para los resultados que se reportan en PRMS (Reporting Tool), hecha desde cero en el Q4 2026. *(Yeck, 5-oct-2026)*
-- Reemplaza la app de QA actual (`qa.cgiar.org`), que hoy PRMS solo muestra dentro de un iframe, sin intercambio de datos. *(Yeck, 5-oct-2026)*
-- Equipo: Yeck (front), Juanda (back), Juanpa (diseño), Santi (negocio de QA). *(Yeck, 6-oct-2026)*
+## What it is
+- A new **Quality Assurance (QA)** platform for the results reported in PRMS (Reporting Tool), built from scratch in Q4 2026. *(Yeck, 2026-10-05)*
+- It replaces the current QA app (`qa.cgiar.org`), which PRMS today only shows inside an iframe, with no data exchange. *(Yeck, 2026-10-05)*
+- Team: Yeck (front), Juanda (back), Juanpa (design), Santi (QA business). *(Yeck, 2026-10-06)*
 
-## Flujo de QA (por cada resultado)
-1. **Assessor** revisa cada campo: lo aprueba o comenta qué cambiar.
-2. **Miembro del programa (SP)** acepta o rechaza cada comentario; si acepta, corrige en Reporting Tool.
-3. **Lead assessor** revisa los comentarios rechazados y los marca como *highlighted*.
-4. **Third-party broker (TPB)** decide cada campo resaltado.
-5. **PPU** aplica en Reporting Tool la corrección acordada.
+## QA flow (per result)
+1. **Assessor** reviews each field: approves it or comments what to change.
+2. **Program member (SP)** accepts or rejects each comment; when accepting, corrects it in the Reporting Tool.
+3. **Lead assessor** reviews the rejected comments and marks them *highlighted*.
+4. **Third-party broker (TPB)** decides each highlighted field.
+5. **PPU** applies the agreed correction in the Reporting Tool.
 
-*(Santi, 30-sep-2026)*
+*(Santi, 2026-09-30)*
 
-## Roles de la plataforma
-- **QA lead / coordinación** — abre y cierra fases, arma batches, asigna assessors.
-- **Assessor** · **Lead assessor** · **Third-party broker** · **PPU** — ver flujo arriba.
-*(mockup de Juanpa, 5-oct-2026)*
+## Knowledge Products (KPs)
+When a load brings results into step 1, each KP falls into one of three groups (the 2025 rule):
 
-## Lo que pide la coordinación
-- Abrir y cerrar fases sin depender del equipo técnico.
-- Batches y mini-batches con timelines; cada programa avanza a su ritmo.
-- Segunda ronda (round 2) confiable; aporte de IA automático; varios procesos en paralelo.
-*(Jira Discovery NOST-451, 5-oct-2026)*
-- Todo se configura desde QA, sobre la **fase activa**. No hace falta consultar fases de años pasados desde QA. *(Ángel, 21-oct-2026)*
-- Cada timeline (la oficial y las sub-timelines) tiene sus propias etapas; no todas tienen las mismas. *(Juanpa, 21-oct-2026)*
+| Group | Rule | In QA | In Reporting |
+|---|---|---|---|
+| Not in QA | Not MELIA and type ≠ Journal Article | Not assessed | Released as `qaed` right after the load |
+| Auto-validated | Journal Article whose CGSpace and WoS data match (year, ISI, peer reviewed, accessibility) | "Auto-validated", not assessed | Released as `qaed` right after the load |
+| Any other KP | — | "Pending", **assessed in step 1 like any other result** | Stays In QA until reviewed |
 
-## Pantallas del mockup
-Overview · Results (+ detalle por campo con "AI match") · Cycle (fases + batches) · Fields (configuración por tipo de resultado) · Assessors. *(mockup de Juanpa, 5-oct-2026)*
+- KPs to review do **not** wait for step 3. Ticket P2-3905 AC13 and P2-3906 AC6 said the opposite; both were corrected by comment. *(Juanda, back lead, 2026-11-04; Angel to confirm on Jira)*
+- Taking a result into QA ("intake") locks it In QA in Reporting: its program can no longer edit or unsubmit it until QA releases it. *(Reporting contract v1.29; step-1-loads spec, 2026-11-04)*
 
-## Glosario
-- **Resultado**: lo que un programa reporta en PRMS y pasa por QA.
-- **Batch / mini-batch**: grupo de resultados que entra a QA junto.
-- **Fase / ciclo**: periodo de QA que la coordinación abre y cierra.
-- **Highlighted**: campo en desacuerdo que sube al broker.
+## Platform roles
+- **QA lead / coordination** — opens and closes phases, builds batches, assigns assessors.
+- **Assessor** · **Lead assessor** · **Third-party broker** · **PPU** — see the flow above.
+*(Juanpa's mockup, 2026-10-05)*
 
-## Preguntas abiertas (no asumir respuesta)
-- No hay pantalla para el miembro del programa (SP) en el mockup.
-- Solo se modela la sincronización Reporting → QA; la vuelta (PPU corrige) falta.
-- ¿Un usuario puede tener varios roles? El mockup asume uno.
-- ¿Módulo dentro de Reporting Tool o plataforma independiente?
-- El "AI match" del mockup no es igual al aporte de IA que existe hoy.
-- Al pasar al año siguiente (2027), ¿se crea una fase nueva o se reconfigura la activa (nombre y fechas de la timeline oficial)?
-- ¿Cómo llama negocio al ciclo atado a un año de reporte ("cycle", "phase", "Annual report 2026") y quién le pone el nombre? ¿Sirven "Official timeline" y "Sub-timelines"? (Pregunta a Ángel, 21-oct-2026.)
+## What coordination asks for
+- Open and close phases without depending on the technical team.
+- Batches and mini-batches with timelines; each program moves at its own pace.
+- A reliable second round (round 2); automatic AI input; several processes in parallel.
+*(Jira Discovery NOST-451, 2026-10-05)*
+- Everything is configured from QA, on the **active phase**. There is no need to look at past years' phases from QA. *(Angel, 2026-10-21)*
+- Each timeline (the official one and the sub-timelines) has its own steps; not all of them have the same ones. *(Juanpa, 2026-10-21)*
+
+## Mockup screens
+Overview · Results (+ per-field detail with "AI match") · Cycle (phases + batches) · Fields (configuration per result type) · Assessors. *(Juanpa's mockup, 2026-10-05)*
+
+## Glossary
+- **Result**: what a program reports in PRMS and goes through QA.
+- **Batch / mini-batch**: a group of results that enters QA together.
+- **Phase / cycle**: a QA period that coordination opens and closes.
+- **Highlighted**: a field in disagreement that goes up to the broker.
+
+## Open questions (do not assume an answer)
+- There is no screen for the program member (SP) in the mockup.
+- Only the Reporting → QA sync is modeled; the way back (PPU corrects) is missing.
+- Can a user have several roles? The mockup assumes one.
+- A module inside the Reporting Tool, or a standalone platform?
+- The mockup's "AI match" is not the same as the AI input that exists today.
+- When moving to the next year (2027), is a new phase created, or is the active one reconfigured (name and dates of the official timeline)?
+- What does the business call the cycle tied to a reporting year ("cycle", "phase", "Annual report 2026"), and who names it? Do "Official timeline" and "Sub-timelines" work? (Question for Angel, 2026-10-21.)
+- Releasing "Not in QA" KPs as `qaed` makes Reporting show them as Quality Assessed although QA never looked at them. Is that the wanted meaning, or should they go as `not_qaed`? (For Angel, 2026-11-04.)

@@ -26,7 +26,7 @@ const AUTO = {
   kpGroup: 'auto_checked',
   awaitsStep: null,
 };
-const REVIEW = { status: 'pending', kpGroup: 'review', awaitsStep: 3 };
+const REVIEW = { status: 'pending', kpGroup: 'review', awaitsStep: null };
 const NOT_IN_QA = {
   status: 'not_in_qa',
   kpGroup: 'not_in_qa',

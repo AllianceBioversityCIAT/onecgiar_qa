@@ -13,7 +13,7 @@ Step-1 loads: the ADMIN brings the eligible results of Reporting into one timeli
 | `ingestion.module.ts` | Wires the module (see *Bindings* below) |
 | `loads.controller.ts` | 4 routes (`GET .../loads/preview`, `POST .../loads` `@Idempotent()` 202, `GET .../loads`, `GET .../loads/:loadId`). `ADMIN_ACCESS` at class level; `preview` is declared before `:loadId` so the literal wins |
 | `loads.service.ts` | `preview`, `start`, `list`, `get`; one `ingestion` log line per request; the `LOAD_RUNNER` port the start fires after the commit |
-| `load-runner.ts` | The run: lots of 50, 3 attempts with 1 s then 4 s waits (±20 %), heartbeat every 60 s, catalog-version check with one forced refresh, the KP release port (`KP_RELEASE_ENABLED = false`) |
+| `load-runner.ts` | The run: lots of 50, 3 attempts with 1 s then 4 s waits (±20 %), heartbeat every 60 s, catalog-version check with one forced refresh, the KP release port (`KP_RELEASE_ENABLED = true`) |
 | `load-rules.ts` | Pure: `LOAD_LEASE_MS` (5 min), `loadWindow`, `effectiveLoadStatus`, `membershipEnds`, `skipVerdict`, `mergeSummary` |
 | `kp-classifier.ts` | `KP_RULES` port and `DEFAULT_KP_RULES` (the 2025 Knowledge Product rule, three groups) |
 | `loads.store.ts`, `loads.unit-of-work.ts` | Port and Drizzle adapter; one READ COMMITTED transaction per write (start, lot, end) |
@@ -43,7 +43,8 @@ The other direction: `admin-config/timelines` reads the ingestion tables through
 - **Retries:** only a 5xx, a timeout, a network or store error is retried (3 attempts). A 401 is `REPORTING_UNAUTHORIZED`, any other 4xx `REPORTING_REJECTED`, immediately. Failure reasons are the closed list `REPORTING_UNAUTHORIZED`, `REPORTING_REJECTED`, `REPORTING_UNAVAILABLE`, `CATALOG_VERSION_MISMATCH`, `STORE_UNAVAILABLE`, `ABANDONED`, `INTERNAL`.
 - **At preview and start, a non-401 Reporting 4xx is left to surface as 500** (our defect, not an outage); 5xx, timeout, network and 401 are 503. In the run it is `REPORTING_REJECTED`.
 - **Snapshots are written once** with `attribute_not_exists(pk)`: the same hash on a retry is success, a different hash fails the load as `INTERNAL`. `loadedAt` is the load's `started_at`, so a retry writes identical content.
-- **KP release is off** (`KP_RELEASE_ENABLED = false`, FR-14, S-8): nothing calls `release`. A test turns it on through `KP_RELEASE_SETTING`.
+- **KP release is on** (`KP_RELEASE_ENABLED = true`, FR-14, S-8, since 2026-11-04): after the lots, a completed load releases its `not_in_qa` and `auto_validated` KPs as `qaed`. A test turns it off through `KP_RELEASE_SETTING`.
+- **A KP to review is assessed in step 1** (S-9 corrected 2026-11-04): `pending`, `awaits_step` always null. The column stays in `0007`, unused.
 - **No PII in logs (NFR-7).** One `event: 'ingestion'` line per request (`route`, `timelineId` or `loadId`, `outcome`, `reason?`): ids and fixed words only, never a result title, name, body, URL or header. `FeedError` messages are fixed text.
 - **Audit:** `timeline_audit_events` gets a `load_start` row in the start's transaction and a `load_end` row when the load ends; append-only, no PII.
 - **Typed errors from the catalog.** New codes go in `common/error-codes.ts` and, for the front, in `front-contract.md` (section 7). A code in `loads.errors.ts` missing from the contract is a review failure.

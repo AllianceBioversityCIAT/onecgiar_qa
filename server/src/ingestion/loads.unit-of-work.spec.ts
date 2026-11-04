@@ -1092,7 +1092,7 @@ describe('the lot, the end and the end of expired memberships over a stub MySQL 
           : attempt === 2
             ? duplicate('timeline_results.uq_timeline_results_timeline_code')
             : undefined,
-      memberships: [[7, 5120, 12, null]],
+      memberships: [[7, 5120, 9120, 'pending', 12, null]],
       lastSteps: [[12, 'August 2026', '2026-12-18 17:30:00']],
     });
 
@@ -1273,6 +1273,8 @@ describe('the lot, the end and the end of expired memberships over a stub MySQL 
         {
           id: 7,
           resultCode: 5120,
+          resultId: 9120,
+          status: 'pending',
           timelineId: 12,
           timelineName: 'August 2026',
           endedAt: null,
@@ -1281,6 +1283,8 @@ describe('the lot, the end and the end of expired memberships over a stub MySQL 
         {
           id: 8,
           resultCode: 5121,
+          resultId: 9121,
+          status: 'pending',
           timelineId: 12,
           timelineName: 'August 2026',
           endedAt: null,
@@ -1321,8 +1325,8 @@ describe('LoadsStore reads over a stub MySQL driver (design 7.1 step 3, FR-10)',
   it('memberships by codes: IN is chunked by 500, a repeated code is asked once, and the names and last steps come in one more statement', async () => {
     const { store, log } = stub({
       memberships: [
-        [8, 5121, 12, null],
-        [7, 5120, 12, '2026-11-09 08:00:00'],
+        [8, 5121, 9121, 'auto_validated', 12, null],
+        [7, 5120, 9120, 'pending', 12, '2026-11-09 08:00:00'],
       ],
       lastSteps: [[12, 'August 2026', '2026-12-18 17:30:00']],
     });
@@ -1343,6 +1347,8 @@ describe('LoadsStore reads over a stub MySQL driver (design 7.1 step 3, FR-10)',
       {
         id: 7,
         resultCode: 5120,
+        resultId: 9120,
+        status: 'pending',
         timelineId: 12,
         timelineName: 'August 2026',
         endedAt: new Date('2026-11-09T08:00:00.000Z'),
@@ -1351,6 +1357,8 @@ describe('LoadsStore reads over a stub MySQL driver (design 7.1 step 3, FR-10)',
       {
         id: 8,
         resultCode: 5121,
+        resultId: 9121,
+        status: 'auto_validated',
         timelineId: 12,
         timelineName: 'August 2026',
         endedAt: null,
@@ -2698,6 +2706,8 @@ describe('LoadsStore reads over the in-memory world', () => {
       {
         id: 1,
         resultCode: 5120,
+        resultId: 6120,
+        status: 'pending',
         timelineId: 12,
         timelineName: 'August 2026',
         endedAt: null,

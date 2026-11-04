@@ -68,7 +68,7 @@ A result can come back to QA in a **later** timeline of the same cycle, or in a 
 
 ## 6. Non-Goals
 
-- Step-3 loads (P2-3906), and the move of a KP into step 3.
+- Step-3 loads (P2-3906). (A KP no longer moves into step 3 as a group: corrected 2026-11-04, see § 12.1.)
 - Releasing results after review (`qaed` / `not_qaed` as part of the QA flow): another spec.
 - The **evolution screen** (comparing snapshots of one `result_code`): worklist or detail (P2-3909). This spec only stores snapshots so that history can be read.
 - Migrating the history of the old QA (2025 and earlier). The feed serves 2026 only (contract *Known gaps* 4).
@@ -216,11 +216,11 @@ The three groups stay behind their own port. Source: the old QA, `CGIAR/QA/serve
 |---|---|---|
 | **Not in QA** | Not MELIA **and** type ≠ `Journal Article` | Not reviewed. Kept as a light row, so totals stay stable. Shown as a total in the preview and the summary |
 | **Auto-checked** | `Journal Article` **and** CGSpace year = WoS year **and** ISI = 1 in both **and** peer reviewed = 1 in both **and** accessibility equal in both. A MELIA journal article that meets this counts too | `auto_validated`, with a snapshot |
-| **Review** | Any other KP | `pending`, not assessable in step 1, goes to the Lead in step 3 (AC13) |
+| **Review** | Any other KP | `pending`, assessed in step 1 like any result (corrected 2026-11-04 by the back lead; AC13 said step 3) |
 
 What changes in this revision:
 - `qaed` requires a prior intake. So "not in QA" and auto-checked KPs are intaken as well.
-- QA closing them in Reporting with release `qaed` (Q9) sits behind an **inactive port** until Angel confirms (R-13).
+- QA closes them in Reporting with release `qaed` (Q9) after each load: **on** since 2026-11-04 (back lead), which settles R-13.
 
 Feed keys, all `knowledge_product.*` and none person-bearing:
 - `is_melia`, `type`
