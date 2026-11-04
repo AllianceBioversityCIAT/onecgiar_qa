@@ -5,7 +5,7 @@
 | Spec path | `docs/specs/ingestion/step-1-loads` |
 | Branch | `feat/step-1-loads` (from `origin/staging` @ `7163227`) |
 | Commits | `[SPEC:ingestion/step-1-loads] <emoji> <type>(ingestion) P2-3905: …` |
-| Budget (design § 10) | 11 build tasks + 1 HITL · ≈ 1,450 production LOC + ≈ 1,800 test LOC · ≈ 14 review rounds. Tripwire: stop and escalate when exceeded |
+| Budget (design § 10) | 11 build tasks + 1 HITL · ≈ 3,200 production LOC + ≈ 3,800 test LOC (re-estimated 2026-11-04 at the T-4 gate; was 1,450 + 1,800) · ≈ 14 review rounds. Tripwire: stop and escalate when exceeded |
 | Verification (server) | `cd server && pnpm lint && pnpm build && pnpm test --reporter=dot`; plus `pnpm test:e2e --reporter=dot` where stated |
 | PRs | 3 PRs. **PR 1**: T-1 … T-6 (persistence, ports, pure rules). **PR 2**: T-7 … T-9 (service, runner, routes). **PR 3**: T-10, T-11 (edit binding, docs) |
 | Open at execution | S-10 (Q3) taken at its default: snapshots keep **every** key (no `field_keys`). An overrule before T-8 changes one constant; after real loads, it needs a rewrite of snapshots |
@@ -146,12 +146,12 @@ T-6 ─────────────┘
   - Lease: 4:59 → alive; 5:01 → `ABANDONED`.
   - Membership end: last step closed one minute ago → ends; closes this minute → active.
   - Skip reasons: every combination.
-  - KP: the § 12.1 table, a MELIA journal article that passes, accessibility `"Open Access"` vs `"open access "`, a null on each of the 5 pairs, a missing key, type `"journal article"`, a non-KP.
+  - KP: the § 12.1 table, a MELIA journal article that passes, accessibility `"Open Access"` vs `"open access "`, a null on each side of the 4 pairs (amended 2026-11-04, was "5 pairs"), a missing key, type `"journal article"`, a non-KP.
   - Summary merge is associative.
 - **Verification:** server command.
 - **Falsifier:**
   - Compare accessibility with `===`: the `"Open Access"`/`"open access "` row goes red (expected `auto_checked`).
-  - Make a null equal to a null: the WoS-year-null row goes red (expected `review`).
+  - Make a null equal to a null: the two-null-years row goes red (expected `review`); a single null against a year is unequal either way (amended 2026-11-04 after the T-4 red run).
   - Use `<` for the window: the 17:30 row goes red.
 - **Red run:** predicted — greenfield artifact (observed in T-4)
 - **Disqualifier:** expected values derived by calling the function under test. Every value is written out.

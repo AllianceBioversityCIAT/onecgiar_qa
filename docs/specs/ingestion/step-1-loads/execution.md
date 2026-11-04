@@ -202,3 +202,8 @@ Leader adjudication: no owed item of T-2 and no blocker (assumptions-only) → n
 **Budget running totals:** tasks 4 / 11 · production LOC ≈ 932 + 276 ≈ 1,208 of ≈ 1,450 (83 %; rules & classifier estimated 120, ran 276) · test LOC ≈ 1,022 + 414 ≈ 1,436 of ≈ 1,800 · review rounds 4 / 14. **Not yet exceeded**, but T-5 (size L) alone will cross the production LOC line — flagged to the user at this gate.
 
 **Final verification:** `cd server && pnpm lint && pnpm build && pnpm test --reporter=dot` → green (67 + 1 skipped files, 2,633 + 3 skipped tests).
+
+## Gate after T-4 — spec amendments approved by the back lead (2026-11-04)
+- **KP key count (spec tension from the T-4 review):** design § 7.1 step 4 and § 7.5, proposal R-9 ("9 keys") → "the 10 keys listed in proposal § 12.1"; tasks.md T-4 Tests ("5 pairs" → "each side of the 4 pairs") and Falsifier 2 (→ "the two-null-years row goes red"). User answer: "Sí, corrige a 10". Meaning of the rule unchanged. Carried as a named conformance check into the next Reviewer brief.
+- **Budget re-estimate (tripwire pre-empted, not fired):** production LOC ≈ 1,450 → ≈ 3,200; test LOC ≈ 1,800 → ≈ 3,800 (design § 10, tasks.md header). Basis: T-1…T-4 ran ≈ 1,208 vs 630 estimated (× 1.9); the loads store and unit of work (T-5) had no budget line. User answer: "Re-estimar y seguir". Review rounds stay 14. The tripwire now compares against the new figures.
+- Correction sweep (forward): `grep "1,450|1,800|9 keys|9 rule|5 pairs"` over the spec folder → no surviving stale value outside the amended lines and this log.

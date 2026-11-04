@@ -171,7 +171,7 @@ Notes:
    - any membership in this timeline → `ALREADY_IN_THIS_TIMELINE`;
    - a `result_code` listed twice → `DUPLICATE_RESULT_CODE` (P-1 guard, DD-11);
    - otherwise → to load.
-4. For KPs to load, call details in lots of 50, with `field_keys` = the 9 KP rule keys (R-9). Then classify them (§ 7.5).
+4. For KPs to load, call details in lots of 50, with `field_keys` = the 10 KP rule keys listed in proposal § 12.1 (R-9; amended 2026-11-04, was "9"). Then classify them (§ 7.5).
 
 ### 7.2 Start (`LoadsService.start`)
 
@@ -213,7 +213,7 @@ Notes:
 
 ### 7.5 KP rule (`kp-classifier.ts`, port `KP_RULES`)
 
-This is the 2025 rule of proposal § 12.1, as a pure function over the 9 keys.
+This is the 2025 rule of proposal § 12.1, as a pure function over the 10 keys listed there (`is_melia`, `type` and 4 CG/WoS pairs; amended 2026-11-04, was "9").
 
 Comparisons:
 - Years: compare the year part of `issue_date_cg` and `issue_date_wos`.
@@ -287,8 +287,8 @@ None in this spec. `front-contract.md` gives Yeck the four routes, the states (`
 | Measure | Estimate |
 |---|---|
 | Tasks | 11 (+ 1 T-HITL) |
-| Production LOC | ≈ 1,450 (adapter 200, migration and schema 160, entity and store 150, runner 320, service 250, controller and DTOs 200, rules and classifier 120, port binding 50) |
-| Test LOC | ≈ 1,800 |
+| Production LOC | ≈ 3,200 — re-estimated 2026-11-04 at the T-4 gate, approved by the back lead ("Re-estimar y seguir"). Was ≈ 1,450 (adapter 200, migration and schema 160, entity and store 150, runner 320, service 250, controller and DTOs 200, rules and classifier 120, port binding 50; the loads store and unit of work had no line). T-1…T-4 ran ≈ 1,208 against 630 estimated (× 1.9); the rest re-scaled at × 1.9 plus ≈ 400 for T-5 |
+| Test LOC | ≈ 3,800 — re-estimated 2026-11-04 (was ≈ 1,800; T-1…T-4 ran ≈ 1,436) |
 | Review rounds | 14 (1 per task, plus 3 margin for the runner, the migration and the e2e) |
 
 It is above the proposal's 900-LOC split line. Recommendation: **keep one spec and ship 3 PRs**:

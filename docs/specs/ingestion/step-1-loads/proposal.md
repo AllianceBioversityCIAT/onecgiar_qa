@@ -202,7 +202,7 @@ Depth: **Standard**, one spec. Preview, run and port swap share the same tables 
 | R-6 | PRD US-4 asks to validate payloads against the catalog; the brief leaves it to Reporting | Out of scope; the PRD edit says so. Confirm with Angel |
 | R-7 | Migration `0007` runs on the shared dev DB on push to `dev` | Additive only; the T-HITL plan states what the checks leave (KZ-admin-config--cycle-timelines-3) |
 | R-8 | Unknown batch size (PRD OQ-6) | Preview pages at 200; progress per lot; time measured on dev |
-| R-9 | The KP groups need `details`, but the preview only reads the list | The preview calls `details` for KPs only, narrowed to the 9 rule keys |
+| R-9 | The KP groups need `details`, but the preview only reads the list | The preview calls `details` for KPs only, narrowed to the 10 rule keys of § 12.1 (amended 2026-11-04, was "9") |
 | R-10 | DynamoDB item limit: 400 KB | Measure the size of `values` on dev with a real lot at specify. If it gets close, gzip or split the item (design decision) |
 | R-11 | The table or the IAM access is missing in TEST/PROD | Verify at specify. If missing, ask infrastructure; it blocks the T-HITL, not the build |
 | R-12 | A lot can fail **after** intake. Those results are then In QA in Reporting, with no row in QA, and their programs cannot unsubmit them | A re-run picks them up (`changed: false`). Design decides whether a load that ends `failed` releases them, or leaves them for the re-run |
