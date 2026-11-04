@@ -5,11 +5,10 @@
 #
 # The legacy all-in-one job qa-application-2026-dev (devops PIPES/PRMS/V2/QA-2026/dev-complete/Jenkinsfile) is NOT
 # used by this workflow; jenkins-trigger.yml no longer starts it on push to dev (cutover). It stays available for
-# manual recovery (workflow_dispatch of jenkins-trigger.yml from dev, or Jenkins). While `dry-run` is true no job
-# deploys DEV automatically.
-# `dry-run` of the Jenkins hand-over (job `deploy` below): true = qa-application-2026-dev-cd validates the request,
-# the ECR images and the server over SSH WITHOUT changing anything; false = real deploy (it also needs
-# REAL_DEPLOY_AUTHORIZED = true in the Jenkinsfile).
+# manual recovery (workflow_dispatch of jenkins-trigger.yml from dev, or Jenkins).
+# `dry-run` of the Jenkins hand-over (job `deploy` below) is false: qa-application-2026-dev-cd deploys the three
+# digests to the TEST server (it also needs REAL_DEPLOY_AUTHORIZED = true in the Jenkinsfile). true = the job only
+# validates the request, the ECR images and the server over SSH WITHOUT changing anything.
 #
 # Triggers: push to dev only, and workflow_dispatch (manual; GitHub offers it only once the workflow file is on the
 # default branch). Both run the full CI/CD:
@@ -307,7 +306,7 @@ jobs:
     with:
       jenkins-job: qa-application-2026-dev-cd
       environment: qa-dev
-      dry-run: true # validation only until the owner authorizes the real deploy (cutover)
+      dry-run: false # real deploy (owner decision 2026-11-04); true = validation only
       artifacts: >-
         backend=${{ needs.publish-images.outputs.backend-digest }}
         migrate=${{ needs.publish-images.outputs.migrate-digest }}
