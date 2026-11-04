@@ -98,7 +98,7 @@ T-6 ─────────────┘
 - **Skills:** nestjs-expert, nestjs-best-practices
 
 ## T-3: `ResultSnapshot` ElectroDB entity and the `SNAPSHOT_STORE` port
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** none
 - **Requirements:**

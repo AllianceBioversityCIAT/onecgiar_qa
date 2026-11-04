@@ -110,3 +110,54 @@ Leader adjudication: no owed item of T-2 and no blocker (assumptions-only) → n
 - Child guide stale: `server/src/database/AGENTS.md` — migration list stops at `0006`; `0003` note says `timeline_loads`/`timeline_results` are not created; audit action described as `update` only. Not named in any T-n scope → for `/akili-archive` (or the user to add it to a task).
 - Parent `## Module Guides` index: no new entry needed (database guide already indexed).
 - CodeGraph: not initialized — no re-index pending.
+
+### T-3: `ResultSnapshot` ElectroDB entity and the `SNAPSHOT_STORE` port
+
+- **Final status:** PASS
+- **Date:** 2026-11-04
+- **Implementer attempts:** 1
+- **Requirements covered:** FR-6 "Retry of a lot" (same key + same hash → one item, success; different hash → `SnapshotConflictError`), FR-6 "History" (one Query per pk, sk order: year, cycle, timeline, load), NFR-7 (gzip above 256 KB)
+
+**Attempt 1**
+- Files changed (all new):
+  - `server/src/database/dynamodb/entities/result-snapshot.entity.ts` (entity, `snapshotSortSuffix` key builder, `createResultSnapshotEntity`)
+  - `server/src/ingestion/snapshot-store.port.ts` (`SNAPSHOT_STORE`, `SnapshotStore`, `ResultSnapshotRecord`, `SnapshotConflictError`)
+  - `server/src/ingestion/dynamo-snapshot-store.ts`, `server/src/ingestion/dynamo-snapshot-store.spec.ts`, `server/src/ingestion/dynamo-snapshot-store.dynamo-local.spec.ts` (opt-in)
+  - `server/test/support/fake-snapshot-store.ts`, `server/test/support/fake-dynamodb-client.ts`
+- Implementer verification: `pnpm lint` clean; `pnpm build` OK; `pnpm test --reporter=dot` → `Test Files 65 passed | 1 skipped (66)`, `Tests 2561 passed | 3 skipped (2564)` (3 skipped = opt-in spec).
+- Red run (observed in T-3, mutations applied then reverted):
+  - Padding removed (`3 failed | 6 passed`): `AssertionError: expected '2026#1#2#10' to be '2026#000001#00000002#0000000010'`; history order red for both stores: `expected [ [ 2026, 10, 1 ], …(2) ] to deeply equal [ [ 2026, 2, 10 ], …(2) ]`.
+  - Condition failure always success (`1 failed | 8 passed`): `put with a different hash for the same key is an error`: `AssertionError: promise resolved "undefined" instead of rejecting`.
+- **Opt-in run — against the remote dev table, not DynamoDB Local.** Reason: Docker was off; the user (Juanda) chose on 2026-11-04: "Haz los test contra dynamo remoto, luego eliminamos la data, no problem". Guards: enabled only by `DYNAMODB_ENDPOINT` or `DYNAMODB_IT=remote`; throws before writing unless `DYNAMODB_TABLE_NAME === 'cgiar-qa-test'`; result codes `990000000 + random(0..9999)` (+ a second code 10,000 higher); `afterAll` deletes by exact pk/sk, re-queries both pks and throws if anything remains; no credential printed or written.
+  - Implementer run: command shape `set -a; . ./.env; set +a; DYNAMODB_IT=remote pnpm vitest run src/ingestion/dynamo-snapshot-store.dynamo-local.spec.ts` → 3/3 passed; `[dynamo-it] items written: 6; remaining after cleanup: 0` (5 distinct keys, one idempotent repeat).
+  - Leader re-run (same command): `Tests 3 passed (3)`; `[dynamo-it] items written: 6; remaining after cleanup: 0`. The dev table holds no test data from this task.
+  - A `dynamodb:Scan` attempt got `AccessDenied` (the dev IAM user lacks Scan); not retried with other credentials. Cleanup evidence is the per-pk re-query.
+- Evidence re-run (Leader-inline, non-author): **VERIFIED** — lint OK, build OK, `Test Files 65 passed | 1 skipped (66)`, `Tests 2561 passed | 3 skipped (2564)`; remote opt-in as above.
+- Reviewer verdict: **PASS** (checklist). Keys `RESULT#{code}` / `SNAP#{year}#{06}#{08}#{010}`; 14 attributes; `values` JSON string, `valuesGz` only above 256 KB; conditional put with hash read-back; history one paged Query, no GSI; port + adapter + fake with contract tests over both stores; disqualifier not triggered (2 vs 10 ids; opt-in actually ran); every guard of the user-approved remote run enforced.
+- runtime events: none
+- spawns: implementer 17 calls, 107,695 tokens, ended complete; reviewer 15 calls, 54,303 tokens, ended complete
+
+**ADVISORY (4R, not gating)**
+- RISK: the opt-in spec reads `process.env.DYNAMODB_SECRET_ACCESS_KEY` directly (`config/AGENTS.md` § Secrets wants one reader); `no-qa-tokens.spec.ts` skips specs. Building the client from `dynamoDbConfig()` would fix it.
+- RISK: with `DYNAMODB_ENDPOINT` set the table guard is skipped — an endpoint pointing at real AWS would bypass the `cgiar-qa-test` check. Guard unless the host is localhost/127.0.0.1.
+- RELIABILITY: condition is `attribute_not_exists(#resultCode)` vs design § 5.4 `attribute_not_exists(pk)` — equivalent (every item carries `resultCode`), proven on the remote run; the in-memory fake does not check which condition is sent.
+- RELIABILITY: `isConditionFailure` also matches `/ConditionalCheckFailed/` on `message`; matching `name`/`cause.name` only would be tighter.
+- RELIABILITY: in the opt-in `afterAll`, a failed delete stops the loop before the remaining check; `Promise.allSettled` then report would leave fewer items behind.
+- READABILITY: `history` maps a missing `values` to `JSON.parse('null')` typed as a record; throwing on an item with neither `values` nor `valuesGz` would be more honest.
+- READABILITY: stale docs — `server/src/database/AGENTS.md:58` ("DynamoDB has no entities yet; put the entity next to the module that owns it") and `server/AGENTS.md:7` ("snapshots, not used yet"). Not in any task's scope — recorded for archive / the user.
+
+**Decisions made**
+- User-approved change to the verification route: opt-in against the remote dev table `cgiar-qa-test` instead of DynamoDB Local (above). The opt-in gate gained `DYNAMODB_IT=remote` beside `DYNAMODB_ENDPOINT`.
+- Implementer: sk composite is a pre-padded `snapKey` attribute (ElectroDB templates cannot pad numbers), `casing: 'none'`; unit tests run the real adapter + ElectroDB over an in-memory DynamoDB HTTP layer (no new dependency); `SnapshotConflictError` in the port file (no `error-codes.ts` change); key builder throws `RangeError` on over-wide parts. Reviewer accepted all four.
+- Skills: as listed (aws-serverless, nestjs-expert); effort medium; no deviation.
+
+**Issues encountered:** Docker off (no DynamoDB Local) — resolved by the user's choice above. Dev IAM user has no `dynamodb:Scan`.
+
+**Budget running totals:** tasks 3 / 11 · production LOC ≈ 704 + 228 ≈ 932 of ≈ 1,450 (entity & store estimated 150; ran ≈ 228) · test LOC ≈ 677 + 345 ≈ 1,022 of ≈ 1,800 · review rounds 3 / 14. Not exceeded — but production LOC is at 64 % with 3 of 11 tasks done, and every line so far ran over its estimate; the tripwire is likely to fire around T-7/T-8.
+
+**Final verification:** unit command green (65 + 1 skipped files, 2,561 + 3 skipped tests); remote opt-in 3/3, 0 items remaining.
+
+## Constitution Impact: T-3
+- Module reshaped: `server/src/database/dynamodb` gains its first entity (`entities/result-snapshot.entity.ts`).
+- Stale guides: `server/src/database/AGENTS.md:58` (says no entities yet and to put entities next to the owning module — the task placed it under `database/dynamodb/entities/`) and `server/AGENTS.md:7` ("snapshots, not used yet"). Not in any task's scope → `/akili-archive`.
+- CodeGraph: not initialized.
