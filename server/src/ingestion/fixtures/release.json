@@ -1,0 +1,17 @@
+{
+  "phase_year": 2026,
+  "released": [
+    {
+      "result_id": 900001,
+      "result_code": 5001,
+      "outcome": "qaed"
+    }
+  ],
+  "not_released": [
+    {
+      "result_id": 900002,
+      "result_code": 5002,
+      "reason": "not_in_qa"
+    }
+  ]
+}

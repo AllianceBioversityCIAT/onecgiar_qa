@@ -5,6 +5,9 @@ export const FIELD_CATALOG_SOURCE = Symbol('FIELD_CATALOG_SOURCE');
 
 export interface FieldCatalogSource {
   forYear(year: number): Promise<FieldCatalog>;
+  // @akili-spec ingestion/step-1-loads
+  /** Forced reload bypassing the fresh window; optional so field configuration is untouched. */
+  refresh?(year: number): Promise<FieldCatalog>;
 }
 
 /**

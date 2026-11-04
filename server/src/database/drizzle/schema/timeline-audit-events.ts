@@ -12,7 +12,13 @@ import {
 import { timelines } from './timelines.js';
 import { users } from './users.js';
 
-export const timelineAuditActions = ['update'] as const;
+// `update` is an applied edit (timeline-edit); `load_start` and `load_end` are
+// the two ends of a load (step-1-loads § 5.3).
+export const timelineAuditActions = [
+  'update',
+  'load_start',
+  'load_end',
+] as const;
 export type TimelineAuditAction = (typeof timelineAuditActions)[number];
 
 // `{ field: { before, after } }` for each field the edit changed; step fields

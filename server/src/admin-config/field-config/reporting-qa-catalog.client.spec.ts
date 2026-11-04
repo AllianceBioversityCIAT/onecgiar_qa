@@ -67,6 +67,31 @@ describe('ReportingQaCatalogClient', () => {
     expect(catalog.fields).toHaveLength(161);
   });
 
+  // @akili-spec ingestion/step-1-loads
+  describe('refresh (forced)', () => {
+    it('inside the fresh hour fetches again and returns the new catalog', async () => {
+      fetchMock.mockImplementation(() => Promise.resolve(json(FIXTURE)));
+      await client.forYear(2026);
+      nowMs += 1000;
+      const forced = await client.refresh!(2026);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(forced.catalogVersion).toBe('2026.30');
+      await client.forYear(2026);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('two concurrent forced refreshes make one call', async () => {
+      fetchMock.mockImplementation(() => Promise.resolve(json(FIXTURE)));
+      await client.forYear(2026);
+      const [a, b] = await Promise.all([
+        client.refresh!(2026),
+        client.refresh!(2026),
+      ]);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(a).toBe(b);
+    });
+  });
+
   it('a 404 is FieldCatalogMissingError carrying the year', async () => {
     fetchMock.mockResolvedValue(
       json({ message: 'No QA catalog available for phase_year 2030' }, 404),

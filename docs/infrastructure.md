@@ -26,7 +26,7 @@ Cloud region: AWS **us-east-1**. The API stays on its own subdomain; no extra pr
 | Component | Use | Status |
 |---|---|---|
 | MySQL 8.0 | Workflow DB (Drizzle). Dev: shared `qadb` on the internal network (VPN needed) | Dev available; TEST/PROD instances to confirm |
-| DynamoDB | Single table `cgiar-qa-{env}`, on-demand capacity | To create per env |
+| DynamoDB | Single table `cgiar-qa-{env}`, on-demand capacity. TEST: `cgiar-qa-test` exists (`pk` HASH / `sk` RANGE, `PAY_PER_REQUEST`, no GSI), verified 2026-11-04 (step-1-loads P-3). `cgiar-qa-dev` and `cgiar-qa-prod` are not reachable with the local credentials (`AccessDeniedException`); IAM of the TEST/PROD hosts is unverified (P-6) | `cgiar-qa-test` active; others to create/confirm |
 | Cognito | User pool + app client, called directly by the API (ADR-003). Callbacks: `http://localhost:4200/auth/callback` registered (2026-10-14); https callbacks for TEST/PROD pending with the pool owner | Pool available; TEST/PROD callbacks pending |
 | Secrets store | Server secrets in TEST/PROD (DB URL, `COGNITO_CLIENT_SECRET`, Reporting/AI keys) | To choose (AWS Secrets Manager or SSM Parameter Store proposed) |
 | ECR + Lambda + CloudFront | Option for SSR (tested on `feature/qa-ssr-lambda`, SAM templates in `client/infrastructure/`) | Candidate for ADR-008 |

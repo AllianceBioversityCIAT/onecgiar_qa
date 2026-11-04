@@ -272,6 +272,19 @@ export const ERROR_CATALOG = {
     message: 'This assignment does not exist or was already removed.',
   },
 
+  // --- Step-1 loads --------------------------------------------------------
+  LOADS_WINDOW_CLOSED: {
+    status: 409,
+    message:
+      'The loading window of this timeline has closed, so no new load can start.',
+  },
+  LOADS_ALREADY_RUNNING: {
+    status: 409,
+    message:
+      'Another load in this cycle is still running. Wait for it to finish, then try again.',
+  },
+  LOADS_NOT_FOUND: { status: 404, message: 'This load does not exist.' },
+
   // --- Field configuration -------------------------------------------------
   FIELD_CONFIG_CATALOG_MISSING: {
     status: 409,
