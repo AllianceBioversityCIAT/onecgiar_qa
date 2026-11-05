@@ -177,7 +177,7 @@ The system SHALL decide `can(user, permission, { resultType?, programId? })` fro
 
 ### FR-6: SSO provider URL
 
-`GET /api/v1/auth/provider-url` SHALL return the Cognito authorize URL for the `CGIAR-AzureAD` provider, built from the Hosted UI domain (`COGNITO_URL`) with scopes `openid email` (amended 2026-10-14), for the redirect URI the front supplies.
+`GET /api/v1/auth/provider-url` SHALL return the Cognito authorize URL for the `CGIAR-AzureAD` provider, built from the Hosted UI domain (`COGNITO_URL`) with scopes `openid email profile` (amended 2026-10-14; `profile` added 2026-11-05), for the redirect URI the front supplies.
 
 #### Scenario: Redirect URI allow-list
 - WHEN the requested redirect URI does not start with an allowed origin

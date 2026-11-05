@@ -203,7 +203,7 @@ describe('CognitoAuthClient — user-pool API', () => {
 });
 
 describe('CognitoAuthClient — Hosted UI', () => {
-  it('builds the authorize URL locally for CGIAR-AzureAD with openid email scopes', async () => {
+  it('builds the authorize URL locally for CGIAR-AzureAD with openid email profile scopes', async () => {
     const url = new URL(
       await client.providerUrl('http://localhost:4200/auth/callback'),
     );
@@ -216,7 +216,7 @@ describe('CognitoAuthClient — Hosted UI', () => {
       response_type: 'code',
       client_id: CLIENT_ID,
       redirect_uri: 'http://localhost:4200/auth/callback',
-      scope: 'openid email',
+      scope: 'openid email profile',
       identity_provider: 'CGIAR-AzureAD',
     });
     expect(url.toString()).not.toContain(CLIENT_SECRET);
