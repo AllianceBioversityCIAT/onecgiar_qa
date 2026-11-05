@@ -51,7 +51,7 @@
 
   <!-- Order agreed with María Julia (2026-10-27): timelines, then rounds and statuses, then the analysis of the results. -->
   <!-- Where is each timeline? -->
-  <qa-ov-timeline-lanes [lanes]="lanes()" [total]="timelines.length" (viewStages)="openStages($event)" />
+  <qa-ov-timeline-lanes [lanes]="lanes()" (viewStages)="openStages($event)" />
 
   <!-- How is the cycle going? -->
   <qa-ov-cycle-hero [data]="hero()" />
