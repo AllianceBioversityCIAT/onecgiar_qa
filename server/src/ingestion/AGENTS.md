@@ -19,7 +19,7 @@ Step-1 loads: the ADMIN brings the eligible results of Reporting into one timeli
 | `loads.store.ts`, `loads.unit-of-work.ts` | Port and Drizzle adapter; one READ COMMITTED transaction per write (start, lot, end) |
 | `results-feed.port.ts`, `reporting-results-feed.client.ts`, `feed-paging.ts` | `RESULTS_FEED` (`list`, `details`, `intake`, `release`); the HTTP adapter (one `FeedError` of kind `unauthorized`, `rejected` or `unavailable`); paging at 200 |
 | `snapshot-store.port.ts`, `dynamo-snapshot-store.ts` | `SNAPSHOT_STORE` and the repo's first ElectroDB entity |
-| `loads.errors.ts` | `LoadWindowClosedError` (409 `LOADS_WINDOW_CLOSED`), `LoadAlreadyRunningError` (409 `LOADS_ALREADY_RUNNING`), `LoadNotFoundError` (404 `LOADS_NOT_FOUND`); the other refusals are reused from admin-config |
+| `loads.errors.ts` | `LoadWindowClosedError` (409 `LOADS_WINDOW_CLOSED`), `LoadAlreadyRunningError` (409 `LOADS_ALREADY_RUNNING`), `LoadNotFoundError` (404 `LOADS_NOT_FOUND`), `LoadCatalogMissingError` (409 `LOADS_CATALOG_MISSING`); the other refusals are reused from admin-config |
 | `dto/`, `models/` | Pipe shape (`StartLoadDto` is empty: any key is 400) and OpenAPI models |
 | `fixtures/` | Reporting contract examples (`qa-catalog.en.md` v1.29) for the adapter tests |
 
@@ -41,7 +41,7 @@ The other direction: `admin-config/timelines` reads the ingestion tables through
 - **Stale loads read as `failed`/`ABANDONED`** on every read when `heartbeat_at` is older than `LOAD_LEASE_MS`; the next start persists that state. The 60 s heartbeat is renewed by a timer while the run is alive.
 - **Reporting order is fixed:** list, then intake, then details of the taken results only (S-3). Never ask details of a skipped or refused result.
 - **Retries:** only a 5xx, a timeout, a network or store error is retried (3 attempts). A 401 is `REPORTING_UNAUTHORIZED`, any other 4xx `REPORTING_REJECTED`, immediately. Failure reasons are the closed list `REPORTING_UNAUTHORIZED`, `REPORTING_REJECTED`, `REPORTING_UNAVAILABLE`, `CATALOG_VERSION_MISMATCH`, `STORE_UNAVAILABLE`, `ABANDONED`, `INTERNAL`.
-- **At preview and start, a non-401 Reporting 4xx is left to surface as 500** (our defect, not an outage); 5xx, timeout, network and 401 are 503. In the run it is `REPORTING_REJECTED`.
+- **At preview and start, a Reporting 404 (no QA catalog for the cycle's year) is 409 `LOADS_CATALOG_MISSING`**; any other non-401 4xx is left to surface as 500 (our defect, not an outage), and the `ingestion` log line names it `reporting_rejected_<status>`. 5xx, timeout, network and 401 are 503. In the run any 4xx is `REPORTING_REJECTED`.
 - **Snapshots are written once** with `attribute_not_exists(pk)`: the same hash on a retry is success, a different hash fails the load as `INTERNAL`. `loadedAt` is the load's `started_at`, so a retry writes identical content.
 - **KP release is on** (`KP_RELEASE_ENABLED = true`, FR-14, S-8, since 2026-11-04): after the lots, a completed load releases its `not_in_qa` and `auto_validated` KPs as `qaed`. A test turns it off through `KP_RELEASE_SETTING`.
 - **A KP to review is assessed in step 1** (S-9 corrected 2026-11-04): `pending`, `awaits_step` always null. The column stays in `0007`, unused.

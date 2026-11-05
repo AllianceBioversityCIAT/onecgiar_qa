@@ -28,3 +28,14 @@ export class LoadNotFoundError extends NotFoundException {
     super(errorBody('LOADS_NOT_FOUND'));
   }
 }
+
+/**
+ * Reporting answered 404 to a feed call: it has no QA catalog for the cycle's
+ * year (e.g. a test cycle with year 2084). A data situation, not a defect:
+ * 409 instead of the 500 any other 4xx gives. The year is for logs only.
+ */
+export class LoadCatalogMissingError extends ConflictException {
+  constructor(readonly year: number) {
+    super(errorBody('LOADS_CATALOG_MISSING'));
+  }
+}

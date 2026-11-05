@@ -20,6 +20,7 @@ import { UpstreamUnavailableError } from '../users/catalogs/catalogs.errors.js';
 import { DEFAULT_KP_RULES } from './kp-classifier.js';
 import {
   LoadAlreadyRunningError,
+  LoadCatalogMissingError,
   LoadNotFoundError,
   LoadWindowClosedError,
 } from './loads.errors.js';
@@ -615,6 +616,42 @@ describe('LoadsService.preview (FR-1)', () => {
     },
   );
 
+  it('answers 409 LOADS_CATALOG_MISSING when Reporting has no catalog for the year (404), and logs it as a refusal', async () => {
+    const feed = new FakeResultsFeed().script(
+      'list',
+      new FeedError('rejected', 404),
+    );
+    const { service } = build({ feed });
+
+    const refusal = (await service
+      .preview(ctx, 11)
+      .catch((e: unknown) => e)) as LoadCatalogMissingError;
+
+    expect(refusal).toBeInstanceOf(LoadCatalogMissingError);
+    expect(refusal.getStatus()).toBe(409);
+    expect(refusal.getResponse()).toMatchObject({
+      code: 'LOADS_CATALOG_MISSING',
+    });
+  });
+
+  it("leaves any other 4xx a defect (not a 409, not a 503) and names Reporting's status in the log line", async () => {
+    const feed = new FakeResultsFeed().script(
+      'list',
+      new FeedError('rejected', 400),
+    );
+    const { service } = build({ feed });
+    const errors = vi
+      .spyOn(Logger.prototype, 'error')
+      .mockImplementation(() => undefined);
+
+    await expect(service.preview(ctx, 11)).rejects.toBeInstanceOf(FeedError);
+    const lines = errors.mock.calls.map((call) => String(call[0]));
+    expect(
+      lines.some((l) => l.includes('"reason":"reporting_rejected_400"')),
+    ).toBe(true);
+    errors.mockRestore();
+  });
+
   it('answers 503 when a page comes back empty before total is reached (no endless loop)', async () => {
     const feed = new FakeResultsFeed().script('list', (q) => ({
       phase: q.phaseYear,
@@ -845,6 +882,21 @@ describe('LoadsService.start (FR-2)', () => {
 
     await expect(service.start(ctx, 11)).rejects.toBeInstanceOf(FeedError);
     expect(world.loads).toEqual([]);
+  });
+
+  it('answers 409 LOADS_CATALOG_MISSING when the probe gets a 404 (no catalog for the year), with no row and no transaction', async () => {
+    const feed = new FakeResultsFeed().script(
+      'list',
+      new FeedError('rejected', 404),
+    );
+    const { service, world, runs, transactions } = build({ feed });
+
+    await expect(service.start(ctx, 11)).rejects.toBeInstanceOf(
+      LoadCatalogMissingError,
+    );
+    expect(world.loads).toEqual([]);
+    expect(transactions.begun).toBe(0);
+    expect(runs).toEqual([]);
   });
 
   it('answers 409 LOADS_ALREADY_RUNNING when the start loses a deadlock (rolled back whole)', async () => {

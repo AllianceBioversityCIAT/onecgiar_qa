@@ -133,6 +133,7 @@ export class LoadsController {
     ...ACCESS,
     400: ['VALIDATION_FAILED'],
     404: ['TIMELINES_NOT_FOUND'],
+    409: ['LOADS_CATALOG_MISSING'],
     503: ['SERVICE_UNAVAILABLE'],
   })
   @Get('timelines/:id/loads/preview')
@@ -155,7 +156,12 @@ export class LoadsController {
       ...ACCESS,
       400: ['VALIDATION_FAILED', 'MALFORMED_JSON'],
       404: ['TIMELINES_NOT_FOUND'],
-      409: ['CYCLES_CLOSED', 'LOADS_WINDOW_CLOSED', 'LOADS_ALREADY_RUNNING'],
+      409: [
+        'CYCLES_CLOSED',
+        'LOADS_WINDOW_CLOSED',
+        'LOADS_ALREADY_RUNNING',
+        'LOADS_CATALOG_MISSING',
+      ],
       503: ['SERVICE_UNAVAILABLE'],
     }),
   )
