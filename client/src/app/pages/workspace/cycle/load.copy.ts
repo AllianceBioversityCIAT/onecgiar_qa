@@ -34,9 +34,15 @@ export function failureLabel(reason: string | null): string {
   return `${text} What was loaded before stays in QA. You can start a new load, or contact support if it happens again.`;
 }
 
+/** The Reporting Tool has no QA catalog for the cycle's year: nothing to load, and retrying does not help. */
+export const CATALOG_MISSING_MESSAGE =
+  "The Reporting Tool has no QA fields set up for this cycle's year, so there are no results to load. Ask the technical team to set them up.";
+
 /** Why a load could not start, from the server code (never its raw text, except as a last resort). */
 export function startErrorMessage(error: ApiError): string {
   switch (error.code) {
+    case LOAD_ERROR.CATALOG_MISSING:
+      return CATALOG_MISSING_MESSAGE;
     case LOAD_ERROR.CYCLES_CLOSED:
       return 'This cycle is closed, so no results can be loaded.';
     case LOAD_ERROR.WINDOW_CLOSED:

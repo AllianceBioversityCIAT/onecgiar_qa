@@ -124,6 +124,15 @@ describe('LoadDrawer', () => {
     expect(text()).toContain('About 33 results');
   });
 
+  it('no QA catalog for the cycle year (409 LOADS_CATALOG_MISSING): says why, no "Try again", no start', async () => {
+    answer = () => throwError(() => new ApiError({ status: 409, code: 'LOADS_CATALOG_MISSING', message: 'server text' }));
+    await render();
+    expect(text()).toContain('has no QA fields set up for this cycle');
+    expect(text()).not.toContain('We could not get the preview');
+    expect([...document.querySelectorAll('button')].some((b) => b.textContent?.trim() === 'Try again')).toBe(false);
+    expect(loadButton().disabled).toBe(true);
+  });
+
   it('emits one start per click and none while busy', async () => {
     const fixture = await render();
     loadButton().click();

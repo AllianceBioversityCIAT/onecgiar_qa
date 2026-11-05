@@ -1,12 +1,12 @@
 import { Component, computed, inject, input, linkedSignal, model, output } from '@angular/core';
 import { rxResource } from '@angular/core/rxjs-interop';
 import { LoadsApi } from '../../../core/api/loads-api';
-import { LoadPreview } from '../../../core/api/loads.models';
+import { LOAD_ERROR, LoadPreview } from '../../../core/api/loads.models';
 import { toApiError } from '../../../core/http/api-envelope';
 import { QaButtonImports, QaDrawerImports, QaLoadingImports, QaSelect, QaSelectOption } from '../../../ui';
 import { Timeline } from './cycle.mock';
 import { formatNumber } from './cycle.logic';
-import { skipLabel } from './load.copy';
+import { CATALOG_MISSING_MESSAGE, skipLabel } from './load.copy';
 
 /** What opens the load drawer: the page button, a timeline menu ("Add results…") or step 1's drawer. */
 export interface RunRequest {
@@ -68,12 +68,14 @@ export interface LoadDrawerNames {
           } @else if (previewError(); as err) {
             <div role="alert" class="flex flex-wrap items-center gap-3 rounded-[8px] bg-(--st-editing-bg) px-[14px] py-3 text-(length:--fs-13) text-(--st-editing-fg)">
               <span class="min-w-0 flex-1">
-                We could not get the preview. {{ err.message }}
+                {{ err.retry ? 'We could not get the preview. ' : '' }}{{ err.message }}
                 @if (err.reference) {
                   <span class="mt-1 block font-(family-name:--qa-mono) text-(length:--fs-12) break-all">Reference: {{ err.reference }}</span>
                 }
               </span>
-              <button hlmBtn qaBtn tone="secondary" type="button" (click)="preview.reload()">Try again</button>
+              @if (err.retry) {
+                <button hlmBtn qaBtn tone="secondary" type="button" (click)="preview.reload()">Try again</button>
+              }
             </div>
           } @else if (preview.value(); as p) {
             <section aria-live="polite" class="flex flex-col gap-4">
@@ -187,7 +189,8 @@ export class LoadDrawer {
     const e = this.preview.error();
     if (!e) return null;
     const api = toApiError(e);
-    return { message: api.message, reference: api.requestId };
+    if (api.code === LOAD_ERROR.CATALOG_MISSING) return { message: CATALOG_MISSING_MESSAGE, reference: null, retry: false };
+    return { message: api.message, reference: api.requestId, retry: true };
   });
   protected readonly canStart = computed(() => {
     const p = this.preview.hasValue() ? this.preview.value() : null;

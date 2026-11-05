@@ -104,6 +104,8 @@ export interface LoadStarted {
 export const LOAD_ERROR = {
   WINDOW_CLOSED: 'LOADS_WINDOW_CLOSED',
   ALREADY_RUNNING: 'LOADS_ALREADY_RUNNING',
+  /** 409 at preview or start: Reporting has no QA catalog for the cycle's year. Retrying does not help. */
+  CATALOG_MISSING: 'LOADS_CATALOG_MISSING',
   NOT_FOUND: 'LOADS_NOT_FOUND',
   CYCLES_CLOSED: 'CYCLES_CLOSED',
   SERVICE_UNAVAILABLE: 'SERVICE_UNAVAILABLE',
