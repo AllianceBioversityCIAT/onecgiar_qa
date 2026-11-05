@@ -33,6 +33,7 @@ import {
 } from './load-rules.js';
 import {
   LoadAlreadyRunningError,
+  LoadCatalogMissingError,
   LoadNotFoundError,
   LoadWindowClosedError,
 } from './loads.errors.js';
@@ -245,7 +246,7 @@ export class LoadsService {
       // Step 1 always exists (FR-9 of *timelines*); without it the data is corrupt.
       if (!stepOne) throw new Error(`Timeline ${timeline.id} has no step 1`);
 
-      const items = await this.reporting(() =>
+      const items = await this.reporting(cycle.year, () =>
         listEveryPage(this.feed, {
           phaseYear: cycle.year,
           // "All" sends no filter at all (FR-1): the key is left out.
@@ -311,7 +312,7 @@ export class LoadsService {
       );
       for (let at = 0; at < kps.length; at += DETAILS_LOT) {
         const lot = kps.slice(at, at + DETAILS_LOT);
-        const details = await this.reporting(() =>
+        const details = await this.reporting(cycle.year, () =>
           this.feed.details({
             phaseYear: cycle.year,
             resultIds: lot.map((item) => item.resultId),
@@ -381,7 +382,7 @@ export class LoadsService {
       const timeline = await this.timelines.findById(timelineId);
       if (!timeline) throw new TimelineNotFoundError(timelineId);
       const cycle = await this.cycleOf(timeline);
-      await this.reporting(() =>
+      await this.reporting(cycle.year, () =>
         this.feed.list({ phaseYear: cycle.year, page: 1, pageSize: 1 }),
       );
 
@@ -471,16 +472,21 @@ export class LoadsService {
 
   /**
    * A Reporting call: unreachable or unauthorized (5xx, timeout, network, 401)
-   * is a 503 (FR-2). A 4xx Reporting refuses a well-formed call with is a
-   * defect on our side, not an outage: it is left to surface as a 500.
+   * is a 503 (FR-2). A 404 means Reporting has no QA catalog for the cycle's
+   * year: a 409 `LOADS_CATALOG_MISSING`, since the data, not the code, is wrong.
+   * Any other 4xx Reporting refuses a well-formed call with is a defect on our
+   * side, not an outage: it is left to surface as a 500, and the log line names
+   * Reporting's status.
    */
-  private async reporting<T>(work: () => Promise<T>): Promise<T> {
+  private async reporting<T>(year: number, work: () => Promise<T>): Promise<T> {
     try {
       return await work();
     } catch (error) {
-      if (error instanceof FeedError && error.kind !== 'rejected') {
-        throw new UpstreamUnavailableError();
+      if (error instanceof FeedError && error.kind === 'rejected') {
+        if (error.status === 404) throw new LoadCatalogMissingError(year);
+        throw error;
       }
+      if (error instanceof FeedError) throw new UpstreamUnavailableError();
       throw error;
     }
   }
@@ -511,12 +517,16 @@ export class LoadsService {
         error instanceof HttpException
           ? (error.getResponse() as { code?: unknown })
           : {};
+      // A 4xx from Reporting that stays a 500 names Reporting's status, so
+      // the line tells a defect of ours from a refusal upstream.
       const reason =
         typeof body.code === 'string' && /^[A-Z_]{1,64}$/.test(body.code)
           ? body.code
-          : status < 500
-            ? `http_${status}`
-            : 'internal_error';
+          : error instanceof FeedError && error.kind === 'rejected'
+            ? `reporting_rejected_${error.status ?? 'unknown'}`
+            : status < 500
+              ? `http_${status}`
+              : 'internal_error';
       if (status < 500) this.logger.warn(line('refused', reason));
       else this.logger.error(line('error', reason));
       throw error;

@@ -15,8 +15,8 @@ All four routes are ADMIN only. Any other role gets 403 `AUTH_PERMISSION_DENIED`
 
 | Method | Path | Request | Success | Codes (besides the shared ones, section 7) |
 |---|---|---|---|---|
-| GET | `/timelines/:id/loads/preview` | none | 200 `LoadPreview` | 404 `TIMELINES_NOT_FOUND`; 503 `SERVICE_UNAVAILABLE` |
-| POST | `/timelines/:id/loads` | `{}`; any key is 400 `VALIDATION_FAILED` | **202** `{ id, status: "running" }` | 404 `TIMELINES_NOT_FOUND`; 409 `CYCLES_CLOSED`, `LOADS_WINDOW_CLOSED`, `LOADS_ALREADY_RUNNING`; 503 `SERVICE_UNAVAILABLE`; the idempotency codes (section 6) |
+| GET | `/timelines/:id/loads/preview` | none | 200 `LoadPreview` | 404 `TIMELINES_NOT_FOUND`; 409 `LOADS_CATALOG_MISSING`; 503 `SERVICE_UNAVAILABLE` |
+| POST | `/timelines/:id/loads` | `{}`; any key is 400 `VALIDATION_FAILED` | **202** `{ id, status: "running" }` | 404 `TIMELINES_NOT_FOUND`; 409 `LOADS_CATALOG_MISSING`, `CYCLES_CLOSED`, `LOADS_WINDOW_CLOSED`, `LOADS_ALREADY_RUNNING`; 503 `SERVICE_UNAVAILABLE`; the idempotency codes (section 6) |
 | GET | `/timelines/:id/loads` | none | 200 `LoadItem[]`, newest first | 404 `TIMELINES_NOT_FOUND` |
 | GET | `/timelines/:id/loads/:loadId` | none | 200 `LoadDetail` (a `LoadItem` plus `summary`) | 404 `TIMELINES_NOT_FOUND`, `LOADS_NOT_FOUND` |
 
@@ -100,7 +100,8 @@ Show one generic message per value; the admin cannot fix any of them except by r
 
 **Two behaviours to know.**
 
-- **A non-401 Reporting 4xx at preview or start surfaces as 500** (`INTERNAL_ERROR`), not 503: it means QA sent Reporting a call it refuses, a defect on our side. In the run the same condition is the failure reason `REPORTING_REJECTED`.
+- **Reporting has no QA catalog for the cycle's year** (it answers 404, e.g. a test cycle with year 2084): preview and start are 409 `LOADS_CATALOG_MISSING`, and nothing is written. It comes from that same first call, so it reads before `CYCLES_CLOSED` and the window. Show the message; retrying does not help until the cycle's year has a catalog. *(Added 2026-11-05: before, this case surfaced as 500.)*
+- **Any other non-401 Reporting 4xx at preview or start surfaces as 500** (`INTERNAL_ERROR`), not 503: it means QA sent Reporting a call it refuses, a defect on our side. The server log line names Reporting's status (`reporting_rejected_<status>`). In the run the same condition is the failure reason `REPORTING_REJECTED`.
 - **A catalog 401 surfaces as failure reason `REPORTING_UNAUTHORIZED`** on the load, not as an HTTP error: the catalog is read inside the run.
 
 **A completed load releases its "not in QA" and auto-checked Knowledge Products to Reporting as `qaed`** (on since 2026-11-04). KPs to review are assessed in step 1 like any result. The three `kpGroups` are counts only.
@@ -114,6 +115,7 @@ Messages are the catalog text (`server/src/common/error-codes.ts`); show your ow
 | `LOADS_WINDOW_CLOSED` | 409 | The loading window of this timeline has closed, so no new load can start. |
 | `LOADS_ALREADY_RUNNING` | 409 | Another load in this cycle is still running. Wait for it to finish, then try again. |
 | `LOADS_NOT_FOUND` | 404 | This load does not exist. |
+| `LOADS_CATALOG_MISSING` | 409 | Reporting has no QA catalog for this cycle's year, so there are no results to load. |
 | `TIMELINES_NOT_FOUND` | 404 | This timeline does not exist. |
 | `CYCLES_CLOSED` | 409 | This cycle is closed, so its timelines and assignments can no longer change. |
 | `VALIDATION_FAILED` | 400 | Some fields are missing or invalid. Check them and try again. |

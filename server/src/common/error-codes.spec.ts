@@ -41,6 +41,7 @@ import {
 } from '../admin-config/admin-config.errors.js';
 import {
   LoadAlreadyRunningError,
+  LoadCatalogMissingError,
   LoadNotFoundError,
   LoadWindowClosedError,
 } from '../ingestion/loads.errors.js';
@@ -217,6 +218,12 @@ describe('step-1 load errors (step-1-loads FR-2, FR-10)', () => {
       'LOADS_NOT_FOUND',
       'This load does not exist.',
     ],
+    [
+      new LoadCatalogMissingError(2084),
+      409,
+      'LOADS_CATALOG_MISSING',
+      "Reporting has no QA catalog for this cycle's year, so there are no results to load.",
+    ],
   ])(
     '%s answers %i %s with its catalog text',
     (error, status, code, message) => {
@@ -228,11 +235,12 @@ describe('step-1 load errors (step-1-loads FR-2, FR-10)', () => {
     },
   );
 
-  it('lists the three load codes in the catalog', () => {
+  it('lists the four load codes in the catalog', () => {
     expect(
       ERROR_CODES.filter((code) => code.startsWith('LOADS_')).sort(),
     ).toEqual([
       'LOADS_ALREADY_RUNNING',
+      'LOADS_CATALOG_MISSING',
       'LOADS_NOT_FOUND',
       'LOADS_WINDOW_CLOSED',
     ]);

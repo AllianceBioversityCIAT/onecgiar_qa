@@ -284,6 +284,11 @@ export const ERROR_CATALOG = {
       'Another load in this cycle is still running. Wait for it to finish, then try again.',
   },
   LOADS_NOT_FOUND: { status: 404, message: 'This load does not exist.' },
+  LOADS_CATALOG_MISSING: {
+    status: 409,
+    message:
+      "Reporting has no QA catalog for this cycle's year, so there are no results to load.",
+  },
 
   // --- Field configuration -------------------------------------------------
   FIELD_CONFIG_CATALOG_MISSING: {

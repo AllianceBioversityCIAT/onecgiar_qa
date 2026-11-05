@@ -278,6 +278,14 @@ describe('Step-1 loads routes (e2e)', () => {
         expectError(res, 503, 'SERVICE_UNAVAILABLE');
       },
     );
+
+    it('409 LOADS_CATALOG_MISSING when Reporting has no catalog for the cycle year (404)', async () => {
+      w.feed.script('list', new FeedError('rejected', 404));
+
+      const res = await w.send('get', '/timelines/11/loads/preview');
+
+      expectError(res, 409, 'LOADS_CATALOG_MISSING');
+    });
   });
 
   describe('FR-2: POST /timelines/:id/loads', () => {
