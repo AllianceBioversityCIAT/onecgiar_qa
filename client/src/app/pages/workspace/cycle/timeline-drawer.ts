@@ -6,7 +6,7 @@ import { HlmInput } from '@spartan/input';
 import { QaButtonImports, QaDatePicker, QaDialogImports, QaDrawerImports, QaMultiSelect, QaSelectOption, QaSwitch, QaTooltipImports, discardGuard } from '../../../ui';
 import { DEFAULT_STEP_DATES, PROGRAMS, STEP_NAMES, Timeline } from './cycle.mock';
 import { StepDraftRow, formatNumber, officialRelative, stepOrderErrors, stepRow, stepState } from './cycle.logic';
-import { StepDateIssue, boundaryPart, nextAudience, stepDateIssues, toApiDay } from './cycle.mapper';
+import { StepDateIssue, boundaryPart, nextAudience, roundsOf, stepDateIssues, toApiDay } from './cycle.mapper';
 import { DEFAULT_CLOSES_TIME, DEFAULT_OPENS_TIME, nowInRome, parseTime } from '../../../core/domain/rome-date';
 import { PROGRAM_OPTIONS, TYPE_OPTIONS } from './load-drawer';
 
@@ -140,6 +140,10 @@ interface TimelineDraft {
             </div>
             @for (rf of tlForm.steps; track $index; let i = $index, last = $last) {
               @let row = rf().value();
+              <!-- Round label where a round starts, named as on the Cycle card's round band (Juanpa, 2026-11-05). It follows the Loads results switches live. -->
+              @if (i === 0 || rounds()[i] !== rounds()[i - 1]) {
+                <div class="px-[14px] pt-3 pb-1 text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--text-muted) uppercase">QA round {{ rounds()[i] }}</div>
+              }
               <div [class]="last ? '' : 'border-b border-(--surface-4)'">
                 @if (confirmRow() === i) {
                   <div class="flex min-h-[52px] flex-wrap items-center gap-2 px-[14px] py-2 @3xl:py-0">
@@ -217,6 +221,7 @@ interface TimelineDraft {
           @if (stepsError()) {
             <span role="alert" class="text-(length:--fs-13) text-(--danger)">{{ stepsError() }}</span>
           }
+          <span class="text-(length:--fs-13) leading-[1.5] font-normal text-pretty text-(--text-4)">Step 1 starts QA round 1. Each later step that loads results starts the next round.</span>
           @if (closedCount()) {
             <span class="text-(length:--fs-13) leading-[1.5] font-normal text-pretty text-(--text-4)">Closed steps keep their dates as the record of the cycle.</span>
           }
@@ -361,6 +366,8 @@ export class TimelineDrawer {
   );
 
   protected readonly draft = linkedSignal<TimelineDraft>(() => this.initialDraft());
+  /** Round of each step, as the server counts it (step 1 starts round 1, every later "Loads results" step starts the next). */
+  protected readonly rounds = computed(() => roundsOf(this.draft().steps));
   /** Esc / overlay / X / Cancel ask before dropping edits (also blocks tab close while open). */
   protected readonly discard = discardGuard(this.open, () => JSON.stringify(this.draft()) !== JSON.stringify(this.initialDraft()));
 
