@@ -45,6 +45,7 @@
 
 - The KP release gap (b above) was found by the Leader while switching the release on, not by a Reviewer: the code path was dormant behind `KP_RELEASE_ENABLED = false`, so no review exercised a failed release followed by a re-run. A dormant path switched on later deserves its own failure-mode check. Recorded once; a recurrence makes it a lesson.
 - `npx tsc --noEmit -p tsconfig.json` reports pre-existing type errors in `server/src/auth/token-verifier.service.spec.ts` (`aws-jwt-verify/jwk` types). The suites pass because Vitest does not type-check. This touches KZ-auth--user-management--core-1 (the gate does not type-check spec files) — check at apply whether its standardization landed.
+- Escaped defect after archive (2026-11-05): design § 7.1 treated every non-401 Reporting 4xx at preview/start as our defect (500), but Reporting answers 404 for a year with no QA catalog — a data case the same repo already maps to 409 in field-config (`FIELD_CONFIG_CATALOG_MISSING`). Found on qatest with a test cycle of year 2084; fixed as 409 `LOADS_CATALOG_MISSING` (execution.md — Follow-up 2026-11-05). Recurrence feed: an upstream status a sibling module already types should be checked when a new adapter maps the same API.
 - Persona drift at start (`leader.md`, `reviewer.md`, `tester.md` OUTDATED) was not fixed on the branch; `akili doctor --agents --fix` is listed as a follow-up for `staging`.
 
 ## Pending Items
