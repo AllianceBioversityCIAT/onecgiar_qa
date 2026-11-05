@@ -1,4 +1,4 @@
-<!-- Cycle view on the cycles API (cycle-store.ts). Loads, results, export and close have no API yet: "Coming soon". -->
+<!-- Cycle view on the cycles API (cycle-store.ts) and the step-1 loads API (cycle-loads.ts). Results, export and close have no API yet: "Coming soon". -->
 
 <!-- Page header -->
 <div class="flex flex-wrap items-start gap-4 px-4 pt-8 sm:px-6 lg:px-8">
@@ -7,17 +7,21 @@
     <p class="m-0 text-(length:--fs-14) font-normal text-(--text-3)">Only results submitted by a science program can enter QA.</p>
   </div>
   <div class="flex flex-none items-center gap-2 max-sm:w-full">
-    @if (running(); as r) {
+    @if (loads.active(); as r) {
       <div role="status" aria-live="polite" class="flex h-9 items-center gap-2 rounded-[8px] border border-(--tint-border-2) max-sm:h-10 max-sm:flex-1 max-sm:justify-center bg-(--tint-2) px-[14px] whitespace-nowrap">
-        <span aria-hidden="true" class="size-[7px] rounded-full bg-(--primary)"></span>
+        <span aria-hidden="true" class="size-[7px] animate-pulse rounded-full bg-(--primary)"></span>
         <span class="text-(length:--fs-14) font-semibold text-(--accent)">Loading results</span>
-        <span class="font-(family-name:--qa-mono) text-(length:--fs-13) font-semibold text-(--accent) tabular-nums">{{ fmt(r.done) }} of {{ fmt(r.total) }}</span>
+        @if (r.total === null) {
+          <span class="text-(length:--fs-13) font-semibold text-(--accent)">· counting…</span>
+        } @else {
+          <span class="font-(family-name:--qa-mono) text-(length:--fs-13) font-semibold text-(--accent) tabular-nums">{{ fmt(r.processed) }} of {{ fmt(r.total) }}</span>
+        }
+        <span class="sr-only">into {{ r.name }}</span>
       </div>
-    } @else {
-      <button hlmBtn qaBtn tone="primary" type="button" disabled title="Coming soon: loads are not built yet" class="gap-2 max-sm:flex-1">
+    } @else if (store.state() === 'ready') {
+      <button hlmBtn qaBtn tone="primary" type="button" [disabled]="!canLoad()" (click)="openLoad()" class="gap-2 max-sm:flex-1">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M8 11l4 4 4-4M8 5H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-4" /></svg>
         Load results into QA
-        <span class="text-(length:--fs-11) font-semibold opacity-80">Coming soon</span>
       </button>
     }
   </div>
@@ -163,6 +167,17 @@
   [saving]="saving()"
   [feedback]="stepFeedback()"
   (saveStep)="saveStep($event)"
+  [loadable]="stepLoadable()"
   (loadIntoStep)="loadIntoStep()"
 />
 <qa-cycle-progress-drawer [(open)]="progressOpen" [progress]="progress()" />
+<qa-cycle-load-drawer
+  [(open)]="loadOpen"
+  [request]="loadRequest()"
+  [targets]="loadTargetList()"
+  [names]="loadNames"
+  [busy]="loads.starting()"
+  [error]="loadError()"
+  (start)="startLoad($event)"
+/>
+<qa-cycle-load-summary-drawer [open]="!!loads.finished()" (openChange)="closeSummary($event)" [load]="loads.finished()" [names]="loadNames" />

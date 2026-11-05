@@ -1,21 +1,14 @@
 // Pure helpers and view models of the Cycle view (ported from the mockup's cyPhaseState,
-// cardVM, runEstimate, officialRelative and runTargets).
+// cardVM and officialRelative).
 import { StepAudience } from '../../../core/api/cycles.models';
 import { DEFAULT_CLOSES_TIME, DEFAULT_OPENS_TIME, nowInRome, todayInRome, zoneAt } from '../../../core/domain/rome-date';
 import {
   CORRECTION_AUDIENCE,
   CycleStep,
-  PROGRAMS,
-  RESULT_TYPES,
   RESULT_TYPE_RULES,
-  RT_AUTO_N,
   RT_ORDER,
-  RT_PLURAL,
   RT_SHORT,
-  RUN_TARGETS,
-  RunTarget,
   TODAY,
-  TOTAL_RESULTS,
   Timeline,
 } from './cycle.mock';
 
@@ -111,79 +104,6 @@ export function stepOrderErrors(steps: readonly { start: string; end: string }[]
   });
 }
 
-export interface RunEstimate {
-  matched: number;
-  already: number;
-  pulled: number;
-}
-
-export function runEstimate(types: readonly string[], programs: readonly string[]): RunEstimate {
-  const typeCounts = Object.fromEntries(RESULT_TYPES);
-  const tf = types.length ? types.reduce((a, t) => a + (typeCounts[t] ?? 0), 0) / TOTAL_RESULTS : 1;
-  const pf = programs.length ? programs.length / Object.keys(PROGRAMS).length : 1;
-  const matched = Math.round(1200 * tf * pf);
-  const already = Math.round((matched * 86) / 1200);
-  return { matched, already, pulled: matched - already };
-}
-
-export interface LoadSummary extends RunEstimate {
-  notFirst: boolean;
-  joins: { n: string; what: string; step: string }[];
-  autos: { n: string; what: string }[];
-}
-
-/** Text of the live estimate in the "Load results" drawers. */
-export function loadSummary(
-  types: readonly string[],
-  programs: readonly string[],
-  target: string | null,
-  targets: readonly RunTarget[],
-  official: Timeline,
-): LoadSummary {
-  const est = runEstimate(types, programs);
-  const tgt = targets.find((t) => t.id === target);
-  const tStep = target ? (+target.split(':')[1] || 0) + 1 : 1;
-  const typeCounts: Record<string, number> = Object.fromEntries(RESULT_TYPES);
-  const sel = RT_ORDER.filter((t) => !types.length || types.includes(t));
-  const joins = sel
-    .filter((t) => RESULT_TYPE_RULES[t] && RESULT_TYPE_RULES[t].phase !== tStep)
-    .map((t) => ({
-      n: formatNumber(typeCounts[t] ?? 0),
-      what: RT_PLURAL[t] ?? t,
-      step: official.steps[RESULT_TYPE_RULES[t].phase - 1]?.name ?? '',
-    }));
-  const autos = sel
-    .filter((t) => RESULT_TYPE_RULES[t]?.auto)
-    .map((t) => ({ n: formatNumber(RT_AUTO_N[t] ?? Math.round((typeCounts[t] ?? 0) / 4)), what: RT_PLURAL[t] ?? t }));
-  return { ...est, notFirst: !!tgt && !tgt.first, joins, autos };
-}
-
-/** Target step options; adds the requested step on top when it is not a default target. */
-export function runTargets(key: string | null, timelines: readonly Timeline[]): RunTarget[] {
-  const list = RUN_TARGETS.slice();
-  if (key && !list.some((t) => t.id === key)) {
-    const [bid, si] = key.split(':');
-    const i = +si;
-    const b = timelines.find((x) => x.id === bid);
-    const p = b?.steps[i];
-    if (b && p) {
-      const st = stepState(p, b);
-      list.unshift({
-        id: key,
-        label: `${b.name} · ${p.name}`,
-        desc:
-          st.kind === 'active'
-            ? `Open · closes ${shortDate(p.end || p.start)}`
-            : st.kind === 'future'
-              ? `Opens ${shortDate(p.start)}`
-              : `Closed on ${shortDate(p.end || p.start)}`,
-        first: i === 0,
-      });
-    }
-  }
-  return list;
-}
-
 export interface StepDraftRow {
   name: string;
   start: string;
@@ -199,6 +119,19 @@ export interface StepDraftRow {
 /** A saved step as an editable row (missing times = the server defaults). */
 export function stepRow(p: CycleStep): StepDraftRow {
   return { name: p.name, start: p.start, end: p.end, startTime: opensTimeOf(p), endTime: closesTimeOf(p), batch: p.batch, audience: p.audienceKey };
+}
+
+/**
+ * Timelines that can take a step-1 load now: saved on the server and step 1 not closed yet (Rome minute).
+ * The server has the last word (`window` of the preview, 409 `LOADS_WINDOW_CLOSED`).
+ */
+export function loadTargets(timelines: readonly Timeline[], now: string): Timeline[] {
+  return timelines.filter((t) => {
+    const first = t.steps[0];
+    if (t.apiId == null || !first || first.state === 'closed') return false;
+    const day = isoDay(first.end || first.start);
+    return !day || `${day}T${closesTimeOf(first)}` > now;
+  });
 }
 
 /** Opening minute of a step as `YYYY-MM-DDTHH:mm` in Rome (null when its day is unreadable), comparable with `nowInRome()`. */
@@ -319,8 +252,11 @@ const STATUS_CLASS: Record<string, string> = {
   Closed: 'bg-(--surface-3) text-(--text-muted)',
 };
 
-/** Live data has no load, export, test or close endpoint yet: those actions show as "Coming soon". */
-export function timelineVM(t: Timeline): TimelineVM {
+/**
+ * Live data has no export, test or close endpoint yet: those actions show as "Coming soon".
+ * `loadable`: the timeline's step 1 can take a load now (`loadTargets`) and no load runs.
+ */
+export function timelineVM(t: Timeline, loadable = false): TimelineVM {
   const soon = t.apiId != null;
   const n = t.steps.length;
   const closed = t.status === 'Closed';
@@ -376,7 +312,8 @@ export function timelineVM(t: Timeline): TimelineVM {
   });
 
   const menu: TimelineVM['menu'] = [];
-  if (t.status === 'Live' || (soon && !closed)) menu.push({ action: 'add-results', label: 'Add results to this timeline', danger: false, soon });
+  if (loadable) menu.push({ action: 'add-results', label: 'Load results into step 1', danger: false, soon: false });
+  else if (!soon && t.status === 'Live') menu.push({ action: 'add-results', label: 'Add results to this timeline', danger: false, soon: false });
   menu.push({ action: 'edit', label: 'Edit timeline', danger: false, soon: false }, { action: 'export', label: 'Export comments', danger: false, soon });
   if (t.test) menu.push({ action: 'clear-test', label: 'Clear test results', danger: true, soon });
   if (t.kind !== 'Official timeline' && t.kind !== 'Official' && !closed) menu.push({ action: 'close', label: 'Close timeline', danger: true, soon });

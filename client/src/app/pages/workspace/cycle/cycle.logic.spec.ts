@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { CycleStep, Timeline } from './cycle.mock';
-import { officialRelative, timelineVM } from './cycle.logic';
+import { loadTargets, officialRelative, timelineVM } from './cycle.logic';
 import { TimelineSteps } from './timeline-steps';
 
 // 3 Nov 2026, 10:00 in Rome (CET, UTC+1).
@@ -92,6 +92,38 @@ describe('cycle.logic', () => {
 
     it('starts on the day the admin typed in step 1', () => {
       expect(officialRelative('20 Nov 2026', official('00:00')).map((r) => r.start)).toEqual(['20 Nov 2026', '26 Nov 2026']);
+    });
+  });
+
+  describe('loadTargets — timelines whose step 1 can take a load now', () => {
+    const NOW_ROME = '2026-11-03T10:00';
+    const withFirst = (id: string, first: CycleStep, apiId: number | null = 1): Timeline => ({ ...timeline('Live', [first]), id, apiId: apiId ?? undefined });
+
+    it('keeps an open or future step 1 and drops a closed one', () => {
+      const list = [
+        withFirst('open', { ...step('Assess', '02 Nov 2026', '05 Nov 2026'), state: 'in_progress' }),
+        withFirst('future', step('Assess', '10 Nov 2026', '12 Nov 2026')),
+        withFirst('closed', { ...step('Assess', '20 Oct 2026', '25 Oct 2026'), state: 'closed' }),
+      ];
+      expect(loadTargets(list, NOW_ROME).map((t) => t.id)).toEqual(['open', 'future']);
+    });
+
+    it('step 1 closing today: loadable until its closing minute', () => {
+      const today = withFirst('today', { ...step('Assess', '01 Nov 2026', '03 Nov 2026'), endTime: '10:30', state: 'in_progress' });
+      expect(loadTargets([today], NOW_ROME).length).toBe(1);
+      expect(loadTargets([today], '2026-11-03T10:30').length).toBe(0);
+    });
+
+    it('a timeline the server does not know yet (mock) is never a target', () => {
+      expect(loadTargets([withFirst('mock', step('Assess', '10 Nov 2026', '12 Nov 2026'), null)], NOW_ROME)).toEqual([]);
+    });
+  });
+
+  describe('timelineVM — "Load results into step 1" in the menu', () => {
+    it('is offered only when the view says the timeline can load', () => {
+      const t = timeline('Live', [step('Assess', '10 Nov 2026', '12 Nov 2026')]);
+      expect(timelineVM(t, true).menu.find((m) => m.action === 'add-results')).toMatchObject({ label: 'Load results into step 1', soon: false });
+      expect(timelineVM(t, false).menu.some((m) => m.action === 'add-results')).toBe(false);
     });
   });
 });

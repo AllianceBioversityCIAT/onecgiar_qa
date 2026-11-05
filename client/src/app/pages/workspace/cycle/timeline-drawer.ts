@@ -4,11 +4,10 @@ import { ApiFieldError } from '../../../core/http/api-envelope';
 import { FormField, applyEach, form, required, validate } from '@angular/forms/signals';
 import { HlmInput } from '@spartan/input';
 import { QaButtonImports, QaDatePicker, QaDialogImports, QaDrawerImports, QaMultiSelect, QaSelectOption, QaSwitch, QaTooltipImports, discardGuard } from '../../../ui';
-import { DEFAULT_STEP_DATES, PROGRAMS, STEP_NAMES, Timeline } from './cycle.mock';
+import { DEFAULT_STEP_DATES, PROGRAMS, RESULT_TYPES, STEP_NAMES, Timeline } from './cycle.mock';
 import { StepDraftRow, formatNumber, officialRelative, stepOrderErrors, stepRow, stepState } from './cycle.logic';
 import { StepDateIssue, boundaryPart, nextAudience, stepDateIssues, toApiDay } from './cycle.mapper';
 import { DEFAULT_CLOSES_TIME, DEFAULT_OPENS_TIME, nowInRome, parseTime } from '../../../core/domain/rome-date';
-import { PROGRAM_OPTIONS, TYPE_OPTIONS } from './load-drawer';
 
 /** Edit an existing timeline (official or not) or create a new sub-timeline (timeline null). */
 export interface TimelineRequest {
@@ -46,6 +45,10 @@ interface TimelineDraft {
   test: boolean;
   runNow: boolean;
 }
+
+/** Mock pickers (design preview without the API); the live view passes the catalogs. */
+const PROGRAM_OPTIONS = Object.entries(PROGRAMS).map(([value, name]) => ({ value, label: `${value} ${name}` }));
+const TYPE_OPTIONS = RESULT_TYPES.map(([t]) => ({ value: t, label: t }));
 
 /** "Edit official timeline", "Edit timeline" and "New sub-timeline" drawers (steps table, validation). */
 @Component({
