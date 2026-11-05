@@ -17,8 +17,12 @@ export const COGNITO_TIMEOUT_MS = 10_000;
 /** SSO identity provider configured on the app client. */
 export const SSO_PROVIDER = 'CGIAR-AzureAD';
 
-/** Hosted UI scopes. `profile` is not allowed on the app client (P-18). */
-export const SSO_SCOPES = 'openid email';
+/**
+ * Hosted UI scopes. `profile` puts `given_name` / `family_name` in the SSO id
+ * token; without it SSO users are stored with no name. The app client refused
+ * `profile` on 2026-10-14 (P-18) and allows it since (verified 2026-11-05).
+ */
+export const SSO_SCOPES = 'openid email profile';
 
 /** What a Cognito refusal means, per operation (response standard codes). */
 export type RefusalCode =
