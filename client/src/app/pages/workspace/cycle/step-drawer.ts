@@ -255,7 +255,7 @@ interface StepDraft {
           }
           @if (loadedNote()) {
             <span class="flex items-center gap-1.5 text-(length:--fs-13) font-normal text-(--text-4)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M20 6L9 17l-5-5" /></svg>{{ loadedNote() }}</span>
-          } @else if (canLoad() && !live()) {
+          } @else if (live() ? loadable() : canLoad()) {
             <button hlmBtn qaBtn tone="secondary" type="button" (click)="loadIntoStep.emit()" class="gap-[7px]"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M12 3v12M8 11l4 4 4-4M8 5H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-4" /></svg>Load results into this step</button>
           }
           <button hlmBtn qaBtn tone="secondary" type="button" (click)="discard.requestClose()">Cancel</button>
@@ -282,6 +282,8 @@ export class StepDrawer {
   readonly saveStep = output<StepSaveEvent>();
   /** Live data (API): name and dates only; the parent closes the drawer once the server saved it. */
   readonly live = input(false);
+  /** On live data: step 1 of this timeline can take a load now (the view decides). */
+  readonly loadable = input(false);
   readonly saving = input(false);
   readonly feedback = input<TimelineSaveFeedback | null>(null);
   /** One step has no row of its own to mark: show the server's first field message, else its message. */
