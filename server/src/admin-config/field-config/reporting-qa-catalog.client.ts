@@ -52,15 +52,8 @@ export class ReportingQaCatalogClient implements FieldCatalogSource {
       return entry.value;
     }
     // One upstream call per year at a time, shared by concurrent requests.
-    let pending = this.inFlight.get(year);
-    if (!pending) {
-      pending = this.refresh(year).finally(() => {
-        this.inFlight.delete(year);
-      });
-      this.inFlight.set(year, pending);
-    }
     try {
-      return await pending;
+      return await this.shared(year);
     } catch (err) {
       if (
         err instanceof UpstreamUnavailableError &&
@@ -73,11 +66,28 @@ export class ReportingQaCatalogClient implements FieldCatalogSource {
     }
   }
 
+  // @akili-spec ingestion/step-1-loads
+  /** Forced reload (design 7.3 step 2.3): skips the fresh window, shares the in-flight call. */
+  refresh(year: number): Promise<FieldCatalog> {
+    return this.shared(year);
+  }
+
+  private shared(year: number): Promise<FieldCatalog> {
+    let pending = this.inFlight.get(year);
+    if (!pending) {
+      pending = this.fetchAndStore(year).finally(() => {
+        this.inFlight.delete(year);
+      });
+      this.inFlight.set(year, pending);
+    }
+    return pending;
+  }
+
   private now(): number {
     return this.clock().getTime();
   }
 
-  private async refresh(year: number): Promise<FieldCatalog> {
+  private async fetchAndStore(year: number): Promise<FieldCatalog> {
     const base = this.config.reportingApiUrl.replace(/\/+$/, '');
     const body = await getJson(
       'reporting',

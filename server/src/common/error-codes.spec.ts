@@ -40,6 +40,12 @@ import {
   TimelineVersionStaleError,
 } from '../admin-config/admin-config.errors.js';
 import {
+  LoadAlreadyRunningError,
+  LoadCatalogMissingError,
+  LoadNotFoundError,
+  LoadWindowClosedError,
+} from '../ingestion/loads.errors.js';
+import {
   IdempotencyFenceLostError,
   IdempotencyInProgressError,
   IdempotencyKeyReusedError,
@@ -150,6 +156,9 @@ describe('domain errors declare a catalog code with the same status', () => {
       new TimelineInProgressUnconfirmedError(),
     ],
     ['TimelineAssignmentNotFoundError', new TimelineAssignmentNotFoundError(1)],
+    ['LoadWindowClosedError', new LoadWindowClosedError()],
+    ['LoadAlreadyRunningError', new LoadAlreadyRunningError()],
+    ['LoadNotFoundError', new LoadNotFoundError(1)],
     [
       'TimelineValidationError',
       new TimelineValidationError([{ field: 'name', code: 'REQUIRED' }]),
@@ -186,6 +195,55 @@ describe('idempotency errors (users-admin-write-safety FR-4, FR-5)', () => {
     expect(ERROR_CATALOG[code as keyof typeof ERROR_CATALOG].status).toBe(
       status,
     );
+  });
+});
+
+describe('step-1 load errors (step-1-loads FR-2, FR-10)', () => {
+  it.each([
+    [
+      new LoadWindowClosedError(),
+      409,
+      'LOADS_WINDOW_CLOSED',
+      'The loading window of this timeline has closed, so no new load can start.',
+    ],
+    [
+      new LoadAlreadyRunningError(),
+      409,
+      'LOADS_ALREADY_RUNNING',
+      'Another load in this cycle is still running. Wait for it to finish, then try again.',
+    ],
+    [
+      new LoadNotFoundError(7),
+      404,
+      'LOADS_NOT_FOUND',
+      'This load does not exist.',
+    ],
+    [
+      new LoadCatalogMissingError(2084),
+      409,
+      'LOADS_CATALOG_MISSING',
+      "Reporting has no QA catalog for this cycle's year, so there are no results to load.",
+    ],
+  ])(
+    '%s answers %i %s with its catalog text',
+    (error, status, code, message) => {
+      expect(error.getStatus()).toBe(status);
+      expect(error.getResponse()).toEqual({ code, message });
+      expect(ERROR_CATALOG[code as keyof typeof ERROR_CATALOG].status).toBe(
+        status,
+      );
+    },
+  );
+
+  it('lists the four load codes in the catalog', () => {
+    expect(
+      ERROR_CODES.filter((code) => code.startsWith('LOADS_')).sort(),
+    ).toEqual([
+      'LOADS_ALREADY_RUNNING',
+      'LOADS_CATALOG_MISSING',
+      'LOADS_NOT_FOUND',
+      'LOADS_WINDOW_CLOSED',
+    ]);
   });
 });
 
