@@ -101,6 +101,8 @@ describe('LoadDrawer', () => {
     answer = () => of(preview({ toLoad: { total: 0, byProgram: [], byResultType: [] }, skipped: [] }));
     await render();
     expect(text()).toContain('No new submitted results match this timeline right now.');
+    expect(text()).not.toContain('About 0');
+    expect(text()).not.toContain('This is an estimate');
     expect(loadButton().disabled).toBe(true);
   });
 

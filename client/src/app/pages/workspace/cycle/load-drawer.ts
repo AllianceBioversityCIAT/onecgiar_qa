@@ -79,6 +79,7 @@ export interface LoadDrawerNames {
             </div>
           } @else if (preview.value(); as p) {
             <section aria-live="polite" class="flex flex-col gap-4">
+              @if (p.toLoad.total > 0) {
               <p class="m-0 text-(length:--fs-14) leading-[1.55] text-(--text-2)">
                 About <span class="font-(family-name:--qa-mono) font-semibold text-(--text) tabular-nums">{{ fmt(p.toLoad.total) }}</span>
                 {{ p.toLoad.total === 1 ? 'result' : 'results' }} will be loaded into step 1 ({{ p.phaseYear }} phase).
@@ -87,6 +88,7 @@ export interface LoadDrawerNames {
                   <span class="font-(family-name:--qa-mono) font-semibold text-(--text) tabular-nums">{{ fmt(p.kpGroups.autoChecked + p.kpGroups.notInQa) }}</span> auto-validated (not assessed).
                 }
               </p>
+              }
               @if (p.window === 'closed') {
                 <p role="status" class="m-0 rounded-[8px] bg-(--st-editing-bg) px-3 py-2 text-(length:--fs-13) text-(--st-editing-fg)">Step 1 of this timeline has closed, so no new load can start.</p>
               }
@@ -136,7 +138,9 @@ export interface LoadDrawerNames {
                   </ul>
                 </div>
               }
-              <p class="m-0 text-(length:--fs-12) text-(--text-3)">This is an estimate: the load checks every result again and may skip a few more.</p>
+              @if (p.toLoad.total > 0) {
+                <p class="m-0 text-(length:--fs-12) text-(--text-3)">This is an estimate: the load checks every result again and may skip a few more.</p>
+              }
             </section>
           }
         }
