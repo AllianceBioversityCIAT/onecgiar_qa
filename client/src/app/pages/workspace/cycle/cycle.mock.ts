@@ -1,6 +1,6 @@
 import { DEMO_PROGRAMS } from '../../../core/domain/demo-programs';
 // Mock data for the Cycle view, copied from the "QA Platform" mockup (OFFICIAL0, CY_BATCHES,
-// RUN_TARGETS, DEMO_ACCESS, PROG_ROWS, PROGRAMS, TYPES, ST_DEFAULT.rtypes…).
+// DEMO_ACCESS, PROG_ROWS, PROGRAMS, TYPES, ST_DEFAULT.rtypes…).
 // TODO(api): replace with the cycle / timeline endpoints. PROGRAMS and RESULT_TYPES are local
 // copies of data other views also use (Results, Assessors, Fields).
 
@@ -57,14 +57,6 @@ export interface Timeline {
   version?: number;
 }
 
-export interface RunTarget {
-  /** "<timelineId>:<stepIndex>" */
-  id: string;
-  label: string;
-  desc: string;
-  first: boolean;
-}
-
 export interface ProgramProgress {
   code: string;
   done: number;
@@ -93,9 +85,8 @@ export const RESULT_TYPES: readonly (readonly [string, number])[] = [
   ['Policy change', 89],
   ['Other outcome', 38],
 ];
-export const TOTAL_RESULTS = 1114;
 
-/** Order used for the "join here" and load summary lines. */
+/** Order used for the "join here" lines. */
 export const RT_ORDER = [
   'Knowledge product',
   'Innovation development',
@@ -106,17 +97,7 @@ export const RT_ORDER = [
   'Other outcome',
 ] as const;
 
-export const RT_PLURAL: Readonly<Record<string, string>> = {
-  'Knowledge product': 'knowledge products',
-  'Innovation development': 'innovation development results',
-  'Capacity sharing for development': 'capacity sharing results',
-  'Innovation use': 'innovation use results',
-  'Policy change': 'policy change results',
-  'Other output': 'other output results',
-  'Other outcome': 'other outcome results',
-};
 export const RT_SHORT: Readonly<Record<string, string>> = { 'Knowledge product': 'Knowledge products' };
-export const RT_AUTO_N: Readonly<Record<string, number>> = { 'Knowledge product': 84 };
 
 /** Settings > Result types defaults: knowledge products join at step 3 and are auto-approved. */
 export const RESULT_TYPE_RULES: Readonly<Record<string, ResultTypeRule>> = Object.fromEntries(
@@ -240,12 +221,6 @@ export const TIMELINES: Timeline[] = [
       step(4, '24 Jul 2026', '07 Aug 2026'),
     ],
   },
-];
-
-export const RUN_TARGETS: readonly RunTarget[] = [
-  { id: 'jul:0', label: 'July 2026 sub-timeline · QA platform open for assessors', desc: 'Open · closes 23 Jul', first: true },
-  { id: 'annual:4', label: 'Annual report 2026 · QA platform open for PPU', desc: 'Opens 24 Jul', first: false },
-  { id: 'sep:0', label: 'September pilot · QA platform open for assessors', desc: 'Opens 01 Sep', first: true },
 ];
 
 /** Default dates of a new sub-timeline. */

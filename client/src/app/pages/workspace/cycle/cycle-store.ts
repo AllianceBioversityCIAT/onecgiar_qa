@@ -48,6 +48,8 @@ export class CycleStore {
   private loadSeq = 0;
   readonly catalogs = this.catalogState.asReadonly();
 
+  /** Every timeline of the active cycle, official first. */
+  readonly timelines = this.all.asReadonly();
   readonly official = computed(() => this.all().find((t) => t.id === OFFICIAL_ID) ?? null);
   readonly subTimelines = computed(() => this.all().filter((t) => t.id !== OFFICIAL_ID));
   readonly programOptions = computed(() => this.catalogState().programs.map((p) => ({ value: p.code, label: `${p.code} ${p.name}` })));

@@ -1,11 +1,14 @@
-import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { Toasts } from '../../../core/http/toasts';
 import { QaButtonImports, QaReveal, QaTabsImports } from '../../../ui';
 import { CycleSkeleton } from './cycle-skeleton';
 import { CycleStore, TimelineSaveOutcome } from './cycle-store';
-import { RUN_TARGETS, Timeline } from './cycle.mock';
-import { MenuAction, formatNumber, stepRow, stepState, timelineStart, timelineVM } from './cycle.logic';
-import { RunRequest } from './load-drawer';
+import { CycleLoads } from './cycle-loads';
+import { Timeline } from './cycle.mock';
+import { MenuAction, formatNumber, loadTargets, stepRow, stepState, timelineStart, timelineVM } from './cycle.logic';
+import { nowInRome } from '../../../core/domain/rome-date';
+import { LoadDrawer, LoadDrawerNames, RunRequest } from './load-drawer';
+import { LoadSummaryDrawer } from './load-summary-drawer';
 import { ProgressDrawer, StepProgress } from './progress-drawer';
 import { StepDrawer, StepRequest, StepSaveEvent } from './step-drawer';
 import { TimelineCard } from './timeline-card';
@@ -19,18 +22,19 @@ const EMPTY_TIMELINE: Timeline = { id: '', name: '', kind: 'Sub-timeline', statu
 
 /**
  * "Cycle" view: the active cycle's official timeline, its live / closed sub-timelines and their
- * drawers, on the cycles API (P2-3934 create and view, P2-3937 edit). Loads, results, export, test
- * timelines, close, reopen and extended access have no API yet: they show as "Coming soon".
+ * drawers, on the cycles API (P2-3934 create and view, P2-3937 edit) and the step-1 loads API (P2-4064).
+ * Results, export, test timelines, close, reopen and extended access have no API yet: "Coming soon".
  */
 @Component({
   selector: 'qa-cycle-view',
-  imports: [QaButtonImports, QaTabsImports, QaReveal, CycleSkeleton, TimelineSteps, TimelineCard, TimelineDrawer, StepDrawer, ProgressDrawer],
-  providers: [CycleStore],
+  imports: [QaButtonImports, QaTabsImports, QaReveal, CycleSkeleton, TimelineSteps, TimelineCard, TimelineDrawer, StepDrawer, ProgressDrawer, LoadDrawer, LoadSummaryDrawer],
+  providers: [CycleStore, CycleLoads],
   templateUrl: './cycle-view.html',
 })
 export class CycleView implements OnInit {
   protected readonly fmt = formatNumber;
   protected readonly store = inject(CycleStore);
+  protected readonly loads = inject(CycleLoads);
   private readonly toasts = inject(Toasts);
 
   // ---- Data ----
@@ -40,24 +44,43 @@ export class CycleView implements OnInit {
   // ---- Page state ----
   protected readonly tab = signal<string>('live');
   protected readonly closeConfirmId = signal<string | null>(null);
-  /** "Loading results 120 of 1,200" counter shown in place of the load button. */
-  protected readonly running = signal<{ done: number; total: number } | null>(null);
 
   protected readonly officialVM = computed(() => {
     const t = this.official();
-    return t ? timelineVM(t) : null;
+    return t ? timelineVM(t, this.loadable().has(t.id)) : null;
   });
   /** The Sub-timelines section lists sub-timelines only; the official timeline has its own card. */
   private readonly subs = computed(() => this.timelines().filter((t) => t.kind === 'Sub-timeline'));
   private readonly liveList = computed(() => this.subs().filter((t) => t.status !== 'Closed').sort(byStartDesc));
   private readonly closedList = computed(() => this.subs().filter((t) => t.status === 'Closed').sort(byStartDesc));
-  protected readonly liveVMs = computed(() => this.liveList().map((t) => timelineVM(t)));
+  protected readonly liveVMs = computed(() => this.liveList().map((t) => timelineVM(t, this.loadable().has(t.id))));
   protected readonly closedVMs = computed(() => this.closedList().map((t) => timelineVM(t)));
+  /** Ids of the timelines whose step 1 can take a load now (none while a load runs or the cycle is closed). */
+  private readonly loadable = computed(
+    () => new Set(this.canLoad() ? loadTargets(this.store.timelines(), nowInRome()).map((t) => t.id) : []),
+  );
+  /** The step drawer offers "Load results into this step" on step 1 of a loadable timeline. */
+  protected readonly stepLoadable = computed(() => {
+    const r = this.stepRequest();
+    return (r.index ?? 0) === 0 && this.loadable().has(r.timeline.id);
+  });
   protected readonly closedTotal = computed(() => this.closedList().length);
 
   // ---- Drawers ----
   protected readonly loadOpen = signal(false);
-  protected readonly loadRequest = signal<RunRequest>({ target: RUN_TARGETS[0].id, types: [], programs: [], fromStep: false, addTo: null });
+  protected readonly loadRequest = signal<RunRequest>({ timelineId: null, fromStep: false });
+  protected readonly loadError = signal<string | null>(null);
+  /** Timelines whose step 1 can still take results (computed when the drawer opens: the clock moves). */
+  protected readonly loadTargetList = signal<readonly Timeline[]>([]);
+  protected readonly summaryOpen = signal(false);
+  /** Program and result type names for the load drawers (ids when a catalog is missing). */
+  protected readonly loadNames: LoadDrawerNames = {
+    program: (id, code) => {
+      const p = this.store.catalogs().programs.find((x) => x.id === id);
+      return p ? `${p.code} ${p.name}` : (code ?? `Program ${id}`);
+    },
+    type: (key) => this.store.catalogs().types.find((x) => x.key === key)?.name ?? key,
+  };
   protected readonly timelineOpen = signal(false);
   protected readonly timelineRequest = signal<TimelineRequest>({ timeline: null });
   protected readonly stepOpen = signal(false);
@@ -68,18 +91,9 @@ export class CycleView implements OnInit {
   protected readonly progressOpen = signal(false);
   protected readonly progress = signal<StepProgress>({ title: '', subtitle: '', pct: 0, done: 0, of: 0 });
 
-  private runTimer: ReturnType<typeof setInterval> | undefined;
-  private runEndTimer: ReturnType<typeof setTimeout> | undefined;
-
-  constructor() {
-    inject(DestroyRef).onDestroy(() => {
-      clearInterval(this.runTimer);
-      clearTimeout(this.runEndTimer);
-    });
-  }
-
   ngOnInit(): void {
-    void this.store.load();
+    // Then follow a load of the cycle that is still running (opened in another tab, or before a reload).
+    void this.store.load().then(() => this.loads.resume(this.store.timelines()));
   }
 
   // ---- Lookups ----
@@ -88,30 +102,31 @@ export class CycleView implements OnInit {
   }
 
   // ---- Load results ----
+  /** The admin can load: the cycle is open and no load runs. */
+  protected readonly canLoad = computed(() => this.store.canWrite() && !this.loads.running());
+
   protected openLoad(request?: Partial<RunRequest>): void {
-    this.loadRequest.set({ target: RUN_TARGETS[0].id, types: [], programs: [], fromStep: false, addTo: null, ...request });
+    this.loadTargetList.set(loadTargets(this.store.timelines(), nowInRome()));
+    this.loadRequest.set({ timelineId: null, fromStep: false, ...request });
+    this.loadError.set(null);
     this.loadOpen.set(true);
   }
 
-  protected startRun(total: number): void {
-    // TODO(api): the real progress comes from the load job; this only animates the counter.
-    clearInterval(this.runTimer);
-    clearTimeout(this.runEndTimer);
-    this.running.set({ done: 0, total });
-    const step = Math.max(1, Math.ceil(total / 48));
-    this.runTimer = setInterval(() => {
-      const r = this.running();
-      if (!r) {
-        clearInterval(this.runTimer);
-        return;
-      }
-      const done = Math.min(r.total, r.done + step);
-      this.running.set({ ...r, done });
-      if (done >= r.total) {
-        clearInterval(this.runTimer);
-        this.runEndTimer = setTimeout(() => this.running.set(null), 900);
-      }
-    }, 250);
+  protected async startLoad(t: Timeline): Promise<void> {
+    this.loadError.set(null);
+    const outcome = await this.loads.start(t);
+    if (outcome.ok) {
+      this.loadOpen.set(false);
+      return;
+    }
+    if (this.loadOpen()) this.loadError.set(outcome.message);
+    else this.toasts.error(outcome.message);
+    // Another load runs: the page counter now follows it, so the drawer has nothing more to do.
+    if (this.loads.running()) this.loadOpen.set(false);
+  }
+
+  protected closeSummary(open: boolean): void {
+    if (!open) this.loads.closeSummary();
   }
 
   // ---- Steps ----
@@ -149,7 +164,7 @@ export class CycleView implements OnInit {
   protected loadIntoStep(): void {
     const r = this.stepRequest();
     this.stepOpen.set(false);
-    this.openLoad({ target: `${r.timeline.id}:${r.index ?? 0}`, types: r.timeline.types, programs: r.timeline.programs, fromStep: true });
+    this.openLoad({ timelineId: r.timeline.id, fromStep: true });
   }
 
   // ---- Timelines ----
@@ -222,8 +237,7 @@ export class CycleView implements OnInit {
     if (!t) return;
     switch (action) {
       case 'add-results': {
-        const ai = t.steps.findIndex((p) => stepState(p, t).kind === 'active');
-        this.openLoad({ target: `${t.id}:${Math.max(0, ai)}`, types: t.types, programs: t.programs, addTo: t.name });
+        this.openLoad({ timelineId: t.id });
         break;
       }
       case 'edit':
