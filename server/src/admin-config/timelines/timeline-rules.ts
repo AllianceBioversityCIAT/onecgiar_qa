@@ -22,6 +22,12 @@ const NAME_MAX = 120;
 const STEPS_MIN = 1;
 const STEPS_MAX = 5;
 
+/**
+ * The last QA round a timeline can have (timeline-sync FR-3, DD-9). It lives
+ * here, the admin-config side, so ingestion may import it and never the reverse.
+ */
+export const MAX_ROUND = 2;
+
 /** The FR-4 table is in workflow order, so its audiences are the workflow order. */
 const AUDIENCE_RANK: ReadonlyMap<string, number> = new Map(
   DEFAULT_STEPS.map((step, index) => [step.audience, index]),
@@ -139,6 +145,10 @@ export function validateTimelineCreate(
           : step.round === 1;
         if (!roundOk) {
           issues.push({ field: `${path}.round`, code: 'ROUND_SEQUENCE' });
+        }
+        // Reported beside the sequence check; both can fire on one step (design 7.6).
+        if (step.round > MAX_ROUND) {
+          issues.push({ field: `${path}.round`, code: 'ROUND_ABOVE_MAX' });
         }
       },
     },
