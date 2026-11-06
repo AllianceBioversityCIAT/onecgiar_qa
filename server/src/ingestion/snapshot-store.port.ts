@@ -28,6 +28,8 @@ export interface SnapshotStore {
    * the same key with another hash throws `SnapshotConflictError`.
    */
   put(snapshot: ResultSnapshotRecord): Promise<void>;
+  /** One GetItem by the exact key (`sk` is `snapshotSortSuffix`); null on a miss. */
+  get(resultCode: number, sk: string): Promise<ResultSnapshotRecord | null>;
   /** Every snapshot of the result, ordered by year, cycle, timeline, load. */
   history(resultCode: number): Promise<ResultSnapshotRecord[]>;
 }

@@ -81,3 +81,24 @@
 - **Running totals vs budget:** tasks 2/8 · production LOC ≈ 75 (schema 58 + migration 12 + T-2 11; down script 42 not counted) / ≈ 1,000 · review rounds 5 / ≈ 12 (T-2 1, T-1 4: 2 parallel lenses + continuation re-review, counted as rounds) — **within budget**, but review rounds run ahead of plan (5 used on 2 of 8 tasks).
 - **Final verification:** green — lint, build, whole unit (2854), e2e (956)
 
+### T-5: Snapshot read by key — PASS
+
+- **Date:** 2026-11-06 · **Attempts:** 1 · **Effort:** medium · **Skills:** aws-serverless, nestjs-expert · run in parallel with T-3
+- **Requirements covered:** FR-8 (the read only; the "read only when the hash differs" rule is T-6's), NFR-2 (one GetItem); design § 5.4
+- **Attempt 1**
+  - files changed: `server/src/ingestion/snapshot-store.port.ts`, `server/src/ingestion/dynamo-snapshot-store.ts`, `server/src/ingestion/dynamo-snapshot-store.spec.ts`, `server/src/ingestion/dynamo-snapshot-store.dynamo-local.spec.ts`, `server/test/support/fake-snapshot-store.ts`
+  - port implementers (`git grep -l "SnapshotStore"`): `dynamo-snapshot-store.ts`, `test/support/fake-snapshot-store.ts` — both updated; consumers unchanged
+  - red run: 5 failed (`× get returns the record at the exact (resultCode, sk) key` ×2, `× get returns null for a near-miss key` ×2, `× round-trips a 300 KB value through gzip …`; `TypeError: store.get is not a function`)
+  - falsifier (no inflate of `valuesGz`): `AssertionError: expected null to deeply equal { Object (blob) }`, 1 failed / 12; restored
+  - Implementer verification: spec 13 passed; lint, build clean; whole unit green
+  - **DynamoDB Local suite: not run** — DynamoDB Local was not running and `DYNAMODB_ENDPOINT` was empty. The new local case is written and unexecuted; this is not a pass. To run: `DYNAMODB_ENDPOINT=<local> npx vitest run src/ingestion/dynamo-snapshot-store.dynamo-local.spec.ts`.
+  - evidence re-run (Leader inline): **VERIFIED** — spec 13 passed; after T-3 ended: lint clean, build 0, whole unit 71 passed | 1 skipped / 2952 passed, e2e 16 / 956
+  - Reviewer: **PASS** (checklist) — one ElectroDB `get` with the entity's key composites; inflate as `history`; fake answers only the exact key; near-miss misses defeat the disqualifier; named check FR-3/§ 6 amendment: no conflict (last carry)
+  - runtime events: none
+- **Not Done / Assumptions (verbatim):** "DynamoDB Local was not running … so the new local case is written but unexecuted." · "`get` repeats `history`'s record-mapping block instead of sharing a helper, because the task said `history` is not touched." · "`sk` is the `snapKey` string produced by `snapshotSortSuffix`, as in design § 5.4."
+- **ADVISORY (Reviewer, 4R):** READABILITY — extract a shared `toRecord(r)` later (touches `history`); add the `@akili-spec ingestion/timeline-sync` tag to `dynamo-snapshot-store.ts`. RELIABILITY — a stored missing `values` parses to `null` behind a non-null type (same as `history`).
+- **Forward pointer → T-6:** treat a `null` `values` from `SnapshotStore.get` defensively when computing `changedFields` (Reviewer advisory, recorded for the T-6 brief).
+- **spawns:** implementer 14 calls, 92,989 tokens, ended partial; reviewer 12 calls, 40,610 tokens, ended complete
+- **Running totals vs budget:** tasks 3/8 · production LOC ≈ 104 / ≈ 1,000 · review rounds 6 / ≈ 12
+- **Final verification:** green (lint, build, unit, e2e); DynamoDB Local case unexecuted
+

@@ -199,7 +199,7 @@ T-1, T-2 and T-5 are independent: they touch different files, and only T-1 touch
 
 ## T-5: Snapshot read by key
 
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** S
 - **Depends on:** none
 - **Requirements:** FR-8 (the previous snapshot is read only when the hash differs, so this task gives the read); NFR-2
