@@ -27,8 +27,8 @@ import {
 import {
   EMPTY_SUMMARY,
   effectiveLoadStatus,
-  loadWindow,
   skipVerdict,
+  syncWindow,
   type LoadSummary,
 } from './load-rules.js';
 import {
@@ -280,13 +280,16 @@ export class LoadsService {
       const candidates: FeedListItem[] = [];
       for (const item of items) {
         const rows = holders.get(item.resultCode) ?? [];
+        // T-4 reads the round of the step in force; until then a sync is step 1.
         const verdict = skipVerdict({
+          round: 1,
           timelineId: timeline.id,
           now: nowMinute,
+          submittedAt: item.submittedAt,
           memberships: rows,
           duplicated: (listed.get(item.resultCode) ?? 0) > 1,
         });
-        if (!verdict) {
+        if (!('reason' in verdict)) {
           candidates.push(item);
           continue;
         }
@@ -352,7 +355,7 @@ export class LoadsService {
       return {
         phaseYear: cycle.year,
         window:
-          loadWindow(cycle.status, stepOne.closesAt, nowMinute) === 'open'
+          syncWindow(cycle.status, stepOne.closesAt, nowMinute) === 'open'
             ? 'open'
             : 'closed',
         toLoad: {

@@ -1081,7 +1081,7 @@ describe('the lot, the end and the end of expired memberships over a stub MySQL 
     );
     expect(progress.params).toEqual([
       2,
-      '{"loaded":2,"byProgram":{"2":2},"byType":{"KP":2},"kpGroups":{},"skipped":{},"otherTimelines":{}}',
+      '{"loaded":2,"loadedNew":2,"loadedResubmitted":0,"round":1,"byProgram":{"2":2},"byType":{"KP":2},"kpGroups":{},"skipped":{},"otherTimelines":{},"returnedNotResubmitted":{"total":0,"byProgram":{},"byType":{}}}',
       '2026-11-10 08:00:00.000',
       41,
     ]);
@@ -1132,11 +1132,15 @@ describe('the lot, the end and the end of expired memberships over a stub MySQL 
     const summary = JSON.parse(inTx.at(-2)!.params[1] as string) as unknown;
     expect(summary).toEqual({
       loaded: 1,
+      loadedNew: 1,
+      loadedResubmitted: 0,
+      round: 1,
       byProgram: { '2': 1 },
       byType: { KP: 1 },
       kpGroups: {},
       skipped: { ACTIVE_IN_OTHER_TIMELINE: 1, ALREADY_IN_THIS_TIMELINE: 1 },
       otherTimelines: { '12': { name: 'August 2026', count: 1 } },
+      returnedNotResubmitted: { total: 0, byProgram: {}, byType: {} },
     });
   });
 
@@ -1431,11 +1435,15 @@ describe('start over the in-memory world (FR-2, DD-7)', () => {
         processed: 0,
         summary: {
           loaded: 0,
+          loadedNew: 0,
+          loadedResubmitted: 0,
+          round: 1,
           byProgram: {},
           byType: {},
           kpGroups: {},
           skipped: {},
           otherTimelines: {},
+          returnedNotResubmitted: { total: 0, byProgram: {}, byType: {} },
         },
         failureReason: null,
         startedBy: 9,
@@ -2714,6 +2722,8 @@ describe('LoadsStore reads over the in-memory world', () => {
         timelineId: 12,
         timelineName: 'August 2026',
         endedAt: null,
+        entryRound: 1,
+        endReason: null,
         lastStepClosesAt: '2026-12-18T17:30',
       },
     ]);

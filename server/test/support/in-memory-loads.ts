@@ -161,6 +161,9 @@ export class InMemoryLoadsStore implements LoadsStore {
           status: r.status,
           timelineId: r.timelineId,
           endedAt: r.endedAt,
+          // The column defaults (`entry_round` 1, `end_reason` NULL) for rows seeded without them.
+          entryRound: r.entryRound ?? 1,
+          endReason: r.endReason ?? null,
           lastStepClosesAt: last.closesAt,
           timelineName: timeline.name,
         };

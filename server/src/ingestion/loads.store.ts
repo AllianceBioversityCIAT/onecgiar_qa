@@ -282,7 +282,14 @@ export class DrizzleLoadsStore implements LoadsStore {
     const found: Array<
       Pick<
         CycleMembershipRow,
-        'id' | 'resultCode' | 'resultId' | 'status' | 'timelineId' | 'endedAt'
+        | 'id'
+        | 'resultCode'
+        | 'resultId'
+        | 'status'
+        | 'timelineId'
+        | 'endedAt'
+        | 'entryRound'
+        | 'endReason'
       >
     > = [];
     for (let at = 0; at < codes.length; at += RESULT_CODE_CHUNK) {
@@ -295,6 +302,8 @@ export class DrizzleLoadsStore implements LoadsStore {
             status: timelineResults.status,
             timelineId: timelineResults.timelineId,
             endedAt: timelineResults.endedAt,
+            entryRound: timelineResults.entryRound,
+            endReason: timelineResults.endReason,
           })
           .from(timelineResults)
           .where(

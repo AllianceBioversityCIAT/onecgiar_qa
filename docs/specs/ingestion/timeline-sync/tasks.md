@@ -98,7 +98,7 @@ T-1, T-2 and T-5 are independent: they touch different files, and only T-1 touch
 
 ## T-3: Pure rules of a sync
 
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-1 (enum and column types), T-2 (`MAX_ROUND`)
 - **Requirements:**

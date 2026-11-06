@@ -24,10 +24,10 @@ import type {
 import {
   EMPTY_SUMMARY,
   effectiveLoadStatus,
-  loadWindow,
   membershipEnds,
   mergeSummary,
   type LoadSummary,
+  syncWindow,
   type SkipReason,
 } from './load-rules.js';
 import {
@@ -193,7 +193,13 @@ class StartRefused extends Error {
 
 function storedSummary(value: unknown): LoadSummary {
   if (typeof value !== 'object' || value === null) return EMPTY_SUMMARY;
-  return { ...EMPTY_SUMMARY, ...(value as Partial<LoadSummary>) };
+  const stored = value as Partial<LoadSummary>;
+  // A summary from before 0008 lacks the new keys: every load it counts was new (design 5.3).
+  return {
+    ...EMPTY_SUMMARY,
+    loadedNew: stored.loaded ?? 0,
+    ...stored,
+  };
 }
 
 const skippedTotal = (summary: LoadSummary): number =>
@@ -302,7 +308,8 @@ export class LoadsUnitOfWork {
         if (!step) throw new Error(`Timeline ${timeline.id} has no step 1`);
 
         // 2.1 and 2.2: the closed cycle first, then the window.
-        const window = loadWindow(
+        // T-4 judges the last step; until then the window is step 1's.
+        const window = syncWindow(
           cycle.status,
           step.closesAt,
           nowInRome(command.now),
@@ -455,8 +462,11 @@ export class LoadsUnitOfWork {
 
       const insertedCodes: number[] = [];
       const raceSkips: RaceSkip[] = [];
+      const stored = storedSummary(load.summary);
       const lot: LoadSummary = {
         ...EMPTY_SUMMARY,
+        // One load is one round: the lot carries the load's (mergeSummary throws on a mismatch).
+        round: stored.round,
         byProgram: {},
         byType: {},
         kpGroups: {},
@@ -475,6 +485,7 @@ export class LoadsUnitOfWork {
         if (outcome.kind === 'created') {
           insertedCodes.push(membership.resultCode);
           lot.loaded++;
+          lot.loadedNew++;
           bump(lot.byProgram, String(membership.programClarisaId));
           bump(lot.byType, membership.resultTypeKey);
           if (membership.kpGroup !== null)
@@ -512,7 +523,7 @@ export class LoadsUnitOfWork {
       const processed = load.processed + command.processed;
       await loads.recordProgress(load.id, {
         processed,
-        summary: mergeSummary(storedSummary(load.summary), lot),
+        summary: mergeSummary(stored, lot),
         heartbeatAt: command.now,
       });
       return { kind: 'recorded', insertedCodes, raceSkips, processed };

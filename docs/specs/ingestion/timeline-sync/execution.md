@@ -102,3 +102,37 @@
 - **Running totals vs budget:** tasks 3/8 · production LOC ≈ 104 / ≈ 1,000 · review rounds 6 / ≈ 12
 - **Final verification:** green (lint, build, unit, e2e); DynamoDB Local case unexecuted
 
+### T-3: Pure rules of a sync — PASS (attempt 2)
+
+- **Attempt 1** (2026-11-06, effort high, skills nestjs-expert + tdd, parallel with T-5)
+  - files changed: `server/src/ingestion/load-rules.ts`, `load-rules.spec.ts`, `load-runner.ts`, `loads.service.ts`, `loads.unit-of-work.ts`, `loads.store.ts`, `loads.unit-of-work.spec.ts`, `server/test/support/in-memory-loads.ts`
+  - red: 83 failed / 47 (130) against fixed-value stubs; falsifiers: `<` → 10 red, `>=` → 6 red, S-6 ignored → 3 red, `JSON.stringify` → 1 red; restored
+  - Implementer verification: `load-rules.spec.ts` 130 passed; whole unit 2952 passed; e2e 16/956; lint, build 0
+  - evidence re-run (Leader inline): **VERIFIED** (same outputs)
+  - Reviewer: **FAIL** (full report, verbatim):
+
+    > ISSUES:
+    > 1. **Discovered Issue:** The `stepInForce` / `entryRound` boundary table is incomplete for the admin shape `1,1,1,2,2` (`adminRows`, `load-rules.spec.ts` ~L99–115). It is missing one minute before step 2 opens (`2026-11-09T08:59`), the closing minutes of steps 1, 2 and 4 (`11-06T17:00`, `11-13T17:00`, `11-27T17:00`), and the gap minute after the last close (`12-04T00:00`). The default and one-step shapes are complete.
+    >    * **Violated Rule:** T-3's tests block in `docs/specs/ingestion/timeline-sync/tasks.md`: "`entryRound`/`stepInForce` table over 3 shapes … rows one minute before each opening, the opening minute, the closing minute, the gap minute after each close". Its "Done when: every listed row passes" condition is not met. The defect gate in `requirements.md` § 7 ("Wrong round at a boundary minute → `load-rules.spec.ts` boundary table") names this table.
+    >    * **Remediation Suggestion:** Add the 5 missing rows to `adminRows` with literal expected values: `11-09T08:59 → 1,1`; `11-06T17:00 → 1,1`; `11-13T17:00 → 2,1`; `11-27T17:00 → 4,2`; `12-04T00:00 → 5,2`. Do not compute them with the function under test. Optionally give all three shapes the same row set so the table is uniform.
+
+  - Reviewer focus answers: `previous` matches design § 7.3 step 2 verbatim; `mergeSummary` left-keep matches § 5.3; round > 1 for "returned here" matches FR-4 order; caller edits within "enough to compile".
+  - ADVISORY: RISK — stage only T-3 files at commit. RELIABILITY — `lot.round = stored.round` inherits the start's initial summary round: T-4 must write the load's round into the initial summary (or T-6 take it from `load.round`). READABILITY — `returned` round-1 row with `endedAt === null` fails closed to `ALREADY_IN_THIS_TIMELINE`, untested, uncommented. RELIABILITY — `stepInForce` assumes `opensAt` rises with position (guaranteed by timeline validation; uncommented).
+  - spawns: implementer 51 calls, 198,912 tokens, ended partial; reviewer — not reported by host
+- **Forward pointer → T-4:** write the load's round into the initial stored summary (`lot.round = stored.round` in `loads.unit-of-work.ts`). Fix the spec-file type errors in `load-runner.spec.ts`, `loads.service.spec.ts`, `loads.unit-of-work.spec.ts` fixtures that lack the T-1 columns (`tsc -p tsconfig.json`; T-4/T-6 own them).
+- **Attempt 2** — effort xhigh (bumped from high)
+  - files changed: `server/src/ingestion/load-rules.spec.ts` only (`load-rules.ts` byte-identical to attempt 1)
+  - rows added: admin shape `1,1,1,2,2` 15 → 20 (`11-09T08:59 → 1,1`, `11-06T17:00 → 1,1`, `11-13T17:00 → 2,1`, `11-27T17:00 → 4,2`, `12-04T00:00 → 5,2`, derived by hand from the fixture dates and FR-2); default (20) and one-step (4) audited complete; +1 guard test `reads every shape at the same boundary minutes` (time columns only)
+  - falsifier (`<` for `<=` in `stepInForce`): 10 failed / 126, incl. `timeline admin 1,1,1,2,2 > now 2026-11-09T09:00 -> step 2, round 1` (`expected 1 to be 2`); restored byte-identical
+  - Implementer verification: spec 136 passed; whole unit 2958 passed | 4 skipped; lint, build 0; e2e 16/956
+  - evidence re-run (Leader inline): **VERIFIED** — same outputs
+  - Reviewer: **PASS** — "The attempt 1 FAIL is fixed and nothing regressed"; every expected value a literal; guard test additive, no scope widening
+  - ADVISORY: RELIABILITY — comment that close/gap rows behave as mid-step rows by design (`RoundStep` has no `closesAt`). RISK — `loads.service.ts:358` and `loads.unit-of-work.ts:311` still pass step 1's `closesAt` to `syncWindow` (marked for T-4).
+  - spawns: implementer 22 calls, 110,456 tokens, ended complete; reviewer 5 calls, 54,579 tokens, ended complete (attempt-1 reviewer: 12 calls, 74,696 tokens)
+  - runtime events: none
+- **Requirements covered:** FR-1, FR-2, FR-4, FR-8, FR-9, NFR-4 (as rules); design § 5.3, § 7.4, DD-1, DD-3, DD-6, DD-8
+- **Not Done / Assumptions (attempt 1, verbatim, abridged):** "`tsc -p tsconfig.json` (with specs) reports type errors in `load-runner.spec.ts`, `loads.service.spec.ts` and `loads.unit-of-work.spec.ts` … fixture rows lacking the T-1 columns … T-4/T-6 fixtures own them." · "`returnedNotResubmitted` … keeps the left side's value (associative, like `round`)." · "a skip is `{reason, timelineId?}` and a take is `{kind, previous}`." · "an unparseable string counts as not re-submitted." · "`server/src/ingestion/AGENTS.md` still names `loadWindow` … the FR-13 documents task."
+- **Forward pointer → T-4 (add):** switch `syncWindow` callers to the last step's close (`loads.service.ts:358`, `loads.unit-of-work.ts:311`); the T-4 Reviewer checks it.
+- **Running totals vs budget:** tasks 4/8 · production LOC ≈ 333 / ≈ 1,000 · review rounds 8 / ≈ 12 — within budget on tasks and LOC; review rounds at 67 % of budget with 50 % of tasks done (projected ≈ 15–16, above ≈ 12; reported at the gate).
+- **Final verification:** green — lint, build, whole unit (2958), e2e (956)
+

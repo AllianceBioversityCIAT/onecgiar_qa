@@ -20,7 +20,7 @@ import { UpstreamStatusError } from '../users/catalogs/catalog-http.js';
 import { UpstreamUnavailableError } from '../users/catalogs/catalogs.errors.js';
 import { listEveryPage } from './feed-paging.js';
 import { KP_RULES, type KpRules } from './kp-classifier.js';
-import { skipVerdict, type LoadSummary } from './load-rules.js';
+import { canonicalJson, skipVerdict, type LoadSummary } from './load-rules.js';
 import type { LoadRunnerPort } from './loads.service.js';
 import {
   LOADS_STORE,
@@ -101,19 +101,6 @@ interface Run {
 
 const sum = (counts: Record<string, number>): number =>
   Object.values(counts).reduce((total, count) => total + count, 0);
-
-/** JSON with every object's keys sorted, so equal values always hash alike (design 5.2). */
-function canonicalJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
-  if (value !== null && typeof value === 'object') {
-    const record = value as Record<string, unknown>;
-    const members = Object.keys(record)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`);
-    return `{${members.join(',')}}`;
-  }
-  return JSON.stringify(value) ?? 'null';
-}
 
 const hashValues = (values: Record<string, unknown>): string =>
   createHash('sha256').update(canonicalJson(values)).digest('hex');
@@ -301,13 +288,16 @@ export class LoadRunner implements LoadRunnerPort {
     const candidates: FeedListItem[] = [];
     for (const item of lot) {
       const rows = held.get(item.resultCode) ?? [];
+      // T-6 reads the round and the take kind; until then a sync is step 1.
       const verdict = skipVerdict({
+        round: 1,
         timelineId: load.timelineId,
         now: nowInRome(now),
+        submittedAt: item.submittedAt,
         memberships: rows,
         duplicated: (listed.get(item.resultCode) ?? 0) > 1,
       });
-      if (!verdict) {
+      if (!('reason' in verdict)) {
         candidates.push(item);
         continue;
       }
