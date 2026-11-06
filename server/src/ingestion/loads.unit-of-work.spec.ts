@@ -535,6 +535,9 @@ function loadValues(o: {
     o.heartbeatAt,
     null,
     'req-0',
+    // round, step_position: the last two columns of `timeline_loads`
+    1,
+    1,
   ];
 }
 

@@ -143,7 +143,7 @@ The round of a sync SHALL be the stored round of the step in force at the sync's
 
 ### FR-3: Round limit in the timeline edit
 
-Creating or editing a timeline SHALL refuse any step whose round is above 2, with the existing all-errors 400 shape, naming the step's `round` field.
+Creating a timeline SHALL refuse any step whose round is above 2, with the existing all-errors 400 shape, naming the step's `round` field. Editing cannot change a round: the edit body has no `round` field and answers 400 `UNKNOWN_FIELD` when one is sent (amended 2026-11-06, back lead).
 
 #### Scenario: Round 3
 - WHEN an ADMIN sends steps with rounds 1, 1, 2, 2, 3

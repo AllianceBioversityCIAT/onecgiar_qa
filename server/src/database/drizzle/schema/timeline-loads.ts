@@ -1,6 +1,8 @@
 // @akili-spec ingestion/step-1-loads
+// @akili-spec ingestion/timeline-sync
 import { sql } from 'drizzle-orm';
 import {
+  check,
   datetime,
   index,
   int,
@@ -8,6 +10,7 @@ import {
   mysqlEnum,
   mysqlTable,
   smallint,
+  tinyint,
   uniqueIndex,
   varchar,
 } from 'drizzle-orm/mysql-core';
@@ -45,6 +48,8 @@ export type TimelineLoadScope = {
 // emitted SQL carries no `table`.`column` prefix there (MySQL rejects it).
 const status = sql.identifier('status');
 const cycleId = sql.identifier('cycle_id');
+const round = sql.identifier('round');
+const stepPosition = sql.identifier('step_position');
 
 // A load of one timeline (step-1-loads design 5.1, migration `0007`). Rows are
 // never deleted; a run only moves `running` to `completed` or `failed`.
@@ -58,7 +63,7 @@ export const timelineLoads = mysqlTable(
     timelineId: int('timeline_id', { unsigned: true })
       .notNull()
       .references(() => timelines.id),
-    // Step 1 today; the column leaves room for step 3 (P2-3906).
+    // The step in force at start (timeline-sync design 5.2); step 1 before 0008.
     timelineStepId: int('timeline_step_id', { unsigned: true })
       .notNull()
       .references(() => timelineSteps.id),
@@ -88,10 +93,22 @@ export const timelineLoads = mysqlTable(
     heartbeatAt: datetime('heartbeat_at').notNull(),
     finishedAt: datetime('finished_at'),
     requestId: varchar('request_id', { length: 64 }),
+    // Last, where the migration adds them (timeline-sync FR-2): the round of
+    // the step in force and its position, read at start. A load from before
+    // 0008 reads as round 1, position 1.
+    round: tinyint('round', { unsigned: true }).notNull().default(1),
+    stepPosition: tinyint('step_position', { unsigned: true })
+      .notNull()
+      .default(1),
   },
   (t) => [
     uniqueIndex('uq_timeline_loads_running_key').on(t.runningKey),
     index('idx_timeline_loads_timeline_id').on(t.timelineId, t.id),
+    check('chk_timeline_loads_round', sql`${round} IN (1, 2)`),
+    check(
+      'chk_timeline_loads_step_position',
+      sql`${stepPosition} BETWEEN 1 AND 5`,
+    ),
   ],
 );
 

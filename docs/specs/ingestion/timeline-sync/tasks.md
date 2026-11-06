@@ -31,7 +31,7 @@ T-1, T-2 and T-5 are independent: they touch different files, and only T-1 touch
 
 ## T-1: Migration `0008` and the schema of rounds
 
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** none
 - **Requirements:**
@@ -263,7 +263,7 @@ T-1, T-2 and T-5 are independent: they touch different files, and only T-1 touch
   - FR-9 (preview counts);
   - FR-10 (list, detail, progress fields; old loads);
   - FR-12 (ADMIN only, idempotent start, privacy suite unchanged);
-  - FR-3 (end to end: 400 `ROUND_ABOVE_MAX` on create and edit);
+  - FR-3 (end to end: 400 `ROUND_ABOVE_MAX` on create; an edit sending `round` → 400 `UNKNOWN_FIELD`, amended 2026-11-06);
   - FR-6 (BUT not reachable over HTTP: the route inventory is unchanged).
 - **Design refs:** § 6, § 7.1 (preview), § 7.7
 - **Scope:**
@@ -271,7 +271,7 @@ T-1, T-2 and T-5 are independent: they touch different files, and only T-1 touch
   - `models/load.model.ts`, DTOs, and the Swagger text on `loads.controller.ts`;
   - `test/ingestion-loads.e2e-spec.ts` (window cases rewritten: step 4 open, last minute, +1 minute; round in list/detail; a round-2 sync re-admitting a result returned through the store);
   - `test/ingestion-loads-privacy.e2e-spec.ts` (new fields carry no PII);
-  - the timeline e2e for `ROUND_ABOVE_MAX`.
+  - the timeline e2e for `ROUND_ABOVE_MAX` on create, and `round` on edit → `UNKNOWN_FIELD`.
 - **Tests:** as in scope, plus `loads.service.spec.ts` for the preview counts.
 - **Verification:** `V-unit src/ingestion/loads.service.spec.ts`; `V-all`; `V-e2e`; `V-static`.
 - **Falsifier:**
