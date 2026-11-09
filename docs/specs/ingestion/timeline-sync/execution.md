@@ -248,3 +248,5 @@
 - **Forward pointers → T-8:** front contract: the preview is an estimate at intake level (Reviewer advisory); `returnedNotResubmitted.byProgram[].code` optional (preview only); § 7.7 already amended. → T-9: runner re-releases active round-1 KPs in round 2 (`not_released`), check live.
 - **Running totals vs budget:** tasks 7/8 · production LOC ≈ 1,010 / ≈ 1,000 (T-7: service +~130, models +111, controller +1) · review rounds 14 / ≈ 12 — over on rounds (accepted by the back lead at the tripwire) and at the LOC line; T-8 (docs, checklist) remains → ≈ 15.
 - **Final verification:** green — service spec 56, whole unit 3041 | 4 skipped, e2e 968, lint, build
+
+**T-8 BA gate (2026-11-09, back lead):** "replacement AC accepted as default by Juanda, 2026-11-09" (proposal § 9.4; AC6 round wording per Q-1 = B). Recorded in `requirements.md` Document Control; Angel to ratify, non-blocking. T-8 unblocked.
