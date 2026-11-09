@@ -165,3 +165,7 @@
   - → T-9: confirm which unique key MySQL names on a same-timeline same-round active re-insert; `endAsReturned` and `NOT EXISTS` live.
 - **Running totals vs budget:** tasks 5/8 · production LOC ≈ 590 / ≈ 1,000 (T-4: store +180/−25, unit of work +77/−19) · review rounds 10 / ≈ 12 — within budget; review rounds at 83 % with 3 review-bearing tasks left (T-6 full, T-7 full, T-8 checklist): projected ≈ 13–14, above ≈ 12 (reported at the gate).
 - **Final verification:** green — `loads.unit-of-work.spec.ts` 158, whole unit 3008 | 4 skipped, e2e 956, lint, build
+
+**T-4 gate (2026-11-09, back lead):**
+- Spec tension resolved: `design.md` § 7.3 step 6 amended — a duplicate on either unique key is classified by reading the code's memberships (this timeline, active or entered in this round → `ALREADY_IN_THIS_TIMELINE`; otherwise `ACTIVE_IN_OTHER_TIMELINE`). Meaning of FR-4/FR-5 unchanged. Carried as a named conformance check into the T-6 Reviewer brief. Known gap: `loads.unit-of-work.ts` `recordLot` matches only "entered in this round" (race-only miss of an active round-1 row here, Reviewer advisory) — to be fixed by an owner-approved edit, not by T-6's scope.
+- Run paused before T-6: S-9 still pending (Angel).
