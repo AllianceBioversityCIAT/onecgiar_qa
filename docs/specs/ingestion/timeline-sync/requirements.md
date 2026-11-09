@@ -265,6 +265,11 @@ When the result has an earlier snapshot in the same cycle, the new membership SH
 - GIVEN the round-1 snapshot and a round-2 snapshot that differ only in `title`
 - THEN the round-2 membership lists `["title"]`
 
+#### Scenario: Type changed
+- GIVEN a round-1 KP re-submitted in round 2 as an output
+- THEN the round-2 membership lists `["result_type_key"]` only
+- AND no snapshot is read
+
 #### Scenario: Nothing changed
 - WHEN the hashes are equal
 - THEN the list is empty and no snapshot is read

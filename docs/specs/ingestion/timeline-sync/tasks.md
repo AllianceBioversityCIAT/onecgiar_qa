@@ -224,7 +224,7 @@ T-1, T-2 and T-5 are independent: they touch different files, and only T-1 touch
 - **Requirements:**
   - FR-4 (BUT no intake or details for a skip);
   - FR-7 (Re-submitted KP; BUT not re-classified, not released; Re-submitted as another type; Re-submitted as a KP; New KP in round 2);
-  - FR-8 (Corrected title; Nothing changed — no read; First time);
+  - FR-8 (Corrected title; Type changed — `["result_type_key"]`, no read; Nothing changed — no read; First time);
   - FR-9 (Unsubmitted program, end-to-end in the runner);
   - FR-11 (`load_end` with round and counts; logs ids only);
   - FR-12 (retry rules, KP release, Reporting order unchanged);
@@ -236,7 +236,7 @@ T-1, T-2 and T-5 are independent: they touch different files, and only T-1 touch
   - assert the memberships (entry round, status, kp_group, previous id, changed fields), the snapshot `get` calls (exactly 1), intake/details ids (no skipped id), the summary, and `load_end`;
   - a re-submitted `review` KP stays `pending/review` and is absent from the release call;
   - a new `not_in_qa` KP in round 2 is released;
-  - a re-submitted KP returned as an output → `pending`, no KP group, the round-1 row still `knowledge_product`; a re-submitted output returned as a KP and classified `auto_validated` → released (S-9 b, c; amended 2026-11-09);
+  - a re-submitted KP returned as an output → `pending`, no KP group, the round-1 row still `knowledge_product`; a re-submitted output returned as a KP and classified `auto_validated` → released (S-9 b, c; amended 2026-11-09); the type-changed result lists `["result_type_key"]` and adds no snapshot `get` (FR-8, amended 2026-11-09);
   - a missing previous snapshot → the lot fails `INTERNAL`;
   - **P-8:** run the re-entry case with `process.env.TZ` set to a non-UTC zone (`America/Bogota`) in the test, and assert the same verdict.
 

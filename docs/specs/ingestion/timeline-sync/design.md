@@ -176,6 +176,7 @@ The step query is unchanged (the last step per timeline). This is still one quer
 5. **Changed fields**:
    - `previous` is null → `previousMembershipId = null`, `changedFields = null`;
    - same hash → `[]`, no read;
+   - type changed (`previous.resultTypeKey !== result.resultTypeKey`) → `['result_type_key']`, no read: two types' keys would overflow the `0008` CHECK (≤ 96), and the round-1 row keeps the old type (amended 2026-11-09, back lead);
    - otherwise → `SnapshotStore.get(code, previous.snapshotSk)`, then `changedFields(previousValues, values)`. A missing previous item, which is an orphan case that should not happen, is `INTERNAL` for the lot; there is no silent null.
 
    The get calls share the existing snapshot parallelism (10) and retries (step-1 DD-8).
