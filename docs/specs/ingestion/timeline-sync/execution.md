@@ -272,3 +272,49 @@
 - **Requirements covered:** FR-13 (all three bullets); P-13 settled
 - **Running totals vs budget:** tasks 8/8 (T-9 HITL remains) · production LOC ≈ 1,010 / ≈ 1,000 · review rounds 16 / ≈ 12 (overrun accepted by the back lead at the T-7 tripwire; projected ≈ 15, actual 16 — T-8 needed a rework round)
 - **Final verification:** manual grep checks green; no code changed
+
+### T-9: HITL on qatest — PASS (2026-11-09; token disqualifier waived by the back lead)
+
+**Who ran it:** the Leader (Claude Code), with `curl` against `https://qatest-serv.ciat.cgiar.org/api/v1` after the back lead's deploy of `dev` @ `e5a9b26`. Run window 15:18–15:32 UTC.
+
+**Credentials (KZ-admin-config--cycle-timelines-3, fourth occurrence):** the back lead **pasted the ADMIN access token into chat** and, after the Leader declined it and asked for `~/.qa-admin-token`, told the Leader to use the pasted one ("Usa el que pegué"). The Leader used it, never printed it, and wrote it to no file. This triggers T-9's disqualifier "The token was pasted in chat". The Reporting key was read from `server/.env` (`CLARISA_API_KEY`, which the back lead says is the same key for Reporting) and never printed.
+
+| # | Check | Observed | Verdict |
+|---|---|---|---|
+| 0 | `0008` on `qadb` | Applied by the deploy pipeline (back lead: "the pipeline does the sync with the DB"); no pipeline log line seen by the Leader. Indirect live evidence: the list and detail return `round` / `stepPosition` columns; load 7 inserted a membership under the new schema; the preview's `countReturnedNotResubmitted` query (`entry_round`, `end_reason`) answered | ✅ indirect · pipeline log not seen |
+| 1 | Sync timeline 29 (cycle 34) in its current step | step 1 in force; preview `window: open, round 1, stepPosition 1, toLoad 1 (SP01, innovation_use)`; `POST` → 202 `{id: 7}`; completed in 3 s; list/detail `round 1, stepPosition 1`; summary `loaded 1, loadedNew 1, loadedResubmitted 0, returnedNotResubmitted {0}` | ✅ FR-1, FR-2 |
+| 2 | List and detail | timeline 29: `[(7, completed, round 1, stepPosition 1, total 1)]`; detail summary carries the new keys | ✅ FR-10 |
+| 3 | Window on a test timeline (32, "HITL timeline-sync window 9-nov", cycle 34, five 1-minute steps 16:22–16:31 Rome, rounds 1,1,2,2,2) | preview: step 1 → `open, 1, 1`; gap after step 1 closes → `open, 1, 1`; step 2 → `open, 1, 2`; step 3 → `open, 2, 3`; step 4 → `open, 2, 4`; **sync in step 4** → 202 `{"id":10,"status":"running"}`, completed, `round 2, stepPosition 4`; step 5 → `open, 2, 5`; **last closing minute (16:31)** → `open, 2, 5`; **+1 minute (16:32)** → preview `closed`, `POST` → **409 `LOADS_WINDOW_CLOSED`**, no new load row | ✅ FR-1 (Sync in step 4; the window closed one minute after the last step). "Last closing minute": only the preview half was observed (`open` at 16:31); no sync was started in that minute, so its 202 is covered by the T-7 e2e only. FR-2 |
+| 4 | Re-entry in round 2 | Not exercisable live: no route returns a result (FR-6). Covered by T-6 and T-7 only, until the assessment spec ships | — as planned |
+
+**Leader error during the run:** the first timed script compared clock strings with a `[ … \< … ]` test that failed under the shell, so every step ran at once (15:20:36–15:20:51 UTC). It left loads **8** and **9** on timeline 32 (both before step 1 opened: preview `open, round 1, stepPosition 1`, consistent with FR-1 "Before step 1 opens"); both completed with `loaded 0`, `ACTIVE_IN_OTHER_TIMELINE 1` (timeline 29) — no intake, no Reporting effect. The script was rewritten with epoch seconds and re-run (rows 3 above).
+
+**Leftovers**
+
+| Leftover | Where | State |
+|---|---|---|
+| Timeline 32 + its audit rows; loads 8, 9, 10 (no memberships) | `qadb`, cycle 34 | Kept (no deletes in this module); last step closed 2026-11-09 16:31 Rome |
+| Load 7 and one active round-1 membership (code 10068) in timeline 29 | `qadb` | Kept; ends when timeline 29's last step closes (2026-12-03 23:59 Rome) |
+| Result 10068 (id 12536) In QA | Reporting TEST | **Released as `qaed`** at 15:22:31 UTC through `POST /qa/results/release` → `released: [{12536, 10068, qaed}]`, `not_released: []` (back lead: release as in step-1 HITL) |
+
+**Premises**
+- **P-7** (query on PROD before its deploy): not run — owner: the team (back lead), before the PROD deploy.
+- **P-8** (`TZ` of every QA server process): not confirmed — owner: Infrastructure (Cris).
+
+**Status:** the migration outcome and the three observations are recorded, and P-7/P-8 carry named owners. The disqualifier (token pasted in chat) was triggered and then waived by the back lead (below).
+
+- **Disqualifier waived (2026-11-09, back lead):** the back lead waived T-9's disqualifier "The token was pasted in chat" for this run (TEST environment; the token expires at 16:13 UTC). The fact stays recorded above; it is the fourth occurrence of KZ-admin-config--cycle-timelines-3 and goes to the archive's Kaizen step.
+
+**Assumption:** the Reporting key is `CLARISA_API_KEY` on the back lead's word (2026-11-09: "es la misma para todo"); the release call answered 200 with it.
+- **Reviewer (checklist):** attempt 1 **FAIL** — row 3 claimed FR-1 "Last closing minute" with only a preview observed (requirements.md:110-113; remediation: drop the claim or re-run). Leader corrected the record (claim dropped, step-4 202 body quoted, heading/status aligned, key assumption recorded). Re-review **PASS**.
+- spawns: reviewer 2 rounds (not reported by host beyond 30,715 tokens on the first)
+- **Requirements covered live:** FR-1 (sync in a later step, window closed one minute after the last step, before step 1 opens), FR-2, FR-10; migration `0008` on `qadb` (indirect)
+
+## 3. Summary (2026-11-09)
+
+- **All tasks closed:** T-1…T-9 `[x]`, plus an owner-approved `recordLot` follow-up. Merged to `staging-center` (`ec87ce9`) and `dev` (`e5a9b26`); deployed to qatest by the back lead; Jira P2-3906 moved to To Be Reviewed with a technical comment.
+- **Budget (design § 10):** 8 tasks + 1 HITL as planned · production LOC ≈ 1,010 / ≈ 1,000 · review rounds 18 / ≈ 12 (overrun accepted by the back lead at the T-7 tripwire; causes: T-3 rework, T-4 parallel lens reviewers, the `recordLot` follow-up, T-7, T-8 and T-9 reworks).
+- **Spec amendments during execution (all by the back lead):** T-4 scope (window pins), § 7.3 step 6 (duplicate classification), S-9 widened to type changes + FR-7/FR-8 scenarios + § 7.3 steps 4–5, T-6 Done-when (named pins), § 7.7 (only runner lines carry `round`); S-9 and the replacement AC accepted as default (Angel to ratify).
+- **Defects found in execution:** `SNAP#` prefix mismatch between `timeline_results.snapshot_sk` and `SnapshotStore.get` (T-6); preview double count of returned results (T-7); a wrong down-script claim in `server/src/database/AGENTS.md` (T-8).
+- **Open, with owners:** Angel — ratify S-9 and update the Jira AC (proposal § 9.4); Yeck — `loadTargets` gates the load on step 1 (front contract § 12); back lead/team — P-7 query on PROD before its deploy; Cris — P-8 `TZ`; PRD `:24`, `:84`, `:98` still say step 1; a live round-2 re-entry waits for the assessment spec.
+- **Kaizen signals for `/akili-archive`:** token pasted in chat (4th occurrence of KZ-admin-config--cycle-timelines-3); the Leader's clock-string comparison bug in a HITL script; review-round budget under-sized for a Full spec with parallel lens reviews.

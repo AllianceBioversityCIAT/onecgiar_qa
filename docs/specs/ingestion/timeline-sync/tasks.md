@@ -322,7 +322,7 @@ T-1, T-2 and T-5 are independent: they touch different files, and only T-1 touch
 
 ## T-9: HITL on qatest (after a human deploy)
 
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** S
 - **Depends on:** T-8, and a deploy by the team (agents never deploy)
 - **Requirements:** FR-1, FR-2, FR-10 live; P-7 and P-8 settled
