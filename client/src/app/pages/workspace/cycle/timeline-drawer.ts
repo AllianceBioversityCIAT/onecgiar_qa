@@ -499,8 +499,12 @@ export class TimelineDrawer {
     return this.feedback()?.fields.find((f) => f.field.startsWith(`steps[${i}]`))?.message ?? '';
   }
 
-  /** More "Loads results" steps than the server accepts (`ROUND_ABOVE_MAX`): shown as soon as the switch moves. */
-  protected readonly tooManyRounds = computed(() => this.rounds().some((r) => r > MAX_ROUNDS));
+  /**
+   * More "Loads results" steps than the server accepts on create (`ROUND_ABOVE_MAX`): shown as soon as the switch
+   * moves. Not on an existing live timeline: its switches are fixed and the edit sends no round, so an older
+   * timeline with more rounds can still be renamed or re-dated.
+   */
+  protected readonly tooManyRounds = computed(() => !this.fixedSteps() && this.rounds().some((r) => r > MAX_ROUNDS));
 
   /** Whole-list problems: at most 2 QA rounds, step 1 must load results (live data), or the server's `steps` message. */
   protected readonly stepsError = computed(() => {

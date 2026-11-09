@@ -100,6 +100,15 @@ describe('TimelineDrawer', () => {
     expect(fixture.componentInstance.saved).toEqual([]);
   });
 
+  it('an existing timeline (steps fixed, the edit sends no round) is never blocked by the rounds rule', async () => {
+    const fixture = TestBed.createComponent(Host);
+    // A timeline saved before the 2-round cap, with 3 "Loads results" steps: it must still be editable (name, dates).
+    fixture.componentInstance.request.set({ timeline: { ...SUB, steps: SUB.steps.map((p, i) => ({ ...p, batch: true, round: i + 1 })) } });
+    await settle(fixture);
+
+    expect(document.body.textContent).not.toContain('at most 2 QA rounds');
+  });
+
   it('two QA rounds are fine: no rounds message', async () => {
     const fixture = TestBed.createComponent(Host);
     fixture.componentInstance.official.set({ ...OFFICIAL_TIMELINE, steps: OFFICIAL_TIMELINE.steps.map((p, i) => ({ ...p, batch: i === 0 || i === 2 })) });

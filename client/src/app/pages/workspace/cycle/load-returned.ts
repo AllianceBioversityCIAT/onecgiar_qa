@@ -2,7 +2,6 @@ import { Component, input } from '@angular/core';
 import { LoadReturnedNotResubmitted } from '../../../core/api/loads.models';
 import { formatNumber } from './cycle.logic';
 import type { LoadDrawerNames } from './load-drawer';
-import { skipLabel } from './load.copy';
 
 let nextId = 0;
 
@@ -14,9 +13,10 @@ let nextId = 0;
   selector: 'qa-cycle-load-returned',
   template: `
     <h3 class="m-0 mb-1 text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--text-muted) uppercase">
-      {{ title }}: <span class="font-(family-name:--qa-mono) tabular-nums">{{ fmt(returned().total) }}</span>
+      Waiting for their program: <span class="font-(family-name:--qa-mono) tabular-nums">{{ fmt(returned().total) }}</span>
     </h3>
-    <p class="m-0 mb-2 text-(length:--fs-13) leading-[1.5] text-pretty text-(--text-3)">They come back into this timeline once their program submits them again.</p>
+    <!-- Not the same number as the skip row: that one counts only what the Reporting Tool still lists (contract § 4). -->
+    <p class="m-0 mb-2 text-(length:--fs-13) leading-[1.5] text-pretty text-(--text-3)">All results returned in round 1 and not submitted again yet, including any the program has taken back. They come back into this timeline once submitted again.</p>
     <div class="grid gap-4 sm:grid-cols-2 sm:gap-6">
       <div>
         <span [id]="uid + '-programs'" class="text-(length:--fs-12) font-medium text-(--text-4)">By science program</span>
@@ -49,7 +49,6 @@ export class LoadReturned {
   readonly names = input.required<LoadDrawerNames>();
 
   protected readonly fmt = formatNumber;
-  protected readonly title = skipLabel('RETURNED_NOT_RESUBMITTED');
   /** Unique per instance: the preview and the summary may both be in the page. */
   protected readonly uid = `cycle-returned-${++nextId}`;
 }

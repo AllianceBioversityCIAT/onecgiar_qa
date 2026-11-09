@@ -5,7 +5,7 @@ import { CycleSkeleton } from './cycle-skeleton';
 import { CycleStore, TimelineSaveOutcome } from './cycle-store';
 import { CycleLoads } from './cycle-loads';
 import { Timeline } from './cycle.mock';
-import { MenuAction, formatNumber, loadTargets, stepInForce, stepRow, stepState, timelineStart, timelineVM } from './cycle.logic';
+import { MenuAction, formatNumber, isStepInForce, loadTargets, stepRow, stepState, timelineStart, timelineVM } from './cycle.logic';
 import { nowInRome } from '../../../core/domain/rome-date';
 import { LoadDrawer, LoadDrawerNames, RunRequest } from './load-drawer';
 import { LoadSummaryDrawer } from './load-summary-drawer';
@@ -63,7 +63,7 @@ export class CycleView implements OnInit {
   /** The step drawer offers "Load results into this step" on the step in force of a loadable timeline (where the sync goes). */
   protected readonly stepLoadable = computed(() => {
     const r = this.stepRequest();
-    return this.loadable().has(r.timeline.id) && (r.index ?? 0) === stepInForce(r.timeline, nowInRome());
+    return this.loadable().has(r.timeline.id) && isStepInForce(r.timeline, r.index, nowInRome());
   });
   protected readonly closedTotal = computed(() => this.closedList().length);
 

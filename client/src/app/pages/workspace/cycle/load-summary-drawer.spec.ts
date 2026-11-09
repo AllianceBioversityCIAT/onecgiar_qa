@@ -66,7 +66,7 @@ describe('LoadSummaryDrawer', () => {
     expect(t).toContain('loaded');
     expect(t).not.toContain('loaded into step 1');
     expect(t).not.toContain('submitted again');
-    expect(t).not.toContain('Returned in round 1');
+    expect(t).not.toContain('Waiting for their program');
   });
 
   it('round 2: splits new and re-submitted, and lists returned results not submitted again', async () => {
@@ -86,7 +86,7 @@ describe('LoadSummaryDrawer', () => {
     const t = text();
     expect(t).toContain('July · QA round 2, step 3');
     expect(t).toContain('30 new and 3 submitted again after being returned in round 1');
-    expect(t).toContain('Returned in round 1, not submitted again yet: 4');
+    expect(t).toContain('Waiting for their program: 4');
     // The stored summary has no program code: the name comes from the catalog, else the id.
     expect(t).toContain('Program 12');
   });

@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { CycleStep, Timeline } from './cycle.mock';
-import { loadTargets, officialRelative, stepInForce, stepRound, timelineVM } from './cycle.logic';
+import { isStepInForce, loadTargets, officialRelative, stepInForce, stepRound, timelineVM } from './cycle.logic';
 import { TimelineSteps } from './timeline-steps';
 
 // 3 Nov 2026, 10:00 in Rome (CET, UTC+1).
@@ -150,6 +150,13 @@ describe('cycle.logic', () => {
     it('a gap after a step closed still belongs to that step', () => {
       expect(stepInForce(roundTwo(), '2026-10-31T12:00')).toBe(1);
       expect(stepRound(roundTwo(), 1)).toBe(1);
+    });
+
+    it('isStepInForce: only an existing step (never the "Add step" drawer) that is the one in force', () => {
+      expect(isStepInForce(roundTwo(), 2, '2026-11-03T10:00')).toBe(true);
+      expect(isStepInForce(roundTwo(), 0, '2026-11-03T10:00')).toBe(false);
+      expect(isStepInForce(roundTwo(), 0, '2026-10-01T10:00')).toBe(true);
+      expect(isStepInForce(roundTwo(), null, '2026-10-01T10:00')).toBe(false);
     });
 
     it('without a stored round (mock), counts the "Loads results" switches', () => {

@@ -150,6 +150,11 @@ export function stepInForce(t: Pick<Timeline, 'steps'>, now: string): number {
   return at;
 }
 
+/** The step drawer offers the sync only on an existing step (`index` null = "Add step") that is the one in force. */
+export function isStepInForce(t: Pick<Timeline, 'steps'>, index: number | null, now: string): boolean {
+  return index != null && index === stepInForce(t, now);
+}
+
 /** QA round of a step: the stored one (API), else counted from the "Loads results" switches (mock). */
 export function stepRound(t: Pick<Timeline, 'steps'>, index: number): number {
   return t.steps[index]?.round ?? t.steps.slice(1, index + 1).filter((p) => p.batch).length + 1;

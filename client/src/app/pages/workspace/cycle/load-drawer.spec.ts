@@ -92,7 +92,7 @@ describe('LoadDrawer', () => {
     expect(t).toContain('About 33 results will be loaded into QA round 1, step 1 (2026 phase)');
     // Round 1 with nothing re-submitted: no split line, no returned block.
     expect(t).not.toContain('submitted again');
-    expect(t).not.toContain('Returned in round 1');
+    expect(t).not.toContain('Waiting for their program');
     expect(t).toContain('SP02 Climate');
     expect(t).toContain('Knowledge product');
     expect(t).toContain('Already in another timeline');
@@ -150,7 +150,7 @@ describe('LoadDrawer', () => {
       );
     await render();
     const t = text();
-    expect(t).toContain('Returned in round 1, not submitted again yet: 7');
+    expect(t).toContain('Waiting for their program: 7');
     expect(t).toContain('SP02 Climate');
     expect(t).toContain('SP09');
     // The skip reason in plain words, never the code.
