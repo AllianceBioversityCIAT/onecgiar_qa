@@ -81,6 +81,22 @@ function contract(
       expect(size()).toBe(1);
     });
 
+    it('get returns the record at the exact (resultCode, sk) key', async () => {
+      const { store } = make();
+      await store.put(snap());
+      await store.put(snap({ loadId: 11, hash: 'h2', values: { other: 1 } }));
+      const sk = snapshotSortSuffix(snap());
+      expect(await store.get(5120, sk)).toEqual(snap());
+    });
+
+    it('get returns null for a near-miss key', async () => {
+      const { store } = make();
+      await store.put(snap());
+      const near = snapshotSortSuffix(snap({ loadId: 11 }));
+      expect(await store.get(5120, near)).toBeNull();
+      expect(await store.get(5121, snapshotSortSuffix(snap()))).toBeNull();
+    });
+
     it('history is ordered by year, cycle, timeline and load', async () => {
       const { store } = make();
       await store.put(snap({ phaseYear: 2027, timelineId: 7, loadId: 3 }));
@@ -125,5 +141,7 @@ describe('DynamoSnapshotStore gzip', () => {
     const h = await store.history(5120);
     expect(h[0].values).toEqual(big);
     expect(h[1].values).toEqual({ small: 1 });
+    const sk = snapshotSortSuffix(snap({ values: big }));
+    expect((await store.get(5120, sk))?.values).toEqual(big);
   });
 });

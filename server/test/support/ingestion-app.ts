@@ -215,6 +215,21 @@ export function scriptFeed(
 export type IngestionApp = Awaited<ReturnType<typeof buildIngestionApp>>;
 
 /**
+ * Timeline 13 with every step closed before the fixed clock (2026-11-10 09:00
+ * Rome): the last step closed at 08:59, one minute ago, so the sync window of
+ * FR-1 (judged on the LAST step) is closed.
+ */
+export function closeAllStepsOfTimeline13(w: IngestionApp): void {
+  const [, second, last] = w.world.steps
+    .filter((s) => s.timelineId === 13)
+    .sort((a, b) => a.position - b.position);
+  second!.opensAt = '2026-11-09T18:00' as typeof second.opensAt;
+  second!.closesAt = '2026-11-09T20:00' as typeof second.closesAt;
+  last!.opensAt = '2026-11-09T21:00' as typeof last.opensAt;
+  last!.closesAt = '2026-11-10T08:59' as typeof last.closesAt;
+}
+
+/**
  * Cycle 1 (active, 2026) with timelines 11 "July 2026" and 12 "August 2026"
  * (step 1 closes 2026-11-20 17:30), 13 "September 2026" (step 1 closed on
  * 9 Nov); cycle 3 (closed, 2028) with timeline 31. Admin "sub-admin" and one

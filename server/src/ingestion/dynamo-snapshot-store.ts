@@ -64,6 +64,33 @@ export class DynamoSnapshotStore implements SnapshotStore {
     }
   }
 
+  async get(
+    resultCode: number,
+    sk: string,
+  ): Promise<ResultSnapshotRecord | null> {
+    const { data: r } = await this.entity
+      .get({ resultCode, snapKey: sk })
+      .go();
+    if (!r) return null;
+    const json = r.valuesGz
+      ? gunzipSync(Buffer.from(r.valuesGz as Uint8Array)).toString('utf8')
+      : (r.values ?? 'null');
+    return {
+      resultCode: r.resultCode,
+      resultId: r.resultId,
+      phaseYear: r.phaseYear,
+      cycleId: r.cycleId,
+      timelineId: r.timelineId,
+      loadId: r.loadId,
+      resultTypeKey: r.resultTypeKey,
+      programClarisaId: r.programClarisaId,
+      catalogVersion: r.catalogVersion,
+      hash: r.hash,
+      loadedAt: r.loadedAt,
+      values: JSON.parse(json) as Record<string, unknown>,
+    };
+  }
+
   async history(resultCode: number): Promise<ResultSnapshotRecord[]> {
     const rows: ResultSnapshotRecord[] = [];
     let cursor: string | null | undefined;

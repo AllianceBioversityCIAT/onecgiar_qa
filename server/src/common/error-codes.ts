@@ -372,6 +372,7 @@ export const FIELD_ERRORS = {
     'Each audience can be used once, in the workflow order.',
   ROUND_SEQUENCE: () =>
     'Rounds start at 1 and either stay the same or go up by one.',
+  ROUND_ABOVE_MAX: () => 'A timeline has at most 2 QA rounds.',
   FIRST_STEP_LOAD: () => 'The first step must require a load.',
   LOCKED: () => 'This can no longer be changed.',
   NOT_ASSESSED: () => 'Core and AI input can only be set on an assessed field.',

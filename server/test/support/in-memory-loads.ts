@@ -1,4 +1,5 @@
 // @akili-spec ingestion/step-1-loads
+// @akili-spec ingestion/timeline-sync
 import type { Cycle } from '../../src/database/drizzle/schema/cycles.js';
 import type {
   NewTimelineAuditEvent,
@@ -13,8 +14,10 @@ import type {
 } from '../../src/database/drizzle/schema/timeline-results.js';
 import type { TimelineStep } from '../../src/database/drizzle/schema/timeline-steps.js';
 import type { Timeline } from '../../src/database/drizzle/schema/timelines.js';
+import type { ReturnedNotResubmitted } from '../../src/ingestion/load-rules.js';
 import type {
   CycleMembershipRow,
+  EndAsReturnedOutcome,
   LoadEndValues,
   LoadInsertOutcome,
   LoadProgressValues,
@@ -24,7 +27,7 @@ import type {
   MembershipInsertOutcome,
   NewLoadValues,
   NewMembershipValues,
-  StepOne,
+  SyncStep,
 } from '../../src/ingestion/loads.store.js';
 import type {
   LoadsRepositories,
@@ -42,17 +45,18 @@ import type {
 // guarantees for `timeline_loads` and `timeline_results`: the generated
 // `running_key` with `uq_timeline_loads_running_key` (one running load per
 // cycle), the generated `active_key` with `uq_timeline_results_active_key` (one
-// active membership per result and cycle) and `uq_timeline_results_timeline_code`
-// (one membership per result and timeline, active or ended). A refused insert
+// active membership per result and cycle) and
+// `uq_timeline_results_timeline_code_round` (one membership per result, timeline
+// and round, active or ended; timeline-sync DD-2). A refused insert
 // comes back as the outcome the Drizzle adapter returns for that key, and is
 // counted in `violations`, so a test can tell that the database refused it.
 //
 // The transactional store adds the row locks of `InMemoryDatabase` and a round
 // trip per statement, so transactions started together interleave at every
 // statement. What each statement locks is what InnoDB locks: an INSERT takes
-// the unique entry of every key it writes, in the order InnoDB checks them
-// (`uq_timeline_results_timeline_code` before `uq_timeline_results_active_key`,
-// as migration 0007 creates them), so an identical insert waits for the
+// the unique entry of every key it writes (when two keys both refuse a row,
+// either may be named; T-9 pins which on live MySQL, and this fake checks
+// `active_key` first), so an identical insert waits for the
 // transaction that holds the entry and then finds its row, or none after a
 // rollback; a locking read that finds nothing locks nothing (READ COMMITTED
 // takes no gap lock), so the unique key is what refuses the loser. An INSERT
@@ -82,7 +86,7 @@ export class InMemoryLoadsDatabase {
   readonly loads: TimelineLoad[] = [];
   readonly results: TimelineResult[] = [];
   /** Inserts and updates the unique keys refused, by key. */
-  readonly violations = { runningKey: 0, activeKey: 0, timelineCode: 0 };
+  readonly violations = { runningKey: 0, activeKey: 0, timelineCodeRound: 0 };
   /**
    * Every write in the order the statements ran, rolled-back ones included:
    * `load:insert:1`, `load:end:1:failed`, `version:11`, `result:insert:5120@11`,
@@ -161,6 +165,14 @@ export class InMemoryLoadsStore implements LoadsStore {
           status: r.status,
           timelineId: r.timelineId,
           endedAt: r.endedAt,
+          // The column defaults (`entry_round` 1, `end_reason` NULL) for rows seeded without them.
+          entryRound: r.entryRound ?? 1,
+          endReason: r.endReason ?? null,
+          programClarisaId: r.programClarisaId,
+          resultTypeKey: r.resultTypeKey,
+          kpGroup: r.kpGroup,
+          snapshotSk: r.snapshotSk,
+          snapshotHash: r.snapshotHash,
           lastStepClosesAt: last.closesAt,
           timelineName: timeline.name,
         };
@@ -204,11 +216,17 @@ export class InMemoryLoadsStore implements LoadsStore {
     return row && structuredClone(row);
   }
 
-  async findStepOne(timelineId: number): Promise<StepOne | undefined> {
-    const row = this.t.steps.find(
-      (s) => s.timelineId === timelineId && s.position === 1,
-    );
-    return row && { id: row.id, closesAt: row.closesAt };
+  async findSteps(timelineId: number): Promise<SyncStep[]> {
+    return this.t.steps
+      .filter((s) => s.timelineId === timelineId)
+      .sort((a, b) => a.position - b.position)
+      .map((s) => ({
+        id: s.id,
+        position: s.position,
+        opensAt: s.opensAt,
+        closesAt: s.closesAt,
+        round: s.round,
+      }));
   }
 
   async findScope(timelineId: number) {
@@ -260,6 +278,8 @@ export class InMemoryLoadsStore implements LoadsStore {
       cycleId: values.cycleId,
       timelineId: values.timelineId,
       timelineStepId: values.timelineStepId,
+      stepPosition: values.stepPosition,
+      round: values.round,
       phaseYear: values.phaseYear,
       scope: structuredClone(values.scope),
       status: 'running',
@@ -312,23 +332,14 @@ export class InMemoryLoadsStore implements LoadsStore {
   }
 
   /**
-   * Both unique keys of `timeline_results`, in the order InnoDB checks them:
-   * `(timeline_id, result_code)` first, whatever the state of the row it finds,
-   * then the cycle-wide `active_key` (a new membership is always active).
+   * Both unique keys of `timeline_results`; either may be named when both
+   * refuse (see the header; T-9 pins which on live MySQL). This fake checks the
+   * cycle-wide `active_key` first (a new membership is always active), then `(timeline_id, result_code, entry_round)`, whatever the
+   * state of the row it finds.
    */
   async insertMembership(
     values: NewMembershipValues,
   ): Promise<MembershipInsertOutcome> {
-    if (
-      this.t.results.some(
-        (r) =>
-          r.timelineId === values.timelineId &&
-          r.resultCode === values.resultCode,
-      )
-    ) {
-      this.world.violations.timelineCode++;
-      return { kind: 'duplicate', key: 'timeline_code' };
-    }
     if (
       this.t.results.some(
         (r) =>
@@ -338,6 +349,17 @@ export class InMemoryLoadsStore implements LoadsStore {
     ) {
       this.world.violations.activeKey++;
       return { kind: 'duplicate', key: 'active_key' };
+    }
+    if (
+      this.t.results.some(
+        (r) =>
+          r.timelineId === values.timelineId &&
+          r.resultCode === values.resultCode &&
+          (r.entryRound ?? 1) === values.entryRound,
+      )
+    ) {
+      this.world.violations.timelineCodeRound++;
+      return { kind: 'duplicate', key: 'timeline_code_round' };
     }
     const row: TimelineResult = {
       id: this.world.nextResultId(),
@@ -359,6 +381,9 @@ export class InMemoryLoadsStore implements LoadsStore {
       endedAt: null,
       endReason: null,
       activeKey: `${values.cycleId}#${values.resultCode}`,
+      entryRound: values.entryRound,
+      previousMembershipId: values.previousMembershipId,
+      changedFields: values.changedFields && [...values.changedFields],
     };
     this.world.history.push(
       `result:insert:${values.resultCode}@${values.timelineId}`,
@@ -413,6 +438,46 @@ export class InMemoryLoadsStore implements LoadsStore {
       ended++;
     }
     return ended;
+  }
+
+  /** Design 7.5: the conditional UPDATE (`entry_round = 1 AND ended_at IS NULL`), then the read that says why a zero-row update matched nothing. */
+  async endAsReturned(id: number, at: Date): Promise<EndAsReturnedOutcome> {
+    const row = this.t.results.find((r) => r.id === id);
+    if (row && (row.entryRound ?? 1) === 1 && row.endedAt === null) {
+      this.world.history.push(`result:returned:${id}`);
+      row.endedAt = at;
+      row.endReason = 'returned';
+      row.activeKey = null;
+      return { ended: true };
+    }
+    if (!row) return { ended: false, reason: 'not_found' };
+    if ((row.entryRound ?? 1) !== 1) {
+      return { ended: false, reason: 'not_round_1' };
+    }
+    return { ended: false, reason: 'already_ended' };
+  }
+
+  /** Design 7.3 step 7: round-1 rows of the timeline ended `returned` with no round-2 row of the code here, by program and type. */
+  async countReturnedNotResubmitted(
+    timelineId: number,
+  ): Promise<ReturnedNotResubmitted> {
+    const here = this.t.results.filter((r) => r.timelineId === timelineId);
+    const out: ReturnedNotResubmitted = { total: 0, byProgram: {}, byType: {} };
+    for (const row of here) {
+      if ((row.entryRound ?? 1) !== 1 || row.endReason !== 'returned') continue;
+      if (
+        here.some(
+          (r) => r.resultCode === row.resultCode && (r.entryRound ?? 1) === 2,
+        )
+      ) {
+        continue;
+      }
+      out.total++;
+      const program = String(row.programClarisaId);
+      out.byProgram[program] = (out.byProgram[program] ?? 0) + 1;
+      out.byType[row.resultTypeKey] = (out.byType[row.resultTypeKey] ?? 0) + 1;
+    }
+    return out;
   }
 }
 
@@ -471,8 +536,8 @@ export class TransactionalLoadsStore extends InMemoryLoadsStore {
     );
   }
 
-  override findStepOne(timelineId: number) {
-    return this.statement({}, () => super.findStepOne(timelineId));
+  override findSteps(timelineId: number) {
+    return this.statement({}, () => super.findSteps(timelineId));
   }
 
   override findScope(timelineId: number) {
@@ -578,7 +643,8 @@ export class TransactionalLoadsStore extends InMemoryLoadsStore {
   /**
    * An INSERT takes S on the parent rows of its three foreign keys (the cycle,
    * the timeline, the load), then the unique entry of each key it writes, in
-   * InnoDB's order: the timeline's own, then the cycle-wide one.
+   * InnoDB's order (see the header): the cycle-wide one, then the timeline's
+   * own per round.
    */
   override insertMembership(values: NewMembershipValues) {
     return this.statement(
@@ -589,11 +655,11 @@ export class TransactionalLoadsStore extends InMemoryLoadsStore {
           [`timelines:${values.timelineId}`, 'S'],
           [`timeline_loads:${values.loadId}`, 'S'],
           [
-            `timeline_results:code:${values.timelineId}:${values.resultCode}`,
+            `timeline_results:active:${values.cycleId}:${values.resultCode}`,
             'X',
           ],
           [
-            `timeline_results:active:${values.cycleId}:${values.resultCode}`,
+            `timeline_results:code:${values.timelineId}:${values.resultCode}:${values.entryRound}`,
             'X',
           ],
         ],
@@ -640,6 +706,27 @@ export class TransactionalLoadsStore extends InMemoryLoadsStore {
       );
     return this.statement({ current: true, locks }, () =>
       super.endMemberships(ids, endedAt, reason),
+    );
+  }
+
+  /** The UPDATE locks the row it ends and the `active_key` entry it frees; a row it does not match locks nothing. */
+  override endAsReturned(id: number, at: Date) {
+    const row = this.t.results.find((r) => r.id === id);
+    const locks =
+      row && (row.entryRound ?? 1) === 1 && row.endedAt === null
+        ? ([
+            [`timeline_results:${row.id}`, 'X'],
+            [`timeline_results:active:${row.cycleId}:${row.resultCode}`, 'X'],
+          ] as const)
+        : [];
+    return this.statement({ current: true, locks }, () =>
+      super.endAsReturned(id, at),
+    );
+  }
+
+  override countReturnedNotResubmitted(timelineId: number) {
+    return this.statement({}, () =>
+      super.countReturnedNotResubmitted(timelineId),
     );
   }
 }

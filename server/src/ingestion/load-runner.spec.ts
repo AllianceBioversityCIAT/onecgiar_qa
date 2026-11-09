@@ -8,13 +8,14 @@ import {
 } from '../../test/support/in-memory-loads.js';
 import type { FieldCatalogSource } from '../admin-config/field-config/field-catalog.ports.js';
 import type { RomeMinute } from '../admin-config/rome-date.js';
+import { snapshotSortSuffix } from '../database/dynamodb/entities/result-snapshot.entity.js';
 import type { Cycle } from '../database/drizzle/schema/cycles.js';
 import type { TimelineLoad } from '../database/drizzle/schema/timeline-loads.js';
 import type { TimelineResult } from '../database/drizzle/schema/timeline-results.js';
 import { UpstreamStatusError } from '../users/catalogs/catalog-http.js';
 import { UpstreamUnavailableError } from '../users/catalogs/catalogs.errors.js';
 import { DEFAULT_KP_RULES } from './kp-classifier.js';
-import type { LoadSummary } from './load-rules.js';
+import { EMPTY_SUMMARY, type LoadSummary } from './load-rules.js';
 import { LoadRunner } from './load-runner.js';
 import { TimelineHasNoStepsError } from './loads.store.js';
 import { LoadsUnitOfWork } from './loads.unit-of-work.js';
@@ -134,6 +135,8 @@ function loadRow(
     cycleId: 1,
     timelineId: 11,
     timelineStepId: 111,
+    stepPosition: 1,
+    round: 1,
     phaseYear: 2026,
     scope: structuredClone(SCOPE_ALL),
     status: 'running',
@@ -179,6 +182,9 @@ function memberRow(
     endedAt: null,
     endReason: null,
     activeKey: `1#${resultCode}`,
+    entryRound: 1,
+    previousMembershipId: null,
+    changedFields: null,
   };
 }
 
@@ -198,12 +204,16 @@ const KP_AUTO = {
 };
 
 /** A feed item: result id 1000 + n, result code 5000 + n. */
-const item = (n: number, type = 'policy_change'): FeedListItem => ({
+const item = (
+  n: number,
+  type = 'policy_change',
+  submittedAt: string | null = null,
+): FeedListItem => ({
   resultId: 1000 + n,
   resultCode: 5000 + n,
   program: { clarisaId: 3, code: 'SP03' },
   resultTypeKey: type,
-  submittedAt: null,
+  submittedAt,
 });
 const items = (from: number, to: number) =>
   Array.from({ length: to - from + 1 }, (_, i) => item(from + i));
@@ -276,13 +286,20 @@ function build(
     members?: TimelineResult[];
     release?: boolean;
     catalogRefreshTo?: string;
+    /** Overrides of load 1's row (the round-2 tests set `round`, `stepPosition`, `summary`). */
+    load?: Partial<TimelineLoad>;
   } = {},
 ) {
   const world = new InMemoryLoadsDatabase();
   world.admin.cycles.push(cycleRow());
   addTimeline(world, 11, 'July 2026');
   addTimeline(world, 12, 'August 2026');
-  world.loads.push(loadRow(1, options.scope ? { scope: options.scope } : {}));
+  world.loads.push(
+    loadRow(1, {
+      ...(options.scope ? { scope: options.scope } : {}),
+      ...options.load,
+    }),
+  );
   world.results.push(...(options.members ?? []));
   const uow = new LoadsUnitOfWork(new InMemoryLoadsTransactions(world));
   const feed = new FakeResultsFeed();
@@ -483,6 +500,9 @@ describe('errors and retries (FR-8, DD-8)', () => {
           total: 60,
           processed: 50,
           loaded: 50,
+          loadedNew: 50,
+          loadedResubmitted: 0,
+          round: 1,
           skipped: 0,
           failureReason: 'REPORTING_UNAVAILABLE',
         },
@@ -536,7 +556,7 @@ describe('errors and retries (FR-8, DD-8)', () => {
     expect(load.failureReason).toBe('REPORTING_UNAUTHORIZED');
     expect(ctx.feed.callsOf('details')).toHaveLength(0);
     expect(logged).toContain(
-      '{"event":"ingestion","route":"run","loadId":1,"outcome":"failed","reason":"REPORTING_UNAUTHORIZED"}',
+      '{"event":"ingestion","route":"run","loadId":1,"outcome":"failed","round":1,"reason":"REPORTING_UNAUTHORIZED"}',
     );
   });
 
@@ -686,7 +706,7 @@ describe('errors and retries (FR-8, DD-8)', () => {
     expect(ctx.feed.callsOf('intake')).toHaveLength(0);
     expect(ctx.world.results).toHaveLength(0);
     expect(logged).toContain(
-      '{"event":"ingestion","route":"run","loadId":1,"outcome":"failed","reason":"REPORTING_UNAUTHORIZED"}',
+      '{"event":"ingestion","route":"run","loadId":1,"outcome":"failed","round":1,"reason":"REPORTING_UNAUTHORIZED"}',
     );
     expect(logged.some((line) => line.includes('"outcome":"retry"'))).toBe(
       false,
@@ -979,5 +999,470 @@ describe('the snapshot content (FR-6, design 5.2)', () => {
     expect(ctx.world.results[0]!.snapshotSk).toBe(
       'SNAP#2026#000001#00000011#0000000001',
     );
+  });
+});
+
+// --- timeline-sync: a round-2 sync (FR-4, FR-7, FR-8, FR-9, FR-11, P-8) ---------
+
+/** The step in force at a round-2 sync: the third step of timeline 11, round 2. */
+const ROUND_2_LOAD: Partial<TimelineLoad> = {
+  timelineStepId: 113,
+  stepPosition: 3,
+  round: 2,
+  summary: { ...EMPTY_SUMMARY, round: 2 } as unknown as Record<string, unknown>,
+};
+
+/** The instant the round-1 memberships were returned. */
+const RETURNED_AT = '2026-11-05T10:00:00.000Z';
+const LATER = '2026-11-05T10:00:01.000Z';
+
+/** The round-1 load of the returned rows: its id is in their snapshot key. */
+const ROUND_1_LOAD = 7;
+
+/**
+ * A round-1 membership of timeline 11 that was returned, with its snapshot key
+ * written the way the runner writes it (`SNAP#` + the sort suffix).
+ */
+function returnedRow(
+  id: number,
+  code: number,
+  overrides: Partial<TimelineResult> = {},
+): TimelineResult {
+  return {
+    ...memberRow(id, 11, code, ROUND_1_LOAD),
+    endedAt: new Date(RETURNED_AT),
+    endReason: 'returned',
+    activeKey: null,
+    snapshotSk: `SNAP#${snapshotSortSuffix({
+      phaseYear: 2026,
+      cycleId: 1,
+      timelineId: 11,
+      loadId: ROUND_1_LOAD,
+    })}`,
+    ...overrides,
+  };
+}
+
+/** Puts the round-1 snapshot of a returned row, under the key the row points to. */
+async function seedSnapshot(
+  ctx: ReturnType<typeof build>,
+  row: TimelineResult,
+  values: Record<string, unknown>,
+): Promise<void> {
+  await ctx.snapshots.put({
+    resultCode: row.resultCode,
+    resultId: row.resultId,
+    phaseYear: 2026,
+    cycleId: 1,
+    timelineId: 11,
+    loadId: ROUND_1_LOAD,
+    resultTypeKey: row.resultTypeKey,
+    programClarisaId: row.programClarisaId,
+    catalogVersion: '1.29',
+    hash: row.snapshotHash,
+    loadedAt: '2026-11-03T09:00:00.000Z',
+    values,
+  });
+}
+
+const roundTwo = (world: InMemoryLoadsDatabase) =>
+  world.results.filter((r) => r.entryRound === 2);
+
+// sha-256 of {"a":null,"b":[2,{"x":0,"y":1}]}, the same literal as the snapshot test.
+const SAME_VALUES = { b: [2, { y: 1, x: 0 }], a: null };
+const SAME_HASH =
+  'd35b1d88d66d811545929847a371613822f5679f2f589f664b7825160af660b6';
+
+/**
+ * The round-2 world of the spec's scenarios, 7 listed or held results:
+ *   5001 new to the timeline;
+ *   5002 returned here, re-submitted (the title changed);
+ *   5003 returned here, re-submitted, the same values;
+ *   5004 returned here, listed, `submitted_at` equal to the return;
+ *   5005 returned here and no longer listed (the program unsubmitted it);
+ *   5006 active in timeline 12, whose last step is still open;
+ *   5007 returned in timeline 12, whose last step is still open (S-6).
+ */
+async function roundTwoWorld() {
+  const rows = {
+    changed: returnedRow(1, 5002, { snapshotHash: 'a'.repeat(64) }),
+    same: returnedRow(2, 5003, { snapshotHash: SAME_HASH }),
+    notResubmitted: returnedRow(3, 5004),
+    unlisted: returnedRow(4, 5005, {
+      programClarisaId: 7,
+      resultTypeKey: 'innovation_use',
+    }),
+    active: memberRow(5, 12, 5006, 40),
+    returnedElsewhere: {
+      ...memberRow(6, 12, 5007, 40),
+      endedAt: new Date(RETURNED_AT),
+      endReason: 'returned' as const,
+      activeKey: null,
+    },
+  };
+  const ctx = build({ members: Object.values(rows), load: ROUND_2_LOAD });
+  await seedSnapshot(ctx, rows.changed, {
+    title: 'Old title',
+    description: 'same text',
+  });
+  await seedSnapshot(ctx, rows.same, SAME_VALUES);
+  script(
+    ctx.feed,
+    [
+      item(1),
+      item(2, 'policy_change', LATER),
+      item(3, 'policy_change', LATER),
+      item(4, 'policy_change', RETURNED_AT),
+      item(6),
+      item(7, 'policy_change', LATER),
+    ],
+    {
+      values: {
+        1002: { title: 'New title', description: 'same text' },
+        1003: SAME_VALUES,
+      },
+    },
+  );
+  const gets = vi.spyOn(ctx.snapshots, 'get');
+  const load = await runToEnd(ctx);
+  return { ctx, load, gets, rows };
+}
+
+describe('a round-2 sync (FR-4, FR-7, FR-8, FR-9, FR-11)', () => {
+  it('writes the memberships of the round: entry round 2, status, group, previous id and changed fields', async () => {
+    const { ctx, load } = await roundTwoWorld();
+
+    expect(load.status).toBe('completed');
+    expect(
+      roundTwo(ctx.world).map((r) => [
+        r.resultCode,
+        r.status,
+        r.kpGroup,
+        r.entryRound,
+        r.previousMembershipId,
+        r.changedFields,
+      ]),
+    ).toEqual([
+      [5001, 'pending', null, 2, null, null],
+      [5002, 'pending', null, 2, 1, ['title']],
+      [5003, 'pending', null, 2, 2, []],
+    ]);
+    // The round-1 rows are untouched.
+    expect(
+      ctx.world.results
+        .filter((r) => r.entryRound === 1 && r.timelineId === 11)
+        .map((r) => [r.id, r.endReason, r.changedFields]),
+    ).toEqual([
+      [1, 'returned', null],
+      [2, 'returned', null],
+      [3, 'returned', null],
+      [4, 'returned', null],
+    ]);
+  });
+
+  it('changed_fields is null exactly when previous_membership_id is, on every membership of the run', async () => {
+    const { ctx } = await roundTwoWorld();
+
+    const rows = roundTwo(ctx.world);
+    expect(rows).toHaveLength(3);
+    for (const row of rows) {
+      expect(row.changedFields === null).toBe(
+        row.previousMembershipId === null,
+      );
+    }
+  });
+
+  it('reads exactly one previous snapshot: the changed one, never the same-hash one', async () => {
+    const { ctx, gets } = await roundTwoWorld();
+
+    expect(gets).toHaveBeenCalledTimes(1);
+    expect(gets).toHaveBeenCalledWith(5002, '2026#000001#00000011#0000000007');
+    // The three new snapshots are written; the round-1 ones stay as they were.
+    expect(ctx.snapshots.size).toBe(5);
+    expect((await ctx.snapshots.history(5002)).map((s) => s.loadId)).toEqual([
+      1, 7,
+    ]);
+    expect((await ctx.snapshots.history(5002))[1]!.values).toEqual({
+      title: 'Old title',
+      description: 'same text',
+    });
+  });
+
+  it('asks Reporting for intake and details of the three taken results only', async () => {
+    const { ctx } = await roundTwoWorld();
+
+    expect(ctx.feed.calls.map((c) => c.op)).toEqual([
+      'list',
+      'intake',
+      'details',
+    ]);
+    expect(
+      (ctx.feed.callsOf('intake')[0] as FeedIntakeQuery).resultIds,
+    ).toEqual([1001, 1002, 1003]);
+    expect(
+      (ctx.feed.callsOf('details')[0] as FeedDetailsQuery).resultIds,
+    ).toEqual([1001, 1002, 1003]);
+  });
+
+  it('summarizes the round: new and re-submitted counts, the skips, and the returned results not resubmitted (listed or not)', async () => {
+    const { load } = await roundTwoWorld();
+
+    expect(summaryOf(load)).toEqual({
+      loaded: 3,
+      loadedNew: 1,
+      loadedResubmitted: 2,
+      round: 2,
+      byProgram: { '3': 3 },
+      byType: { policy_change: 3 },
+      kpGroups: {},
+      skipped: { RETURNED_NOT_RESUBMITTED: 1, ACTIVE_IN_OTHER_TIMELINE: 2 },
+      otherTimelines: { '12': { name: 'August 2026', count: 2 } },
+      // 5004 (listed) and 5005 (unlisted); 5002 and 5003 came back.
+      returnedNotResubmitted: {
+        total: 2,
+        byProgram: { '3': 1, '7': 1 },
+        byType: { policy_change: 1, innovation_use: 1 },
+      },
+    });
+    expect(load.processed).toBe(6);
+    expect(load.total).toBe(6);
+  });
+
+  it('writes load_end with the round and the new and re-submitted counts', async () => {
+    const { ctx } = await roundTwoWorld();
+
+    expect(ends(ctx.world)).toHaveLength(1);
+    expect(ends(ctx.world)[0]!.changes).toEqual({
+      load: {
+        before: 'running',
+        after: {
+          id: 1,
+          status: 'completed',
+          total: 6,
+          processed: 6,
+          loaded: 3,
+          loadedNew: 1,
+          loadedResubmitted: 2,
+          round: 2,
+          skipped: 3,
+          failureReason: null,
+        },
+      },
+    });
+  });
+
+  it('logs ids, counts and the round only: no title, field key or value', async () => {
+    await roundTwoWorld();
+
+    expect(logged.length).toBeGreaterThan(0);
+    for (const line of logged) {
+      expect(line).not.toMatch(/title|description|Old|New|same text/);
+      expect(line).not.toContain('result_type_key');
+    }
+    expect(logged.map((l) => JSON.parse(l))).toContainEqual({
+      event: 'ingestion',
+      route: 'run',
+      loadId: 1,
+      outcome: 'lot',
+      round: 2,
+      lot: 1,
+      size: 6,
+      loaded: 3,
+      skipped: 3,
+    });
+  });
+});
+
+describe('re-submitted and new KPs in round 2 (FR-7, S-9)', () => {
+  const release = (feed: FakeResultsFeed) =>
+    feed.script('release', (q) => ({
+      phaseYear: q.phaseYear,
+      released: q.items.map((i) => ({
+        resultId: i.resultId,
+        resultCode: i.resultId + 4000,
+        outcome: i.outcome,
+      })),
+      notReleased: [],
+    }));
+
+  it('a re-submitted KP of review stays pending/review: not re-classified and absent from the release', async () => {
+    const row = returnedRow(1, 5001, {
+      resultTypeKey: 'knowledge_product',
+      status: 'pending',
+      kpGroup: 'review',
+      snapshotHash: 'a'.repeat(64),
+    });
+    const ctx = build({ members: [row], load: ROUND_2_LOAD });
+    await seedSnapshot(ctx, row, { title: 'A KP' });
+    // The details would classify it auto_validated: only a re-classification shows it.
+    script(ctx.feed, [item(1, 'knowledge_product', LATER)], {
+      values: { 1001: KP_AUTO },
+    });
+    release(ctx.feed);
+    const classify = vi.spyOn(DEFAULT_KP_RULES, 'classify');
+
+    const load = await runToEnd(ctx);
+
+    expect(load.status).toBe('completed');
+    const [membership] = roundTwo(ctx.world);
+    expect([membership!.status, membership!.kpGroup]).toEqual([
+      'pending',
+      'review',
+    ]);
+    expect(classify).not.toHaveBeenCalled();
+    expect(ctx.feed.callsOf('release')).toHaveLength(0);
+    expect(summaryOf(load)).toMatchObject({
+      loaded: 1,
+      loadedResubmitted: 1,
+      loadedNew: 0,
+      kpGroups: { review: 1 },
+    });
+  });
+
+  it('a new not-in-QA KP in round 2 is taken as in step 1 and released as qaed', async () => {
+    const ctx = build({ load: ROUND_2_LOAD });
+    script(ctx.feed, [item(1, 'knowledge_product')], {
+      values: { 1001: { ...KP_AUTO, 'knowledge_product.type': 'Book' } },
+    });
+    release(ctx.feed);
+
+    const load = await runToEnd(ctx);
+
+    expect(load.status).toBe('completed');
+    const [membership] = roundTwo(ctx.world);
+    expect([membership!.status, membership!.kpGroup]).toEqual([
+      'not_in_qa',
+      'not_in_qa',
+    ]);
+    expect(ctx.feed.callsOf('release')).toEqual([
+      { phaseYear: 2026, items: [{ resultId: 1001, outcome: 'qaed' }] },
+    ]);
+  });
+
+  it('a re-submitted KP returned as an output: pending, no group, the type key changed, no snapshot read, the round-1 row still a KP', async () => {
+    const row = returnedRow(1, 5001, {
+      resultTypeKey: 'knowledge_product',
+      status: 'pending',
+      kpGroup: 'review',
+      snapshotHash: 'a'.repeat(64),
+    });
+    const ctx = build({ members: [row], load: ROUND_2_LOAD });
+    await seedSnapshot(ctx, row, { title: 'A KP' });
+    script(ctx.feed, [item(1, 'policy_change', LATER)], {
+      values: { 1001: { title: 'An output' } },
+    });
+    release(ctx.feed);
+    const gets = vi.spyOn(ctx.snapshots, 'get');
+
+    const load = await runToEnd(ctx);
+
+    expect(load.status).toBe('completed');
+    const [membership] = roundTwo(ctx.world);
+    expect([
+      membership!.status,
+      membership!.kpGroup,
+      membership!.resultTypeKey,
+      membership!.previousMembershipId,
+      membership!.changedFields,
+    ]).toEqual(['pending', null, 'policy_change', 1, ['result_type_key']]);
+    expect(gets).not.toHaveBeenCalled();
+    expect(ctx.world.results.find((r) => r.id === 1)!.resultTypeKey).toBe(
+      'knowledge_product',
+    );
+    expect(ctx.feed.callsOf('release')).toHaveLength(0);
+  });
+
+  it('a re-submitted output returned as a KP and classified auto_validated is released as a new KP', async () => {
+    const row = returnedRow(1, 5001, {
+      resultTypeKey: 'policy_change',
+      snapshotHash: 'a'.repeat(64),
+    });
+    const ctx = build({ members: [row], load: ROUND_2_LOAD });
+    await seedSnapshot(ctx, row, { title: 'An output' });
+    script(ctx.feed, [item(1, 'knowledge_product', LATER)], {
+      values: { 1001: KP_AUTO },
+    });
+    release(ctx.feed);
+    const gets = vi.spyOn(ctx.snapshots, 'get');
+
+    const load = await runToEnd(ctx);
+
+    expect(load.status).toBe('completed');
+    const [membership] = roundTwo(ctx.world);
+    expect([
+      membership!.status,
+      membership!.kpGroup,
+      membership!.changedFields,
+    ]).toEqual(['auto_validated', 'auto_checked', ['result_type_key']]);
+    expect(gets).not.toHaveBeenCalled();
+    expect(ctx.feed.callsOf('release')).toEqual([
+      { phaseYear: 2026, items: [{ resultId: 1001, outcome: 'qaed' }] },
+    ]);
+    expect(summaryOf(load)).toMatchObject({
+      loadedResubmitted: 1,
+      kpGroups: { auto_checked: 1 },
+    });
+  });
+});
+
+describe('a round-2 sync that cannot compare (FR-8, FR-9, DD-7)', () => {
+  it('a missing previous snapshot fails the lot INTERNAL, writes no round-2 row, and still counts the returned results', async () => {
+    const row = returnedRow(1, 5001, { snapshotHash: 'a'.repeat(64) });
+    // No snapshot seeded: the earlier item is gone.
+    const ctx = build({ members: [row], load: ROUND_2_LOAD });
+    script(ctx.feed, [item(1, 'policy_change', LATER)], {
+      values: { 1001: { title: 'New title' } },
+    });
+
+    const load = await runToEnd(ctx);
+
+    expect(load.status).toBe('failed');
+    expect(load.failureReason).toBe('INTERNAL');
+    expect(roundTwo(ctx.world)).toHaveLength(0);
+    expect(ends(ctx.world)).toHaveLength(1);
+    // The failed end counts, too: the returned row has no round-2 row.
+    expect(summaryOf(load).returnedNotResubmitted).toEqual({
+      total: 1,
+      byProgram: { '3': 1 },
+      byType: { policy_change: 1 },
+    });
+    expect(logged.join('\n')).not.toContain('title');
+  });
+});
+
+describe('the zone of the process (P-8, FR-4)', () => {
+  const zone = process.env.TZ;
+  afterEach(() => {
+    if (zone === undefined) delete process.env.TZ;
+    else process.env.TZ = zone;
+  });
+
+  it('judges the re-entry by the instants, in America/Bogota as in UTC', async () => {
+    // The zone is set BEFORE any date of the world is built.
+    process.env.TZ = 'America/Bogota';
+    // 05:00:00 on 5 Nov in Bogota (UTC-5) is the instant 10:00:00Z.
+    const returnedAt = new Date(2026, 10, 5, 5, 0, 0);
+    expect(returnedAt.toISOString()).toBe(RETURNED_AT);
+    const rows = [
+      returnedRow(1, 5001, { endedAt: returnedAt }),
+      returnedRow(2, 5002, { endedAt: returnedAt }),
+    ];
+    const ctx = build({ members: rows, load: ROUND_2_LOAD });
+    await seedSnapshot(ctx, rows[0]!, { title: 'a' });
+    await seedSnapshot(ctx, rows[1]!, { title: 'b' });
+    script(ctx.feed, [
+      // One second after the return: re-submitted. The same second: not.
+      item(1, 'policy_change', LATER),
+      item(2, 'policy_change', RETURNED_AT),
+    ]);
+
+    const load = await runToEnd(ctx);
+
+    expect(load.status).toBe('completed');
+    expect(roundTwo(ctx.world).map((r) => r.resultCode)).toEqual([5001]);
+    expect(summaryOf(load)).toMatchObject({
+      loadedResubmitted: 1,
+      skipped: { RETURNED_NOT_RESUBMITTED: 1 },
+    });
   });
 });

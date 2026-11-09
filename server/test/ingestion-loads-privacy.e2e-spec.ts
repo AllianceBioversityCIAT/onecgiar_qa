@@ -1,9 +1,12 @@
 // @akili-spec ingestion/step-1-loads
+// @akili-spec ingestion/timeline-sync
 import request from 'supertest';
 import {
   ADMIN_NICKNAME,
   bearer,
   buildIngestionApp,
+  closeAllStepsOfTimeline13,
+  NOW,
   type IngestionApp,
 } from './support/ingestion-app.js';
 import { LogSpy } from './support/log-spy.js';
@@ -23,6 +26,7 @@ const REPORTING_KEY = 'test-catalog-key';
 const KEY_PREFIX = 'Sensitive-Load-Key';
 const INTERNAL_SECRET = 'db-exploded-sk-live-0042';
 const TITLE = 'Private result title';
+const TITLE_CORRECTED = 'Corrected sensitive title';
 const DECISION_FIELDS = [
   'event',
   'outcome',
@@ -46,7 +50,11 @@ type ReportingMode = 'ok' | 'down' | 'unauthorized';
 describe('NFR-1 / NFR-2 / FR-12: loads log ids and fixed words only', () => {
   let w: IngestionApp;
   const spy = new LogSpy();
-  const reporting = { mode: 'ok' as ReportingMode };
+  const reporting = {
+    mode: 'ok' as ReportingMode,
+    /** Results the feed lists as submitted again after a return, and whose title Reporting now corrects. */
+    resubmitted: new Set<number>(),
+  };
   const upstream: Array<{ path: string; key: string | undefined }> = [];
   let secrets: string[];
   let serial = 0;
@@ -82,7 +90,9 @@ describe('NFR-1 / NFR-2 / FR-12: loads log ids and fixed words only', () => {
             result_code: id - 4000,
             program: { clarisa_id: 2, code: 'SP02' },
             result_type_key: 'policy_change',
-            submitted_at: '2026-10-01T00:00:00.000Z',
+            submitted_at: reporting.resubmitted.has(id)
+              ? '2026-12-01T09:00:00.000Z'
+              : '2026-10-01T00:00:00.000Z',
           })),
         });
       }
@@ -105,7 +115,9 @@ describe('NFR-1 / NFR-2 / FR-12: loads log ids and fixed words only', () => {
           result_id: id,
           result_code: id - 4000,
           result_type_key: 'policy_change',
-          values: { title: `${TITLE} ${id}` },
+          values: {
+            title: `${reporting.resubmitted.has(id) ? TITLE_CORRECTED : TITLE} ${id}`,
+          },
         })),
         not_eligible: [],
       });
@@ -115,6 +127,7 @@ describe('NFR-1 / NFR-2 / FR-12: loads log ids and fixed words only', () => {
     spy.lines.length = 0;
     upstream.length = 0;
     reporting.mode = 'ok';
+    reporting.resubmitted.clear();
     serial = 0;
     w = await buildIngestionApp({ feed: 'real' });
     spy.attach();
@@ -131,6 +144,7 @@ describe('NFR-1 / NFR-2 / FR-12: loads log ids and fixed words only', () => {
       KEY_PREFIX,
       INTERNAL_SECRET,
       TITLE,
+      TITLE_CORRECTED,
       bearer('sub-admin').replace('Bearer ', ''),
       bearer('sub-assessor').replace('Bearer ', ''),
       'not-a-token',
@@ -244,6 +258,105 @@ describe('NFR-1 / NFR-2 / FR-12: loads log ids and fixed words only', () => {
     expectNoSecret();
   });
 
+  // Timeline-sync T-7 (FR-9, FR-10, FR-11, NFR-4): the new fields of a round-2
+  // sync (round, step position, the new/re-submitted split, the returned and not
+  // re-submitted count) are counts and ids; no title, no person and no changed
+  // field reaches a line or an answer. No HTTP route returns a result (FR-6), so
+  // the return goes through the store, as the future assessment flow will.
+  it('a round-2 sync that re-admits a returned result: the new fields in the answers and the lines carry no title, person or changed field', async () => {
+    const first = await w.send('post', '/timelines/11/loads', {
+      key: newKey(),
+    });
+    expect(first.status).toBe(202);
+    await w.settled(11);
+    for (const row of w.loadsWorld.results.filter((r) =>
+      [1001, 1002].includes(r.resultCode),
+    )) {
+      await w.loadsWorld.store.endAsReturned(
+        row.id,
+        new Date('2026-11-11T10:00:00.000Z'),
+      );
+    }
+    w.world.steps.find((step) => step.id === 113)!.round = 2;
+    w.clock.advance(Date.parse('2026-12-08T09:00:00.000Z') - NOW.getTime());
+    // 1001 is re-submitted with a corrected title; 1002 is not.
+    reporting.resubmitted.add(5001);
+    spy.lines.length = 0;
+
+    const preview = await w.send('get', '/timelines/11/loads/preview');
+    const start = await w.send('post', '/timelines/11/loads', {
+      key: newKey(),
+    });
+    await w.settled(11);
+    const list = await w.send('get', '/timelines/11/loads');
+    const detail = await w.send('get', '/timelines/11/loads/2');
+
+    // The new fields are really in play (so the checks below are not vacuous).
+    expect(preview.body.data).toMatchObject({
+      round: 2,
+      stepPosition: 3,
+      toLoad: { total: 1, new: 0, resubmitted: 1 },
+      // 1001 is taken as re-submitted; only 1002 is counted, as the sync will.
+      returnedNotResubmitted: { total: 1 },
+    });
+    expect(start.status).toBe(202);
+    expect(detail.body.data).toMatchObject({
+      round: 2,
+      stepPosition: 3,
+      summary: {
+        loadedResubmitted: 1,
+        round: 2,
+        returnedNotResubmitted: { total: 1 },
+      },
+    });
+    expect(w.loadsWorld.results.find((r) => r.loadId === 2)).toMatchObject({
+      resultCode: 1001,
+      changedFields: ['title'],
+    });
+    // The answers: no title, original or corrected, and no changed field.
+    for (const res of [preview, start, list, detail]) {
+      const text = res.text.toLowerCase();
+      for (const word of [
+        TITLE,
+        TITLE_CORRECTED,
+        'changedfields',
+        'changed_fields',
+      ])
+        expect(text).not.toContain(word.toLowerCase());
+      expectCleanAnswer(res);
+    }
+    // The service lines keep their fields: ids and fixed words, one line per request.
+    for (const [route, res] of [
+      ['preview', preview],
+      ['start', start],
+    ] as const) {
+      const events = spy.eventsOf('ingestion', requestIdOf(res));
+      expect(events, route).toEqual([
+        {
+          event: 'ingestion',
+          route,
+          timelineId: 11,
+          outcome: 'ok',
+          requestId: requestIdOf(res),
+        },
+      ]);
+      expect(Object.keys(events[0]!).sort(), route).toEqual(DECISION_FIELDS);
+    }
+    // The runner's lines carry the round as a number, and never a changed field.
+    const runner = spy.lines
+      .filter((l) => l.includes('"route":"run"'))
+      .map((l) => JSON.parse(l) as Record<string, unknown>);
+    expect(runner.length).toBeGreaterThan(0);
+    expect(runner.some((line) => line.round === 2)).toBe(true);
+    for (const line of runner)
+      expect(['undefined', 'number']).toContain(typeof line.round);
+    const everything = spy.lines.join('\n').toLowerCase();
+    expect(everything).not.toContain('changedfields');
+    expect(everything).not.toContain('changed_fields');
+    expect(everything).not.toContain('"title"');
+    expectNoSecret();
+  });
+
   it('a replayed start writes the replay line only, and the key is in no line', async () => {
     const key = newKey();
     const first = await w.send('post', '/timelines/11/loads', { key });
@@ -272,6 +385,8 @@ describe('NFR-1 / NFR-2 / FR-12: loads log ids and fixed words only', () => {
   });
 
   it('refusals (404, 409, 400) write one refused line with the catalog code, and nothing secret', async () => {
+    // Timeline 13: the last step closed one minute before the clock (FR-1).
+    closeAllStepsOfTimeline13(w);
     const cases: Array<[string, 'get' | 'post', string, number, string]> = [
       [
         'preview',

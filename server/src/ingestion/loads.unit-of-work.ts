@@ -1,4 +1,5 @@
 // @akili-spec ingestion/step-1-loads
+// @akili-spec ingestion/timeline-sync
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import { nowInRome } from '../admin-config/rome-date.js';
 import {
@@ -24,10 +25,13 @@ import type {
 import {
   EMPTY_SUMMARY,
   effectiveLoadStatus,
-  loadWindow,
+  entryRound,
   membershipEnds,
   mergeSummary,
   type LoadSummary,
+  type ReturnedNotResubmitted,
+  stepInForce,
+  syncWindow,
   type SkipReason,
 } from './load-rules.js';
 import {
@@ -124,6 +128,15 @@ export interface LotMembership {
   snapshotSk: string;
   snapshotHash: string;
   catalogVersion: string;
+  /**
+   * How the verdict took it (design 7.3 step 2): `resubmitted` counts under
+   * `loadedResubmitted`. Absent = `new` (the runner sets it from T-6).
+   */
+  kind?: 'new' | 'resubmitted';
+  /** The membership it was compared with (FR-8); absent = null, no earlier snapshot. */
+  previousMembershipId?: number | null;
+  /** The keys that changed (FR-8); absent = null. Null exactly when `previousMembershipId` is. */
+  changedFields?: string[] | null;
 }
 
 export interface RecordLotCommand {
@@ -176,7 +189,12 @@ export type LoadEnding =
   | { status: 'completed' }
   | { status: 'failed'; failureReason: TimelineLoadFailureReason };
 
-export type EndLoadCommand = LoadEnding & { loadId: number; now: Date };
+export type EndLoadCommand = LoadEnding & {
+  loadId: number;
+  now: Date;
+  /** Counted once at the end of the run (design 7.3 step 7, DD-7); written into the summary in the end's transaction. */
+  returnedNotResubmitted?: ReturnedNotResubmitted;
+};
 
 export type EndLoadResult =
   | { kind: 'ended' }
@@ -193,7 +211,15 @@ class StartRefused extends Error {
 
 function storedSummary(value: unknown): LoadSummary {
   if (typeof value !== 'object' || value === null) return EMPTY_SUMMARY;
-  return { ...EMPTY_SUMMARY, ...(value as Partial<LoadSummary>) };
+  const stored = value as Partial<LoadSummary>;
+  // A summary from before 0008 lacks the new keys: every load it counts was
+  // new, in round 1, with no returned results counted (design 5.3).
+  return {
+    ...EMPTY_SUMMARY,
+    returnedNotResubmitted: { total: 0, byProgram: {}, byType: {} },
+    loadedNew: stored.loaded ?? 0,
+    ...stored,
+  };
 }
 
 const skippedTotal = (summary: LoadSummary): number =>
@@ -226,6 +252,10 @@ function loadEndAudit(
           total: load.total,
           processed: load.processed,
           loaded: summary.loaded,
+          // FR-11, design 5.5: the load's round (its column) and the split of `loaded`.
+          loadedNew: summary.loadedNew,
+          loadedResubmitted: summary.loadedResubmitted,
+          round: load.round,
           skipped: skippedTotal(summary),
           failureReason: ending.failureReason,
         },
@@ -297,22 +327,31 @@ export class LoadsUnitOfWork {
         if (!timeline || timeline.cycleId !== command.cycleId) {
           throw new StartRefused({ kind: 'timeline_not_found' });
         }
-        const step = await loads.findStepOne(timeline.id);
+        // Every step, read under the timeline lock (design 7.1 step 2): an edit
+        // takes the same lock, so it cannot move them before the insert below.
+        const steps = await loads.findSteps(timeline.id);
         // Step 1 always exists (FR-9 of *timelines*); without it the data is corrupt.
-        if (!step) throw new Error(`Timeline ${timeline.id} has no step 1`);
+        if (steps.length === 0) {
+          throw new Error(`Timeline ${timeline.id} has no steps`);
+        }
+        const nowMinute = nowInRome(command.now);
 
-        // 2.1 and 2.2: the closed cycle first, then the window.
-        const window = loadWindow(
-          cycle.status,
-          step.closesAt,
-          nowInRome(command.now),
+        // 2.1 and 2.2: the closed cycle first, then the window, which ends with
+        // the closing minute of the LAST step (FR-1).
+        const lastStep = steps.reduce((last, step) =>
+          step.position > last.position ? step : last,
         );
+        const window = syncWindow(cycle.status, lastStep.closesAt, nowMinute);
         if (window === 'CYCLES_CLOSED') {
           throw new StartRefused({ kind: 'cycle_closed' });
         }
         if (window === 'LOADS_WINDOW_CLOSED') {
           throw new StartRefused({ kind: 'window_closed' });
         }
+        // The step in force and its stored round (FR-2, DD-1); only an accepted
+        // start gets here, so a refusal never reads the round.
+        const step = stepInForce(steps, nowMinute);
+        const round = entryRound(steps, nowMinute);
 
         // 2.3: a running load whose lease expired no longer blocks (DD-6). The
         // abandon writes a `load_end` row for the load's own timeline, whose
@@ -373,9 +412,13 @@ export class LoadsUnitOfWork {
           cycleId: command.cycleId,
           timelineId: timeline.id,
           timelineStepId: step.id,
+          stepPosition: step.position,
+          round,
           phaseYear: cycle.year,
           scope,
-          summary: EMPTY_SUMMARY,
+          // The lots merge into this summary, and `mergeSummary` needs the
+          // load's round in it (one load is one round).
+          summary: { ...EMPTY_SUMMARY, round },
           startedBy: command.actorId,
           startedAt: command.now,
           requestId: command.requestId,
@@ -397,6 +440,9 @@ export class LoadsUnitOfWork {
                 id: inserted.loadId,
                 phaseYear: cycle.year,
                 scope,
+                // FR-11, design 5.5.
+                round,
+                stepPosition: step.position,
               },
             },
           },
@@ -442,7 +488,7 @@ export class LoadsUnitOfWork {
    * locked first, so a lot of a load that a later start abandoned writes
    * nothing, and a lot that renews the heartbeat in time makes that start see a
    * live lease (FR-9). A duplicate on `active_key` or on `(timeline_id,
-   * result_code)` is a race: a skip judged by the key the database names, and
+   * result_code, entry_round)` is a race: a skip judged by the key the database names, and
    * the lot goes on (FR-4). Any other error rolls the whole lot back.
    */
   async recordLot(command: RecordLotCommand): Promise<RecordLotResult> {
@@ -455,15 +501,20 @@ export class LoadsUnitOfWork {
 
       const insertedCodes: number[] = [];
       const raceSkips: RaceSkip[] = [];
+      const stored = storedSummary(load.summary);
       const lot: LoadSummary = {
         ...EMPTY_SUMMARY,
+        // One load is one round: the lot carries the load's (mergeSummary throws on a mismatch).
+        round: stored.round,
         byProgram: {},
         byType: {},
         kpGroups: {},
         skipped: { ...command.skips.skipped },
         otherTimelines: structuredClone(command.skips.otherTimelines),
       };
-      for (const membership of command.memberships) {
+      for (const lotMembership of command.memberships) {
+        const { kind, previousMembershipId, changedFields, ...membership } =
+          lotMembership;
         const outcome = await loads.insertMembership({
           ...membership,
           cycleId: load.cycleId,
@@ -471,18 +522,50 @@ export class LoadsUnitOfWork {
           loadId: load.id,
           phaseYear: load.phaseYear,
           createdAt: command.now,
+          // One load is one round (FR-2): the row's entry round is the load's.
+          entryRound: load.round,
+          previousMembershipId: previousMembershipId ?? null,
+          changedFields: changedFields ?? null,
         });
         if (outcome.kind === 'created') {
           insertedCodes.push(membership.resultCode);
           lot.loaded++;
+          if (kind === 'resubmitted') lot.loadedResubmitted++;
+          else lot.loadedNew++;
           bump(lot.byProgram, String(membership.programClarisaId));
           bump(lot.byType, membership.resultTypeKey);
           if (membership.kpGroup !== null)
             bump(lot.kpGroups, membership.kpGroup);
           continue;
         }
-        // The key named decides the reason (design 7.3 step 2.6).
-        if (outcome.key === 'timeline_code') {
+        // The key named decides the reason (design 7.3 step 6).
+        if (outcome.key === 'timeline_code_round') {
+          raceSkips.push({
+            resultCode: membership.resultCode,
+            reason: 'ALREADY_IN_THIS_TIMELINE',
+          });
+          bump(lot.skipped, 'ALREADY_IN_THIS_TIMELINE');
+          continue;
+        }
+        // `active_key` refused it. Another timeline holding the result is the
+        // usual cause; but either key may be named (T-9 pins which on live
+        // MySQL), so a membership of THIS timeline, active or entered in this
+        // load's round (FR-4 rule 2, FR-5), can be reported here as well. Read
+        // the memberships to tell them apart.
+        const held = await loads.findMemberships(load.cycleId, [
+          membership.resultCode,
+        ]);
+        const blocker = held.find(
+          (m) => m.timelineId !== load.timelineId && m.endedAt === null,
+        );
+        if (
+          !blocker &&
+          held.some(
+            (m) =>
+              m.timelineId === load.timelineId &&
+              (m.endedAt === null || m.entryRound === load.round),
+          )
+        ) {
           raceSkips.push({
             resultCode: membership.resultCode,
             reason: 'ALREADY_IN_THIS_TIMELINE',
@@ -491,9 +574,6 @@ export class LoadsUnitOfWork {
           continue;
         }
         // Another timeline won the cycle-wide key: name it for the summary.
-        const blocker = (
-          await loads.findMemberships(load.cycleId, [membership.resultCode])
-        ).find((m) => m.timelineId !== load.timelineId && m.endedAt === null);
         raceSkips.push({
           resultCode: membership.resultCode,
           reason: 'ACTIVE_IN_OTHER_TIMELINE',
@@ -512,7 +592,7 @@ export class LoadsUnitOfWork {
       const processed = load.processed + command.processed;
       await loads.recordProgress(load.id, {
         processed,
-        summary: mergeSummary(storedSummary(load.summary), lot),
+        summary: mergeSummary(stored, lot),
         heartbeatAt: command.now,
       });
       return { kind: 'recorded', insertedCodes, raceSkips, processed };
@@ -556,6 +636,17 @@ export class LoadsUnitOfWork {
         failureReason:
           command.status === 'failed' ? command.failureReason : null,
       };
+      if (command.returnedNotResubmitted) {
+        await loads.recordProgress(load.id, {
+          processed: load.processed,
+          summary: {
+            ...storedSummary(load.summary),
+            returnedNotResubmitted: command.returnedNotResubmitted,
+          },
+          // The lease is not this write's to move.
+          heartbeatAt: load.heartbeatAt,
+        });
+      }
       const ended = await loads.endLoad(load.id, {
         ...ending,
         finishedAt: command.now,
