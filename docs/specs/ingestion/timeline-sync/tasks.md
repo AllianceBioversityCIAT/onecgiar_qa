@@ -218,7 +218,7 @@ T-1, T-2 and T-5 are independent: they touch different files, and only T-1 touch
 
 ## T-6: Runner: verdict v2, re-entry, changed fields, final counts
 
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-4, T-5. **Step 4 waits for the S-9 gate** (see top).
 - **Requirements:**
@@ -253,6 +253,7 @@ T-1, T-2 and T-5 are independent: they touch different files, and only T-1 touch
 - **Consumers:** `load-runner.spec.ts`; `test/support/ingestion-app.ts`; `test/ingestion-loads.e2e-spec.ts` (P-12).
 - **Review:** full — the run's core path and the KP release interaction.
 - **Done when:** every listed case passes, step-1 runner cases are green unchanged except those naming `loadWindow`, and the S-9 gate is recorded.
+- **Amended 2026-11-09 (Leader, at the T-6 Reviewer's request; no requirement's meaning changed):** step-1 pins changed because FR-11 / § 5.5 and § 7.7 change the shape they pin — `load-runner.spec.ts` ×3 (the `load_end` pin in the `REPORTING_UNAVAILABLE` case; two `failed` log lines gain `"round":1`) and `loads.unit-of-work.spec.ts` ×6 `load_end` pins (stale-abandon, completed, failed, `load_end names its load`, the legacy-summary case, retitled since `load_end` now adds keys).
 - **Skills:** nestjs-expert, tdd
 
 ## T-7: Service, models, controller docs and e2e

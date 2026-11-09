@@ -29,6 +29,7 @@ import {
   membershipEnds,
   mergeSummary,
   type LoadSummary,
+  type ReturnedNotResubmitted,
   stepInForce,
   syncWindow,
   type SkipReason,
@@ -188,7 +189,12 @@ export type LoadEnding =
   | { status: 'completed' }
   | { status: 'failed'; failureReason: TimelineLoadFailureReason };
 
-export type EndLoadCommand = LoadEnding & { loadId: number; now: Date };
+export type EndLoadCommand = LoadEnding & {
+  loadId: number;
+  now: Date;
+  /** Counted once at the end of the run (design 7.3 step 7, DD-7); written into the summary in the end's transaction. */
+  returnedNotResubmitted?: ReturnedNotResubmitted;
+};
 
 export type EndLoadResult =
   | { kind: 'ended' }
@@ -246,6 +252,10 @@ function loadEndAudit(
           total: load.total,
           processed: load.processed,
           loaded: summary.loaded,
+          // FR-11, design 5.5: the load's round (its column) and the split of `loaded`.
+          loadedNew: summary.loadedNew,
+          loadedResubmitted: summary.loadedResubmitted,
+          round: load.round,
           skipped: skippedTotal(summary),
           failureReason: ending.failureReason,
         },
@@ -625,6 +635,17 @@ export class LoadsUnitOfWork {
         failureReason:
           command.status === 'failed' ? command.failureReason : null,
       };
+      if (command.returnedNotResubmitted) {
+        await loads.recordProgress(load.id, {
+          processed: load.processed,
+          summary: {
+            ...storedSummary(load.summary),
+            returnedNotResubmitted: command.returnedNotResubmitted,
+          },
+          // The lease is not this write's to move.
+          heartbeatAt: load.heartbeatAt,
+        });
+      }
       const ended = await loads.endLoad(load.id, {
         ...ending,
         finishedAt: command.now,

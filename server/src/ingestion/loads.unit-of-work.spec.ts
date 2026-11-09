@@ -1006,7 +1006,7 @@ describe('LoadsUnitOfWork.start over a stub MySQL driver (design 7.2, DD-7, P-8)
       12,
       9,
       'load_end',
-      '{"load":{"before":"running","after":{"id":40,"status":"failed","total":120,"processed":100,"loaded":80,"skipped":20,"failureReason":"ABANDONED"}}}',
+      '{"load":{"before":"running","after":{"id":40,"status":"failed","total":120,"processed":100,"loaded":80,"loadedNew":80,"loadedResubmitted":0,"round":1,"skipped":20,"failureReason":"ABANDONED"}}}',
       'req-1',
       '2026-11-10 08:00:00.000',
     ]);
@@ -1436,7 +1436,7 @@ describe('the lot, the end and the end of expired memberships over a stub MySQL 
       11,
       9,
       'load_end',
-      '{"load":{"before":"running","after":{"id":41,"status":"failed","total":120,"processed":120,"loaded":100,"skipped":20,"failureReason":"REPORTING_UNAVAILABLE"}}}',
+      '{"load":{"before":"running","after":{"id":41,"status":"failed","total":120,"processed":120,"loaded":100,"loadedNew":100,"loadedResubmitted":0,"round":1,"skipped":20,"failureReason":"REPORTING_UNAVAILABLE"}}}',
       'req-0',
       '2026-11-10 08:00:00.000',
     ]);
@@ -1916,6 +1916,9 @@ describe('start over the in-memory world (FR-2, DD-7)', () => {
               total: 1200,
               processed: 275,
               loaded: 250,
+              loadedNew: 250,
+              loadedResubmitted: 0,
+              round: 1,
               skipped: 25,
               failureReason: 'ABANDONED',
             },
@@ -2821,6 +2824,91 @@ describe('the end of a load over the in-memory world (FR-12)', () => {
     return inMemory(world);
   };
 
+  it("a round-2 end writes the returned-not-resubmitted counts into the summary, keeps the lots' keys and the lease, and load_end carries the round and the split (FR-9, FR-11, DD-7)", async () => {
+    const world = seedWorld();
+    world.loads.push(
+      loadRow({
+        id: 1,
+        timelineId: 11,
+        round: 2,
+        stepPosition: 3,
+        total: 6,
+        processed: 6,
+        heartbeatAt: ago(MINUTE),
+        summary: {
+          loaded: 3,
+          loadedNew: 1,
+          loadedResubmitted: 2,
+          round: 2,
+          byProgram: { '3': 3 },
+          byType: { policy_change: 3 },
+          kpGroups: {},
+          skipped: { RETURNED_NOT_RESUBMITTED: 1 },
+          otherTimelines: {},
+          returnedNotResubmitted: { total: 0, byProgram: {}, byType: {} },
+        },
+      }),
+    );
+    const { uow } = inMemory(world);
+
+    const result = await uow.end({
+      loadId: 1,
+      status: 'completed',
+      now: NOW,
+      returnedNotResubmitted: {
+        total: 2,
+        byProgram: { '3': 1, '7': 1 },
+        byType: { policy_change: 1, innovation_use: 1 },
+      },
+    });
+
+    expect(result).toEqual({ kind: 'ended' });
+    expect(world.loads[0]).toMatchObject({
+      status: 'completed',
+      processed: 6,
+      heartbeatAt: ago(MINUTE),
+      summary: {
+        loaded: 3,
+        loadedNew: 1,
+        loadedResubmitted: 2,
+        round: 2,
+        byProgram: { '3': 3 },
+        skipped: { RETURNED_NOT_RESUBMITTED: 1 },
+        returnedNotResubmitted: {
+          total: 2,
+          byProgram: { '3': 1, '7': 1 },
+          byType: { policy_change: 1, innovation_use: 1 },
+        },
+      },
+    });
+    expect(auditOf(world, 'load_end')[0]!.changes).toEqual({
+      load: {
+        before: 'running',
+        after: {
+          id: 1,
+          status: 'completed',
+          total: 6,
+          processed: 6,
+          loaded: 3,
+          loadedNew: 1,
+          loadedResubmitted: 2,
+          round: 2,
+          skipped: 1,
+          failureReason: null,
+        },
+      },
+    });
+  });
+
+  it('an end without the counts leaves the summary as the lots wrote it', async () => {
+    const { world, uow } = running();
+    const before = structuredClone(world.loads[0]!.summary);
+
+    await uow.end({ loadId: 1, status: 'completed', now: NOW });
+
+    expect(world.loads[0]!.summary).toEqual(before);
+  });
+
   it('completed: status, finished_at, the key freed, and one load_end row with the counts and a null reason', async () => {
     const { world, uow } = running();
 
@@ -2848,6 +2936,9 @@ describe('the end of a load over the in-memory world (FR-12)', () => {
               total: 120,
               processed: 120,
               loaded: 100,
+              loadedNew: 100,
+              loadedResubmitted: 0,
+              round: 1,
               skipped: 20,
               failureReason: null,
             },
@@ -2891,6 +2982,9 @@ describe('the end of a load over the in-memory world (FR-12)', () => {
         total: 120,
         processed: 120,
         loaded: 100,
+        loadedNew: 100,
+        loadedResubmitted: 0,
+        round: 1,
         skipped: 20,
         failureReason: 'REPORTING_UNAUTHORIZED',
       },
@@ -3697,7 +3791,7 @@ describe('a summary stored before migration 0008 is read with defaults (design 5
     expect(JSON.parse(progress.params[1] as string)).toEqual(merged);
   });
 
-  it('a load_end row over it counts the same loaded as before (no key of 0008 is invented in the audit row)', async () => {
+  it('a load_end row over it counts the same loaded as before and reads the 0008 keys by their defaults: every load it counts was new, in round 1', async () => {
     const world = seedWorld();
     world.loads.push(
       loadRow({ id: 1, timelineId: 11, processed: 4, summary: legacy }),
@@ -3715,6 +3809,9 @@ describe('a summary stored before migration 0008 is read with defaults (design 5
           total: null,
           processed: 4,
           loaded: 3,
+          loadedNew: 3,
+          loadedResubmitted: 0,
+          round: 1,
           skipped: 1,
           failureReason: null,
         },
