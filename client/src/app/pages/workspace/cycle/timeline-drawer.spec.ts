@@ -1,18 +1,19 @@
 import { Component, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { OFFICIAL_TIMELINE, TIMELINES } from './cycle.mock';
-import { TimelineDrawer, TimelineRequest } from './timeline-drawer';
+import { OFFICIAL_TIMELINE, TIMELINES, Timeline } from './cycle.mock';
+import { TimelineDrawer, TimelineRequest, TimelineSaveEvent } from './timeline-drawer';
 
 const SUB = TIMELINES.find((t) => t.id !== OFFICIAL_TIMELINE.id)!;
 
 @Component({
   imports: [TimelineDrawer],
-  template: `<qa-cycle-timeline-drawer [(open)]="open" [request]="request()" [official]="official" [live]="true" />`,
+  template: `<qa-cycle-timeline-drawer [(open)]="open" [request]="request()" [official]="official()" [live]="true" (saveTimeline)="saved.push($event)" />`,
 })
 class Host {
   readonly open = signal(true);
   readonly request = signal<TimelineRequest>({ timeline: SUB });
-  readonly official = OFFICIAL_TIMELINE;
+  readonly official = signal<Timeline>(OFFICIAL_TIMELINE);
+  readonly saved: TimelineSaveEvent[] = [];
 }
 
 const nameInput = () => document.querySelector<HTMLInputElement>('#cycle-tl-name')!;
@@ -82,5 +83,30 @@ describe('TimelineDrawer', () => {
     await settle(fixture);
 
     expect(input.value).toBe('13:05');
+  });
+
+  it('refuses a third QA round before saving (server ROUND_ABOVE_MAX, timeline-sync § 6)', async () => {
+    const fixture = TestBed.createComponent(Host);
+    // Steps 1, 3 and 4 load results: rounds 1, 1, 2, 3, 3.
+    fixture.componentInstance.official.set({ ...OFFICIAL_TIMELINE, steps: OFFICIAL_TIMELINE.steps.map((p, i) => ({ ...p, batch: i === 0 || i === 2 || i === 3 })) });
+    fixture.componentInstance.request.set({ timeline: null });
+    await settle(fixture);
+
+    expect(document.body.textContent).toContain('QA round 3');
+    expect(document.body.textContent).toContain('A timeline has at most 2 QA rounds.');
+    const create = [...document.querySelectorAll<HTMLButtonElement>('button')].find((b) => /^Create /.test(b.textContent?.trim() ?? ''))!;
+    create.click();
+    await settle(fixture);
+    expect(fixture.componentInstance.saved).toEqual([]);
+  });
+
+  it('two QA rounds are fine: no rounds message', async () => {
+    const fixture = TestBed.createComponent(Host);
+    fixture.componentInstance.official.set({ ...OFFICIAL_TIMELINE, steps: OFFICIAL_TIMELINE.steps.map((p, i) => ({ ...p, batch: i === 0 || i === 2 })) });
+    fixture.componentInstance.request.set({ timeline: null });
+    await settle(fixture);
+
+    expect(document.body.textContent).not.toContain('QA round 3');
+    expect(document.body.textContent).not.toContain('at most 2 QA rounds');
   });
 });
