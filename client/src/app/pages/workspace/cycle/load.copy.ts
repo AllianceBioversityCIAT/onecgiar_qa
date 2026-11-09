@@ -5,6 +5,7 @@ import { ApiError, CLIENT_ERROR } from '../../../core/http/api-envelope';
 const SKIP_LABELS: Record<string, string> = {
   ACTIVE_IN_OTHER_TIMELINE: 'Already in another timeline',
   ALREADY_IN_THIS_TIMELINE: 'Already in this timeline',
+  RETURNED_NOT_RESUBMITTED: 'Returned in round 1, not submitted again yet',
   DUPLICATE_RESULT_CODE: 'Listed twice by the Reporting Tool',
   not_found: 'Not found in the Reporting Tool',
   not_submitted: 'No longer submitted',
@@ -38,6 +39,9 @@ export function failureLabel(reason: string | null): string {
 export const CATALOG_MISSING_MESSAGE =
   "The Reporting Tool has no QA fields set up for this cycle's year, so there are no results to load. Ask the technical team to set them up.";
 
+/** The timeline's last step has closed (or the cycle): the server refuses any new sync. */
+export const WINDOW_CLOSED_MESSAGE = 'The last step of this timeline has closed, so no new load can start.';
+
 /** Why a load could not start, from the server code (never its raw text, except as a last resort). */
 export function startErrorMessage(error: ApiError): string {
   switch (error.code) {
@@ -46,7 +50,7 @@ export function startErrorMessage(error: ApiError): string {
     case LOAD_ERROR.CYCLES_CLOSED:
       return 'This cycle is closed, so no results can be loaded.';
     case LOAD_ERROR.WINDOW_CLOSED:
-      return 'Step 1 of this timeline has closed, so no new load can start.';
+      return WINDOW_CLOSED_MESSAGE;
     case LOAD_ERROR.ALREADY_RUNNING:
       return 'Another load in this cycle is still running. Wait for it to finish, then try again.';
     case LOAD_ERROR.SERVICE_UNAVAILABLE:

@@ -282,7 +282,7 @@ export class StepDrawer {
   readonly saveStep = output<StepSaveEvent>();
   /** Live data (API): name and dates only; the parent closes the drawer once the server saved it. */
   readonly live = input(false);
-  /** On live data: step 1 of this timeline can take a load now (the view decides). */
+  /** On live data: this is the step in force of a timeline that can take a sync now (the view decides). */
   readonly loadable = input(false);
   readonly saving = input(false);
   readonly feedback = input<TimelineSaveFeedback | null>(null);

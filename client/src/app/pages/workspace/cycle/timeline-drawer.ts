@@ -36,6 +36,8 @@ export interface TimelineSaveFeedback {
 
 /** The API allows 1 to 5 steps (one per audience). */
 const MAX_STEPS = 5;
+/** QA rounds a timeline can have (server `ROUND_ABOVE_MAX`, contract timeline-sync § 6). */
+const MAX_ROUNDS = 2;
 
 interface TimelineDraft {
   name: string;
@@ -497,9 +499,17 @@ export class TimelineDrawer {
     return this.feedback()?.fields.find((f) => f.field.startsWith(`steps[${i}]`))?.message ?? '';
   }
 
-  /** Whole-list problems: step 1 must load results (live data), or the server's `steps` message. */
+  /**
+   * More "Loads results" steps than the server accepts on create (`ROUND_ABOVE_MAX`): shown as soon as the switch
+   * moves. Not on an existing live timeline: its switches are fixed and the edit sends no round, so an older
+   * timeline with more rounds can still be renamed or re-dated.
+   */
+  protected readonly tooManyRounds = computed(() => !this.fixedSteps() && this.rounds().some((r) => r > MAX_ROUNDS));
+
+  /** Whole-list problems: at most 2 QA rounds, step 1 must load results (live data), or the server's `steps` message. */
   protected readonly stepsError = computed(() => {
     const first = this.draft().steps[0];
+    if (this.tooManyRounds()) return `A timeline has at most ${MAX_ROUNDS} QA rounds. Turn off "Loads results" on a later step.`;
     if (this.live() && this.tried() && first && !first.batch) return 'Step 1 must load results.';
     return this.serverError('steps');
   });
@@ -543,6 +553,7 @@ export class TimelineDrawer {
     this.tried.set(true);
     if (this.tlForm().invalid() || this.draft().steps.some((_, i) => this.issue(i, 'start') || this.issue(i, 'end'))) return;
     if (this.live() && this.draft().steps[0] && !this.draft().steps[0].batch) return;
+    if (this.tooManyRounds()) return;
     if (this.activeChanged()) {
       this.confirmActive.set(true);
       return;

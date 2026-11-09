@@ -1,10 +1,11 @@
 /**
- * Step-1 loads of a QA timeline (ADMIN only), as the QA server sends them.
- * Contract: `docs/specs/archive/2026-11-04-ingestion--step-1-loads/front-contract.md`
- * (source of truth `server/src/ingestion/models/load.model.ts`). Copied by hand: keep it in sync.
+ * Loads (syncs) of a QA timeline (ADMIN only), as the QA server sends them. A sync can start at any step until
+ * the timeline's last step closes, and enters the QA round (1 or 2) of the step in force.
+ * Contract: `docs/specs/archive/2026-11-09-ingestion--timeline-sync/front-contract.md` (supersedes step-1 loads;
+ * source of truth `server/src/ingestion/models/load.model.ts`). Copied by hand: keep it in sync.
  */
 
-/** `closed` when the cycle is closed or step 1's closing minute has passed: a start would be refused. */
+/** `closed` when the cycle is closed or the last step's closing minute has passed: a start would be refused. */
 export type LoadWindow = 'open' | 'closed';
 
 export type LoadStatus = 'running' | 'completed' | 'failed';
@@ -29,13 +30,14 @@ export interface LoadKpGroups {
   readonly notInQa: number;
   /** Auto-checked: released to Reporting as QAed when the load completes. */
   readonly autoChecked: number;
-  /** To review: assessed in step 1 like any result. */
+  /** To review: assessed like any result. */
   readonly review: number;
 }
 
 export interface LoadSkip {
   /**
-   * QA's own (`ACTIVE_IN_OTHER_TIMELINE`, `ALREADY_IN_THIS_TIMELINE`, `DUPLICATE_RESULT_CODE`) or Reporting's,
+   * QA's own (`ACTIVE_IN_OTHER_TIMELINE`, `ALREADY_IN_THIS_TIMELINE`, `RETURNED_NOT_RESUBMITTED`,
+   * `DUPLICATE_RESULT_CODE`) or Reporting's,
    * passed through as given. The list grows: an unknown reason is shown as plain text, never an error.
    */
   readonly reason: string;
@@ -44,15 +46,35 @@ export interface LoadSkip {
   readonly timelines?: readonly { readonly id: number; readonly name: string; readonly count: number }[];
 }
 
+/**
+ * Results this timeline returned in round 1 that have not entered round 2, counted under their round-1
+ * program and type. `code` comes only in the preview (and only while the feed lists that program).
+ * Always zero until the assessment spec can return a result (contract § 5).
+ */
+export interface LoadReturnedNotResubmitted {
+  readonly total: number;
+  readonly byProgram: readonly LoadProgramCount[];
+  readonly byResultType: readonly LoadTypeCount[];
+}
+
 /** `GET /timelines/:id/loads/preview`: nothing is written. An estimate: the run can skip more. */
 export interface LoadPreview {
   readonly phaseYear: number;
   readonly window: LoadWindow;
+  /** Round (1 or 2) a sync started now would be recorded with. */
+  readonly round: number;
+  /** Position (1-based) of the step in force. */
+  readonly stepPosition: number;
   readonly toLoad: {
     readonly total: number;
+    /** New to the timeline. `new + resubmitted = total`. */
+    readonly new: number;
+    /** Returned in round 1 and submitted again since (round 2 only). */
+    readonly resubmitted: number;
     readonly byProgram: readonly LoadProgramCount[];
     readonly byResultType: readonly LoadTypeCount[];
   };
+  readonly returnedNotResubmitted: LoadReturnedNotResubmitted;
   readonly kpGroups: LoadKpGroups;
   readonly skipped: readonly LoadSkip[];
 }
@@ -79,10 +101,20 @@ export interface LoadItem {
   readonly finishedAt: string | null;
   readonly startedBy: { readonly id: number; readonly nickname: string | null };
   readonly failureReason: LoadFailureReason | null;
+  /** Round the load entered (a load recorded before the sync reads 1). */
+  readonly round: number;
+  /** Position (1-based) of the step in force at the start (a load recorded before the sync reads 1). */
+  readonly stepPosition: number;
 }
 
 export interface LoadSummary {
+  /** `loadedNew + loadedResubmitted`. */
   readonly loaded: number;
+  readonly loadedNew: number;
+  readonly loadedResubmitted: number;
+  readonly round: number;
+  /** Counted once when the run ends (includes returned results the feed no longer lists); no `code`. */
+  readonly returnedNotResubmitted: LoadReturnedNotResubmitted;
   readonly byProgram: readonly LoadProgramCount[];
   readonly byResultType: readonly LoadTypeCount[];
   readonly kpGroups: LoadKpGroups;
