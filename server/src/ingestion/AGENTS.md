@@ -1,6 +1,6 @@
 # src/ingestion — Agent Guide
 
-Timeline sync: the ADMIN brings the eligible results of Reporting into one timeline with a manual sync, at **any step**, as many times as needed, until the closing minute of the timeline's last step. **Current spec:** `docs/specs/ingestion/timeline-sync/` (`design.md`; what the front may rely on: `front-contract.md` there). It builds on the step-1 spec, now archived: `docs/specs/archive/2026-11-04-ingestion--step-1-loads/` (`design.md`, DD-1…DD-11; known gaps in § 10; its `front-contract.md` is superseded). Root and `server/AGENTS.md` rules apply.
+Timeline sync: the ADMIN brings the eligible results of Reporting into one timeline with a manual sync, at **any step**, as many times as needed, until the closing minute of the timeline's last step. **Current spec:** none active; the latest is `docs/specs/archive/2026-11-09-ingestion--timeline-sync/` (`design.md`; what the front may rely on: `front-contract.md` there). It builds on the step-1 spec, now archived: `docs/specs/archive/2026-11-04-ingestion--step-1-loads/` (`design.md`, DD-1…DD-11; known gaps in § 10; its `front-contract.md` is superseded). Root and `server/AGENTS.md` rules apply.
 
 ## Model in one line
 
@@ -53,7 +53,7 @@ The other direction: `admin-config/timelines` reads the ingestion tables through
 - **A KP to review is assessed in step 1** (S-9 corrected 2026-11-04): `pending`, `awaits_step` always null. The column stays in `0007`, unused.
 - **No PII in logs (NFR-7).** One `event: 'ingestion'` line per request (`route`, `timelineId` or `loadId`, `outcome`, `reason?`): ids and fixed words only; only the runner's lines carry `round`, never a result title, name, body, URL or header. `FeedError` messages are fixed text.
 - **Audit:** `timeline_audit_events` gets a `load_start` row in the start's transaction and a `load_end` row when the load ends, both with the round; append-only, no PII.
-- **Typed errors from the catalog.** New codes go in `common/error-codes.ts` and, for the front, in `docs/specs/ingestion/timeline-sync/front-contract.md` (section 8). A code in `loads.errors.ts` missing from the contract is a review failure.
+- **Typed errors from the catalog.** New codes go in `common/error-codes.ts` and, for the front, in `docs/specs/archive/2026-11-09-ingestion--timeline-sync/front-contract.md` (section 8). A code in `loads.errors.ts` missing from the contract is a review failure.
 
 ## Known gaps
 
