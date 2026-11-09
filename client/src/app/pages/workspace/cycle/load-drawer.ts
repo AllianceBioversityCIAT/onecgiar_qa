@@ -4,15 +4,17 @@ import { LoadsApi } from '../../../core/api/loads-api';
 import { LOAD_ERROR, LoadPreview } from '../../../core/api/loads.models';
 import { toApiError } from '../../../core/http/api-envelope';
 import { QaButtonImports, QaDrawerImports, QaLoadingImports, QaSelect, QaSelectOption } from '../../../ui';
+import { nowInRome } from '../../../core/domain/rome-date';
 import { Timeline } from './cycle.mock';
-import { formatNumber } from './cycle.logic';
-import { CATALOG_MISSING_MESSAGE, skipLabel } from './load.copy';
+import { formatNumber, stepInForce, stepRound } from './cycle.logic';
+import { CATALOG_MISSING_MESSAGE, WINDOW_CLOSED_MESSAGE, skipLabel } from './load.copy';
+import { LoadReturned } from './load-returned';
 
-/** What opens the load drawer: the page button, a timeline menu ("Add results…") or step 1's drawer. */
+/** What opens the load drawer: the page button, a timeline menu ("Load results into QA round N") or the step drawer. */
 export interface RunRequest {
   /** View id of the timeline to preselect (`null`: the first one that can load). */
   timelineId: string | null;
-  /** Opened from step 1's drawer: shows the "From step" tag. */
+  /** Opened from the drawer of the step in force: shows the "From step N" tag. */
   fromStep: boolean;
 }
 
@@ -22,26 +24,27 @@ export interface LoadDrawerNames {
 }
 
 /**
- * "Load results into QA": pick a timeline (its step 1 takes the results), see its scope read-only and the
- * server's preview, then start the load. The scope is the timeline's own; the server takes no filters.
+ * "Load results into QA": pick a timeline, see its scope read-only and the server's preview, then start the
+ * sync. It can start at any step until the last one closes and goes into the QA round of the step in force
+ * (the preview's `round` / `stepPosition`). The scope is the timeline's own; the server takes no filters.
  */
 @Component({
   selector: 'qa-cycle-load-drawer',
-  imports: [QaButtonImports, QaDrawerImports, QaSelect, QaLoadingImports],
+  imports: [QaButtonImports, QaDrawerImports, QaSelect, QaLoadingImports, LoadReturned],
   template: `
-    <qa-drawer [(open)]="open" title="Load results into QA" subtitle="Brings the results science programs have submitted into step 1 of a timeline. Results already in QA are not affected." width="720px">
+    <qa-drawer [(open)]="open" title="Load results into QA" subtitle="Brings the results science programs have submitted into the current QA round of a timeline. Results already in QA are not affected." width="720px">
       @if (open()) {
         <div class="flex flex-col items-start gap-[6px]">
           <div class="flex items-center gap-1">
             <span class="text-(length:--fs-13) font-semibold text-(--text-2)">Timeline</span>
             @if (fromStep()) {
-              <span class="ml-1 rounded-full bg-(--tint-2) px-1.5 py-px text-(length:--fs-10) font-semibold whitespace-nowrap text-(--accent)">From step 1</span>
+              <span class="ml-1 rounded-full bg-(--tint-2) px-1.5 py-px text-(length:--fs-10) font-semibold whitespace-nowrap text-(--accent)">From step {{ fromStepNumber() }}</span>
             }
           </div>
           @if (options().length) {
             <qa-select [(value)]="selectedId" [options]="options()" label="Timeline" placeholder="Select a timeline" panelWidth="440px" class="w-full max-w-[420px]" />
           } @else {
-            <p class="m-0 text-(length:--fs-14) text-(--text-3)">No timeline can take results now: step 1 has closed on all of them.</p>
+            <p class="m-0 text-(length:--fs-14) text-(--text-3)">No timeline can take results now: the last step has closed on all of them.</p>
           }
         </div>
         @if (selected(); as t) {
@@ -82,7 +85,11 @@ export interface LoadDrawerNames {
               @if (p.toLoad.total > 0) {
               <p class="m-0 text-(length:--fs-14) leading-[1.55] text-(--text-2)">
                 About <span class="font-(family-name:--qa-mono) font-semibold text-(--text) tabular-nums">{{ fmt(p.toLoad.total) }}</span>
-                {{ p.toLoad.total === 1 ? 'result' : 'results' }} will be loaded into step 1 ({{ p.phaseYear }} phase).
+                {{ p.toLoad.total === 1 ? 'result' : 'results' }} will be loaded into QA round {{ p.round }}, step {{ p.stepPosition }} ({{ p.phaseYear }} phase).
+                @if (p.toLoad.resubmitted > 0) {
+                  <br /><span class="font-(family-name:--qa-mono) font-semibold text-(--text) tabular-nums">{{ fmt(p.toLoad.new) }}</span> new and
+                  <span class="font-(family-name:--qa-mono) font-semibold text-(--text) tabular-nums">{{ fmt(p.toLoad.resubmitted) }}</span> submitted again after being returned in round 1.
+                }
                 @if (kpTotal(p)) {
                   <br />Knowledge products: <span class="font-(family-name:--qa-mono) font-semibold text-(--text) tabular-nums">{{ fmt(p.kpGroups.review) }}</span> to review,
                   <span class="font-(family-name:--qa-mono) font-semibold text-(--text) tabular-nums">{{ fmt(p.kpGroups.autoChecked + p.kpGroups.notInQa) }}</span> auto-validated (not assessed).
@@ -90,7 +97,7 @@ export interface LoadDrawerNames {
               </p>
               }
               @if (p.window === 'closed') {
-                <p role="status" class="m-0 rounded-[8px] bg-(--st-editing-bg) px-3 py-2 text-(length:--fs-13) text-(--st-editing-fg)">Step 1 of this timeline has closed, so no new load can start.</p>
+                <p role="status" class="m-0 rounded-[8px] bg-(--st-editing-bg) px-3 py-2 text-(length:--fs-13) text-(--st-editing-fg)">{{ windowClosed }}</p>
               }
               @if (p.toLoad.byProgram.length) {
                 <div class="grid gap-6 sm:grid-cols-2">
@@ -138,6 +145,9 @@ export interface LoadDrawerNames {
                   </ul>
                 </div>
               }
+              @if (p.returnedNotResubmitted?.total) {
+                <qa-cycle-load-returned [returned]="p.returnedNotResubmitted" [names]="names()" />
+              }
               @if (p.toLoad.total > 0) {
                 <p class="m-0 text-(length:--fs-12) text-(--text-3)">This is an estimate: the load checks every result again and may skip a few more.</p>
               }
@@ -171,6 +181,7 @@ export class LoadDrawer {
 
   protected readonly fmt = formatNumber;
   protected readonly skip = skipLabel;
+  protected readonly windowClosed = WINDOW_CLOSED_MESSAGE;
   protected readonly skeleton = [0, 1, 2, 3, 4];
 
   protected readonly selectedId = linkedSignal<string | null>(() => {
@@ -180,9 +191,19 @@ export class LoadDrawer {
   });
   protected readonly selected = computed(() => this.targets().find((t) => t.id === this.selectedId()) ?? null);
   protected readonly fromStep = computed(() => this.request().fromStep && this.selectedId() === this.request().timelineId);
-  protected readonly options = computed<QaSelectOption[]>(() =>
-    this.targets().map((t) => ({ value: t.id, label: t.name, description: `Step 1 · ${t.steps[0]?.name ?? ''}` })),
-  );
+  /** Step in force of the selected timeline, 1-based (front guess; the preview has the server's). */
+  protected readonly fromStepNumber = computed(() => {
+    const t = this.selected();
+    return t ? stepInForce(t, nowInRome()) + 1 : 1;
+  });
+  /** Each target names the round and step a sync would enter now (the clock is read when the list changes). */
+  protected readonly options = computed<QaSelectOption[]>(() => {
+    const now = nowInRome();
+    return this.targets().map((t) => {
+      const at = stepInForce(t, now);
+      return { value: t.id, label: t.name, description: `QA round ${stepRound(t, at)} · Step ${at + 1} · ${t.steps[at]?.name ?? ''}` };
+    });
+  });
 
   /** Server preview of the chosen timeline, fetched only while the drawer is open. */
   protected readonly preview = rxResource<LoadPreview, number | undefined>({

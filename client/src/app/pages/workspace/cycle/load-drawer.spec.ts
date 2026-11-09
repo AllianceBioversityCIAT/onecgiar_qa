@@ -24,11 +24,16 @@ const T28 = target('t28', 28, 'September');
 const preview = (over: Partial<LoadPreview> = {}): LoadPreview => ({
   phaseYear: 2026,
   window: 'open',
+  round: 1,
+  stepPosition: 1,
   toLoad: {
     total: 33,
+    new: 33,
+    resubmitted: 0,
     byProgram: [{ programId: 11, code: 'SP02', count: 33 }],
     byResultType: [{ key: 'kp', count: 3 }, { key: 'innovation_dev', count: 30 }],
   },
+  returnedNotResubmitted: { total: 0, byProgram: [], byResultType: [] },
   kpGroups: { notInQa: 0, autoChecked: 1, review: 2 },
   skipped: [
     { reason: 'ACTIVE_IN_OTHER_TIMELINE', count: 4, timelines: [{ id: 28, name: 'September', count: 4 }] },
@@ -84,7 +89,10 @@ describe('LoadDrawer', () => {
     const t = text();
     expect(t).toContain('SP02');
     expect(t).toContain('All result types');
-    expect(t).toContain('About 33 results will be loaded into step 1');
+    expect(t).toContain('About 33 results will be loaded into QA round 1, step 1 (2026 phase)');
+    // Round 1 with nothing re-submitted: no split line, no returned block.
+    expect(t).not.toContain('submitted again');
+    expect(t).not.toContain('Returned in round 1');
     expect(t).toContain('SP02 Climate');
     expect(t).toContain('Knowledge product');
     expect(t).toContain('Already in another timeline');
@@ -98,7 +106,7 @@ describe('LoadDrawer', () => {
   });
 
   it('nothing to load: says so and the start stays off', async () => {
-    answer = () => of(preview({ toLoad: { total: 0, byProgram: [], byResultType: [] }, skipped: [] }));
+    answer = () => of(preview({ toLoad: { total: 0, new: 0, resubmitted: 0, byProgram: [], byResultType: [] }, skipped: [] }));
     await render();
     expect(text()).toContain('No new submitted results match this timeline right now.');
     expect(text()).not.toContain('About 0');
@@ -106,11 +114,48 @@ describe('LoadDrawer', () => {
     expect(loadButton().disabled).toBe(true);
   });
 
-  it('step 1 closed on the server: says so and the start stays off', async () => {
+  it('last step closed on the server: says so and the start stays off', async () => {
     answer = () => of(preview({ window: 'closed' }));
     await render();
-    expect(text()).toContain('Step 1 of this timeline has closed');
+    expect(text()).toContain('The last step of this timeline has closed');
+    expect(text()).not.toContain('Step 1 of this timeline');
     expect(loadButton().disabled).toBe(true);
+  });
+
+  it('round 2: names the round and step from the server and splits new and re-submitted results', async () => {
+    answer = () =>
+      of(
+        preview({
+          round: 2,
+          stepPosition: 3,
+          toLoad: { total: 33, new: 28, resubmitted: 5, byProgram: [{ programId: 11, code: 'SP02', count: 33 }], byResultType: [{ key: 'kp', count: 33 }] },
+        }),
+      );
+    await render();
+    const t = text();
+    expect(t).toContain('About 33 results will be loaded into QA round 2, step 3 (2026 phase)');
+    expect(t).toContain('28 new and 5 submitted again after being returned in round 1');
+    expect(loadButton().disabled).toBe(false);
+  });
+
+  it('results returned in round 1 and not submitted again: shown with their programs and types', async () => {
+    answer = () =>
+      of(
+        preview({
+          round: 2,
+          stepPosition: 3,
+          returnedNotResubmitted: { total: 7, byProgram: [{ programId: 11, count: 6 }, { programId: 99, code: 'SP09', count: 1 }], byResultType: [{ key: 'kp', count: 7 }] },
+          skipped: [{ reason: 'RETURNED_NOT_RESUBMITTED', count: 6 }],
+        }),
+      );
+    await render();
+    const t = text();
+    expect(t).toContain('Returned in round 1, not submitted again yet: 7');
+    expect(t).toContain('SP02 Climate');
+    expect(t).toContain('SP09');
+    // The skip reason in plain words, never the code.
+    expect(t).toContain('Returned in round 1, not submitted again yet');
+    expect(t).not.toContain('RETURNED_NOT_RESUBMITTED');
   });
 
   it('preview failed: explains and offers to try again', async () => {

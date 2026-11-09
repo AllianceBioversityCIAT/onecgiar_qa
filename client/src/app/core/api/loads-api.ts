@@ -7,7 +7,7 @@ import { NO_QUEUE, SILENT_ERRORS, UNSENT_LABEL } from '../http/request-context';
 import { LoadDetail, LoadItem, LoadPreview, LoadStarted } from './loads.models';
 
 /**
- * HTTP calls for step-1 loads of a QA timeline (ADMIN only). Only transport, no state.
+ * HTTP calls for the loads (syncs) of a QA timeline (ADMIN only). Only transport, no state.
  * The start carries the interceptor's `Idempotency-Key`: a repeat of the same key returns the same load
  * and starts no second one. It stays out of the Unsent list: the admin is watching the drawer, and a load
  * replayed later (window closed by then) would surprise; a lost answer goes back to the drawer, which offers

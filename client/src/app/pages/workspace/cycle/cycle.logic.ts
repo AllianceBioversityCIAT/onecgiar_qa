@@ -122,16 +122,37 @@ export function stepRow(p: CycleStep): StepDraftRow {
 }
 
 /**
- * Timelines that can take a step-1 load now: saved on the server and step 1 not closed yet (Rome minute).
- * The server has the last word (`window` of the preview, 409 `LOADS_WINDOW_CLOSED`).
+ * Timelines that can take a sync now (contract timeline-sync § 2, FR-1): saved on the server, at any step,
+ * until the closing minute of the LAST step (Rome; that minute is still open). The cycle being closed and
+ * a load already running are checked by the view (`canLoad`). The server has the last word (`window` of
+ * the preview, 409 `LOADS_WINDOW_CLOSED`).
  */
 export function loadTargets(timelines: readonly Timeline[], now: string): Timeline[] {
   return timelines.filter((t) => {
-    const first = t.steps[0];
-    if (t.apiId == null || !first || first.state === 'closed') return false;
-    const day = isoDay(first.end || first.start);
-    return !day || `${day}T${closesTimeOf(first)}` > now;
+    const last = t.steps[t.steps.length - 1];
+    if (t.apiId == null || !last || last.state === 'closed') return false;
+    const day = isoDay(last.end || last.start);
+    return !day || `${day}T${closesTimeOf(last)}` >= now;
   });
+}
+
+/**
+ * Index of the step a sync started now goes into (contract timeline-sync § 2): the last step whose opening
+ * minute has passed, or step 1 before any opens; the gap after a step closes still belongs to it. The
+ * front's guess for labels only: the preview's `round` / `stepPosition` are the server's answer.
+ */
+export function stepInForce(t: Pick<Timeline, 'steps'>, now: string): number {
+  let at = 0;
+  t.steps.forEach((p, i) => {
+    const opens = opensMoment(p);
+    if (opens != null && opens <= now) at = i;
+  });
+  return at;
+}
+
+/** QA round of a step: the stored one (API), else counted from the "Loads results" switches (mock). */
+export function stepRound(t: Pick<Timeline, 'steps'>, index: number): number {
+  return t.steps[index]?.round ?? t.steps.slice(1, index + 1).filter((p) => p.batch).length + 1;
 }
 
 /** Opening minute of a step as `YYYY-MM-DDTHH:mm` in Rome (null when its day is unreadable), comparable with `nowInRome()`. */
@@ -254,7 +275,7 @@ const STATUS_CLASS: Record<string, string> = {
 
 /**
  * Live data has no export, test or close endpoint yet: those actions show as "Coming soon".
- * `loadable`: the timeline's step 1 can take a load now (`loadTargets`) and no load runs.
+ * `loadable`: the timeline can take a sync now (`loadTargets`) and no load runs; the menu names the round in force.
  */
 export function timelineVM(t: Timeline, loadable = false): TimelineVM {
   const soon = t.apiId != null;
@@ -312,7 +333,10 @@ export function timelineVM(t: Timeline, loadable = false): TimelineVM {
   });
 
   const menu: TimelineVM['menu'] = [];
-  if (loadable) menu.push({ action: 'add-results', label: 'Load results into step 1', danger: false, soon: false });
+  if (loadable) {
+    const round = stepRound(t, stepInForce(t, nowInRome()));
+    menu.push({ action: 'add-results', label: `Load results into QA round ${round}`, danger: false, soon: false });
+  }
   else if (!soon && t.status === 'Live') menu.push({ action: 'add-results', label: 'Add results to this timeline', danger: false, soon: false });
   menu.push({ action: 'edit', label: 'Edit timeline', danger: false, soon: false }, { action: 'export', label: 'Export comments', danger: false, soon });
   if (t.test) menu.push({ action: 'clear-test', label: 'Clear test results', danger: true, soon });
