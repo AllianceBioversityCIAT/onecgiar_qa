@@ -300,8 +300,8 @@ describe('committed migrations', () => {
     .filter((f) => f.endsWith('.sql'))
     .sort();
 
-  it('are exactly eight SQL files', () => {
-    expect(files).toHaveLength(8);
+  it('are exactly nine SQL files', () => {
+    expect(files).toHaveLength(9);
   });
 
   const sql = readFileSync(`${migrationsDir}${files[0]}`, 'utf8');
@@ -1816,6 +1816,8 @@ describe('timeline_loads schema (step-1-loads design 5.1, FR-2, FR-5, NFR-6)', (
       heartbeat_at: 'datetime NOT NULL',
       finished_at: 'datetime',
       request_id: 'varchar(64)',
+      round: 'tinyint unsigned NOT NULL',
+      step_position: 'tinyint unsigned NOT NULL',
     });
   });
 
@@ -1863,6 +1865,28 @@ describe('timeline_loads schema (step-1-loads design 5.1, FR-2, FR-5, NFR-6)', (
       expect(columnOf(schema.timelineLoads, n).hasDefault, n).toBe(false);
     }
   });
+
+  // timeline-sync design 5.2, FR-2, FR-10: a load from before 0008 reads as
+  // round 1, position 1, so both defaults are 1.
+  it('records the round and the step position of the sync, both defaulting to 1 (FR-2, FR-10)', () => {
+    for (const n of ['round', 'step_position']) {
+      expect(columnOf(schema.timelineLoads, n).hasDefault, n).toBe(true);
+      expect(columnOf(schema.timelineLoads, n).default, n).toBe(1);
+    }
+  });
+
+  it('bounds the round to 1..2 and the position to 1..5 with CHECKs (design 5.2)', () => {
+    expect(checkNames(schema.timelineLoads)).toEqual([
+      'chk_timeline_loads_round',
+      'chk_timeline_loads_step_position',
+    ]);
+    expect(checkOf(schema.timelineLoads, 'chk_timeline_loads_round')).toBe(
+      '`round` IN (1, 2)',
+    );
+    expect(
+      checkOf(schema.timelineLoads, 'chk_timeline_loads_step_position'),
+    ).toBe('`step_position` BETWEEN 1 AND 5');
+  });
 });
 
 describe('timeline_results schema (step-1-loads design 5.2, FR-4, FR-5, NFR-6)', () => {
@@ -1885,8 +1909,12 @@ describe('timeline_results schema (step-1-loads design 5.2, FR-4, FR-5, NFR-6)',
       catalog_version: 'varchar(32) NOT NULL',
       created_at: 'datetime NOT NULL',
       ended_at: 'datetime',
-      end_reason: "enum('timeline_closed','released_qaed','released_not_qaed')",
+      end_reason:
+        "enum('timeline_closed','released_qaed','released_not_qaed','returned')",
       active_key: 'varchar(32)',
+      entry_round: 'tinyint unsigned NOT NULL',
+      previous_membership_id: 'bigint unsigned',
+      changed_fields: 'json',
     });
   });
 
@@ -1901,11 +1929,57 @@ describe('timeline_results schema (step-1-loads design 5.2, FR-4, FR-5, NFR-6)',
     );
   });
 
-  it('keeps one active membership per result and cycle, and one membership per timeline and result, ended or not (FR-4, S-5, DD-3)', () => {
+  it('keeps one active membership per result and cycle, and one membership per timeline, result and round (FR-5, DD-2)', () => {
     expect(uniqueKeys(schema.timelineResults)).toEqual({
       uq_timeline_results_active_key: ['active_key'],
-      uq_timeline_results_timeline_code: ['timeline_id', 'result_code'],
+      uq_timeline_results_timeline_code_round: [
+        'timeline_id',
+        'result_code',
+        'entry_round',
+      ],
     });
+    // The step-1 key (timeline_id, result_code) is gone: it would refuse the
+    // round-2 membership.
+    expect(Object.keys(uniqueKeys(schema.timelineResults))).not.toContain(
+      'uq_timeline_results_timeline_code',
+    );
+  });
+
+  it('stores the entry round, 1 or 2, defaulting to 1 so existing rows keep their meaning (FR-2, NFR-5)', () => {
+    const col = columnOf(schema.timelineResults, 'entry_round');
+    expect(col.notNull).toBe(true);
+    expect(col.default).toBe(1);
+    expect(
+      checkOf(schema.timelineResults, 'chk_timeline_results_entry_round'),
+    ).toBe('`entry_round` IN (1, 2)');
+  });
+
+  it('bounds changed_fields at 96 keys: the largest catalog type has 70 top-level fields (P-9, NFR-3)', () => {
+    expect(columnOf(schema.timelineResults, 'changed_fields').notNull).toBe(
+      false,
+    );
+    expect(
+      checkOf(schema.timelineResults, 'chk_timeline_results_changed_fields'),
+    ).toBe('`changed_fields` IS NULL OR JSON_LENGTH(`changed_fields`) <= 96');
+    expect(checkNames(schema.timelineResults)).toEqual([
+      'chk_timeline_results_changed_fields',
+      'chk_timeline_results_entry_round',
+    ]);
+  });
+
+  it('adds returned to the end reasons and keeps released_not_qaed, reserved (FR-6, S-7)', () => {
+    expect(schema.timelineResultEndReasons).toEqual([
+      'timeline_closed',
+      'released_qaed',
+      'released_not_qaed',
+      'returned',
+    ]);
+  });
+
+  it('leaves previous_membership_id optional: NULL means no earlier snapshot in the cycle (FR-8)', () => {
+    const col = columnOf(schema.timelineResults, 'previous_membership_id');
+    expect(col.notNull).toBe(false);
+    expect(col.hasDefault).toBe(false);
   });
 
   it('indexes result_code for the history of a result', () => {
@@ -1914,10 +1988,11 @@ describe('timeline_results schema (step-1-loads design 5.2, FR-4, FR-5, NFR-6)',
     });
   });
 
-  it('references the cycle, the timeline and the load', () => {
+  it('references the cycle, the timeline, the load and the earlier membership (FR-8)', () => {
     expect(foreignKeys(schema.timelineResults)).toEqual([
       'cycle_id -> cycles.id',
       'load_id -> timeline_loads.id',
+      'previous_membership_id -> timeline_results.id',
       'timeline_id -> timelines.id',
     ]);
   });
@@ -1943,7 +2018,7 @@ describe('committed migration 0007 (step-1 loads)', () => {
     expect(journal.entries.map((e) => e.tag)).toEqual(
       files.map((f) => f.replace(/\.sql$/, '')),
     );
-    expect(journal.entries.at(-1)).toMatchObject({
+    expect(journal.entries[7]).toMatchObject({
       idx: 7,
       tag: '0007_timeline_loads',
     });
@@ -2024,5 +2099,179 @@ describe('committed migration 0007 (step-1 loads)', () => {
 
   it('gives neither new table a column that deletes or reopens a row (rows are never deleted)', () => {
     expect(sql).not.toMatch(/`(deleted|removed|revoked)_\w+`/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// timeline-sync (design 5.1, 5.2, DD-2, DD-5): migration 0008. The expected SQL
+// below is written from the design, not copied from the generated file.
+// ---------------------------------------------------------------------------
+
+describe('committed migration 0008 (timeline sync rounds)', () => {
+  const files = readdirSync(migrationsDir)
+    .filter((f) => f.endsWith('.sql'))
+    .sort();
+  const read = (path: string) => readFileSync(path, 'utf8');
+  const up = files[8] ? read(`${migrationsDir}${files[8]}`) : '';
+  const statementsOf = (text: string) =>
+    text
+      .replace(/^--(?!>).*$/gm, '')
+      .split('--> statement-breakpoint')
+      .map((x) => x.trim())
+      .filter(Boolean);
+  const statements = statementsOf(up);
+  const downPath = `${migrationsDir}rollback/0008_timeline_sync_rounds.down.sql`;
+  const down = existsSync(downPath) ? read(downPath) : '';
+  // Index of the statement that contains `fragment`; fails when none does.
+  const at = (fragment: string) => {
+    const i = statements.findIndex((s) => s.includes(fragment));
+    expect(i, `a statement containing ${fragment}`).toBeGreaterThanOrEqual(0);
+    return i;
+  };
+
+  it('is named 0008_timeline_sync_rounds and is the ninth journal entry', () => {
+    expect(files[8]).toBe('0008_timeline_sync_rounds.sql');
+    const journal = JSON.parse(read(`${migrationsDir}meta/_journal.json`)) as {
+      entries: { idx: number; tag: string }[];
+    };
+    expect(journal.entries.map((e) => e.tag)).toEqual(
+      files.map((f) => f.replace(/\.sql$/, '')),
+    );
+    expect(journal.entries[8]).toMatchObject({
+      idx: 8,
+      tag: '0008_timeline_sync_rounds',
+    });
+  });
+
+  it('adds the round and the step position to timeline_loads, defaulting to 1 (design 5.2, FR-10)', () => {
+    expect(up).toMatch(
+      /ALTER TABLE `timeline_loads` ADD `round` tinyint unsigned (NOT NULL DEFAULT 1|DEFAULT 1 NOT NULL);/,
+    );
+    expect(up).toMatch(
+      /ALTER TABLE `timeline_loads` ADD `step_position` tinyint unsigned (NOT NULL DEFAULT 1|DEFAULT 1 NOT NULL);/,
+    );
+    expect(up).toMatch(
+      /ADD CONSTRAINT `chk_timeline_loads_round` CHECK ?\(`round` IN \(1, 2\)\)/,
+    );
+    expect(up).toMatch(
+      /ADD CONSTRAINT `chk_timeline_loads_step_position` CHECK ?\(`step_position` BETWEEN 1 AND 5\)/,
+    );
+  });
+
+  it('adds entry_round to timeline_results, NOT NULL, default 1, CHECK 1 or 2, so every existing row becomes round 1 (design 5.1, NFR-5)', () => {
+    expect(up).toMatch(
+      /ALTER TABLE `timeline_results` ADD `entry_round` tinyint unsigned (NOT NULL DEFAULT 1|DEFAULT 1 NOT NULL);/,
+    );
+    expect(up).toMatch(
+      /ADD CONSTRAINT `chk_timeline_results_entry_round` CHECK ?\(`entry_round` IN \(1, 2\)\)/,
+    );
+  });
+
+  it('adds previous_membership_id (NULL) as a self foreign key and changed_fields (json NULL) with a 96-key CHECK (design 5.1, P-9)', () => {
+    expect(up).toContain(
+      'ALTER TABLE `timeline_results` ADD `previous_membership_id` bigint unsigned;',
+    );
+    expect(up).toContain(
+      'ALTER TABLE `timeline_results` ADD `changed_fields` json;',
+    );
+    expect(up).toMatch(
+      /ADD CONSTRAINT `chk_timeline_results_changed_fields` CHECK ?\(`changed_fields` IS NULL OR JSON_LENGTH\(`changed_fields`\) <= 96\)/,
+    );
+    expect(up).toMatch(
+      /ADD CONSTRAINT `timeline_results_previous_membership_id_timeline_results_id_fk` FOREIGN KEY \(`previous_membership_id`\) REFERENCES `timeline_results`\(`id`\) ON DELETE no action ON UPDATE no action/,
+    );
+  });
+
+  it('adds returned to the end_reason enum at the end, keeping released_not_qaed and the order of the old values (FR-6, S-7)', () => {
+    expect(up).toContain(
+      "ALTER TABLE `timeline_results` MODIFY COLUMN `end_reason` enum('timeline_closed','released_qaed','released_not_qaed','returned');",
+    );
+  });
+
+  it('swaps the unique key: the (timeline_id, result_code, entry_round) key is added, then the old one dropped (FR-5, DD-2)', () => {
+    expect(up).toMatch(
+      /`uq_timeline_results_timeline_code_round` UNIQUE ?\(`timeline_id`,\s?`result_code`,\s?`entry_round`\)/,
+    );
+    expect(up.match(/\bDROP\b/g) ?? []).toHaveLength(1);
+    expect(up).toContain(
+      'ALTER TABLE `timeline_results` DROP INDEX `uq_timeline_results_timeline_code`;',
+    );
+    // timeline_id carries a foreign key that needs an index starting with it:
+    // dropping first would fail, or leave the table uncovered.
+    expect(
+      at('ADD CONSTRAINT `uq_timeline_results_timeline_code_round`'),
+    ).toBeLessThan(at('DROP INDEX `uq_timeline_results_timeline_code`'));
+    // The entry_round column exists before the key that names it.
+    expect(at('ADD `entry_round`')).toBeLessThan(
+      at('uq_timeline_results_timeline_code_round'),
+    );
+  });
+
+  it('keeps every row and every other key: no data statement, nothing dropped but the old unique key, no table created', () => {
+    expect(up).not.toMatch(
+      /\bINSERT INTO\b|\bUPDATE `\w+` SET\b|\bDELETE FROM\b|\bTRUNCATE\b|\bRENAME\b|\bCHANGE\b|\bCREATE TABLE\b/,
+    );
+    expect(up).not.toMatch(/active_key|idx_timeline_results_result_code/);
+    for (const a of up.match(/\bALTER TABLE `\w+`/g) ?? []) {
+      expect(a).toMatch(/`(timeline_loads|timeline_results)`$/);
+    }
+    for (const m of up.matchAll(/CONSTRAINT `(\w+)`/g)) {
+      expect(m[1]!.length, m[1]).toBeLessThanOrEqual(64);
+    }
+  });
+
+  it('leaves the applied migration 0007 alone: it still creates the step-1 key', () => {
+    expect(read(`${migrationsDir}${files[7]}`)).toContain(
+      'CONSTRAINT `uq_timeline_results_timeline_code` UNIQUE(`timeline_id`,`result_code`)',
+    );
+  });
+
+  describe('manual down script (NFR-5)', () => {
+    it('exists and is applied by a human, never by drizzle-kit', () => {
+      expect(down).not.toBe('');
+      expect(down).toMatch(/human/i);
+      expect(down).toMatch(/backup/i);
+    });
+
+    it('refuses when any (timeline_id, result_code) has two rows: a pre-check SELECT, and the old key is re-added first so the engine refuses the duplicate', () => {
+      expect(down).toMatch(
+        /SELECT[^;]*`timeline_id`,\s*`result_code`[^;]*GROUP BY `timeline_id`,\s*`result_code`[^;]*HAVING COUNT\(\*\) > 1/i,
+      );
+      const st = statementsOf(down);
+      expect(st[0]).toBe(
+        'ALTER TABLE `timeline_results` ADD CONSTRAINT `uq_timeline_results_timeline_code` UNIQUE(`timeline_id`, `result_code`);',
+      );
+    });
+
+    it('says it is lossy for the round columns and refuses while a returned row exists', () => {
+      expect(down).toMatch(/lossy/i);
+      expect(down).toMatch(/returned/);
+      expect(down).toMatch(
+        /SELECT COUNT\(\*\) FROM `?timeline_results`? WHERE `?end_reason`? = 'returned';/,
+      );
+      // The MODIFY is statement index 1: both refusals happen before anything is lost.
+      expect(statementsOf(down)[1]).toBe(
+        "ALTER TABLE `timeline_results` MODIFY COLUMN `end_reason` enum('timeline_closed','released_qaed','released_not_qaed');",
+      );
+    });
+
+    it('tells the human to delete the 0008 row of __drizzle_migrations after a rollback', () => {
+      expect(down).toMatch(/__drizzle_migrations/);
+    });
+
+    it('reverses every forward change, in an order MySQL accepts', () => {
+      const st = statementsOf(down);
+      expect(st.slice(1)).toEqual([
+        "ALTER TABLE `timeline_results` MODIFY COLUMN `end_reason` enum('timeline_closed','released_qaed','released_not_qaed');",
+        'ALTER TABLE `timeline_results` DROP FOREIGN KEY `timeline_results_previous_membership_id_timeline_results_id_fk`;',
+        'ALTER TABLE `timeline_results` DROP CHECK `chk_timeline_results_changed_fields`;',
+        'ALTER TABLE `timeline_results` DROP CHECK `chk_timeline_results_entry_round`;',
+        'ALTER TABLE `timeline_results` DROP INDEX `uq_timeline_results_timeline_code_round`;',
+        'ALTER TABLE `timeline_results` DROP COLUMN `previous_membership_id`, DROP COLUMN `changed_fields`, DROP COLUMN `entry_round`;',
+        'ALTER TABLE `timeline_loads` DROP CHECK `chk_timeline_loads_round`;',
+        'ALTER TABLE `timeline_loads` DROP CHECK `chk_timeline_loads_step_position`;',
+        'ALTER TABLE `timeline_loads` DROP COLUMN `round`, DROP COLUMN `step_position`;',
+      ]);
+    });
   });
 });

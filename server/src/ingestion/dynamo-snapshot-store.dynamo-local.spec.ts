@@ -100,4 +100,14 @@ describe.skipIf(!enabled)('DynamoSnapshotStore against a real table', () => {
     const h = await store.history(base);
     expect(h.find((r) => r.loadId === 99)?.values).toEqual(big);
   });
+
+  it('gets by exact key, null for a near-miss, and inflates gzip', async () => {
+    const big = { blob: randomBytes(150 * 1024).toString('hex') };
+    await put(snap({ loadId: 98, values: big }));
+    const sk = snapshotSortSuffix(snap({ loadId: 98 }));
+    expect((await store.get(base, sk))?.values).toEqual(big);
+    expect(
+      await store.get(base, snapshotSortSuffix(snap({ loadId: 97 }))),
+    ).toBeNull();
+  });
 });

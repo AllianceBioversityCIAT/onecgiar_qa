@@ -1,4 +1,5 @@
 // @akili-spec ingestion/step-1-loads
+// @akili-spec ingestion/timeline-sync
 import { drizzle } from 'drizzle-orm/mysql2';
 import {
   InMemoryAdminConfigDatabase,
@@ -119,14 +120,28 @@ interface TimelineSeed {
   cycleId?: number;
   name: string;
   version?: number;
-  /** Closing minute of step 1; the window of FR-2 ends here. */
+  /** Closing minute of step 1 (the default 3-step timeline). */
   step1Closes?: string;
-  /** Closing minute of the last step (DD-5). */
+  /** Closing minute of the last step: the sync window of FR-1 ends here, and so does a membership (DD-5). */
   lastCloses?: string;
   allPrograms?: boolean;
   programs?: number[];
   resultTypes?: string[];
+  /** Overrides the three default steps: opening minute, closing minute and stored round of each, in position order (audiences follow `stepAudiences`). */
+  steps?: Array<[opensAt: string, closesAt: string, round: number]>;
 }
+
+/**
+ * The default 5-step timeline of the editor: steps 1 and 2 are QA round 1,
+ * steps 3 to 5 round 2 (FR-2). The last step closes 2026-12-03 23:59 (FR-1).
+ */
+const FIVE_STEPS: NonNullable<TimelineSeed['steps']> = [
+  ['2026-11-02T09:00', '2026-11-13T17:30', 1],
+  ['2026-11-16T09:00', '2026-11-20T17:30', 1],
+  ['2026-11-23T09:00', '2026-11-27T17:30', 2],
+  ['2026-11-30T09:00', '2026-12-02T17:30', 2],
+  ['2026-12-03T09:00', '2026-12-03T23:59', 2],
+];
 
 /** A timeline of three steps (ids `id * 10 + position`), program 2 and result type KP by default. */
 function addTimeline(
@@ -149,13 +164,19 @@ function addTimeline(
     updatedAt: null,
     updatedBy: null,
   });
-  const audiences = ['assessors', 'programs', 'lead_assessors'] as const;
-  const moments = [
-    ['2026-11-02T09:00', seed.step1Closes ?? '2026-11-20T17:30'],
-    ['2026-11-23T09:00', '2026-12-04T17:30'],
-    ['2026-12-07T09:00', seed.lastCloses ?? '2026-12-18T17:30'],
+  const audiences = [
+    'assessors',
+    'programs',
+    'lead_assessors',
+    'tpb',
+    'ppu',
   ] as const;
-  moments.forEach(([opensAt, closesAt], index) => {
+  const moments: NonNullable<TimelineSeed['steps']> = seed.steps ?? [
+    ['2026-11-02T09:00', seed.step1Closes ?? '2026-11-20T17:30', 1],
+    ['2026-11-23T09:00', '2026-12-04T17:30', 1],
+    ['2026-12-07T09:00', seed.lastCloses ?? '2026-12-18T17:30', 1],
+  ];
+  moments.forEach(([opensAt, closesAt, round], index) => {
     admin.steps.push({
       id: seed.id * 10 + index + 1,
       timelineId: seed.id,
@@ -164,7 +185,7 @@ function addTimeline(
       audience: audiences[index]!,
       opensAt: minute(opensAt),
       closesAt: minute(closesAt),
-      round: 1,
+      round,
       requiresLoad: index === 0,
     });
   });
@@ -193,6 +214,8 @@ function loadRow(
   const row: TimelineLoad = {
     cycleId: 1,
     timelineStepId: overrides.timelineId * 10 + 1,
+    stepPosition: 1,
+    round: 1,
     phaseYear: 2026,
     scope: structuredClone(SCOPE),
     status: 'running',
@@ -234,6 +257,9 @@ function memberRow(
     endedAt: null,
     endReason: null,
     activeKey: null,
+    entryRound: 1,
+    previousMembershipId: null,
+    changedFields: null,
     ...overrides,
   };
   // The generated column: `cycle#code` while active, NULL once ended.
@@ -260,15 +286,21 @@ describe('the in-memory loads world refuses what the unique keys refuse (the gua
     cycleId,
     timelineId,
     timelineStepId: timelineId * 10 + 1,
+    stepPosition: 1,
+    round: 1,
     phaseYear: 2026,
     scope: structuredClone(SCOPE),
     summary: {
       loaded: 0,
+      loadedNew: 0,
+      loadedResubmitted: 0,
+      round: 1 as const,
       byProgram: {},
       byType: {},
       kpGroups: {},
       skipped: {},
       otherTimelines: {},
+      returnedNotResubmitted: { total: 0, byProgram: {}, byType: {} },
     },
     startedBy: 9,
     startedAt: NOW,
@@ -294,6 +326,9 @@ describe('the in-memory loads world refuses what the unique keys refuse (the gua
     snapshotHash: 'c'.repeat(64),
     catalogVersion: '1.29',
     createdAt: NOW,
+    entryRound: 1,
+    previousMembershipId: null,
+    changedFields: null,
   });
 
   it('running_key: a second running load in one cycle is refused, a load of another cycle is not, and a finished load frees the cycle', async () => {
@@ -313,7 +348,7 @@ describe('the in-memory loads world refuses what the unique keys refuse (the gua
     expect(violations).toEqual({
       runningKey: 1,
       activeKey: 0,
-      timelineCode: 0,
+      timelineCodeRound: 0,
     });
 
     // Ending the load sets the generated key to NULL: the cycle is free again,
@@ -361,7 +396,7 @@ describe('the in-memory loads world refuses what the unique keys refuse (the gua
     expect(violations).toEqual({
       runningKey: 0,
       activeKey: 1,
-      timelineCode: 0,
+      timelineCodeRound: 0,
     });
 
     // Ending the membership sets the generated key to NULL: another timeline
@@ -379,28 +414,60 @@ describe('the in-memory loads world refuses what the unique keys refuse (the gua
     expect(await store.endMemberships([1], NOW, 'timeline_closed')).toBe(0);
   });
 
-  it('(timeline_id, result_code): refused even after the membership ended, and named first when both keys would refuse', async () => {
+  it('(timeline_id, result_code, entry_round): refused for the same round even after the membership ended, allowed for the other round, and named after active_key when both would refuse (FR-5)', async () => {
     const { store, results, violations } = new InMemoryLoadsDatabase();
     await store.insertMembership(newMember(1, 11, 5120));
 
-    // Active in this timeline: both keys refuse; InnoDB reports the one
-    // migration 0007 created first, the timeline's own.
+    // Active in this timeline and round: both keys would refuse; InnoDB reports
+    // the first index it walks, and migration 0008 created the round key after
+    // `active_key` (so the unit of work must not read `active_key` as "another
+    // timeline": see the lot cases below).
     expect(await store.insertMembership(newMember(1, 11, 5120))).toEqual({
       kind: 'duplicate',
-      key: 'timeline_code',
+      key: 'active_key',
     });
 
-    // Ended: only the timeline's own key refuses (S-5, DD-3).
+    // Ended: only the round key refuses (S-5, DD-3).
     await store.endMemberships([1], NOW, 'released_qaed');
     expect(await store.insertMembership(newMember(1, 11, 5120))).toEqual({
       kind: 'duplicate',
-      key: 'timeline_code',
+      key: 'timeline_code_round',
     });
     expect(results).toHaveLength(1);
+
+    // "Two rounds in one timeline": a round-1 membership ended `returned`
+    // leaves the cycle-wide key free, and round 2 is another round of the key.
+    await store.insertMembership(newMember(1, 11, 5121));
+    expect(await store.endAsReturned(2, NOW)).toEqual({ ended: true });
+    expect(
+      await store.insertMembership({
+        ...newMember(1, 11, 5121),
+        entryRound: 2,
+      }),
+    ).toEqual({ kind: 'created' });
+    expect(
+      results.filter((r) => r.resultCode === 5121).map((r) => r.entryRound),
+    ).toEqual([1, 2]);
+
+    // A second round-2 membership is refused, by active_key while the first is
+    // active and by the round key once it ended.
+    expect(
+      await store.insertMembership({
+        ...newMember(1, 11, 5121),
+        entryRound: 2,
+      }),
+    ).toEqual({ kind: 'duplicate', key: 'active_key' });
+    await store.endMemberships([3], NOW, 'released_qaed');
+    expect(
+      await store.insertMembership({
+        ...newMember(1, 11, 5121),
+        entryRound: 2,
+      }),
+    ).toEqual({ kind: 'duplicate', key: 'timeline_code_round' });
     expect(violations).toEqual({
       runningKey: 0,
-      activeKey: 0,
-      timelineCode: 2,
+      activeKey: 2,
+      timelineCodeRound: 2,
     });
   });
 
@@ -515,6 +582,8 @@ function loadValues(o: {
   heartbeatAt: string;
   processed?: number;
   summary?: Record<string, unknown> | null;
+  round?: number;
+  stepPosition?: number;
 }) {
   const status = o.status ?? 'running';
   return [
@@ -535,6 +604,9 @@ function loadValues(o: {
     o.heartbeatAt,
     null,
     'req-0',
+    // round, step_position: the last two columns of `timeline_loads`
+    o.round ?? 1,
+    o.stepPosition ?? 1,
   ];
 }
 
@@ -543,8 +615,11 @@ interface StubOptions {
   cycleStatus?: 'draft' | 'active' | 'closed';
   /** The `timelines` rows (default: timeline 11 of cycle 1 at version 4). */
   timelines?: unknown[][];
-  /** Step 1's closing minute as the driver hands it over (default 2026-11-20 17:30). */
-  step1Closes?: string;
+  /**
+   * The steps of timeline 11 as the driver hands them over, columns id,
+   * position, opens_at, closes_at, round (default `stubSteps()`).
+   */
+  steps?: unknown[][];
   /** The row the `running_key` select finds (default none). */
   running?: unknown[][];
   /** The row `SELECT ... WHERE id = ? FOR UPDATE` finds (default a running load 41 with a fresh heartbeat). */
@@ -557,12 +632,65 @@ interface StubOptions {
   fenceRows?: number;
   /** Throws on the n-th insert into `timeline_results` (1-based) when it returns an error. */
   membershipError?: (attempt: number) => Error | undefined;
-  /** What the select of `timeline_results` finds, columns id, result_code, timeline_id, ended_at. */
+  /** What the select of `timeline_results` finds, one `memberValues` row each, in column order. */
   memberships?: unknown[][];
+  /** Rows the UPDATE of `timeline_results` matches (default: one per id of an `IN` list). */
+  resultUpdateRows?: number;
+  /** What the read after a zero-row `endAsReturned` finds, columns entry_round, ended_at (default none). */
+  returnedRead?: unknown[][];
+  /** What the `returnedNotResubmitted` query finds, columns program, type, count (default none). */
+  countRows?: unknown[][];
   /** What the select of the last steps finds, columns timeline_id, name, closes_at. */
   lastSteps?: unknown[][];
   /** What the loads list finds (a `timeline_loads` row, then the nickname). */
   loadList?: unknown[][];
+}
+
+/**
+ * The three steps of timeline 11 (ids 111-113, as `addTimeline` seeds them) in
+ * the driver's form: id, position, opens_at, closes_at, round. Every step is
+ * round 1 unless `rounds` says otherwise.
+ */
+function stubSteps(
+  rounds: [number, number, number] = [1, 1, 1],
+  closes: [string, string, string] = [
+    '2026-11-20 17:30:00',
+    '2026-12-04 17:30:00',
+    '2026-12-18 17:30:00',
+  ],
+): unknown[][] {
+  return [
+    [111, 1, '2026-11-02 09:00:00', closes[0], rounds[0]],
+    [112, 2, '2026-11-23 09:00:00', closes[1], rounds[1]],
+    [113, 3, '2026-12-07 09:00:00', closes[2], rounds[2]],
+  ];
+}
+
+/** A `timeline_results` row as the membership select hands it over: the columns of `findMemberships`, in order. */
+function memberValues(o: {
+  id: number;
+  resultCode: number;
+  timelineId: number;
+  status?: string;
+  endedAt?: string | null;
+  entryRound?: number;
+  endReason?: string | null;
+}) {
+  return [
+    o.id,
+    o.resultCode,
+    o.resultCode + 1000,
+    o.status ?? 'pending',
+    o.timelineId,
+    o.endedAt ?? null,
+    o.entryRound ?? 1,
+    o.endReason ?? null,
+    2,
+    'KP',
+    null,
+    'SNAP#',
+    'b'.repeat(64),
+  ];
 }
 
 function stub(options: StubOptions = {}) {
@@ -592,7 +720,7 @@ function stub(options: StubOptions = {}) {
             ? (options.endRows ?? 1)
             : sql.startsWith('update `timeline_results`')
               ? // `ended_at` and `end_reason`, then one id each.
-                (values?.length ?? 2) - 2
+                (options.resultUpdateRows ?? (values?.length ?? 2) - 2)
               : 1;
         return Promise.resolve([{ affectedRows }, []]);
       }
@@ -602,10 +730,13 @@ function stub(options: StubOptions = {}) {
       } else if (sql.includes('from `timeline_steps` inner join')) {
         rows = options.lastSteps ?? [];
       } else if (sql.includes('from `timeline_steps`')) {
-        rows = [[111, options.step1Closes ?? '2026-11-20 17:30:00']];
+        rows = options.steps ?? stubSteps();
       } else if (sql.includes('from `timeline_programs`')) rows = [[2]];
       else if (sql.includes('from `timeline_result_types`')) rows = [['KP']];
-      else if (sql.includes('from `timeline_results`')) {
+      else if (sql.includes('count(*)')) rows = options.countRows ?? [];
+      else if (sql.startsWith('select `entry_round`, `ended_at` from')) {
+        rows = options.returnedRead ?? [];
+      } else if (sql.includes('from `timeline_results`')) {
         // As the IN of the statement would: only the rows whose code it asks for.
         rows = (options.memberships ?? []).filter((row) =>
           (values ?? []).slice(1).includes(row[1]),
@@ -699,7 +830,8 @@ describe('LoadsUnitOfWork.start over a stub MySQL driver (design 7.2, DD-7, P-8)
     /^begin$/,
     /^select `status`, `year` from `cycles` where `cycles`\.`id` = \? limit \? for share$/,
     /^select .* from `timelines` where `timelines`\.`id` = \? limit \? for update$/,
-    /^select `id`, `closes_at` from `timeline_steps` where \(`timeline_steps`\.`timeline_id` = \? and `timeline_steps`\.`position` = \?\) limit \?$/,
+    // Every step, ordered by position, read under the timeline lock (design 7.1 step 2).
+    /^select `id`, `position`, `opens_at`, `closes_at`, `round` from `timeline_steps` where `timeline_steps`\.`timeline_id` = \? order by `timeline_steps`\.`position` asc$/,
     // Read plain first, so the timeline of a stale load can be locked before it.
     /^select .* from `timeline_loads` where `timeline_loads`\.`running_key` = \? limit \?$/,
     /^select .* from `timeline_loads` where `timeline_loads`\.`running_key` = \? limit \? for update$/,
@@ -736,8 +868,7 @@ describe('LoadsUnitOfWork.start over a stub MySQL driver (design 7.2, DD-7, P-8)
     });
     expect(inTx[1]!.params[0]).toBe(1);
     expect(inTx[2]!.params[0]).toBe(11);
-    expect(inTx[3]!.params[0]).toBe(11);
-    expect(inTx[3]!.params[1]).toBe(1);
+    expect(inTx[3]!.params).toEqual([11]);
     expect(inTx[4]!.params[0]).toBe(1);
     expect(inTx[5]!.params[0]).toBe(1);
   });
@@ -784,7 +915,7 @@ describe('LoadsUnitOfWork.start over a stub MySQL driver (design 7.2, DD-7, P-8)
     expect(update.params).toEqual([11]);
   });
 
-  it('the load_start row: the actor, the timeline, the load id, the phase year and the scope, and no PII', async () => {
+  it('the load_start row: the actor, the timeline, the load id, the phase year, the scope, the round and the step position, and no PII (FR-11)', async () => {
     const { uow, log } = stub();
 
     await uow.start(startCommand({ cycleId: 1, requestId: 'req-9' }));
@@ -796,7 +927,7 @@ describe('LoadsUnitOfWork.start over a stub MySQL driver (design 7.2, DD-7, P-8)
       11,
       9,
       'load_start',
-      '{"load":{"before":null,"after":{"id":41,"phaseYear":2026,"scope":{"allPrograms":false,"programIds":[2],"allResultTypes":false,"resultTypeKeys":["KP"]}}}}',
+      '{"load":{"before":null,"after":{"id":41,"phaseYear":2026,"scope":{"allPrograms":false,"programIds":[2],"allResultTypes":false,"resultTypeKeys":["KP"]},"round":1,"stepPosition":1}}}',
       'req-9',
       '2026-11-10 08:00:00.000',
     ]);
@@ -838,7 +969,7 @@ describe('LoadsUnitOfWork.start over a stub MySQL driver (design 7.2, DD-7, P-8)
       'begin',
       'select `status`, `year`',
       'select `id`, `cycle_id`,',
-      'select `id`, `closes_at`',
+      'select `id`, `position`,',
       'select `id`, `cycle_id`,',
       'select `id` from',
       'select `id`, `cycle_id`,',
@@ -875,7 +1006,7 @@ describe('LoadsUnitOfWork.start over a stub MySQL driver (design 7.2, DD-7, P-8)
       12,
       9,
       'load_end',
-      '{"load":{"before":"running","after":{"id":40,"status":"failed","total":120,"processed":100,"loaded":80,"skipped":20,"failureReason":"ABANDONED"}}}',
+      '{"load":{"before":"running","after":{"id":40,"status":"failed","total":120,"processed":100,"loaded":80,"loadedNew":80,"loadedResubmitted":0,"round":1,"skipped":20,"failureReason":"ABANDONED"}}}',
       'req-1',
       '2026-11-10 08:00:00.000',
     ]);
@@ -988,19 +1119,25 @@ describe('LoadsUnitOfWork.start over a stub MySQL driver (design 7.2, DD-7, P-8)
     expect(writes(inTx)).toEqual([]);
   });
 
-  it('the closing minute is open and the next one is not (FR-2, times S-2): 17:30 Rome starts, 17:31 is LOADS_WINDOW_CLOSED with no write', async () => {
-    // 16:30Z and 16:31Z are 17:30 and 17:31 in Rome on 20 Nov.
+  it('the window ends with the LAST step: its closing minute (17:30 Rome) starts, 17:31 is LOADS_WINDOW_CLOSED with no write; step 1 closing no longer closes it (FR-1)', async () => {
+    // 16:30Z and 16:31Z are 17:30 and 17:31 in Rome on 18 Dec, the closing minute of step 3.
     const open = stub();
     const closed = stub();
+    const afterStepOne = stub();
 
     const atClose = await open.uow.start(
-      startCommand({ cycleId: 1, now: new Date('2026-11-20T16:30:00.000Z') }),
+      startCommand({ cycleId: 1, now: new Date('2026-12-18T16:30:00.000Z') }),
     );
     const afterClose = await closed.uow.start(
+      startCommand({ cycleId: 1, now: new Date('2026-12-18T16:31:00.000Z') }),
+    );
+    // One minute after step 1 closes (20 Nov 17:31 Rome): step-1's window would have closed here.
+    const midway = await afterStepOne.uow.start(
       startCommand({ cycleId: 1, now: new Date('2026-11-20T16:31:00.000Z') }),
     );
 
     expect(atClose.kind).toBe('started');
+    expect(midway.kind).toBe('started');
     expect(afterClose).toEqual({ kind: 'window_closed' });
     expect(writes(inTransaction(closed.log))).toEqual([]);
     expect(inTransaction(closed.log).at(-1)!.sql).toBe('rollback');
@@ -1078,21 +1215,23 @@ describe('the lot, the end and the end of expired memberships over a stub MySQL 
     );
     expect(progress.params).toEqual([
       2,
-      '{"loaded":2,"byProgram":{"2":2},"byType":{"KP":2},"kpGroups":{},"skipped":{},"otherTimelines":{}}',
+      '{"loaded":2,"loadedNew":2,"loadedResubmitted":0,"round":1,"byProgram":{"2":2},"byType":{"KP":2},"kpGroups":{},"skipped":{},"otherTimelines":{},"returnedNotResubmitted":{"total":0,"byProgram":{},"byType":{}}}',
       '2026-11-10 08:00:00.000',
       41,
     ]);
   });
 
-  it('a duplicate on a key is a skip and the lot goes on: the key named picks the reason, and the blocker is read to be named', async () => {
+  it('a duplicate on a key is a skip and the lot goes on: the key named picks the reason (the round key is ALREADY_IN_THIS_TIMELINE), and the blocker is read to be named', async () => {
     const { uow, log } = stub({
       membershipError: (attempt) =>
         attempt === 1
           ? duplicate('timeline_results.uq_timeline_results_active_key')
           : attempt === 2
-            ? duplicate('timeline_results.uq_timeline_results_timeline_code')
+            ? duplicate(
+                'timeline_results.uq_timeline_results_timeline_code_round',
+              )
             : undefined,
-      memberships: [[7, 5120, 9120, 'pending', 12, null]],
+      memberships: [memberValues({ id: 7, resultCode: 5120, timelineId: 12 })],
       lastSteps: [[12, 'August 2026', '2026-12-18 17:30:00']],
     });
 
@@ -1129,11 +1268,113 @@ describe('the lot, the end and the end of expired memberships over a stub MySQL 
     const summary = JSON.parse(inTx.at(-2)!.params[1] as string) as unknown;
     expect(summary).toEqual({
       loaded: 1,
+      loadedNew: 1,
+      loadedResubmitted: 0,
+      round: 1,
       byProgram: { '2': 1 },
       byType: { KP: 1 },
       kpGroups: {},
       skipped: { ACTIVE_IN_OTHER_TIMELINE: 1, ALREADY_IN_THIS_TIMELINE: 1 },
       otherTimelines: { '12': { name: 'August 2026', count: 1 } },
+      returnedNotResubmitted: { total: 0, byProgram: {}, byType: {} },
+    });
+  });
+
+  it('the duplicate on the round key is told by its literal name, uq_timeline_results_timeline_code_round (what MySQL 8 reports qualified with the table), and the lot goes on with no extra read (FR-5, NFR-1)', async () => {
+    const { uow, log } = stub({
+      membershipError: (attempt) =>
+        attempt === 1
+          ? duplicate(
+              'timeline_results.uq_timeline_results_timeline_code_round',
+            )
+          : undefined,
+    });
+
+    const result = await uow.recordLot(lotCommand(41, [5120, 5121]));
+
+    expect(result).toEqual({
+      kind: 'recorded',
+      insertedCodes: [5121],
+      raceSkips: [{ resultCode: 5120, reason: 'ALREADY_IN_THIS_TIMELINE' }],
+      processed: 2,
+    });
+    // The key alone tells it: no membership is read, and the lot commits.
+    expect(
+      inTransaction(log).filter(
+        (s) =>
+          s.sql.startsWith('select') && s.sql.includes('`timeline_results`'),
+      ),
+    ).toEqual([]);
+    expect(inTransaction(log).at(-1)!.sql).toBe('commit');
+  });
+
+  it("step 1's key name, uq_timeline_results_timeline_code, is no key of this table any more: a duplicate that names only it is thrown and rolls the lot back, not read as a skip", async () => {
+    const { uow, log } = stub({
+      membershipError: () =>
+        duplicate('timeline_results.uq_timeline_results_timeline_code'),
+    });
+
+    await expect(uow.recordLot(lotCommand(41, [5120]))).rejects.toMatchObject({
+      cause: { code: 'ER_DUP_ENTRY' },
+    });
+
+    expect(inTransaction(log).at(-1)!.sql).toBe('rollback');
+  });
+
+  it('active_key can name the active membership of THIS timeline and round (a retry of one insert, FR-5): it is ALREADY_IN_THIS_TIMELINE, with no other timeline named', async () => {
+    const { uow } = stub({
+      membershipError: (attempt) =>
+        attempt === 1
+          ? duplicate('timeline_results.uq_timeline_results_active_key')
+          : undefined,
+      memberships: [memberValues({ id: 7, resultCode: 5120, timelineId: 11 })],
+      lastSteps: [[11, 'July 2026', '2026-12-18 17:30:00']],
+    });
+
+    const result = await uow.recordLot(lotCommand(41, [5120]));
+
+    expect(result).toEqual({
+      kind: 'recorded',
+      insertedCodes: [],
+      raceSkips: [{ resultCode: 5120, reason: 'ALREADY_IN_THIS_TIMELINE' }],
+      processed: 1,
+    });
+  });
+
+  it('a round-2 insert refused by active_key while the code has an ACTIVE round-1 membership in this same timeline is ALREADY_IN_THIS_TIMELINE, with no other timeline named (FR-4 rule 2, FR-5)', async () => {
+    const { uow } = stub({
+      locked: [
+        loadValues({
+          id: 41,
+          timelineId: 11,
+          heartbeatAt: stamp,
+          round: 2,
+          stepPosition: 3,
+          summary: emptySummary(2),
+        }),
+      ],
+      membershipError: (attempt) =>
+        attempt === 1
+          ? duplicate('timeline_results.uq_timeline_results_active_key')
+          : undefined,
+      memberships: [
+        memberValues({
+          id: 7,
+          resultCode: 5120,
+          timelineId: 11,
+          entryRound: 1,
+        }),
+      ],
+      lastSteps: [[11, 'July 2026', '2026-12-18 17:30:00']],
+    });
+
+    const result = await uow.recordLot(lotCommand(41, [5120]));
+
+    expect(result).toEqual({
+      kind: 'recorded',
+      insertedCodes: [],
+      raceSkips: [{ resultCode: 5120, reason: 'ALREADY_IN_THIS_TIMELINE' }],
+      processed: 1,
     });
   });
 
@@ -1232,7 +1473,7 @@ describe('the lot, the end and the end of expired memberships over a stub MySQL 
       11,
       9,
       'load_end',
-      '{"load":{"before":"running","after":{"id":41,"status":"failed","total":120,"processed":120,"loaded":100,"skipped":20,"failureReason":"REPORTING_UNAVAILABLE"}}}',
+      '{"load":{"before":"running","after":{"id":41,"status":"failed","total":120,"processed":120,"loaded":100,"loadedNew":100,"loadedResubmitted":0,"round":1,"skipped":20,"failureReason":"REPORTING_UNAVAILABLE"}}}',
       'req-0',
       '2026-11-10 08:00:00.000',
     ]);
@@ -1278,6 +1519,13 @@ describe('the lot, the end and the end of expired memberships over a stub MySQL 
           timelineId: 12,
           timelineName: 'August 2026',
           endedAt: null,
+          entryRound: 1,
+          endReason: null,
+          programClarisaId: 2,
+          resultTypeKey: 'KP',
+          kpGroup: null,
+          snapshotSk: 'SNAP#',
+          snapshotHash: 'b'.repeat(64),
           lastStepClosesAt: minute('2026-11-09T17:30'),
         },
         {
@@ -1288,6 +1536,13 @@ describe('the lot, the end and the end of expired memberships over a stub MySQL 
           timelineId: 12,
           timelineName: 'August 2026',
           endedAt: null,
+          entryRound: 1,
+          endReason: null,
+          programClarisaId: 2,
+          resultTypeKey: 'KP',
+          kpGroup: null,
+          snapshotSk: 'SNAP#',
+          snapshotHash: 'b'.repeat(64),
           lastStepClosesAt: minute('2026-11-09T17:30'),
         },
       ],
@@ -1325,8 +1580,20 @@ describe('LoadsStore reads over a stub MySQL driver (design 7.1 step 3, FR-10)',
   it('memberships by codes: IN is chunked by 500, a repeated code is asked once, and the names and last steps come in one more statement', async () => {
     const { store, log } = stub({
       memberships: [
-        [8, 5121, 9121, 'auto_validated', 12, null],
-        [7, 5120, 9120, 'pending', 12, '2026-11-09 08:00:00'],
+        memberValues({
+          id: 8,
+          resultCode: 5121,
+          timelineId: 12,
+          status: 'auto_validated',
+        }),
+        memberValues({
+          id: 7,
+          resultCode: 5120,
+          timelineId: 12,
+          endedAt: '2026-11-09 08:00:00',
+          entryRound: 1,
+          endReason: 'returned',
+        }),
       ],
       lastSteps: [[12, 'August 2026', '2026-12-18 17:30:00']],
     });
@@ -1347,21 +1614,35 @@ describe('LoadsStore reads over a stub MySQL driver (design 7.1 step 3, FR-10)',
       {
         id: 7,
         resultCode: 5120,
-        resultId: 9120,
+        resultId: 6120,
         status: 'pending',
         timelineId: 12,
         timelineName: 'August 2026',
         endedAt: new Date('2026-11-09T08:00:00.000Z'),
+        entryRound: 1,
+        endReason: 'returned',
+        programClarisaId: 2,
+        resultTypeKey: 'KP',
+        kpGroup: null,
+        snapshotSk: 'SNAP#',
+        snapshotHash: 'b'.repeat(64),
         lastStepClosesAt: '2026-12-18T17:30',
       },
       {
         id: 8,
         resultCode: 5121,
-        resultId: 9121,
+        resultId: 6121,
         status: 'auto_validated',
         timelineId: 12,
         timelineName: 'August 2026',
         endedAt: null,
+        entryRound: 1,
+        endReason: null,
+        programClarisaId: 2,
+        resultTypeKey: 'KP',
+        kpGroup: null,
+        snapshotSk: 'SNAP#',
+        snapshotHash: 'b'.repeat(64),
         lastStepClosesAt: '2026-12-18T17:30',
       },
     ]);
@@ -1420,6 +1701,8 @@ describe('start over the in-memory world (FR-2, DD-7)', () => {
         cycleId: 1,
         timelineId: 11,
         timelineStepId: 111,
+        stepPosition: 1,
+        round: 1,
         phaseYear: 2026,
         scope: SCOPE,
         status: 'running',
@@ -1428,11 +1711,15 @@ describe('start over the in-memory world (FR-2, DD-7)', () => {
         processed: 0,
         summary: {
           loaded: 0,
+          loadedNew: 0,
+          loadedResubmitted: 0,
+          round: 1,
           byProgram: {},
           byType: {},
           kpGroups: {},
           skipped: {},
           otherTimelines: {},
+          returnedNotResubmitted: { total: 0, byProgram: {}, byType: {} },
         },
         failureReason: null,
         startedBy: 9,
@@ -1457,7 +1744,7 @@ describe('start over the in-memory world (FR-2, DD-7)', () => {
     expect([transactions.committed, transactions.rolledBack]).toEqual([1, 0]);
   });
 
-  it('the load_start row: one row, the actor, the timeline, and { load: { before: null, after: { id, phaseYear, scope } } }', async () => {
+  it('the load_start row: one row, the actor, the timeline, and { load: { before: null, after: { id, phaseYear, scope, round, stepPosition } } } (FR-11)', async () => {
     const { world, uow } = inMemory();
 
     await uow.start(startCommand({ requestId: 'req-7' }));
@@ -1471,7 +1758,13 @@ describe('start over the in-memory world (FR-2, DD-7)', () => {
         changes: {
           load: {
             before: null,
-            after: { id: 1, phaseYear: 2026, scope: SCOPE },
+            after: {
+              id: 1,
+              phaseYear: 2026,
+              scope: SCOPE,
+              round: 1,
+              stepPosition: 1,
+            },
           },
         },
         requestId: 'req-7',
@@ -1660,6 +1953,9 @@ describe('start over the in-memory world (FR-2, DD-7)', () => {
               total: 1200,
               processed: 275,
               loaded: 250,
+              loadedNew: 250,
+              loadedResubmitted: 0,
+              round: 1,
               skipped: 25,
               failureReason: 'ABANDONED',
             },
@@ -1717,7 +2013,7 @@ describe('start over the in-memory world (FR-2, DD-7)', () => {
     expect(auditOf(world, 'load_start')).toHaveLength(1);
   });
 
-  it('a closed cycle, a closed window and an unknown timeline are refused with no write at all', async () => {
+  it('a closed cycle, a closed window (after the LAST step) and an unknown timeline are refused with no write at all (FR-1)', async () => {
     const closedCycle = seedWorld();
     closedCycle.admin.cycles[0] = cycleRow(1, 'closed');
     const late = inMemory();
@@ -1726,10 +2022,10 @@ describe('start over the in-memory world (FR-2, DD-7)', () => {
     expect(await inMemory(closedCycle).uow.start(startCommand())).toEqual({
       kind: 'cycle_closed',
     });
-    // 16:31Z on 20 Nov is 17:31 in Rome, one minute after step 1 closes.
+    // 16:31Z on 18 Dec is 17:31 in Rome, one minute after the last step closes.
     expect(
       await late.uow.start(
-        startCommand({ now: new Date('2026-11-20T16:31:00.000Z') }),
+        startCommand({ now: new Date('2026-12-18T16:31:00.000Z') }),
       ),
     ).toEqual({ kind: 'window_closed' });
     expect(await missing.uow.start(startCommand({ timelineId: 99 }))).toEqual({
@@ -1747,11 +2043,11 @@ describe('start over the in-memory world (FR-2, DD-7)', () => {
     expect(version(late.world, 11)).toBe(4);
   });
 
-  it('the closing minute is still open: 17:30 Rome starts (FR-2, "window closed")', async () => {
+  it('the closing minute of the last step is still open: 17:30 Rome starts (FR-1, "last closing minute")', async () => {
     const { world, uow } = inMemory();
 
     const result = await uow.start(
-      startCommand({ now: new Date('2026-11-20T16:30:59.000Z') }),
+      startCommand({ now: new Date('2026-12-18T16:30:59.000Z') }),
     );
 
     expect(result.kind).toBe('started');
@@ -2165,7 +2461,7 @@ describe('the lot over the in-memory world (FR-3, FR-4, FR-9)', () => {
     expect(world.violations).toEqual({
       runningKey: 0,
       activeKey: 1,
-      timelineCode: 0,
+      timelineCodeRound: 0,
     });
     expect(world.results.filter((r) => r.resultCode === 5120)).toHaveLength(1);
     expect(world.loads[0]!.summary).toMatchObject({
@@ -2175,7 +2471,7 @@ describe('the lot over the in-memory world (FR-3, FR-4, FR-9)', () => {
     });
   });
 
-  it('a result already a member of this timeline is skipped by the timeline key, also after its membership ended (FR-4, S-5)', async () => {
+  it('a result already a member of this timeline in this round is ALREADY_IN_THIS_TIMELINE, whichever key refuses it: the round key after its membership ended, active_key first while it is active (FR-4, FR-5, S-5)', async () => {
     const world = seedWorld();
     world.loads.push(loadRow({ id: 1, timelineId: 11 }));
     world.results.push(
@@ -2200,7 +2496,14 @@ describe('the lot over the in-memory world (FR-3, FR-4, FR-9)', () => {
         { resultCode: 5121, reason: 'ALREADY_IN_THIS_TIMELINE' },
       ],
     });
-    expect(world.violations.timelineCode).toBe(2);
+    // 5120 is active here: `active_key` is the first index InnoDB walks, and the
+    // unit of work still reads the active row of its own timeline as this
+    // timeline's, not as another timeline's. 5121 ended: only the round key refuses.
+    expect(world.violations).toEqual({
+      runningKey: 0,
+      activeKey: 1,
+      timelineCodeRound: 1,
+    });
     expect(world.loads[0]!.summary).toMatchObject({
       loaded: 1,
       skipped: { ALREADY_IN_THIS_TIMELINE: 2 },
@@ -2244,7 +2547,7 @@ describe('the lot over the in-memory world (FR-3, FR-4, FR-9)', () => {
     expect(world.violations).toEqual({
       runningKey: 0,
       activeKey: 1,
-      timelineCode: 0,
+      timelineCodeRound: 0,
     });
     // Both lots still finished: the loser's other result is a member.
     expect(first).toMatchObject({ kind: 'recorded' });
@@ -2252,7 +2555,7 @@ describe('the lot over the in-memory world (FR-3, FR-4, FR-9)', () => {
     expect(world.loads.map((l) => l.processed)).toEqual([2, 2]);
   });
 
-  it('two lots of one timeline inserting the same code at the same moment: the timeline key refuses the second as ALREADY_IN_THIS_TIMELINE', async () => {
+  it('two lots of one timeline inserting the same code at the same moment: the second is refused (by active_key, the first index walked) and recorded as ALREADY_IN_THIS_TIMELINE, not as another timeline', async () => {
     const world = seedWorld();
     world.loads.push(
       loadRow({ id: 1, timelineId: 11 }),
@@ -2275,9 +2578,26 @@ describe('the lot over the in-memory world (FR-3, FR-4, FR-9)', () => {
     ]);
     expect(world.violations).toEqual({
       runningKey: 0,
-      activeKey: 0,
-      timelineCode: 1,
+      activeKey: 1,
+      timelineCodeRound: 0,
     });
+    // One lot loaded it, the other recorded the skip under this timeline, and
+    // no other timeline is named.
+    const summaries = world.loads.map(
+      (l) =>
+        l.summary as {
+          loaded: number;
+          skipped: Record<string, number>;
+          otherTimelines: Record<string, unknown>;
+        },
+    );
+    expect(summaries.map((m) => m.loaded).sort((a, b) => a - b)).toEqual([
+      0, 1,
+    ]);
+    expect(summaries.flatMap((m) => Object.entries(m.skipped))).toEqual([
+      ['ALREADY_IN_THIS_TIMELINE', 1],
+    ]);
+    expect(summaries.flatMap((m) => Object.keys(m.otherTimelines))).toEqual([]);
   });
 
   it('a lot that fails half way leaves no membership, no progress and no heartbeat behind', async () => {
@@ -2541,6 +2861,91 @@ describe('the end of a load over the in-memory world (FR-12)', () => {
     return inMemory(world);
   };
 
+  it("a round-2 end writes the returned-not-resubmitted counts into the summary, keeps the lots' keys and the lease, and load_end carries the round and the split (FR-9, FR-11, DD-7)", async () => {
+    const world = seedWorld();
+    world.loads.push(
+      loadRow({
+        id: 1,
+        timelineId: 11,
+        round: 2,
+        stepPosition: 3,
+        total: 6,
+        processed: 6,
+        heartbeatAt: ago(MINUTE),
+        summary: {
+          loaded: 3,
+          loadedNew: 1,
+          loadedResubmitted: 2,
+          round: 2,
+          byProgram: { '3': 3 },
+          byType: { policy_change: 3 },
+          kpGroups: {},
+          skipped: { RETURNED_NOT_RESUBMITTED: 1 },
+          otherTimelines: {},
+          returnedNotResubmitted: { total: 0, byProgram: {}, byType: {} },
+        },
+      }),
+    );
+    const { uow } = inMemory(world);
+
+    const result = await uow.end({
+      loadId: 1,
+      status: 'completed',
+      now: NOW,
+      returnedNotResubmitted: {
+        total: 2,
+        byProgram: { '3': 1, '7': 1 },
+        byType: { policy_change: 1, innovation_use: 1 },
+      },
+    });
+
+    expect(result).toEqual({ kind: 'ended' });
+    expect(world.loads[0]).toMatchObject({
+      status: 'completed',
+      processed: 6,
+      heartbeatAt: ago(MINUTE),
+      summary: {
+        loaded: 3,
+        loadedNew: 1,
+        loadedResubmitted: 2,
+        round: 2,
+        byProgram: { '3': 3 },
+        skipped: { RETURNED_NOT_RESUBMITTED: 1 },
+        returnedNotResubmitted: {
+          total: 2,
+          byProgram: { '3': 1, '7': 1 },
+          byType: { policy_change: 1, innovation_use: 1 },
+        },
+      },
+    });
+    expect(auditOf(world, 'load_end')[0]!.changes).toEqual({
+      load: {
+        before: 'running',
+        after: {
+          id: 1,
+          status: 'completed',
+          total: 6,
+          processed: 6,
+          loaded: 3,
+          loadedNew: 1,
+          loadedResubmitted: 2,
+          round: 2,
+          skipped: 1,
+          failureReason: null,
+        },
+      },
+    });
+  });
+
+  it('an end without the counts leaves the summary as the lots wrote it', async () => {
+    const { world, uow } = running();
+    const before = structuredClone(world.loads[0]!.summary);
+
+    await uow.end({ loadId: 1, status: 'completed', now: NOW });
+
+    expect(world.loads[0]!.summary).toEqual(before);
+  });
+
   it('completed: status, finished_at, the key freed, and one load_end row with the counts and a null reason', async () => {
     const { world, uow } = running();
 
@@ -2568,6 +2973,9 @@ describe('the end of a load over the in-memory world (FR-12)', () => {
               total: 120,
               processed: 120,
               loaded: 100,
+              loadedNew: 100,
+              loadedResubmitted: 0,
+              round: 1,
               skipped: 20,
               failureReason: null,
             },
@@ -2611,6 +3019,9 @@ describe('the end of a load over the in-memory world (FR-12)', () => {
         total: 120,
         processed: 120,
         loaded: 100,
+        loadedNew: 100,
+        loadedResubmitted: 0,
+        round: 1,
         skipped: 20,
         failureReason: 'REPORTING_UNAUTHORIZED',
       },
@@ -2711,6 +3122,13 @@ describe('LoadsStore reads over the in-memory world', () => {
         timelineId: 12,
         timelineName: 'August 2026',
         endedAt: null,
+        entryRound: 1,
+        endReason: null,
+        programClarisaId: 2,
+        resultTypeKey: 'KP',
+        kpGroup: null,
+        snapshotSk: 'SNAP#',
+        snapshotHash: 'b'.repeat(64),
         lastStepClosesAt: '2026-12-18T17:30',
       },
     ]);
@@ -2790,5 +3208,957 @@ describe('the total and the heartbeat of a run (design 7.3 steps 1 and 5, FR-9)'
       heartbeatAt: ago(9 * MINUTE),
     });
     expect(world.history).toEqual(['total:41', 'heartbeat:41']);
+  });
+});
+
+// --- timeline sync (FR-1, FR-2, FR-5, FR-6, FR-9, FR-10, FR-11) ---------------
+
+const AT = new Date('2026-11-10T08:30:00.000Z');
+
+/** Rome wall-clock time as an instant: CET (UTC+1) holds from 25 Oct 2026 to the end of the year. */
+const romeAt = (local: string) => new Date(`${local}:00+01:00`);
+
+/** What a load of round `round` starts with: the empty summary of design 5.3. */
+const emptySummary = (round: 1 | 2) => ({
+  loaded: 0,
+  loadedNew: 0,
+  loadedResubmitted: 0,
+  round,
+  byProgram: {},
+  byType: {},
+  kpGroups: {},
+  skipped: {},
+  otherTimelines: {},
+  returnedNotResubmitted: { total: 0, byProgram: {}, byType: {} },
+});
+
+/** Cycle 1 with the usual timelines plus timeline 14 of five steps (ids 141-145), whose stored rounds are `rounds` (default 1, 1, 2, 2, 2). */
+function fiveStepWorld(rounds?: number[]) {
+  const world = seedWorld();
+  addTimeline(world.admin, {
+    id: 14,
+    name: 'Five steps',
+    steps: FIVE_STEPS.map(([opensAt, closesAt, round], at) => [
+      opensAt,
+      closesAt,
+      rounds?.[at] ?? round,
+    ]),
+  });
+  return world;
+}
+
+describe('the sync window and the round of a start over the in-memory world (FR-1, FR-2, DD-1)', () => {
+  it.each([
+    // [what, Rome time, round, position, step id]: the boundary table of FR-2
+    ['one minute before step 1 opens', '2026-11-02T08:59', 1, 1, 141],
+    ["step 1's opening minute", '2026-11-02T09:00', 1, 1, 141],
+    ["step 2's closing minute", '2026-11-20T17:30', 1, 2, 142],
+    [
+      'the gap after step 2 closes, before step 3 opens',
+      '2026-11-21T12:00',
+      1,
+      2,
+      142,
+    ],
+    ["step 3's opening minute", '2026-11-23T09:00', 2, 3, 143],
+    ['inside step 4 (FR-1, "Sync in step 4")', '2026-12-01T10:00', 2, 4, 144],
+    ["the last step's closing minute", '2026-12-03T23:59', 2, 5, 145],
+  ])(
+    'a sync %s (%s Rome) starts in round %i at position %i',
+    async (_what, local, round, position, stepId) => {
+      const world = fiveStepWorld();
+      const { uow } = inMemory(world);
+
+      const result = await uow.start(
+        startCommand({ timelineId: 14, now: romeAt(local) }),
+      );
+
+      expect(result).toEqual({
+        kind: 'started',
+        loadId: 1,
+        abandonedLoadIds: [],
+      });
+      expect(world.loads[0]).toMatchObject({
+        timelineId: 14,
+        timelineStepId: stepId,
+        stepPosition: position,
+        round,
+        // The lots merge into this summary, so it carries the load's round.
+        summary: emptySummary(round as 1 | 2),
+      });
+      // FR-11: the load_start row names the round and the position.
+      expect(auditOf(world, 'load_start')[0]!.changes).toMatchObject({
+        load: { after: { id: 1, round, stepPosition: position } },
+      });
+    },
+  );
+
+  it('the round is the one STORED on the step in force, not a position rule: rounds 1, 1, 1, 2, 2 start step 3 in round 1 (FR-2, "Round set by the admin")', async () => {
+    const world = fiveStepWorld([1, 1, 1, 2, 2]);
+    const { uow } = inMemory(world);
+
+    await uow.start(
+      startCommand({ timelineId: 14, now: romeAt('2026-11-23T09:00') }),
+    );
+
+    expect(world.loads[0]).toMatchObject({
+      stepPosition: 3,
+      round: 1,
+      summary: { round: 1 },
+    });
+  });
+
+  it("a step edit during the run does not change the run's round: the lots write the load's round, as stored at the start (FR-2)", async () => {
+    const world = fiveStepWorld();
+    const { uow } = inMemory(world);
+    await uow.start(
+      startCommand({ timelineId: 14, now: romeAt('2026-12-01T10:00') }),
+    );
+    // The editor later stores round 1 on every step.
+    for (const step of world.admin.steps.filter((s) => s.timelineId === 14)) {
+      step.round = 1;
+    }
+
+    const lot = await uow.recordLot(lotCommand(1, [5120]));
+
+    expect(lot).toMatchObject({ kind: 'recorded', insertedCodes: [5120] });
+    expect(world.results[0]).toMatchObject({ resultCode: 5120, entryRound: 2 });
+    expect(world.loads[0]!.summary).toMatchObject({ loaded: 1, round: 2 });
+  });
+
+  it('the steps are read UNDER the timeline lock: an edit that holds the lock and changes the rounds is seen by the start that waits for it (DD-7, FR-2)', async () => {
+    const world = fiveStepWorld();
+    const { uow } = inMemory(world);
+    // The edit's transaction holds the timeline row, as `findForUpdate` does.
+    const editor = world.admin.base.begin('read committed');
+    await editor.lock('timelines:14', 'X');
+
+    const started = uow.start(
+      startCommand({ timelineId: 14, now: romeAt('2026-12-01T10:00') }),
+    );
+    for (let turn = 0; turn < 20; turn++) await roundTrip();
+    // While the start waits, the edit stores round 1 on every step, and commits.
+    for (const step of world.admin.steps.filter((s) => s.timelineId === 14)) {
+      step.round = 1;
+    }
+    editor.rollback();
+
+    expect((await started).kind).toBe('started');
+    // Read before the lock it would be round 2, the value of the first read.
+    expect(world.loads[0]).toMatchObject({ stepPosition: 4, round: 1 });
+  });
+
+  it('the window is judged under the lock too: an edit that closes the timeline earlier refuses the start that waited (FR-1, DD-7)', async () => {
+    const world = fiveStepWorld();
+    const { uow } = inMemory(world);
+    const editor = world.admin.base.begin('read committed');
+    await editor.lock('timelines:14', 'X');
+
+    const started = uow.start(
+      startCommand({ timelineId: 14, now: romeAt('2026-12-03T10:00') }),
+    );
+    for (let turn = 0; turn < 20; turn++) await roundTrip();
+    // The last step now closes the day before.
+    world.admin.steps.find((s) => s.id === 145)!.closesAt =
+      minute('2026-12-02T23:59');
+    world.admin.steps.find((s) => s.id === 145)!.opensAt =
+      minute('2026-12-02T09:00');
+    editor.rollback();
+
+    expect(await started).toEqual({ kind: 'window_closed' });
+    expect(world.loads).toEqual([]);
+  });
+
+  it('one minute after the last closing minute is LOADS_WINDOW_CLOSED, and nothing is written: no load, no version bump, no audit row, no idempotency mark (FR-1, "Last closing minute")', async () => {
+    const world = fiveStepWorld();
+    const { uow, transactions } = inMemory(world);
+    const store = world.admin.base.idempotencyStore(new FakeClock().now);
+    const reserved = await store.reserve({
+      actorId: 9,
+      key: 'key-1',
+      fingerprint: 'f'.repeat(64),
+      routeStatus: 202,
+    });
+    if (reserved.kind !== 'reserved') throw new Error('key already in use');
+
+    const late = await uow.start(
+      startCommand({
+        timelineId: 14,
+        now: romeAt('2026-12-04T00:00'),
+        reservation: reserved.reservation,
+      }),
+    );
+
+    expect(late).toEqual({ kind: 'window_closed' });
+    expect(world.loads).toEqual([]);
+    expect(world.history).toEqual([]);
+    expect(world.admin.auditEvents).toEqual([]);
+    expect(version(world, 14)).toBe(1);
+    expect(store.peek(9, 'key-1')).toMatchObject({ state: 'in_progress' });
+    expect([transactions.committed, transactions.rolledBack]).toEqual([0, 1]);
+  });
+
+  it('a closed cycle wins over the window: after the last step it is CYCLES_CLOSED, not LOADS_WINDOW_CLOSED, and nothing is written (FR-1, "Closed cycle")', async () => {
+    const world = fiveStepWorld();
+    world.admin.cycles[0] = cycleRow(1, 'closed');
+    const { uow } = inMemory(world);
+    const store = world.admin.base.idempotencyStore(new FakeClock().now);
+    const reserved = await store.reserve({
+      actorId: 9,
+      key: 'key-1',
+      fingerprint: 'f'.repeat(64),
+      routeStatus: 202,
+    });
+    if (reserved.kind !== 'reserved') throw new Error('key already in use');
+
+    const result = await uow.start(
+      startCommand({
+        timelineId: 14,
+        now: romeAt('2026-12-04T00:00'),
+        reservation: reserved.reservation,
+      }),
+    );
+
+    expect(result).toEqual({ kind: 'cycle_closed' });
+    expect(world.loads).toEqual([]);
+    expect(world.history).toEqual([]);
+    expect(world.admin.auditEvents).toEqual([]);
+    expect(store.peek(9, 'key-1')).toMatchObject({ state: 'in_progress' });
+  });
+});
+
+describe('the sync window and the round of a start over a stub MySQL driver (FR-1, FR-2, FR-11)', () => {
+  it('a closed cycle after the last step is cycle_closed (the window is not judged first), with a rollback and no write', async () => {
+    const { uow, log } = stub({ cycleStatus: 'closed' });
+
+    const result = await uow.start(
+      startCommand({ now: new Date('2026-12-18T16:31:00.000Z') }),
+    );
+
+    expect(result).toEqual({ kind: 'cycle_closed' });
+    expect(writes(inTransaction(log))).toEqual([]);
+    expect(inTransaction(log).at(-1)!.sql).toBe('rollback');
+  });
+
+  it('a start in step 3 inserts the load with that step, its position and its stored round, the summary carrying the round, and the load_start row names both', async () => {
+    // Step 3 (id 113) is stored as round 2; 08 Dec 10:00 Rome is inside it.
+    const { uow, log } = stub({ steps: stubSteps([1, 1, 2]) });
+
+    const result = await uow.start(
+      startCommand({ now: romeAt('2026-12-08T10:00') }),
+    );
+
+    expect(result.kind).toBe('started');
+    const inTx = inTransaction(log);
+    const insert = inTx.find((s) =>
+      s.sql.startsWith('insert into `timeline_loads`'),
+    )!;
+    expect(insert.sql).toMatch(/`round`, `step_position`\) values/);
+    expect(insert.params).toEqual(
+      expect.arrayContaining([113, JSON.stringify(emptySummary(2))]),
+    );
+    // round, step_position: the last two columns written.
+    expect(insert.params.slice(-2)).toEqual([2, 3]);
+    const audit = inTx.find((s) =>
+      s.sql.startsWith('insert into `timeline_audit_events`'),
+    )!;
+    expect(audit.params[3]).toBe(
+      '{"load":{"before":null,"after":{"id":41,"phaseYear":2026,"scope":{"allPrograms":false,"programIds":[2],"allResultTypes":false,"resultTypeKeys":["KP"]},"round":2,"stepPosition":3}}}',
+    );
+  });
+
+  it('a start before step 1 opens is round 1, position 1 (FR-1, "Before step 1 opens")', async () => {
+    const { uow, log } = stub();
+
+    await uow.start(startCommand({ now: romeAt('2026-11-02T08:59') }));
+
+    const insert = inTransaction(log).find((s) =>
+      s.sql.startsWith('insert into `timeline_loads`'),
+    )!;
+    expect(insert.params.slice(-2)).toEqual([1, 1]);
+    expect(insert.params).toContain(111);
+  });
+
+  it('the load list carries the round and the step position of each load, and a load stored by step 1 reads as round 1, position 1 (FR-10)', async () => {
+    const { store } = stub({
+      loadList: [
+        [
+          ...loadValues({
+            id: 42,
+            timelineId: 11,
+            heartbeatAt: stamp,
+            round: 2,
+            stepPosition: 4,
+          }),
+          'ana',
+        ],
+        // The column defaults of `0008`: what a row from before it reads as.
+        [...loadValues({ id: 41, timelineId: 11, heartbeatAt: stamp }), 'ana'],
+      ],
+    });
+
+    const rows = await store.listByTimeline(11);
+
+    expect(
+      rows.map((r) => [r.load.id, r.load.round, r.load.stepPosition]),
+    ).toEqual([
+      [42, 2, 4],
+      [41, 1, 1],
+    ]);
+  });
+});
+
+describe('the steps of a timeline over a stub MySQL driver (design 7.1 step 2)', () => {
+  it('findSteps is one plain statement ordered by position, and hands back the id, position, minutes and round of each step', async () => {
+    const { store, log } = stub({ steps: stubSteps([1, 1, 2]) });
+
+    const steps = await store.findSteps(11);
+
+    expect(log).toHaveLength(1);
+    expect(log[0]!.sql).toBe(
+      'select `id`, `position`, `opens_at`, `closes_at`, `round` from `timeline_steps` where `timeline_steps`.`timeline_id` = ? order by `timeline_steps`.`position` asc',
+    );
+    expect(log[0]!.params).toEqual([11]);
+    expect(steps).toEqual([
+      {
+        id: 111,
+        position: 1,
+        opensAt: '2026-11-02T09:00',
+        closesAt: '2026-11-20T17:30',
+        round: 1,
+      },
+      {
+        id: 112,
+        position: 2,
+        opensAt: '2026-11-23T09:00',
+        closesAt: '2026-12-04T17:30',
+        round: 1,
+      },
+      {
+        id: 113,
+        position: 3,
+        opensAt: '2026-12-07T09:00',
+        closesAt: '2026-12-18T17:30',
+        round: 2,
+      },
+    ]);
+  });
+});
+
+describe('a round-2 membership beside a returned round-1 one (FR-2, FR-5, FR-8)', () => {
+  /** Load 1 of timeline 11 in round 2, and the returned round-1 membership 1 of result 5121 in that timeline. */
+  function roundTwoWorld() {
+    const world = seedWorld();
+    world.loads.push(
+      loadRow({
+        id: 1,
+        timelineId: 11,
+        round: 2,
+        stepPosition: 3,
+        summary: emptySummary(2),
+      }),
+    );
+    world.results.push(
+      memberRow({
+        id: 1,
+        timelineId: 11,
+        resultCode: 5121,
+        endedAt: ago(5 * MINUTE),
+        endReason: 'returned',
+      }),
+    );
+    return world;
+  }
+
+  it('both rows exist: the round-1 row stays returned, the round-2 row is active with the load round as its entry round, its previous membership and its changed fields', async () => {
+    const world = roundTwoWorld();
+    const { uow } = inMemory(world);
+
+    const result = await uow.recordLot(
+      lotCommand(1, [], {
+        memberships: [
+          lotMember(5120),
+          lotMember(5121, {
+            kind: 'resubmitted',
+            previousMembershipId: 1,
+            changedFields: ['abstract', 'title'],
+          }),
+        ],
+        processed: 2,
+      }),
+    );
+
+    expect(result).toEqual({
+      kind: 'recorded',
+      insertedCodes: [5120, 5121],
+      raceSkips: [],
+      processed: 2,
+    });
+    expect(
+      world.results.map((r) => [
+        r.id,
+        r.resultCode,
+        r.entryRound,
+        r.endReason,
+        r.previousMembershipId,
+        r.changedFields,
+      ]),
+    ).toEqual([
+      [1, 5121, 1, 'returned', null, null],
+      // A membership without a verdict kind is new: no earlier snapshot.
+      [2, 5120, 2, null, null, null],
+      [3, 5121, 2, null, 1, ['abstract', 'title']],
+    ]);
+    expect(world.results[2]!.activeKey).toBe('1#5121');
+    // loaded = loadedNew + loadedResubmitted, and the round is the load's.
+    expect(world.loads[0]!.summary).toEqual({
+      ...emptySummary(2),
+      loaded: 2,
+      loadedNew: 1,
+      loadedResubmitted: 1,
+      byProgram: { '2': 2 },
+      byType: { KP: 2 },
+    });
+  });
+
+  it('over a stub MySQL driver the insert writes the entry round, the previous membership and the changed fields as JSON, and no verdict kind', async () => {
+    const { uow, log } = stub({
+      locked: [
+        loadValues({
+          id: 41,
+          timelineId: 11,
+          heartbeatAt: stamp,
+          round: 2,
+          stepPosition: 3,
+          summary: emptySummary(2),
+        }),
+      ],
+    });
+
+    await uow.recordLot(
+      lotCommand(41, [], {
+        memberships: [
+          lotMember(5121, {
+            kind: 'resubmitted',
+            previousMembershipId: 7,
+            changedFields: ['title'],
+          }),
+        ],
+        processed: 1,
+      }),
+    );
+
+    const insert = inTransaction(log).find((s) =>
+      s.sql.startsWith('insert into `timeline_results`'),
+    )!;
+    expect(insert.sql).toMatch(
+      /`entry_round`, `previous_membership_id`, `changed_fields`\) values/,
+    );
+    expect(insert.sql).not.toContain('kind');
+    expect(insert.params.slice(-3)).toEqual([2, 7, '["title"]']);
+    const progress = inTransaction(log).find((s) =>
+      s.sql.startsWith('update `timeline_loads` set `processed`'),
+    )!;
+    expect(JSON.parse(progress.params[1] as string)).toMatchObject({
+      loaded: 1,
+      loadedNew: 0,
+      loadedResubmitted: 1,
+      round: 2,
+    });
+  });
+
+  it('an insert in the same round again is the skip ALREADY_IN_THIS_TIMELINE and not a failed lot: one row exists, the lot is recorded and the load keeps running (FR-5, "Duplicate insert in the same round")', async () => {
+    const world = roundTwoWorld();
+    // The round-2 membership of 5121 already exists, as an earlier lot wrote it.
+    world.results.push(
+      memberRow({
+        id: 2,
+        timelineId: 11,
+        resultCode: 5121,
+        entryRound: 2,
+        previousMembershipId: 1,
+        changedFields: [],
+      }),
+    );
+    const { uow } = inMemory(world);
+
+    const result = await uow.recordLot(
+      lotCommand(1, [], {
+        memberships: [
+          lotMember(5121, { kind: 'resubmitted', previousMembershipId: 1 }),
+          lotMember(5122),
+        ],
+        processed: 2,
+      }),
+    );
+
+    expect(result).toEqual({
+      kind: 'recorded',
+      insertedCodes: [5122],
+      raceSkips: [{ resultCode: 5121, reason: 'ALREADY_IN_THIS_TIMELINE' }],
+      processed: 2,
+    });
+    expect(world.results.filter((r) => r.resultCode === 5121)).toHaveLength(2);
+    expect(
+      world.results.map((r) => r.resultCode).sort((a, b) => a - b),
+    ).toEqual([5121, 5121, 5122]);
+    expect(world.loads[0]).toMatchObject({
+      status: 'running',
+      processed: 2,
+      summary: {
+        loaded: 1,
+        loadedNew: 1,
+        loadedResubmitted: 0,
+        skipped: { ALREADY_IN_THIS_TIMELINE: 1 },
+        otherTimelines: {},
+      },
+    });
+  });
+
+  it('an insert refused by active_key while the code has an ACTIVE round-1 membership in this same timeline is the skip ALREADY_IN_THIS_TIMELINE, not ACTIVE_IN_OTHER_TIMELINE (FR-4 rule 2, FR-5)', async () => {
+    const world = seedWorld();
+    world.loads.push(
+      loadRow({
+        id: 1,
+        timelineId: 11,
+        round: 2,
+        stepPosition: 3,
+        summary: emptySummary(2),
+      }),
+    );
+    world.results.push(
+      memberRow({ id: 1, timelineId: 11, resultCode: 5121, entryRound: 1 }),
+    );
+    const { uow } = inMemory(world);
+
+    const result = await uow.recordLot(
+      lotCommand(1, [], {
+        memberships: [lotMember(5121)],
+        processed: 1,
+      }),
+    );
+
+    expect(result).toEqual({
+      kind: 'recorded',
+      insertedCodes: [],
+      raceSkips: [{ resultCode: 5121, reason: 'ALREADY_IN_THIS_TIMELINE' }],
+      processed: 1,
+    });
+    expect(world.violations).toEqual({
+      runningKey: 0,
+      activeKey: 1,
+      timelineCodeRound: 0,
+    });
+    expect(world.results.filter((r) => r.resultCode === 5121)).toHaveLength(1);
+    expect(world.loads[0]).toMatchObject({
+      summary: {
+        skipped: { ALREADY_IN_THIS_TIMELINE: 1 },
+        otherTimelines: {},
+      },
+    });
+  });
+
+  it('the same duplicate after the round-2 membership ended is refused by the round key alone, and is the same skip (FR-5)', async () => {
+    const world = roundTwoWorld();
+    world.results.push(
+      memberRow({
+        id: 2,
+        timelineId: 11,
+        resultCode: 5121,
+        entryRound: 2,
+        endedAt: ago(MINUTE),
+        endReason: 'released_qaed',
+      }),
+    );
+    const { uow } = inMemory(world);
+
+    const result = await uow.recordLot(
+      lotCommand(1, [], {
+        memberships: [lotMember(5121, { kind: 'resubmitted' })],
+        processed: 1,
+      }),
+    );
+
+    expect(result).toMatchObject({
+      kind: 'recorded',
+      insertedCodes: [],
+      raceSkips: [{ resultCode: 5121, reason: 'ALREADY_IN_THIS_TIMELINE' }],
+    });
+    expect(world.violations).toEqual({
+      runningKey: 0,
+      activeKey: 0,
+      timelineCodeRound: 1,
+    });
+    expect(world.results.filter((r) => r.resultCode === 5121)).toHaveLength(2);
+  });
+
+  it('a result another timeline holds active is still ACTIVE_IN_OTHER_TIMELINE in round 2, with that timeline named (FR-4, DD-3)', async () => {
+    const world = roundTwoWorld();
+    world.results.push(memberRow({ id: 2, timelineId: 12, resultCode: 5120 }));
+    const { uow } = inMemory(world);
+
+    const result = await uow.recordLot(lotCommand(1, [5120]));
+
+    expect(result).toMatchObject({
+      kind: 'recorded',
+      insertedCodes: [],
+      raceSkips: [
+        {
+          resultCode: 5120,
+          reason: 'ACTIVE_IN_OTHER_TIMELINE',
+          timelineId: 12,
+        },
+      ],
+    });
+    expect(world.loads[0]!.summary).toMatchObject({
+      skipped: { ACTIVE_IN_OTHER_TIMELINE: 1 },
+      otherTimelines: { '12': { name: 'August 2026', count: 1 } },
+    });
+  });
+});
+
+describe('a summary stored before migration 0008 is read with defaults (design 5.3, FR-10)', () => {
+  const legacy = {
+    loaded: 3,
+    byProgram: { '2': 3 },
+    byType: { KP: 3 },
+    kpGroups: {},
+    skipped: { ALREADY_IN_THIS_TIMELINE: 1 },
+    otherTimelines: {},
+  };
+  const merged = {
+    loaded: 4,
+    loadedNew: 4,
+    loadedResubmitted: 0,
+    round: 1,
+    byProgram: { '2': 4 },
+    byType: { KP: 4 },
+    kpGroups: {},
+    skipped: { ALREADY_IN_THIS_TIMELINE: 1 },
+    otherTimelines: {},
+    returnedNotResubmitted: { total: 0, byProgram: {}, byType: {} },
+  };
+
+  it('every load it counts was new, in round 1, with no returned results: a lot merges into it (in memory)', async () => {
+    const world = seedWorld();
+    world.loads.push(loadRow({ id: 1, timelineId: 11, summary: legacy }));
+    const { uow } = inMemory(world);
+
+    const result = await uow.recordLot(lotCommand(1, [5120]));
+
+    expect(result).toMatchObject({ kind: 'recorded', insertedCodes: [5120] });
+    expect(world.loads[0]!.summary).toEqual(merged);
+    expect(world.results[0]).toMatchObject({ entryRound: 1 });
+  });
+
+  it('the same over a stub MySQL driver, and the row reads as round 1, position 1', async () => {
+    const { uow, log } = stub({
+      locked: [
+        loadValues({
+          id: 41,
+          timelineId: 11,
+          heartbeatAt: stamp,
+          summary: legacy,
+        }),
+      ],
+    });
+
+    await uow.recordLot(lotCommand(41, [5120]));
+
+    const progress = inTransaction(log).find((s) =>
+      s.sql.startsWith('update `timeline_loads` set `processed`'),
+    )!;
+    expect(JSON.parse(progress.params[1] as string)).toEqual(merged);
+  });
+
+  it('a load_end row over it counts the same loaded as before and reads the 0008 keys by their defaults: every load it counts was new, in round 1', async () => {
+    const world = seedWorld();
+    world.loads.push(
+      loadRow({ id: 1, timelineId: 11, processed: 4, summary: legacy }),
+    );
+    const { uow } = inMemory(world);
+
+    await uow.end({ loadId: 1, status: 'completed', now: NOW });
+
+    expect(auditOf(world, 'load_end')[0]!.changes).toEqual({
+      load: {
+        before: 'running',
+        after: {
+          id: 1,
+          status: 'completed',
+          total: null,
+          processed: 4,
+          loaded: 3,
+          loadedNew: 3,
+          loadedResubmitted: 0,
+          round: 1,
+          skipped: 1,
+          failureReason: null,
+        },
+      },
+    });
+  });
+});
+
+describe('endAsReturned (FR-6, DD-10, design 7.5)', () => {
+  /** Membership 1: active round 1; 2: ended `timeline_closed`; 3: active round 2; 4: ended round 2. */
+  function worldWithMemberships() {
+    const world = seedWorld();
+    world.results.push(
+      memberRow({ id: 1, timelineId: 11, resultCode: 5120 }),
+      memberRow({
+        id: 2,
+        timelineId: 11,
+        resultCode: 5121,
+        endedAt: ago(MINUTE),
+        endReason: 'timeline_closed',
+      }),
+      memberRow({ id: 3, timelineId: 11, resultCode: 5122, entryRound: 2 }),
+      memberRow({
+        id: 4,
+        timelineId: 11,
+        resultCode: 5123,
+        entryRound: 2,
+        endedAt: ago(MINUTE),
+        endReason: 'released_qaed',
+      }),
+    );
+    return world;
+  }
+
+  describe.each(['autocommit store', 'one transaction'] as const)(
+    'on the in-memory %s',
+    (mode) => {
+      const call = (world: InMemoryLoadsDatabase, id: number, at: Date) =>
+        mode === 'autocommit store'
+          ? world.store.endAsReturned(id, at)
+          : new InMemoryLoadsTransactions(world).run(({ loads }) =>
+              loads.endAsReturned(id, at),
+            );
+
+      it('an active round-1 membership ends as returned at the given instant, and the result is no longer active in the cycle', async () => {
+        const world = worldWithMemberships();
+
+        expect(await call(world, 1, AT)).toEqual({ ended: true });
+
+        expect(world.results[0]).toMatchObject({
+          id: 1,
+          endReason: 'returned',
+          endedAt: AT,
+          activeKey: null,
+        });
+        // The cycle-wide key is free: another timeline can take the result.
+        expect(
+          await world.store.insertMembership({
+            cycleId: 1,
+            timelineId: 12,
+            loadId: 40,
+            resultCode: 5120,
+            resultId: 6120,
+            phaseYear: 2026,
+            programClarisaId: 2,
+            resultTypeKey: 'KP',
+            status: 'pending',
+            kpGroup: null,
+            awaitsStep: null,
+            snapshotSk: 'SNAP#',
+            snapshotHash: 'c'.repeat(64),
+            catalogVersion: '1.29',
+            createdAt: NOW,
+            entryRound: 1,
+            previousMembershipId: null,
+            changedFields: null,
+          }),
+        ).toEqual({ kind: 'created' });
+      });
+
+      it('a second call is a no-op that says so, and keeps the first instant', async () => {
+        const world = worldWithMemberships();
+        await call(world, 1, AT);
+
+        expect(await call(world, 1, NOW)).toEqual({
+          ended: false,
+          reason: 'already_ended',
+        });
+
+        expect(world.results[0]).toMatchObject({
+          endReason: 'returned',
+          endedAt: AT,
+        });
+      });
+
+      it.each([
+        ['an ended membership', 2, 'already_ended'],
+        ['a round-2 membership', 3, 'not_round_1'],
+        ['an ended round-2 membership', 4, 'not_round_1'],
+        ['a membership that does not exist', 99, 'not_found'],
+      ] as const)(
+        '%s: nothing changes, and the result says why',
+        async (_what, id, reason) => {
+          const world = worldWithMemberships();
+          const before = structuredClone(world.results);
+
+          expect(await call(world, id, AT)).toEqual({ ended: false, reason });
+
+          expect(world.results).toEqual(before);
+          expect(world.history).toEqual([]);
+        },
+      );
+    },
+  );
+
+  it('over a stub MySQL driver it is one conditional UPDATE on id, round 1 and not ended, with no read after a success', async () => {
+    const { store, log } = stub();
+
+    expect(await store.endAsReturned(7, AT)).toEqual({ ended: true });
+
+    expect(log).toHaveLength(1);
+    expect(log[0]!.sql).toBe(
+      'update `timeline_results` set `ended_at` = ?, `end_reason` = ? where (`timeline_results`.`id` = ? and `timeline_results`.`entry_round` = ? and `timeline_results`.`ended_at` is null)',
+    );
+    expect(log[0]!.params).toEqual([
+      '2026-11-10 08:30:00.000',
+      'returned',
+      7,
+      1,
+    ]);
+  });
+
+  it.each([
+    ['no row', [], 'not_found'],
+    ['an ended round-1 row', [[1, stamp]], 'already_ended'],
+    ['an active round-2 row', [[2, null]], 'not_round_1'],
+    ['an ended round-2 row', [[2, stamp]], 'not_round_1'],
+  ] as const)(
+    'over a stub MySQL driver a zero-row update is followed by one read, which finds %s: %s',
+    async (_what, found, reason) => {
+      const { store, log } = stub({
+        resultUpdateRows: 0,
+        returnedRead: found.map((row) => [...row]),
+      });
+
+      expect(await store.endAsReturned(7, AT)).toEqual({
+        ended: false,
+        reason,
+      });
+
+      expect(log).toHaveLength(2);
+      expect(log[1]!.sql).toBe(
+        'select `entry_round`, `ended_at` from `timeline_results` where `timeline_results`.`id` = ? limit ?',
+      );
+      expect(log[1]!.params).toEqual([7, 1]);
+    },
+  );
+
+  it('no route, job or unit-of-work command calls it in this spec: the unit of work has no such method (FR-6)', () => {
+    expect(Object.getOwnPropertyNames(LoadsUnitOfWork.prototype)).not.toContain(
+      'endAsReturned',
+    );
+  });
+});
+
+describe('countReturnedNotResubmitted (FR-9, DD-7, design 7.3 step 7)', () => {
+  const returned = (
+    id: number,
+    resultCode: number,
+    overrides: Partial<TimelineResult> = {},
+  ) =>
+    memberRow({
+      id,
+      timelineId: 11,
+      resultCode,
+      endedAt: ago(5 * MINUTE),
+      endReason: 'returned',
+      ...overrides,
+    });
+
+  it('three returned results: one re-submitted, one still Submitted with the old date (listed), one unsubmitted (not listed): both of the last two count, under their round-1 program and type', () => {
+    const world = seedWorld();
+    world.results.push(
+      returned(1, 5120),
+      // Re-submitted: the round-2 membership exists.
+      memberRow({ id: 2, timelineId: 11, resultCode: 5120, entryRound: 2 }),
+      // Listed with the old date, program 3, another type.
+      returned(3, 5121, {
+        programClarisaId: 3,
+        resultTypeKey: 'innovation_use',
+      }),
+      // Unsubmitted: the feed does not list it, and nothing in QA says so.
+      returned(4, 5122),
+    );
+
+    return expect(world.store.countReturnedNotResubmitted(11)).resolves.toEqual(
+      {
+        total: 2,
+        byProgram: { '3': 1, '2': 1 },
+        byType: { innovation_use: 1, KP: 1 },
+      },
+    );
+  });
+
+  it('only round-1 rows of this timeline ended returned with no round-2 row of the code HERE count: active, otherwise ended, other-timeline and round-2-elsewhere rows are read as they are', async () => {
+    const world = seedWorld();
+    world.results.push(
+      // Counted.
+      returned(1, 5121, { programClarisaId: 3 }),
+      returned(2, 5126, { programClarisaId: 4 }),
+      // A round-2 membership of 5126 in ANOTHER timeline does not excuse it here.
+      memberRow({ id: 3, timelineId: 12, resultCode: 5126, entryRound: 2 }),
+      // Not counted: active in round 1.
+      memberRow({ id: 4, timelineId: 11, resultCode: 5123 }),
+      // Not counted: ended, but not returned.
+      memberRow({
+        id: 5,
+        timelineId: 11,
+        resultCode: 5124,
+        endedAt: ago(MINUTE),
+        endReason: 'timeline_closed',
+      }),
+      // Not counted: returned in another timeline.
+      returned(6, 5125, { timelineId: 12 }),
+      // Not counted: a round-2 row alone.
+      memberRow({ id: 7, timelineId: 11, resultCode: 5127, entryRound: 2 }),
+    );
+
+    expect(await world.store.countReturnedNotResubmitted(11)).toEqual({
+      total: 2,
+      byProgram: { '3': 1, '4': 1 },
+      byType: { KP: 2 },
+    });
+    expect(await world.store.countReturnedNotResubmitted(12)).toEqual({
+      total: 1,
+      byProgram: { '2': 1 },
+      byType: { KP: 1 },
+    });
+    expect(await world.store.countReturnedNotResubmitted(13)).toEqual({
+      total: 0,
+      byProgram: {},
+      byType: {},
+    });
+  });
+
+  it('over a stub MySQL driver it is ONE grouped query: round 1, returned, no round-2 row of the code in the timeline, counted by program and type', async () => {
+    const { store, log } = stub({
+      countRows: [
+        [3, 'innovation_use', 1],
+        [2, 'KP', 1],
+        [4, 'KP', 1],
+      ],
+    });
+
+    const counts = await store.countReturnedNotResubmitted(11);
+
+    expect(counts).toEqual({
+      total: 3,
+      byProgram: { '3': 1, '2': 1, '4': 1 },
+      byType: { innovation_use: 1, KP: 2 },
+    });
+    expect(log).toHaveLength(1);
+    expect(log[0]!.via).toBe('pool');
+    expect(log[0]!.sql).toContain(
+      'not exists (select 1 from `timeline_results` `round_two`',
+    );
+    expect(log[0]!.sql).toContain('group by');
+    expect(log[0]!.params).toEqual([11, 1, 'returned', 2]);
   });
 });
