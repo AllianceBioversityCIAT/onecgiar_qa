@@ -196,3 +196,18 @@
   - → T-8: § 7.7 wording (which lines carry `round`); `server/src/ingestion/AGENTS.md`.
 - **Running totals vs budget:** tasks 6/8 · production LOC ≈ 765 / ≈ 1,000 · review rounds 11 / ≈ 12 — within budget. Remaining: T-7 (full review), T-8 (checklist) → projected ≈ 13, above ≈ 12 by ~1 (reported at the gate).
 - **Final verification:** green — runner spec 43, whole unit 3023 | 4 skipped, e2e 956, lint, build
+
+### T-4 follow-up: `recordLot` same-timeline duplicate — PASS (owner-approved, 2026-11-09)
+
+- **Approved by:** back lead, 2026-11-09 ("haz el arreglo de recordLot"), closing the known gap recorded at the T-4 gate.
+- **Attempt 1** (effort medium, skill nestjs-expert)
+  - files changed: `server/src/ingestion/loads.unit-of-work.ts` (condition `m.timelineId === load.timelineId && (m.endedAt === null || m.entryRound === load.round)`; comment: either key may be named, T-9 pins which), `loads.unit-of-work.spec.ts` (+2 cases, stub and in-memory), `server/test/support/in-memory-loads.ts` (comments only: old key name and creation-order claim removed; Leader read the diff). `loads.store.ts` had no such claim — untouched.
+  - red (old code): 2 failed | 160 passed — `- "reason": "ALREADY_IN_THIS_TIMELINE" + "reason": "ACTIVE_IN_OTHER_TIMELINE", + "timelineId": undefined`
+  - falsifier (revert the condition): 2 red; restored byte-identical (`cmp`)
+  - Implementer verification: spec 162 passed; whole unit 3025 passed | 4 skipped; e2e 956/956; lint, build clean
+  - evidence re-run (Leader inline): **VERIFIED**
+  - Reviewer (checklist): **PASS** — matches § 7.3 step 6 as amended; `!blocker &&` guard keeps a real other-timeline blocker on `ACTIVE_IN_OTHER_TIMELINE`; literal expected values. Did not open `in-memory-loads.ts` (comments-only confirmed by the Leader's diff read).
+  - spawns: implementer 14 calls, 85,974 tokens, ended complete; reviewer — not reported by host
+  - runtime events: none
+- **Issues encountered:** `npx prettier --check` flags `src/ingestion/dynamo-snapshot-store.ts` (T-5 file, untouched here; lint passes).
+- **Running totals vs budget:** tasks 6/8 · production LOC ≈ 770 / ≈ 1,000 · review rounds 12 / ≈ 12 — at budget; T-7 (full) and T-8 (checklist) remain → projected ≈ 14 (above by ~2, approved to continue by the back lead at this gate).

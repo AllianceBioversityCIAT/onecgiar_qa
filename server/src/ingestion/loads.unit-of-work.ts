@@ -548,10 +548,10 @@ export class LoadsUnitOfWork {
           continue;
         }
         // `active_key` refused it. Another timeline holding the result is the
-        // usual cause; but MySQL names the first violated key in index order, and
-        // `0008` created the round key after `active_key`, so the active row of
-        // THIS timeline and round (a retry of the same insert, FR-5) can be
-        // reported here as well. Read the memberships to tell them apart.
+        // usual cause; but either key may be named (T-9 pins which on live
+        // MySQL), so a membership of THIS timeline, active or entered in this
+        // load's round (FR-4 rule 2, FR-5), can be reported here as well. Read
+        // the memberships to tell them apart.
         const held = await loads.findMemberships(load.cycleId, [
           membership.resultCode,
         ]);
@@ -562,7 +562,8 @@ export class LoadsUnitOfWork {
           !blocker &&
           held.some(
             (m) =>
-              m.timelineId === load.timelineId && m.entryRound === load.round,
+              m.timelineId === load.timelineId &&
+              (m.endedAt === null || m.entryRound === load.round),
           )
         ) {
           raceSkips.push({

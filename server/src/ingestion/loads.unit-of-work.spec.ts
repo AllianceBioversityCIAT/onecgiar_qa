@@ -1341,6 +1341,43 @@ describe('the lot, the end and the end of expired memberships over a stub MySQL 
     });
   });
 
+  it('a round-2 insert refused by active_key while the code has an ACTIVE round-1 membership in this same timeline is ALREADY_IN_THIS_TIMELINE, with no other timeline named (FR-4 rule 2, FR-5)', async () => {
+    const { uow } = stub({
+      locked: [
+        loadValues({
+          id: 41,
+          timelineId: 11,
+          heartbeatAt: stamp,
+          round: 2,
+          stepPosition: 3,
+          summary: emptySummary(2),
+        }),
+      ],
+      membershipError: (attempt) =>
+        attempt === 1
+          ? duplicate('timeline_results.uq_timeline_results_active_key')
+          : undefined,
+      memberships: [
+        memberValues({
+          id: 7,
+          resultCode: 5120,
+          timelineId: 11,
+          entryRound: 1,
+        }),
+      ],
+      lastSteps: [[11, 'July 2026', '2026-12-18 17:30:00']],
+    });
+
+    const result = await uow.recordLot(lotCommand(41, [5120]));
+
+    expect(result).toEqual({
+      kind: 'recorded',
+      insertedCodes: [],
+      raceSkips: [{ resultCode: 5120, reason: 'ALREADY_IN_THIS_TIMELINE' }],
+      processed: 1,
+    });
+  });
+
   it('any other error in a lot (a deadlock) is thrown and rolls the whole lot back: no progress is written', async () => {
     const { uow, log } = stub({
       membershipError: (attempt) =>
@@ -3672,6 +3709,49 @@ describe('a round-2 membership beside a returned round-1 one (FR-2, FR-5, FR-8)'
         loaded: 1,
         loadedNew: 1,
         loadedResubmitted: 0,
+        skipped: { ALREADY_IN_THIS_TIMELINE: 1 },
+        otherTimelines: {},
+      },
+    });
+  });
+
+  it('an insert refused by active_key while the code has an ACTIVE round-1 membership in this same timeline is the skip ALREADY_IN_THIS_TIMELINE, not ACTIVE_IN_OTHER_TIMELINE (FR-4 rule 2, FR-5)', async () => {
+    const world = seedWorld();
+    world.loads.push(
+      loadRow({
+        id: 1,
+        timelineId: 11,
+        round: 2,
+        stepPosition: 3,
+        summary: emptySummary(2),
+      }),
+    );
+    world.results.push(
+      memberRow({ id: 1, timelineId: 11, resultCode: 5121, entryRound: 1 }),
+    );
+    const { uow } = inMemory(world);
+
+    const result = await uow.recordLot(
+      lotCommand(1, [], {
+        memberships: [lotMember(5121)],
+        processed: 1,
+      }),
+    );
+
+    expect(result).toEqual({
+      kind: 'recorded',
+      insertedCodes: [],
+      raceSkips: [{ resultCode: 5121, reason: 'ALREADY_IN_THIS_TIMELINE' }],
+      processed: 1,
+    });
+    expect(world.violations).toEqual({
+      runningKey: 0,
+      activeKey: 1,
+      timelineCodeRound: 0,
+    });
+    expect(world.results.filter((r) => r.resultCode === 5121)).toHaveLength(1);
+    expect(world.loads[0]).toMatchObject({
+      summary: {
         skipped: { ALREADY_IN_THIS_TIMELINE: 1 },
         otherTimelines: {},
       },

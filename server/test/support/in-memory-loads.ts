@@ -54,9 +54,9 @@ import type {
 // The transactional store adds the row locks of `InMemoryDatabase` and a round
 // trip per statement, so transactions started together interleave at every
 // statement. What each statement locks is what InnoDB locks: an INSERT takes
-// the unique entry of every key it writes, in the order InnoDB checks them
-// (`uq_timeline_results_timeline_code` before `uq_timeline_results_active_key`,
-// as migration 0007 creates them), so an identical insert waits for the
+// the unique entry of every key it writes (when two keys both refuse a row,
+// either may be named; T-9 pins which on live MySQL, and this fake checks
+// `active_key` first), so an identical insert waits for the
 // transaction that holds the entry and then finds its row, or none after a
 // rollback; a locking read that finds nothing locks nothing (READ COMMITTED
 // takes no gap lock), so the unique key is what refuses the loser. An INSERT
@@ -332,9 +332,9 @@ export class InMemoryLoadsStore implements LoadsStore {
   }
 
   /**
-   * Both unique keys of `timeline_results`, in the order InnoDB checks them
-   * (see the header): the cycle-wide `active_key` first (a new membership is
-   * always active), then `(timeline_id, result_code, entry_round)`, whatever the
+   * Both unique keys of `timeline_results`; either may be named when both
+   * refuse (see the header; T-9 pins which on live MySQL). This fake checks the
+   * cycle-wide `active_key` first (a new membership is always active), then `(timeline_id, result_code, entry_round)`, whatever the
    * state of the row it finds.
    */
   async insertMembership(
