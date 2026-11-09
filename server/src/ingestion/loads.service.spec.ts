@@ -754,14 +754,14 @@ describe('LoadsService.start (FR-2)', () => {
     expect(runs.map((r) => r.loadId)).toEqual([1]);
   });
 
-  it('accepts the request at the closing minute and refuses one minute later with no row', async () => {
+  it('accepts the request at the closing minute of the LAST step and refuses one minute later with no row', async () => {
     const atClose = build({
       feed: upFeed(),
-      now: new Date('2026-11-20T16:30:00.000Z'),
+      now: new Date('2026-12-18T16:30:00.000Z'),
     }); // 17:30 Rome
     const late = build({
       feed: upFeed(),
-      now: new Date('2026-11-20T16:31:00.000Z'),
+      now: new Date('2026-12-18T16:31:00.000Z'),
     }); // 17:31 Rome
 
     await expect(atClose.service.start(ctx, 11)).resolves.toEqual({
@@ -820,7 +820,7 @@ describe('LoadsService.start (FR-2)', () => {
   it('answers the window refusal with 409 LOADS_WINDOW_CLOSED', async () => {
     const { service } = build({
       feed: upFeed(),
-      now: new Date('2026-11-20T16:31:00.000Z'),
+      now: new Date('2026-12-18T16:31:00.000Z'),
     });
 
     const refusal = (await service
@@ -965,7 +965,7 @@ describe('LoadsService.start (FR-2)', () => {
       .mockImplementation(() => {});
     const { service } = build({
       feed: upFeed(),
-      now: new Date('2026-11-20T16:31:00.000Z'),
+      now: new Date('2026-12-18T16:31:00.000Z'),
     });
 
     await service.start(ctx, 11).catch(() => undefined);

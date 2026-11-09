@@ -142,7 +142,7 @@ T-1, T-2 and T-5 are independent: they touch different files, and only T-1 touch
 
 ## T-4: Store and unit of work
 
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-1, T-3
 - **Requirements:**
@@ -168,6 +168,7 @@ T-1, T-2 and T-5 are independent: they touch different files, and only T-1 touch
   - `loads.unit-of-work.ts`: `start` per § 7.1; `recordLot` counts `loadedNew` / `loadedResubmitted` and maps the renamed key.
   - `test/support/in-memory-loads.ts`: the same contract, including the new unique key and `endAsReturned`.
   - Not touched: the runner and the service.
+  - **Amended 2026-11-09 (back lead):** the step-1 window pins that the new start breaks are rewritten here, test-only, to the last step's close: 3 cases in `loads.service.spec.ts` (`LoadsService.start (FR-2)`), 2 in `test/ingestion-loads.e2e-spec.ts` (FR-2 POST), 1 in `test/ingestion-loads-privacy.e2e-spec.ts` (refusals). No service code; the preview window stays in T-7.
 - **Tests:** `loads.unit-of-work.spec.ts`:
   - start at step 4 → 202 with round 2, position 4;
   - one minute after the last close → `window_closed`, with no row, audit or mark;

@@ -43,6 +43,21 @@ const urlOf = (input: Parameters<typeof fetch>[0]) =>
 
 type ReportingMode = 'ok' | 'down' | 'unauthorized';
 
+/**
+ * Timeline 13 with every step closed before the fixed clock (2026-11-10 09:00
+ * Rome): the last step closed at 08:59, one minute ago, so the sync window of
+ * FR-1 (judged on the LAST step) is closed.
+ */
+function closeAllStepsOfTimeline13(w: IngestionApp): void {
+  const [, second, last] = w.world.steps
+    .filter((s) => s.timelineId === 13)
+    .sort((a, b) => a.position - b.position);
+  second!.opensAt = '2026-11-09T18:00' as typeof second.opensAt;
+  second!.closesAt = '2026-11-09T20:00' as typeof second.closesAt;
+  last!.opensAt = '2026-11-09T21:00' as typeof last.opensAt;
+  last!.closesAt = '2026-11-10T08:59' as typeof last.closesAt;
+}
+
 describe('NFR-1 / NFR-2 / FR-12: loads log ids and fixed words only', () => {
   let w: IngestionApp;
   const spy = new LogSpy();
@@ -272,6 +287,8 @@ describe('NFR-1 / NFR-2 / FR-12: loads log ids and fixed words only', () => {
   });
 
   it('refusals (404, 409, 400) write one refused line with the catalog code, and nothing secret', async () => {
+    // Timeline 13: the last step closed one minute before the clock (FR-1).
+    closeAllStepsOfTimeline13(w);
     const cases: Array<[string, 'get' | 'post', string, number, string]> = [
       [
         'preview',

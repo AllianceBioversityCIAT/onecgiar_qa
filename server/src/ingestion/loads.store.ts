@@ -1,6 +1,17 @@
 // @akili-spec ingestion/step-1-loads
+// @akili-spec ingestion/timeline-sync
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  inArray,
+  isNull,
+  notExists,
+  sql,
+} from 'drizzle-orm';
+import { alias } from 'drizzle-orm/mysql-core';
 import { DRIZZLE } from '../database/drizzle/drizzle.constants.js';
 import type { DrizzleDB } from '../database/drizzle/drizzle.module.js';
 import { cycles, type CycleStatus } from '../database/drizzle/schema/cycles.js';
@@ -31,14 +42,23 @@ import {
   type Timeline,
 } from '../database/drizzle/schema/timelines.js';
 import { users } from '../database/drizzle/schema/users.js';
-import type { CycleMembership, LoadSummary } from './load-rules.js';
+import type {
+  CycleMembership,
+  LoadSummary,
+  ReturnedNotResubmitted,
+} from './load-rules.js';
 
 export const LOADS_STORE = Symbol('LOADS_STORE');
 
-/** The unique keys a load or a membership insert can hit (design 5.1, 5.2, DD-2, DD-3). */
+/**
+ * The unique keys a load or a membership insert can hit (design 5.1, 5.2, DD-2,
+ * DD-3). `RESULTS_TIMELINE_CODE_ROUND_KEY` replaced step 1's
+ * `uq_timeline_results_timeline_code` in migration `0008` (timeline-sync DD-2).
+ */
 export const LOADS_RUNNING_KEY = 'uq_timeline_loads_running_key';
 export const RESULTS_ACTIVE_KEY = 'uq_timeline_results_active_key';
-export const RESULTS_TIMELINE_CODE_KEY = 'uq_timeline_results_timeline_code';
+export const RESULTS_TIMELINE_CODE_ROUND_KEY =
+  'uq_timeline_results_timeline_code_round';
 
 /** `IN` lists of `result_code` are cut at this many values per statement (design 7.1 step 3). */
 export const RESULT_CODE_CHUNK = 500;
@@ -62,8 +82,15 @@ export interface LockedCycle {
   year: number;
 }
 
-/** A timeline's step 1: the row the load hangs from and the closing minute of the window (FR-2). */
-export type StepOne = Pick<TimelineStep, 'id' | 'closesAt'>;
+/**
+ * A step of the timeline as the start reads it (timeline-sync design 7.1 step
+ * 2): the window is judged on the last one's closing minute and the round and
+ * position on the one in force.
+ */
+export type SyncStep = Pick<
+  TimelineStep,
+  'id' | 'position' | 'opensAt' | 'closesAt' | 'round'
+>;
 
 /** A membership of a result code in the cycle, with what the skip rules and the summary need (design 7.1, 7.3). */
 export interface CycleMembershipRow extends CycleMembership {
@@ -74,6 +101,13 @@ export interface CycleMembershipRow extends CycleMembership {
   status: TimelineResultStatus;
   /** Name of the membership's timeline, for the summary of other timelines. */
   timelineName: string;
+  /** What a re-entry needs of the earlier membership (design 7.2): its program, type and KP group... */
+  programClarisaId: number;
+  resultTypeKey: string;
+  kpGroup: TimelineResultKpGroup | null;
+  /** ...and its snapshot, which `changedFields` compares against (FR-8). */
+  snapshotSk: string;
+  snapshotHash: string;
 }
 
 /** A load and who started it (the list and the detail of FR-10). The status is as stored: the lease is applied by the reader. */
@@ -85,7 +119,10 @@ export interface LoadRow {
 export interface NewLoadValues {
   cycleId: number;
   timelineId: number;
+  /** The step in force at start (design 7.1 step 4), with its position and round. */
   timelineStepId: number;
+  stepPosition: number;
+  round: number;
   phaseYear: number;
   scope: TimelineLoadScope;
   summary: LoadSummary;
@@ -127,14 +164,25 @@ export interface NewMembershipValues {
   snapshotHash: string;
   catalogVersion: string;
   createdAt: Date;
+  /** The sync's round (FR-2, FR-5). */
+  entryRound: number;
+  /** The cycle's latest membership of the code this one was compared with; null = no earlier snapshot (FR-8). */
+  previousMembershipId: number | null;
+  /** Catalog keys that changed since `previousMembershipId`; null exactly when that is null, `[]` = same values (FR-8). */
+  changedFields: string[] | null;
 }
 
-/** Which unique key refused a membership: the cycle-wide active one, or this timeline's own. */
-export type MembershipDuplicateKey = 'active_key' | 'timeline_code';
+/** Which unique key refused a membership: the cycle-wide active one, or this timeline's own per round. */
+export type MembershipDuplicateKey = 'active_key' | 'timeline_code_round';
 
 /** How the insert of a membership ended: written, or refused by one of the two unique keys (FR-4). */
 export type MembershipInsertOutcome =
   { kind: 'created' } | { kind: 'duplicate'; key: MembershipDuplicateKey };
+
+/** How `endAsReturned` ended: the row ended, or why it did not (design 7.5). */
+export type EndAsReturnedOutcome =
+  | { ended: true }
+  | { ended: false; reason: 'not_found' | 'already_ended' | 'not_round_1' };
 
 /**
  * The persistence port of loads and memberships (design 3, 5, 7.2, 7.3). Rules
@@ -162,8 +210,12 @@ export interface LoadsStore {
   lockCycleShared(cycleId: number): Promise<LockedCycle | undefined>;
   /** `SELECT ... FROM timelines WHERE id = ? FOR UPDATE`: the second lock; the edit takes the same one (P-8). */
   findTimelineForUpdate(timelineId: number): Promise<Timeline | undefined>;
-  /** Step 1 of the timeline. A plain read, made under the timeline lock. */
-  findStepOne(timelineId: number): Promise<StepOne | undefined>;
+  /**
+   * Every step of the timeline, ordered by position. A plain read, made under
+   * the timeline lock, so an edit cannot change them between the window's
+   * judgment and the load's insert (design 7.1 step 2).
+   */
+  findSteps(timelineId: number): Promise<SyncStep[]>;
   /** The scope rows of the timeline: rows exist only while the matching `all_*` flag is false (DD-6 of *timelines*). */
   findScope(
     timelineId: number,
@@ -207,8 +259,9 @@ export interface LoadsStore {
   insertAuditEvent(values: NewTimelineAuditEvent): Promise<void>;
   /**
    * `INSERT` one membership; a duplicate on `uq_timeline_results_active_key` or
-   * on `uq_timeline_results_timeline_code` (MySQL 1062) is `duplicate`, told
-   * apart by the key the driver names (FR-4). Any other failure is thrown.
+   * on `uq_timeline_results_timeline_code_round` (MySQL 1062) is `duplicate`,
+   * told apart by the key the driver names (FR-4, FR-5). Any other failure is
+   * thrown.
    */
   insertMembership(
     values: NewMembershipValues,
@@ -237,6 +290,23 @@ export interface LoadsStore {
     endedAt: Date,
     reason: TimelineResultEndReason,
   ): Promise<number>;
+  /**
+   * `UPDATE timeline_results SET ended_at = ?, end_reason = 'returned' WHERE id
+   * = ? AND entry_round = 1 AND ended_at IS NULL` (design 7.5, DD-10, FR-6): one
+   * conditional update, a no-op on an ended or a non-round-1 row. A zero-row
+   * update is followed by one read to say why. Port only: no route, job or unit
+   * of work command calls it in this spec.
+   */
+  endAsReturned(id: number, at: Date): Promise<EndAsReturnedOutcome>;
+  /**
+   * One query (design 7.3 step 7, DD-7, FR-9): the round-1 memberships of this
+   * timeline ended `returned` that have no round-2 membership of the same code
+   * here, whether or not the feed still lists them, counted under their own
+   * program and type.
+   */
+  countReturnedNotResubmitted(
+    timelineId: number,
+  ): Promise<ReturnedNotResubmitted>;
 }
 
 /**
@@ -290,6 +360,11 @@ export class DrizzleLoadsStore implements LoadsStore {
         | 'endedAt'
         | 'entryRound'
         | 'endReason'
+        | 'programClarisaId'
+        | 'resultTypeKey'
+        | 'kpGroup'
+        | 'snapshotSk'
+        | 'snapshotHash'
       >
     > = [];
     for (let at = 0; at < codes.length; at += RESULT_CODE_CHUNK) {
@@ -304,6 +379,11 @@ export class DrizzleLoadsStore implements LoadsStore {
             endedAt: timelineResults.endedAt,
             entryRound: timelineResults.entryRound,
             endReason: timelineResults.endReason,
+            programClarisaId: timelineResults.programClarisaId,
+            resultTypeKey: timelineResults.resultTypeKey,
+            kpGroup: timelineResults.kpGroup,
+            snapshotSk: timelineResults.snapshotSk,
+            snapshotHash: timelineResults.snapshotHash,
           })
           .from(timelineResults)
           .where(
@@ -413,18 +493,18 @@ export class DrizzleLoadsStore implements LoadsStore {
     return row;
   }
 
-  async findStepOne(timelineId: number): Promise<StepOne | undefined> {
-    const [row] = await this.db
-      .select({ id: timelineSteps.id, closesAt: timelineSteps.closesAt })
+  async findSteps(timelineId: number): Promise<SyncStep[]> {
+    return this.db
+      .select({
+        id: timelineSteps.id,
+        position: timelineSteps.position,
+        opensAt: timelineSteps.opensAt,
+        closesAt: timelineSteps.closesAt,
+        round: timelineSteps.round,
+      })
       .from(timelineSteps)
-      .where(
-        and(
-          eq(timelineSteps.timelineId, timelineId),
-          eq(timelineSteps.position, 1),
-        ),
-      )
-      .limit(1);
-    return row;
+      .where(eq(timelineSteps.timelineId, timelineId))
+      .orderBy(asc(timelineSteps.position));
   }
 
   async findScope(
@@ -503,6 +583,8 @@ export class DrizzleLoadsStore implements LoadsStore {
         cycleId: values.cycleId,
         timelineId: values.timelineId,
         timelineStepId: values.timelineStepId,
+        stepPosition: values.stepPosition,
+        round: values.round,
         phaseYear: values.phaseYear,
         scope: values.scope,
         status: 'running',
@@ -561,8 +643,8 @@ export class DrizzleLoadsStore implements LoadsStore {
       if (text?.includes(RESULTS_ACTIVE_KEY)) {
         return { kind: 'duplicate', key: 'active_key' };
       }
-      if (text?.includes(RESULTS_TIMELINE_CODE_KEY)) {
-        return { kind: 'duplicate', key: 'timeline_code' };
+      if (text?.includes(RESULTS_TIMELINE_CODE_ROUND_KEY)) {
+        return { kind: 'duplicate', key: 'timeline_code_round' };
       }
       throw error;
     }
@@ -621,5 +703,78 @@ export class DrizzleLoadsStore implements LoadsStore {
       ended += header.affectedRows;
     }
     return ended;
+  }
+
+  async endAsReturned(id: number, at: Date): Promise<EndAsReturnedOutcome> {
+    // The conditions are in the WHERE: the database decides, so a row that
+    // ended meanwhile, or entered in round 2, matches nothing (design 7.5).
+    const [header] = await this.db
+      .update(timelineResults)
+      .set({ endedAt: at, endReason: 'returned' })
+      .where(
+        and(
+          eq(timelineResults.id, id),
+          eq(timelineResults.entryRound, 1),
+          isNull(timelineResults.endedAt),
+        ),
+      );
+    if (header.affectedRows > 0) return { ended: true };
+
+    const [row] = await this.db
+      .select({
+        entryRound: timelineResults.entryRound,
+        endedAt: timelineResults.endedAt,
+      })
+      .from(timelineResults)
+      .where(eq(timelineResults.id, id))
+      .limit(1);
+    if (!row) return { ended: false, reason: 'not_found' };
+    // A round-2 row can never be returned, whatever its state; only a round-1
+    // row that is already ended says so.
+    if (row.entryRound !== 1) return { ended: false, reason: 'not_round_1' };
+    return { ended: false, reason: 'already_ended' };
+  }
+
+  async countReturnedNotResubmitted(
+    timelineId: number,
+  ): Promise<ReturnedNotResubmitted> {
+    const later = alias(timelineResults, 'round_two');
+    const rows = await this.db
+      .select({
+        programClarisaId: timelineResults.programClarisaId,
+        resultTypeKey: timelineResults.resultTypeKey,
+        count: sql<number>`count(*)`.mapWith(Number),
+      })
+      .from(timelineResults)
+      .where(
+        and(
+          eq(timelineResults.timelineId, timelineId),
+          eq(timelineResults.entryRound, 1),
+          eq(timelineResults.endReason, 'returned'),
+          notExists(
+            this.db
+              .select({ one: sql`1` })
+              .from(later)
+              .where(
+                and(
+                  eq(later.timelineId, timelineResults.timelineId),
+                  eq(later.resultCode, timelineResults.resultCode),
+                  eq(later.entryRound, 2),
+                ),
+              ),
+          ),
+        ),
+      )
+      .groupBy(timelineResults.programClarisaId, timelineResults.resultTypeKey);
+
+    const out: ReturnedNotResubmitted = { total: 0, byProgram: {}, byType: {} };
+    for (const row of rows) {
+      out.total += row.count;
+      const program = String(row.programClarisaId);
+      out.byProgram[program] = (out.byProgram[program] ?? 0) + row.count;
+      out.byType[row.resultTypeKey] =
+        (out.byType[row.resultTypeKey] ?? 0) + row.count;
+    }
+    return out;
   }
 }

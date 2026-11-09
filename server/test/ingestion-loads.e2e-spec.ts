@@ -38,6 +38,21 @@ function expectError(res: request.Response, status: number, code: string) {
   });
 }
 
+/**
+ * Timeline 13 with every step closed before the fixed clock (2026-11-10 09:00
+ * Rome): the last step closed at 08:59, one minute ago, so the sync window of
+ * FR-1 (judged on the LAST step) is closed.
+ */
+function closeAllStepsOfTimeline13(w: IngestionApp): void {
+  const [, second, last] = w.world.steps
+    .filter((s) => s.timelineId === 13)
+    .sort((a, b) => a.position - b.position);
+  second!.opensAt = '2026-11-09T18:00' as typeof second.opensAt;
+  second!.closesAt = '2026-11-09T20:00' as typeof second.closesAt;
+  last!.opensAt = '2026-11-09T21:00' as typeof last.opensAt;
+  last!.closesAt = '2026-11-10T08:59' as typeof last.closesAt;
+}
+
 describe('Step-1 loads routes (e2e)', () => {
   let w: IngestionApp;
   const held: Array<() => void> = [];
@@ -382,7 +397,8 @@ describe('Step-1 loads routes (e2e)', () => {
       expect(w.world.auditEvents).toHaveLength(1);
     });
 
-    it('409 LOADS_WINDOW_CLOSED one minute after step 1 closes, and no load row', async () => {
+    it('409 LOADS_WINDOW_CLOSED one minute after the last step closes, and no load row', async () => {
+      closeAllStepsOfTimeline13(w);
       scriptFeed(w.feed, { total: 3 });
       const before = nothingRan();
 
@@ -402,6 +418,7 @@ describe('Step-1 loads routes (e2e)', () => {
     });
 
     it('a replayed refusal answers the stored refusal and runs nothing', async () => {
+      closeAllStepsOfTimeline13(w);
       scriptFeed(w.feed, { total: 3 });
       const first = await w.send('post', '/timelines/13/loads', {
         key: 'refused-1',
