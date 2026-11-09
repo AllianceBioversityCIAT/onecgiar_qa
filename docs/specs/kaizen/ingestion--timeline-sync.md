@@ -108,4 +108,4 @@
 | Target | `server/src/ingestion/AGENTS.md` — line 3 and line 56 |
 | Edit | Replace `docs/specs/ingestion/timeline-sync/` with `docs/specs/archive/2026-11-09-ingestion--timeline-sync/`. Line 3: "**Current spec:** none active; the latest is `docs/specs/archive/2026-11-09-ingestion--timeline-sync/` (`design.md`; what the front may rely on: `front-contract.md` there)". Line 56: the contract path becomes `docs/specs/archive/2026-11-09-ingestion--timeline-sync/front-contract.md` (section 8). |
 | Severity | Low |
-| Status | pending |
+| Status | applied (2026-11-09) — on the spec branch by the back lead's explicit approval ("Si"), an exception to the branch gate so the links did not break on merge |
