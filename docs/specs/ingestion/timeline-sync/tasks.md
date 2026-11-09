@@ -291,7 +291,7 @@ T-1, T-2 and T-5 are independent: they touch different files, and only T-1 touch
 
 ## T-8: Documents
 
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** S
 - **Depends on:** T-7. The AC text waits for the BA gate.
 - **Requirements:** FR-13 (all three bullets); P-13 settled

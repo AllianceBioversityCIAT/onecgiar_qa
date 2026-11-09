@@ -1,10 +1,10 @@
 # src/ingestion — Agent Guide
 
-Step-1 loads: the ADMIN brings the eligible results of Reporting into one timeline, as a manual load per timeline step (step 1 in this spec). Spec: `docs/specs/archive/2026-11-04-ingestion--step-1-loads/` (`design.md`, DD-1…DD-11; known gaps in § 10). What the front may rely on: `front-contract.md` in the same folder. Root and `server/AGENTS.md` rules apply.
+Timeline sync: the ADMIN brings the eligible results of Reporting into one timeline with a manual sync, at **any step**, as many times as needed, until the closing minute of the timeline's last step. **Current spec:** `docs/specs/ingestion/timeline-sync/` (`design.md`; what the front may rely on: `front-contract.md` there). It builds on the step-1 spec, now archived: `docs/specs/archive/2026-11-04-ingestion--step-1-loads/` (`design.md`, DD-1…DD-11; known gaps in § 10; its `front-contract.md` is superseded). Root and `server/AGENTS.md` rules apply.
 
 ## Model in one line
 
-`POST /timelines/:id/loads` records a `timeline_loads` row as `running` and answers 202; an in-process `LoadRunner` then reads the Reporting feed, filters, takes the results into QA through Reporting's intake, fetches their details, and per lot of 50 writes memberships (`timeline_results`, MySQL) and immutable snapshots (`ResultSnapshot`, DynamoDB). Reporting is reached only through its HTTP API.
+`POST /timelines/:id/loads` records a `timeline_loads` row as `running`, with the sync's `round` and `step_position`, and answers 202; an in-process `LoadRunner` then reads the Reporting feed, filters, takes the results into QA through Reporting's intake, fetches their details, and per lot of 50 writes memberships (`timeline_results`, MySQL, one per result per round) and immutable snapshots (`ResultSnapshot`, DynamoDB). At the end it counts the results this timeline returned and that have not come back. Reporting is reached only through its HTTP API.
 
 ## Files
 
@@ -14,9 +14,9 @@ Step-1 loads: the ADMIN brings the eligible results of Reporting into one timeli
 | `loads.controller.ts` | 4 routes (`GET .../loads/preview`, `POST .../loads` `@Idempotent()` 202, `GET .../loads`, `GET .../loads/:loadId`). `ADMIN_ACCESS` at class level; `preview` is declared before `:loadId` so the literal wins |
 | `loads.service.ts` | `preview`, `start`, `list`, `get`; one `ingestion` log line per request; the `LOAD_RUNNER` port the start fires after the commit |
 | `load-runner.ts` | The run: lots of 50, 3 attempts with 1 s then 4 s waits (±20 %), heartbeat every 60 s, catalog-version check with one forced refresh, the KP release port (`KP_RELEASE_ENABLED = true`) |
-| `load-rules.ts` | Pure: `LOAD_LEASE_MS` (5 min), `loadWindow`, `effectiveLoadStatus`, `membershipEnds`, `skipVerdict`, `mergeSummary` |
+| `load-rules.ts` | Pure: `LOAD_LEASE_MS` (5 min), `syncWindow`, `stepInForce`, `entryRound`, `effectiveLoadStatus`, `membershipEnds`, `skipVerdict`, `isResubmitted`, `canonicalJson`, `changedFields`, `mergeSummary` (the 0008 summary keys) |
 | `kp-classifier.ts` | `KP_RULES` port and `DEFAULT_KP_RULES` (the 2025 Knowledge Product rule, three groups) |
-| `loads.store.ts`, `loads.unit-of-work.ts` | Port and Drizzle adapter; one READ COMMITTED transaction per write (start, lot, end) |
+| `loads.store.ts`, `loads.unit-of-work.ts` | Port and Drizzle adapter; one READ COMMITTED transaction per write (start, lot, end). The store also has `endAsReturned` (port only: no route and no job calls it yet) and `countReturnedNotResubmitted` |
 | `results-feed.port.ts`, `reporting-results-feed.client.ts`, `feed-paging.ts` | `RESULTS_FEED` (`list`, `details`, `intake`, `release`); the HTTP adapter (one `FeedError` of kind `unauthorized`, `rejected` or `unavailable`); paging at 200 |
 | `snapshot-store.port.ts`, `dynamo-snapshot-store.ts` | `SNAPSHOT_STORE` and the repo's first ElectroDB entity |
 | `loads.errors.ts` | `LoadWindowClosedError` (409 `LOADS_WINDOW_CLOSED`), `LoadAlreadyRunningError` (409 `LOADS_ALREADY_RUNNING`), `LoadNotFoundError` (404 `LOADS_NOT_FOUND`), `LoadCatalogMissingError` (409 `LOADS_CATALOG_MISSING`); the other refusals are reused from admin-config |
@@ -36,8 +36,14 @@ The other direction: `admin-config/timelines` reads the ingestion tables through
 ## Rules
 
 - **ADMIN only (FR-13).** A new route inherits `@RequirePermission(Permission.ADMIN_ACCESS)` from the class; a route without it is a review failure. Reporting is never called for another role.
-- **The database carries the invariants** (generated keys with unique indexes): one running load per cycle (`running_key`), one active membership per `(cycle, result_code)`, one membership per `(timeline, result_code)`. A lost race is a skip or a typed 409, never a retry loop.
-- **Time only through `ADMIN_CONFIG_CLOCK`**, as admin-config. The window is judged in Rome minutes; step 1's closing minute is still open.
+- **The database carries the invariants** (generated keys with unique indexes): one running load per cycle (`running_key`), one active membership per `(cycle, result_code)`, one membership per `(timeline, result_code, entry_round)`. A lost race is a skip or a typed 409, never a retry loop.
+- **Time only through `ADMIN_CONFIG_CLOCK`**, as admin-config. The window is judged in Rome minutes.
+- **Window (FR-1):** a sync starts while the cycle is not closed and now is at or before the closing minute of the timeline's **last** step (that minute is still open). A closed cycle is `CYCLES_CLOSED` first, then `LOADS_WINDOW_CLOSED`. Before step 1 opens a start is accepted as round 1. A refusal writes nothing.
+- **Round (FR-2):** the stored `timeline_steps.round` of the step in force at the start (the last step whose opening minute has passed; step 1 before any opens), read once under the timeline lock. It is recorded on the load with `step_position` and is the `entry_round` of every membership the load writes. A timeline has at most 2 rounds: create refuses a higher one with `ROUND_ABOVE_MAX`; the edit cannot change a round.
+- **Membership per round (FR-5):** one membership per `(timeline, result_code, entry_round)` (`uq_timeline_results_timeline_code_round`) and still one **active** membership per `(cycle, result_code)`. A lost race on either key is a skip, never a failed lot.
+- **Skip order (FR-4):** another timeline of the cycle (active, or `returned` with its last step still open) → this timeline holds it or took it this round → round 2 and returned here → `RETURNED_NOT_RESUBMITTED` unless the feed's `submitted_at` is strictly later than `ended_at` (UTC, whole seconds) → listed twice → take. Reporting order is unchanged and skipped results never reach intake or details.
+- **Return and re-entry (FR-6, S-9):** `endAsReturned` ends an active round-1 membership as `returned`; it has **no caller** and must not be reachable over HTTP in this spec. A re-submitted result enters round 2 as `pending` (same type: keeps its KP group, no classifier, never released; type changed from KP: no KP group; type changed to KP: classified as new). `changed_fields` is `NULL` when the result has no earlier snapshot in the cycle, `[]` when nothing changed, `["result_type_key"]` alone on a type change; it is stored, never returned by a route and never logged.
+- **Summary (FR-9):** `loadedNew + loadedResubmitted = loaded`; `returnedNotResubmitted` is counted once at the end of the run from QA's memberships, never merged per lot. A summary stored before `0008` is read with the defaults (`round` 1).
 - **Stale loads read as `failed`/`ABANDONED`** on every read when `heartbeat_at` is older than `LOAD_LEASE_MS`; the next start persists that state. The 60 s heartbeat is renewed by a timer while the run is alive.
 - **Reporting order is fixed:** list, then intake, then details of the taken results only (S-3). Never ask details of a skipped or refused result.
 - **Retries:** only a 5xx, a timeout, a network or store error is retried (3 attempts). A 401 is `REPORTING_UNAUTHORIZED`, any other 4xx `REPORTING_REJECTED`, immediately. Failure reasons are the closed list `REPORTING_UNAUTHORIZED`, `REPORTING_REJECTED`, `REPORTING_UNAVAILABLE`, `CATALOG_VERSION_MISMATCH`, `STORE_UNAVAILABLE`, `ABANDONED`, `INTERNAL`.
@@ -45,9 +51,9 @@ The other direction: `admin-config/timelines` reads the ingestion tables through
 - **Snapshots are written once** with `attribute_not_exists(pk)`: the same hash on a retry is success, a different hash fails the load as `INTERNAL`. `loadedAt` is the load's `started_at`, so a retry writes identical content.
 - **KP release is on** (`KP_RELEASE_ENABLED = true`, FR-14, S-8, since 2026-11-04): after the lots, a completed load releases its `not_in_qa` and `auto_validated` KPs as `qaed`. A test turns it off through `KP_RELEASE_SETTING`.
 - **A KP to review is assessed in step 1** (S-9 corrected 2026-11-04): `pending`, `awaits_step` always null. The column stays in `0007`, unused.
-- **No PII in logs (NFR-7).** One `event: 'ingestion'` line per request (`route`, `timelineId` or `loadId`, `outcome`, `reason?`): ids and fixed words only, never a result title, name, body, URL or header. `FeedError` messages are fixed text.
-- **Audit:** `timeline_audit_events` gets a `load_start` row in the start's transaction and a `load_end` row when the load ends; append-only, no PII.
-- **Typed errors from the catalog.** New codes go in `common/error-codes.ts` and, for the front, in `front-contract.md` (section 7). A code in `loads.errors.ts` missing from the contract is a review failure.
+- **No PII in logs (NFR-7).** One `event: 'ingestion'` line per request (`route`, `timelineId` or `loadId`, `outcome`, `reason?`): ids and fixed words only; only the runner's lines carry `round`, never a result title, name, body, URL or header. `FeedError` messages are fixed text.
+- **Audit:** `timeline_audit_events` gets a `load_start` row in the start's transaction and a `load_end` row when the load ends, both with the round; append-only, no PII.
+- **Typed errors from the catalog.** New codes go in `common/error-codes.ts` and, for the front, in `docs/specs/ingestion/timeline-sync/front-contract.md` (section 8). A code in `loads.errors.ts` missing from the contract is a review failure.
 
 ## Known gaps
 

@@ -7,7 +7,7 @@
 | Owners | Product: QA business owner · Tech: front lead, back lead |
 | Related | `docs/trd/trd.md` · `docs/ux-ui/design.md` · `docs/infrastructure.md` · `docs/qa-context.md` (team glossary, on `staging-center`) |
 
-> **In one line:** a from-scratch rebuild of the CGIAR Quality Assessment platform where assessors review, field by field, the results programs report in the Reporting Tool (PRMS), with automatic ingestion, admin-configurable cycles, and a reliable history — replacing a platform that depends on manual SQL scripts every cycle.
+> **In one line:** a from-scratch rebuild of the CGIAR Quality Assessment platform where assessors review, field by field, the results programs report in the Reporting Tool (PRMS), with a manual ADMIN sync of results at any step, admin-configurable cycles, and a reliable history — replacing a platform that depends on manual SQL scripts every cycle.
 
 The current QA (repo `CGIAR/QA`, `qa.cgiar.org`) is **domain reference only**. Its architecture, code, and data are not migrated.
 
@@ -59,7 +59,7 @@ Example: one user can be ASSESSOR for *Knowledge Product* and LEAD_ASSESSOR for 
 ### In scope (v1)
 
 1. **Configuration** — cycles (e.g. 2026), windows, batches; per result type: which catalog fields are shown, core, commentable, AI input.
-2. **Ingestion** — a manual load per timeline step (step 1 by the ADMIN): pull eligible results from Reporting, validate against the catalog, store an immutable snapshot; sync changes during evaluation.
+2. **Ingestion** — a manual ADMIN sync per timeline, at any step until the last step closes: pull eligible results from Reporting, validate against the catalog, store an immutable snapshot, and bring in new or re-submitted results in the round in force.
 3. **Evaluation** — field-by-field review; comment or approve without comment; AI suggestions on AI-input fields.
 4. **Comments** — program responses; lead escalation of core-field disagreements to TPB; TPB decision; PPU "Done".
 5. **Closure** — result becomes *Quality Assessed* when no cases are pending; QA notifies Reporting.

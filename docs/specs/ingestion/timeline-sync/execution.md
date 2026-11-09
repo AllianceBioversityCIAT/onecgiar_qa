@@ -250,3 +250,25 @@
 - **Final verification:** green — service spec 56, whole unit 3041 | 4 skipped, e2e 968, lint, build
 
 **T-8 BA gate (2026-11-09, back lead):** "replacement AC accepted as default by Juanda, 2026-11-09" (proposal § 9.4; AC6 round wording per Q-1 = B). Recorded in `requirements.md` Document Control; Angel to ratify, non-blocking. T-8 unblocked.
+
+### T-8: Documents — PASS (attempt 2)
+
+- **Attempt 1** (2026-11-09, effort medium, skill cognitive-doc-design)
+  - files changed: NEW `docs/specs/ingestion/timeline-sync/front-contract.md` (198 lines; step-1 archive copy untouched), `server/src/ingestion/AGENTS.md`, `server/src/database/AGENTS.md` (`0007` and `0008` entries), `docs/prd.md` (lines 10, 62)
+  - P-13 settled: **the premise is false** — `client/src/app/pages/workspace/cycle/cycle.logic.ts:128-135` (`loadTargets`) gates the load on step 1 (`:131` state, `:132-133` step 1's closing minute); `timelineVM` (`:259`, `:315`) shows "Load results into step 1"; `cycle-view.ts:60,109` call it. Recorded in contract § 12 for Yeck; Leader re-read the lines; Yeck told on Slack (2026-11-09, back lead's request).
+  - verification: per-name `git grep --no-index -c -w` on the contract file only — every `SkipReason` (`ACTIVE_IN_OTHER_TIMELINE`, `ALREADY_IN_THIS_TIMELINE`, `RETURNED_NOT_RESUBMITTED` 5, `DUPLICATE_RESULT_CODE`), every `LoadSummary` key, and every in-scope code of `error-codes.ts` ≥ 1 hit; `git grep -n -i "automatic ingestion" docs/prd.md` → 0
+  - **error-code scope (recorded per Reviewer advisory):** the per-name check covered the codes this contract's routes can return (loads, timeline create/edit/assign, `FIELD_ERRORS` incl. `ROUND_ABOVE_MAX`, generic transport). Excluded by name as other modules, listed in contract § 8: 15 `AUTH_*`, 16 `USERS_*`, 3 `FIELD_CONFIG_*`. Reviewer accepted it under FR-13. Not a gap.
+  - falsifier: `RETURNED_NOT_RESUBMITTED` removed → 0 hits; restored → 5
+  - evidence re-run (Leader inline): **VERIFIED** — same presence results (`ACTIVE_IN_OTHER_TIMELINE` counted 4 lines by `grep -c` vs 3 reported; presence ≥ 1 either way)
+  - Reviewer (checklist): **FAIL** (verbatim, abridged to the issue): "`server/src/database/AGENTS.md:14` says the `0008` down script '**refuses** while a second-round membership or a `returned` row exists'. That is wrong for a second-round membership … it refuses only when one `(timeline_id, result_code)` has two rows … A result that entered a timeline for the first time in round 2 is a lone row: the script does not refuse it. It silently drops that row's `entry_round` (lossy) … Violated Rule: FR-13; proposal R-2; T-1. Remediation: 'refuses while any `(timeline_id, result_code)` has two memberships … or a `returned` row exists …; a lone round-2 row does not block it and loses its round (lossy)'."
+  - spawns: implementer 31 calls, 144,534 tokens, ended complete; reviewer 38 calls, 76,927 tokens, ended fail
+- **Attempt 2** (effort high; same Implementer resumed with the FAIL verbatim)
+  - files changed: `server/src/database/AGENTS.md` line 14 only (clause per the remediation; script `:6-13`, `:15-18`, `:29-32`, `:33-34` read); no down-script claim elsewhere (grep 0)
+  - evidence re-run (Leader inline): **VERIFIED** — line 14 against script `:6-13`, `:33-34`
+  - Reviewer (re-review): **PASS** — clause matches the script
+  - spawns: implementer (resumed) 3 calls, ended complete; reviewer (resumed) — not reported by host
+  - runtime events: none
+- ADVISORY: `docs/prd.md:24`, `:84`, `:98` (US-4 AC) still say step 1 — contradict lines 10 and 62 (outside T-8's named lines; follow-up offered to the back lead). Contract § 5 `ACTIVE_IN_OTHER_TIMELINE` wording looser than `load-rules.ts:158-163` ("while that timeline's last step is open" applies to active and returned).
+- **Requirements covered:** FR-13 (all three bullets); P-13 settled
+- **Running totals vs budget:** tasks 8/8 (T-9 HITL remains) · production LOC ≈ 1,010 / ≈ 1,000 · review rounds 16 / ≈ 12 (overrun accepted by the back lead at the T-7 tripwire; projected ≈ 15, actual 16 — T-8 needed a rework round)
+- **Final verification:** manual grep checks green; no code changed
