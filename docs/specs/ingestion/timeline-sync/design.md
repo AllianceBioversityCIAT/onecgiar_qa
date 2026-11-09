@@ -169,7 +169,10 @@ The step query is unchanged (the last step per timeline). This is still one quer
 3. **Intake → details**: unchanged, for takes only.
 4. **Classify**:
    - `new` → the KP classifier, as in step 1;
-   - `resubmitted` → `{status: 'pending', kpGroup: previous.kpGroup}`, with no classifier (S-9). It is never released by the KP release, because its status is `pending`.
+   - `resubmitted`, type unchanged → `{status: 'pending', kpGroup: previous.kpGroup}`, with no classifier (S-9 a). Never released by the KP release, because its status is `pending`;
+   - `resubmitted`, type changed from KP → `{status: 'pending', kpGroup: null}` (S-9 b);
+   - `resubmitted`, type changed to KP → the KP classifier, as for `new` (S-9 c); released like a new KP.
+   The type change is `previous.resultTypeKey !== result.resultTypeKey` (amended 2026-11-09, back lead).
 5. **Changed fields**:
    - `previous` is null → `previousMembershipId = null`, `changedFields = null`;
    - same hash → `[]`, no read;
@@ -229,7 +232,7 @@ The front consumers that must follow are `client/src/app/core/api/loads.models.t
 | DD-1 | The round is the stored `round` of the step in force, read under the timeline lock at start (Q-1 = B) | Position rule (step ≥ 3); capped stored round | The sync agrees with the editor's "QA round N". Same result on every timeline today (P-7) | FR-2 |
 | DD-2 | Unique `(timeline_id, result_code, entry_round)` replaces `(timeline_id, result_code)`; `active_key` kept | Active-only uniqueness (step-1 DD-3's fallback) | AC12 lives in the database. At most 2 rows per result per timeline | FR-5, NFR-1 |
 | DD-3 | A `returned` row in another timeline blocks while that timeline's last step has not closed (Q-2) | Only active rows block | The result can come back only where it was returned, until that timeline ends. Reuses `ACTIVE_IN_OTHER_TIMELINE` and `otherTimelines`, so no new front copy is needed | FR-4 |
-| DD-4 | A re-submitted result skips the KP classifier and keeps its round-1 `kp_group` (S-9, Angel to confirm) | Re-classify | A KP returned for review is never auto-released in round 2. If Angel says re-classify, only step 4 of § 7.3 changes | FR-7 |
+| DD-4 | A re-submitted result of the same type skips the KP classifier and keeps its round-1 `kp_group`; a type change away from KP clears the group; a type change to KP is classified as new (S-9, accepted by the back lead 2026-11-09; Angel to ratify) | Re-classify | A KP returned for review is never auto-released in round 2. If Angel says re-classify, only step 4 of § 7.3 changes | FR-7 |
 | DD-5 | Changed fields are stored in MySQL (`changed_fields`, `previous_membership_id`); the hash short-cut avoids most reads | A DynamoDB attribute; recomputing on read | The "Updated" tag needs no DynamoDB read. One GetItem per changed re-entry (NFR-2) | FR-8, NFR-2, NFR-3 |
 | DD-6 | `previous` = the cycle's latest membership of the code, any timeline | Only this timeline | A result that moved from a closed timeline A to B also shows what changed. FR-8 says "in the same cycle" | FR-8 |
 | DD-7 | `returnedNotResubmitted` is computed once at the end from QA's own rows, not merged per lot | Count in lots | A result the program unsubmitted is not in any lot, but is still counted. One query per sync | FR-9 |

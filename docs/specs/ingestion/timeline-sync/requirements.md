@@ -12,7 +12,7 @@
 | Status | Approved by the back lead, 2026-11-06 (gated: requirements, design and tasks gates each answered "Continue") |
 | Source | `proposal.md` (2026-11-06) and the back-lead brief of 2026-11-06. Jira P2-3906 (13 AC; this spec replaces AC4, AC5, AC6 and AC8) |
 | Decisions at the proposal gate | Q-1 → **B** (the round is the stored round of the step in force; the edit refuses a round above 2). Q-2 → **block** (a `returned` membership in an open timeline blocks other timelines). Q-3 → **keep** `released_not_qaed` reserved. Back lead, 2026-11-06 |
-| BA confirmation | **Pending (Angel)**: the replacement AC text (proposal § 9.4) and S-9 below. Under KZ-ingestion--step-1-loads-1, the tasks that build on a "to confirm" row wait for Angel's answer or for the back lead's named acceptance |
+| BA confirmation | **Pending (Angel)**: the replacement AC text (proposal § 9.4). **S-9 accepted as default by Juanda (back lead), 2026-11-09**, widened to a type change; Angel to ratify (non-blocking). Under KZ-ingestion--step-1-loads-1, the tasks that build on a "to confirm" row wait for Angel's answer or for the back lead's named acceptance |
 | Builds on | *loads* = `docs/specs/archive/2026-11-04-ingestion--step-1-loads/` (FR-1…FR-15, DD-1…DD-13); *timelines* = `docs/specs/archive/2026-10-21-admin-config--cycle-timelines/` (FR-10 rounds); *edit* = `docs/specs/admin-config/timeline-edit/` |
 | Scope | Server (`server/`). The front adapts through `front-contract.md` |
 | Last updated | 2026-11-06 |
@@ -29,7 +29,7 @@
 | S-6 | A `returned` membership in a timeline whose last step has not closed blocks the result in every **other** timeline of the cycle | Q-2 = block | Back lead, 2026-11-06 |
 | S-7 | `released_not_qaed` stays in the enum, reserved and unwritten | Q-3 = keep | Back lead, 2026-11-06 |
 | S-8 | A returned result re-enters round 2 only when Reporting's `submitted_at` is later than the membership's `ended_at` | Brief | Back lead |
-| S-9 | A **re-submitted** result enters round 2 as `pending` and is **not** re-classified as a KP. It keeps the round-1 `kp_group`. A result **new** to the timeline is classified as in step 1, whatever the round | Derived from AC2 and "KPs follow the same rules" | **Angel to confirm** |
+| S-9 | A **re-submitted** result enters round 2. Only an assessed result can be returned, so a round-1 KP was `review`. (a) Still a KP → `pending`, KP group `review`, **not** re-classified. (b) Its type changed from KP to another type (the assessor's finding) → `pending`, no KP group; the round-1 row keeps the KP type as history. (c) Its type changed to KP → classified as a KP new to the timeline, released by the KP release when `not_in_qa` or `auto_validated`. A result **new** to the timeline is classified as in step 1, whatever the round | Derived from AC2 and "KPs follow the same rules"; type change from the back lead | **Accepted as default by Juanda (back lead), 2026-11-09**; Angel to ratify |
 
 ## 2. Executive Summary
 
@@ -232,14 +232,25 @@ The store SHALL offer one operation that ends an **active round-1** membership a
 
 Every membership a sync writes SHALL have:
 - a new immutable snapshot (earlier snapshots are never touched);
-- status `pending` for a re-submitted result;
-- the step-1 status and KP group for a new result (S-9).
+- status `pending` for a re-submitted result whose type is unchanged, or changed away from KP; KP group `review` when it is still a KP, none otherwise;
+- the step-1 status and KP group for a new result, and for a re-submitted result whose type changed to KP (S-9).
 
 #### Scenario: Re-submitted KP
 - GIVEN a KP whose round-1 membership was `review` and was returned, and that is resubmitted
 - WHEN round 2 takes it
 - THEN its membership is `pending`, KP group `review`
 - BUT it must NOT be re-classified, and it must NOT be released by the KP release
+
+#### Scenario: Re-submitted as another type
+- GIVEN a KP whose round-1 membership was `review` and was returned because it is not a KP, and that is resubmitted as an output
+- WHEN round 2 takes it
+- THEN its membership is `pending`, with no KP group
+- AND the round-1 membership still reads type `knowledge_product`
+
+#### Scenario: Re-submitted as a KP
+- GIVEN a result returned in round 1 as another type, and resubmitted as a KP whose details classify it as `auto_validated`
+- WHEN round 2 takes it
+- THEN it is `auto_validated`, KP group `auto_checked`, and is released as `qaed` at the end, as a new KP
 
 #### Scenario: New KP in round 2
 - GIVEN a KP new to the timeline, whose details classify it as `not_in_qa`
