@@ -207,7 +207,7 @@ The new check sits beside `ROUND_SEQUENCE`: `step.round > MAX_ROUND (2)` → iss
 
 ### 7.7 Logs
 
-The existing lines gain `round` (a number). There are no new fields with content. Changed fields are never logged (NFR-4).
+The runner's existing lines (`lot`, `completed`, `failed`) gain `round` (a number). The service lines (`preview`, `start`, `list`, `get`) stay as they are: the privacy suite pins them (FR-12) (amended 2026-11-09, back lead). There are no new fields with content. Changed fields are never logged (NFR-4).
 
 ## 8. Frontend / UX Component Architecture
 

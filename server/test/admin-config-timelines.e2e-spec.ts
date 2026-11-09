@@ -777,6 +777,68 @@ describe('Timelines routes: defaults, create, list and detail (e2e)', () => {
       expect(res.text).not.toContain('xxxxxxxx');
     });
 
+    // ingestion/timeline-sync FR-3: a timeline has at most two QA rounds.
+    it('refuses a step of round 3 with 400 ROUND_ABOVE_MAX on `steps[4].round`, names no other field, and writes nothing', async () => {
+      const cycleId = await createCycle(2026);
+      const before = nothingRan();
+
+      const res = await createTimeline(cycleId, {
+        steps: [
+          STEP_1,
+          STEP_2,
+          STEP_3,
+          {
+            name: 'Third-Party Broker review',
+            audience: 'tpb',
+            opensOn: '2026-11-23',
+            closesOn: '2026-11-27',
+            round: 2,
+            requiresLoad: false,
+          },
+          {
+            name: 'PPU review',
+            audience: 'ppu',
+            opensOn: '2026-11-30',
+            closesOn: '2026-12-04',
+            round: 3,
+            requiresLoad: false,
+          },
+        ],
+      });
+
+      expectError(res, 400, 'VALIDATION_FAILED');
+      expect(res.body.error.fields).toEqual([
+        {
+          field: 'steps[4].round',
+          code: 'ROUND_ABOVE_MAX',
+          message: 'A timeline has at most 2 QA rounds.',
+        },
+      ]);
+      expect(nothingRan()).toEqual(before);
+    });
+
+    it('still validates rounds 1 and 2 as before: a first step of round 2 is ROUND_SEQUENCE, a step of round 3 after round 1 is both problems', async () => {
+      const cycleId = await createCycle(2026);
+
+      const startsAtTwo = await createTimeline(cycleId, {
+        steps: [
+          { ...STEP_1, round: 2 },
+          { ...STEP_2, round: 2 },
+        ],
+      });
+      const skipsToThree = await createTimeline(cycleId, {
+        steps: [STEP_1, { ...STEP_2, round: 3 }],
+      });
+
+      expect(fieldsOf(startsAtTwo)).toEqual([
+        ['steps[0].round', 'ROUND_SEQUENCE'],
+      ]);
+      expect(fieldsOf(skipsToThree)).toEqual([
+        ['steps[1].round', 'ROUND_SEQUENCE'],
+        ['steps[1].round', 'ROUND_ABOVE_MAX'],
+      ]);
+    });
+
     it('a shape problem is a 400 on its own field before the rules run (the pipe, as everywhere)', async () => {
       const cycleId = await createCycle(2026);
       const before = nothingRan();

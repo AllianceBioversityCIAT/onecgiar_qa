@@ -258,7 +258,7 @@ T-1, T-2 and T-5 are independent: they touch different files, and only T-1 touch
 
 ## T-7: Service, models, controller docs and e2e
 
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-6
 - **Requirements:**

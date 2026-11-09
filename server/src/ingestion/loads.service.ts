@@ -1,4 +1,5 @@
 // @akili-spec ingestion/step-1-loads
+// @akili-spec ingestion/timeline-sync
 import { HttpException, Inject, Injectable, Logger } from '@nestjs/common';
 import {
   ADMIN_CONFIG_CLOCK,
@@ -27,9 +28,13 @@ import {
 import {
   EMPTY_SUMMARY,
   effectiveLoadStatus,
+  entryRound,
   skipVerdict,
+  stepInForce,
   syncWindow,
   type LoadSummary,
+  type ReturnedNotResubmitted,
+  type TakeVerdict,
 } from './load-rules.js';
 import {
   LoadAlreadyRunningError,
@@ -65,6 +70,7 @@ const DETAILS_LOT = 50;
 const SKIP_ORDER = [
   'ACTIVE_IN_OTHER_TIMELINE',
   'ALREADY_IN_THIS_TIMELINE',
+  'RETURNED_NOT_RESUBMITTED',
   'DUPLICATE_RESULT_CODE',
 ];
 
@@ -81,15 +87,34 @@ export interface KpGroupsView {
   review: number;
 }
 
-/** FR-1: what a load would do now. Nothing was written, in QA or in Reporting. */
+/**
+ * FR-9: the round-1 memberships of the timeline ended `returned` with no
+ * round-2 membership. `code` is only filled where the preview knows it (the
+ * program is still in the feed); a stored summary carries no code.
+ */
+export interface ReturnedNotResubmittedView {
+  total: number;
+  byProgram: Array<{ programId: number; code?: string; count: number }>;
+  byResultType: Array<{ key: string; count: number }>;
+}
+
+/** FR-1, FR-9, FR-10: what a sync would do now. Nothing was written, in QA or in Reporting. */
 export interface LoadPreview {
   phaseYear: number;
+  /** `closed` when the cycle is closed or the last step of the timeline has closed (FR-1). */
   window: 'open' | 'closed';
+  /** The round and the step position a sync started now would be recorded with (FR-10). */
+  round: number;
+  stepPosition: number;
   toLoad: {
     total: number;
+    /** `new + resubmitted = total` (FR-9). */
+    new: number;
+    resubmitted: number;
     byProgram: Array<{ programId: number; code: string; count: number }>;
     byResultType: Array<{ key: string; count: number }>;
   };
+  returnedNotResubmitted: ReturnedNotResubmittedView;
   kpGroups: KpGroupsView;
   skipped: SkippedView[];
 }
@@ -110,10 +135,18 @@ export interface LoadItem {
   finishedAt: string | null;
   startedBy: { id: number; nickname: string | null };
   failureReason: string | null;
+  /** FR-10: the round and step position the sync was recorded with; a load from before the 0008 migration reads 1 and 1. */
+  round: number;
+  stepPosition: number;
 }
 
 export interface LoadSummaryView {
   loaded: number;
+  /** `loaded = loadedNew + loadedResubmitted` (FR-9). */
+  loadedNew: number;
+  loadedResubmitted: number;
+  round: number;
+  returnedNotResubmitted: ReturnedNotResubmittedView;
   byProgram: Array<{ programId: number; count: number }>;
   byResultType: Array<{ key: string; count: number }>;
   kpGroups: KpGroupsView;
@@ -159,10 +192,41 @@ const kpGroupsView = (counts: Record<string, number>): KpGroupsView => ({
   review: counts['review'] ?? 0,
 });
 
-function summaryView(stored: TimelineLoad['summary']): LoadSummaryView {
-  const summary: LoadSummary = { ...EMPTY_SUMMARY, ...stored };
+/** The returned-not-resubmitted count as the API shows it, the programs and types in a fixed order (FR-9). */
+function returnedView(
+  counted: ReturnedNotResubmitted,
+  codes: ReadonlyMap<number, string> = new Map(),
+): ReturnedNotResubmittedView {
+  return {
+    total: counted.total,
+    byProgram: Object.entries(counted.byProgram)
+      .map(([id, count]) => {
+        const programId = Number(id);
+        const code = codes.get(programId);
+        return { programId, ...(code === undefined ? {} : { code }), count };
+      })
+      .sort((a, b) => byNumber(a.programId, b.programId)),
+    byResultType: Object.entries(counted.byType)
+      .map(([key, count]) => ({ key, count }))
+      .sort((a, b) => a.key.localeCompare(b.key)),
+  };
+}
+
+function summaryView(load: TimelineLoad): LoadSummaryView {
+  const stored = load.summary;
+  const summary: LoadSummary = {
+    ...EMPTY_SUMMARY,
+    // A summary from before 0008 lacks the new keys: every load it counts was new (design 5.3).
+    loadedNew: typeof stored?.['loaded'] === 'number' ? stored['loaded'] : 0,
+    ...stored,
+  };
   return {
     loaded: summary.loaded,
+    loadedNew: summary.loadedNew,
+    loadedResubmitted: summary.loadedResubmitted,
+    // The column is the authority (FR-10); a load from before 0008 reads 1.
+    round: load.round,
+    returnedNotResubmitted: returnedView(summary.returnedNotResubmitted),
     byProgram: Object.entries(summary.byProgram)
       .map(([id, count]) => ({ programId: Number(id), count }))
       .sort((a, b) => byNumber(a.programId, b.programId)),
@@ -186,6 +250,8 @@ function loadItem({ load, startedBy }: LoadRow, now: Date): LoadItem {
     finishedAt: load.finishedAt?.toISOString() ?? null,
     startedBy,
     failureReason: effective.failureReason ?? load.failureReason,
+    round: load.round,
+    stepPosition: load.stepPosition,
   };
 }
 
@@ -206,7 +272,7 @@ function isDeadlock(error: unknown): boolean {
 }
 
 /**
- * Orchestration of step-1 loads (design 6, 7.1, 7.2): the preview, the start
+ * Orchestration of timeline syncs (design 6, 7.1; step-1 design 6, 7.1, 7.2): the preview, the start
  * and the reads. The decisions are the parts it calls: the unit of work for
  * the start (lock order, abandon, insert, audit, key mark), `load-rules.ts`
  * for the window, the lease and the skips, `KP_RULES` for the KP groups. The
@@ -229,7 +295,8 @@ export class LoadsService {
   ) {}
 
   /**
-   * FR-1, design 7.1. Reads the timeline, then EVERY page of the feed for the
+   * FR-1, design 7.1. Judges the window on the LAST step and the round on the
+   * step in force, as the start does. Reads the timeline, then EVERY page of the feed for the
    * timeline's scope, then QA's memberships in one call (the store chunks the
    * `IN` by 500), then the details of the KPs to load in lots of 50. Nothing is
    * written and neither intake nor release is called.
@@ -242,9 +309,13 @@ export class LoadsService {
       if (!bundle) throw new TimelineNotFoundError(timelineId);
       const { timeline, steps } = bundle;
       const cycle = await this.cycleOf(timeline);
-      const stepOne = steps.find((step) => step.position === 1);
-      // Step 1 always exists (FR-9 of *timelines*); without it the data is corrupt.
-      if (!stepOne) throw new Error(`Timeline ${timeline.id} has no step 1`);
+      // Step 1 always exists (FR-9 of *timelines*); `stepInForce` throws on a timeline without steps.
+      const lastStep = steps.reduce((last, step) =>
+        step.position > last.position ? step : last,
+      );
+      // The same three functions as the start (design 7.1), without a lock.
+      const step = stepInForce(steps, nowMinute);
+      const round = entryRound(steps, nowMinute);
 
       const items = await this.reporting(cycle.year, () =>
         listEveryPage(this.feed, {
@@ -278,11 +349,11 @@ export class LoadsService {
       const skipped: Record<string, number> = {};
       const otherTimelines: LoadSummary['otherTimelines'] = {};
       const candidates: FeedListItem[] = [];
+      const takes = new Map<number, TakeVerdict<CycleMembershipRow>>();
       for (const item of items) {
         const rows = holders.get(item.resultCode) ?? [];
-        // T-4 reads the round of the step in force; until then a sync is step 1.
         const verdict = skipVerdict({
-          round: 1,
+          round,
           timelineId: timeline.id,
           now: nowMinute,
           submittedAt: item.submittedAt,
@@ -291,6 +362,7 @@ export class LoadsService {
         });
         if (!('reason' in verdict)) {
           candidates.push(item);
+          takes.set(item.resultId, verdict);
           continue;
         }
         skipped[verdict.reason] = (skipped[verdict.reason] ?? 0) + 1;
@@ -327,10 +399,18 @@ export class LoadsService {
           skipped[reason] = (skipped[reason] ?? 0) + 1;
         }
         for (const result of details.results) {
-          const { kpGroup } = this.kpRules.classify({
-            resultTypeKey: result.resultTypeKey,
-            values: result.values,
-          });
+          const take = takes.get(result.resultId);
+          // The run's rule (design 7.3 step 4, S-9): a re-submission of the same
+          // type keeps its round-1 KP group and is never re-classified; a new
+          // result, and a re-submission whose type changed, are classified.
+          const kpGroup =
+            take?.kind === 'resubmitted' &&
+            take.previous?.resultTypeKey === result.resultTypeKey
+              ? take.previous.kpGroup
+              : this.kpRules.classify({
+                  resultTypeKey: result.resultTypeKey,
+                  values: result.values,
+                }).kpGroup;
           if (kpGroup) groups[kpGroup] = (groups[kpGroup] ?? 0) + 1;
         }
       }
@@ -340,7 +420,9 @@ export class LoadsService {
       );
       const byProgram = new Map<number, { code: string; count: number }>();
       const byResultType = new Map<string, number>();
+      let resubmitted = 0;
       for (const item of toLoad) {
+        if (takes.get(item.resultId)?.kind === 'resubmitted') resubmitted++;
         const program = byProgram.get(item.program.clarisaId);
         byProgram.set(item.program.clarisaId, {
           code: item.program.code,
@@ -352,14 +434,47 @@ export class LoadsService {
         );
       }
 
+      // Design 7.3 step 7: counted from QA's own rows, so a returned result the
+      // feed no longer lists is in it. The code of a program is known only when
+      // the feed still lists one of its results.
+      const programCodes = new Map(
+        items.map((item) => [item.program.clarisaId, item.program.code]),
+      );
+      const stored = await this.loads.countReturnedNotResubmitted(timeline.id);
+      // FR-9, "the same counts": the query sees no round-2 row yet, but a result
+      // this preview takes as re-submitted will have one when the sync ends, so
+      // it is not counted. It leaves the count under its round-1 program and type.
+      const returned: ReturnedNotResubmitted = {
+        total: stored.total,
+        byProgram: { ...stored.byProgram },
+        byType: { ...stored.byType },
+      };
+      const leave = (counts: Record<string, number>, key: string) => {
+        const left = (counts[key] ?? 0) - 1;
+        if (left > 0) counts[key] = left;
+        else delete counts[key];
+      };
+      for (const item of toLoad) {
+        const take = takes.get(item.resultId);
+        if (take?.kind !== 'resubmitted' || take.previous === null) continue;
+        returned.total--;
+        leave(returned.byProgram, String(take.previous.programClarisaId));
+        leave(returned.byType, take.previous.resultTypeKey);
+      }
+
       return {
         phaseYear: cycle.year,
+        // The last step's closing minute is still open (FR-1).
         window:
-          syncWindow(cycle.status, stepOne.closesAt, nowMinute) === 'open'
+          syncWindow(cycle.status, lastStep.closesAt, nowMinute) === 'open'
             ? 'open'
             : 'closed',
+        round,
+        stepPosition: step.position,
         toLoad: {
           total: toLoad.length,
+          new: toLoad.length - resubmitted,
+          resubmitted,
           byProgram: [...byProgram]
             .map(([programId, { code, count }]) => ({ programId, code, count }))
             .sort((a, b) => byNumber(a.programId, b.programId)),
@@ -367,6 +482,7 @@ export class LoadsService {
             .map(([key, count]) => ({ key, count }))
             .sort((a, b) => a.key.localeCompare(b.key)),
         },
+        returnedNotResubmitted: returnedView(returned, programCodes),
         kpGroups: kpGroupsView(groups),
         skipped: skippedView(skipped, otherTimelines),
       };
@@ -458,7 +574,7 @@ export class LoadsService {
       }
       const row = await this.loads.findLoad(timelineId, loadId);
       if (!row) throw new LoadNotFoundError(loadId);
-      return { ...loadItem(row, now), summary: summaryView(row.load.summary) };
+      return { ...loadItem(row, now), summary: summaryView(row.load) };
     });
   }
 

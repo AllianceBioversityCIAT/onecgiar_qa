@@ -1,4 +1,5 @@
 // @akili-spec ingestion/step-1-loads
+// @akili-spec ingestion/timeline-sync
 import { Logger } from '@nestjs/common';
 import { FakeResultsFeed } from '../../test/support/fake-results-feed.js';
 import { InMemoryAdminConfigDatabase } from '../../test/support/in-memory-admin-config.js';
@@ -168,6 +169,8 @@ function loadRow(
   const row: TimelineLoad = {
     cycleId: 1,
     timelineStepId: overrides.timelineId * 10 + 1,
+    round: 1,
+    stepPosition: 1,
     phaseYear: 2026,
     scope: structuredClone(SCOPE),
     status: 'running',
@@ -208,6 +211,9 @@ function memberRow(timelineId: number, resultCode: number): TimelineResult {
     endedAt: null,
     endReason: null,
     activeKey: `1#${resultCode}`,
+    entryRound: 1,
+    previousMembershipId: null,
+    changedFields: null,
   };
 }
 
@@ -387,8 +393,12 @@ describe('LoadsService.preview (FR-1)', () => {
     expect(preview).toEqual({
       phaseYear: 2026,
       window: 'open',
+      round: 1,
+      stepPosition: 1,
       toLoad: {
         total: 408,
+        new: 408,
+        resubmitted: 0,
         byProgram: [
           { programId: 2, code: 'SP02', count: 300 },
           { programId: 3, code: 'SP03', count: 108 },
@@ -398,6 +408,7 @@ describe('LoadsService.preview (FR-1)', () => {
           { key: 'policy_change', count: 258 },
         ],
       },
+      returnedNotResubmitted: { total: 0, byProgram: [], byResultType: [] },
       kpGroups: { notInQa: 50, autoChecked: 50, review: 50 },
       skipped: [
         {
@@ -542,7 +553,16 @@ describe('LoadsService.preview (FR-1)', () => {
     expect(preview).toEqual({
       phaseYear: 2026,
       window: 'open',
-      toLoad: { total: 0, byProgram: [], byResultType: [] },
+      round: 1,
+      stepPosition: 1,
+      toLoad: {
+        total: 0,
+        new: 0,
+        resubmitted: 0,
+        byProgram: [],
+        byResultType: [],
+      },
+      returnedNotResubmitted: { total: 0, byProgram: [], byResultType: [] },
       kpGroups: { notInQa: 0, autoChecked: 0, review: 0 },
       skipped: [],
     });
@@ -575,19 +595,355 @@ describe('LoadsService.preview (FR-1)', () => {
     ]);
   });
 
-  it('says the window is closed after step 1 closes, and when the cycle is closed', async () => {
-    const afterClose = new Date('2026-11-20T16:31:00.000Z'); // 17:31 in Rome
-    const lateFeed = new FakeResultsFeed().script('list', pagedList([]));
-    const late = await build({
-      feed: lateFeed,
-      now: afterClose,
-    }).service.preview(ctx, 11);
-    const closedFeed = new FakeResultsFeed().script('list', pagedList([]));
-    const closed = await build({ feed: closedFeed }).service.preview(ctx, 31);
+  // Timeline 11 closes its last step (3) on 2026-12-18 17:30 Rome (UTC+1), so
+  // 16:30 UTC is the closing minute and 16:31 UTC is one minute after (FR-1).
+  it.each([
+    ['step 1 has closed (17:31 in Rome)', '2026-11-20T16:31:00.000Z', 'open'],
+    ['step 2 is in force', '2026-11-24T09:00:00.000Z', 'open'],
+    ['the last closing minute', '2026-12-18T16:30:00.000Z', 'open'],
+    [
+      'one minute after the last step closes',
+      '2026-12-18T16:31:00.000Z',
+      'closed',
+    ],
+  ])('judges the window on the LAST step: %s', async (_name, at, window) => {
+    const feed = new FakeResultsFeed().script('list', pagedList([]));
+    const { service } = build({ feed, now: new Date(at) });
 
-    expect(late.window).toBe('closed');
+    const preview = await service.preview(ctx, 11);
+
+    expect(preview.window).toBe(window);
+  });
+
+  it('says the window is closed when the cycle is closed', async () => {
+    const feed = new FakeResultsFeed().script('list', pagedList([]));
+    const { service } = build({ feed });
+
+    const closed = await service.preview(ctx, 31);
+
     expect(closed.window).toBe('closed');
     expect(closed.phaseYear).toBe(2028);
+  });
+
+  it('says the window is closed once the last step of a timeline whose step 1 closed long ago has closed (timeline 13: 5 Nov)', async () => {
+    const feed = new FakeResultsFeed().script('list', pagedList([]));
+    const { service } = build({ feed });
+
+    expect((await service.preview(ctx, 13)).window).toBe('closed');
+  });
+
+  // FR-2 / FR-10: the round is the stored round of the step in force; step 3 is round 2 here.
+  it.each([
+    ['before step 1 opens', '2026-10-30T09:00:00.000Z', 1, 1],
+    ['step 1 is open', '2026-11-10T08:00:00.000Z', 1, 1],
+    ['step 2 is open', '2026-11-24T09:00:00.000Z', 1, 2],
+    ['step 3 is open', '2026-12-08T09:00:00.000Z', 2, 3],
+  ])(
+    'answers the round and the step position of the step in force: %s',
+    async (_name, at, round, stepPosition) => {
+      const world = seedWorld();
+      world.admin.steps.find((st) => st.id === 113)!.round = 2;
+      const feed = new FakeResultsFeed().script('list', pagedList([]));
+      const { service } = build({ world, feed, now: new Date(at) });
+
+      const preview = await service.preview(ctx, 11);
+
+      expect(preview).toMatchObject({ window: 'open', round, stepPosition });
+    },
+  );
+
+  describe('in round 2 (FR-4, FR-7, FR-9, S-6, S-9)', () => {
+    // Step 3 (round 2) is in force on 2026-12-08. Codes 1201-1209, id = code + 4000.
+    const RETURNED_AT = new Date('2026-11-25T10:00:00.000Z');
+    const NOW_ROUND_2 = new Date('2026-12-08T09:00:00.000Z');
+
+    function round2World() {
+      const world = seedWorld();
+      world.admin.steps.find((st) => st.id === 113)!.round = 2;
+      const returned = (
+        timelineId: number,
+        resultCode: number,
+        over: Partial<TimelineResult>,
+      ) =>
+        world.results.push({
+          ...memberRow(timelineId, resultCode),
+          id: world.nextResultId(),
+          entryRound: 1,
+          endReason: 'returned',
+          endedAt: RETURNED_AT,
+          activeKey: null,
+          ...over,
+        });
+      // A, B: policy changes of SP03; C, D, E: KPs of SP02 returned in review;
+      // F: a policy change of SP03; H: returned in timeline 12 (August 2026).
+      returned(11, 1201, { programClarisaId: 3 });
+      returned(11, 1202, { programClarisaId: 3 });
+      returned(11, 1203, {
+        programClarisaId: 2,
+        resultTypeKey: 'knowledge_product',
+        kpGroup: 'review',
+      });
+      returned(11, 1204, {
+        programClarisaId: 2,
+        resultTypeKey: 'knowledge_product',
+        kpGroup: 'review',
+      });
+      returned(11, 1205, {
+        programClarisaId: 2,
+        resultTypeKey: 'knowledge_product',
+        kpGroup: 'review',
+      });
+      returned(11, 1207, { programClarisaId: 3 });
+      returned(12, 1209, { programClarisaId: 3 });
+      return world;
+    }
+
+    const listed = (n: number, over: Partial<FeedListItem>): FeedListItem => ({
+      ...feedItem(n),
+      ...over,
+    });
+
+    // 1201 A re-submitted (one second after the return), 1202 B listed with the
+    // date of the return, 1203 C not listed, 1204 D a KP re-submitted, 1205 E a
+    // KP re-submitted as a policy change, 1207 F a policy change re-submitted as a
+    // KP, 1208 G new, 1209 H returned in timeline 12.
+    const feedItems = () => [
+      listed(201, {
+        program: { clarisaId: 3, code: 'SP03' },
+        resultTypeKey: 'policy_change',
+        submittedAt: '2026-11-25T10:00:01.000Z',
+      }),
+      listed(202, {
+        program: { clarisaId: 3, code: 'SP03' },
+        resultTypeKey: 'policy_change',
+        submittedAt: '2026-11-25T10:00:00.000Z',
+      }),
+      listed(204, {
+        resultTypeKey: 'knowledge_product',
+        submittedAt: '2026-12-01T09:00:00.000Z',
+      }),
+      listed(205, {
+        resultTypeKey: 'policy_change',
+        submittedAt: '2026-12-01T09:00:00.000Z',
+      }),
+      listed(207, {
+        program: { clarisaId: 3, code: 'SP03' },
+        resultTypeKey: 'knowledge_product',
+        submittedAt: '2026-12-01T09:00:00.000Z',
+      }),
+      listed(208, { resultTypeKey: 'knowledge_product' }),
+      listed(209, {
+        program: { clarisaId: 3, code: 'SP03' },
+        resultTypeKey: 'policy_change',
+        submittedAt: '2026-12-01T09:00:00.000Z',
+      }),
+    ];
+
+    it('counts new and re-submitted, keeps the KP group of a re-submission of the same type, classifies the rest, and counts every returned result not re-submitted', async () => {
+      const feed = new FakeResultsFeed()
+        .script('list', pagedList(feedItems()))
+        .script('details', kpDetails);
+      const { service } = build({
+        world: round2World(),
+        feed,
+        now: NOW_ROUND_2,
+      });
+
+      const preview = await service.preview(ctx, 11);
+
+      expect(preview).toEqual({
+        phaseYear: 2026,
+        window: 'open',
+        round: 2,
+        stepPosition: 3,
+        // A, D, E, F are re-submitted; G is new.
+        toLoad: {
+          total: 5,
+          new: 1,
+          resubmitted: 4,
+          byProgram: [
+            { programId: 2, code: 'SP02', count: 3 },
+            { programId: 3, code: 'SP03', count: 2 },
+          ],
+          byResultType: [
+            { key: 'knowledge_product', count: 3 },
+            { key: 'policy_change', count: 2 },
+          ],
+        },
+        // A, B, C, D, E and F were returned here; A, D, E and F are taken as
+        // re-submitted, so the sync will give them a round-2 membership and they
+        // are not counted (FR-9, "the same counts"). B (listed, not re-submitted:
+        // SP03, policy change) and C (not listed: SP02, KP) remain, each under
+        // its round-1 program and type; the codes come from the feed's programs.
+        returnedNotResubmitted: {
+          total: 2,
+          byProgram: [
+            { programId: 2, code: 'SP02', count: 1 },
+            { programId: 3, code: 'SP03', count: 1 },
+          ],
+          byResultType: [
+            { key: 'knowledge_product', count: 1 },
+            { key: 'policy_change', count: 1 },
+          ],
+        },
+        // D keeps `review` although its details would classify as auto-checked
+        // (S-9 a); E has no group (S-9 b); F is classified as a new KP and is
+        // auto-checked (S-9 c); G is a new KP, not in QA.
+        kpGroups: { notInQa: 1, autoChecked: 1, review: 1 },
+        skipped: [
+          {
+            reason: 'ACTIVE_IN_OTHER_TIMELINE',
+            count: 1,
+            timelines: [{ id: 12, name: 'August 2026', count: 1 }],
+          },
+          { reason: 'RETURNED_NOT_RESUBMITTED', count: 1 },
+        ],
+      });
+    });
+
+    it('asks details of the KPs it would take only, in one lot, and never calls intake or release', async () => {
+      const feed = new FakeResultsFeed()
+        .script('list', pagedList(feedItems()))
+        .script('details', kpDetails);
+      const { service } = build({
+        world: round2World(),
+        feed,
+        now: NOW_ROUND_2,
+      });
+
+      await service.preview(ctx, 11);
+
+      const lots = feed.callsOf('details') as FeedDetailsQuery[];
+      expect(lots.map((q) => q.resultIds)).toEqual([[5204, 5207, 5208]]);
+      expect(feed.callsOf('intake')).toEqual([]);
+      expect(feed.callsOf('release')).toEqual([]);
+    });
+
+    // FR-9 scenario "Unsubmitted program": 3 returned; 1 re-submitted, 1 still
+    // Submitted with the old date, 1 unsubmitted (not listed).
+    it('counts 2 returned and not re-submitted when 3 were returned and 1 is re-submitted: the old date and the unlisted one, split by round-1 program and type', async () => {
+      const world = seedWorld();
+      world.admin.steps.find((st) => st.id === 113)!.round = 2;
+      const returned = (resultCode: number, over: Partial<TimelineResult>) =>
+        world.results.push({
+          ...memberRow(11, resultCode),
+          id: world.nextResultId(),
+          entryRound: 1,
+          endReason: 'returned',
+          endedAt: RETURNED_AT,
+          activeKey: null,
+          ...over,
+        });
+      returned(1301, { programClarisaId: 3 });
+      returned(1302, {
+        programClarisaId: 2,
+        resultTypeKey: 'knowledge_product',
+      });
+      returned(1303, { programClarisaId: 3 });
+      const feed = new FakeResultsFeed().script(
+        'list',
+        pagedList([
+          listed(301, {
+            program: { clarisaId: 3, code: 'SP03' },
+            resultTypeKey: 'policy_change',
+            submittedAt: '2026-11-25T10:00:01.000Z',
+          }),
+          listed(302, {
+            program: { clarisaId: 2, code: 'SP02' },
+            resultTypeKey: 'knowledge_product',
+            submittedAt: '2026-11-25T10:00:00.000Z',
+          }),
+        ]),
+      );
+      const { service } = build({ world, feed, now: NOW_ROUND_2 });
+
+      const preview = await service.preview(ctx, 11);
+
+      expect(preview.toLoad).toMatchObject({
+        total: 1,
+        new: 0,
+        resubmitted: 1,
+      });
+      expect(preview.skipped).toEqual([
+        { reason: 'RETURNED_NOT_RESUBMITTED', count: 1 },
+      ]);
+      // 1302 (listed, old date) and 1303 (not listed); 1301 is re-submitted.
+      expect(preview.returnedNotResubmitted).toEqual({
+        total: 2,
+        byProgram: [
+          { programId: 2, code: 'SP02', count: 1 },
+          { programId: 3, code: 'SP03', count: 1 },
+        ],
+        byResultType: [
+          { key: 'knowledge_product', count: 1 },
+          { key: 'policy_change', count: 1 },
+        ],
+      });
+    });
+
+    it('does not count a re-submitted result that Reporting no longer finds eligible: the sync will not take it, so it stays returned and not re-submitted', async () => {
+      const world = seedWorld();
+      world.admin.steps.find((st) => st.id === 113)!.round = 2;
+      world.results.push({
+        ...memberRow(11, 1204),
+        id: world.nextResultId(),
+        entryRound: 1,
+        endReason: 'returned',
+        endedAt: RETURNED_AT,
+        activeKey: null,
+        programClarisaId: 2,
+        resultTypeKey: 'knowledge_product',
+        kpGroup: 'review',
+      });
+      const kp = listed(204, {
+        resultTypeKey: 'knowledge_product',
+        submittedAt: '2026-12-01T09:00:00.000Z',
+      });
+      const feed = new FakeResultsFeed()
+        .script('list', pagedList([kp]))
+        .script('details', () => ({
+          phase: 2026,
+          catalogVersion: '1.29',
+          results: [],
+          notEligible: [{ resultId: kp.resultId, reason: 'NOT_SUBMITTED' }],
+        }));
+      const { service } = build({ world, feed, now: NOW_ROUND_2 });
+
+      const preview = await service.preview(ctx, 11);
+
+      expect(preview.toLoad).toMatchObject({ total: 0, resubmitted: 0 });
+      expect(preview.returnedNotResubmitted).toEqual({
+        total: 1,
+        byProgram: [{ programId: 2, code: 'SP02', count: 1 }],
+        byResultType: [{ key: 'knowledge_product', count: 1 }],
+      });
+    });
+
+    it('reads the same listing as round 1 when the timeline has no returned result: nothing is re-submitted and the count is 0', async () => {
+      const world = seedWorld();
+      world.admin.steps.find((st) => st.id === 113)!.round = 2;
+      const feed = new FakeResultsFeed()
+        .script(
+          'list',
+          pagedList([listed(210, { resultTypeKey: 'policy_change' })]),
+        )
+        .script('details', kpDetails);
+      const { service } = build({ world, feed, now: NOW_ROUND_2 });
+
+      const preview = await service.preview(ctx, 11);
+
+      expect(preview.round).toBe(2);
+      expect(preview.toLoad).toMatchObject({
+        total: 1,
+        new: 1,
+        resubmitted: 0,
+      });
+      expect(preview.returnedNotResubmitted).toEqual({
+        total: 0,
+        byProgram: [],
+        byResultType: [],
+      });
+    });
   });
 
   it('answers 404 TIMELINES_NOT_FOUND without calling Reporting', async () => {
@@ -1053,7 +1409,30 @@ describe('LoadsService.list and get (FR-10, FR-9)', () => {
       finishedAt: '2026-11-09T10:05:00.000Z',
       startedBy: { id: 9, nickname: null },
       failureReason: null,
+      // A row without a round reads as round 1, step 1 (FR-10).
+      round: 1,
+      stepPosition: 1,
     });
+  });
+
+  it('shows the round and the step position the load was recorded with', async () => {
+    const world = seedWorld();
+    world.loads.push(
+      loadRow({
+        id: 7,
+        timelineId: 11,
+        status: 'completed',
+        round: 2,
+        stepPosition: 4,
+      }),
+    );
+    const { service } = build({ world });
+
+    const [item] = await service.list(ctx, 11);
+    const detail = await service.get(ctx, 11, 7);
+
+    expect([item!.round, item!.stepPosition]).toEqual([2, 4]);
+    expect([detail.round, detail.stepPosition]).toEqual([2, 4]);
   });
 
   it('reads a running load whose heartbeat is 6 minutes old as failed / ABANDONED, in the list and in the detail', async () => {
@@ -1088,7 +1467,7 @@ describe('LoadsService.list and get (FR-10, FR-9)', () => {
     expect((await service.get(ctx, 11, 5)).status).toBe('running');
   });
 
-  it('answers the detail with the summary: by program, type, KP group and skips with the other timelines named', async () => {
+  it('answers the detail with the summary of a load recorded before rounds: all new, round 1, no returned result counted (FR-10)', async () => {
     const world = seedWorld();
     world.loads.push(
       loadRow({
@@ -1111,6 +1490,10 @@ describe('LoadsService.list and get (FR-10, FR-9)', () => {
 
     expect(summary).toEqual({
       loaded: 7,
+      loadedNew: 7,
+      loadedResubmitted: 0,
+      round: 1,
+      returnedNotResubmitted: { total: 0, byProgram: [], byResultType: [] },
       byProgram: [
         { programId: 2, count: 5 },
         { programId: 3, count: 2 },
@@ -1131,6 +1514,57 @@ describe('LoadsService.list and get (FR-10, FR-9)', () => {
     });
   });
 
+  it('answers the new summary keys of a round-2 load as stored', async () => {
+    const world = seedWorld();
+    world.loads.push(
+      loadRow({
+        id: 8,
+        timelineId: 11,
+        status: 'completed',
+        round: 2,
+        stepPosition: 3,
+        summary: {
+          loaded: 5,
+          loadedNew: 2,
+          loadedResubmitted: 3,
+          round: 2,
+          byProgram: { '2': 5 },
+          byType: { policy_change: 5 },
+          kpGroups: {},
+          skipped: { RETURNED_NOT_RESUBMITTED: 1 },
+          otherTimelines: {},
+          returnedNotResubmitted: {
+            total: 3,
+            byProgram: { '3': 2, '2': 1 },
+            byType: { policy_change: 2, knowledge_product: 1 },
+          },
+        },
+      }),
+    );
+    const { service } = build({ world });
+
+    const { summary } = await service.get(ctx, 11, 8);
+
+    expect(summary).toMatchObject({
+      loaded: 5,
+      loadedNew: 2,
+      loadedResubmitted: 3,
+      round: 2,
+      returnedNotResubmitted: {
+        total: 3,
+        byProgram: [
+          { programId: 2, count: 1 },
+          { programId: 3, count: 2 },
+        ],
+        byResultType: [
+          { key: 'knowledge_product', count: 1 },
+          { key: 'policy_change', count: 2 },
+        ],
+      },
+      skipped: [{ reason: 'RETURNED_NOT_RESUBMITTED', count: 1 }],
+    });
+  });
+
   it('answers an empty summary for a load that has not recorded a lot yet', async () => {
     const world = seedWorld();
     world.loads.push(loadRow({ id: 5, timelineId: 11 }));
@@ -1138,6 +1572,10 @@ describe('LoadsService.list and get (FR-10, FR-9)', () => {
 
     expect((await service.get(ctx, 11, 5)).summary).toEqual({
       loaded: 0,
+      loadedNew: 0,
+      loadedResubmitted: 0,
+      round: 1,
+      returnedNotResubmitted: { total: 0, byProgram: [], byResultType: [] },
       byProgram: [],
       byResultType: [],
       kpGroups: { notInQa: 0, autoChecked: 0, review: 0 },

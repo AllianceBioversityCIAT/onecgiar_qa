@@ -1,4 +1,5 @@
 // @akili-spec ingestion/step-1-loads
+// @akili-spec ingestion/timeline-sync
 import {
   applyDecorators,
   Body,
@@ -95,7 +96,7 @@ const ApiAcceptedEnvelope = (
   );
 
 /**
- * The step-1 loads API (design 6; FR-1, FR-2, FR-10, FR-12, FR-13).
+ * The loads API (step-1 design 6; FR-1, FR-2, FR-10, FR-12, FR-13; timeline-sync design 6).
  * `ADMIN_ACCESS` on the whole class: the global `PermissionGuard` refuses
  * everyone else before any handler, pipe or lookup runs, so Reporting is never
  * called for another role. The start is idempotent per `Idempotency-Key` and
@@ -124,9 +125,9 @@ export class LoadsController {
 
   // `preview` is declared before `:loadId` so the literal wins the route.
   @ApiOperation({
-    summary: 'Preview a step-1 load',
+    summary: 'Preview a timeline sync',
     description:
-      'What a load of the timeline would do now: how many results it would bring in (by program and result type), the KP groups, and what it would skip and why. Reads the timeline and Reporting; writes nothing, in QA or in Reporting. `window` is `closed` when the start would be refused.',
+      "What a sync of the timeline would do now: its `round` and `stepPosition`, how many results it would bring in (new and re-submitted, by program and result type), the KP groups, the results this timeline returned that are not yet re-submitted, and what it would skip and why. Reads the timeline, QA's memberships and Reporting; writes nothing, in QA or in Reporting. `window` is `closed` when the start would be refused: the cycle is closed, or the last step of the timeline has closed.",
   })
   @ApiOkEnvelope(LoadPreviewModel)
   @ApiErrorResponses({
@@ -146,9 +147,9 @@ export class LoadsController {
   }
 
   @ApiOperation({
-    summary: 'Start a step-1 load',
+    summary: 'Start a timeline sync',
     description:
-      'Records the load as `running` and answers 202 with its id; the run continues in the background and is read with the two GET routes. One load runs per cycle. Reporting must answer a first check, otherwise 503 and nothing is written. Idempotent per `Idempotency-Key`: a repeat returns the same load id and starts no second load.',
+      'Allowed while the cycle is not closed and the last step of the timeline has not closed (its closing minute is still open); before step 1 opens it is accepted as round 1. Records the load as `running`, with the round and step position in force, and answers 202 with its id; the run continues in the background and is read with the two GET routes. One load runs per cycle. Reporting must answer a first check, otherwise 503 and nothing is written. Idempotent per `Idempotency-Key`: a repeat returns the same load id and starts no second load.',
   })
   @ApiAcceptedEnvelope(StartedLoadModel, IDEMPOTENCY_REPLAYED_HEADERS)
   @ApiErrorResponses(
@@ -179,9 +180,9 @@ export class LoadsController {
   }
 
   @ApiOperation({
-    summary: 'List the loads of a timeline',
+    summary: 'List the syncs of a timeline',
     description:
-      'Newest first. A `running` load whose heartbeat expired reads `failed` with `ABANDONED`. Poll every 2 seconds while one is `running`.',
+      'Newest first, each with its `round` and `stepPosition`. A `running` load whose heartbeat expired reads `failed` with `ABANDONED`. Poll every 2 seconds while one is `running`.',
   })
   @ApiOkEnvelope(listOf(LoadItemModel), { extraModels: [LoadItemModel] })
   @ApiErrorResponses({
@@ -201,7 +202,7 @@ export class LoadsController {
   @ApiOperation({
     summary: 'Read one load',
     description:
-      'The load as listed, plus its summary: loaded by program and result type, the KP groups, and the skips by reason with the other timelines named.',
+      'The load as listed, plus its summary: loaded (new and re-submitted) by program and result type, the KP groups, the results returned and not re-submitted, and the skips by reason with the other timelines named.',
   })
   @ApiOkEnvelope(LoadDetailModel)
   @ApiErrorResponses({
