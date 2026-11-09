@@ -210,4 +210,4 @@
   - spawns: implementer 14 calls, 85,974 tokens, ended complete; reviewer — not reported by host
   - runtime events: none
 - **Issues encountered:** `npx prettier --check` flags `src/ingestion/dynamo-snapshot-store.ts` (T-5 file, untouched here; lint passes).
-- **Running totals vs budget:** tasks 6/8 · production LOC ≈ 770 / ≈ 1,000 · review rounds 12 / ≈ 12 — at budget; T-7 (full) and T-8 (checklist) remain → projected ≈ 14 (above by ~2, approved to continue by the back lead at this gate).
+- **Running totals vs budget:** tasks 6/8 · production LOC ≈ 770 / ≈ 1,000 · review rounds 12 / ≈ 12 — at budget; T-7 (full) and T-8 (checklist) remain → projected ≈ 14 (above by ~2). Not yet exceeded; the tripwire fires at T-7's finalize if its review is the 13th round.
