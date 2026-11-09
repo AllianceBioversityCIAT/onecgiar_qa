@@ -3,12 +3,16 @@ import { QaButtonImports, QaDrawerImports, QaLoadingImports } from '../../../ui'
 import { FinishedLoad } from './cycle-loads';
 import { formatNumber } from './cycle.logic';
 import { LoadDrawerNames } from './load-drawer';
+import { LoadReturned } from './load-returned';
 import { failureLabel, skipLabel } from './load.copy';
 
-/** What a load did when it ended: loaded (by program and type), skipped with reason, auto-validated KPs. */
+/**
+ * What a sync did when it ended, in the round it entered: loaded (new and re-submitted, by program and type),
+ * skipped with reason, auto-validated KPs, and results returned in round 1 not submitted again.
+ */
 @Component({
   selector: 'qa-cycle-load-summary-drawer',
-  imports: [QaButtonImports, QaDrawerImports, QaLoadingImports],
+  imports: [QaButtonImports, QaDrawerImports, QaLoadingImports, LoadReturned],
   template: `
     <qa-drawer [(open)]="open" [title]="title()" [subtitle]="subtitle()" width="720px">
       @if (open() && load(); as l) {
@@ -24,6 +28,12 @@ import { failureLabel, skipLabel } from './load.copy';
             </div>
           }
         </div>
+        @if (s.loadedResubmitted > 0) {
+          <p class="m-0 text-(length:--fs-13) leading-[1.55] text-(--text-2)">
+            <span class="font-(family-name:--qa-mono) font-semibold text-(--text) tabular-nums">{{ fmt(s.loadedNew) }}</span> new and
+            <span class="font-(family-name:--qa-mono) font-semibold text-(--text) tabular-nums">{{ fmt(s.loadedResubmitted) }}</span> submitted again after being returned in round 1.
+          </p>
+        }
         @if (s.byProgram.length) {
           <div class="grid gap-6 sm:grid-cols-2">
             <div>
@@ -63,6 +73,9 @@ import { failureLabel, skipLabel } from './load.copy';
             </ul>
           </div>
         }
+        @if (s.returnedNotResubmitted?.total) {
+          <qa-cycle-load-returned [returned]="s.returnedNotResubmitted" [names]="names()" />
+        }
       }
       <div qaDrawerFooter class="contents">
         <button hlmBtn qaBtn tone="primary" type="button" (click)="open.set(false)">Done</button>
@@ -80,13 +93,16 @@ export class LoadSummaryDrawer {
   protected readonly failure = failureLabel;
 
   protected readonly title = computed(() => (this.load()?.detail.status === 'failed' ? 'The load stopped' : 'Results loaded'));
-  protected readonly subtitle = computed(() => (this.load() ? `${this.load()!.timelineName} · step 1` : ''));
+  protected readonly subtitle = computed(() => {
+    const l = this.load();
+    return l ? `${l.timelineName} · QA round ${l.detail.round}, step ${l.detail.stepPosition}` : '';
+  });
   protected readonly totals = computed(() => {
     const s = this.load()?.detail.summary;
     if (!s) return [];
     const skipped = s.skipped.reduce((n, r) => n + r.count, 0);
     const totals = [
-      { label: 'loaded into step 1', value: s.loaded },
+      { label: 'loaded', value: s.loaded },
       { label: 'skipped', value: skipped },
     ];
     // Knowledge products are released as QAed only when the load completes (contract § 6).

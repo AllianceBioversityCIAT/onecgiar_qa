@@ -5,7 +5,7 @@ import { CycleSkeleton } from './cycle-skeleton';
 import { CycleStore, TimelineSaveOutcome } from './cycle-store';
 import { CycleLoads } from './cycle-loads';
 import { Timeline } from './cycle.mock';
-import { MenuAction, formatNumber, loadTargets, stepRow, stepState, timelineStart, timelineVM } from './cycle.logic';
+import { MenuAction, formatNumber, isStepInForce, loadTargets, stepRow, stepState, timelineStart, timelineVM } from './cycle.logic';
 import { nowInRome } from '../../../core/domain/rome-date';
 import { LoadDrawer, LoadDrawerNames, RunRequest } from './load-drawer';
 import { LoadSummaryDrawer } from './load-summary-drawer';
@@ -22,7 +22,8 @@ const EMPTY_TIMELINE: Timeline = { id: '', name: '', kind: 'Sub-timeline', statu
 
 /**
  * "Cycle" view: the active cycle's official timeline, its live / closed sub-timelines and their
- * drawers, on the cycles API (P2-3934 create and view, P2-3937 edit) and the step-1 loads API (P2-4064).
+ * drawers, on the cycles API (P2-3934 create and view, P2-3937 edit) and the loads API: step-1 loads (P2-4064),
+ * then sync at any step into the round in force (P2-3906, contract timeline-sync).
  * Results, export, test timelines, close, reopen and extended access have no API yet: "Coming soon".
  */
 @Component({
@@ -55,14 +56,14 @@ export class CycleView implements OnInit {
   private readonly closedList = computed(() => this.subs().filter((t) => t.status === 'Closed').sort(byStartDesc));
   protected readonly liveVMs = computed(() => this.liveList().map((t) => timelineVM(t, this.loadable().has(t.id))));
   protected readonly closedVMs = computed(() => this.closedList().map((t) => timelineVM(t)));
-  /** Ids of the timelines whose step 1 can take a load now (none while a load runs or the cycle is closed). */
+  /** Ids of the timelines that can take a sync now: until their last step closes (none while a load runs or the cycle is closed). */
   private readonly loadable = computed(
     () => new Set(this.canLoad() ? loadTargets(this.store.timelines(), nowInRome()).map((t) => t.id) : []),
   );
-  /** The step drawer offers "Load results into this step" on step 1 of a loadable timeline. */
+  /** The step drawer offers "Load results into this step" on the step in force of a loadable timeline (where the sync goes). */
   protected readonly stepLoadable = computed(() => {
     const r = this.stepRequest();
-    return (r.index ?? 0) === 0 && this.loadable().has(r.timeline.id);
+    return this.loadable().has(r.timeline.id) && isStepInForce(r.timeline, r.index, nowInRome());
   });
   protected readonly closedTotal = computed(() => this.closedList().length);
 
@@ -70,7 +71,7 @@ export class CycleView implements OnInit {
   protected readonly loadOpen = signal(false);
   protected readonly loadRequest = signal<RunRequest>({ timelineId: null, fromStep: false });
   protected readonly loadError = signal<string | null>(null);
-  /** Timelines whose step 1 can still take results (computed when the drawer opens: the clock moves). */
+  /** Timelines that can still take a sync (computed when the drawer opens: the clock moves). */
   protected readonly loadTargetList = signal<readonly Timeline[]>([]);
   protected readonly summaryOpen = signal(false);
   /** Program and result type names for the load drawers (ids when a catalog is missing). */

@@ -30,10 +30,22 @@ const item = (over: Partial<LoadItem> = {}): LoadItem => ({
   finishedAt: null,
   startedBy: { id: 7, nickname: null },
   failureReason: null,
+  round: 1,
+  stepPosition: 1,
   ...over,
 });
 
-const summary = { loaded: 33, byProgram: [], byResultType: [], kpGroups: { notInQa: 0, autoChecked: 1, review: 2 }, skipped: [] };
+const summary = {
+  loaded: 33,
+  loadedNew: 33,
+  loadedResubmitted: 0,
+  round: 1,
+  returnedNotResubmitted: { total: 0, byProgram: [], byResultType: [] },
+  byProgram: [],
+  byResultType: [],
+  kpGroups: { notInQa: 0, autoChecked: 1, review: 2 },
+  skipped: [],
+};
 
 describe('CycleLoads', () => {
   let starts: Subject<LoadStarted>;

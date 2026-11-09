@@ -34,7 +34,7 @@ export interface FinishedLoad {
 export type LoadStartOutcome = { readonly ok: true } | { readonly ok: false; readonly message: string };
 
 /**
- * Step-1 loads of the Cycle view (provided by the view, next to `CycleStore`): start one, follow it every
+ * Loads (syncs) of the Cycle view (provided by the view, next to `CycleStore`): start one, follow it every
  * 2 s on `GET /timelines/:id/loads`, read its summary once when it ends, then refresh the timelines (their
  * steps stop waiting for results). One load runs per cycle on the server.
  */
