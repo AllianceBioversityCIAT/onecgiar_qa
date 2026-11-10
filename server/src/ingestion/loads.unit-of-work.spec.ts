@@ -3652,7 +3652,7 @@ describe('a round-2 membership beside a returned round-1 one (FR-2, FR-5, FR-8)'
       s.sql.startsWith('insert into `timeline_results`'),
     )!;
     expect(insert.sql).toMatch(
-      /`entry_round`, `previous_membership_id`, `changed_fields`\) values/,
+      /`entry_round`, `previous_membership_id`, `changed_fields`, `title`\) values/,
     );
     expect(insert.sql).not.toContain('kind');
     expect(insert.params.slice(-3)).toEqual([2, 7, '["title"]']);

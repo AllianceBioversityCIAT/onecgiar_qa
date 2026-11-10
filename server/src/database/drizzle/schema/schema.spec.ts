@@ -300,8 +300,8 @@ describe('committed migrations', () => {
     .filter((f) => f.endsWith('.sql'))
     .sort();
 
-  it('are exactly nine SQL files', () => {
-    expect(files).toHaveLength(9);
+  it('are exactly ten SQL files', () => {
+    expect(files).toHaveLength(10);
   });
 
   const sql = readFileSync(`${migrationsDir}${files[0]}`, 'utf8');
@@ -1915,6 +1915,7 @@ describe('timeline_results schema (step-1-loads design 5.2, FR-4, FR-5, NFR-6)',
       entry_round: 'tinyint unsigned NOT NULL',
       previous_membership_id: 'bigint unsigned',
       changed_fields: 'json',
+      title: 'varchar(1000) COLLATE utf8mb4_0900_ai_ci',
     });
   });
 
@@ -2272,6 +2273,203 @@ describe('committed migration 0008 (timeline sync rounds)', () => {
         'ALTER TABLE `timeline_loads` DROP CHECK `chk_timeline_loads_step_position`;',
         'ALTER TABLE `timeline_loads` DROP COLUMN `round`, DROP COLUMN `step_position`;',
       ]);
+    });
+  });
+});
+
+// step-1-assessment (design 5): migration 0009. The expected SQL below is
+// written from the design and read from the GENERATED file, never from the TS
+// schema objects, so a schema that drizzle-kit renders differently fails here.
+// ---------------------------------------------------------------------------
+
+describe('committed migration 0009 (assessment)', () => {
+  const files = readdirSync(migrationsDir)
+    .filter((f) => f.endsWith('.sql'))
+    .sort();
+  const read = (path: string) => readFileSync(path, 'utf8');
+  const up = files[9] ? read(`${migrationsDir}${files[9]}`) : '';
+  const statementsOf = (text: string) =>
+    text
+      .replace(/^--(?!>).*$/gm, '')
+      .split('--> statement-breakpoint')
+      .map((x) => x.trim())
+      .filter(Boolean);
+  const downPath = `${migrationsDir}rollback/0009_assessment.down.sql`;
+  const down = existsSync(downPath) ? read(downPath) : '';
+  // The CREATE TABLE statement of one table.
+  const tableSql = (name: string) => {
+    const found = statementsOf(up).find((s) =>
+      s.startsWith(`CREATE TABLE \`${name}\` (`),
+    );
+    expect(found, `CREATE TABLE ${name}`).toBeDefined();
+    return found!;
+  };
+  const enumOf = (members: readonly string[]) =>
+    `enum(${members.map((m) => `'${m}'`).join(',')})`;
+  const COMMENT_STATES = [
+    'open',
+    'withdrawn',
+    'clarification_requested',
+    'accepted',
+    'accepted_with_comment',
+    'disagreed',
+    'escalated',
+    'tpb_sided_program',
+    'tpb_sided_assessor',
+    'done',
+  ];
+
+  it('is named 0009_assessment and is the tenth journal entry', () => {
+    expect(files[9]).toBe('0009_assessment.sql');
+    const journal = JSON.parse(read(`${migrationsDir}meta/_journal.json`)) as {
+      entries: { idx: number; tag: string }[];
+    };
+    expect(journal.entries.map((e) => e.tag)).toEqual(
+      files.map((f) => f.replace(/\.sql$/, '')),
+    );
+    expect(journal.entries[9]).toMatchObject({
+      idx: 9,
+      tag: '0009_assessment',
+    });
+  });
+
+  it('creates exactly the seven assessment tables and drops nothing', () => {
+    expect(
+      [...up.matchAll(/CREATE TABLE `(\w+)`/g)].map((m) => m[1]).sort(),
+    ).toEqual(
+      [
+        'assessment_audit_events',
+        'assessment_comments',
+        'assessment_field_validations',
+        'assessment_releases',
+        'comment_events',
+        'quick_comments',
+        'result_assessments',
+      ].sort(),
+    );
+    expect(up).not.toMatch(/\bDROP\b/);
+  });
+
+  it('allows one assessment per membership and step (FR-17)', () => {
+    expect(tableSql('result_assessments')).toMatch(
+      /CONSTRAINT `uq_result_assessments_membership_step` UNIQUE\(`timeline_result_id`,\s?`step_position`\)/,
+    );
+  });
+
+  it('keeps finished_at, finished_by and the status in step (chk_result_assessments_finished)', () => {
+    expect(tableSql('result_assessments')).toContain(
+      "CONSTRAINT `chk_result_assessments_finished` CHECK((`status` = 'pending' AND `finished_at` IS NULL AND `finished_by` IS NULL) OR (`status` <> 'pending' AND `finished_at` IS NOT NULL AND `finished_by` IS NOT NULL))",
+    );
+  });
+
+  it('types the assessment status exactly as design 5 (FR-19)', () => {
+    expect(tableSql('result_assessments')).toContain(
+      `\`status\` ${enumOf(['pending', 'quality_assessed', 'returned'])} NOT NULL DEFAULT 'pending'`,
+    );
+  });
+
+  it('keys the validations by assessment and field (FR-10)', () => {
+    expect(tableSql('assessment_field_validations')).toMatch(
+      /PRIMARY KEY\(`assessment_id`,\s?`field_key`\)/,
+    );
+  });
+
+  it('allows one release per end (FR-18, NFR-3)', () => {
+    expect(tableSql('assessment_releases')).toMatch(
+      /CONSTRAINT `uq_assessment_releases_assessment` UNIQUE\(`assessment_id`\)/,
+    );
+  });
+
+  it('allows one quick comment per role and body hash (FR-12)', () => {
+    expect(tableSql('quick_comments')).toMatch(
+      /CONSTRAINT `uq_quick_comments_role_hash` UNIQUE\(`role_code`,\s?`body_hash`\)/,
+    );
+  });
+
+  it('ties withdrawn_at to the withdrawn state (chk_comment_withdrawn)', () => {
+    expect(tableSql('assessment_comments')).toContain(
+      "CONSTRAINT `chk_comment_withdrawn` CHECK((`withdrawn_at` IS NULL AND `state` <> 'withdrawn') OR (`withdrawn_at` IS NOT NULL AND `state` = 'withdrawn'))",
+    );
+  });
+
+  it('caps the stored value copy at 64 KiB (NFR-7, chk_value_copy_size)', () => {
+    expect(tableSql('assessment_comments')).toContain(
+      'CONSTRAINT `chk_value_copy_size` CHECK(LENGTH(`value_copy`) <= 65536)',
+    );
+  });
+
+  it('declares every TRD 7.3 comment state, in comments and in their events (DD-10)', () => {
+    expect(tableSql('assessment_comments')).toContain(
+      `\`state\` ${enumOf(COMMENT_STATES)} NOT NULL DEFAULT 'open'`,
+    );
+    expect(tableSql('comment_events')).toContain(
+      `\`from_state\` ${enumOf(COMMENT_STATES)},`,
+    );
+    expect(tableSql('comment_events')).toContain(
+      `\`to_state\` ${enumOf(COMMENT_STATES)} NOT NULL`,
+    );
+  });
+
+  it('types the audit action exactly as design 5 (FR-21)', () => {
+    expect(tableSql('assessment_audit_events')).toContain(
+      `\`action\` ${enumOf([
+        'validate',
+        'unvalidate',
+        'check_all',
+        'uncheck_all',
+        'comment_add',
+        'comment_withdraw',
+        'quick_comment_save',
+        'end_quality_assessed',
+        'end_returned',
+        'release_sent',
+        'release_refused',
+      ])} NOT NULL`,
+    );
+  });
+
+  it('types the release outcome and status exactly as design 5 (FR-18)', () => {
+    const t = tableSql('assessment_releases');
+    expect(t).toContain(`\`outcome\` ${enumOf(['qaed', 'not_qaed'])} NOT NULL`);
+    expect(t).toContain(
+      `\`status\` ${enumOf(['pending', 'sent', 'refused'])} NOT NULL DEFAULT 'pending'`,
+    );
+  });
+
+  it('adds title varchar(1000) with an explicit _ci collation to timeline_results (FR-24)', () => {
+    expect(up).toContain(
+      'ALTER TABLE `timeline_results` ADD `title` varchar(1000) COLLATE utf8mb4_0900_ai_ci;',
+    );
+  });
+
+  it('makes every foreign key ON DELETE no action and keeps every identifier within 64 characters', () => {
+    const fks = [...up.matchAll(/ADD CONSTRAINT `(\w+)` FOREIGN KEY[^;]*;/g)];
+    expect(fks.length).toBeGreaterThan(0);
+    for (const m of fks) {
+      expect(m[0], m[1]).toContain('ON DELETE no action ON UPDATE no action');
+    }
+    for (const m of up.matchAll(/CONSTRAINT `(\w+)`/g)) {
+      expect(m[1].length, m[1]).toBeLessThanOrEqual(64);
+    }
+  });
+
+  describe('rollback/0009_assessment.down.sql', () => {
+    it('drops exactly the seven tables, child first, and then the title column', () => {
+      expect(statementsOf(down)).toEqual([
+        'DROP TABLE `assessment_releases`;',
+        'DROP TABLE `assessment_audit_events`;',
+        'DROP TABLE `comment_events`;',
+        'DROP TABLE `assessment_comments`;',
+        'DROP TABLE `assessment_field_validations`;',
+        'DROP TABLE `quick_comments`;',
+        'DROP TABLE `result_assessments`;',
+        'ALTER TABLE `timeline_results` DROP COLUMN `title`;',
+      ]);
+    });
+
+    it('tells the human it is lossy and to delete the 0009 row of __drizzle_migrations', () => {
+      expect(down).toMatch(/LOSSY/);
+      expect(down).toMatch(/__drizzle_migrations/);
     });
   });
 });

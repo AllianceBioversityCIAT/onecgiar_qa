@@ -40,7 +40,7 @@ Gate edges from **T-1** are listed on the last line of the graph. Nothing else w
 - **Skills:** product-manager-toolkit
 
 ## T-2: Migration `0009_assessment` and Drizzle schemas
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** none
 - **Requirements:** FR-10, FR-11, FR-12, FR-13, FR-17 (one assessment per membership and step), FR-18 (one release per end, NFR-3), FR-19 (state enum), FR-21 (audit enum), FR-24 (title column), NFR-7 (size check)
