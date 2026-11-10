@@ -106,6 +106,9 @@
               <qa-cycle-timeline-card
                 [qaReveal]="$index + 2"
                 [timeline]="t"
+                [collapsible]="true"
+                [expanded]="openBatches().has(t.id)"
+                (expandedChange)="setBatchOpen(t.id, $event)"
                 [canAddStep]="false"
                 [confirmClose]="closeConfirmId() === t.id"
                 (addStep)="openStep(t.id, null)"
@@ -130,7 +133,7 @@
         @if (tab() === 'closed') {
           <div class="flex flex-col gap-5">
             @for (t of closedVMs(); track t.id) {
-              <qa-cycle-timeline-card [qaReveal]="$index" [timeline]="t" (openStep)="openStep(t.id, $event)" (viewProgress)="openProgress(t.id, $event)" />
+              <qa-cycle-timeline-card [qaReveal]="$index" [timeline]="t" [collapsible]="true" [expanded]="openBatches().has(t.id)" (expandedChange)="setBatchOpen(t.id, $event)" (openStep)="openStep(t.id, $event)" (viewProgress)="openProgress(t.id, $event)" />
             } @empty {
               <section class="flex flex-col items-start gap-1 rounded-[12px] border border-(--border) bg-(--surface) px-5 py-6">
                 <h3 class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">No closed complementary batches yet</h3>

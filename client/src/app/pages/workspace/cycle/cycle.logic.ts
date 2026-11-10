@@ -373,3 +373,33 @@ export function timelineVM(t: Timeline, loadable = false): TimelineVM {
     menu,
   };
 }
+
+/** What a collapsed complementary batch says about itself: the step that matters now and its state. */
+export interface TimelineNow {
+  /** "Step 2 of 5 · QA open for Science Programs", or "All 5 steps completed". */
+  step: string;
+  /** Same words as the step card: "In progress", "Waiting for results", "Opens in 3 days", "Completed". */
+  state: string;
+  tone: 'active' | 'waiting' | 'future' | 'done';
+  /** "closes 20 Nov, 23:59 CET" while a step runs; '' otherwise. */
+  when: string;
+}
+
+/**
+ * One line for a collapsed timeline card, read from its view model so it never disagrees with the steps below:
+ * the step in progress, else the step on hold (waiting for results), else the next step to open, else "completed".
+ */
+export function timelineNow(vm: TimelineVM): TimelineNow {
+  const n = vm.steps.length;
+  const label = (s: StepCardVM) => `Step ${s.n} of ${n} · ${s.name}`;
+  const active = vm.steps.find((s) => s.state === 'active');
+  if (active) return { step: label(active), state: 'In progress', tone: 'active', when: active.to ? `closes ${active.to}` : '' };
+  const held = vm.steps.find((s) => s.waiting);
+  if (held) return { step: label(held), state: 'Waiting for results', tone: 'waiting', when: '' };
+  const next = vm.steps.find((s) => s.state === 'future');
+  if (next) {
+    const state = next.days === 0 ? `Opens today at ${next.opensTime}` : `Opens in ${next.days} ${next.dayWord}`;
+    return { step: label(next), state, tone: 'future', when: '' };
+  }
+  return { step: n ? `All ${n} steps completed` : 'No steps yet', state: 'Completed', tone: 'done', when: '' };
+}
