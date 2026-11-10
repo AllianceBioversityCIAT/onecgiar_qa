@@ -93,4 +93,51 @@ describe('TimelineCard — collapsible complementary batch', () => {
     expect(toggle()).toBeNull();
     expect(el().querySelector('[data-testid="timeline-now"]')).toBeNull();
   });
+
+  describe('what needs the admin', () => {
+    const none = { ASSESSOR: 0, LEAD_ASSESSOR: 0, TPB: 0, PPU: 0 };
+    const withActions = () => {
+      const actions: string[] = [];
+      fixture.componentInstance.menuAction.subscribe((a) => actions.push(a));
+      return actions;
+    };
+
+    it('a step nobody can work: warning on the step and "Assign people" asks the view for People', () => {
+      const t: Timeline = { ...LIVE, steps: LIVE.steps.map((p, i) => (i === 1 ? { ...p, audienceKey: 'assessors' as const } : p)), assigned: none };
+      fixture.componentRef.setInput('timeline', timelineVM(t));
+      fixture.detectChanges();
+      const actions = withActions();
+
+      expect(el().textContent).toContain('No assessors assigned');
+      [...el().querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Assign people')!.click();
+      expect(actions).toEqual(['people']);
+    });
+
+    it('collapsed, the one-line summary also says nobody is assigned', () => {
+      const t: Timeline = { ...LIVE, steps: LIVE.steps.map((p, i) => (i === 1 ? { ...p, audienceKey: 'assessors' as const } : p)), assigned: none };
+      fixture.componentRef.setInput('timeline', timelineVM(t));
+      fixture.componentRef.setInput('collapsible', true);
+      fixture.componentRef.setInput('expanded', false);
+      fixture.detectChanges();
+
+      expect(el().querySelector('[data-testid="timeline-now"]')?.textContent).toContain('No one assigned');
+    });
+
+    it('on hold and able to load: a "Load results" button on the card runs the load action', () => {
+      const held: Timeline = { ...LIVE, status: 'Waiting for results', steps: LIVE.steps.map((p) => ({ ...p, state: 'upcoming' as const })) };
+      fixture.componentRef.setInput('timeline', timelineVM(held, true));
+      fixture.detectChanges();
+      const actions = withActions();
+
+      [...el().querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Load results')!.click();
+      expect(actions).toEqual(['add-results']);
+    });
+
+    it('no "Load results" button when the timeline cannot take a sync now', () => {
+      const held: Timeline = { ...LIVE, status: 'Waiting for results', steps: LIVE.steps.map((p) => ({ ...p, state: 'upcoming' as const })) };
+      fixture.componentRef.setInput('timeline', timelineVM(held, false));
+      fixture.detectChanges();
+      expect([...el().querySelectorAll('button')].some((b) => b.textContent?.trim() === 'Load results')).toBe(false);
+    });
+  });
 });

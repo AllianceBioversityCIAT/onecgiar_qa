@@ -98,6 +98,7 @@ export function toViewTimeline(t: ApiTimeline, cat: CycleCatalogs): Timeline {
     name: t.name,
     kind: official ? 'Official' : 'Sub-timeline',
     status: STATUS[t.status] ?? 'Scheduled',
+    assigned: t.assignedCount,
     // Loads are not built yet (P2-3905): no timeline holds results.
     results: 0,
     programs: t.allPrograms ? [] : codes,
