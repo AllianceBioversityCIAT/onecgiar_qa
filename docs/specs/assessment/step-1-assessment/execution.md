@@ -216,3 +216,85 @@ Within budget.
 | Review rounds | 4 | 26 |
 
 Within budget.
+
+### T-5: Ingestion — title copy, `endAsReleasedQaed`, count inside `end()` — PASS
+
+| | |
+|---|---|
+| Date | 2026-11-10 |
+| Final status | PASS (attempt 1 of 1) |
+| Requirements covered | FR-24 (title stored; `returnedNotResubmitted` counted in the end transaction), FR-18 (store method `endAsReleasedQaed` only; no caller until T-12) |
+| Skills | nestjs-expert, tdd (as task) |
+| Effort | `xhigh`, raised above `medium` because the task moves a count into a transaction and needs a real interleaving test (effort dial: concurrency) |
+| Review mode | parallel lens reviewers (2): concurrency + reliability, regression + risk; each with baseline conformance |
+
+**Attempt 1**
+
+- **Files changed** (under `server/`):
+  - `src/ingestion/load-runner.ts` (title on the membership; both pre-counts removed);
+  - `src/ingestion/loads.unit-of-work.ts` (`end()` counts on the transaction handle after the load-row lock; `EndLoadCommand.returnedNotResubmitted` removed);
+  - `src/ingestion/loads.store.ts` (`endAsReleasedQaed`);
+  - `test/support/in-memory-loads.ts`;
+  - specs: `src/ingestion/load-runner.spec.ts`, `src/ingestion/loads.unit-of-work.spec.ts`.
+
+  `loads.service.ts` (the preview, P-2) is untouched. About 94 production lines.
+- **Implementer verification:**
+  - lint and build clean;
+  - unit: `Test Files 76 passed | 1 skipped (77)`, `Tests 3246 passed | 6 skipped (3252)`;
+  - e2e (focused): `ingestion-loads`, `ingestion-loads-privacy`, `openapi`: 96 passed. The full `pnpm test:e2e` was blocked twice by the host resource guard (RAM below 4,500 MB) and reported under *Not Done* as owed.
+- **Red runs (observed):**
+  - title: `load-runner.spec.ts -t "the title of the membership"` → 4 failed, e.g. `expected null to be 'Climate-smart rice in the Mekong'`;
+  - interleaving against the old code: `loads.unit-of-work.spec.ts -t "is read inside the end transaction"` → 3 failed, e.g. `expected { total: 0, byProgram: {}, byType: {} } to deeply equal { total: 2, … }`. This red differs from the prediction: it comes from `end()` not counting at all, because the count was the runner's;
+  - store: first run against a stub returning `not_found` → 3 failed, e.g. `expected { ended: false, reason: 'not_found' } to deeply equal { ended: true }`.
+- **Falsifiers (observed red, then restored):**
+  1. M1, the count in a separate transaction before the end: `loads.unit-of-work.spec.ts` → 2 failed. The deferred-interleaving test failed at `expect(storedCount(world)).toEqual(await world.store.countReturnedNotResubmitted(11))`: stored `total:2`, rows say `total:1`.
+  2. M2, `IS NULL` dropped from `endAsReleasedQaed`: `-t endAsReleasedQaed` → 3 failed: expected `where (id = ? and ended_at is null)`, received `where id = ?`.
+- **Evidence re-run (Leader inline):** lint, build and unit give the same counts. **VERIFIED.** The full e2e, blocked for the Leader too (4 attempts, about 3.7 GB free), was then run with `RG_FORCE=1` at the user's explicit authorization: `Test Files 16 passed (16)`, `Tests 968 passed (968)`. The owed item is closed.
+- **Reviewer verdicts:** concurrency + reliability **PASS**; regression + risk **PASS**.
+  - The count runs on the transaction's own handle after `lockLoadInStartOrder` (`loads.unit-of-work.ts:648`). The stub test pins `via === 'tx'` and no pool count.
+  - The Disqualifier does not apply. `DeferredCount` wraps the real `InMemoryLoadsTransactions`, which has round trips and row locks, so the lot really blocks on the load-row lock.
+  - `end()` has two callers (`load-runner.ts:281`, `:678`); both are updated.
+  - There is one membership insert path, and it carries the title for new rows and round-2 re-entries.
+  - The in-memory fake matches the adapter for `endAsReleasedQaed`.
+- **Runtime events:** none.
+
+**Continuations:** none. The *Not Done* item (full e2e owed) was closed by the Leader's forced re-run after the user authorized it.
+
+**Decisions made:**
+
+- **Count error at end (user decision, 2026-11-10: "Accept and record it").** A count error now rolls back the whole end transaction. At a failed end, the runner retries 3 times, then logs `end_not_written`, and the lease later reads the load as ABANDONED instead of `failed` with its reason. On the completed path, a count failure leads to `fail()`, which counts again. Before T-5, a failed end counted best effort (timeline-sync archive `execution.md:193`). § 7.8 requires the in-transaction count and says nothing about count failure. The count and the end hit the same database, so an outage takes down both. Accepted as is, with no spec amendment.
+- `end()` always counts, at a failed end too, and runs `recordProgress`. This adds two statements per end under the load-row lock. The summary always carries `returnedNotResubmitted`, which `storedSummary` already filled when reading, so the API output is unchanged.
+- The title is cut by code point to 1,000 characters, which matches utf8mb4 `varchar(1000)`. `title` is optional on `LotMembership` and `NewMembershipValues`.
+- `endAsReleasedQaed` returns `{ended:true}` or `{ended:false, reason:'not_found'|'already_ended'}`, with one read after a zero-row update (same shape as `endAsReturned`, P-1).
+- Which test catches which mutation: the literal Falsifier wording ("the count on the pool again inside `end()`") is caught by the stub test's `via === 'tx'` and no-pool assertions, not by the deferred test. Under READ COMMITTED with the load row held, a pool read after the lock is as accurate. The race form (M1, a count before the lock) is what the deferred-interleaving test catches.
+
+**Issues encountered / gaps:**
+
+- **Gap:** M2 is caught only by SQL-text assertions on the stub driver. The in-memory fake has its own guard and stayed green. The already-ended effect on a live MySQL row is not checked (no disposable MySQL). Recorded as a gap, not as coverage; open for T-12 or a HITL.
+- `tsc` over the tests shows 2 pre-existing `title` missing-property errors, from T-2: `src/ingestion/loads.service.spec.ts:194` and `test/ingestion-loads.e2e-spec.ts:256`. Vitest does not typecheck, so nothing is hidden today. They were left out of scope.
+- The full e2e was blocked by the host RAM guard and needed the user-authorized `RG_FORCE=1`.
+
+**ADVISORY (4R, recorded only):**
+
+- RELIABILITY: a persistent count-only bug, such as a query timeout, would turn every failure reason into ABANDONED (see the decision above). A runner test that pins a throwing count (`end_not_written`, no `load_end` row) would document it.
+- RESILIENCE (for T-12): the load-row lock serializes this load's lots, but not a concurrent `endAsReturned` from the release ack. A round-1 row ended `returned` that commits after the count is missed until the next end. One line for T-12's design.
+- READABILITY: `server/src/ingestion/AGENTS.md:19` is stale. It still says `endAsReturned` is "port only", and it does not mention `endAsReleasedQaed` or the count in `end()`. Goes to the FR-25 pending items (T-15).
+- RELIABILITY: adding `title: null` to the two fixtures above would make `tsc` over the tests clean.
+
+**Spawns:**
+
+| Role | Calls | Tokens | Ended |
+|---|---|---|---|
+| implementer | 154 | 326,633 | partial (*Not Done*: full e2e owed) |
+| reviewer (concurrency) | 13 | 57,872 | complete (PASS) |
+| reviewer (regression) | 18 | 69,787 | complete (PASS) |
+
+**Running totals:**
+
+| Measure | Actual | Budget |
+|---|---|---|
+| Tasks | 4 of 21 | 21 |
+| Production LOC | ≈ 1,370 TS + 141 SQL | 4,800 |
+| Review rounds | 6 | 26 |
+
+Within budget.

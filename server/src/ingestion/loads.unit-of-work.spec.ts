@@ -1,5 +1,6 @@
 // @akili-spec ingestion/step-1-loads
 // @akili-spec ingestion/timeline-sync
+// @akili-spec assessment/step-1-assessment
 import { drizzle } from 'drizzle-orm/mysql2';
 import {
   InMemoryAdminConfigDatabase,
@@ -21,6 +22,7 @@ import type { TimelineLoad } from '../database/drizzle/schema/timeline-loads.js'
 import type { TimelineResult } from '../database/drizzle/schema/timeline-results.js';
 import type { TimelineAuditEvent } from '../database/drizzle/schema/timeline-audit-events.js';
 import type { TimelinesRepositories } from '../admin-config/timelines/timelines.unit-of-work.js';
+import type { LoadSummary } from './load-rules.js';
 import {
   DrizzleLoadsStore,
   type LoadsStore,
@@ -29,6 +31,7 @@ import {
 import {
   DrizzleLoadsTransactions,
   LoadsUnitOfWork,
+  type LoadsRepositories,
   type LoadsTransactions,
   type LotMembership,
   type RecordLotCommand,
@@ -260,6 +263,7 @@ function memberRow(
     entryRound: 1,
     previousMembershipId: null,
     changedFields: null,
+    title: null,
     ...overrides,
   };
   // The generated column: `cycle#code` while active, NULL once ended.
@@ -638,6 +642,8 @@ interface StubOptions {
   resultUpdateRows?: number;
   /** What the read after a zero-row `endAsReturned` finds, columns entry_round, ended_at (default none). */
   returnedRead?: unknown[][];
+  /** What the read after a zero-row `endAsReleasedQaed` finds, column id (default none). */
+  releasedRead?: unknown[][];
   /** What the `returnedNotResubmitted` query finds, columns program, type, count (default none). */
   countRows?: unknown[][];
   /** What the select of the last steps finds, columns timeline_id, name, closes_at. */
@@ -736,6 +742,8 @@ function stub(options: StubOptions = {}) {
       else if (sql.includes('count(*)')) rows = options.countRows ?? [];
       else if (sql.startsWith('select `entry_round`, `ended_at` from')) {
         rows = options.returnedRead ?? [];
+      } else if (sql.startsWith('select `id` from `timeline_results`')) {
+        rows = options.releasedRead ?? [];
       } else if (sql.includes('from `timeline_results`')) {
         // As the IN of the statement would: only the rows whose code it asks for.
         rows = (options.memberships ?? []).filter((row) =>
@@ -1418,7 +1426,7 @@ describe('the lot, the end and the end of expired memberships over a stub MySQL 
     expect(writes(inTransaction(log))).toEqual([]);
   });
 
-  it('the end of a load: the load row FOR UPDATE, the conditional UPDATE on status running, the load_end row, one commit', async () => {
+  it('the end of a load: the load row FOR UPDATE, the count of the returned results on the transaction, the summary, the conditional UPDATE on status running, the load_end row, one commit', async () => {
     const { uow, log } = stub({
       locked: [
         loadValues({
@@ -1434,6 +1442,10 @@ describe('the lot, the end and the end of expired memberships over a stub MySQL 
             },
           },
         }),
+      ],
+      countRows: [
+        [3, 'innovation_use', 1],
+        [2, 'KP', 1],
       ],
     });
 
@@ -1452,16 +1464,40 @@ describe('the lot, the end and the end of expired memberships over a stub MySQL 
       'select `status`, `year`',
       'select `id` from',
       'select `id`, `cycle_id`,',
+      'select `program_clarisa_id`, `result_type_key`,',
+      'update `timeline_loads` set',
       'update `timeline_loads` set',
       'insert into `timeline_audit_events`',
       'commit',
     ]);
     // The audit row's foreign key takes S on the timeline: locked before the load row.
     expectLoadLockOrder(inTx, { loadId: 41, cycleId: 1, timelineId: 11 });
-    expect(inTx[5]!.sql).toMatch(
+    // The count is ONE statement, after the load row lock, on the transaction's
+    // connection and never on the pool (FR-24, P-2); a plain read: no lock clause.
+    const count = inTx[5]!;
+    expect(count.via).toBe('tx');
+    expect(count.sql).toContain(
+      'not exists (select 1 from `timeline_results` `round_two`',
+    );
+    expect(count.sql).not.toMatch(/for (share|update)$/);
+    expect(count.params).toEqual([11, 1, 'returned', 2]);
+    expect(
+      log.filter((s) => s.via === 'pool' && /count\(\*\)/.test(s.sql)),
+    ).toEqual([]);
+    // What it counted goes into the summary, with the lease as it was.
+    expect(inTx[6]!.sql).toMatch(
+      /^update `timeline_loads` set `processed` = \?, `summary` = \?, `heartbeat_at` = \? where `timeline_loads`\.`id` = \?$/,
+    );
+    expect(inTx[6]!.params).toEqual([
+      120,
+      '{"loaded":100,"loadedNew":100,"loadedResubmitted":0,"round":1,"byProgram":{},"byType":{},"kpGroups":{},"skipped":{"ACTIVE_IN_OTHER_TIMELINE":15,"ALREADY_IN_THIS_TIMELINE":5},"otherTimelines":{},"returnedNotResubmitted":{"total":2,"byProgram":{"2":1,"3":1},"byType":{"innovation_use":1,"KP":1}}}',
+      '2026-11-10 07:00:00.000',
+      41,
+    ]);
+    expect(inTx[7]!.sql).toMatch(
       /where \(`timeline_loads`\.`id` = \? and `timeline_loads`\.`status` = \?\)$/,
     );
-    expect(inTx[5]!.params).toEqual([
+    expect(inTx[7]!.params).toEqual([
       'failed',
       'REPORTING_UNAVAILABLE',
       '2026-11-10 08:00:00.000',
@@ -1469,7 +1505,7 @@ describe('the lot, the end and the end of expired memberships over a stub MySQL 
       'running',
     ]);
     // The starter is the actor, the load's own request id is kept (design 5.3).
-    expect(inTx[6]!.params).toEqual([
+    expect(inTx[8]!.params).toEqual([
       11,
       9,
       'load_end',
@@ -2861,8 +2897,41 @@ describe('the end of a load over the in-memory world (FR-12)', () => {
     return inMemory(world);
   };
 
-  it("a round-2 end writes the returned-not-resubmitted counts into the summary, keeps the lots' keys and the lease, and load_end carries the round and the split (FR-9, FR-11, DD-7)", async () => {
+  it("a round-2 end counts the returned-not-resubmitted results itself into the summary, keeps the lots' keys and the lease, and load_end carries the round and the split (FR-9, FR-11, DD-7, FR-24)", async () => {
     const world = seedWorld();
+    // 5002 came back (a round-2 row exists); 5004 and 5005 did not, under
+    // their own program and type.
+    const returnedRound1 = (
+      id: number,
+      resultCode: number,
+      overrides: Partial<TimelineResult> = {},
+    ) =>
+      memberRow({
+        id,
+        timelineId: 11,
+        resultCode,
+        programClarisaId: 3,
+        resultTypeKey: 'policy_change',
+        endedAt: ago(5 * MINUTE),
+        endReason: 'returned',
+        ...overrides,
+      });
+    world.results.push(
+      returnedRound1(1, 5002),
+      memberRow({
+        id: 2,
+        timelineId: 11,
+        resultCode: 5002,
+        entryRound: 2,
+        programClarisaId: 3,
+        resultTypeKey: 'policy_change',
+      }),
+      returnedRound1(3, 5004),
+      returnedRound1(4, 5005, {
+        programClarisaId: 7,
+        resultTypeKey: 'innovation_use',
+      }),
+    );
     world.loads.push(
       loadRow({
         id: 1,
@@ -2888,16 +2957,7 @@ describe('the end of a load over the in-memory world (FR-12)', () => {
     );
     const { uow } = inMemory(world);
 
-    const result = await uow.end({
-      loadId: 1,
-      status: 'completed',
-      now: NOW,
-      returnedNotResubmitted: {
-        total: 2,
-        byProgram: { '3': 1, '7': 1 },
-        byType: { policy_change: 1, innovation_use: 1 },
-      },
-    });
+    const result = await uow.end({ loadId: 1, status: 'completed', now: NOW });
 
     expect(result).toEqual({ kind: 'ended' });
     expect(world.loads[0]).toMatchObject({
@@ -2937,13 +2997,20 @@ describe('the end of a load over the in-memory world (FR-12)', () => {
     });
   });
 
-  it('an end without the counts leaves the summary as the lots wrote it', async () => {
+  it("an end with no returned result counts zero and leaves the lots' own keys as they wrote them", async () => {
     const { world, uow } = running();
-    const before = structuredClone(world.loads[0]!.summary);
 
     await uow.end({ loadId: 1, status: 'completed', now: NOW });
 
-    expect(world.loads[0]!.summary).toEqual(before);
+    expect(world.loads[0]!.summary).toMatchObject({
+      loaded: 100,
+      byProgram: {},
+      byType: {},
+      kpGroups: {},
+      skipped: { ACTIVE_IN_OTHER_TIMELINE: 15, ALREADY_IN_THIS_TIMELINE: 5 },
+      otherTimelines: {},
+      returnedNotResubmitted: { total: 0, byProgram: {}, byType: {} },
+    });
   });
 
   it('completed: status, finished_at, the key freed, and one load_end row with the counts and a null reason', async () => {
@@ -4161,4 +4228,374 @@ describe('countReturnedNotResubmitted (FR-9, DD-7, design 7.3 step 7)', () => {
     expect(log[0]!.sql).toContain('group by');
     expect(log[0]!.params).toEqual([11, 1, 'returned', 2]);
   });
+});
+
+// @akili-spec assessment/step-1-assessment
+describe('the count of returned results not resubmitted is read inside the end transaction (FR-24, design 7.8, P-2)', () => {
+  /** Lets other pending work run `n` statement boundaries. */
+  const turns = async (n: number) => {
+    for (let i = 0; i < n; i++) await roundTrip();
+  };
+
+  /**
+   * A deferred store. The transaction runs as the in-memory world runs it, with
+   * its row locks and one round trip per statement, but the answer of
+   * `countReturnedNotResubmitted` reaches its caller only when the test lets it
+   * go. The rows are read when the statement runs (`read` settles then), so a
+   * commit that lands while the answer is held is NOT in it: exactly the stale
+   * count of a read made before the end.
+   */
+  class DeferredCount implements LoadsTransactions {
+    /** Settles when a count has read the rows. */
+    readonly read: Promise<void>;
+    private markRead!: () => void;
+    private open!: () => void;
+    private readonly gate: Promise<void>;
+
+    constructor(private readonly inner: LoadsTransactions) {
+      this.read = new Promise<void>((resolve) => (this.markRead = resolve));
+      this.gate = new Promise<void>((resolve) => (this.open = resolve));
+    }
+
+    /** Lets every held answer through. */
+    release(): void {
+      this.open();
+    }
+
+    run<T>(work: (repositories: LoadsRepositories) => Promise<T>): Promise<T> {
+      return this.inner.run((repositories) => {
+        const loads = Object.create(repositories.loads) as LoadsStore;
+        loads.countReturnedNotResubmitted = async (timelineId) => {
+          const counted =
+            await repositories.loads.countReturnedNotResubmitted(timelineId);
+          this.markRead();
+          await this.gate;
+          return counted;
+        };
+        return work({ ...repositories, loads });
+      });
+    }
+  }
+
+  /**
+   * Load 1 of timeline 11 in round 2, running; results 5120 and 5121 were
+   * returned in round 1 (program 2, type KP) and have no round-2 membership.
+   */
+  function returnedWorld() {
+    const world = seedWorld();
+    world.loads.push(
+      loadRow({
+        id: 1,
+        timelineId: 11,
+        round: 2,
+        stepPosition: 3,
+        total: 2,
+        processed: 2,
+        summary: emptySummary(2),
+      }),
+    );
+    for (const [id, resultCode] of [
+      [1, 5120],
+      [2, 5121],
+    ] as const) {
+      world.results.push(
+        memberRow({
+          id,
+          timelineId: 11,
+          resultCode,
+          endedAt: ago(5 * MINUTE),
+          endReason: 'returned',
+        }),
+      );
+    }
+    return world;
+  }
+
+  /** The lot that takes 5120 back into the timeline in round 2: the result was re-submitted. */
+  const resubmit5120 = () =>
+    lotCommand(1, [], {
+      memberships: [
+        lotMember(5120, {
+          kind: 'resubmitted',
+          previousMembershipId: 1,
+          changedFields: [],
+        }),
+      ],
+      processed: 1,
+    });
+
+  const storedCount = (world: InMemoryLoadsDatabase) =>
+    (world.loads[0]!.summary as unknown as LoadSummary).returnedNotResubmitted;
+
+  it('a result whose round-2 membership committed before the end is not counted; the one still returned is', async () => {
+    const world = returnedWorld();
+    const { uow } = inMemory(world);
+    expect(await uow.recordLot(resubmit5120())).toMatchObject({
+      kind: 'recorded',
+      insertedCodes: [5120],
+    });
+
+    const result = await uow.end({ loadId: 1, status: 'completed', now: NOW });
+
+    expect(result).toEqual({ kind: 'ended' });
+    expect(storedCount(world)).toEqual({
+      total: 1,
+      byProgram: { '2': 1 },
+      byType: { KP: 1 },
+    });
+  });
+
+  it('a failed end counts too, from the committed rows', async () => {
+    const world = returnedWorld();
+    const { uow } = inMemory(world);
+
+    await uow.end({
+      loadId: 1,
+      status: 'failed',
+      failureReason: 'REPORTING_UNAVAILABLE',
+      now: NOW,
+    });
+
+    expect(world.loads[0]).toMatchObject({
+      status: 'failed',
+      failureReason: 'REPORTING_UNAVAILABLE',
+    });
+    expect(storedCount(world)).toEqual({
+      total: 2,
+      byProgram: { '2': 2 },
+      byType: { KP: 2 },
+    });
+  });
+
+  it('a lot that tries to commit a round-2 membership while the end holds its count waits for the end: the stored count is the count of the rows as they finally commit', async () => {
+    const world = returnedWorld();
+    const inner = new InMemoryLoadsTransactions(world);
+    const deferred = new DeferredCount(inner);
+
+    const ending = new LoadsUnitOfWork(deferred).end({
+      loadId: 1,
+      status: 'completed',
+      now: NOW,
+    });
+    // The end has read its count, and holds it. (If it never reads one, the
+    // wait is bounded and the assertions below say so.)
+    await Promise.race([deferred.read, turns(200)]);
+    const lot = new LoadsUnitOfWork(inner).recordLot(resubmit5120());
+    // The lot runs every statement it can while the count is held.
+    await turns(100);
+    deferred.release();
+    const [ended, recorded] = await Promise.all([ending, lot]);
+
+    expect(ended).toEqual({ kind: 'ended' });
+    const rounds = world.results.filter((r) => r.entryRound === 2);
+    // What the end stored is what the committed rows say: a count read before
+    // the lot committed would still say 2 here, with 5120 re-submitted.
+    expect(storedCount(world)).toEqual(
+      await world.store.countReturnedNotResubmitted(11),
+    );
+    // And the order was the end first: the load row lock made the lot wait,
+    // then find the load ended and write nothing, so 5120 is still returned.
+    expect(recorded).toEqual({ kind: 'load_not_running', status: 'completed' });
+    expect(rounds).toEqual([]);
+    expect(storedCount(world)).toEqual({
+      total: 2,
+      byProgram: { '2': 2 },
+      byType: { KP: 2 },
+    });
+  });
+});
+
+// @akili-spec assessment/step-1-assessment
+describe('the title of a membership reaches the INSERT (FR-24, design 7.8)', () => {
+  it('over the in-memory world the lot stores the title it was given, and a membership without one reads null', async () => {
+    const seeded = seedWorld();
+    seeded.loads.push(loadRow({ id: 1, timelineId: 11 }));
+    const { world, uow } = inMemory(seeded);
+
+    await uow.recordLot(
+      lotCommand(1, [], {
+        memberships: [
+          lotMember(5120, { title: 'Climate-smart rice' }),
+          lotMember(5121, { title: null }),
+          lotMember(5122),
+        ],
+        processed: 3,
+      }),
+    );
+
+    expect(world.results.map((r) => [r.resultCode, r.title])).toEqual([
+      [5120, 'Climate-smart rice'],
+      [5121, null],
+      [5122, null],
+    ]);
+  });
+
+  it.each([
+    { what: 'a title', title: 'Climate-smart rice' },
+    { what: 'a null title', title: null },
+  ])(
+    'over a stub MySQL driver $what is the last parameter of the membership INSERT, after the changed fields',
+    async ({ title }) => {
+      const { uow, log } = stub();
+
+      await uow.recordLot(
+        lotCommand(41, [], {
+          memberships: [lotMember(5120, { changedFields: null, title })],
+          processed: 1,
+        }),
+      );
+
+      const insert = inTransaction(log).find((s) =>
+        s.sql.startsWith('insert into `timeline_results`'),
+      )!;
+      expect(insert.sql).toMatch(/`changed_fields`, `title`\) values/);
+      expect(insert.params.at(-1)).toBe(title);
+    },
+  );
+});
+
+// @akili-spec assessment/step-1-assessment
+describe('endAsReleasedQaed (FR-18, design 7.6, 7.8)', () => {
+  /**
+   * Membership 1: active round 1; 2: active round 2; 3: ended `timeline_closed`;
+   * 4: returned in round 1; 5: ended `released_qaed` earlier.
+   */
+  function worldWithMemberships() {
+    const world = seedWorld();
+    world.results.push(
+      memberRow({ id: 1, timelineId: 11, resultCode: 5120 }),
+      memberRow({ id: 2, timelineId: 11, resultCode: 5121, entryRound: 2 }),
+      memberRow({
+        id: 3,
+        timelineId: 11,
+        resultCode: 5122,
+        endedAt: ago(MINUTE),
+        endReason: 'timeline_closed',
+      }),
+      memberRow({
+        id: 4,
+        timelineId: 11,
+        resultCode: 5123,
+        endedAt: ago(MINUTE),
+        endReason: 'returned',
+      }),
+      memberRow({
+        id: 5,
+        timelineId: 11,
+        resultCode: 5124,
+        entryRound: 2,
+        endedAt: ago(2 * MINUTE),
+        endReason: 'released_qaed',
+      }),
+    );
+    return world;
+  }
+
+  describe.each(['autocommit store', 'one transaction'] as const)(
+    'on the in-memory %s',
+    (mode) => {
+      const call = (world: InMemoryLoadsDatabase, id: number, at: Date) =>
+        mode === 'autocommit store'
+          ? world.store.endAsReleasedQaed(id, at)
+          : new InMemoryLoadsTransactions(world).run(({ loads }) =>
+              loads.endAsReleasedQaed(id, at),
+            );
+
+      it.each([
+        ['an active round-1 membership', 1, 0],
+        ['an active round-2 membership', 2, 1],
+      ] as const)(
+        '%s ends as released_qaed at the given instant, and the result is no longer active in the cycle',
+        async (_what, id, at) => {
+          const world = worldWithMemberships();
+
+          expect(await call(world, id, AT)).toEqual({ ended: true });
+
+          expect(world.results[at]).toMatchObject({
+            id,
+            endReason: 'released_qaed',
+            endedAt: AT,
+            activeKey: null,
+          });
+          expect(world.history).toEqual([`result:released_qaed:${id}`]);
+        },
+      );
+
+      it('a second call is a no-op that says so, and keeps the first instant and reason', async () => {
+        const world = worldWithMemberships();
+        await call(world, 1, AT);
+
+        expect(await call(world, 1, NOW)).toEqual({
+          ended: false,
+          reason: 'already_ended',
+        });
+
+        expect(world.results[0]).toMatchObject({
+          endReason: 'released_qaed',
+          endedAt: AT,
+        });
+      });
+
+      it.each([
+        ['a membership ended by its timeline', 3, 'already_ended'],
+        ['a returned membership', 4, 'already_ended'],
+        ['a membership already released', 5, 'already_ended'],
+        ['a membership that does not exist', 99, 'not_found'],
+      ] as const)(
+        '%s: nothing changes, and the result says why',
+        async (_what, id, reason) => {
+          const world = worldWithMemberships();
+          const before = structuredClone(world.results);
+
+          expect(await call(world, id, AT)).toEqual({ ended: false, reason });
+
+          expect(world.results).toEqual(before);
+          expect(world.history).toEqual([]);
+        },
+      );
+    },
+  );
+
+  it('over a stub MySQL driver it is one conditional UPDATE on id and not ended, with no round condition and no read after a success', async () => {
+    const { store, log } = stub();
+
+    expect(await store.endAsReleasedQaed(7, AT)).toEqual({ ended: true });
+
+    expect(log).toHaveLength(1);
+    expect(log[0]!.sql).toBe(
+      'update `timeline_results` set `ended_at` = ?, `end_reason` = ? where (`timeline_results`.`id` = ? and `timeline_results`.`ended_at` is null)',
+    );
+    expect(log[0]!.params).toEqual([
+      '2026-11-10 08:30:00.000',
+      'released_qaed',
+      7,
+    ]);
+  });
+
+  it.each([
+    { what: 'no row', found: [], reason: 'not_found' },
+    { what: 'an ended row', found: [[1]], reason: 'already_ended' },
+  ] as const)(
+    'over a stub MySQL driver a zero-row update is followed by one read, which finds $what: $reason',
+    async ({ found, reason }) => {
+      const { store, log } = stub({
+        resultUpdateRows: 0,
+        releasedRead: found.map((row) => [...row]),
+      });
+
+      expect(await store.endAsReleasedQaed(7, AT)).toEqual({
+        ended: false,
+        reason,
+      });
+
+      // The row an ended membership leaves alone is left alone by the
+      // database: the WHERE of the UPDATE says `ended_at is null`.
+      expect(log[0]!.sql).toMatch(/`ended_at` is null\)$/);
+      expect(log).toHaveLength(2);
+      expect(log[1]!.sql).toBe(
+        'select `id` from `timeline_results` where `timeline_results`.`id` = ? limit ?',
+      );
+      expect(log[1]!.params).toEqual([7, 1]);
+    },
+  );
 });

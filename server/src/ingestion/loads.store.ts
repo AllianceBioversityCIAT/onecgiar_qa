@@ -1,5 +1,6 @@
 // @akili-spec ingestion/step-1-loads
 // @akili-spec ingestion/timeline-sync
+// @akili-spec assessment/step-1-assessment
 import { Inject, Injectable } from '@nestjs/common';
 import {
   and,
@@ -170,6 +171,12 @@ export interface NewMembershipValues {
   previousMembershipId: number | null;
   /** Catalog keys that changed since `previousMembershipId`; null exactly when that is null, `[]` = same values (FR-8). */
   changedFields: string[] | null;
+  /**
+   * The result title copied from the snapshot's `general.title`, at most 1,000
+   * characters (step-1-assessment FR-24, design 7.8). Absent or null = none:
+   * the column default, filled later by the backfill.
+   */
+  title?: string | null;
 }
 
 /** Which unique key refused a membership: the cycle-wide active one, or this timeline's own per round. */
@@ -183,6 +190,10 @@ export type MembershipInsertOutcome =
 export type EndAsReturnedOutcome =
   | { ended: true }
   | { ended: false; reason: 'not_found' | 'already_ended' | 'not_round_1' };
+
+/** How `endAsReleasedQaed` ended: the row ended, or why it did not (step-1-assessment design 7.6, 7.8). */
+export type EndAsReleasedQaedOutcome =
+  { ended: true } | { ended: false; reason: 'not_found' | 'already_ended' };
 
 /**
  * The persistence port of loads and memberships (design 3, 5, 7.2, 7.3). Rules
@@ -298,6 +309,17 @@ export interface LoadsStore {
    * of work command calls it in this spec.
    */
   endAsReturned(id: number, at: Date): Promise<EndAsReturnedOutcome>;
+  // @akili-spec assessment/step-1-assessment
+  /**
+   * `UPDATE timeline_results SET ended_at = ?, end_reason = 'released_qaed'
+   * WHERE id = ? AND ended_at IS NULL` (step-1-assessment design 7.6, 7.8, FR-18):
+   * the same conditional shape as `endAsReturned` with no round condition, so a
+   * membership of either round ends when Reporting acknowledges its `qaed`
+   * release. A no-op on an ended row, which keeps its first instant and reason;
+   * a zero-row update is followed by one read to say why. Port only: the release
+   * ack (T-12) is its one caller.
+   */
+  endAsReleasedQaed(id: number, at: Date): Promise<EndAsReleasedQaedOutcome>;
   /**
    * One query (design 7.3 step 7, DD-7, FR-9): the round-1 memberships of this
    * timeline ended `returned` that have no round-2 membership of the same code
@@ -733,6 +755,33 @@ export class DrizzleLoadsStore implements LoadsStore {
     // row that is already ended says so.
     if (row.entryRound !== 1) return { ended: false, reason: 'not_round_1' };
     return { ended: false, reason: 'already_ended' };
+  }
+
+  // @akili-spec assessment/step-1-assessment
+  async endAsReleasedQaed(
+    id: number,
+    at: Date,
+  ): Promise<EndAsReleasedQaedOutcome> {
+    // The condition is in the WHERE: the database decides, so a row that ended
+    // meanwhile (a repeated ack, a timeline that closed) matches nothing and
+    // keeps its first instant and reason. There is no round condition: a
+    // membership of either round can be released.
+    const [header] = await this.db
+      .update(timelineResults)
+      .set({ endedAt: at, endReason: 'released_qaed' })
+      .where(and(eq(timelineResults.id, id), isNull(timelineResults.endedAt)));
+    if (header.affectedRows > 0) return { ended: true };
+
+    // The only other condition is the end itself, so a row that exists is an
+    // ended one.
+    const [row] = await this.db
+      .select({ id: timelineResults.id })
+      .from(timelineResults)
+      .where(eq(timelineResults.id, id))
+      .limit(1);
+    return row
+      ? { ended: false, reason: 'already_ended' }
+      : { ended: false, reason: 'not_found' };
   }
 
   async countReturnedNotResubmitted(

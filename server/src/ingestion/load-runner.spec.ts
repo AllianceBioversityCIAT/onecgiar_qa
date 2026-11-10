@@ -1,4 +1,5 @@
 // @akili-spec ingestion/step-1-loads
+// @akili-spec assessment/step-1-assessment
 import { Logger } from '@nestjs/common';
 import { FakeResultsFeed } from '../../test/support/fake-results-feed.js';
 import { FakeSnapshotStore } from '../../test/support/fake-snapshot-store.js';
@@ -186,6 +187,7 @@ function memberRow(
     entryRound: 1,
     previousMembershipId: null,
     changedFields: null,
+    title: null,
   };
 }
 
@@ -1545,4 +1547,121 @@ describe('labels (FR-20, DD-6)', () => {
 
     expect(roundTwo(ctx.world)[0]!.changedFields).toEqual(['title']);
   });
+});
+
+// @akili-spec assessment/step-1-assessment
+describe('the title of the membership (FR-24, design 7.8)', () => {
+  /** Runs one result with these values and returns the membership the load wrote. */
+  async function membershipWith(values: Record<string, unknown>) {
+    const ctx = build();
+    script(ctx.feed, items(1, 1), { values: { 1001: values } });
+
+    const load = await runToEnd(ctx);
+
+    expect(load.status).toBe('completed');
+    expect(ctx.world.results).toHaveLength(1);
+    return ctx.world.results[0]!;
+  }
+
+  it('writes the general.title of the snapshot into the membership', async () => {
+    const row = await membershipWith({
+      'general.title': 'Climate-smart rice in the Mekong',
+      title: 'not this key',
+    });
+
+    expect(row.title).toBe('Climate-smart rice in the Mekong');
+  });
+
+  it('cuts a title longer than 1,000 characters to its first 1,000 and keeps a title of exactly 1,000', async () => {
+    const longer = await membershipWith({
+      'general.title': `${'a'.repeat(999)}bcd`,
+    });
+    const exact = await membershipWith({ 'general.title': 'z'.repeat(1000) });
+
+    expect(longer.title).toBe(`${'a'.repeat(999)}b`);
+    expect(exact.title).toBe('z'.repeat(1000));
+  });
+
+  it('counts characters, not UTF-16 units: a cut never splits an emoji in two', async () => {
+    // 999 letters, then a 2-unit emoji as character 1,000, then a letter.
+    const row = await membershipWith({
+      'general.title': `${'a'.repeat(999)}\u{1F33E}b`,
+    });
+
+    expect(row.title).toBe(`${'a'.repeat(999)}\u{1F33E}`);
+  });
+
+  it.each([
+    ['a number', 2026],
+    ['an object', { en: 'A title' }],
+    ['a list', ['A title']],
+    ['a boolean', true],
+    ['null', null],
+  ])('a title that is %s is stored as null', async (_what, value) => {
+    const row = await membershipWith({ 'general.title': value });
+
+    expect(row.title).toBeNull();
+  });
+
+  it('a result with no general.title is stored with a null title', async () => {
+    const row = await membershipWith({ description: 'No title here' });
+
+    expect(row.title).toBeNull();
+  });
+
+  it('a re-submitted result in round 2 gets the title of its new snapshot, not the round-1 one', async () => {
+    const row = returnedRow(1, 5001, { snapshotHash: 'a'.repeat(64) });
+    const ctx = build({ members: [row], load: ROUND_2_LOAD });
+    await seedSnapshot(ctx, row, { 'general.title': 'Old title' });
+    script(ctx.feed, [item(1, 'policy_change', LATER)], {
+      values: { 1001: { 'general.title': 'New title' } },
+    });
+
+    await runToEnd(ctx);
+
+    expect(roundTwo(ctx.world)[0]!.title).toBe('New title');
+  });
+
+  it('never logs the title', async () => {
+    await membershipWith({ 'general.title': 'A secret-ish title' });
+
+    expect(logged.length).toBeGreaterThan(0);
+    expect(logged.join('\n')).not.toContain('secret-ish');
+  });
+});
+
+// @akili-spec assessment/step-1-assessment
+describe('the end counts the returned results itself (FR-24, design 7.8, P-2)', () => {
+  it.each([
+    { end: 'a completed end', details: ['ok'], status: 'completed' },
+    {
+      end: 'a failed end',
+      details: [new FeedError('rejected', 400)],
+      status: 'failed',
+    },
+  ] as const)(
+    '$end reads no count on the pool store: the unit of work counts inside its own transaction, and the summary carries the result',
+    async ({ details, status }) => {
+      // 5001 was returned in round 1 and the feed sends it back with the old
+      // date: not re-submitted. 5002 is new, so the run reaches details.
+      const row = returnedRow(1, 5001);
+      const ctx = build({ members: [row], load: ROUND_2_LOAD });
+      script(
+        ctx.feed,
+        [item(1, 'policy_change', RETURNED_AT), item(2, 'policy_change')],
+        { details: [...details] },
+      );
+      const pool = vi.spyOn(ctx.world.store, 'countReturnedNotResubmitted');
+
+      const load = await runToEnd(ctx);
+
+      expect(load.status).toBe(status);
+      expect(pool).not.toHaveBeenCalled();
+      expect(summaryOf(load).returnedNotResubmitted).toEqual({
+        total: 1,
+        byProgram: { '3': 1 },
+        byType: { policy_change: 1 },
+      });
+    },
+  );
 });

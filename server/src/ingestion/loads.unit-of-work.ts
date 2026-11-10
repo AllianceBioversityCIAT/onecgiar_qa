@@ -1,5 +1,6 @@
 // @akili-spec ingestion/step-1-loads
 // @akili-spec ingestion/timeline-sync
+// @akili-spec assessment/step-1-assessment
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import { nowInRome } from '../admin-config/rome-date.js';
 import {
@@ -29,7 +30,6 @@ import {
   membershipEnds,
   mergeSummary,
   type LoadSummary,
-  type ReturnedNotResubmitted,
   stepInForce,
   syncWindow,
   type SkipReason,
@@ -137,6 +137,8 @@ export interface LotMembership {
   previousMembershipId?: number | null;
   /** The keys that changed (FR-8); absent = null. Null exactly when `previousMembershipId` is. */
   changedFields?: string[] | null;
+  /** The title of the result (step-1-assessment FR-24, design 7.8); absent = none. Cut and checked by the runner. */
+  title?: string | null;
 }
 
 export interface RecordLotCommand {
@@ -192,8 +194,6 @@ export type LoadEnding =
 export type EndLoadCommand = LoadEnding & {
   loadId: number;
   now: Date;
-  /** Counted once at the end of the run (design 7.3 step 7, DD-7); written into the summary in the end's transaction. */
-  returnedNotResubmitted?: ReturnedNotResubmitted;
 };
 
 export type EndLoadResult =
@@ -623,6 +623,14 @@ export class LoadsUnitOfWork {
    * and its `load_end` row is written in the same transaction. The conditional
    * update decides, so a load that ended meanwhile is never ended again and has
    * exactly one `load_end` row. What earlier lots recorded stays (FR-8).
+   *
+   * The returned results not resubmitted are counted here (design 7.3 step 7,
+   * DD-7), at a failed end too, on this transaction's handle and after the load
+   * row is locked (step-1-assessment FR-24, design 7.8, P-2). A count read
+   * before the end, on the pool, could be stale by the time the end commits: a
+   * lot of this load could commit a round-2 membership in between. Once the
+   * load row is held no lot can, so the stored count is the count of the rows
+   * as this load leaves them. The count is a plain read: it adds no lock.
    */
   async end(command: EndLoadCommand): Promise<EndLoadResult> {
     return this.transactions.run(async ({ loads }) => {
@@ -636,17 +644,16 @@ export class LoadsUnitOfWork {
         failureReason:
           command.status === 'failed' ? command.failureReason : null,
       };
-      if (command.returnedNotResubmitted) {
-        await loads.recordProgress(load.id, {
-          processed: load.processed,
-          summary: {
-            ...storedSummary(load.summary),
-            returnedNotResubmitted: command.returnedNotResubmitted,
-          },
-          // The lease is not this write's to move.
-          heartbeatAt: load.heartbeatAt,
-        });
-      }
+      // @akili-spec assessment/step-1-assessment
+      const returnedNotResubmitted = await loads.countReturnedNotResubmitted(
+        load.timelineId,
+      );
+      await loads.recordProgress(load.id, {
+        processed: load.processed,
+        summary: { ...storedSummary(load.summary), returnedNotResubmitted },
+        // The lease is not this write's to move.
+        heartbeatAt: load.heartbeatAt,
+      });
       const ended = await loads.endLoad(load.id, {
         ...ending,
         finishedAt: command.now,

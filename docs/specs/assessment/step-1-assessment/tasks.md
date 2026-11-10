@@ -118,7 +118,7 @@ Gate edges from **T-1** are listed on the last line of the graph. Nothing else w
 - **Skills:** nestjs-expert, aws-serverless, error-handling-patterns
 
 ## T-5: Ingestion — title copy, `endAsReleasedQaed`, count inside `end()`
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-2
 - **Requirements:** FR-24 (title stored; count in the end transaction), FR-18 (membership ends after a `qaed` ack: the store method)
