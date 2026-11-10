@@ -210,6 +210,15 @@ export function isResubmitted(
   return Math.floor(submitted / 1000) > Math.floor(endedAt.getTime() / 1000);
 }
 
+/** The membership column keeps the whole sort key; the snapshot store is read by the part after it (`snapshotSortSuffix`). */
+export const SNAPSHOT_SK_PREFIX = 'SNAP#';
+
+/** `timeline_results.snapshot_sk` to the key `SnapshotStore.get` wants (DD-7, P-7). */
+export const snapshotKeyOf = (snapshotSk: string): string =>
+  snapshotSk.startsWith(SNAPSHOT_SK_PREFIX)
+    ? snapshotSk.slice(SNAPSHOT_SK_PREFIX.length)
+    : snapshotSk;
+
 /** JSON with every object's keys sorted, so equal values always hash alike (step-1 design 5.2). */
 export function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;

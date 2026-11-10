@@ -147,3 +147,72 @@ Within budget.
 | Review rounds | 3 | 26 |
 
 Within budget.
+
+### T-4: Labels from Reporting — port, parse, snapshot, fixture — PASS
+
+| | |
+|---|---|
+| Date | 2026-11-10 |
+| Final status | PASS (attempt 1 of 1) |
+| Requirements covered | FR-20 (*Rename is not an update*; one hash for equal values; labels absent, malformed or `null`) |
+| Skills | nestjs-expert, aws-serverless, error-handling-patterns (as task) |
+| Effort | `high`, raised above `medium` because the task changes pinned ingestion behavior (DD-12) |
+
+**P-31 settled (Leader, inline, before the spawn).** Reporting commit `448debd0f` (`onecgiar_pr`, local) gives `QaResultsDetailsItem.labels: Record<string, Record<string, string | null>>`: "`{}` (never absent) when it holds none. `null` is an id with no row." This matches the design, so no Pivot. The commit does not touch `docs/qa-catalog.en.md`; the shape was read from `qa-results-response.dto.ts`.
+
+**Attempt 1**
+
+- **Files changed** (under `server/src/`):
+  - `ingestion/results-feed.port.ts` (`FeedLabels`, `labels?`);
+  - `ingestion/reporting-results-feed.client.ts` (lenient `parseLabels`, log line `upstream_bad_labels source=reporting reason=labels_malformed`);
+  - `ingestion/snapshot-store.port.ts`;
+  - `ingestion/dynamo-snapshot-store.ts` (`packJson`, `unpackJson`, `toRecord`: one row-to-record path);
+  - `database/dynamodb/entities/result-snapshot.entity.ts` (`labels`, `labelsGz`);
+  - `ingestion/load-rules.ts` (exports `SNAPSHOT_SK_PREFIX` and `snapshotKeyOf`);
+  - `ingestion/load-runner.ts`;
+  - `ingestion/fixtures/results-details.json` (synthetic labels: `countries` `170` → "Colombia", `999` → `null`);
+  - specs: `reporting-results-feed.client.spec.ts`, `dynamo-snapshot-store.spec.ts`, `dynamo-snapshot-store.dynamo-local.spec.ts`, `load-rules.spec.ts`, `load-runner.spec.ts`.
+
+  `test/support/fake-snapshot-store.ts` needed no change. About 134 production lines.
+- **Implementer verification:**
+  - lint and build clean;
+  - unit: `Test Files 76 passed | 1 skipped (77)`, `Tests 3210 passed | 6 skipped (3216)`;
+  - e2e: `Test Files 16 passed (16)`, `Tests 968 passed (968)`.
+- **Falsifiers (observed red):**
+  1. Labels added to the hash in the runner: `Tests 4 failed | 43 passed (47)`. The failing test is `load-runner.spec.ts > labels (FR-20, DD-6) > re-entry with the same values and a renamed label: one hash, changed_fields [], no earlier snapshot read, the old labels kept`, with `AssertionError: expected 'e5d16f698f8f47c755f8736cadb710b733946…' to be 'd35b1d88d66d811545929847a371613822f56…' // Object.is equality`.
+  2. `parseLabels` made to throw `BadShape`: `Tests 8 failed | 62 passed (70)`. For example, `details: labels (FR-20, DD-6) > malformed (number values): dropped, the load does not fail, the values stay, only the reason word is logged` failed with `FeedError: reporting_feed_unavailable`.
+- **Evidence re-run (Leader inline):** lint, build, unit and e2e give the same counts. **VERIFIED.**
+- **Reviewer verdict: PASS.**
+  - The hash and the conflict check compare `values` only, so the first labels win (P-6).
+  - No label text is logged.
+  - The disqualifier does not apply: the rename fixture diverges, and the hash is not mocked.
+  - `snapshotKeyOf` is tested with the real `snapshotSortSuffix`.
+- **Runtime events:** none.
+
+**Decisions made:**
+
+- A present `labels: null` is malformed: it is dropped, with the fixed log line.
+- Any malformed part drops the whole `labels` object (§ 7.8).
+- `{}` is stored as `"{}"`.
+- `hashValues` stays private and is tested through the runner.
+
+**Issues encountered:** `DYNAMODB_ENDPOINT` was not set, so the two new cases in `dynamo-snapshot-store.dynamo-local.spec.ts` were written but did not run. **Gap:** they must run once against DynamoDB Local before the spec closes, at T-16 at the latest.
+
+**ADVISORY (4R, recorded only):**
+
+- RELIABILITY: `onLabelsMalformed` logs once per result, so a bad batch gives up to 50 identical warning lines.
+- RISK: the DynamoDB Local cases have not run (see the gap above).
+- READABILITY: `ingestion/AGENTS.md:24` still calls `fixtures/` "Reporting contract examples", while `results-details.json` now carries synthetic labels. T-15 should cover it.
+- READABILITY: the casts in `packJson` could be simpler.
+
+**Spawns:** implementer 41 calls, 140,276 tokens, ended complete; reviewer not reported by host, ended complete (PASS).
+
+**Running totals:**
+
+| Measure | Actual | Budget |
+|---|---|---|
+| Tasks | 3 of 21 | 21 |
+| Production LOC | ≈ 1,275 TS + 141 SQL | 4,800 |
+| Review rounds | 4 | 26 |
+
+Within budget.

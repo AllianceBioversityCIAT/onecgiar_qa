@@ -1,4 +1,6 @@
 // @akili-spec ingestion/step-1-loads
+import type { FeedLabels } from './results-feed.port.js';
+
 /**
  * Port over the immutable per-result snapshot (design § 5.4, DD-1). A snapshot
  * is written before its membership and never changed afterwards.
@@ -20,12 +22,16 @@ export interface ResultSnapshotRecord {
   /** The load's `started_at` (ISO), so a retry writes identical content. */
   loadedAt: string;
   values: Record<string, unknown>;
+  /** Display labels, stored beside `values` and outside `hash` (FR-20, DD-6). */
+  labels?: FeedLabels;
 }
 
 export interface SnapshotStore {
   /**
    * Idempotent: the same key with the same hash succeeds without a second item;
-   * the same key with another hash throws `SnapshotConflictError`.
+   * the same key with another hash throws `SnapshotConflictError`. The hash is
+   * of `values` only: the same hash with other labels is that same no-op and
+   * the first labels stay (P-6).
    */
   put(snapshot: ResultSnapshotRecord): Promise<void>;
   /** One GetItem by the exact key (`sk` is `snapshotSortSuffix`); null on a miss. */

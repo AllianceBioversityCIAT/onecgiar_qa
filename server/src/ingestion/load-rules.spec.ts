@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RomeMinute } from '../admin-config/rome-date.js';
+import { snapshotSortSuffix } from '../database/dynamodb/entities/result-snapshot.entity.js';
 import type { TimelineResultEndReason } from '../database/drizzle/schema/timeline-results.js';
 import {
   EMPTY_SUMMARY,
@@ -11,6 +12,8 @@ import {
   membershipEnds,
   mergeSummary,
   skipVerdict,
+  SNAPSHOT_SK_PREFIX,
+  snapshotKeyOf,
   stepInForce,
   syncWindow,
   timelineHasLoad,
@@ -916,4 +919,25 @@ describe('timelineHasLoad (FR-11, S-6)', () => {
       ).toBe(expected);
     },
   );
+});
+
+describe('snapshotKeyOf (DD-7, KZ-ingestion--timeline-sync-1)', () => {
+  // The key is built by the real writer's `snapshotSortSuffix`, the way
+  // `LoadRunner` stores it in `timeline_results.snapshot_sk`; no literal is typed.
+  const parts = { phaseYear: 2026, cycleId: 1, timelineId: 11, loadId: 7 };
+
+  it('strips SNAP# and returns exactly the suffix the snapshot store is keyed by', () => {
+    const suffix = snapshotSortSuffix(parts);
+    expect(snapshotKeyOf(`${SNAPSHOT_SK_PREFIX}${suffix}`)).toBe(suffix);
+    expect(snapshotKeyOf(`SNAP#${suffix}`)).toBe(suffix);
+  });
+
+  it('leaves a key that is already a suffix as it is', () => {
+    const suffix = snapshotSortSuffix(parts);
+    expect(snapshotKeyOf(suffix)).toBe(suffix);
+  });
+
+  it('strips only the leading prefix', () => {
+    expect(snapshotKeyOf('SNAP#SNAP#1')).toBe('SNAP#1');
+  });
 });

@@ -29,6 +29,8 @@ import {
   canonicalJson,
   changedFields,
   skipVerdict,
+  SNAPSHOT_SK_PREFIX,
+  snapshotKeyOf,
   type LoadSummary,
   type ReturnedNotResubmitted,
   type TakeVerdict,
@@ -110,13 +112,6 @@ interface Run {
   /** The KPs a completed load would release, collected only while the release is on. */
   releasable: Array<{ resultId: number; outcome: ReleaseOutcome }>;
 }
-
-/** The membership column keeps the whole sort key; the snapshot store is read by the part after it (`snapshotSortSuffix`). */
-const SNAPSHOT_SK_PREFIX = 'SNAP#';
-const snapshotKeyOf = (snapshotSk: string): string =>
-  snapshotSk.startsWith(SNAPSHOT_SK_PREFIX)
-    ? snapshotSk.slice(SNAPSHOT_SK_PREFIX.length)
-    : snapshotSk;
 
 /** A take of the verdict: what the lot does with a result that was not skipped. */
 type Take = TakeVerdict<CycleMembershipRow>;
@@ -408,7 +403,7 @@ export class LoadRunner implements LoadRunnerPort {
     const planned = detailed.map(({ item, result, take }) => {
       const classification = this.classify(take, result);
       const hash = hashValues(result.values);
-      const snapshotSk = `SNAP#${snapshotSortSuffix({
+      const snapshotSk = `${SNAPSHOT_SK_PREFIX}${snapshotSortSuffix({
         phaseYear: load.phaseYear,
         cycleId: load.cycleId,
         timelineId: load.timelineId,
@@ -427,6 +422,7 @@ export class LoadRunner implements LoadRunnerPort {
         hash,
         loadedAt,
         values: result.values,
+        ...(result.labels ? { labels: result.labels } : {}),
       };
       const membership: LotMembership = {
         resultCode: item.resultCode,

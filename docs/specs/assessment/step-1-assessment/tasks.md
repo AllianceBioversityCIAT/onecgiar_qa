@@ -95,7 +95,7 @@ Gate edges from **T-1** are listed on the last line of the graph. Nothing else w
 - **Skills:** nestjs-expert, tdd
 
 ## T-4: Labels from Reporting — port, parse, snapshot, fixture
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** none
 - **Requirements:** FR-20 (*Rename is not an update*; *AND IT MUST* one hash for equal values; absent, malformed or `null` labels)

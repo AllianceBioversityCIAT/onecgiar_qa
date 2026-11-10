@@ -23,6 +23,7 @@ import {
   FeedError,
   type FeedDetailsQuery,
   type FeedIntakeQuery,
+  type FeedLabels,
   type FeedListItem,
 } from './results-feed.port.js';
 
@@ -225,6 +226,8 @@ interface FeedScript {
   catalogVersion?: string;
   /** Values per result id (default one field). */
   values?: Record<number, Record<string, unknown>>;
+  /** Labels per result id (default none, as an older Reporting sends). */
+  labels?: Record<number, FeedLabels>;
   /** The answers of intake in call order: `'ok'` answers from the query; the last one repeats (default `['ok']`). */
   intake?: Array<'ok' | Error>;
   /** The same for details. */
@@ -267,6 +270,7 @@ function script(
       resultCode: id + 4000,
       resultTypeKey: typeOf.get(id)!,
       values: s.values?.[id] ?? { title: `result ${id}` },
+      ...(s.labels?.[id] ? { labels: s.labels[id] } : {}),
     })),
     notEligible: [],
   });
@@ -1048,6 +1052,7 @@ async function seedSnapshot(
   ctx: ReturnType<typeof build>,
   row: TimelineResult,
   values: Record<string, unknown>,
+  labels?: FeedLabels,
 ): Promise<void> {
   await ctx.snapshots.put({
     resultCode: row.resultCode,
@@ -1062,6 +1067,7 @@ async function seedSnapshot(
     hash: row.snapshotHash,
     loadedAt: '2026-11-03T09:00:00.000Z',
     values,
+    ...(labels ? { labels } : {}),
   });
 }
 
@@ -1464,5 +1470,79 @@ describe('the zone of the process (P-8, FR-4)', () => {
       loadedResubmitted: 1,
       skipped: { RETURNED_NOT_RESUBMITTED: 1 },
     });
+  });
+});
+
+describe('labels (FR-20, DD-6)', () => {
+  const COLOMBIA = { countries: { '170': 'Colombia', '999': null } };
+  const RENAMED = { countries: { '170': 'Republic of Colombia', '999': null } };
+
+  it('writes the labels with the snapshot and leaves the hash as the hash of the values alone', async () => {
+    const ctx = build();
+    script(ctx.feed, items(1, 1), {
+      values: { 1001: { b: [2, { y: 1, x: 0 }], a: null } },
+      labels: { 1001: COLOMBIA },
+    });
+
+    await runToEnd(ctx);
+
+    const [snapshot] = await ctx.snapshots.history(5001);
+    expect(snapshot!.labels).toEqual(COLOMBIA);
+    // The same literal as the values-only case above: the labels are not in it.
+    expect(snapshot!.hash).toBe(
+      'd35b1d88d66d811545929847a371613822f5679f2f589f664b7825160af660b6',
+    );
+    expect(ctx.world.results[0]!.snapshotHash).toBe(snapshot!.hash);
+  });
+
+  it('a result with no labels is stored with none', async () => {
+    const ctx = build();
+    script(ctx.feed, items(1, 1));
+
+    await runToEnd(ctx);
+
+    expect(await ctx.snapshots.history(5001)).toHaveLength(1);
+    expect((await ctx.snapshots.history(5001))[0]).not.toHaveProperty('labels');
+  });
+
+  it('re-entry with the same values and a renamed label: one hash, changed_fields [], no earlier snapshot read, the old labels kept', async () => {
+    const row = returnedRow(1, 5003, { snapshotHash: SAME_HASH });
+    const ctx = build({ members: [row], load: ROUND_2_LOAD });
+    await seedSnapshot(ctx, row, SAME_VALUES, COLOMBIA);
+    script(ctx.feed, [item(3, 'policy_change', LATER)], {
+      values: { 1003: SAME_VALUES },
+      labels: { 1003: RENAMED },
+    });
+    const gets = vi.spyOn(ctx.snapshots, 'get');
+
+    const load = await runToEnd(ctx);
+
+    expect(load.status).toBe('completed');
+    const [member] = roundTwo(ctx.world);
+    expect(member!.changedFields).toEqual([]);
+    expect(member!.snapshotHash).toBe(SAME_HASH);
+    expect(gets).not.toHaveBeenCalled();
+    // The round-2 snapshot carries the renamed label, the round-1 one the old one.
+    const history = await ctx.snapshots.history(5003);
+    const round1 = history.find((r) => r.loadId === ROUND_1_LOAD)!;
+    const round2 = history.find((r) => r.loadId === 1)!;
+    expect(history).toHaveLength(2);
+    expect(round1.labels).toEqual(COLOMBIA);
+    expect(round2.labels).toEqual(RENAMED);
+    expect(round1.hash).toBe(round2.hash);
+  });
+
+  it('a changed value with a renamed label still lists only the value key', async () => {
+    const row = returnedRow(1, 5002, { snapshotHash: 'a'.repeat(64) });
+    const ctx = build({ members: [row], load: ROUND_2_LOAD });
+    await seedSnapshot(ctx, row, { title: 'Old', note: 'same' }, COLOMBIA);
+    script(ctx.feed, [item(2, 'policy_change', LATER)], {
+      values: { 1002: { title: 'New', note: 'same' } },
+      labels: { 1002: RENAMED },
+    });
+
+    await runToEnd(ctx);
+
+    expect(roundTwo(ctx.world)[0]!.changedFields).toEqual(['title']);
   });
 });
