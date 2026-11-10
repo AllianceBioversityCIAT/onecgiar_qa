@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { CycleStep, Timeline } from './cycle.mock';
-import { isStepInForce, loadTargets, officialRelative, stepInForce, stepRound, timelineVM } from './cycle.logic';
+import { isStepInForce, loadTargets, officialRelative, stepInForce, stepRound, timelineNow, timelineVM } from './cycle.logic';
 import { TimelineSteps } from './timeline-steps';
 
 // 3 Nov 2026, 10:00 in Rome (CET, UTC+1).
@@ -179,6 +179,50 @@ describe('cycle.logic', () => {
         { ...step('Re-assess', '01 Nov 2026', '05 Nov 2026'), batch: true, round: 2, state: 'in_progress' },
       ]);
       expect(timelineVM(t, true).menu.find((m) => m.action === 'add-results')?.label).toBe('Load results into QA round 2');
+    });
+  });
+
+  describe('timelineNow — one line for a collapsed complementary batch', () => {
+    it('names the step in progress and when it closes', () => {
+      const t = timeline('Live', [
+        { ...step('Assess', '20 Oct 2026', '25 Oct 2026'), state: 'closed' },
+        { ...step('Programs respond', '01 Nov 2026', '05 Nov 2026'), state: 'in_progress' },
+        step('Lead', '06 Nov 2026', '08 Nov 2026'),
+      ]);
+      expect(timelineNow(timelineVM(t))).toEqual({ step: 'Step 2 of 3 · Programs respond', state: 'In progress', tone: 'active', when: 'closes 05 Nov, 23:59 CET' });
+    });
+
+    it('says "Waiting for results" on a timeline on hold, at step 1', () => {
+      expect(timelineNow(timelineVM(HELD))).toMatchObject({ step: 'Step 1 of 5 · Assess', state: 'Waiting for results', tone: 'waiting', when: '' });
+    });
+
+    it('counts the days to the first step when nothing opened yet', () => {
+      const t = timeline('Scheduled', [step('Assess', '10 Nov 2026', '12 Nov 2026'), step('Programs respond', '13 Nov 2026', '14 Nov 2026')]);
+      expect(timelineNow(timelineVM(t))).toMatchObject({ step: 'Step 1 of 2 · Assess', state: 'Opens in 7 days', tone: 'future' });
+    });
+
+    it('says "Opens today at" when the first step opens later today', () => {
+      const t = timeline('Scheduled', [step('Assess', '03 Nov 2026', '05 Nov 2026', '15:00')]);
+      expect(timelineNow(timelineVM(t)).state).toBe('Opens today at 15:00');
+    });
+
+    it('says every step is completed on a closed timeline whose steps all ran', () => {
+      const t = timeline('Closed', [
+        { ...step('Assess', '01 Oct 2026', '05 Oct 2026'), state: 'closed' },
+        { ...step('Lead', '06 Oct 2026', '08 Oct 2026'), state: 'closed' },
+      ]);
+      expect(timelineNow(timelineVM(t))).toEqual({ step: 'All 2 steps completed', state: 'Completed', tone: 'done', when: '' });
+    });
+
+    it('closed early ("Close timeline"): counts the steps that ran, never "All completed" over steps that say "Not opened"', () => {
+      const t = timeline('Closed', [
+        { ...step('Assess', '20 Oct 2026', '25 Oct 2026'), state: 'closed' },
+        { ...step('Programs respond', '26 Oct 2026', '02 Nov 2026'), state: 'closed' },
+        step('Lead', '10 Nov 2026', '12 Nov 2026'),
+      ]);
+      const vm = timelineVM(t);
+      expect(vm.steps.map((s) => s.doneText)).toEqual(['', '', 'Not opened']);
+      expect(timelineNow(vm)).toEqual({ step: '2 of 3 steps ran', state: 'Closed early', tone: 'done', when: '' });
     });
   });
 });

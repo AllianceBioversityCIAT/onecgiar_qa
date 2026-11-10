@@ -1,4 +1,4 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, OnInit, afterNextRender, computed, inject, signal } from '@angular/core';
 import { Toasts } from '../../../core/http/toasts';
 import { QaButtonImports, QaReveal, QaTabsImports } from '../../../ui';
 import { CycleSkeleton } from './cycle-skeleton';
@@ -16,6 +16,11 @@ import { TimelineDrawer, TimelineRequest, TimelineSaveEvent, TimelineSaveFeedbac
 import { TimelineSteps } from './timeline-steps';
 
 const byStartDesc = (a: Timeline, b: Timeline) => timelineStart(b) - timelineStart(a);
+
+/** Browser storage key of the complementary batches the admin left open (only a viewing preference). */
+const OPEN_BATCHES_KEY = 'qa.cycle.openBatches';
+/** Enough for a cycle's batches; older ids fall off so the list never grows without end. */
+const OPEN_BATCHES_MAX = 50;
 
 /** Placeholder for the step drawer before a step is picked. */
 const EMPTY_TIMELINE: Timeline = { id: '', name: '', kind: 'Sub-timeline', status: 'Scheduled', results: 0, programs: [], types: [], steps: [] };
@@ -45,6 +50,8 @@ export class CycleView implements OnInit {
   // ---- Page state ----
   protected readonly tab = signal<string>('live');
   protected readonly closeConfirmId = signal<string | null>(null);
+  /** Complementary batches the admin opened: closed by default to one line each; the main batch always shows its steps. */
+  protected readonly openBatches = signal<ReadonlySet<string>>(new Set());
 
   protected readonly officialVM = computed(() => {
     const t = this.official();
@@ -91,6 +98,19 @@ export class CycleView implements OnInit {
   protected readonly stepFeedback = signal<TimelineSaveFeedback | null>(null);
   protected readonly progressOpen = signal(false);
   protected readonly progress = signal<StepProgress>({ title: '', subtitle: '', pct: 0, done: 0, of: 0 });
+
+  constructor() {
+    // Read after the first render, in the browser only: the server render and hydration both start closed.
+    afterNextRender(() => this.openBatches.set(readOpenBatches()));
+  }
+
+  protected setBatchOpen(id: string, open: boolean): void {
+    const next = new Set(this.openBatches());
+    if (open) next.add(id);
+    else next.delete(id);
+    this.openBatches.set(next);
+    writeOpenBatches(next);
+  }
 
   ngOnInit(): void {
     // Then follow a load of the cycle that is still running (opened in another tab, or before a reload).
@@ -259,5 +279,22 @@ export class CycleView implements OnInit {
   protected closeTimeline(_id: string): void {
     // No API yet (closing early is out of scope of the timelines spec): the menu item is greyed out.
     this.closeConfirmId.set(null);
+  }
+}
+
+function readOpenBatches(): ReadonlySet<string> {
+  try {
+    const ids: unknown = JSON.parse(localStorage.getItem(OPEN_BATCHES_KEY) ?? '[]');
+    return new Set(Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function writeOpenBatches(ids: ReadonlySet<string>): void {
+  try {
+    localStorage.setItem(OPEN_BATCHES_KEY, JSON.stringify([...ids].slice(-OPEN_BATCHES_MAX)));
+  } catch {
+    // storage blocked: the cards still open and close for this visit
   }
 }
