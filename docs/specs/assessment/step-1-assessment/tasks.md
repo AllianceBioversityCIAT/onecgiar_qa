@@ -66,7 +66,7 @@ Gate edges from **T-1** are listed on the last line of the graph. Nothing else w
 - **Skills:** nestjs-expert, nestjs-best-practices
 
 ## T-3: Pure rules — role steps, status, transitions, end rule, scope
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-2 (enum types)
 - **Requirements:**
