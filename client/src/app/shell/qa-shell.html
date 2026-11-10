@@ -62,19 +62,21 @@
   <nav class="flex-1 overflow-y-auto px-3 pt-1 pb-4 [scrollbar-color:var(--border-strong)_transparent] [scrollbar-width:thin]">
     <!-- Active cycle: outlined panel on the nav background (no fill, no shadow). Green only on the dot.
          Information only, not a link (Juanpa, 2026-10-29): Cycle already has its own item in the menu.
-         TODO(api): read the cycle and the official timeline's step. -->
-    <div
-      class="mb-4 flex flex-col gap-1 rounded-lg border border-(--nav-divider) px-3 py-2.5"
-      [class.lg:hidden]="collapsed()"
-    >
-      <span class="flex items-baseline justify-between gap-2">
-        <span class="truncate text-(length:--fs-14) font-semibold text-(--nav-fg)">Annual report 2026</span>
-        <span class="flex flex-none items-center gap-1.5 text-(length:--fs-12) text-(--nav-fg-3)">
-          <span aria-hidden="true" class="size-1.5 rounded-full bg-(--success)"></span>Active
+         Real data (shell/active-cycle.ts): admins only; nothing while loading or without an active cycle. -->
+    @if (activeCycle.card(); as c) {
+      <div
+        class="mb-4 flex flex-col gap-1 rounded-lg border border-(--nav-divider) px-3 py-2.5"
+        [class.lg:hidden]="collapsed()"
+      >
+        <span class="flex items-baseline justify-between gap-2">
+          <span class="truncate text-(length:--fs-14) font-semibold text-(--nav-fg)">{{ c.name }}</span>
+          <span class="flex flex-none items-center gap-1.5 text-(length:--fs-12) text-(--nav-fg-3)">
+            <span aria-hidden="true" class="size-1.5 rounded-full" [class]="c.status === 'Active' ? 'bg-(--success)' : 'bg-(--nav-fg-3)'"></span>{{ c.status }}
+          </span>
         </span>
-      </span>
-      <span class="text-(length:--fs-12) tabular-nums text-(--nav-fg-3)">Step 4 of 5 · closes 23 Jul</span>
-    </div>
+        <span class="text-(length:--fs-12) tabular-nums text-(--nav-fg-3)">Main batch · {{ c.line }}</span>
+      </div>
+    }
 
     <div class="px-1 py-2 text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--nav-eyebrow) uppercase" [class.lg:sr-only]="collapsed()">Assessment</div>
     <div class="flex flex-col gap-0.5">
@@ -112,10 +114,8 @@
       </button>
     </div>
 
-    <label class="flex h-9 min-w-0 flex-[1_1_520px] cursor-text items-center gap-2 rounded-lg border border-(--border) bg-(--surface) px-3 focus-within:shadow-(--focus-ring) sm:flex-[0_1_520px]">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.35-4.35" /></svg>
-      <input type="search" placeholder="Search" aria-label="Search by code or title" class="min-w-0 flex-1 border-none bg-transparent p-0 text-(length:--fs-14) text-(--text) outline-none placeholder:text-(--text-muted)" />
-    </label>
+    <!-- Search is out until Results reads the API (it did nothing: Enter changed nothing). TODO(api): search results by code or title. -->
+    <span class="min-w-0 flex-1" aria-hidden="true"></span>
 
     <div class="flex items-center justify-end gap-1 sm:flex-[1_0_auto]">
       <qa-notifications-bell />

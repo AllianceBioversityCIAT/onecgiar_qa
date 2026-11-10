@@ -92,13 +92,11 @@ const NOW_TONE: Record<TimelineNow['tone'], string> = {
             </button>
             <ng-template #actions>
               <qa-menu-panel width="220px" [attr.aria-label]="t.name + ' actions'">
+                <!-- Actions without an API yet are left out (greyed "Coming soon" items read as broken, review 2026-11-10). -->
                 @for (item of t.menu; track item.action) {
-                  <button qaMenuItem [variant]="item.danger ? 'danger' : 'default'" [disabled]="item.soon" (triggered)="menuAction.emit(item.action)">
-                    {{ item.label }}
-                    @if (item.soon) {
-                      <span class="ml-auto pl-2 text-(length:--fs-11) font-semibold text-(--text-muted)">Coming soon</span>
-                    }
-                  </button>
+                  @if (!item.soon) {
+                    <button qaMenuItem [variant]="item.danger ? 'danger' : 'default'" (triggered)="menuAction.emit(item.action)">{{ item.label }}</button>
+                  }
                 }
               </qa-menu-panel>
             </ng-template>
