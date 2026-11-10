@@ -81,7 +81,7 @@ const NOW_TONE: Record<TimelineNow['tone'], string> = {
           <div class="flex flex-none items-center gap-2 max-sm:w-full">
             @if (t.waitingLoad) {
               <!-- On hold with nothing loaded: the way out sits on the card, not only in the "…" menu. -->
-              <button hlmBtn qaBtn tone="secondary" type="button" (click)="menuAction.emit('add-results')" class="gap-[7px] max-sm:flex-1">
+              <button hlmBtn qaBtn tone="secondary" type="button" (click)="menuAction.emit('add-results')" [attr.aria-label]="'Load results into ' + t.name" class="gap-[7px] max-sm:flex-1">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M8 11l4 4 4-4M8 5H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-4" /></svg>Load results
               </button>
             }
