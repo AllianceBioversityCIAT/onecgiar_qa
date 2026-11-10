@@ -1,14 +1,16 @@
 import { Location, NgOptimizedImage, NgTemplateOutlet } from '@angular/common';
-import { Component, computed, inject, linkedSignal, signal } from '@angular/core';
+import { Component, computed, effect, inject, linkedSignal, signal, untracked } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { filter, map } from 'rxjs';
 import { AccessControl } from '../core/access/access-control';
 import { Permission } from '../core/access/role-definitions';
 import { AuthSession } from '../core/auth/auth-session';
+import { UnsavedChanges } from '../core/forms/unsaved-changes';
 import { UnsentQueue } from '../core/http/unsent-queue';
 import { NotificationsBell } from '../pages/workspace/notifications/notifications-bell';
 import { QaTokensLoader, QaUnsentCenter } from '../ui';
+import { ActiveCycle } from './active-cycle';
 
 interface NavItem {
   readonly label: string;
@@ -70,6 +72,7 @@ const ADMINISTRATION: readonly NavItem[] = [
   imports: [NgOptimizedImage, NgTemplateOutlet, RouterLink, RouterLinkActive, RouterOutlet, NotificationsBell, QaUnsentCenter],
   templateUrl: './qa-shell.html',
   styleUrl: './qa-shell.css',
+  providers: [ActiveCycle],
   host: {
     class: 'qa-tokens',
     '(document:keydown.escape)': 'closeOverlays()',
@@ -83,6 +86,10 @@ export class QaShell {
   private readonly access = inject(AccessControl);
   private readonly router = inject(Router);
   private readonly location = inject(Location);
+  private readonly unsaved = inject(UnsavedChanges);
+  /** Sidebar card of the active cycle (admins only; the cycles routes are ADMIN). */
+  protected readonly activeCycle = inject(ActiveCycle);
+  private readonly isAdmin = computed(() => this.access.canAny(Permission.ADMIN_ACCESS));
 
   protected readonly assessment = computed(() =>
     ASSESSMENT.filter((i) => this.access.canAny(i.permission)),
@@ -116,6 +123,17 @@ export class QaShell {
     return letters.toUpperCase();
   });
 
+  constructor() {
+    // Load the card once the admin role is known, then refresh it on navigation (at most once a minute).
+    effect(() => {
+      this.url();
+      if (!this.isAdmin()) return;
+      untracked(() => void this.activeCycle.refresh(!this.cardRequested));
+      this.cardRequested = true;
+    });
+  }
+  private cardRequested = false;
+
   protected back(): void {
     this.location.back();
   }
@@ -130,6 +148,8 @@ export class QaShell {
   }
 
   protected signOut(): void {
+    // A drawer half filled in asks first (BUG-6): the route guard lets a signed-out session leave without asking.
+    if (!this.unsaved.confirmLeave()) return;
     const unsent = this.unsent.count();
     if (
       unsent > 0 &&
