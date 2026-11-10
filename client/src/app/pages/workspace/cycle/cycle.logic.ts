@@ -212,7 +212,7 @@ export function timelineStart(t: Timeline): number {
 // ---------------------------------------------------------------------------------------------
 // View models for the presentational components.
 
-export type MenuAction = 'add-results' | 'edit' | 'export' | 'clear-test' | 'close';
+export type MenuAction = 'add-results' | 'edit' | 'people' | 'export' | 'clear-test' | 'close';
 
 export interface StepCardVM {
   n: number;
@@ -343,7 +343,12 @@ export function timelineVM(t: Timeline, loadable = false): TimelineVM {
     menu.push({ action: 'add-results', label: `Load results into QA round ${round}`, danger: false, soon: false });
   }
   else if (!soon && t.status === 'Live') menu.push({ action: 'add-results', label: 'Add results to this timeline', danger: false, soon: false });
-  menu.push({ action: 'edit', label: 'Edit timeline', danger: false, soon: false }, { action: 'export', label: 'Export comments', danger: false, soon });
+  menu.push(
+    { action: 'edit', label: 'Edit timeline', danger: false, soon: false },
+    // People live on the server only: a mock timeline shows it greyed out.
+    { action: 'people', label: 'People', danger: false, soon: !soon },
+    { action: 'export', label: 'Export comments', danger: false, soon },
+  );
   if (t.test) menu.push({ action: 'clear-test', label: 'Clear test results', danger: true, soon });
   if (t.kind !== 'Official timeline' && t.kind !== 'Official' && !closed) menu.push({ action: 'close', label: 'Close timeline', danger: true, soon });
 
