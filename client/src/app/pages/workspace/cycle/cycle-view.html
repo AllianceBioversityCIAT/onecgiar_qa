@@ -71,7 +71,7 @@
         </button>
       }
     </div>
-    <qa-cycle-timeline-steps [timeline]="ot" (openStep)="openStep('official', $event)" (viewProgress)="openProgress('official', $event)" />
+    <qa-cycle-timeline-steps [timeline]="ot" (openStep)="openStep('official', $event)" (viewProgress)="openProgress('official', $event)" (assignPeople)="openPeople('official')" />
   </section>
   } @else {
     <section class="flex flex-col items-start gap-1 rounded-[12px] border border-(--border) bg-(--surface) px-5 py-6">

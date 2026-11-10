@@ -242,6 +242,8 @@ export interface StepCardVM {
    * "Waiting for results", never "Opens today at 00:00" (timeline-edit front contract § 3).
    */
   waiting: boolean;
+  /** "No assessors assigned" on the step in force when nobody holds its role in this timeline; '' otherwise. */
+  nobody: string;
 }
 
 export interface TimelineVM {
@@ -269,7 +271,19 @@ export interface TimelineVM {
   progressWidth: string | null;
   /** `soon`: shown greyed out with "Coming soon" (no API yet). */
   menu: { action: MenuAction; label: string; danger: boolean; soon: boolean }[];
+  /** The step in force has nobody assigned to its role (People). */
+  needsPeople: boolean;
+  /** On hold (waiting for results) and able to take a sync now: the card shows its own load button. */
+  waitingLoad: boolean;
 }
+
+/** Timeline role behind each step audience, and how a warning names it. Programs are not assigned to timelines. */
+const AUDIENCE_ROLE: Partial<Record<NonNullable<CycleStep['audienceKey']>, { role: 'ASSESSOR' | 'LEAD_ASSESSOR' | 'TPB' | 'PPU'; plural: string }>> = {
+  assessors: { role: 'ASSESSOR', plural: 'assessors' },
+  lead_assessors: { role: 'LEAD_ASSESSOR', plural: 'lead assessors' },
+  tpb: { role: 'TPB', plural: 'third-party brokers' },
+  ppu: { role: 'PPU', plural: 'PPU people' },
+};
 
 const STATUS_CLASS: Record<string, string> = {
   Live: 'bg-(--st-indigo-bg) text-(--st-indigo-fg)',
@@ -317,8 +331,13 @@ export function timelineVM(t: Timeline, loadable = false): TimelineVM {
       dayWord: st.kind === 'future' && st.days === 1 ? 'day' : 'days',
       hasProgress: st.kind === 'active' && st.of > 0,
       waiting: held && (i === 0 || (opens != null && opens <= now)),
+      nobody: '',
     };
   });
+  // Who should be working now: the step in progress, else (on hold) the first step whose day came.
+  const inForce = closed ? -1 : steps.findIndex((s) => s.state === 'active') >= 0 ? steps.findIndex((s) => s.state === 'active') : steps.findIndex((s) => s.waiting);
+  const need = inForce >= 0 ? AUDIENCE_ROLE[t.steps[inForce].audienceKey ?? 'programs'] : undefined;
+  if (need && t.assigned && t.assigned[need.role] === 0) steps[inForce].nobody = `No ${need.plural} assigned`;
   const rail = states.map((s) => (closed ? 'done' : s.kind));
   const ai = rail.indexOf('active');
   const pct = ai >= 0 && states[ai].kind === 'active' ? (states[ai] as { pct: number }).pct : 0;
@@ -376,6 +395,8 @@ export function timelineVM(t: Timeline, loadable = false): TimelineVM {
     rounds,
     progressWidth,
     menu,
+    needsPeople: steps.some((p) => !!p.nobody),
+    waitingLoad: loadable && held,
   };
 }
 
