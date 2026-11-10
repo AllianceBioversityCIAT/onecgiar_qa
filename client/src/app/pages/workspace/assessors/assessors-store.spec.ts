@@ -270,6 +270,20 @@ describe('AssessorsStore', () => {
     for (const fn of Object.values(users)) if (fn !== users['listAll']) expect(fn).not.toHaveBeenCalled();
   });
 
+  it('bring back tapped twice fast: one request and one row (BUG-4, no duplicate person)', async () => {
+    users['activate'] = vi.fn(() => of(detail({ status: 'active' })));
+    await store.deactivate('7');
+    expect(store.team().length).toBe(0);
+    // "Bring back" lives in the removed list, loaded on its own.
+    users['listAll'].mockImplementation(() => of([u({ status: 'inactive' })]));
+    await store.loadRemoved();
+
+    await Promise.all([store.activate('7'), store.activate('7')]);
+
+    expect(users['activate']).toHaveBeenCalledTimes(1);
+    expect(store.team().map((m) => m.id)).toEqual(['7']);
+  });
+
   it('remove = deactivate; the person leaves the team list', async () => {
     expect(await store.deactivate('7')).toEqual({ ok: true });
     expect(store.team().length).toBe(0);
