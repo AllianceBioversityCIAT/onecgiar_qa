@@ -9,6 +9,7 @@ import { MenuAction, formatNumber, isStepInForce, loadTargets, stepRow, stepStat
 import { nowInRome } from '../../../core/domain/rome-date';
 import { LoadDrawer, LoadDrawerNames, RunRequest } from './load-drawer';
 import { LoadSummaryDrawer } from './load-summary-drawer';
+import { PeopleDrawer } from './people-drawer';
 import { ProgressDrawer, StepProgress } from './progress-drawer';
 import { StepDrawer, StepRequest, StepSaveEvent } from './step-drawer';
 import { TimelineCard } from './timeline-card';
@@ -33,7 +34,7 @@ const EMPTY_TIMELINE: Timeline = { id: '', name: '', kind: 'Sub-timeline', statu
  */
 @Component({
   selector: 'qa-cycle-view',
-  imports: [QaButtonImports, QaTabsImports, QaReveal, CycleSkeleton, TimelineSteps, TimelineCard, TimelineDrawer, StepDrawer, ProgressDrawer, LoadDrawer, LoadSummaryDrawer],
+  imports: [QaButtonImports, QaTabsImports, QaReveal, CycleSkeleton, TimelineSteps, TimelineCard, TimelineDrawer, StepDrawer, ProgressDrawer, LoadDrawer, LoadSummaryDrawer, PeopleDrawer],
   providers: [CycleStore, CycleLoads],
   templateUrl: './cycle-view.html',
 })
@@ -75,6 +76,9 @@ export class CycleView implements OnInit {
   protected readonly closedTotal = computed(() => this.closedList().length);
 
   // ---- Drawers ----
+  protected readonly peopleOpen = signal(false);
+  /** Timeline whose people the drawer shows (kept after closing so the drawer can animate out). */
+  protected readonly peopleTimeline = signal<Timeline | null>(null);
   protected readonly loadOpen = signal(false);
   protected readonly loadRequest = signal<RunRequest>({ timelineId: null, fromStep: false });
   protected readonly loadError = signal<string | null>(null);
@@ -253,6 +257,18 @@ export class CycleView implements OnInit {
     }
   }
 
+  protected openPeople(id: string): void {
+    const t = this.timelineById(id);
+    if (!t || t.apiId == null) return;
+    this.peopleTimeline.set(t);
+    this.peopleOpen.set(true);
+  }
+
+  /** Someone was added to or removed from a timeline: refresh the cards in place (assignment counts). */
+  protected refreshAfterPeople(): void {
+    void this.store.load(true);
+  }
+
   protected onMenu(id: string, action: MenuAction): void {
     const t = this.timelineById(id);
     if (!t) return;
@@ -263,6 +279,9 @@ export class CycleView implements OnInit {
       }
       case 'edit':
         this.editTimeline(id);
+        break;
+      case 'people':
+        this.openPeople(id);
         break;
       case 'export':
         // TODO(api): export the comments of this timeline (.xlsx).
