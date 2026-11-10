@@ -68,6 +68,9 @@ const NOW_TONE: Record<TimelineNow['tone'], string> = {
                 <span class="rounded-full px-2 py-[2px] text-(length:--fs-11) font-semibold whitespace-nowrap" [class]="nowTone()">{{ now.state }}</span>&ngsp;
               }
               <span class="min-w-0 font-medium">{{ now.step }}</span>
+              @if (t.needsPeople) {
+                &ngsp;<span class="rounded-full bg-(--st-editing-bg) px-2 py-[2px] text-(length:--fs-11) font-semibold whitespace-nowrap text-(--st-editing-fg)">No one assigned</span>
+              }
               @if (now.when) {
                 &ngsp;<span class="font-(family-name:--qa-mono) text-(length:--fs-12) whitespace-nowrap text-(--text-3) tabular-nums">{{ now.when }}</span>
               }
@@ -76,6 +79,12 @@ const NOW_TONE: Record<TimelineNow['tone'], string> = {
         </div>
         @if (t.canEdit) {
           <div class="flex flex-none items-center gap-2 max-sm:w-full">
+            @if (t.waitingLoad) {
+              <!-- On hold with nothing loaded: the way out sits on the card, not only in the "…" menu. -->
+              <button hlmBtn qaBtn tone="secondary" type="button" (click)="menuAction.emit('add-results')" class="gap-[7px] max-sm:flex-1">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M8 11l4 4 4-4M8 5H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-4" /></svg>Load results
+              </button>
+            }
             @if (canAddStep()) {
             <button hlmBtn qaBtn tone="secondary" type="button" (click)="addStep.emit()" class="gap-[7px] max-sm:flex-1">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>Add step
@@ -112,7 +121,7 @@ const NOW_TONE: Record<TimelineNow['tone'], string> = {
       }
       @if (!collapsible() || expanded()) {
         <div [id]="stepsId()">
-          <qa-cycle-timeline-steps [timeline]="t" (openStep)="openStep.emit($event)" (viewProgress)="viewProgress.emit($event)" />
+          <qa-cycle-timeline-steps [timeline]="t" (openStep)="openStep.emit($event)" (viewProgress)="viewProgress.emit($event)" (assignPeople)="menuAction.emit('people')" />
         </div>
       }
     </section>

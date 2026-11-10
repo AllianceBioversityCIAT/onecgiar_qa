@@ -225,4 +225,44 @@ describe('cycle.logic', () => {
       expect(timelineNow(vm)).toEqual({ step: '2 of 3 steps ran', state: 'Closed early', tone: 'done', when: '' });
     });
   });
+
+  describe('timelineVM — what needs the admin (nobody assigned, results to load)', () => {
+    const live = (assigned: Timeline['assigned'], audienceKey: CycleStep['audienceKey'] = 'assessors') =>
+      ({
+        ...timeline('Live', [
+          { ...step('Assess', '01 Nov 2026', '05 Nov 2026'), audienceKey, state: 'in_progress' },
+          { ...step('Programs respond', '06 Nov 2026', '08 Nov 2026'), audienceKey: 'programs' },
+        ]),
+        assigned,
+      }) as Timeline;
+    const none = { ASSESSOR: 0, LEAD_ASSESSOR: 0, TPB: 0, PPU: 0 };
+
+    it('the step in progress says nobody is assigned to its role; the timeline flags it', () => {
+      const vm = timelineVM(live(none));
+      expect(vm.steps.map((s) => s.nobody)).toEqual(['No assessors assigned', '']);
+      expect(vm.needsPeople).toBe(true);
+    });
+
+    it('no warning once someone holds the role, on a future step, or on mock data without counts', () => {
+      expect(timelineVM(live({ ...none, ASSESSOR: 2 })).needsPeople).toBe(false);
+      expect(timelineVM(live(undefined)).needsPeople).toBe(false);
+      const future = { ...timeline('Scheduled', [step('Assess', '10 Nov 2026', '12 Nov 2026')]), assigned: none } as Timeline;
+      expect(timelineVM(future).steps[0].nobody).toBe('');
+    });
+
+    it('a step for programs never warns (programs are not assigned to timelines)', () => {
+      expect(timelineVM(live(none, 'programs')).needsPeople).toBe(false);
+    });
+
+    it('a timeline on hold warns on the step whose day came (its people are needed as soon as results land)', () => {
+      const held = { ...HELD, steps: HELD.steps.map((p) => ({ ...p, audienceKey: 'assessors' as const })), assigned: none } as Timeline;
+      expect(timelineVM(held).steps[0].nobody).toBe('No assessors assigned');
+    });
+
+    it('waitingLoad: a timeline on hold that can take a sync shows its own load button', () => {
+      expect(timelineVM(HELD, true).waitingLoad).toBe(true);
+      expect(timelineVM(HELD, false).waitingLoad).toBe(false);
+      expect(timelineVM(live(none), true).waitingLoad).toBe(false);
+    });
+  });
 });
