@@ -401,5 +401,8 @@ export function timelineNow(vm: TimelineVM): TimelineNow {
     const state = next.days === 0 ? `Opens today at ${next.opensTime}` : `Opens in ${next.days} ${next.dayWord}`;
     return { step: label(next), state, tone: 'future', when: '' };
   }
+  // Closed early ("Close timeline"): the steps that never opened say "Not opened" (`stepState`), so count what ran.
+  const ran = vm.steps.filter((s) => s.doneText !== 'Not opened').length;
+  if (n && ran < n) return { step: `${ran} of ${n} steps ran`, state: 'Closed early', tone: 'done', when: '' };
   return { step: n ? `All ${n} steps completed` : 'No steps yet', state: 'Completed', tone: 'done', when: '' };
 }

@@ -206,9 +206,23 @@ describe('cycle.logic', () => {
       expect(timelineNow(timelineVM(t)).state).toBe('Opens today at 15:00');
     });
 
-    it('says every step is completed on a closed timeline', () => {
-      const t = timeline('Closed', [step('Assess', '01 Oct 2026', '05 Oct 2026'), step('Lead', '06 Oct 2026', '08 Oct 2026')]);
+    it('says every step is completed on a closed timeline whose steps all ran', () => {
+      const t = timeline('Closed', [
+        { ...step('Assess', '01 Oct 2026', '05 Oct 2026'), state: 'closed' },
+        { ...step('Lead', '06 Oct 2026', '08 Oct 2026'), state: 'closed' },
+      ]);
       expect(timelineNow(timelineVM(t))).toEqual({ step: 'All 2 steps completed', state: 'Completed', tone: 'done', when: '' });
+    });
+
+    it('closed early ("Close timeline"): counts the steps that ran, never "All completed" over steps that say "Not opened"', () => {
+      const t = timeline('Closed', [
+        { ...step('Assess', '20 Oct 2026', '25 Oct 2026'), state: 'closed' },
+        { ...step('Programs respond', '26 Oct 2026', '02 Nov 2026'), state: 'closed' },
+        step('Lead', '10 Nov 2026', '12 Nov 2026'),
+      ]);
+      const vm = timelineVM(t);
+      expect(vm.steps.map((s) => s.doneText)).toEqual(['', '', 'Not opened']);
+      expect(timelineNow(vm)).toEqual({ step: '2 of 3 steps ran', state: 'Closed early', tone: 'done', when: '' });
     });
   });
 });
