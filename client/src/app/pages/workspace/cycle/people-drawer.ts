@@ -1,4 +1,5 @@
 import { Component, effect, inject, input, model, output, signal, untracked } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { AssignableRole, TimelineUser } from '../../../core/api/cycles.models';
 import { QaButtonImports, QaDrawerImports, QaLoadingImports, QaSelectImports, QaSelectOption, skeletonRows } from '../../../ui';
 import { Timeline } from './cycle.mock';
@@ -11,7 +12,7 @@ import { ROLE_SECTIONS, personName } from './timeline-people.logic';
  */
 @Component({
   selector: 'qa-cycle-people-drawer',
-  imports: [QaButtonImports, QaDrawerImports, QaLoadingImports, QaSelectImports],
+  imports: [QaButtonImports, QaDrawerImports, QaLoadingImports, QaSelectImports, RouterLink],
   providers: [TimelinePeople],
   template: `
     <qa-drawer [(open)]="open" [title]="'People · ' + (timeline()?.name ?? '')" [subtitle]="subtitle()" width="720px">
@@ -43,9 +44,12 @@ import { ROLE_SECTIONS, personName } from './timeline-people.logic';
                     @for (u of people.byRole()[s.role]; track u.assignmentId; let last = $last) {
                       <li class="flex min-h-12 items-center gap-3 px-3 py-2" [class]="last ? '' : 'border-b border-(--surface-4)'">
                         <div class="flex min-w-0 flex-1 flex-col">
-                          <span class="truncate text-(length:--fs-14) font-medium text-(--text)">{{ name(u) }}</span>
                           @if (name(u) !== u.email) {
-                            <span class="truncate text-(length:--fs-12) text-(--text-3)">{{ u.email }}</span>
+                            <span class="truncate text-(length:--fs-14) font-medium text-(--text)" [title]="name(u)">{{ name(u) }}</span>
+                            <span class="text-(length:--fs-12) break-all text-(--text-3)">{{ u.email }}</span>
+                          } @else {
+                            <!-- No name (SSO account): the email is the only identifier, so it wraps instead of being cut. -->
+                            <span class="text-(length:--fs-14) font-medium break-all text-(--text)">{{ u.email }}</span>
                           }
                         </div>
                         @if (canWrite()) {
@@ -55,7 +59,7 @@ import { ROLE_SECTIONS, personName } from './timeline-people.logic';
                             tone="secondary"
                             size="sm"
                             type="button"
-                            [loading]="people.busy().has('remove:' + u.assignmentId)"
+                            [loading]="people.isRemoving(u)"
                             (click)="remove(u)"
                             [attr.aria-label]="'Remove ' + name(u) + ' from ' + s.title"
                           >Remove</button>
@@ -67,8 +71,8 @@ import { ROLE_SECTIONS, personName } from './timeline-people.logic';
                   <p class="m-0 rounded-[10px] border border-dashed border-(--border) px-3 py-3 text-(length:--fs-13) text-(--text-3)">No one assigned yet.</p>
                 }
 
+                @let options = optionsFor(s.role);
                 @if (canWrite()) {
-                  @let options = optionsFor(s.role);
                   <div class="flex flex-wrap items-end gap-2">
                     <qa-select
                       [value]="picked()[s.role] ?? null"
@@ -87,12 +91,15 @@ import { ROLE_SECTIONS, personName } from './timeline-people.logic';
                       qaBtn
                       tone="primary"
                       type="button"
-                      [loading]="people.busy().has('add:' + s.role)"
+                      [loading]="people.isAdding(s.role)"
                       [disabled]="!picked()[s.role]"
                       (click)="add(s.role)"
                       class="max-sm:w-full"
                     >Add</button>
                   </div>
+                }
+                @if (canWrite() && !options.length) {
+                  <p class="m-0 text-(length:--fs-12) text-(--text-3)">Only people with this role can be added. Give the role in <a routerLink="/assessors" class="font-semibold text-(--accent) underline underline-offset-2 outline-none focus-visible:shadow-(--focus-ring)">Assessors</a>.</p>
                 }
                 @if (people.roleError()[s.role]; as message) {
                   <p role="alert" class="m-0 text-(length:--fs-13) text-(--danger)">{{ message }}</p>
@@ -167,8 +174,10 @@ export class PeopleDrawer {
   protected async add(role: AssignableRole): Promise<void> {
     const value = this.picked()[role];
     if (!value) return;
+    const id = this.timeline()?.apiId;
     if (await this.people.assign(role, Number(value))) {
-      this.pick(role, null);
+      // The drawer may show another timeline by now: keep what the admin picked there.
+      if (this.timeline()?.apiId === id) this.pick(role, null);
       this.changed.emit();
     }
   }

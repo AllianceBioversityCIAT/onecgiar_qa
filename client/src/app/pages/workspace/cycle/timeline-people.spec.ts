@@ -2,6 +2,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { APP_CONFIG } from '../../../core/config/app-config';
+import { WriteEvents } from '../../../core/http/write-events';
 import { TimelinePeople } from './timeline-people';
 
 const API = 'https://api.test/api/v1';
@@ -166,5 +167,40 @@ describe('TimelinePeople', () => {
     await settle();
     expect(people.byRole().PPU.map((u) => u.assignmentId)).toEqual([5]);
     expect(people.byRole().ASSESSOR).toEqual([]);
+  });
+
+  it('offline (the write waits in the Unsent list): no error under the role, the Unsent list already says it', async () => {
+    await loadReady();
+    const done = people.assign('TPB', 11);
+    http.expectOne(`${API}/timelines/7/users`).error(new ProgressEvent('error'), { status: 0, statusText: 'Unknown Error' });
+    expect(await done).toBe(false);
+    expect(people.roleError().TPB).toBeUndefined();
+  });
+
+  it('an assignment the Unsent list sent later: the open drawer reloads in place and shows it', async () => {
+    await loadReady();
+    TestBed.inject(WriteEvents).recordReplay('POST', `${API}/timelines/7/users`);
+    TestBed.tick();
+    TestBed.tick();
+    await settle();
+    http.expectOne(`${API}/timelines/7`).flush(ok(detail([assignment(1, 10, 'ASSESSOR', 'Ana'), assignment(2, 11, 'TPB', 'Bo')])));
+    http.expectOne((r) => r.url === `${API}/users`).flush(ok([]));
+    await settle();
+    expect(people.state()).toBe('ready');
+    expect(people.byRole().TPB.map((u) => u.userId)).toEqual([11]);
+  });
+
+  it('a write of timeline 7 that fails after the drawer moved to timeline 8 paints no error on 8, and 8 is not busy', async () => {
+    await loadReady();
+    const done = people.assign('TPB', 11);
+    expect(people.isAdding('TPB')).toBe(true);
+    const reload = people.load(8);
+    expect(people.isAdding('TPB')).toBe(false);
+    http.expectOne(`${API}/timelines/8`).flush(ok({ ...detail([]), id: 8 }));
+    http.expectOne((r) => r.url === `${API}/users`).flush(ok([]));
+    await reload;
+    http.expectOne(`${API}/timelines/7/users`).flush(fail(409, 'TIMELINES_USER_NOT_ELIGIBLE'), { status: 409, statusText: 'Conflict' });
+    expect(await done).toBe(false);
+    expect(people.roleError().TPB).toBeUndefined();
   });
 });
