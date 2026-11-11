@@ -1,5 +1,6 @@
 import { Component, computed, effect, input, linkedSignal, model, output, untracked } from '@angular/core';
-import { FormField, form, required, validate } from '@angular/forms/signals';
+import { FormField, form, validate } from '@angular/forms/signals';
+import { requiredText } from '../../../core/forms/text-validators';
 import { HlmInput } from '@spartan/input';
 import { QaButtonImports, QaDatePicker, QaDialogImports, QaDrawerImports, QaSegmented, QaSelect, QaSwitch, QaTooltipImports, discardGuard } from '../../../ui';
 import { AUDIENCES, CORRECTION_AUDIENCE, CycleStep, DEMO_ACCESS, PROGRAMS, ReopenMode, Timeline } from './cycle.mock';
@@ -388,7 +389,7 @@ export class StepDrawer {
   }
 
   protected readonly stepForm = form(this.draft, (f) => {
-    required(f.name, { message: 'Enter a name for the step.' });
+    requiredText(f.name, { message: 'Enter a name for the step.' });
     validate(f.closes, ({ value }) =>
       this.live() && !toApiDay(value()) ? { kind: 'date', message: 'Enter a closing date, for example 11 Jul 2026.' } : undefined,
     );
