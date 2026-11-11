@@ -1,4 +1,4 @@
-import { Component, computed, effect, input, linkedSignal, model, output, untracked } from '@angular/core';
+import { Component, computed, effect, inject, input, linkedSignal, model, output, untracked } from '@angular/core';
 import { DefaultStep } from '../../../core/api/cycles.models';
 import { ApiFieldError } from '../../../core/http/api-envelope';
 import { FormField, applyEach, form, validate } from '@angular/forms/signals';
@@ -8,7 +8,8 @@ import { QaButtonImports, QaDatePicker, QaDialogImports, QaDrawerImports, QaMult
 import { DEFAULT_STEP_DATES, PROGRAMS, RESULT_TYPES, STEP_NAMES, Timeline } from './cycle.mock';
 import { StepDraftRow, formatNumber, officialRelative, stepOrderErrors, stepRow, stepState } from './cycle.logic';
 import { StepDateIssue, boundaryPart, nextAudience, roundsOf, stepDateIssues, toApiDay } from './cycle.mapper';
-import { DEFAULT_CLOSES_TIME, DEFAULT_OPENS_TIME, nowInRome, parseTime } from '../../../core/domain/rome-date';
+import { RomeClock } from '../../../core/domain/rome-clock';
+import { DEFAULT_CLOSES_TIME, DEFAULT_OPENS_TIME, parseTime } from '../../../core/domain/rome-date';
 
 /** Edit an existing timeline (official or not) or create a new sub-timeline (timeline null). */
 export interface TimelineRequest {
@@ -283,6 +284,8 @@ const TYPE_OPTIONS = RESULT_TYPES.map(([t]) => ({ value: t, label: t }));
   `,
 })
 export class TimelineDrawer {
+  /** "Before now" checks follow the clock while the drawer stays open. */
+  private readonly clock = inject(RomeClock);
   readonly open = model(false);
   readonly request = input.required<TimelineRequest>();
   /** Source of "Reset to official timeline" and of the default step names; null before the cycle has one. */
@@ -459,7 +462,7 @@ export class TimelineDrawer {
   private readonly dateIssues = computed((): readonly StepDateIssue[] => {
     const rows = this.draft().steps;
     if (!this.live()) return stepOrderErrors(rows).map((bad) => (bad ? { start: 'Starts before the previous step closes.' } : {}));
-    return stepDateIssues(rows, { now: this.isNew() ? nowInRome() : undefined });
+    return stepDateIssues(rows, { now: this.isNew() ? this.clock.minute() : undefined });
   });
 
   protected issue(i: number, key: 'start' | 'end'): string {
