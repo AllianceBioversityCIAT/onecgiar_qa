@@ -116,9 +116,11 @@ export class CycleLoads {
     try {
       const items = await firstValueFrom(this.api.list(a.apiId));
       if (this.destroyed || this.active()?.loadId !== a.loadId) return;
+      // The list holds every load of the timeline, newest first (contract): ours is always there.
+      // Missing = a missed poll (counts toward "lost track"), never the newest load of someone else.
+      const item = items.find((i) => i.id === a.loadId);
+      if (!item) throw new Error(`load ${a.loadId} not in the list`);
       this.failures = 0;
-      const item = items.find((i) => i.id === a.loadId) ?? items[0];
-      if (!item) return this.schedule();
       if (item.status === 'running') {
         this.active.set({ ...a, status: 'running', processed: item.processed, total: item.total });
         return this.schedule();

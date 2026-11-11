@@ -13,7 +13,6 @@ import { Router } from '@angular/router';
 import {
   FieldTree,
   FormField,
-  email,
   form,
   minLength,
   required,
@@ -25,6 +24,7 @@ import { HlmFieldImports } from '@spartan/field';
 import { HlmInput } from '@spartan/input';
 import { HlmSpinner } from '@spartan/spinner';
 import { AuthSession } from '../../core/auth/auth-session';
+import { emailText, requiredText } from '../../core/forms/text-validators';
 import { AUTH_ERROR, isChallenge } from '../../core/auth/auth.models';
 import { DeepLink } from '../../core/auth/deep-link';
 import { ApiError, toApiError } from '../../core/http/api-envelope';
@@ -113,8 +113,8 @@ export class LoginPage {
 
   protected readonly model = signal({ email: '', password: '' });
   protected readonly loginForm = form(this.model, (fields) => {
-    required(fields.email, { message: 'Enter your email.' });
-    email(fields.email, { message: 'Enter a valid email address, like name@cgiar.org.' });
+    requiredText(fields.email, { message: 'Enter your email.' });
+    emailText(fields.email, { message: 'Enter a valid email address, like name@cgiar.org.' });
     required(fields.password, { message: 'Enter your password.' });
   });
 
@@ -166,7 +166,7 @@ export class LoginPage {
     this.failure.set(null);
     await submit(this.loginForm, async () => {
       try {
-        const result = await this.session.signIn(this.model());
+        const result = await this.session.signIn({ ...this.model(), email: this.model().email.trim() });
         if (!isChallenge(result)) await this.go();
       } catch (error) {
         this.fail(error);
