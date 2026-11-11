@@ -174,4 +174,26 @@ describe('CycleLoads', () => {
     expect(loads.running()).toBe(false);
     expect(errors[0]).toContain('lost track of the load');
   });
+
+  it('never takes another load for ours: a list without it is a missed poll, not the newest load', async () => {
+    const started = loads.start(timelines()[0]);
+    starts.next({ id: 9, status: 'running' });
+    starts.complete();
+    await started;
+
+    let asked: number[] = [];
+    const api = TestBed.inject(LoadsApi) as unknown as { get: (t: number, id: number) => Observable<LoadDetail> };
+    api.get = (_t, id) => (asked.push(id), of(detail));
+    listAnswer = () => of([item({ id: 12, status: 'completed', total: 5, processed: 5 })]);
+    await vi.advanceTimersByTimeAsync(LOAD_POLL_MS * 3);
+    await flush();
+    expect(asked).toEqual([]);
+    expect(loads.finished()).toBeNull();
+    expect(loads.active()).toMatchObject({ loadId: 9 });
+
+    listAnswer = () => of([item({ id: 12, status: 'completed' }), item({ status: 'completed', total: 33, processed: 33 })]);
+    await vi.advanceTimersByTimeAsync(LOAD_POLL_MS);
+    await flush();
+    expect(asked).toEqual([9]);
+  });
 });
