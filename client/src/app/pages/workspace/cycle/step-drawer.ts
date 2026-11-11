@@ -172,8 +172,8 @@ interface StepDraft {
         <div class="flex flex-col items-stretch gap-[6px]">
           <div class="flex min-h-[52px] items-center gap-4">
             <div class="flex min-w-0 flex-1 flex-col gap-[2px]">
-              <span id="cycle-step-load" class="text-(length:--fs-14) font-medium text-(--text-2)">Load results when this step opens</span>
-              <span class="text-(length:--fs-13) font-normal text-pretty text-(--text-4)">Brings in results submitted since the last load, plus anything the programs corrected.</span>
+              <span id="cycle-step-load" class="text-(length:--fs-14) font-medium text-(--text-2)">Loads results</span>
+              <span class="text-(length:--fs-13) font-normal text-pretty text-(--text-4)">Marks a step where you load results by hand with Load results: results submitted since the last load, plus anything the programs corrected.</span>
             </div>
             @if (live()) {
               <span class="text-(length:--fs-13) text-(--text-3)">{{ d.batch ? 'Yes' : 'No' }}</span>
