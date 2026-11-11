@@ -5,6 +5,7 @@ import { filter } from 'rxjs';
 import { HlmInput } from '@spartan/input';
 import { QaButtonImports, QaMultiSelect, QaPagination, QaSelectImports, QaSelectOption } from '../../../ui';
 import { TableSort } from '../../../core/list/table-sort';
+import { ExportCommentsDrawer, ExportCommentsPreset } from '../export/export-comments-drawer';
 import { ResultRowVm, ResultsTable, SortDir, SortKey } from './results-table';
 import {
   ASSESSOR_NAMES,
@@ -70,7 +71,7 @@ function readFilters(params: ParamMap) {
 @Component({
   selector: 'qa-results-view',
   templateUrl: './results-view.html',
-  imports: [QaButtonImports, HlmInput, RouterLink, QaMultiSelect, QaSelectImports, ResultsTable, QaPagination],
+  imports: [QaButtonImports, HlmInput, RouterLink, QaMultiSelect, QaSelectImports, ResultsTable, QaPagination, ExportCommentsDrawer],
 })
 export class ResultsView {
   private readonly router = inject(Router);
@@ -263,9 +264,13 @@ export class ResultsView {
     this.search.set('');
   }
 
+  // ---- Export comments (P2-3914): the drawer opens scoped to the result of the row menu ----
+  protected readonly exportOpen = signal(false);
+  protected readonly exportPreset = signal<ExportCommentsPreset>({});
+
   protected exportComments(code: string): void {
-    // TODO(api): export the comments of this result (.xlsx).
-    void code;
+    this.exportPreset.set({ resultCode: code });
+    this.exportOpen.set(true);
   }
 
   protected reassign(code: string): void {
