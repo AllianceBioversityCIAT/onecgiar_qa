@@ -83,7 +83,7 @@ Step 1 of QA is the only step where results are assessed field by field. Results
 - Export of comments (P2-3914). The button is hidden until that story (OQ-4).
 - Overview dashboard (P2-3913), assigning results to specific reviewers, and the chatbot.
 - Editing or deleting quick comments. The AC asks only for listing and saving them.
-- The **Action Area** column. It is not in the Reporting feed, so it is not invented or derived (OQ-3).
+- The **Action Area** column, dropped for good. It is a concept of the 2022–2024 portfolio and does not apply to the Science Programs (OQ-3, closed 2026-11-11).
 - Two assessors per result ("Assessed by 2 assessors" in the UX baseline). AC21 says one finish wins (OQ-6).
 
 ## 7. Affected Users, Systems And Specs
@@ -121,7 +121,7 @@ Step 1 of QA is the only step where results are assessed field by field. Results
 | 6 | Filters: status, SP, result type, search by code or title | Title search needs DD-P5 |
 | 7 | Statuses: Pending, Returned to program, Clarification requested, Pending for TPB review, Pending PPU, Unresolved, Quality Assessed, Auto-validated | Status map (DD-P4). The last three non-final values are in the enum but nothing produces them yet |
 | 8 | Auto-validated hidden by default | Default filter. Contradicts UX C-11 |
-| 9 | The columns | Action Area is gated by OQ-3. Export is OQ-4. "Comments answered by SP" is 0 |
+| 9 | The columns | Action Area is dropped (OQ-3, closed). Export is OQ-4. "Comments answered by SP" is 0 |
 | 10 | "Updated" tag | `entry_round = 2` and non-empty `changed_fields`. Assessors in step 1 work round-1 memberships, so in this story only the admin sees the tag in practice (R-8) |
 | 11-13 | Sort by any column, a click opens the result, pending and finished counters | Server-side sort and keyset paging. Counters are over the reviewer's in-scope results in the selected timeline |
 
@@ -206,7 +206,7 @@ Switch to B only if the team wants the UI owned and gated separately (question i
 |---|---|---|
 | OQ-1 | Release to Reporting **at once** (on finish or auto-QA) or **at step 1 close**? | At once. Release at close needs a trigger, and no scheduler exists (statuses are computed on read). Note: an immediate `not_qaed` lets the SP edit in Reporting before step 2 shows the comments |
 | OQ-2 | Auto-QA fires the moment the last core field turns green, which locks the result before the assessor comments non-core fields. Is that wanted, or should Finish confirm it? And a result type with **zero** core fields? | Automatic, as AC16 says. With zero core fields, Finish → Quality Assessed |
-| OQ-3 | Action Area: not in the Reporting feed. Source, or drop the column? | Column hidden until answered |
+| OQ-3 | Action Area: not in the Reporting feed. Source, or drop the column? | **Closed 2026-11-11 (back lead): dropped.** It is a concept of the 2022–2024 portfolio and does not apply to the Science Programs. The column is removed from P2-3909's scope, not hidden |
 | OQ-4 | Export comments (P2-3914): hide the button or show it disabled? | Hidden |
 | OQ-5 | Clarification answer (AC22-23, 3909 AC2): it cannot be exercised until the SP can request one (P2-3911). Move the answer API and UI to P2-3911? | Model the states and the worklist predicate now; move the answer action to P2-3911 |
 | OQ-6 | Confirm one assessor per result (AC21) against the mockup's "Assessed by 2 assessors" | One finish wins |

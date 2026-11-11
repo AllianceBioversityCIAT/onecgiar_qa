@@ -183,7 +183,7 @@ The system SHALL expose exactly these QA statuses: `pending`, `returned_to_progr
 Each row SHALL show: result code, title, Science Program (code and name), result type (label), Assessors' comments (count of non-withdrawn comments), Comments answered by SP (always 0 until P2-3911), Assessed by (nickname of the finishing user, or none), and QA status.
 
 - **Updated.** The title SHALL carry an "Updated" tag when the membership is a round-2 re-entry whose `changed_fields` is non-empty. Only the boolean is exposed, never the keys.
-- **Action Area** SHALL NOT be shown until OQ-3 is answered **[OQ-3 default]**.
+- **Action Area** is out of scope and SHALL NOT be shown. It is a concept of the 2022–2024 portfolio and does not apply to the Science Programs (OQ-3, closed by the back lead 2026-11-11).
 - **Export comments** SHALL NOT be shown until P2-3914 **[OQ-4 default]**.
 
 #### Scenario: Updated

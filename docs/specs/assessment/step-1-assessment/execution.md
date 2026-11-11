@@ -599,13 +599,13 @@ Within budget. The LOC tripwire is close: 69 % of the lines are spent at 38 % of
 | Authority | The back lead (Juanda) delegated the decisions to the Leader on 2026-11-11: "Toma las decisiones tu y dejalo documentado en la US". Each OQ below was decided and recorded individually, with its own line, so this is not a bulk "yes". Business (Angel) has not answered yet and can override any line |
 | Record | Jira comment on P2-3910 (id 44785, all nine OQs) and on P2-3909 (id 44786, OQ-3, OQ-4, OQ-5), both 2026-11-11 |
 
-Every decision takes the spec default (`proposal.md` § 12), so no spec amendment is needed.
+Every decision takes the spec default (`proposal.md` § 12), so no spec amendment is needed. Exception: OQ-3 was later closed by the back lead with a different outcome (drop, not hide); requirements.md and proposal.md were amended on 2026-11-11.
 
 | OQ | Decision | Who and when | Gates |
 |---|---|---|---|
 | OQ-1 | Release sent right after the end commits (Finish or automatic Quality Assessed), not at step 1 close | Leader, delegated by the back lead, 2026-11-11 · P2-3910 comment 44785 | T-12 |
 | OQ-2 | Automatic Quality Assessed in the same transaction as the last green core field (AC16); zero core fields → Finish ends it as Quality Assessed | same · P2-3910 comment 44785 | T-11 |
-| OQ-3 | Action Area column hidden until a source is agreed | same · P2-3909 comment 44786 | (applied in T-7/T-8) |
+| OQ-3 | **Closed 2026-11-11 by the back lead: Action Area is dropped**, not hidden. It is a concept of the 2022–2024 portfolio and does not apply to the Science Programs. Removed from P2-3909's scope (requirements FR-6, proposal § 6, § 9 and § 12 amended). Remnant sweep: no column, filter, OpenAPI model, fixture or mapper exists; `worklist.service.spec.ts` already asserts the row has no Action Area key | Back lead, 2026-11-11 · P2-3909 comment 44786 (amended) | T-7/T-8 (no code change) |
 | OQ-4 | Export comments button hidden until P2-3914 | same · P2-3909 comment 44786 | (client) |
 | OQ-5 | States and the worklist predicate modeled now; the answer action moves to P2-3911 | same · P2-3910 comment 44785, P2-3909 comment 44786 | T-10 |
 | OQ-6 | One finish wins; "Assessed by" is that person | same · P2-3910 comment 44785 | — |
