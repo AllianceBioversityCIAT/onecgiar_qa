@@ -31,6 +31,21 @@ export class AssessmentParams {
   resultCode!: number;
 }
 
+/** `/assessment-comments/:commentId/…`: a value that is not a positive integer is a 400 on its field, never a lookup. */
+export class CommentParams {
+  @ApiProperty({
+    type: Number,
+    minimum: 1,
+    example: 12,
+    description: 'Comment id (`id` of a comment of the assessment view)',
+  })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(Number.MAX_SAFE_INTEGER)
+  commentId!: number;
+}
+
 /** `GET …/assessment` (design 6). Anything not listed is a 400 `UNKNOWN_FIELD`. */
 export class AssessmentViewQuery {
   @ApiPropertyOptional({

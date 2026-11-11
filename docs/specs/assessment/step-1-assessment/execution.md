@@ -744,3 +744,59 @@ The back lead chose "continue and re-estimate" after the T-9 tripwire.
 
 - **→ T-11:** retry on deadlock (MySQL 1213) in the unit of work, since concurrent ODKU and ends can hit it; consider reading `membership.ended` under the lock and asserting the re-judged `stepPosition` equals the first; guard `locked.fieldConfigVersion === version` when another writer created the row.
 - **→ T-14:** design § 7.9 asks for one `event: 'assessment'` log line per write request (`action, timelineId, membershipId, outcome, reason?, requestId, actorId`); not emitted yet. Confirm the owning task before T-14's log spy.
+
+### T-10 part B: Writes I — comments, withdraw, replay reader — PASS (T-10 closed)
+
+| | |
+|---|---|
+| Date | 2026-11-11 |
+| Final status | PASS (attempt 1). With part A (`4db573f`), T-10 is done |
+| Requirements covered | FR-11 (value at the time of writing incl. labels; comment on a non-assessed field → 400; idempotent create; 1–2,000 characters), FR-13 (not someone else's comment → 403; second withdraw → 409; OQ-8 window), FR-16, FR-19 (only `open` and `withdrawn` written), FR-21, NFR-4, NFR-7 |
+| OQ gate | OQ-5 and OQ-8, `execution.md` T-1 entry |
+| Skills | nestjs-expert, error-handling-patterns, tdd (as task) |
+| Effort | default |
+| Review mode | lenses: correctness and privacy, two Reviewers in parallel |
+
+- **Routes:** `POST /timelines/:timelineId/results/:resultCode/assessment/comments` (201, `@Idempotent()`), `POST /assessment-comments/:commentId/withdraw` (200).
+- **Files** (under `server/`): new `src/assessment/comment-value-copy.ts` (pure `buildValueCopy`, `storedLength`) + spec, `assessment-comments.service.spec.ts`, `assessment.unit-of-work.spec.ts`, `dto/create-comment.body.ts`, `test/assessment-comments.e2e-spec.ts`; edited `assessment.controller.ts`, `assessment.errors.ts`, `assessment.module.ts` (binds `IDEMPOTENCY_REPLAY_READER` → `service.replayComment`, the T-6 forward pointer) + spec, `assessment.service.ts`, `assessment.store.ts` (`insertComment`, `withdrawComment`, `insertCommentEvent`, `findCommentContext`) + specs, `assessment.unit-of-work.ts`, `assessment-view.ts` (exports `labelsForField`, shared with the copy), `role-steps.ts` (`isWithdrawWindowOpen`), `dto/assessment-params.ts`, `assessment-validations.service.spec.ts`, `test/assessment-validations.e2e-spec.ts`, `test/support/assessment-app.ts`, `test/support/in-memory-assessment.ts` (per-transaction undo log instead of a whole-world restore).
+- **Lock order** (design § 5, `design.md:117`): create — timeline `FOR SHARE` (+ steps) → `ensureAssessment` (first write) → assessment `FOR UPDATE` → status check → comment → event → audit → `markExecuted`; withdraw — timeline `FOR SHARE` (window re-judged) → assessment `FOR UPDATE` → `UPDATE … WHERE id = ? AND state = 'open'` → event → audit (no status check, OQ-8).
+- **Observed red** (before production code): unit `Tests 6 failed | 316 passed (322)` (`Cannot find module './comment-value-copy.js'`, `store.buildInsertComment is not a function`, `Nest could not find Symbol(IDEMPOTENCY_REPLAY_READER)`, and the carried advisory `expected [ Array(1) ] to deeply equal []`); e2e `Tests 49 failed | 23 passed (72)` (`expected 404 to be 201`); service spec once the pure module existed `Tests 60 failed | 15 passed (75)` (`service.comment is not a function`). The advisory tests for concurrent first writes, `no_step` and the finished-assessment 404 were green on first run (they pin existing behavior).
+- **Falsifiers (observed red, then restored):**
+  3. value copied from the result's latest snapshot: `expected { value: 'New title' } to deeply equal { value: 'Old title' }` (unit and e2e). The fixture holds two real-writer memberships of one result with different titles; a guard test asserts it.
+  - withdraw window (program answered; pre-check and the fake's `state = 'open'` guard removed): `Tests 7 failed | 54 passed (61)`, e2e `expected 200 to be 409`. With only the pre-check removed the tests stay green, because the conditional UPDATE decides; the SQL guard is pinned by `toSQL()`.
+  - `markExecuted` skipped: `expected [] to deeply equal [ { key: 'key-1', targetId: 7000 } ]`; e2e crash-window test red.
+- **Clock grep** (non-spec files): only `assessment.module.ts:70` (`ADMIN_CONFIG_CLOCK`) and `:73` (`IDEMPOTENCY_CLOCK`). The T-10 Done-when grep clause holds.
+- **Statements:** comment create 15 first / 10 next (+1 when keyed); withdraw 10.
+- **Implementer verification:** lint and build clean; unit `Test Files 88 passed | 1 skipped (89)`, `Tests 3546 passed | 6 skipped (3552)`; e2e `Test Files 20 passed (20)`, `Tests 1091 passed (1091)`.
+- **Evidence re-run (Leader inline):** same counts; clock grep as above. **VERIFIED.**
+- **Reviewer verdicts:**
+  - correctness: **PASS** (both lock orders match `design.md:117` with no cycle against the T-11 end path; falsifier 3 sound and the Disqualifier avoided; the 64 KiB cut is a binary search over code points, elements or entries and never yields invalid JSON; fence inside the transaction; same key with a different body → 422; keys scoped by actor; undo-log rollback sound);
+  - privacy: **PASS** (only the field's own value and lists are copied, never a Hidden field; events and audit hold no body or value; replay is per actor; withdraw 404s byte-equal, 403 only after scope; errors echo no key or body; no new log line).
+- **Part-A advisories carried and applied:** zero-target `all: true` creates no row; ODKU comment fixed; concurrent first writes in both orders; `no_step` → 409; out-of-scope caller on a finished assessment → the same 404; e2e full-body equality and no `@`.
+- **Runtime events:** none.
+
+**Decisions made:**
+
+- Withdraw resolves the comment's own timeline and membership and applies the caller's scope; missing, out of scope and no row give the same 404; the 403 `ASSESSMENT_NOT_COMMENT_AUTHOR` (also for a non-author ADMIN) only after that.
+- Create is allowed only in the assessor's own step (not while step 2 is open). The withdraw window is the `assessors` or `programs` step in progress, while the comment is `open`.
+- `created_at` and `withdrawn_at` are cut to whole seconds so a replay equals the 201; event and audit rows keep the raw instant.
+- The 64 KiB limit is measured as MySQL JSON text; over it, labels are dropped first, then the value is cut and `value_truncated` set.
+- Idempotency: reserve outside the transaction, `markExecuted` inside, target id = comment id (field-config pattern, P-17). `replayComment` re-reads the current row, so a crash-path replay after a withdraw shows `withdrawn` while a completed-key replay shows the stored `open` answer.
+
+**Forward pointers:**
+
+- **→ T-11:** retry on deadlock (1213) in the unit of work now covers concurrent first comments too; the `locked.fieldConfigVersion === version` guard must cover `comment` as well as `validate`; consider reading `membership.ended` under the lock.
+- **→ T-14:** design § 7.9's `event: 'assessment'` log line per write request (T-14 lists § 7.9); add a withdraw case for a caller assigned only on another timeline to the byte-equal 404 test; a second actor reusing a key gets a fresh comment; `expect(world.transactions).toBe(0)` on the closed-window and not-open withdraw cases, and direct `isWithdrawWindowOpen` rows in `role-steps.spec.ts`; a sibling key in `comment-value-copy.spec.ts` to show other fields are left out.
+- **→ T-15:** in `server/src/assessment/AGENTS.md` and the front contract, record that `idempotency_keys.response_body` keeps the comment body, value copy and nickname until the retention purge (a withdraw does not clear it), the replay difference above, and that 404 refusals are byte-equal but not time-equal (same accepted pattern as the read).
+- **→ T-16 HITL:** check `storedLength` against MySQL `LENGTH(CAST(? AS JSON))` near the 64 KiB boundary.
+- **→ P2-3911:** the program-answer writer must take timeline share → assessment `FOR UPDATE` before updating a comment.
+
+**Running totals:**
+
+| Measure | Actual | Re-estimated budget |
+|---|---|---|
+| Tasks | 11 of 21 | 21 |
+| Production LOC | ≈ 6,150 TS + 141 SQL | 11,000 |
+| Review rounds | 19 | 34 |
+
+Within the re-estimated budget.

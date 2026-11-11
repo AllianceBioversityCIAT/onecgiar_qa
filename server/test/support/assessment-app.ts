@@ -10,12 +10,20 @@ import { withoutTitleBackfill } from './without-title-backfill.js';
 import { FIELD_CATALOG_SOURCE } from '../../src/admin-config/field-config/field-catalog.ports.js';
 import { shapeCatalog } from '../../src/admin-config/field-config/field-config-catalog.js';
 import { FIELD_CONFIG_EFFECTIVE } from '../../src/admin-config/field-config/field-config.module.js';
+import {
+  IDEMPOTENCY_CLOCK,
+  IDEMPOTENCY_STORE,
+} from '../../src/common/idempotency/idempotency.store.js';
 import { ASSESSMENT_STORE } from '../../src/assessment/assessment.store.js';
 import { ASSESSMENT_UNIT_OF_WORK } from '../../src/assessment/assessment.unit-of-work.js';
 import { WORKLIST_STORE } from '../../src/assessment/worklist.store.js';
 import { UpstreamUnavailableError } from '../../src/users/catalogs/catalogs.errors.js';
 import { SNAPSHOT_STORE } from '../../src/ingestion/snapshot-store.port.js';
 import { FakeSnapshotStore } from './fake-snapshot-store.js';
+import {
+  FakeClock,
+  InMemoryIdempotencyStore,
+} from './in-memory-idempotency.js';
 import { JWKS_CACHE } from '../../src/auth/token-verifier.service.js';
 import { configureApp } from '../../src/common/configure-app.js';
 import {
@@ -64,12 +72,29 @@ export const bearer = (sub: string) =>
 
 export type AssessmentApp = Awaited<ReturnType<typeof buildAssessmentApp>>;
 
+/**
+ * A response with the two per-request values of `meta` removed, so two answers
+ * can be compared whole: the error body of a missing result and of one outside
+ * the caller's scope must be the same bytes (FR-1).
+ */
+export function withoutRequestMeta(body: {
+  meta?: Record<string, unknown>;
+}): unknown {
+  const { requestId: _requestId, timestamp: _timestamp, ...meta } =
+    body.meta ?? {};
+  return { ...body, meta };
+}
+
 /** `at` is the clock of the services (inside step 1 by default). */
 export async function buildAssessmentApp(
   at: Date = new Date('2026-03-15T10:00:00.000Z'),
 ) {
   const w = adminWorld();
   const world = new InMemoryAssessmentWorld();
+  // The comment create is keyed (P-17): the interceptor reserves in this store and the unit of work marks it.
+  const idemClock = new FakeClock(new Date('2026-11-13T10:00:00.000Z'));
+  const idempotency = new InMemoryIdempotencyStore(idemClock.now);
+  world.idempotency = idempotency;
   const snapshots = new FakeSnapshotStore();
   // The Reporting catalog of every year is the 2026 fixture; `down` makes it unreadable (503).
   const fieldCatalog = shapeCatalog(
@@ -114,6 +139,12 @@ export async function buildAssessmentApp(
     guest: await actor('sub-guest', []),
     // Granted a result type of the 2026 Reporting catalog (the view reads that catalog).
     policy: await actor('sub-policy', [['ASSESSOR', 'policy_change']], 'Pia'),
+    // A second assessor of the same kind, to write or withdraw beside `policy`.
+    policy2: await actor(
+      'sub-policy2',
+      [['ASSESSOR', 'policy_change']],
+      'Pablo',
+    ),
   };
 
   const moduleRef = await withoutTitleBackfill(
@@ -144,6 +175,10 @@ export async function buildAssessmentApp(
     })
     .overrideProvider(TIMELINE_LOADS)
     .useValue(new InMemoryTimelineLoads(world))
+    .overrideProvider(IDEMPOTENCY_STORE)
+    .useValue(idempotency)
+    .overrideProvider(IDEMPOTENCY_CLOCK)
+    .useValue(idemClock.now)
     .overrideProvider(ADMIN_CONFIG_CLOCK)
     .useValue(() => at)
     .overrideProvider(RESULT_TYPE_SOURCE)
@@ -161,9 +196,10 @@ export async function buildAssessmentApp(
   const send = (
     method: 'get' | 'post' | 'put' | 'patch' | 'delete',
     path: string,
-    options: { token?: string | null; body?: object } = {},
+    options: { token?: string | null; body?: object; key?: string } = {},
   ) => {
     const call = request(app.getHttpServer())[method](`/api/v1${path}`);
+    if (options.key !== undefined) call.set('Idempotency-Key', options.key);
     const token =
       options.token === undefined ? bearer('sub-assessor') : options.token;
     if (token !== null) call.set('Authorization', token);
@@ -174,5 +210,14 @@ export async function buildAssessmentApp(
   const programScope = (userId: number, programIds: number[]) =>
     w.programs.replaceScope(userId, programIds);
 
-  return { app, world, users, send, programScope, snapshots, catalogSource };
+  return {
+    app,
+    world,
+    users,
+    send,
+    programScope,
+    snapshots,
+    catalogSource,
+    idempotency,
+  };
 }

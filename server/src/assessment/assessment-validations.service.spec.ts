@@ -828,3 +828,139 @@ describe('design 5 and 7.5: lock order, one transaction, the statements', () => 
     expect(world.statements).toBe(10);
   });
 });
+
+describe('part-B advisories on the validation write', () => {
+  it('check all on a result with zero Assessed fields and no assessment row writes nothing: no row, no transaction (DD-3)', async () => {
+    const { world, service, add } = setup(OPEN);
+    add(5001);
+    // The pinned and the resolved configuration show every field View only.
+    const viewOnly = items().map((i) => ({
+      ...i,
+      visibility: 'view_only' as const,
+    }));
+    world.fieldConfigItems['policy_change'] = viewOnly;
+    world.versionItems[1] = { policy_change: viewOnly };
+
+    const summary = await service.validate(
+      assessorA(),
+      1,
+      5001,
+      { validated: true, all: true },
+      RID,
+    );
+
+    expect(summary).toEqual({
+      status: 'pending',
+      assessedBy: null,
+      finishedAt: null,
+      validations: [],
+    });
+    expectNothingStored(world);
+  });
+
+  describe('two concurrent FIRST writes', () => {
+    const assessorB = () =>
+      userOf(11, [assignment('ASSESSOR', 'policy_change')], [1]);
+
+    it('leave one row, with the version and the creator of the writer that got there first', async () => {
+      const { world, service, add } = setup(OPEN);
+      add(5001);
+      world.timelineUsers.push({
+        timelineId: 1,
+        userId: 11,
+        roleCode: 'ASSESSOR',
+      });
+      // Each writer reads the configuration as it is at ITS read: A sees 1, B sees 2.
+      world.effectiveVersions = [1, 2];
+
+      await Promise.all([
+        service.validate(assessorA(), 1, 5001, check([ASSESSED[0]!]), 'req-a'),
+        service.validate(assessorB(), 1, 5001, check([ASSESSED[1]!]), 'req-b'),
+      ]);
+
+      expect(world.assessments).toHaveLength(1);
+      expect(world.assessments[0]).toMatchObject({
+        status: 'pending',
+        fieldConfigVersion: 1,
+        createdBy: 10,
+      });
+      // Both writes landed on that one row, each audited.
+      expect(world.validations.map((v) => v.assessmentId)).toEqual([
+        world.assessments[0]!.id,
+        world.assessments[0]!.id,
+      ]);
+      expect(world.validations.map((v) => v.fieldKey).sort()).toEqual(
+        [ASSESSED[0], ASSESSED[1]].sort(),
+      );
+      expect(world.audits.map((a) => a.actorId).sort((x, y) => x - y)).toEqual([
+        10, 11,
+      ]);
+    });
+
+    it('and it is the FIRST writer, not user A: started the other way round, B keeps its version and creator', async () => {
+      const { world, service, add } = setup(OPEN);
+      add(5001);
+      world.timelineUsers.push({
+        timelineId: 1,
+        userId: 11,
+        roleCode: 'ASSESSOR',
+      });
+      world.effectiveVersions = [2, 1];
+
+      await Promise.all([
+        service.validate(assessorB(), 1, 5001, check([ASSESSED[1]!]), 'req-b'),
+        service.validate(assessorA(), 1, 5001, check([ASSESSED[0]!]), 'req-a'),
+      ]);
+
+      expect(world.assessments).toHaveLength(1);
+      expect(world.assessments[0]).toMatchObject({
+        fieldConfigVersion: 2,
+        createdBy: 11,
+      });
+      expect(world.validations).toHaveLength(2);
+    });
+  });
+
+  it('409 ASSESSMENT_STEP_CLOSED (no_step) when the timeline has no assessors step', async () => {
+    const { world, service, add } = setup(OPEN);
+    add(5001);
+    world.timelines[0]!.steps = WINTER.filter((s) => s.audience !== 'assessors');
+
+    expect(
+      await refusal(
+        service.validate(assessorA(), 1, 5001, check([ASSESSED[0]!]), RID),
+      ),
+    ).toMatchObject({ status: 409, body: { code: 'ASSESSMENT_STEP_CLOSED' } });
+    expectNothingStored(world);
+  });
+
+  it('an out-of-scope caller on a FINISHED assessment gets the same 404 as a missing code, not the 409', async () => {
+    const { world, service, add } = setup(OPEN);
+    const membership = add(5001);
+    world.assessments.push({
+      id: 7,
+      membershipId: membership.id,
+      stepPosition: 1,
+      status: 'quality_assessed',
+    });
+    const outOfScope = userOf(
+      10,
+      [assignment('ASSESSOR', 'policy_change')],
+      [2],
+    );
+
+    const missing = await refusal(
+      service.validate(assessorA(), 1, 9999, check([ASSESSED[0]!]), RID),
+    );
+    const finishedOutOfScope = await refusal(
+      service.validate(outOfScope, 1, 5001, check([ASSESSED[0]!]), RID),
+    );
+
+    expect(missing).toMatchObject({
+      status: 404,
+      body: { code: 'ASSESSMENT_NOT_FOUND' },
+    });
+    expect(finishedOutOfScope).toEqual(missing);
+    expect(world.validations).toEqual([]);
+  });
+});

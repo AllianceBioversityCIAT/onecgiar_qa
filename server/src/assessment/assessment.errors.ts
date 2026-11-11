@@ -74,6 +74,23 @@ export class AssessmentCommentNotOpenError extends ConflictException {
 }
 
 /**
+ * A comment names a field that is not Assessed in the pinned configuration:
+ * View only, Hidden or unknown (FR-11 *Comment on a non-assessed field*). A 400
+ * `VALIDATION_FAILED` on `fieldKey`, the property; the key the caller sent is
+ * not echoed back.
+ */
+export class AssessmentCommentFieldInvalidError extends BadRequestException {
+  constructor() {
+    super({
+      ...errorBody('VALIDATION_FAILED'),
+      fields: [
+        { field: 'fieldKey', code: 'INVALID', message: FIELD_ERRORS.INVALID() },
+      ],
+    });
+  }
+}
+
+/**
  * A validation request names a field that is not Assessed in the pinned
  * configuration: View only, Hidden or unknown (FR-10 *Check all skips other
  * fields*). A 400 `VALIDATION_FAILED` whose `fields` name each wrong key as the

@@ -47,6 +47,23 @@ export interface ViewComment {
  */
 export type ViewLabels = Record<string, Record<string, string | null>>;
 
+/**
+ * The snapshot labels of the lists one field names, and only those; `null` when
+ * the snapshot has none for it (the ids are shown then). The view and the value
+ * copy of a comment (DD-8) share this one rule.
+ */
+export function labelsForField(
+  held: Readonly<ViewLabels> | undefined,
+  controlLists: readonly string[],
+): ViewLabels | null {
+  if (held === undefined) return null;
+  const own: ViewLabels = {};
+  for (const list of controlLists) {
+    if (Object.hasOwn(held, list)) own[list] = held[list]!;
+  }
+  return Object.keys(own).length === 0 ? null : own;
+}
+
 export interface ViewField {
   key: string;
   label: string;
@@ -120,16 +137,8 @@ export function buildAssessmentView(
     commentsOf.set(comment.fieldKey, list);
   }
 
-  /** The snapshot labels of the lists this field names, and only those. */
-  const labelsOf = (controlLists: readonly string[]): ViewLabels | null => {
-    const held = input.labels;
-    if (held === undefined) return null;
-    const own: ViewLabels = {};
-    for (const list of controlLists) {
-      if (Object.hasOwn(held, list)) own[list] = held[list]!;
-    }
-    return Object.keys(own).length === 0 ? null : own;
-  };
+  const labelsOf = (controlLists: readonly string[]): ViewLabels | null =>
+    labelsForField(input.labels, controlLists);
 
   const shape = (
     field: {

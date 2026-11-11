@@ -6,6 +6,7 @@ import { FIELD_CATALOG_SOURCE } from '../admin-config/field-config/field-catalog
 import { ADMIN_CONFIG_CLOCK } from '../admin-config/admin-config.clock.js';
 import { FieldConfigModule } from '../admin-config/field-config/field-config.module.js';
 import { ReportingQaCatalogClient } from '../admin-config/field-config/reporting-qa-catalog.client.js';
+import { IDEMPOTENCY_REPLAY_READER } from '../common/idempotency/idempotency.interceptor.js';
 import {
   DrizzleIdempotencyStore,
   IDEMPOTENCY_CLOCK,
@@ -54,6 +55,14 @@ describe('AssessmentModule wiring (DD-1, P-24)', () => {
     expect(own.get(IDEMPOTENCY_STORE, { strict: true })).toBeInstanceOf(
       DrizzleIdempotencyStore,
     );
+    // The crash window of the comment create (P-17): the module answers a replay itself.
+    expect(
+      typeof (
+        own.get(IDEMPOTENCY_REPLAY_READER, { strict: true }) as {
+          read: unknown;
+        }
+      ).read,
+    ).toBe('function');
     expect(own.get(WORKLIST_STORE, { strict: true })).toBeInstanceOf(
       DrizzleWorklistStore,
     );

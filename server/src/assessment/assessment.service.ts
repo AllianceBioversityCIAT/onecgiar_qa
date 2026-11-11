@@ -21,6 +21,7 @@ import {
   type FieldConfigEffective,
 } from '../admin-config/field-config/field-config.module.js';
 import { nowInRome, type RomeMinute } from '../admin-config/rome-date.js';
+import type { IdempotencyHandle } from '../common/idempotency/idempotency.context.js';
 import {
   TIMELINE_LOADS,
   type TimelineLoads,
@@ -36,9 +37,12 @@ import { CatalogService } from '../users/catalogs/catalog.service.js';
 import type { AuthenticatedUser } from '../users/current-user.cache.js';
 import { Permission } from '../users/permissions.js';
 import {
+  AssessmentCommentFieldInvalidError,
+  AssessmentCommentNotOpenError,
   AssessmentFieldKeysInvalidError,
   AssessmentFinishedError,
   AssessmentNoFieldConfigError,
+  AssessmentNotCommentAuthorError,
   AssessmentNotFoundError,
   AssessmentReadOnlyError,
   AssessmentStepClosedError,
@@ -61,7 +65,12 @@ import {
 } from './assessment-view.js';
 import type { QaStatus } from './qa-status.js';
 import { statusOf } from './qa-status.js';
-import { enabledReviewerRows, type StepTiming } from './role-steps.js';
+import { buildValueCopy } from './comment-value-copy.js';
+import {
+  enabledReviewerRows,
+  isWithdrawWindowOpen,
+  type StepTiming,
+} from './role-steps.js';
 import {
   resolveAccess,
   writeDecision,
@@ -93,6 +102,12 @@ export interface AssessmentSummary {
   status: 'pending' | 'quality_assessed' | 'returned';
   assessedBy: { id: number; nickname: string | null } | null;
   finishedAt: string | null;
+}
+
+/** The request of `POST …/assessment/comments`: a field and a body already trimmed and length-checked by the DTO. */
+export interface CommentInput {
+  fieldKey: string;
+  body: string;
 }
 
 /** The request of `PUT …/assessment/validations`: the new state, and the fields it applies to (exactly one of the two selectors, FR-10). */
@@ -130,6 +145,10 @@ const toViewComment = (row: CommentRecord): ViewComment => ({
   createdAt: row.createdAt.toISOString(),
   withdrawnAt: row.withdrawnAt === null ? null : row.withdrawnAt.toISOString(),
 });
+
+/** A datetime column keeps whole seconds, so a stamp is cut to them: what an answer says is then what a re-read gives. */
+const wholeSecond = (at: Date): Date =>
+  new Date(Math.floor(at.getTime() / 1000) * 1000);
 
 @Injectable()
 export class AssessmentService {
@@ -197,40 +216,20 @@ export class AssessmentService {
       throw new AssessmentFinishedError();
     }
 
-    // The pinned version when the row exists, the timeline's when it does not (DD-3).
-    let items: readonly ConfigItem[];
-    let version: number;
-    if (held !== null) {
-      if (held.fieldConfigVersionId === null) {
-        throw new AssessmentNoFieldConfigError();
-      }
-      items = await this.fieldConfig.versionItems(
-        held.fieldConfigVersionId,
-        membership.resultTypeKey,
-      );
-      version = held.fieldConfigVersion;
-    } else {
-      const effective = await this.effectiveConfig(
-        timeline,
-        membership.resultTypeKey,
-      );
-      items = effective.items;
-      version = effective.version;
-    }
-    const assessed = items
-      .filter(
-        (item) =>
-          item.resultTypeKey === membership.resultTypeKey &&
-          item.visibility === 'assessed',
-      )
-      .map((item) => item.fieldKey);
+    const { assessed, version } = await this.assessedOf(
+      timeline,
+      membership,
+      held,
+    );
     const target =
       input.all === true ? assessed : [...new Set(input.fieldKeys ?? [])];
     const wrong = target.filter((key) => !assessed.includes(key));
     if (wrong.length > 0) throw new AssessmentFieldKeysInvalidError(wrong);
 
-    // Nothing to undo before the first write: no row, no transaction, no audit.
-    if (held === null && !input.validated) {
+    // Nothing to write before the first write: no row, no transaction, no audit
+    // (DD-3, "created lazily"). Greying fields has nothing to undo, and a check
+    // all that targets no Assessed field has nothing to set.
+    if (held === null && (!input.validated || target.length === 0)) {
       return {
         status: 'pending',
         assessedBy: null,
@@ -307,6 +306,306 @@ export class AssessmentService {
           .sort((x, y) => (x.fieldKey < y.fieldKey ? -1 : 1)),
       };
     });
+  }
+
+  /**
+   * The Assessed fields of the version in force for a write, and its number:
+   * the PINNED version when the assessment row exists, the timeline's when it
+   * does not (DD-3). No version, or a type the timeline does not cover: 409
+   * `ASSESSMENT_NO_FIELD_CONFIG`.
+   */
+  private async assessedOf(
+    timeline: WorklistTimeline,
+    membership: MembershipRecord,
+    held: MembershipRecord['assessment'],
+  ): Promise<{ assessed: string[]; version: number }> {
+    let items: readonly ConfigItem[];
+    let version: number;
+    if (held !== null) {
+      if (held.fieldConfigVersionId === null) {
+        throw new AssessmentNoFieldConfigError();
+      }
+      items = await this.fieldConfig.versionItems(
+        held.fieldConfigVersionId,
+        membership.resultTypeKey,
+      );
+      version = held.fieldConfigVersion;
+    } else {
+      const effective = await this.effectiveConfig(
+        timeline,
+        membership.resultTypeKey,
+      );
+      items = effective.items;
+      version = effective.version;
+    }
+    const assessed = items
+      .filter(
+        (item) =>
+          item.resultTypeKey === membership.resultTypeKey &&
+          item.visibility === 'assessed',
+      )
+      .map((item) => item.fieldKey);
+    return { assessed, version };
+  }
+
+  /**
+   * FR-2, FR-11, FR-16, FR-21, NFR-4, NFR-7 (design 7.5, 7.7, DD-8, P-17): add a
+   * comment to an Assessed field. The same steps as a validation, in the same
+   * lock order, with the comment, its `comment_events` row and the
+   * `comment_add` audit row written under the assessment lock.
+   *
+   * Before the transaction (no lock): the membership in the caller's scope
+   * (404), the step judged (403 / 409), an ended assessment refused (409
+   * `ASSESSMENT_FINISHED`), the field checked against the Assessed fields of
+   * the PINNED version (400 on `fieldKey`), then the value copy: read from THE
+   * MEMBERSHIP'S OWN snapshot (`snapshot_sk`), never the latest snapshot of the
+   * result, so a comment keeps the value its author saw after a re-sync. The
+   * labels are the lists the field names; over 64 KiB the copy is cut and
+   * flagged. In the transaction: the timeline `FOR SHARE` (steps re-judged with
+   * the same minute), the assessment row (created on the first write) `FOR
+   * UPDATE`, the status read under that lock, the comment, its event, the audit
+   * row and, for a keyed request, the key mark: they commit together or not at
+   * all. The clock is read once.
+   */
+  async comment(
+    user: AuthenticatedUser,
+    timelineId: number,
+    resultCode: number,
+    input: CommentInput,
+    requestId: string,
+    idempotency?: IdempotencyHandle,
+  ): Promise<ViewComment> {
+    const at = this.clock();
+    const now = nowInRome(at);
+
+    const { timeline, access, membership, facts, hasLoad, decision, readStep } =
+      await this.resolveWrite(user, timelineId, resultCode, now);
+    const stepPosition = decision.stepPosition;
+    const held =
+      membership.assessment !== null && readStep === stepPosition
+        ? membership.assessment
+        : null;
+
+    // FR-16: an ended membership or assessment takes no more comments.
+    if (membership.ended || (held !== null && held.status !== 'pending')) {
+      throw new AssessmentFinishedError();
+    }
+
+    const { assessed, version } = await this.assessedOf(
+      timeline,
+      membership,
+      held,
+    );
+    if (!assessed.includes(input.fieldKey)) {
+      throw new AssessmentCommentFieldInvalidError();
+    }
+
+    const catalog = await this.catalogOf(membership.cycleYear);
+    const snapshot = await this.snapshotOf(membership);
+    const { valueCopy, truncated } = buildValueCopy({
+      values: snapshot.values,
+      labels: snapshot.labels,
+      fieldKey: input.fieldKey,
+      controlLists:
+        catalog.fields.find((field) => field.key === input.fieldKey)
+          ?.controlLists ?? [],
+    });
+    const createdAt = wholeSecond(at);
+
+    const id = await this.unitOfWork.run(
+      async ({ assessments, idempotency: fence }) => {
+        const steps = await assessments.lockTimelineShared(timeline.id);
+        if (steps === null) throw new AssessmentNotFoundError();
+        this.assertWritable(
+          writeDecision(access, facts, { steps, now, hasLoad }),
+        );
+        if (held === null) {
+          await assessments.ensureAssessment({
+            timelineResultId: membership.membershipId,
+            stepPosition,
+            roleCode: decision.row.role,
+            fieldConfigVersion: version,
+            createdBy: user.id,
+            at,
+          });
+        }
+        const locked = await assessments.lockAssessment(
+          membership.membershipId,
+          stepPosition,
+        );
+        // The row was created or seen a moment ago and is never deleted: a miss is a defect, not a user error.
+        if (locked === undefined) throw new Error('assessment_row_missing');
+        // FR-16, UNDER the lock: this read decides.
+        if (locked.status !== 'pending') throw new AssessmentFinishedError();
+
+        const commentId = await assessments.insertComment({
+          assessmentId: locked.id,
+          fieldKey: input.fieldKey,
+          authorId: user.id,
+          stepPosition,
+          round: membership.round,
+          body: input.body,
+          valueCopy,
+          valueTruncated: truncated,
+          at: createdAt,
+        });
+        await assessments.insertCommentEvent({
+          commentId,
+          actorId: user.id,
+          actorRole: decision.row.role,
+          fromState: null,
+          toState: 'open',
+          at,
+        });
+        await assessments.insertAudit({
+          assessmentId: locked.id,
+          actorId: user.id,
+          action: 'comment_add',
+          fieldKeys: [input.fieldKey],
+          commentId,
+          requestId,
+          at,
+        });
+        // The exactly-once fence (P-17): `in_progress` to `executed`, in this transaction.
+        if (idempotency !== undefined) {
+          await fence.markExecuted(idempotency.reservation, commentId);
+        }
+        return commentId;
+      },
+    );
+
+    return toViewComment({
+      id,
+      fieldKey: input.fieldKey,
+      authorId: user.id,
+      authorNickname: user.nickname,
+      body: input.body,
+      state: 'open',
+      stepPosition,
+      round: membership.round,
+      valueCopy,
+      valueTruncated: truncated,
+      createdAt,
+      withdrawnAt: null,
+    });
+  }
+
+  /**
+   * FR-13, FR-19, FR-21, OQ-8 (design 7.7): the author withdraws their own
+   * comment while it is `open` (the program has not answered) and step 1 or
+   * step 2 of the timeline is open. A withdraw after the END is allowed: it
+   * never refuses an ended assessment and never changes its status.
+   *
+   * Before the transaction: the comment with its assessment and membership,
+   * the caller's scope on that membership (a comment that is missing and one
+   * outside the scope are one and the same 404), the author (403
+   * `ASSESSMENT_NOT_COMMENT_AUTHOR`, only after the scope, so it tells nothing
+   * to a stranger), the state (409 `ASSESSMENT_COMMENT_NOT_OPEN`) and the window
+   * (409 `ASSESSMENT_STEP_CLOSED`). In the transaction, in the lock order of
+   * design 5: the timeline `FOR SHARE` (window re-judged with the same minute),
+   * the assessment row `FOR UPDATE` (so a finish counting the non-withdrawn
+   * comments waits for this one), then ONE conditional UPDATE that matches only
+   * while the comment is `open`, so a second withdraw or a program answer that
+   * committed in between is decided by the database (409), then the
+   * `comment_events` row and the `comment_withdraw` audit row. The clock is read
+   * once.
+   */
+  async withdraw(
+    user: AuthenticatedUser,
+    commentId: number,
+    requestId: string,
+  ): Promise<ViewComment> {
+    const at = this.clock();
+    const now = nowInRome(at);
+
+    const context = await this.store.findCommentContext(commentId);
+    if (context === null) throw new AssessmentNotFoundError();
+    const [timeline] = await this.worklist.findTimelines(
+      user.id,
+      context.timelineId,
+    );
+    if (timeline === undefined) throw new AssessmentNotFoundError();
+    const admin = this.authorization.can(user, Permission.ADMIN_ACCESS);
+    const access = resolveAccess(user, timeline.roleCodes, admin);
+    if (!admin && access.reviewerRows.length === 0) {
+      throw new AssessmentNotFoundError();
+    }
+    const membership = await this.store.findMembership({
+      timelineId: timeline.id,
+      resultCode: context.resultCode,
+      access,
+      round: context.round,
+      assessmentStepPosition: context.stepPosition,
+    });
+    // The membership of THIS comment, inside the caller's scope: any other is "not found".
+    if (
+      membership === null ||
+      membership.membershipId !== context.timelineResultId
+    ) {
+      throw new AssessmentNotFoundError();
+    }
+
+    if (context.authorId !== user.id) {
+      throw new AssessmentNotCommentAuthorError();
+    }
+    if (context.state !== 'open') throw new AssessmentCommentNotOpenError();
+    const hasLoad = (await this.loads.withLoad([timeline.id])).has(timeline.id);
+    if (!isWithdrawWindowOpen({ steps: timeline.steps, now, hasLoad })) {
+      throw new AssessmentStepClosedError();
+    }
+
+    const actorRole = access.reviewerRows[0]?.role ?? 'ADMIN';
+    const withdrawnAt = wholeSecond(at);
+    await this.unitOfWork.run(async ({ assessments }) => {
+      const steps = await assessments.lockTimelineShared(timeline.id);
+      if (steps === null) throw new AssessmentNotFoundError();
+      if (!isWithdrawWindowOpen({ steps, now, hasLoad })) {
+        throw new AssessmentStepClosedError();
+      }
+      const locked = await assessments.lockAssessment(
+        context.timelineResultId,
+        context.stepPosition,
+      );
+      if (locked === undefined) throw new Error('assessment_row_missing');
+      // No `status` check on purpose (OQ-8): withdrawing after the end is allowed.
+      if (!(await assessments.withdrawComment(commentId, withdrawnAt))) {
+        throw new AssessmentCommentNotOpenError();
+      }
+      await assessments.insertCommentEvent({
+        commentId,
+        actorId: user.id,
+        actorRole,
+        fromState: 'open',
+        toState: 'withdrawn',
+        at,
+      });
+      await assessments.insertAudit({
+        assessmentId: context.assessmentId,
+        actorId: user.id,
+        action: 'comment_withdraw',
+        fieldKeys: [context.fieldKey],
+        commentId,
+        requestId,
+        at,
+      });
+    });
+
+    return toViewComment({ ...context, state: 'withdrawn', withdrawnAt });
+  }
+
+  /**
+   * The answer of a comment create as recorded (P-17), for the idempotency
+   * replay reader: the comment read back by id, with no scope check (the key
+   * belongs to the caller who made it). The comment and the key mark commit
+   * together, so a missing row is a bug: it throws, and the interceptor
+   * answers 503. One read, no lock, no write.
+   */
+  async replayComment(commentId: number): Promise<ViewComment> {
+    const context = await this.store.findCommentContext(commentId);
+    if (context === null) {
+      throw new Error(`Comment ${commentId} has no comment row`);
+    }
+    return toViewComment(context);
   }
 
   /**

@@ -10,6 +10,7 @@ import type { RomeMinute } from '../src/admin-config/rome-date.js';
 import {
   bearer,
   buildAssessmentApp,
+  withoutRequestMeta,
   type AssessmentApp,
 } from './support/assessment-app.js';
 import { defaultFakeSteps } from './support/in-memory-assessment.js';
@@ -46,6 +47,8 @@ function expectError(res: request.Response, status: number, code: string) {
     error: { status, code },
     meta: { requestId: res.headers['x-request-id'] },
   });
+  // A refusal tells nothing of the people involved.
+  expect(JSON.stringify(res.body)).not.toMatch(/@/);
 }
 
 /** Step 1 of timeline 1 on the minutes a test names (09:00 to 17:30, never the fake's whole-month default). */
@@ -148,6 +151,7 @@ describe('PUT assessment validations (e2e)', () => {
       });
 
       expect(res.status).toBe(200);
+      expect(JSON.stringify(res.body)).not.toMatch(/@/);
       expect(res.body).toMatchObject({
         success: true,
         meta: { requestId: res.headers['x-request-id'] },
@@ -275,12 +279,16 @@ describe('PUT assessment validations (e2e)', () => {
         body: { validated: true, all: true },
       });
       expectError(outOfScope, 404, 'ASSESSMENT_NOT_FOUND');
+      // The WHOLE body, but for the two values that are per request.
       const shape = (res: request.Response) => ({
         status: res.status,
-        error: res.body.error,
+        body: withoutRequestMeta(res.body),
       });
       expect(shape(missing)).toEqual(shape(outOfScope));
       expect(shape(otherTimeline)).toEqual(shape(outOfScope));
+      for (const res of [outOfScope, missing, otherTimeline]) {
+        expect(JSON.stringify(res.body)).not.toMatch(/@/);
+      }
       expect(a.world.validations).toEqual([]);
     });
 

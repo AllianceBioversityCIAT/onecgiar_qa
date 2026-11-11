@@ -3,8 +3,10 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
   Inject,
   Param,
+  Post,
   Put,
   Query,
   Req,
@@ -13,6 +15,12 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { ReadAccess } from '../auth/decorators/read-access.decorator.js';
 import { ApiErrorResponses, ApiOkEnvelope } from '../common/api-response.js';
+import { idempotencyHandleOf } from '../common/idempotency/idempotency.context.js';
+import {
+  IDEMPOTENCY_REPLAYED_HEADERS,
+  withIdempotencyErrors,
+} from '../common/idempotency/idempotency.openapi.js';
+import { Idempotent } from '../common/idempotency/idempotent.decorator.js';
 import { ACCESS_TOKEN_SCHEME } from '../common/openapi.js';
 import { requestIdOf, type RequestWithId } from '../common/request-id.js';
 import type { AuthenticatedUser } from '../users/current-user.cache.js';
@@ -21,12 +29,16 @@ import {
   type AssessmentViewResponse,
   type ValidationSummary,
 } from './assessment.service.js';
+import type { ViewComment } from './assessment-view.js';
 import {
   AssessmentParams,
   AssessmentViewQuery,
+  CommentParams,
 } from './dto/assessment-params.js';
+import { CreateCommentBody } from './dto/create-comment.body.js';
 import { ValidateAssessmentBody } from './dto/validate-assessment.body.js';
 import {
+  AssessmentCommentModel,
   AssessmentViewModel,
   ValidationSummaryModel,
 } from './models/assessment.model.js';
@@ -108,6 +120,76 @@ export class AssessmentController {
         ...(body.fieldKeys === undefined ? {} : { fieldKeys: body.fieldKeys }),
         ...(body.all === undefined ? {} : { all: true }),
       },
+      requestIdOf(request),
+    );
+  }
+
+  @ApiOperation({
+    summary: 'Comment on an Assessed field',
+    description:
+      'Adds a comment of 1 to 2,000 characters (trimmed) to an Assessed field of the pinned configuration. The comment copies the field value, and its labels when the snapshot had them, from the snapshot of the membership it is written on, so it keeps what its author saw; a value over 64 KiB is stored cut, with `valueTruncated`. The assessment row is created at the first write. Refused with 409 once the step is not open or the assessment ended. Safe to retry with the same `Idempotency-Key`. One audit row per comment.',
+  })
+  @ApiOkEnvelope(AssessmentCommentModel, {
+    status: 201,
+    headers: IDEMPOTENCY_REPLAYED_HEADERS,
+  })
+  @ApiErrorResponses(
+    withIdempotencyErrors({
+      400: ['VALIDATION_FAILED', 'MALFORMED_JSON'],
+      401: ['AUTH_TOKEN_INVALID', 'AUTH_USER_NOT_ADMITTED'],
+      403: ['ASSESSMENT_READ_ONLY'],
+      404: ['ASSESSMENT_NOT_FOUND'],
+      409: [
+        'ASSESSMENT_STEP_CLOSED',
+        'ASSESSMENT_FINISHED',
+        'ASSESSMENT_NO_FIELD_CONFIG',
+      ],
+      413: ['PAYLOAD_TOO_LARGE'],
+      503: ['SERVICE_UNAVAILABLE'],
+    }),
+  )
+  @Idempotent()
+  @Post('timelines/:timelineId/results/:resultCode/assessment/comments')
+  comment(
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() request: RequestWithId,
+    @Param() params: AssessmentParams,
+    @Body() body: CreateCommentBody,
+  ): Promise<ViewComment> {
+    return this.assessments.comment(
+      user,
+      params.timelineId,
+      params.resultCode,
+      { fieldKey: body.fieldKey, body: body.body },
+      requestIdOf(request),
+      idempotencyHandleOf(request),
+    );
+  }
+
+  @ApiOperation({
+    summary: 'Withdraw your own comment',
+    description:
+      'The author withdraws a comment while it is still open (the program has not answered) and step 1 or step 2 of the timeline is open. A withdrawn comment leaves the counts and the program view and stays in the audit and the comment events. Allowed after the assessment ended. A comment of someone else is a 403; a comment that does not exist or is outside the caller scope is the same 404.',
+  })
+  @ApiOkEnvelope(AssessmentCommentModel)
+  @ApiErrorResponses({
+    400: ['VALIDATION_FAILED'],
+    401: ['AUTH_TOKEN_INVALID', 'AUTH_USER_NOT_ADMITTED'],
+    403: ['ASSESSMENT_NOT_COMMENT_AUTHOR'],
+    404: ['ASSESSMENT_NOT_FOUND'],
+    409: ['ASSESSMENT_COMMENT_NOT_OPEN', 'ASSESSMENT_STEP_CLOSED'],
+    503: ['SERVICE_UNAVAILABLE'],
+  })
+  @HttpCode(200)
+  @Post('assessment-comments/:commentId/withdraw')
+  withdraw(
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() request: RequestWithId,
+    @Param() params: CommentParams,
+  ): Promise<ViewComment> {
+    return this.assessments.withdraw(
+      user,
+      params.commentId,
       requestIdOf(request),
     );
   }

@@ -214,3 +214,24 @@ describe('DrizzleAssessmentStore.buildCommentsQuery', () => {
     expect(text).not.toContain('`users`.`last_name`');
   });
 });
+
+describe('the comment context statement (withdraw and the replay reader)', () => {
+  it('reads the comment, its author nickname, its assessment and membership in ONE statement, by the comment id', () => {
+    const { sql: text, params } = store.buildCommentContextQuery(700).toSQL();
+    expect(text).toContain('from `assessment_comments`');
+    expect(text).toContain('inner join `users` on `users`.`id` = `assessment_comments`.`author_id`');
+    expect(text).toContain(
+      'inner join `result_assessments` on `result_assessments`.`id` = `assessment_comments`.`assessment_id`',
+    );
+    expect(text).toContain(
+      'inner join `timeline_results` on `timeline_results`.`id` = `result_assessments`.`timeline_result_id`',
+    );
+    expect(text).toContain('where `assessment_comments`.`id` = ?');
+    expect(text).toContain(' limit ?');
+    expect(text).not.toContain('for update');
+    expect(text).not.toContain('for share');
+    // The author is shown by nickname only.
+    expect(text).not.toContain('`email`');
+    expect(params).toEqual([700, 1]);
+  });
+});

@@ -37,11 +37,14 @@ import type {
   AssessmentStore,
   AssessmentWriteStore,
   AuditEventWrite,
+  CommentContext,
+  CommentEventWrite,
   CommentRecord,
   LockedAssessment,
   MembershipCriteria,
   MembershipRecord,
   NewAssessmentRow,
+  NewCommentRow,
   ValidationRecord,
   ValidationWrite,
 } from '../../src/assessment/assessment.store.js';
@@ -49,6 +52,10 @@ import type {
   AssessmentRepositories,
   AssessmentUnitOfWork,
 } from '../../src/assessment/assessment.unit-of-work.js';
+import type {
+  IdempotencyStore,
+  Reservation,
+} from '../../src/common/idempotency/idempotency.store.js';
 
 // The worklist port over plain rows, with the semantics of the Drizzle adapter:
 // the scope is the T-3 predicate (`listedFor`), the status is `statusOf`, the
@@ -119,7 +126,14 @@ export interface FakeComment {
   body?: string;
   createdAt?: Date;
   valueCopy?: { value: unknown; labels?: unknown };
+  valueTruncated?: boolean;
+  stepPosition?: number;
+  round?: number;
+  withdrawnAt?: Date | null;
 }
+
+/** One `comment_events` row, as the write side appended it. */
+export type FakeCommentEvent = CommentEventWrite;
 
 export interface FakeValidation {
   assessmentId: number;
@@ -164,6 +178,23 @@ export class InMemoryAssessmentWorld {
   validations: FakeValidation[] = [];
   /** The append-only audit rows (FR-21). */
   audits: FakeAuditEvent[] = [];
+  /** The append-only `comment_events` rows (ADR-006). */
+  commentEvents: FakeCommentEvent[] = [];
+  /** The id the write side gives the next comment it inserts. */
+  nextCommentId = 7000;
+  /**
+   * The version `effectiveFor` answers, one per call, then 1 (a first write
+   * that races another sees the configuration as it was at ITS read).
+   */
+  effectiveVersions: number[] = [];
+  /**
+   * The `markExecuted` calls of committed and in-flight transactions, as
+   * `{ key, targetId }`. When `idempotency` is set the call is also made on it
+   * (the e2e store the interceptor reserved the key in).
+   */
+  marks: Array<{ key: string; targetId: number }> = [];
+  /** The idempotency store `markExecuted` goes to, when an app wires one. */
+  idempotency: Pick<IdempotencyStore, 'markExecuted'> | null = null;
   /** The id the write side gives the next assessment row it creates. */
   nextAssessmentId = 1000;
   /** Transactions the unit of work ran (committed or rolled back). */
@@ -530,26 +561,58 @@ export class InMemoryAssessmentStore implements AssessmentStore {
       this.world.comments
         .map((c, index) => ({ c, index }))
         .filter(({ c }) => c.assessmentId === assessmentId)
-        .map(({ c, index }) => ({
-          id: c.id ?? index + 1,
-          fieldKey: c.fieldKey ?? 'general.title',
-          authorId: c.authorId,
-          authorNickname:
-            this.world.users.find((u) => u.id === c.authorId)?.nickname ?? null,
-          body: c.body ?? 'A comment',
-          state: c.state,
-          stepPosition: 1,
-          round: 1,
-          valueCopy: c.valueCopy ?? { value: null },
-          valueTruncated: false,
-          createdAt: c.createdAt ?? new Date('2026-03-10T09:00:00.000Z'),
-          withdrawnAt:
-            c.state === 'withdrawn'
-              ? (c.createdAt ?? new Date('2026-03-10T09:00:00.000Z'))
-              : null,
-        })),
+        .map(({ c, index }) => commentRecordOf(this.world, c, index)),
     );
   }
+
+  findCommentContext(commentId: number): Promise<CommentContext | null> {
+    this.world.statements += 1;
+    const index = this.world.comments.findIndex(
+      (c, i) => (c.id ?? i + 1) === commentId,
+    );
+    const comment = this.world.comments[index];
+    if (comment === undefined) return Promise.resolve(null);
+    const assessment = this.world.assessments.find(
+      (a) => a.id === comment.assessmentId,
+    );
+    const membership = this.world.memberships.find(
+      (m) => m.id === assessment?.membershipId,
+    );
+    if (assessment === undefined || membership === undefined) {
+      return Promise.resolve(null);
+    }
+    return Promise.resolve({
+      ...commentRecordOf(this.world, comment, index),
+      assessmentId: assessment.id,
+      timelineResultId: membership.id,
+      timelineId: membership.timelineId,
+      resultCode: membership.resultCode,
+    });
+  }
+}
+
+/** A stored fake comment as the read port returns it (the join with the author's nickname). */
+function commentRecordOf(
+  world: InMemoryAssessmentWorld,
+  c: FakeComment,
+  index: number,
+): CommentRecord {
+  const createdAt = c.createdAt ?? new Date('2026-03-10T09:00:00.000Z');
+  return {
+    id: c.id ?? index + 1,
+    fieldKey: c.fieldKey ?? 'general.title',
+    authorId: c.authorId,
+    authorNickname:
+      world.users.find((u) => u.id === c.authorId)?.nickname ?? null,
+    body: c.body ?? 'A comment',
+    state: c.state,
+    stepPosition: c.stepPosition ?? 1,
+    round: c.round ?? 1,
+    valueCopy: c.valueCopy ?? { value: null },
+    valueTruncated: c.valueTruncated ?? false,
+    createdAt,
+    withdrawnAt: c.state === 'withdrawn' ? (c.withdrawnAt ?? createdAt) : null,
+  };
 }
 
 /**
@@ -577,7 +640,7 @@ export class FakeFieldConfigEffective implements FieldConfigEffective {
     return Promise.resolve({
       timelineId,
       resultTypeKey,
-      version: 1,
+      version: this.world.effectiveVersions.shift() ?? 1,
       provisional: false,
       items: this.world.fieldConfigItems[resultTypeKey] ?? [],
     });
@@ -601,7 +664,15 @@ export class FakeFieldConfigEffective implements FieldConfigEffective {
  * call is as many counted statements as the adapter runs.
  */
 export class InMemoryAssessmentWriteStore implements AssessmentWriteStore {
-  constructor(private readonly world: InMemoryAssessmentWorld) {}
+  /**
+   * `undo` is the transaction's own undo log: every mutation pushes its inverse,
+   * and a rollback runs it backwards. A rollback therefore undoes ONLY what its
+   * transaction wrote, never another transaction's commit in between.
+   */
+  constructor(
+    private readonly world: InMemoryAssessmentWorld,
+    private readonly undo: Array<() => void> = [],
+  ) {}
 
   lockTimelineShared(timelineId: number): Promise<WorklistStep[] | null> {
     this.world.statements += 2;
@@ -624,7 +695,7 @@ export class InMemoryAssessmentWriteStore implements AssessmentWriteStore {
         a.stepPosition === row.stepPosition,
     );
     if (!exists) {
-      this.world.assessments.push({
+      const created: FakeAssessment = {
         id: this.world.nextAssessmentId++,
         membershipId: row.timelineResultId,
         stepPosition: row.stepPosition,
@@ -632,6 +703,12 @@ export class InMemoryAssessmentWriteStore implements AssessmentWriteStore {
         fieldConfigVersion: row.fieldConfigVersion,
         roleCode: row.roleCode,
         createdBy: row.createdBy,
+      };
+      this.world.assessments.push(created);
+      this.undo.push(() => {
+        this.world.assessments = this.world.assessments.filter(
+          (a) => a !== created,
+        );
       });
     }
     return Promise.resolve();
@@ -681,9 +758,19 @@ export class InMemoryAssessmentWriteStore implements AssessmentWriteStore {
         (v) => v.assessmentId === assessmentId && v.fieldKey === row.fieldKey,
       );
       if (held === undefined) {
-        this.world.validations.push({ assessmentId, ...row });
+        const created = { assessmentId, ...row };
+        this.world.validations.push(created);
+        this.undo.push(() => {
+          this.world.validations = this.world.validations.filter(
+            (v) => v !== created,
+          );
+        });
       } else {
+        const before = held.validated;
         held.validated = row.validated;
+        this.undo.push(() => {
+          held.validated = before;
+        });
       }
     }
     return Promise.resolve();
@@ -692,15 +779,77 @@ export class InMemoryAssessmentWriteStore implements AssessmentWriteStore {
   insertAudit(event: AuditEventWrite): Promise<void> {
     this.world.statements += 1;
     this.world.writeLog.push('insertAudit');
-    this.world.audits.push({ ...event });
+    const row = { ...event };
+    this.world.audits.push(row);
+    this.undo.push(() => {
+      this.world.audits = this.world.audits.filter((a) => a !== row);
+    });
+    return Promise.resolve();
+  }
+
+  insertComment(row: NewCommentRow): Promise<number> {
+    this.world.statements += 1;
+    this.world.writeLog.push('insertComment');
+    const id = this.world.nextCommentId++;
+    const created: FakeComment = {
+      id,
+      assessmentId: row.assessmentId,
+      authorId: row.authorId,
+      state: 'open',
+      fieldKey: row.fieldKey,
+      body: row.body,
+      createdAt: row.at,
+      valueCopy: row.valueCopy,
+      valueTruncated: row.valueTruncated,
+      stepPosition: row.stepPosition,
+      round: row.round,
+    };
+    this.world.comments.push(created);
+    this.undo.push(() => {
+      this.world.comments = this.world.comments.filter((c) => c !== created);
+    });
+    return Promise.resolve(id);
+  }
+
+  withdrawComment(commentId: number, at: Date): Promise<boolean> {
+    this.world.statements += 1;
+    this.world.writeLog.push('withdrawComment');
+    const held = this.world.comments.find(
+      (c, i) => (c.id ?? i + 1) === commentId,
+    );
+    // The conditional UPDATE: it matches the row only while it is `open`.
+    if (held === undefined || held.state !== 'open') {
+      return Promise.resolve(false);
+    }
+    held.state = 'withdrawn';
+    held.withdrawnAt = at;
+    this.undo.push(() => {
+      held.state = 'open';
+      held.withdrawnAt = null;
+    });
+    return Promise.resolve(true);
+  }
+
+  insertCommentEvent(event: CommentEventWrite): Promise<void> {
+    this.world.statements += 1;
+    this.world.writeLog.push('insertCommentEvent');
+    const row = { ...event };
+    this.world.commentEvents.push(row);
+    this.undo.push(() => {
+      this.world.commentEvents = this.world.commentEvents.filter(
+        (e) => e !== row,
+      );
+    });
     return Promise.resolve();
   }
 }
 
 /**
  * One transaction over the world: what `work` wrote is kept when it resolves
- * and put back as it was when it throws (the rollback). The rows are copied
- * per row, so a write through the fake never leaks into the saved copy.
+ * and put back when it throws. The rollback is the transaction's own undo log
+ * (see `InMemoryAssessmentWriteStore`), so it never reverts a write another
+ * transaction committed while this one was open. The old whole-world restore
+ * did exactly that to a concurrent writer.
  */
 export class InMemoryAssessmentUnitOfWork implements AssessmentUnitOfWork {
   constructor(private readonly world: InMemoryAssessmentWorld) {}
@@ -709,19 +858,25 @@ export class InMemoryAssessmentUnitOfWork implements AssessmentUnitOfWork {
     work: (repositories: AssessmentRepositories) => Promise<T>,
   ): Promise<T> {
     this.world.transactions += 1;
-    const saved = {
-      assessments: this.world.assessments.map((a) => ({ ...a })),
-      validations: this.world.validations.map((v) => ({ ...v })),
-      audits: this.world.audits.map((a) => ({ ...a })),
-    };
+    const undo: Array<() => void> = [];
     try {
       return await work({
-        assessments: new InMemoryAssessmentWriteStore(this.world),
+        assessments: new InMemoryAssessmentWriteStore(this.world, undo),
+        idempotency: {
+          markExecuted: async (reservation: Reservation, targetId: number) => {
+            this.world.statements += 1;
+            this.world.writeLog.push('markExecuted');
+            const entry = { key: reservation.key, targetId };
+            this.world.marks.push(entry);
+            undo.push(() => {
+              this.world.marks = this.world.marks.filter((m) => m !== entry);
+            });
+            await this.world.idempotency?.markExecuted(reservation, targetId);
+          },
+        },
       });
     } catch (error) {
-      this.world.assessments = saved.assessments;
-      this.world.validations = saved.validations;
-      this.world.audits = saved.audits;
+      for (const revert of undo.reverse()) revert();
       throw error;
     }
   }

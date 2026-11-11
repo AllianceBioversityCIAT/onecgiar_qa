@@ -4,6 +4,10 @@ import { ConfigModule } from '@nestjs/config';
 import { ADMIN_CONFIG_CLOCK } from '../admin-config/admin-config.clock.js';
 import { FieldConfigModule } from '../admin-config/field-config/field-config.module.js';
 import {
+  IDEMPOTENCY_REPLAY_READER,
+  type IdempotencyReplayReader,
+} from '../common/idempotency/idempotency.interceptor.js';
+import {
   DrizzleIdempotencyStore,
   IDEMPOTENCY_CLOCK,
   IDEMPOTENCY_STORE,
@@ -79,6 +83,16 @@ import { DrizzleWorklistStore, WORKLIST_STORE } from './worklist.store.js';
       useClass: DrizzleAssessmentUnitOfWork,
     },
     AssessmentService,
+    {
+      // The crash window of the comment create (P-17): a key left `executed`
+      // without a stored answer is replayed with the comment re-read from its
+      // id. The stored target id is a comment id here.
+      provide: IDEMPOTENCY_REPLAY_READER,
+      useFactory: (service: AssessmentService): IdempotencyReplayReader => ({
+        read: (commentId) => service.replayComment(commentId),
+      }),
+      inject: [AssessmentService],
+    },
     // The title backfill (T-13, FR-24): a bootstrap hook that is not awaited.
     { provide: TITLE_BACKFILL_STORE, useClass: DrizzleTitleBackfillStore },
     TitleBackfill,

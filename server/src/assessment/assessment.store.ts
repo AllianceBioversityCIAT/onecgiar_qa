@@ -8,6 +8,7 @@ import {
   type CommentState,
   type CommentValueCopy,
 } from '../database/drizzle/schema/assessment-comments.js';
+import { commentEvents } from '../database/drizzle/schema/comment-events.js';
 import { assessmentFieldValidations } from '../database/drizzle/schema/assessment-field-validations.js';
 import { cycles } from '../database/drizzle/schema/cycles.js';
 import { fieldConfigVersions } from '../database/drizzle/schema/field-config-versions.js';
@@ -96,6 +97,14 @@ export interface CommentRecord {
   withdrawnAt: Date | null;
 }
 
+/** A comment with where it lives: its assessment and membership (withdraw, and the replay reader). */
+export interface CommentContext extends CommentRecord {
+  assessmentId: number;
+  timelineResultId: number;
+  timelineId: number;
+  resultCode: number;
+}
+
 export interface AssessmentStore {
   /**
    * One statement: the membership of (timeline, result code) inside the
@@ -110,6 +119,12 @@ export interface AssessmentStore {
   findValidations(assessmentId: number): Promise<ValidationRecord[]>;
   /** One statement: the comments of an assessment, oldest first, with the author's nickname. */
   findComments(assessmentId: number): Promise<CommentRecord[]>;
+  /**
+   * One statement: a comment by id with its author's nickname, its assessment
+   * and its membership. `null` when there is none. Nothing here checks the
+   * caller's scope: the service does, and answers the same 404.
+   */
+  findCommentContext(commentId: number): Promise<CommentContext | null>;
 }
 
 // ---- Write port (T-10) -----------------------------------------------------
@@ -148,6 +163,29 @@ export interface AuditEventWrite {
   at: Date;
 }
 
+/** The comment to insert (FR-11): always `open`, never visible to the program yet. */
+export interface NewCommentRow {
+  assessmentId: number;
+  fieldKey: string;
+  authorId: number;
+  stepPosition: number;
+  round: number;
+  body: string;
+  valueCopy: CommentValueCopy;
+  valueTruncated: boolean;
+  at: Date;
+}
+
+/** One append-only `comment_events` row (ADR-006): ids and states, never a body. */
+export interface CommentEventWrite {
+  commentId: number;
+  actorId: number;
+  actorRole: string;
+  fromState: CommentState | null;
+  toState: CommentState;
+  at: Date;
+}
+
 /**
  * The statements of one assessment write, bound to ONE transaction by the unit
  * of work (design 5, 7.5). Their order is the lock order: the timeline
@@ -160,7 +198,12 @@ export interface AssessmentWriteStore {
    * `null` when the timeline is gone.
    */
   lockTimelineShared(timelineId: number): Promise<WorklistStep[] | null>;
-  /** One statement: `INSERT … ON DUPLICATE KEY UPDATE id = id`. A duplicate only locks nothing and changes nothing. */
+  /**
+   * One statement: `INSERT … ON DUPLICATE KEY UPDATE id = id`. A duplicate
+   * changes nothing (the pinned version and the creator stay), but it is not a
+   * free no-op: the duplicate-key path takes an EXCLUSIVE lock on the existing
+   * row, so a second first writer waits here for the first one's commit.
+   */
   ensureAssessment(row: NewAssessmentRow): Promise<void>;
   /** One statement: the row of (membership, step) `FOR UPDATE`. */
   lockAssessment(
@@ -178,6 +221,16 @@ export interface AssessmentWriteStore {
   ): Promise<void>;
   /** One statement. */
   insertAudit(event: AuditEventWrite): Promise<void>;
+  /** One statement: the comment, `open`. Returns its id. */
+  insertComment(row: NewCommentRow): Promise<number>;
+  /**
+   * One conditional statement: `open` to `withdrawn` where the comment is
+   * still `open`. `false` when it matched nothing (another request got there,
+   * or the program answered): the database decides the race, not a prior read.
+   */
+  withdrawComment(commentId: number, at: Date): Promise<boolean>;
+  /** One statement. */
+  insertCommentEvent(event: CommentEventWrite): Promise<void>;
 }
 
 // ---- Drizzle adapter -------------------------------------------------------
@@ -333,11 +386,45 @@ export class DrizzleAssessmentStore implements AssessmentStore {
   async findComments(assessmentId: number): Promise<CommentRecord[]> {
     return await this.buildCommentsQuery(assessmentId);
   }
+
+  /** The comment-context statement; public so a spec can read its SQL. */
+  buildCommentContextQuery(commentId: number) {
+    return this.db
+      .select({
+        id: assessmentComments.id,
+        fieldKey: assessmentComments.fieldKey,
+        authorId: assessmentComments.authorId,
+        authorNickname: users.nickname,
+        body: assessmentComments.body,
+        state: assessmentComments.state,
+        stepPosition: assessmentComments.stepPosition,
+        round: assessmentComments.round,
+        valueCopy: assessmentComments.valueCopy,
+        valueTruncated: assessmentComments.valueTruncated,
+        createdAt: assessmentComments.createdAt,
+        withdrawnAt: assessmentComments.withdrawnAt,
+        assessmentId: a.id,
+        timelineResultId: t.id,
+        timelineId: t.timelineId,
+        resultCode: t.resultCode,
+      })
+      .from(assessmentComments)
+      .innerJoin(users, eq(users.id, assessmentComments.authorId))
+      .innerJoin(a, eq(a.id, assessmentComments.assessmentId))
+      .innerJoin(t, eq(t.id, a.timelineResultId))
+      .where(eq(assessmentComments.id, commentId))
+      .limit(1);
+  }
+
+  async findCommentContext(commentId: number): Promise<CommentContext | null> {
+    const [row] = await this.buildCommentContextQuery(commentId);
+    return row ?? null;
+  }
 }
 
 // ---- Drizzle write adapter (T-10) -------------------------------------------
 
-type AssessmentWriteDb = Pick<DrizzleDB, 'select' | 'insert'>;
+type AssessmentWriteDb = Pick<DrizzleDB, 'select' | 'insert' | 'update'>;
 
 /**
  * Drizzle adapter of `AssessmentWriteStore`. It is built ON a transaction by
@@ -487,5 +574,60 @@ export class DrizzleAssessmentWriteStore implements AssessmentWriteStore {
 
   async insertAudit(event: AuditEventWrite): Promise<void> {
     await this.buildInsertAudit(event);
+  }
+
+  buildInsertComment(row: NewCommentRow) {
+    // `state` takes its default (`open`); the program visibility and the
+    // withdraw time are never set at creation.
+    return this.db.insert(assessmentComments).values({
+      assessmentId: row.assessmentId,
+      fieldKey: row.fieldKey,
+      authorId: row.authorId,
+      stepPosition: row.stepPosition,
+      round: row.round,
+      body: row.body,
+      valueCopy: row.valueCopy,
+      valueTruncated: row.valueTruncated,
+      createdAt: row.at,
+    });
+  }
+
+  async insertComment(row: NewCommentRow): Promise<number> {
+    const [header] = await this.buildInsertComment(row);
+    return header.insertId;
+  }
+
+  buildWithdrawComment(commentId: number, at: Date) {
+    return this.db
+      .update(assessmentComments)
+      .set({ state: 'withdrawn', withdrawnAt: at })
+      .where(
+        and(
+          eq(assessmentComments.id, commentId),
+          // The guard: only an open comment is withdrawn, so a second request
+          // or a program answer in between matches nothing.
+          eq(assessmentComments.state, 'open'),
+        ),
+      );
+  }
+
+  async withdrawComment(commentId: number, at: Date): Promise<boolean> {
+    const [header] = await this.buildWithdrawComment(commentId, at);
+    return header.affectedRows > 0;
+  }
+
+  buildInsertCommentEvent(event: CommentEventWrite) {
+    return this.db.insert(commentEvents).values({
+      commentId: event.commentId,
+      actorId: event.actorId,
+      actorRole: event.actorRole,
+      fromState: event.fromState,
+      toState: event.toState,
+      createdAt: event.at,
+    });
+  }
+
+  async insertCommentEvent(event: CommentEventWrite): Promise<void> {
+    await this.buildInsertCommentEvent(event);
   }
 }

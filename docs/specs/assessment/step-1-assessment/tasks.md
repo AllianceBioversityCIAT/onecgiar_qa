@@ -235,7 +235,7 @@ Gate edges from **T-1** are listed on the last line of the graph. Nothing else w
 - **Skills:** nestjs-expert, aws-serverless
 
 ## T-10: Writes I — unit of work, validations, check all, comments, withdraw
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** L → executed as two commits (validations, then comments). Each passes the Reviewer separately
 - **Depends on:** T-9, T-1 (OQ-8, OQ-5)
 - **Requirements:**

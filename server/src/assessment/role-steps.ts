@@ -141,3 +141,16 @@ export function audienceStepState(
     hasLoad: timing.hasLoad,
   }).stepStates[step.position];
 }
+
+/**
+ * OQ-8 (FR-13): the window in which an author may withdraw their own comment,
+ * step 1 (`assessors`) or step 2 (`programs`) in progress. It is not the role's
+ * write window: an ended assessment does not close it, and an assessor may
+ * withdraw while the programs step is the open one.
+ */
+export function isWithdrawWindowOpen(timing: StepTiming): boolean {
+  return (
+    audienceStepState('assessors', timing) === 'in_progress' ||
+    audienceStepState('programs', timing) === 'in_progress'
+  );
+}

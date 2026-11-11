@@ -108,3 +108,81 @@ describe('the writes under the lock', () => {
     );
   });
 });
+
+describe('the comment writes (FR-11, FR-13, ADR-006)', () => {
+  const comment = {
+    assessmentId: 70,
+    fieldKey: 'general.title',
+    authorId: 10,
+    stepPosition: 1,
+    round: 1,
+    body: 'Check the wording',
+    valueCopy: { value: 'Old title' },
+    valueTruncated: false,
+    at: AT,
+  };
+
+  it('inserts the comment open, with the value copy, and never sets the program visibility or the withdraw time', () => {
+    const { sql: text, params } = store.buildInsertComment(comment).toSQL();
+    expect(text).toMatch(/^insert into `assessment_comments`/);
+    for (const column of [
+      'assessment_id',
+      'field_key',
+      'author_id',
+      'step_position',
+      'round',
+      'body',
+      'value_copy',
+      'value_truncated',
+      'created_at',
+    ]) {
+      expect(text).toContain(`\`${column}\``);
+    }
+    // `state`, `visible_to_program_at` and `withdrawn_at` take their column default.
+    expect(text).toContain(
+      'values (default, ?, ?, ?, ?, ?, ?, ?, ?, default, default, default, ?)',
+    );
+    expect(text).not.toContain('on duplicate');
+    expect(params).toEqual(
+      expect.arrayContaining([
+        70,
+        'general.title',
+        10,
+        'Check the wording',
+        JSON.stringify({ value: 'Old title' }),
+      ]),
+    );
+  });
+
+  it('withdraws with ONE conditional UPDATE: it matches only while the comment is open, so the database decides a race', () => {
+    const { sql: text, params } = store
+      .buildWithdrawComment(700, AT)
+      .toSQL();
+    expect(text).toMatch(/^update `assessment_comments` set /);
+    expect(text).toContain('`state` = ?');
+    expect(text).toContain('`withdrawn_at` = ?');
+    expect(text).toContain(
+      'where (`assessment_comments`.`id` = ? and `assessment_comments`.`state` = ?)',
+    );
+    expect(params).toEqual(['withdrawn', '2026-11-13 10:00:00.000', 700, 'open']);
+  });
+
+  it('appends a comment event with ids and states only: no body, no value', () => {
+    const { sql: text, params } = store
+      .buildInsertCommentEvent({
+        commentId: 700,
+        actorId: 10,
+        actorRole: 'ASSESSOR',
+        fromState: 'open',
+        toState: 'withdrawn',
+        at: AT,
+      })
+      .toSQL();
+    expect(text).toMatch(/^insert into `comment_events`/);
+    expect(text).not.toMatch(/\b(body|value)\b/);
+    expect(text).not.toContain('on duplicate');
+    expect(params).toEqual(
+      expect.arrayContaining([700, 10, 'ASSESSOR', 'open', 'withdrawn']),
+    );
+  });
+});
