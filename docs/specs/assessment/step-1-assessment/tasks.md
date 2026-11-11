@@ -300,7 +300,7 @@ Gate edges from **T-1** are listed on the last line of the graph. Nothing else w
 - **Skills:** nestjs-expert, tdd
 
 ## T-12: Release outbox
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-5, T-11, T-1 (OQ-1)
 - **Requirements:** FR-18 (*Reporting down* incl. *AND IT MUST NOT* two releases; `not_in_qa` counts as released; refused reasons; admin list and retry; membership ended only after the ack), FR-5 (`returned` membership ended still listed), NFR-3, NFR-6

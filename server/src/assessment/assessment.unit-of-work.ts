@@ -9,9 +9,17 @@ import {
 import { DRIZZLE } from '../database/drizzle/drizzle.constants.js';
 import type { DrizzleDB } from '../database/drizzle/drizzle.module.js';
 import {
+  DrizzleLoadsStore,
+  type LoadsStore,
+} from '../ingestion/loads.store.js';
+import {
   DrizzleAssessmentWriteStore,
   type AssessmentWriteStore,
 } from './assessment.store.js';
+import {
+  DrizzleReleaseWriteStore,
+  type ReleaseWriteStore,
+} from './release.store.js';
 
 export const ASSESSMENT_UNIT_OF_WORK = Symbol('ASSESSMENT_UNIT_OF_WORK');
 
@@ -24,11 +32,21 @@ export interface AssessmentRepositories {
    * THIS transaction, so the mark commits with the comment, or never.
    */
   idempotency: Pick<IdempotencyStore, 'markExecuted'>;
+  /** The release ack (T-12, design 7.6): the release row and the assessment lock, bound to THIS transaction. */
+  releases: ReleaseWriteStore;
+  /**
+   * The membership ends of the release ack (FR-18, P-1): `endAsReleasedQaed`
+   * and `endAsReturned`, bound to THIS transaction so the end commits with the
+   * release row, or never.
+   */
+  loads: Pick<LoadsStore, 'endAsReleasedQaed' | 'endAsReturned'>;
 }
 
 /** Runs `work` in one database transaction: it commits when `work` resolves, rolls back when it throws. */
 export interface AssessmentUnitOfWork {
-  run<T>(work: (repositories: AssessmentRepositories) => Promise<T>): Promise<T>;
+  run<T>(
+    work: (repositories: AssessmentRepositories) => Promise<T>,
+  ): Promise<T>;
 }
 
 /**
@@ -71,6 +89,8 @@ export class DrizzleAssessmentUnitOfWork implements AssessmentUnitOfWork {
             work({
               assessments: new DrizzleAssessmentWriteStore(tx),
               idempotency: new DrizzleIdempotencyStore(tx, this.clock),
+              releases: new DrizzleReleaseWriteStore(tx),
+              loads: new DrizzleLoadsStore(tx),
             }),
           { isolationLevel: 'read committed' },
         );

@@ -41,6 +41,14 @@ import {
   DrizzleAssessmentStore,
 } from './assessment.store.js';
 import { QuickCommentsController } from './quick-comments.controller.js';
+import {
+  RELEASE_DISPATCHER,
+  RELEASE_PAUSE,
+  ReleaseService,
+  defaultReleasePause,
+} from './release.service.js';
+import { DrizzleReleaseStore, RELEASE_STORE } from './release.store.js';
+import { ReleasesController } from './releases.controller.js';
 import { QuickCommentsService } from './quick-comments.service.js';
 import { WorklistController } from './worklist.controller.js';
 import { WorklistService } from './worklist.service.js';
@@ -60,6 +68,7 @@ import { DrizzleWorklistStore, WORKLIST_STORE } from './worklist.store.js';
     WorklistController,
     AssessmentController,
     QuickCommentsController,
+    ReleasesController,
   ],
   imports: [
     DrizzleModule,
@@ -101,6 +110,12 @@ import { DrizzleWorklistStore, WORKLIST_STORE } from './worklist.store.js';
       }),
       inject: [AssessmentService],
     },
+    // The release outbox (T-12, FR-18, DD-5): the claim and the admin list on the pool, the service that sends and acknowledges, and the dispatcher `AssessmentService` calls after an end commits.
+    { provide: RELEASE_STORE, useClass: DrizzleReleaseStore },
+    // The wait between two attempts of a send, a token so the e2e apps run no timer.
+    { provide: RELEASE_PAUSE, useValue: defaultReleasePause },
+    ReleaseService,
+    { provide: RELEASE_DISPATCHER, useExisting: ReleaseService },
     // The title backfill (T-13, FR-24): a bootstrap hook that is not awaited.
     { provide: TITLE_BACKFILL_STORE, useClass: DrizzleTitleBackfillStore },
     TitleBackfill,

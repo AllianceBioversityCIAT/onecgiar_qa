@@ -17,6 +17,7 @@ import {
   FakeFieldConfigEffective,
   InMemoryAssessmentStore,
   InMemoryAssessmentUnitOfWork,
+  noReleaseDispatch,
   InMemoryAssessmentWorld,
   InMemoryAssessmentWriteStore,
   InMemoryTimelineLoads,
@@ -160,6 +161,7 @@ function setup(
       return now;
     },
     new InMemoryAssessmentUnitOfWork(world),
+    noReleaseDispatch,
   );
   const add = (
     resultCode: number,

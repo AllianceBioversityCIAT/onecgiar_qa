@@ -19,6 +19,10 @@ import { ASSESSMENT_UNIT_OF_WORK } from '../../src/assessment/assessment.unit-of
 import { WORKLIST_STORE } from '../../src/assessment/worklist.store.js';
 import { UpstreamUnavailableError } from '../../src/users/catalogs/catalogs.errors.js';
 import { SNAPSHOT_STORE } from '../../src/ingestion/snapshot-store.port.js';
+import { RESULTS_FEED } from '../../src/ingestion/results-feed.port.js';
+import { RELEASE_PAUSE } from '../../src/assessment/release.service.js';
+import { RELEASE_STORE } from '../../src/assessment/release.store.js';
+import { FakeResultsFeed } from './fake-results-feed.js';
 import { FakeSnapshotStore } from './fake-snapshot-store.js';
 import {
   FakeClock,
@@ -38,6 +42,7 @@ import {
   InMemoryAssessmentStore,
   InMemoryAssessmentUnitOfWork,
   InMemoryAssessmentWorld,
+  InMemoryReleaseStore,
   InMemoryTimelineLoads,
   InMemoryWorklistStore,
 } from './in-memory-assessment.js';
@@ -80,8 +85,11 @@ export type AssessmentApp = Awaited<ReturnType<typeof buildAssessmentApp>>;
 export function withoutRequestMeta(body: {
   meta?: Record<string, unknown>;
 }): unknown {
-  const { requestId: _requestId, timestamp: _timestamp, ...meta } =
-    body.meta ?? {};
+  const {
+    requestId: _requestId,
+    timestamp: _timestamp,
+    ...meta
+  } = body.meta ?? {};
   return { ...body, meta };
 }
 
@@ -96,6 +104,8 @@ export async function buildAssessmentApp(
   const idempotency = new InMemoryIdempotencyStore(idemClock.now);
   world.idempotency = idempotency;
   const snapshots = new FakeSnapshotStore();
+  // Reporting's release route (T-12): nothing is scripted, so an end's release fails at once and stays pending until a test scripts the feed.
+  const feed = new FakeResultsFeed();
   // The Reporting catalog of every year is the 2026 fixture; `down` makes it unreadable (503).
   const fieldCatalog = shapeCatalog(
     JSON.parse(
@@ -166,6 +176,12 @@ export async function buildAssessmentApp(
     .useValue(new InMemoryAssessmentUnitOfWork(world))
     .overrideProvider(SNAPSHOT_STORE)
     .useValue(snapshots)
+    .overrideProvider(RESULTS_FEED)
+    .useValue(feed)
+    .overrideProvider(RELEASE_STORE)
+    .useValue(new InMemoryReleaseStore(world))
+    .overrideProvider(RELEASE_PAUSE)
+    .useValue(() => Promise.resolve())
     .overrideProvider(FIELD_CONFIG_EFFECTIVE)
     .useValue(new FakeFieldConfigEffective(world))
     .overrideProvider(FIELD_CATALOG_SOURCE)
@@ -219,6 +235,7 @@ export async function buildAssessmentApp(
     send,
     programScope,
     snapshots,
+    feed,
     catalogSource,
     idempotency,
   };

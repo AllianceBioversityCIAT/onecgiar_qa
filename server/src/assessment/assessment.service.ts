@@ -74,6 +74,10 @@ import {
 } from './assessment-view.js';
 import type { QaStatus } from './qa-status.js';
 import { statusOf } from './qa-status.js';
+import {
+  RELEASE_DISPATCHER,
+  type ReleaseDispatcher,
+} from './release.service.js';
 import { buildValueCopy } from './comment-value-copy.js';
 import {
   enabledReviewerRows,
@@ -206,6 +210,7 @@ export class AssessmentService {
     @Inject(ADMIN_CONFIG_CLOCK) private readonly clock: AdminConfigClock,
     @Inject(ASSESSMENT_UNIT_OF_WORK)
     private readonly unitOfWork: AssessmentUnitOfWork,
+    @Inject(RELEASE_DISPATCHER) private readonly releases: ReleaseDispatcher,
   ) {}
 
   /**
@@ -240,9 +245,12 @@ export class AssessmentService {
     requestId: string,
   ): Promise<ValidationSummary> {
     const at = this.clock();
-    return await this.withPinnedRetry(() =>
+    const summary = await this.withPinnedRetry(() =>
       this.validateAt(at, user, timelineId, resultCode, input, requestId),
     );
+    // Only a write that ended the assessment queued a release.
+    if (summary.status !== 'pending') this.dispatchRelease();
+    return summary;
   }
 
   private async validateAt(
@@ -392,9 +400,25 @@ export class AssessmentService {
     requestId: string,
   ): Promise<ValidationSummary> {
     const at = this.clock();
-    return await this.withPinnedRetry(() =>
+    const summary = await this.withPinnedRetry(() =>
       this.finishAt(at, user, timelineId, resultCode, requestId),
     );
+    this.dispatchRelease();
+    return summary;
+  }
+
+  /**
+   * After an end COMMITTED (DD-5): sends the queued release without making the
+   * request wait. It is never awaited (NFR-6): Reporting being slow or down
+   * must not slow or fail the end, which is already answered. A failure is
+   * logged here; the row stays `pending` and the next dispatch sends it.
+   */
+  private dispatchRelease(): void {
+    this.releases.dispatch().catch((error: unknown) => {
+      this.logger.error(
+        `assessment_release_dispatch_failed ${error instanceof Error ? error.name : 'error'}`,
+      );
+    });
   }
 
   private async finishAt(
@@ -564,9 +588,7 @@ export class AssessmentService {
       assessmentId: locked.id,
       actorId: user.id,
       action:
-        status === 'quality_assessed'
-          ? 'end_quality_assessed'
-          : 'end_returned',
+        status === 'quality_assessed' ? 'end_quality_assessed' : 'end_returned',
       fieldKeys: null,
       commentId: null,
       requestId,

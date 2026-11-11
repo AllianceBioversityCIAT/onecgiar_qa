@@ -870,3 +870,67 @@ Within the re-estimated budget.
 | Review rounds | 23 | 34 |
 
 Within the re-estimated budget.
+
+### T-12: Release outbox — PASS
+
+| | |
+|---|---|
+| Date | 2026-11-11 |
+| Final status | PASS (attempt 2 of 2) |
+| Requirements covered | FR-18 (incl. *Reporting down* and *MUST NOT* two releases), FR-5, FR-21 (`release_sent` / `release_refused`), NFR-3, NFR-6 |
+| OQ gate | OQ-1 (send right after the end commits), `execution.md` T-1 entry |
+| Skills | nestjs-expert, error-handling-patterns, tdd (as task) |
+| Effort | default in attempt 1; `high` in attempt 2 (rework bump) |
+| Review mode | lenses: concurrency and external contract, two Reviewers in parallel |
+
+- **Routes:** `GET /api/v1/assessment-releases?status=pending|refused` (ADMIN; `status` optional, default `pending`; capped at 500 rows), `POST /api/v1/assessment-releases/retry` (ADMIN; at most 3 claim rounds; `{ attempted, sent, refused, stillPending }`).
+- **Files** (under `server/`):
+  - new: `src/assessment/release.store.ts`, `release.service.ts`, `releases.controller.ts`, `dto/release-query.dto.ts`, `models/release.model.ts`; specs `release.service.spec.ts`, `release.store.spec.ts`; e2e `test/assessment-releases.e2e-spec.ts`;
+  - edited: `assessment.service.ts` (fire-and-forget `dispatchRelease()` after an end commit, `.catch` logs), `assessment.module.ts`, `assessment.unit-of-work.ts` (`releases`, `loads` repositories on the transaction handle), `assessment-ends.service.spec.ts`, three service specs (+ `noReleaseDispatch`), `test/support/in-memory-assessment.ts`, `test/support/assessment-app.ts` (`RESULTS_FEED` fake exposed as `a.feed`, `RELEASE_STORE`, `RELEASE_PAUSE`).
+- **Consumers:** `ingestion/loads.store.ts` `endAsReturned` and `endAsReleasedQaed` now have a caller (the ack). `AssessmentService` gains a required dispatcher constructor parameter.
+- **Claim** (one transaction, one send batch): read the oldest due row's phase year (unlocked) → that year's due ids `FOR UPDATE SKIP LOCKED` (≤ 50) → one row per result id → conditional `UPDATE … SET lease_until = now + 60 s, attempts = least(attempts + 1, 255) WHERE id IN (…) AND status = 'pending' AND (lease_until IS NULL OR lease_until < now)` → throw `release_claim_mismatch` if `affectedRows` ≠ ids read → read the leased rows. `WORST_CASE_SEND_MS` (36 s) < `RELEASE_LEASE_MS` (60 s) is guarded at module load and by a unit test.
+- **Ack** (one transaction per batch): timelines `FOR SHARE` sorted → assessments `FOR UPDATE` sorted → conditional settle (`id = ? AND status = 'pending'`) → membership end (`qaed` → `endAsReleasedQaed`; `not_qaed` → `endAsReturned`, round 1 only) → audit row. `released` and `not_in_qa` → `sent`; any other reason → `refused` (trimmed to 32); an unanswered item stays `pending`.
+
+**Attempt 1 — FAIL (concurrency lens); external contract lens PASS**
+
+- **Observed red** (against skeletons): unit `Tests 22 failed | 41 passed (63)`, e.g. `expected [] to have a length of 3 but got +0`; store spec 7 failed (`release store: not implemented`). The e2e file was written after the code; its red is falsifier 3.
+- **Falsifiers (observed red, then restored):** 1. lease condition dropped (fake and Drizzle) → two-dispatcher test `expected 'hung' to deeply equal { attempted: 0, … }` and the claim SQL spec; 2. `not_in_qa` as refused → the retry test `expected { attempted: 2, sent: +0, … }`; 3. dispatch awaited in the request → `assessment-ends.service.spec.ts` NFR-6 test and the e2e `expected 'hung' not to be 'hung'`.
+- **Contract Reviewer: PASS** (payload `phase_year` + `items[{result_id, outcome}]`, ≤ 50, unique result ids; ADMIN-only via `@RequirePermission(ADMIN_ACCESS)`; log line ids and reason word only; disqualifier respected: every retry test scripts 503 before success).
+- **Concurrency Reviewer: FAIL** (verbatim):
+  > **Discovered Issue:** One claim leases up to 50 rows for 60 s (`release.service.ts:114-118`). Those rows are then sent in **sequential** batches, one per phase year and per unique-result split (`release.service.ts:126-131`). One batch can take up to about 36 s […]. Two batches in one round can therefore run past the lease. […] D2's claim finds `lease_until < now`, takes the 2026 rows and sends them too. Reporting gets two releases for one end. […] No test covers lease expiry during a multi-batch round.
+  > **Violated Rule:** `requirements.md` FR-18, Scenario *Reporting down*: "AND IT MUST NOT send two releases for one end, even under concurrent retries"; `design.md` § 7.6 step 1; NFR-3.
+
+**Attempt 2 — PASS**
+
+- **Changes:** one claim = one send batch (above); `dispatch({ maxRounds })` runs one claim + one send-and-ack per round (auto: 50 rounds; `/retry`: 3); the ack logs `already_ended`, `not_round_1` and `no_actor` instead of discarding them; `claimDue` fails loudly on an affected-rows mismatch.
+- **Reds:** the new fake-clock test (`release.service.spec.ts:645`: two phase years, batch 1 takes +40 s, a second dispatcher at +61 s during the second send) went red on the attempt-1 code with `expected 'hung' to deeply equal { attempted: +0, … }`; the budget test red before `WORST_CASE_SEND_MS` existed. Falsifiers on the final code: 1 → 11 failed; 2 → 1 failed; 3 → 1 failed (unit; the e2e variant was red on attempt 1, path unchanged). Files restored byte-identical.
+- **Clock grep** (non-spec files in `server/src/assessment`): only `assessment.module.ts:85` and `:88`. No `process.env`.
+- **Evidence re-run (Leader inline):** lint and build clean; unit `Test Files 95 passed | 1 skipped (96)`, `Tests 3648 passed | 6 skipped (3654)`; e2e (`--maxWorkers=2`, no `RG_FORCE`) `Test Files 23 passed (23)`, `Tests 1119 passed (1119)`. **VERIFIED.**
+- **Concurrency Reviewer: PASS.** The 36 s bound is real (the 10 s abort covers the body read; jitter applies to the waits only); no await between claim commit and send; the unlocked year read only picks the year (worst case is liveness, never a double send); the new test truly interleaves.
+
+**Forward pointers closed:** T-11 (the ack takes timeline `FOR SHARE` → assessment `FOR UPDATE` before ending memberships); T-5 (`endAsReleasedQaed` has its caller).
+
+**Decisions made:**
+
+- **Refused is final.** `/retry` only picks `pending` rows; a refused row (e.g. `not_submitted`) is listed for the admin but not resent, and its membership stays active. This reads FR-18 "see which releases are pending or refused, and retry them" through design § 7.6 (refused is a settled outcome). Decided by the Leader under the back lead's delegation; business (Angel) may override in a later story.
+- Own 3-attempt retry in `ReleaseService` (the runner's helper is private), only on `FeedError` kind `unavailable`, waits 1 s and 4 s ± 20 %; 401 and 400 are not retried and the row stays `pending`.
+- Audit actor of `release_sent` / `release_refused` = the assessment's `finished_by`; `request_id` = `release-<releaseId>`.
+- A result id twice in one phase year goes to separate calls (Reporting rejects duplicates, P-4).
+
+**Forward pointers:**
+
+- **→ T-14:** (a) take the lease `now` inside the claim transaction, or skip a batch when `clock() > leaseUntil − WORST_CASE_SEND_MS` right before sending (pool wait or a slow ack can still eat the 24 s margin; data stays correct through the conditional settle and `not_in_qa`, but Reporting would get a second call); (b) when the oldest year's rows are all skip-locked, try the next due year instead of ending the sweep; (c) import the feed timeout instead of copying `CATALOG_TIMEOUT_MS` into `FEED_TIMEOUT_MS`; (d) fake fidelity: dedupe after the limit as MySQL does, and the 255 cap on `attempts`.
+- **→ T-15:** `ingestion/AGENTS.md` "no caller" sentence for `endAsReturned` / `endAsReleasedQaed` is now false; the new `assessment/AGENTS.md` records the second feed binding (DD-1) and `ReleaseService` as the outbox sender; reword the `/retry` OpenAPI text ("at most 3 batches"; `stillPending` counts only claimed rows); the T-5 gap stays open: a load end takes the timeline `FOR SHARE` like the ack, so the ack's `endAsReturned` does not wait for `countReturnedNotResubmitted` — document it; § 5 "no cycle" is too strong (`ensureAssessment` vs the ack on `timeline_results` can deadlock; the 1213 retry resolves it).
+- **→ T-16 HITL (real MySQL):** two concurrent dispatches on one row (`SKIP LOCKED`, the affected-rows check, `least(attempts + 1, 255)`); the ack lock order against a concurrent timeline edit.
+- **→ T-17+ (client):** the admin header pending count reads `GET /assessment-releases?status=pending` (array length, ≤ 500; a leased row counts as pending; the response does not say it was cut).
+- **→ qa-context open question (business):** one result in two memberships of the same phase year: the second release gets `not_in_qa` and counts as sent, though Reporting kept the first outcome.
+
+**Running totals:**
+
+| Measure | Actual | Re-estimated budget |
+|---|---|---|
+| Tasks | 13 of 21 | 21 |
+| Production LOC | ≈ 8,060 TS + 141 SQL | 11,000 |
+| Review rounds | 26 | 34 |
+
+Within the re-estimated budget.

@@ -20,6 +20,7 @@ import {
   FakeFieldConfigEffective,
   InMemoryAssessmentStore,
   InMemoryAssessmentUnitOfWork,
+  noReleaseDispatch,
   InMemoryAssessmentWriteStore,
   InMemoryAssessmentWorld,
   InMemoryTimelineLoads,
@@ -31,6 +32,7 @@ import type { DrizzleDB } from '../database/drizzle/drizzle.module.js';
 import { AssessmentCoreUncommentedError } from './assessment.errors.js';
 import { AssessmentService } from './assessment.service.js';
 import type { AuditEventWrite } from './assessment.store.js';
+import type { ReleaseDispatcher } from './release.service.js';
 import {
   DrizzleAssessmentUnitOfWork,
   type AssessmentUnitOfWork,
@@ -147,6 +149,7 @@ function setup(
   unitOfWorkOver: (
     world: InMemoryAssessmentWorld,
   ) => AssessmentUnitOfWork = (world) => new InMemoryAssessmentUnitOfWork(world),
+  dispatcher: ReleaseDispatcher = noReleaseDispatch,
 ) {
   const world = new InMemoryAssessmentWorld();
   world.timelines.push({
@@ -192,6 +195,7 @@ function setup(
       return now;
     },
     unitOfWorkOver(world),
+    dispatcher,
   );
   const add = (
     resultCode: number,
@@ -1112,5 +1116,108 @@ describe('a deadlock in the middle of a real validation (T-11, design 5)', () =>
       { assessmentId: world.assessments[0]!.id, fieldKey: CORE[0], validated: true },
       { assessmentId: world.assessments[0]!.id, fieldKey: NON_CORE, validated: true },
     ]);
+  });
+});
+
+describe('FR-18: the release is dispatched after the end commits (DD-5, NFR-6)', () => {
+  // One core field green, the two grey ones commented: Finish ends it `returned` (OQ-9).
+  const GREY_COMMENTED = {
+    green: [CORE[0]],
+    comments: [{ fieldKey: CORE[1] }, { fieldKey: CORE[2] }],
+  };
+  const counting = () => {
+    const dispatch = vi.fn(() =>
+      Promise.resolve({ attempted: 0, sent: 0, refused: 0, stillPending: 0 }),
+    );
+    return { dispatch, dispatcher: { dispatch } satisfies ReleaseDispatcher };
+  };
+
+  it('a finish dispatches once, after the transaction committed', async () => {
+    const { dispatch, dispatcher } = counting();
+    const { world, service, add, seed } = setup(
+      OPEN,
+      CORE,
+      { count: 0 },
+      (w) => new InMemoryAssessmentUnitOfWork(w),
+      dispatcher,
+    );
+    seed(add(5001), GREY_COMMENTED);
+    dispatch.mockImplementation(() => {
+      // The release row is committed when the dispatch starts.
+      expect(world.releases).toHaveLength(1);
+      return Promise.resolve({
+        attempted: 1,
+        sent: 1,
+        refused: 0,
+        stillPending: 0,
+      });
+    });
+
+    await service.finish(assessorA(), 1, 5001, RID);
+
+    expect(dispatch).toHaveBeenCalledTimes(1);
+  });
+
+  it('the write that completes the core dispatches once; a write that ends nothing, and a refused finish, dispatch nothing', async () => {
+    const { dispatch, dispatcher } = counting();
+    const { service, add, seed } = setup(
+      OPEN,
+      CORE,
+      { count: 0 },
+      (w) => new InMemoryAssessmentUnitOfWork(w),
+      dispatcher,
+    );
+    seed(add(5001), { green: [CORE[0], CORE[1]] });
+
+    await service.validate(assessorA(), 1, 5001, check([NON_CORE]), RID);
+    expect(dispatch).not.toHaveBeenCalled();
+
+    await service.validate(assessorA(), 1, 5001, check([CORE[2]]), RID);
+    expect(dispatch).toHaveBeenCalledTimes(1);
+
+    await failure(service.finish(assessorA(), 1, 5001, RID));
+    expect(dispatch).toHaveBeenCalledTimes(1);
+  });
+
+  it('answers the end before the feed resolves: a dispatch that never settles does not hold the request (NFR-6)', async () => {
+    const dispatch = vi.fn(() => new Promise<never>(() => undefined));
+    const { world, service, add, seed } = setup(
+      OPEN,
+      CORE,
+      { count: 0 },
+      (w) => new InMemoryAssessmentUnitOfWork(w),
+      { dispatch },
+    );
+    seed(add(5001), GREY_COMMENTED);
+
+    const answered = await Promise.race([
+      service.finish(assessorA(), 1, 5001, RID),
+      new Promise<'hung'>((resolve) => setTimeout(() => resolve('hung'), 200)),
+    ]);
+
+    expect(answered).toMatchObject({ status: 'returned' });
+    expect(dispatch).toHaveBeenCalledTimes(1);
+    expect(world.releases).toHaveLength(1);
+  });
+
+  it('a dispatch that rejects is caught and logged: the end is still answered, and nothing is unhandled', async () => {
+    const dispatch = vi.fn(() => Promise.reject(new Error('boom')));
+    const { service, add, seed } = setup(
+      OPEN,
+      CORE,
+      { count: 0 },
+      (w) => new InMemoryAssessmentUnitOfWork(w),
+      { dispatch },
+    );
+    seed(add(5001), GREY_COMMENTED);
+    const unhandled = vi.fn();
+    process.on('unhandledRejection', unhandled);
+
+    const summary = await service.finish(assessorA(), 1, 5001, RID);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    process.off('unhandledRejection', unhandled);
+
+    expect(summary.status).toBe('returned');
+    expect(unhandled).not.toHaveBeenCalled();
   });
 });

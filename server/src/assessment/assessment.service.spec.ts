@@ -21,6 +21,7 @@ import {
   FakeFieldConfigEffective,
   InMemoryAssessmentStore,
   InMemoryAssessmentUnitOfWork,
+  noReleaseDispatch,
   InMemoryAssessmentWorld,
   InMemoryTimelineLoads,
   InMemoryWorklistStore,
@@ -146,6 +147,7 @@ function setup(
     new AuthorizationService(),
     () => now,
     new InMemoryAssessmentUnitOfWork(world),
+    noReleaseDispatch,
   );
   /**
    * A membership in timeline 1 whose snapshot was written by the REAL

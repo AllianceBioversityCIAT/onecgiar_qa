@@ -19,6 +19,7 @@ import {
   FakeFieldConfigEffective,
   InMemoryAssessmentStore,
   InMemoryAssessmentUnitOfWork,
+  noReleaseDispatch,
   InMemoryAssessmentWorld,
   InMemoryTimelineLoads,
   InMemoryWorklistStore,
@@ -172,6 +173,7 @@ function setup(
       return now;
     },
     new InMemoryAssessmentUnitOfWork(world),
+    noReleaseDispatch,
   );
   /**
    * A membership of timeline 1 whose snapshot the REAL LoadRunner wrote (a load

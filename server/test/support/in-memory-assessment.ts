@@ -57,6 +57,20 @@ import type {
   AssessmentRepositories,
   AssessmentUnitOfWork,
 } from '../../src/assessment/assessment.unit-of-work.js';
+import type { ReleaseDispatcher } from '../../src/assessment/release.service.js';
+import type {
+  DueRelease,
+  LockedReleaseAssessment,
+  ReleaseListItem,
+  ReleaseListStatus,
+  ReleaseSettle,
+  ReleaseStore,
+  ReleaseWriteStore,
+} from '../../src/assessment/release.store.js';
+import type {
+  EndAsReleasedQaedOutcome,
+  EndAsReturnedOutcome,
+} from '../../src/ingestion/loads.store.js';
 import type {
   IdempotencyStore,
   Reservation,
@@ -144,7 +158,19 @@ export interface FakeComment {
 
 /** One `assessment_releases` row, as the write side queued it. */
 export interface FakeRelease extends NewReleaseRow {
-  status: 'pending';
+  status: 'pending' | 'sent' | 'refused';
+}
+
+/**
+ * The outbox columns that `NewReleaseRow` does not carry, kept beside the row
+ * (by assessment id) so a spec that compares a queued row whole is unchanged.
+ */
+export interface FakeReleaseMeta {
+  id: number;
+  attempts: number;
+  leaseUntil: Date | null;
+  reason: string | null;
+  sentAt: Date | null;
 }
 
 /** One `quick_comments` row. */
@@ -213,6 +239,9 @@ export class InMemoryAssessmentWorld {
   endUpdatesMatched = 0;
   /** The release rows the ends queued (FR-18). */
   releases: FakeRelease[] = [];
+  /** The outbox columns of each release, by assessment id (T-12). */
+  releaseMeta = new Map<number, FakeReleaseMeta>();
+  nextReleaseId = 500;
   /** The saved quick comments of every role. */
   quickComments: FakeQuickComment[] = [];
   nextQuickCommentId = 9000;
@@ -266,6 +295,22 @@ export class InMemoryAssessmentWorld {
   noFieldConfigVersion = false;
   /** Set to make `effectiveFor` throw `TimelineNotFoundError` (the timeline vanished between two reads). */
   effectiveTimelineGone = false;
+
+  /** The outbox columns of a release row, created on first use. */
+  metaOf(release: FakeRelease): FakeReleaseMeta {
+    let meta = this.releaseMeta.get(release.assessmentId);
+    if (meta === undefined) {
+      meta = {
+        id: this.nextReleaseId++,
+        attempts: 0,
+        leaseUntil: null,
+        reason: null,
+        sentAt: null,
+      };
+      this.releaseMeta.set(release.assessmentId, meta);
+    }
+    return meta;
+  }
 
   resetStatements(): void {
     this.statements = 0;
@@ -635,7 +680,10 @@ export class InMemoryAssessmentStore implements AssessmentStore {
     return Promise.resolve(
       this.world.quickComments
         .filter((q) => q.roleCode === roleCode)
-        .sort((x, y) => y.createdAt.getTime() - x.createdAt.getTime() || y.id - x.id)
+        .sort(
+          (x, y) =>
+            y.createdAt.getTime() - x.createdAt.getTime() || y.id - x.id,
+        )
         .map(({ id, body, createdAt }) => ({ id, body, createdAt })),
     );
   }
@@ -1041,6 +1089,166 @@ export class InMemoryAssessmentWriteStore implements AssessmentWriteStore {
 }
 
 /**
+ * The outbox on the pool (T-12). The claim is atomic, as the real one is (the
+ * due ids are read `FOR UPDATE SKIP LOCKED` and leased in one transaction): a
+ * row leased by one dispatcher is not due for the next until the lease passes.
+ */
+export class InMemoryReleaseStore implements ReleaseStore {
+  constructor(private readonly world: InMemoryAssessmentWorld) {}
+
+  claimDue(now: Date, leaseUntil: Date, limit: number): Promise<DueRelease[]> {
+    this.world.writeLog.push('claimDue');
+    const dueRows = this.world.releases
+      .filter((release) => {
+        const meta = this.world.metaOf(release);
+        return (
+          release.status === 'pending' &&
+          (meta.leaseUntil === null || meta.leaseUntil < now)
+        );
+      })
+      .sort((a, b) => this.world.metaOf(a).id - this.world.metaOf(b).id);
+    // ONE claim is ONE send batch: the phase year of the oldest due row, no result id twice.
+    const year = dueRows[0]?.phaseYear;
+    const seen = new Set<number>();
+    const due = dueRows
+      .filter(
+        (r) =>
+          r.phaseYear === year && !seen.has(r.resultId) && seen.add(r.resultId),
+      )
+      .slice(0, limit);
+    return Promise.resolve(
+      due.map((release) => {
+        const meta = this.world.metaOf(release);
+        meta.leaseUntil = leaseUntil;
+        meta.attempts += 1;
+        const membership = this.world.memberships.find(
+          (m) => m.id === release.timelineResultId,
+        );
+        return {
+          id: meta.id,
+          assessmentId: release.assessmentId,
+          timelineId: membership?.timelineId ?? 0,
+          timelineResultId: release.timelineResultId,
+          resultId: release.resultId,
+          phaseYear: release.phaseYear,
+          outcome: release.outcome,
+          attempts: meta.attempts,
+        };
+      }),
+    );
+  }
+
+  list(status: ReleaseListStatus): Promise<ReleaseListItem[]> {
+    return Promise.resolve(
+      this.world.releases
+        .filter((release) => release.status === status)
+        .map((release) => {
+          const meta = this.world.metaOf(release);
+          const membership = this.world.memberships.find(
+            (m) => m.id === release.timelineResultId,
+          );
+          const timeline = this.world.timelines.find(
+            (t) => t.id === membership?.timelineId,
+          );
+          return {
+            id: meta.id,
+            timeline: { id: timeline?.id ?? 0, name: timeline?.name ?? '' },
+            resultCode: membership?.resultCode ?? 0,
+            outcome: release.outcome,
+            status: release.status,
+            attempts: meta.attempts,
+            reason: meta.reason,
+            createdAt: release.at,
+          };
+        })
+        .sort((a, b) => a.id - b.id),
+    );
+  }
+}
+
+/** The release statements of one ack transaction, with the undo log of its unit of work. */
+export class InMemoryReleaseWriteStore implements ReleaseWriteStore {
+  constructor(
+    private readonly world: InMemoryAssessmentWorld,
+    private readonly undo: Array<() => void>,
+  ) {}
+
+  lockAssessment(
+    assessmentId: number,
+  ): Promise<LockedReleaseAssessment | undefined> {
+    this.world.writeLog.push('lockReleaseAssessment');
+    const row = this.world.assessments.find((a) => a.id === assessmentId);
+    return Promise.resolve(
+      row === undefined
+        ? undefined
+        : { id: row.id, finishedBy: row.finishedBy ?? null },
+    );
+  }
+
+  settle(settle: ReleaseSettle): Promise<boolean> {
+    this.world.writeLog.push('settleRelease');
+    const release = this.world.releases.find(
+      (r) => this.world.metaOf(r).id === settle.id,
+    );
+    // The conditional UPDATE: it matches the row only while it is `pending`.
+    if (release === undefined || release.status !== 'pending') {
+      return Promise.resolve(false);
+    }
+    const meta = this.world.metaOf(release);
+    release.status = settle.status;
+    meta.reason = settle.reason;
+    meta.sentAt = settle.status === 'sent' ? settle.at : null;
+    this.undo.push(() => {
+      release.status = 'pending';
+      meta.reason = null;
+      meta.sentAt = null;
+    });
+    return Promise.resolve(true);
+  }
+}
+
+/** The membership ends of an ack, over the world's memberships, with the same conditions as the Drizzle store. */
+export class InMemoryMembershipEnds {
+  constructor(
+    private readonly world: InMemoryAssessmentWorld,
+    private readonly undo: Array<() => void>,
+  ) {}
+
+  endAsReleasedQaed(id: number, at: Date): Promise<EndAsReleasedQaedOutcome> {
+    this.world.writeLog.push('endAsReleasedQaed');
+    return Promise.resolve(this.end(id, at, 'released_qaed', false));
+  }
+
+  endAsReturned(id: number, at: Date): Promise<EndAsReturnedOutcome> {
+    this.world.writeLog.push('endAsReturned');
+    return Promise.resolve(this.end(id, at, 'returned', true));
+  }
+
+  private end(
+    id: number,
+    _at: Date,
+    reason: TimelineResultEndReason,
+    roundOneOnly: boolean,
+  ): EndAsReleasedQaedOutcome | EndAsReturnedOutcome {
+    const membership = this.world.memberships.find((m) => m.id === id);
+    if (membership === undefined) return { ended: false, reason: 'not_found' };
+    if (membership.ended === true) {
+      return { ended: false, reason: 'already_ended' };
+    }
+    if (roundOneOnly && (membership.round ?? 1) !== 1) {
+      return { ended: false, reason: 'not_round_1' };
+    }
+    membership.ended = true;
+    membership.endReason = reason;
+    this.undo.push(() => {
+      membership.ended = false;
+      membership.endReason = null;
+    });
+    return { ended: true };
+  }
+}
+
+/**
  * One transaction over the world: what `work` wrote is kept when it resolves
  * and put back when it throws. The rollback is the transaction's own undo log
  * (see `InMemoryAssessmentWriteStore`), so it never reverts a write another
@@ -1058,6 +1266,8 @@ export class InMemoryAssessmentUnitOfWork implements AssessmentUnitOfWork {
     try {
       return await work({
         assessments: new InMemoryAssessmentWriteStore(this.world, undo),
+        releases: new InMemoryReleaseWriteStore(this.world, undo),
+        loads: new InMemoryMembershipEnds(this.world, undo),
         idempotency: {
           markExecuted: async (reservation: Reservation, targetId: number) => {
             this.world.statements += 1;
@@ -1077,3 +1287,9 @@ export class InMemoryAssessmentUnitOfWork implements AssessmentUnitOfWork {
     }
   }
 }
+
+/** A dispatcher that does nothing: the services of the specs that are not about the release. */
+export const noReleaseDispatch: ReleaseDispatcher = {
+  dispatch: () =>
+    Promise.resolve({ attempted: 0, sent: 0, refused: 0, stillPending: 0 }),
+};
