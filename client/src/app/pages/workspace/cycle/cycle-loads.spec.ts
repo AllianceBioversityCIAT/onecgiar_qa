@@ -181,7 +181,7 @@ describe('CycleLoads', () => {
     starts.complete();
     await started;
 
-    let asked: number[] = [];
+    const asked: number[] = [];
     const api = TestBed.inject(LoadsApi) as unknown as { get: (t: number, id: number) => Observable<LoadDetail> };
     api.get = (_t, id) => (asked.push(id), of(detail));
     listAnswer = () => of([item({ id: 12, status: 'completed', total: 5, processed: 5 })]);
@@ -195,5 +195,14 @@ describe('CycleLoads', () => {
     await vi.advanceTimersByTimeAsync(LOAD_POLL_MS);
     await flush();
     expect(asked).toEqual([9]);
+  });
+
+  it('a load that stays missing from the list ends in "lost track", it does not poll forever', async () => {
+    listAnswer = () => of([item()]);
+    await loads.resume(timelines());
+    listAnswer = () => of([item({ id: 12, status: 'running' })]);
+    await vi.advanceTimersByTimeAsync(LOAD_POLL_MS * 35);
+    expect(loads.running()).toBe(false);
+    expect(errors[0]).toContain('lost track of the load');
   });
 });
