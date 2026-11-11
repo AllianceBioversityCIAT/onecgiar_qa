@@ -405,6 +405,7 @@ describe('step dates (FR-8, S-1)', () => {
     expect(validateTimelineCreate(withSteps(steps), context)).toEqual([
       { field: 'steps[1].closesOn', code: 'REQUIRED' },
       { field: 'steps[2].round', code: 'ROUND_SEQUENCE' },
+      { field: 'steps[2].round', code: 'ROUND_ABOVE_MAX' },
     ]);
   });
 
@@ -447,7 +448,21 @@ describe('rounds (FR-10)', () => {
 
   it.each<Row>([
     ['1,1,2,2,2', rounds([1, 1, 2, 2, 2]), []],
-    ['1,2,3,3,3', rounds([1, 2, 3, 3, 3]), []],
+    [
+      '1,1,2,2,3 goes above the last round (FR-3)',
+      rounds([1, 1, 2, 2, 3]),
+      [{ field: 'steps[4].round', code: 'ROUND_ABOVE_MAX' }],
+    ],
+    [
+      '1,2,3 is a valid sequence, so only the limit is reported (FR-3)',
+      withSteps(
+        fiveSteps()
+          .slice(0, 3)
+          .map((s, i) => ({ ...s, round: i + 1 })),
+      ),
+      [{ field: 'steps[2].round', code: 'ROUND_ABOVE_MAX' }],
+    ],
+    ['1,1,2,2,2 stays within the limit (FR-3)', rounds([1, 1, 2, 2, 2]), []],
     [
       'the first round is 2',
       withSteps(twoSteps().map((s) => ({ ...s, round: 2 }))),
@@ -466,7 +481,12 @@ describe('rounds (FR-10)', () => {
     [
       '1,1,3 skips a round',
       rounds([1, 1, 3, 3, 3]),
-      [{ field: 'steps[2].round', code: 'ROUND_SEQUENCE' }],
+      [
+        { field: 'steps[2].round', code: 'ROUND_SEQUENCE' },
+        { field: 'steps[2].round', code: 'ROUND_ABOVE_MAX' },
+        { field: 'steps[3].round', code: 'ROUND_ABOVE_MAX' },
+        { field: 'steps[4].round', code: 'ROUND_ABOVE_MAX' },
+      ],
     ],
   ])('%s', (_label, request, expected) => {
     expect(validateTimelineCreate(request, context)).toEqual(expected);
@@ -525,6 +545,7 @@ describe('all issues at once (FR-11)', () => {
       { field: 'steps[1].audience', code: 'AUDIENCE_ORDER' },
       { field: 'steps[1].opensOn', code: 'OVERLAPS_PREVIOUS_STEP' },
       { field: 'steps[1].round', code: 'ROUND_SEQUENCE' },
+      { field: 'steps[1].round', code: 'ROUND_ABOVE_MAX' },
     ]);
   });
 
@@ -1444,6 +1465,7 @@ describe('FR-1 Malformed or missing moment (timeline-step-times)', () => {
       { field: 'steps[1].opensAt', code: 'INVALID' },
       { field: 'steps[2].opensAt', code: 'OVERLAPS_PREVIOUS_STEP' },
       { field: 'steps[2].round', code: 'ROUND_SEQUENCE' },
+      { field: 'steps[2].round', code: 'ROUND_ABOVE_MAX' },
     ]);
   });
 

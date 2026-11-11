@@ -20,6 +20,11 @@ export class FakeSnapshotStore implements SnapshotStore {
     return Promise.resolve();
   }
 
+  get(resultCode: number, sk: string): Promise<ResultSnapshotRecord | null> {
+    const found = this.items.get(`${resultCode}|${sk}`);
+    return Promise.resolve(found ? structuredClone(found) : null);
+  }
+
   history(resultCode: number): Promise<ResultSnapshotRecord[]> {
     const rows = [...this.items.entries()]
       .filter(([k]) => k.startsWith(`${resultCode}|`))

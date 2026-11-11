@@ -1,4 +1,4 @@
-<!-- Cycle view on the cycles API (cycle-store.ts). Loads, results, export and close have no API yet: "Coming soon". -->
+<!-- Cycle view on the cycles API (cycle-store.ts) and the loads API (cycle-loads.ts: sync at any step, into the round in force). Results, export and close have no API yet: "Coming soon". -->
 
 <!-- Page header -->
 <div class="flex flex-wrap items-start gap-4 px-4 pt-8 sm:px-6 lg:px-8">
@@ -7,17 +7,21 @@
     <p class="m-0 text-(length:--fs-14) font-normal text-(--text-3)">Only results submitted by a science program can enter QA.</p>
   </div>
   <div class="flex flex-none items-center gap-2 max-sm:w-full">
-    @if (running(); as r) {
+    @if (loads.active(); as r) {
       <div role="status" aria-live="polite" class="flex h-9 items-center gap-2 rounded-[8px] border border-(--tint-border-2) max-sm:h-10 max-sm:flex-1 max-sm:justify-center bg-(--tint-2) px-[14px] whitespace-nowrap">
-        <span aria-hidden="true" class="size-[7px] rounded-full bg-(--primary)"></span>
+        <span aria-hidden="true" class="size-[7px] animate-pulse rounded-full bg-(--primary)"></span>
         <span class="text-(length:--fs-14) font-semibold text-(--accent)">Loading results</span>
-        <span class="font-(family-name:--qa-mono) text-(length:--fs-13) font-semibold text-(--accent) tabular-nums">{{ fmt(r.done) }} of {{ fmt(r.total) }}</span>
+        @if (r.total === null) {
+          <span class="text-(length:--fs-13) font-semibold text-(--accent)">· counting…</span>
+        } @else {
+          <span class="font-(family-name:--qa-mono) text-(length:--fs-13) font-semibold text-(--accent) tabular-nums">{{ fmt(r.processed) }} of {{ fmt(r.total) }}</span>
+        }
+        <span class="sr-only">into {{ r.name }}</span>
       </div>
-    } @else {
-      <button hlmBtn qaBtn tone="primary" type="button" disabled title="Coming soon: loads are not built yet" class="gap-2 max-sm:flex-1">
+    } @else if (store.state() === 'ready') {
+      <button hlmBtn qaBtn tone="primary" type="button" [disabled]="!canLoad()" (click)="openLoad()" class="gap-2 max-sm:flex-1">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M8 11l4 4 4-4M8 5H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-4" /></svg>
         Load results into QA
-        <span class="text-(length:--fs-11) font-semibold opacity-80">Coming soon</span>
       </button>
     }
   </div>
@@ -61,8 +65,13 @@
           </button>
         </div>
       }
+      @if (official()?.apiId !== undefined) {
+        <button hlmBtn qaBtn tone="secondary" type="button" (click)="openPeople('official')" class="gap-[7px] max-sm:flex-1">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></svg>People
+        </button>
+      }
     </div>
-    <qa-cycle-timeline-steps [timeline]="ot" (openStep)="openStep('official', $event)" (viewProgress)="openProgress('official', $event)" />
+    <qa-cycle-timeline-steps [timeline]="ot" (openStep)="openStep('official', $event)" (viewProgress)="openProgress('official', $event)" (assignPeople)="openPeople('official')" />
   </section>
   } @else {
     <section class="flex flex-col items-start gap-1 rounded-[12px] border border-(--border) bg-(--surface) px-5 py-6">
@@ -102,6 +111,9 @@
               <qa-cycle-timeline-card
                 [qaReveal]="$index + 2"
                 [timeline]="t"
+                [collapsible]="true"
+                [expanded]="openBatches().has(t.id)"
+                (expandedChange)="setBatchOpen(t.id, $event)"
                 [canAddStep]="false"
                 [confirmClose]="closeConfirmId() === t.id"
                 (addStep)="openStep(t.id, null)"
@@ -126,7 +138,7 @@
         @if (tab() === 'closed') {
           <div class="flex flex-col gap-5">
             @for (t of closedVMs(); track t.id) {
-              <qa-cycle-timeline-card [qaReveal]="$index" [timeline]="t" (openStep)="openStep(t.id, $event)" (viewProgress)="openProgress(t.id, $event)" />
+              <qa-cycle-timeline-card [qaReveal]="$index" [timeline]="t" [collapsible]="true" [expanded]="openBatches().has(t.id)" (expandedChange)="setBatchOpen(t.id, $event)" (openStep)="openStep(t.id, $event)" (viewProgress)="openProgress(t.id, $event)" />
             } @empty {
               <section class="flex flex-col items-start gap-1 rounded-[12px] border border-(--border) bg-(--surface) px-5 py-6">
                 <h3 class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">No closed complementary batches yet</h3>
@@ -163,6 +175,18 @@
   [saving]="saving()"
   [feedback]="stepFeedback()"
   (saveStep)="saveStep($event)"
+  [loadable]="stepLoadable()"
   (loadIntoStep)="loadIntoStep()"
 />
 <qa-cycle-progress-drawer [(open)]="progressOpen" [progress]="progress()" />
+<qa-cycle-people-drawer [(open)]="peopleOpen" [timeline]="peopleTimeline()" [canWrite]="store.canWrite()" (changed)="refreshAfterPeople()" />
+<qa-cycle-load-drawer
+  [(open)]="loadOpen"
+  [request]="loadRequest()"
+  [targets]="loadTargetList()"
+  [names]="loadNames"
+  [busy]="loads.starting()"
+  [error]="loadError()"
+  (start)="startLoad($event)"
+/>
+<qa-cycle-load-summary-drawer [open]="!!loads.finished()" (openChange)="closeSummary($event)" [load]="loads.finished()" [names]="loadNames" />

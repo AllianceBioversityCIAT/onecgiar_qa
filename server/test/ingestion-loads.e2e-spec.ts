@@ -1,11 +1,16 @@
 // @akili-spec ingestion/step-1-loads
+// @akili-spec ingestion/timeline-sync
 import request from 'supertest';
+import type { RomeMinute } from '../src/admin-config/rome-date.js';
+import { buildOpenApiDocument } from '../src/common/openapi.js';
 import { FeedError } from '../src/ingestion/results-feed.port.js';
 import { GRANTABLE_ROLES } from '../src/users/permissions.js';
 import {
   ADMIN_NICKNAME,
   bearer,
   buildIngestionApp,
+  closeAllStepsOfTimeline13,
+  NOW,
   scriptFeed,
   type IngestionApp,
 } from './support/ingestion-app.js';
@@ -18,7 +23,11 @@ import { LogSpy } from './support/log-spy.js';
 // filter, the idempotency interceptor, the service, the unit of work and the
 // runner are real; the stores, the clock and the Reporting feed are the
 // in-memory world of `support/ingestion-app.ts` (today in Rome is 2026-11-10
-// 09:00). Expected values are the spec's, written out.
+// 09:00). Expected values are the spec's, written out. Timeline-sync T-7 adds
+// the sync window judged on the LAST step (FR-1), the round and the step
+// position (FR-10), the new preview and summary counts (FR-9), and a round-2
+// sync that re-admits a result returned through the store (no HTTP route
+// returns a result, FR-6).
 
 const NON_ADMINS = [
   'ASSESSOR',
@@ -35,6 +44,45 @@ function expectError(res: request.Response, status: number, code: string) {
     success: false,
     error: { status, code },
     meta: { requestId: res.headers['x-request-id'] },
+  });
+}
+
+/** One minute of Rome time as the steps store it. */
+const minute = (value: string) => value as RomeMinute;
+
+/**
+ * Re-shapes timeline `timelineId` into five steps around the fixed clock
+ * (2026-11-10 09:00 Rome), rounds 1, 1, 2, 2, 2: steps 1-3 closed, step 4 open
+ * since 08:00 today, step 5 the last one (closing on `lastCloses`).
+ */
+function useFiveSteps(
+  w: IngestionApp,
+  timelineId: number,
+  lastCloses = '2026-11-27T17:30',
+): void {
+  const mine = w.world.steps
+    .filter((step) => step.timelineId === timelineId)
+    .sort((a, b) => a.position - b.position);
+  const shape: Array<[string, string, number]> = [
+    ['2026-10-26T09:00', '2026-11-02T17:30', 1],
+    ['2026-11-03T09:00', '2026-11-06T17:30', 1],
+    ['2026-11-07T09:00', '2026-11-09T17:30', 2],
+    ['2026-11-10T08:00', '2026-11-13T17:30', 2],
+    ['2026-11-16T09:00', lastCloses, 2],
+  ];
+  shape.forEach(([opensAt, closesAt, round], index) => {
+    let step = mine[index];
+    if (!step) {
+      step = {
+        ...mine[2]!,
+        id: timelineId * 10 + index + 1,
+        position: index + 1,
+      };
+      w.world.steps.push(step);
+    }
+    step.opensAt = minute(opensAt);
+    step.closesAt = minute(closesAt);
+    step.round = round;
   });
 }
 
@@ -171,14 +219,19 @@ describe('Step-1 loads routes (e2e)', () => {
       expect(res.body.data).toEqual({
         phaseYear: 2026,
         window: 'open',
+        round: 1,
+        stepPosition: 1,
         toLoad: {
           total: 5,
+          new: 5,
+          resubmitted: 0,
           byProgram: [{ programId: 2, code: 'SP02', count: 5 }],
           byResultType: [
             { key: 'knowledge_product', count: 2 },
             { key: 'policy_change', count: 3 },
           ],
         },
+        returnedNotResubmitted: { total: 0, byProgram: [], byResultType: [] },
         kpGroups: { notInQa: 2, autoChecked: 0, review: 0 },
         skipped: [],
       });
@@ -220,6 +273,9 @@ describe('Step-1 loads routes (e2e)', () => {
         endedAt: null,
         endReason: null,
         activeKey: '1#1003',
+        entryRound: 1,
+        previousMembershipId: null,
+        changedFields: null,
       });
 
       const res = await w.send('get', '/timelines/11/loads/preview');
@@ -235,7 +291,8 @@ describe('Step-1 loads routes (e2e)', () => {
       ]);
     });
 
-    it('says the window is closed when step 1 has closed, and when the cycle is closed', async () => {
+    it('says the window is closed when the last step has closed, and when the cycle is closed', async () => {
+      closeAllStepsOfTimeline13(w);
       scriptFeed(w.feed, { total: 1 });
 
       const stepClosed = await w.send('get', '/timelines/13/loads/preview');
@@ -243,6 +300,19 @@ describe('Step-1 loads routes (e2e)', () => {
 
       expect(stepClosed.body.data.window).toBe('closed');
       expect(cycleClosed.body.data.window).toBe('closed');
+    });
+
+    it('says the window is open when only step 1 has closed: timeline 13 closed step 1 yesterday, step 2 opens on 23 Nov and the last step closes on 18 Dec', async () => {
+      scriptFeed(w.feed, { total: 1 });
+
+      const res = await w.send('get', '/timelines/13/loads/preview');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toMatchObject({
+        window: 'open',
+        round: 1,
+        stepPosition: 1,
+      });
     });
 
     it('404 TIMELINES_NOT_FOUND for a timeline that does not exist, with Reporting not called', async () => {
@@ -382,7 +452,8 @@ describe('Step-1 loads routes (e2e)', () => {
       expect(w.world.auditEvents).toHaveLength(1);
     });
 
-    it('409 LOADS_WINDOW_CLOSED one minute after step 1 closes, and no load row', async () => {
+    it('409 LOADS_WINDOW_CLOSED one minute after the last step closes, and no load row', async () => {
+      closeAllStepsOfTimeline13(w);
       scriptFeed(w.feed, { total: 3 });
       const before = nothingRan();
 
@@ -402,6 +473,7 @@ describe('Step-1 loads routes (e2e)', () => {
     });
 
     it('a replayed refusal answers the stored refusal and runs nothing', async () => {
+      closeAllStepsOfTimeline13(w);
       scriptFeed(w.feed, { total: 3 });
       const first = await w.send('post', '/timelines/13/loads', {
         key: 'refused-1',
@@ -497,6 +569,365 @@ describe('Step-1 loads routes (e2e)', () => {
     });
   });
 
+  describe('FR-1: the sync window is judged on the LAST step', () => {
+    it('Sync in step 4: the preview says open (round 2, position 4), the start is 202, and the load is recorded with that round and step', async () => {
+      useFiveSteps(w, 11);
+      scriptFeed(w.feed, { total: 3 });
+
+      const preview = await w.send('get', '/timelines/11/loads/preview');
+      const started = await w.send('post', '/timelines/11/loads');
+      const [done] = await w.settled(11);
+
+      expect(preview.body.data).toMatchObject({
+        window: 'open',
+        round: 2,
+        stepPosition: 4,
+      });
+      expect(started.status).toBe(202);
+      expect(started.body.data).toEqual({ id: 1, status: 'running' });
+      expect(done).toMatchObject({
+        id: 1,
+        status: 'completed',
+        round: 2,
+        stepPosition: 4,
+      });
+      // The memberships entered in the load's round.
+      expect(w.loadsWorld.results.map((r) => r.entryRound)).toEqual([2, 2, 2]);
+    });
+
+    it('Last closing minute: 202 at 23:59 Rome on the last closing day, 409 LOADS_WINDOW_CLOSED at 00:00 with nothing written, and the preview says closed', async () => {
+      useFiveSteps(w, 11, '2026-12-03T23:59');
+      scriptFeed(w.feed, { total: 3 });
+      // Rome is UTC+1 in December: 22:59Z is 23:59 on 3 Dec.
+      w.clock.advance(Date.parse('2026-12-03T22:59:00.000Z') - NOW.getTime());
+
+      const atLastMinute = await w.send('get', '/timelines/11/loads/preview');
+      const accepted = await w.send('post', '/timelines/11/loads');
+      await w.settled(11);
+      w.clock.advance(60 * 1000); // 00:00 on 4 Dec
+      const closedPreview = await w.send('get', '/timelines/11/loads/preview');
+      const before = nothingRan();
+      const refused = await w.send('post', '/timelines/11/loads');
+
+      expect(atLastMinute.body.data.window).toBe('open');
+      expect(accepted.status).toBe(202);
+      expect(closedPreview.body.data.window).toBe('closed');
+      expectError(refused, 409, 'LOADS_WINDOW_CLOSED');
+      expect({ ...nothingRan(), feed: before.feed }).toEqual(before);
+    });
+
+    it('Before step 1 opens: the sync is accepted as round 1, step position 1', async () => {
+      // Step 1 of timeline 12 opens tomorrow (11 Nov 09:00 Rome).
+      const stepOne = w.world.steps.find(
+        (s) => s.timelineId === 12 && s.position === 1,
+      )!;
+      stepOne.opensAt = minute('2026-11-11T09:00');
+      scriptFeed(w.feed, { total: 3 });
+
+      const preview = await w.send('get', '/timelines/12/loads/preview');
+      const started = await w.send('post', '/timelines/12/loads');
+      const [done] = await w.settled(12);
+
+      expect(preview.body.data).toMatchObject({
+        window: 'open',
+        round: 1,
+        stepPosition: 1,
+      });
+      expect(started.status).toBe(202);
+      expect(done).toMatchObject({ round: 1, stepPosition: 1 });
+    });
+
+    it('Closed cycle: 409 CYCLES_CLOSED even when the last step has also closed, and no row, audit or key is written', async () => {
+      const last = w.world.steps.find(
+        (s) => s.timelineId === 31 && s.position === 3,
+      )!;
+      last.closesAt = minute('2026-11-01T17:30');
+      scriptFeed(w.feed, { total: 3 });
+      const before = nothingRan();
+
+      const res = await w.send('post', '/timelines/31/loads', {
+        key: 'closed-1',
+      });
+
+      expectError(res, 409, 'CYCLES_CLOSED');
+      expect({ ...nothingRan(), feed: before.feed }).toEqual(before);
+    });
+  });
+
+  describe('FR-4, FR-7, FR-9, FR-10: a round-2 sync re-admits a result returned through the store', () => {
+    // Round 1 (step 1) loads 1001-1005: 1001 and 1002 are KPs (released as
+    // QAed, so their memberships end), 1003-1005 are policy changes of SP02.
+    // No HTTP route returns a result (FR-6): 1003 and 1004 are returned through
+    // `LoadsStore.endAsReturned` on 11 Nov 11:00 Rome. Then step 3, a round-2
+    // step, opens (clock on 8 Dec) and the feed lists 1003 re-submitted with a
+    // corrected title, 1004 with the date of its return, and 1005 still active.
+    const RETURNED_AT = new Date('2026-11-11T10:00:00.000Z');
+    const ROUND_2_CLOCK = Date.parse('2026-12-08T09:00:00.000Z');
+
+    const prepareRoundTwo = async () => {
+      scriptFeed(w.feed, { total: 5, kps: 2 });
+      expect((await w.send('post', '/timelines/11/loads')).status).toBe(202);
+      await w.settled(11);
+      const roundOne = new Map(
+        w.loadsWorld.results.map((r) => [r.resultCode, r]),
+      );
+      for (const code of [1003, 1004]) {
+        expect(
+          await w.loadsWorld.store.endAsReturned(
+            roundOne.get(code)!.id,
+            RETURNED_AT,
+          ),
+        ).toEqual({ ended: true });
+      }
+      w.world.steps.find((s) => s.id === 113)!.round = 2;
+      w.clock.advance(ROUND_2_CLOCK - NOW.getTime());
+      const listed = w.feed.list.bind(w.feed);
+      w.feed.list = async (query) => {
+        const page = await listed(query);
+        const submittedAt: Record<number, string> = {
+          1003: '2026-11-12T09:00:00.000Z',
+          1004: '2026-11-11T10:00:00.000Z',
+        };
+        return {
+          ...page,
+          items: page.items.map((item) => ({
+            ...item,
+            submittedAt: submittedAt[item.resultCode] ?? item.submittedAt,
+          })),
+        };
+      };
+      const detailed = w.feed.details.bind(w.feed);
+      w.feed.details = async (query) => {
+        const details = await detailed(query);
+        return {
+          ...details,
+          results: details.results.map((result) =>
+            result.resultId === 5003
+              ? {
+                  ...result,
+                  values: { title: 'Result title 5003, corrected' },
+                }
+              : result,
+          ),
+        };
+      };
+      return { roundOne, callsBefore: w.feed.calls.length };
+    };
+
+    it('the preview says round 2, one result re-submitted, two returned and not re-submitted, and what it would skip', async () => {
+      await prepareRoundTwo();
+
+      const res = await w.send('get', '/timelines/11/loads/preview');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data).toEqual({
+        phaseYear: 2026,
+        window: 'open',
+        round: 2,
+        stepPosition: 3,
+        toLoad: {
+          total: 1,
+          new: 0,
+          resubmitted: 1,
+          byProgram: [{ programId: 2, code: 'SP02', count: 1 }],
+          byResultType: [{ key: 'policy_change', count: 1 }],
+        },
+        // 1003 and 1004 were returned here; 1003 is taken as re-submitted, so
+        // the sync gives it a round-2 membership and only 1004 is counted.
+        returnedNotResubmitted: {
+          total: 1,
+          byProgram: [{ programId: 2, code: 'SP02', count: 1 }],
+          byResultType: [{ key: 'policy_change', count: 1 }],
+        },
+        kpGroups: { notInQa: 0, autoChecked: 0, review: 0 },
+        skipped: [
+          { reason: 'ALREADY_IN_THIS_TIMELINE', count: 3 },
+          { reason: 'RETURNED_NOT_RESUBMITTED', count: 1 },
+        ],
+      });
+    });
+
+    it('the preview and the sync that follows count the same returned and not re-submitted results (FR-9: the same counts)', async () => {
+      await prepareRoundTwo();
+
+      const preview = await w.send('get', '/timelines/11/loads/preview');
+      await w.send('post', '/timelines/11/loads');
+      await w.settled(11);
+      const detail = await w.send('get', '/timelines/11/loads/2');
+
+      const counted = preview.body.data.returnedNotResubmitted as {
+        total: number;
+        byProgram: Array<{ programId: number; code?: string; count: number }>;
+        byResultType: unknown[];
+      };
+      // The preview names a program's code where the feed still lists it; the stored summary does not.
+      expect({
+        ...counted,
+        byProgram: counted.byProgram.map(({ programId, count }) => ({
+          programId,
+          count,
+        })),
+      }).toEqual(detail.body.data.summary.returnedNotResubmitted);
+      expect(counted.total).toBe(1);
+    });
+
+    it('the sync takes the re-submitted result in round 2: intake and details of it only, a pending membership with its changed fields, no release of it, and the summary counts', async () => {
+      const { roundOne, callsBefore } = await prepareRoundTwo();
+      const snapshotsBefore = w.snapshots.size;
+
+      const started = await w.send('post', '/timelines/11/loads');
+      await w.settled(11);
+
+      expect(started.status).toBe(202);
+      expect(started.body.data).toEqual({ id: 2, status: 'running' });
+      // Reporting is asked for the re-submitted result only, and nothing is released.
+      const calls = w.feed.calls.slice(callsBefore);
+      expect(
+        calls.filter((c) => c.op === 'intake').map((c) => c.query),
+      ).toEqual([{ phaseYear: 2026, resultIds: [5003] }]);
+      expect(
+        calls.filter((c) => c.op === 'details').map((c) => c.query),
+      ).toEqual([{ phaseYear: 2026, resultIds: [5003] }]);
+      // The re-submitted result is `pending`, so the KP release never takes it (S-9 a).
+      const released = calls
+        .filter((c) => c.op === 'release')
+        .flatMap((c) =>
+          (c.query as { items: Array<{ resultId: number }> }).items.map(
+            (item) => item.resultId,
+          ),
+        );
+      expect(released).not.toContain(5003);
+      // The new membership: round 2, pending, linked to the returned one, the title changed.
+      const entered = w.loadsWorld.results.filter((r) => r.entryRound === 2);
+      expect(entered).toHaveLength(1);
+      expect(entered[0]).toMatchObject({
+        resultCode: 1003,
+        loadId: 2,
+        status: 'pending',
+        kpGroup: null,
+        previousMembershipId: roundOne.get(1003)!.id,
+        changedFields: ['title'],
+        endedAt: null,
+        endReason: null,
+      });
+      // The round-1 membership and its snapshot are untouched; the new snapshot is added.
+      expect(roundOne.get(1003)).toMatchObject({
+        entryRound: 1,
+        endReason: 'returned',
+        endedAt: RETURNED_AT,
+      });
+      expect(w.snapshots.size).toBe(snapshotsBefore + 1);
+
+      const list = await w.send('get', '/timelines/11/loads');
+      const detail = await w.send('get', '/timelines/11/loads/2');
+      expect(
+        (
+          list.body.data as Array<{
+            id: number;
+            round: number;
+            stepPosition: number;
+          }>
+        ).map((l) => [l.id, l.round, l.stepPosition]),
+      ).toEqual([
+        [2, 2, 3],
+        [1, 1, 1],
+      ]);
+      expect(detail.body.data).toMatchObject({
+        id: 2,
+        status: 'completed',
+        round: 2,
+        stepPosition: 3,
+        total: 5,
+        summary: {
+          loaded: 1,
+          loadedNew: 0,
+          loadedResubmitted: 1,
+          round: 2,
+          byProgram: [{ programId: 2, count: 1 }],
+          byResultType: [{ key: 'policy_change', count: 1 }],
+          kpGroups: { notInQa: 0, autoChecked: 0, review: 0 },
+          // 1003 has its round-2 membership now: only 1004 is still returned and not re-submitted.
+          returnedNotResubmitted: {
+            total: 1,
+            byProgram: [{ programId: 2, count: 1 }],
+            byResultType: [{ key: 'policy_change', count: 1 }],
+          },
+          skipped: [
+            { reason: 'ALREADY_IN_THIS_TIMELINE', count: 3 },
+            { reason: 'RETURNED_NOT_RESUBMITTED', count: 1 },
+          ],
+        },
+      });
+      // The changed fields are stored for the worklist, not exposed by any route.
+      expect(
+        JSON.stringify([list.body, detail.body]).toLowerCase(),
+      ).not.toContain('changedfields');
+    });
+  });
+
+  describe('OpenAPI: the answers and the document say the same fields (FR-9, FR-10)', () => {
+    type Schema = {
+      properties?: Record<string, unknown>;
+      required?: string[];
+    };
+    const schemas = () =>
+      (
+        buildOpenApiDocument(w.app) as unknown as {
+          components: { schemas: Record<string, Schema> };
+        }
+      ).components.schemas;
+
+    /** Every key of a real answer is documented, and every required documented key is in the answer. */
+    const expectDocumented = (
+      model: string,
+      answer: Record<string, unknown>,
+    ) => {
+      const schema = schemas()[model];
+      expect(schema, `${model} is not in the document`).toBeDefined();
+      const documented = Object.keys(schema!.properties ?? {});
+      expect(documented, model).toEqual(
+        expect.arrayContaining(Object.keys(answer)),
+      );
+      expect(Object.keys(answer), model).toEqual(
+        expect.arrayContaining(schema!.required ?? []),
+      );
+    };
+
+    it('documents round, stepPosition and the new counts exactly where the answers carry them', async () => {
+      scriptFeed(w.feed, { total: 3 });
+      const preview = await w.send('get', '/timelines/11/loads/preview');
+      await w.send('post', '/timelines/11/loads');
+      await w.settled(11);
+      const list = await w.send('get', '/timelines/11/loads');
+      const detail = await w.send('get', '/timelines/11/loads/1');
+
+      // The fields the spec adds, by name, so a model that drops one is red.
+      expect(Object.keys(list.body.data[0])).toEqual(
+        expect.arrayContaining(['round', 'stepPosition']),
+      );
+      expectDocumented('LoadPreviewModel', preview.body.data);
+      expectDocumented('ToLoadModel', preview.body.data.toLoad);
+      expectDocumented(
+        'ReturnedNotResubmittedModel',
+        preview.body.data.returnedNotResubmitted,
+      );
+      expectDocumented('LoadItemModel', list.body.data[0]);
+      expectDocumented('LoadDetailModel', detail.body.data);
+      expectDocumented('LoadSummaryModel', detail.body.data.summary);
+      expect(schemas()['LoadItemModel']!.required).toEqual(
+        expect.arrayContaining(['round', 'stepPosition']),
+      );
+      expect(schemas()['LoadSummaryModel']!.required).toEqual(
+        expect.arrayContaining([
+          'loadedNew',
+          'loadedResubmitted',
+          'round',
+          'returnedNotResubmitted',
+        ]),
+      );
+    });
+  });
+
   describe('FR-10: GET /timelines/:id/loads and /:loadId', () => {
     it('lists the loads newest first and reads one with its summary', async () => {
       scriptFeed(w.feed, { total: 5, kps: 2 });
@@ -529,12 +960,18 @@ describe('Step-1 loads routes (e2e)', () => {
         finishedAt: expect.any(String),
         startedBy: { id: w.admin.id, nickname: ADMIN_NICKNAME },
         failureReason: null,
+        round: 1,
+        stepPosition: 1,
       });
       expect(one.status).toBe(200);
       expect(one.body.data).toEqual({
         ...list.body.data[1],
         summary: {
           loaded: 5,
+          loadedNew: 5,
+          loadedResubmitted: 0,
+          round: 1,
+          returnedNotResubmitted: { total: 0, byProgram: [], byResultType: [] },
           byProgram: [{ programId: 2, count: 5 }],
           byResultType: [
             { key: 'knowledge_product', count: 2 },
@@ -563,6 +1000,8 @@ describe('Step-1 loads routes (e2e)', () => {
         cycleId: 1,
         timelineId: 11,
         timelineStepId: 111,
+        round: 1,
+        stepPosition: 1,
         phaseYear: 2026,
         scope: {
           allPrograms: false,
@@ -590,6 +1029,16 @@ describe('Step-1 loads routes (e2e)', () => {
         id: 9,
         status: 'failed',
         failureReason: 'ABANDONED',
+        // A load from before rounds (no summary, default columns) reads round 1, step 1 (FR-10).
+        round: 1,
+        stepPosition: 1,
+        summary: {
+          loaded: 0,
+          loadedNew: 0,
+          loadedResubmitted: 0,
+          round: 1,
+          returnedNotResubmitted: { total: 0, byProgram: [], byResultType: [] },
+        },
       });
     });
 

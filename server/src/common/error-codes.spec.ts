@@ -393,6 +393,7 @@ describe('cycle and timeline errors (cycle-timelines FR-11, DD-8)', () => {
         'DST_HOUR',
         'AUDIENCE_ORDER',
         'ROUND_SEQUENCE',
+        'ROUND_ABOVE_MAX',
         'FIRST_STEP_LOAD',
         'LOCKED',
         'NOT_ASSESSED',

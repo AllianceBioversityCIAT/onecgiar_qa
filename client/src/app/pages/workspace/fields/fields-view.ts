@@ -109,7 +109,7 @@ export class FieldsView {
       const assessed = countFields(fieldsOf(t).map((f) => this.configOf(t.key, f))).assessed;
       const pending = this.changesOf(t).length;
       const unpublished = pending ? ` · ${pending} unpublished` : '';
-      return { value: t.key, label: t.label, description: `${assessed} fields assessed${unpublished}` };
+      return { value: t.key, label: t.label, description: `${assessed} ${assessed === 1 ? 'field' : 'fields'} assessed${unpublished}` };
     }),
   );
 

@@ -1,5 +1,6 @@
 import { Component, computed, effect, input, linkedSignal, model, output, untracked } from '@angular/core';
-import { FormField, form, required, validate } from '@angular/forms/signals';
+import { FormField, form, validate } from '@angular/forms/signals';
+import { requiredText } from '../../../core/forms/text-validators';
 import { HlmInput } from '@spartan/input';
 import { QaButtonImports, QaDatePicker, QaDialogImports, QaDrawerImports, QaSegmented, QaSelect, QaSwitch, QaTooltipImports, discardGuard } from '../../../ui';
 import { AUDIENCES, CORRECTION_AUDIENCE, CycleStep, DEMO_ACCESS, PROGRAMS, ReopenMode, Timeline } from './cycle.mock';
@@ -190,12 +191,9 @@ interface StepDraft {
           }
         </div>
 
-        @if (live()) {
-          <div class="flex flex-col items-start gap-1 rounded-[8px] bg-(--surface-3) px-3 py-2">
-            <span class="text-(length:--fs-13) font-semibold text-(--text-2)">Reopened fields and extended access</span>
-            <span class="text-(length:--fs-13) text-(--text-4)">Coming soon.</span>
-          </div>
-        } @else {
+        <!-- Live data: reopened fields and extended access have no API yet, so nothing shows (a "Coming soon"
+             block read as broken, review 2026-11-10). TODO(api): reopened fields and extended access. -->
+        @if (!live()) {
         @if (d.batch && !first()) {
           <div class="flex flex-col items-start gap-[6px]">
             <span id="cycle-step-reopen" class="text-(length:--fs-13) font-semibold text-(--text-2)">Fields reopened in this step</span>
@@ -255,8 +253,12 @@ interface StepDraft {
           }
           @if (loadedNote()) {
             <span class="flex items-center gap-1.5 text-(length:--fs-13) font-normal text-(--text-4)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M20 6L9 17l-5-5" /></svg>{{ loadedNote() }}</span>
-          } @else if (canLoad() && !live()) {
-            <button hlmBtn qaBtn tone="secondary" type="button" (click)="loadIntoStep.emit()" class="gap-[7px]"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M12 3v12M8 11l4 4 4-4M8 5H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-4" /></svg>Load results into this step</button>
+          } @else if (live() ? loadable() : canLoad()) {
+            <!-- Loading closes this drawer: with unsaved edits it waits, so nothing typed is lost (N-1). -->
+            @if (dirty()) {
+              <span id="cycle-step-load-hint" class="basis-full text-right text-(length:--fs-13) text-(--text-3)">Save or cancel your changes to load results.</span>
+            }
+            <button hlmBtn qaBtn tone="secondary" type="button" (click)="loadIntoStep.emit()" [disabled]="dirty()" [attr.aria-describedby]="dirty() ? 'cycle-step-load-hint' : null" class="gap-[7px]"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M12 3v12M8 11l4 4 4-4M8 5H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-4" /></svg>Load results into this step</button>
           }
           <button hlmBtn qaBtn tone="secondary" type="button" (click)="discard.requestClose()">Cancel</button>
           @if (!locked()) {
@@ -282,6 +284,8 @@ export class StepDrawer {
   readonly saveStep = output<StepSaveEvent>();
   /** Live data (API): name and dates only; the parent closes the drawer once the server saved it. */
   readonly live = input(false);
+  /** On live data: this is the step in force of a timeline that can take a sync now (the view decides). */
+  readonly loadable = input(false);
   readonly saving = input(false);
   readonly feedback = input<TimelineSaveFeedback | null>(null);
   /** One step has no row of its own to mark: show the server's first field message, else its message. */
@@ -352,7 +356,8 @@ export class StepDrawer {
 
   protected readonly draft = linkedSignal<StepDraft>(() => this.initialDraft());
   /** Esc / overlay / X / Cancel ask before dropping edits (also blocks tab close while open). */
-  protected readonly discard = discardGuard(this.open, () => JSON.stringify(this.draft()) !== JSON.stringify(this.initialDraft()));
+  protected readonly dirty = computed(() => JSON.stringify(this.draft()) !== JSON.stringify(this.initialDraft()));
+  protected readonly discard = discardGuard(this.open, () => this.dirty());
 
   private initialDraft(): StepDraft {
     const r = this.request();
@@ -384,7 +389,7 @@ export class StepDrawer {
   }
 
   protected readonly stepForm = form(this.draft, (f) => {
-    required(f.name, { message: 'Enter a name for the step.' });
+    requiredText(f.name, { message: 'Enter a name for the step.' });
     validate(f.closes, ({ value }) =>
       this.live() && !toApiDay(value()) ? { kind: 'date', message: 'Enter a closing date, for example 11 Jul 2026.' } : undefined,
     );

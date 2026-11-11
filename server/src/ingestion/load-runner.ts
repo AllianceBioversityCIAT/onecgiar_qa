@@ -1,4 +1,5 @@
 // @akili-spec ingestion/step-1-loads
+// @akili-spec ingestion/timeline-sync
 import { createHash } from 'node:crypto';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import {
@@ -19,8 +20,19 @@ import type {
 import { UpstreamStatusError } from '../users/catalogs/catalog-http.js';
 import { UpstreamUnavailableError } from '../users/catalogs/catalogs.errors.js';
 import { listEveryPage } from './feed-paging.js';
-import { KP_RULES, type KpRules } from './kp-classifier.js';
-import { skipVerdict, type LoadSummary } from './load-rules.js';
+import {
+  KP_RULES,
+  type KpRules,
+  type ResultClassification,
+} from './kp-classifier.js';
+import {
+  canonicalJson,
+  changedFields,
+  skipVerdict,
+  type LoadSummary,
+  type ReturnedNotResubmitted,
+  type TakeVerdict,
+} from './load-rules.js';
 import type { LoadRunnerPort } from './loads.service.js';
 import {
   LOADS_STORE,
@@ -99,21 +111,18 @@ interface Run {
   releasable: Array<{ resultId: number; outcome: ReleaseOutcome }>;
 }
 
+/** The membership column keeps the whole sort key; the snapshot store is read by the part after it (`snapshotSortSuffix`). */
+const SNAPSHOT_SK_PREFIX = 'SNAP#';
+const snapshotKeyOf = (snapshotSk: string): string =>
+  snapshotSk.startsWith(SNAPSHOT_SK_PREFIX)
+    ? snapshotSk.slice(SNAPSHOT_SK_PREFIX.length)
+    : snapshotSk;
+
+/** A take of the verdict: what the lot does with a result that was not skipped. */
+type Take = TakeVerdict<CycleMembershipRow>;
+
 const sum = (counts: Record<string, number>): number =>
   Object.values(counts).reduce((total, count) => total + count, 0);
-
-/** JSON with every object's keys sorted, so equal values always hash alike (design 5.2). */
-function canonicalJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
-  if (value !== null && typeof value === 'object') {
-    const record = value as Record<string, unknown>;
-    const members = Object.keys(record)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`);
-    return `{${members.join(',')}}`;
-  }
-  return JSON.stringify(value) ?? 'null';
-}
 
 const hashValues = (values: Record<string, unknown>): string =>
   createHash('sha256').update(canonicalJson(values)).digest('hex');
@@ -123,10 +132,14 @@ const hashValues = (values: Record<string, unknown>): string =>
  * own end: every failure becomes the load's `failed` state and its `load_end`
  * row, and nothing escapes as an unhandled rejection.
  *
- * Per lot of 50, in feed order: the skips (memberships read, the expired ones
- * of other timelines ended), intake of the rest, details of the taken ones, the
- * catalog check, the KP rule, the snapshots (at most 10 at once), then the
- * memberships and the progress in one transaction (`recordLot`). The snapshot
+ * Per lot of 50, in feed order: the verdict of each result (memberships read,
+ * the expired ones of other timelines ended; skip, new or re-submitted, by the
+ * load's round), intake of the takes, details of the taken ones, the catalog
+ * check, the KP rule (not for a re-submitted result of the same type), the
+ * changed fields (a snapshot read only when the hash and the type say so), the
+ * snapshots (at most 10 at once), then the memberships and the progress in one
+ * transaction (`recordLot`). At the end of the run, completed or failed, the
+ * returned results not resubmitted are counted once into the summary. The snapshot
  * is written BEFORE its membership (DD-4), so a failed lot leaves orphan
  * snapshots and never a membership without one; the retry of the lot writes the
  * same keys with the same hash, which the store accepts.
@@ -249,15 +262,21 @@ export class LoadRunner implements LoadRunnerPort {
 
     // Design 7.3 step 3: with the KP release off, `release` is never called.
     if (this.releaseKp) await this.release(run);
+    // Design 7.3 step 7: one query, from QA's own rows (DD-7).
+    const returnedNotResubmitted = await this.store(load.id, () =>
+      this.loads.countReturnedNotResubmitted(load.timelineId),
+    );
     const ended = await this.store(load.id, () =>
       this.unitOfWork.end({
         loadId: load.id,
         status: 'completed',
         now: this.clock(),
+        returnedNotResubmitted,
       }),
     );
     if (ended.kind !== 'ended') return this.lose(run);
     this.log('log', load.id, 'completed', {
+      round: load.round,
       lots: Math.ceil(items.length / LOT_SIZE),
     });
   }
@@ -299,16 +318,20 @@ export class LoadRunner implements LoadRunnerPort {
       skipped[reason] = (skipped[reason] ?? 0) + 1;
     };
     const candidates: FeedListItem[] = [];
+    const takes = new Map<number, Take>();
     for (const item of lot) {
       const rows = held.get(item.resultCode) ?? [];
       const verdict = skipVerdict({
+        round: load.round,
         timelineId: load.timelineId,
         now: nowInRome(now),
+        submittedAt: item.submittedAt,
         memberships: rows,
         duplicated: (listed.get(item.resultCode) ?? 0) > 1,
       });
-      if (!verdict) {
+      if (!('reason' in verdict)) {
         candidates.push(item);
+        takes.set(item.resultId, verdict);
         continue;
       }
       count(verdict.reason);
@@ -355,8 +378,11 @@ export class LoadRunner implements LoadRunnerPort {
 
     // 2.3 Details of the taken ones only (never of a skipped or refused one).
     // Every key is asked for: S-10 excludes none yet (DD-10, Q3 open).
-    const detailed: Array<{ item: FeedListItem; result: FeedDetailsResult }> =
-      [];
+    const detailed: Array<{
+      item: FeedListItem;
+      result: FeedDetailsResult;
+      take: Take;
+    }> = [];
     let catalogVersion = run.catalogVersion;
     if (taken.length > 0) {
       const details = await this.reporting(load.id, () =>
@@ -371,18 +397,16 @@ export class LoadRunner implements LoadRunnerPort {
       const byId = new Map(details.results.map((r) => [r.resultId, r]));
       for (const item of taken) {
         const result = byId.get(item.resultId);
-        if (result) detailed.push({ item, result });
+        const take = takes.get(item.resultId);
+        if (result && take) detailed.push({ item, result, take });
       }
     }
 
     // 2.4 Classify, 2.5 snapshots (the keys and the hash are fixed by the
     // load, so a retry writes the same items).
     const loadedAt = load.startedAt.toISOString();
-    const planned = detailed.map(({ item, result }) => {
-      const classification = this.kpRules.classify({
-        resultTypeKey: result.resultTypeKey,
-        values: result.values,
-      });
+    const planned = detailed.map(({ item, result, take }) => {
+      const classification = this.classify(take, result);
       const hash = hashValues(result.values);
       const snapshotSk = `SNAP#${snapshotSortSuffix({
         phaseYear: load.phaseYear,
@@ -415,9 +439,17 @@ export class LoadRunner implements LoadRunnerPort {
         snapshotSk,
         snapshotHash: hash,
         catalogVersion,
+        kind: take.kind,
+        previousMembershipId: take.previous?.id ?? null,
+        // Filled below, once the comparison is done (null without a previous).
+        changedFields: null,
       };
-      return { snapshot, membership };
+      return { snapshot, membership, previous: take.previous };
     });
+
+    // 2.4b Changed fields (FR-8), before any snapshot is written: a missing
+    // earlier item fails the lot here, with nothing of it recorded.
+    await this.compareWithPrevious(load.id, planned);
 
     // 2.5 and 2.6 are one retriable unit: if the memberships fail after the
     // snapshots were written, the retry writes the same keys and the same hash,
@@ -450,11 +482,92 @@ export class LoadRunner implements LoadRunnerPort {
       }
     }
     this.log('log', load.id, 'lot', {
+      round: load.round,
       lot: lotNumber,
       size: lot.length,
       loaded: recorded.insertedCodes.length,
       skipped: sum(skipped) + recorded.raceSkips.length,
     });
+  }
+
+  /**
+   * Design 7.3 step 4. A new result is classified as in step 1. A re-submitted
+   * one of the same type keeps its round-1 KP group and is `pending`, never
+   * re-classified, so the KP release can never take it (S-9 a, DD-4). One whose
+   * type changed is classified by its new type: an output is `pending` with no
+   * group (S-9 b) and a KP is classified as a new one (S-9 c).
+   */
+  private classify(
+    take: Take,
+    result: FeedDetailsResult,
+  ): ResultClassification {
+    if (
+      take.kind === 'resubmitted' &&
+      take.previous !== null &&
+      take.previous.resultTypeKey === result.resultTypeKey
+    ) {
+      return {
+        status: 'pending',
+        kpGroup: take.previous.kpGroup,
+        awaitsStep: null,
+      };
+    }
+    return this.kpRules.classify({
+      resultTypeKey: result.resultTypeKey,
+      values: result.values,
+    });
+  }
+
+  /**
+   * Design 7.3 step 5, FR-8: the keys that changed since the earlier membership
+   * of the code. The same hash is `[]` and a changed type is `['result_type_key']`,
+   * neither reading DynamoDB; any other is one GetItem of the earlier snapshot
+   * (at most 10 at once). A missing earlier item is `INTERNAL`: never a silent null.
+   */
+  private async compareWithPrevious(
+    loadId: number,
+    planned: Array<{
+      snapshot: ResultSnapshotRecord;
+      membership: LotMembership;
+      previous: CycleMembershipRow | null;
+    }>,
+  ): Promise<void> {
+    const compared = planned.filter((entry) => entry.previous !== null);
+    for (let at = 0; at < compared.length; at += SNAPSHOT_PARALLELISM) {
+      await Promise.all(
+        compared.slice(at, at + SNAPSHOT_PARALLELISM).map(async (entry) => {
+          const previous = entry.previous!;
+          const { snapshot, membership } = entry;
+          if (previous.snapshotHash === snapshot.hash) {
+            membership.changedFields = [];
+          } else if (previous.resultTypeKey !== snapshot.resultTypeKey) {
+            membership.changedFields = ['result_type_key'];
+          } else {
+            const earlier = await this.store(loadId, () =>
+              this.snapshots.get(
+                snapshot.resultCode,
+                snapshotKeyOf(previous.snapshotSk),
+              ),
+            );
+            const values: unknown = earlier?.values;
+            if (
+              typeof values !== 'object' ||
+              values === null ||
+              Array.isArray(values)
+            ) {
+              throw new RunFailure(
+                'INTERNAL',
+                new Error('The earlier snapshot is missing'),
+              );
+            }
+            membership.changedFields = changedFields(
+              values as Record<string, unknown>,
+              snapshot.values,
+            );
+          }
+        }),
+      );
+    }
   }
 
   /**
@@ -538,6 +651,7 @@ export class LoadRunner implements LoadRunnerPort {
       });
     }
     this.log('error', loadId, 'failed', {
+      ...(run ? { round: run.load.round } : {}),
       reason,
       ...(reason === 'INTERNAL' && cause instanceof Error
         ? { error: cause.name }
@@ -546,12 +660,24 @@ export class LoadRunner implements LoadRunnerPort {
     // A run that learned its load is not running must not end it again.
     if (run?.lost) return;
     try {
+      // Design 7.3 step 7: counted at a failed end too, when the store answers.
+      let returnedNotResubmitted: ReturnedNotResubmitted | undefined;
+      if (run) {
+        try {
+          returnedNotResubmitted = await this.store(loadId, () =>
+            this.loads.countReturnedNotResubmitted(run.load.timelineId),
+          );
+        } catch {
+          // The failure that ends the load is the one the load keeps.
+        }
+      }
       const ended = await this.store(loadId, () =>
         this.unitOfWork.end({
           loadId,
           status: 'failed',
           failureReason: reason,
           now: this.clock(),
+          ...(returnedNotResubmitted ? { returnedNotResubmitted } : {}),
         }),
       );
       if (ended.kind !== 'ended') this.log('warn', loadId, 'load_not_running');

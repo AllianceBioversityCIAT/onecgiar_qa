@@ -1,4 +1,5 @@
 // Pure helpers for the Overview view (date math, number formatting). Ported from the mockup JS.
+import { calendarDate } from '../../../core/domain/rome-date';
 import { MOCK_TODAY, Timeline, TimelinePhase } from './overview.mock';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -12,7 +13,7 @@ export function parseDate(str: string): Date | null {
   const m = /^\s*(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\s*$/.exec(str || '');
   if (!m) return null;
   const mi = MONTHS.findIndex((x) => x.toLowerCase() === m[2].toLowerCase());
-  return mi < 0 ? null : new Date(+m[3], mi, +m[1]);
+  return mi < 0 ? null : calendarDate(+m[3], mi, +m[1]);
 }
 
 /** "06 May 2026" → "06 May". */

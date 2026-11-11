@@ -1,33 +1,26 @@
 // Pure helpers and view models of the Cycle view (ported from the mockup's cyPhaseState,
-// cardVM, runEstimate, officialRelative and runTargets).
+// cardVM and officialRelative).
 import { StepAudience } from '../../../core/api/cycles.models';
-import { DEFAULT_CLOSES_TIME, DEFAULT_OPENS_TIME, nowInRome, todayInRome, zoneAt } from '../../../core/domain/rome-date';
+import { DEFAULT_CLOSES_TIME, DEFAULT_OPENS_TIME, calendarDate, nowInRome, todayInRome, zoneAt } from '../../../core/domain/rome-date';
 import {
   CORRECTION_AUDIENCE,
   CycleStep,
-  PROGRAMS,
-  RESULT_TYPES,
   RESULT_TYPE_RULES,
-  RT_AUTO_N,
   RT_ORDER,
-  RT_PLURAL,
   RT_SHORT,
-  RUN_TARGETS,
-  RunTarget,
   TODAY,
-  TOTAL_RESULTS,
   Timeline,
 } from './cycle.mock';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const DAY = 864e5;
 
-/** Parses "06 Jul 2026". Returns null when the text is not a valid date. */
+/** Parses "06 Jul 2026". Returns null when the text is not a real date ("31 Feb 2026" too). */
 export function parseDate(text: string | null | undefined): Date | null {
   const m = /^\s*(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\s*$/.exec(text ?? '');
   if (!m) return null;
   const mi = MONTHS.findIndex((x) => x.toLowerCase() === m[2].toLowerCase());
-  return mi < 0 ? null : new Date(+m[3], mi, +m[1]);
+  return mi < 0 ? null : calendarDate(+m[3], mi, +m[1]);
 }
 
 export function formatDate(d: Date): string {
@@ -111,79 +104,6 @@ export function stepOrderErrors(steps: readonly { start: string; end: string }[]
   });
 }
 
-export interface RunEstimate {
-  matched: number;
-  already: number;
-  pulled: number;
-}
-
-export function runEstimate(types: readonly string[], programs: readonly string[]): RunEstimate {
-  const typeCounts = Object.fromEntries(RESULT_TYPES);
-  const tf = types.length ? types.reduce((a, t) => a + (typeCounts[t] ?? 0), 0) / TOTAL_RESULTS : 1;
-  const pf = programs.length ? programs.length / Object.keys(PROGRAMS).length : 1;
-  const matched = Math.round(1200 * tf * pf);
-  const already = Math.round((matched * 86) / 1200);
-  return { matched, already, pulled: matched - already };
-}
-
-export interface LoadSummary extends RunEstimate {
-  notFirst: boolean;
-  joins: { n: string; what: string; step: string }[];
-  autos: { n: string; what: string }[];
-}
-
-/** Text of the live estimate in the "Load results" drawers. */
-export function loadSummary(
-  types: readonly string[],
-  programs: readonly string[],
-  target: string | null,
-  targets: readonly RunTarget[],
-  official: Timeline,
-): LoadSummary {
-  const est = runEstimate(types, programs);
-  const tgt = targets.find((t) => t.id === target);
-  const tStep = target ? (+target.split(':')[1] || 0) + 1 : 1;
-  const typeCounts: Record<string, number> = Object.fromEntries(RESULT_TYPES);
-  const sel = RT_ORDER.filter((t) => !types.length || types.includes(t));
-  const joins = sel
-    .filter((t) => RESULT_TYPE_RULES[t] && RESULT_TYPE_RULES[t].phase !== tStep)
-    .map((t) => ({
-      n: formatNumber(typeCounts[t] ?? 0),
-      what: RT_PLURAL[t] ?? t,
-      step: official.steps[RESULT_TYPE_RULES[t].phase - 1]?.name ?? '',
-    }));
-  const autos = sel
-    .filter((t) => RESULT_TYPE_RULES[t]?.auto)
-    .map((t) => ({ n: formatNumber(RT_AUTO_N[t] ?? Math.round((typeCounts[t] ?? 0) / 4)), what: RT_PLURAL[t] ?? t }));
-  return { ...est, notFirst: !!tgt && !tgt.first, joins, autos };
-}
-
-/** Target step options; adds the requested step on top when it is not a default target. */
-export function runTargets(key: string | null, timelines: readonly Timeline[]): RunTarget[] {
-  const list = RUN_TARGETS.slice();
-  if (key && !list.some((t) => t.id === key)) {
-    const [bid, si] = key.split(':');
-    const i = +si;
-    const b = timelines.find((x) => x.id === bid);
-    const p = b?.steps[i];
-    if (b && p) {
-      const st = stepState(p, b);
-      list.unshift({
-        id: key,
-        label: `${b.name} · ${p.name}`,
-        desc:
-          st.kind === 'active'
-            ? `Open · closes ${shortDate(p.end || p.start)}`
-            : st.kind === 'future'
-              ? `Opens ${shortDate(p.start)}`
-              : `Closed on ${shortDate(p.end || p.start)}`,
-        first: i === 0,
-      });
-    }
-  }
-  return list;
-}
-
 export interface StepDraftRow {
   name: string;
   start: string;
@@ -199,6 +119,45 @@ export interface StepDraftRow {
 /** A saved step as an editable row (missing times = the server defaults). */
 export function stepRow(p: CycleStep): StepDraftRow {
   return { name: p.name, start: p.start, end: p.end, startTime: opensTimeOf(p), endTime: closesTimeOf(p), batch: p.batch, audience: p.audienceKey };
+}
+
+/**
+ * Timelines that can take a sync now (contract timeline-sync § 2, FR-1): saved on the server, at any step,
+ * until the closing minute of the LAST step (Rome; that minute is still open). The cycle being closed and
+ * a load already running are checked by the view (`canLoad`). The server has the last word (`window` of
+ * the preview, 409 `LOADS_WINDOW_CLOSED`).
+ */
+export function loadTargets(timelines: readonly Timeline[], now: string): Timeline[] {
+  return timelines.filter((t) => {
+    const last = t.steps[t.steps.length - 1];
+    if (t.apiId == null || !last || last.state === 'closed') return false;
+    const day = isoDay(last.end || last.start);
+    return !day || `${day}T${closesTimeOf(last)}` >= now;
+  });
+}
+
+/**
+ * Index of the step a sync started now goes into (contract timeline-sync § 2): the last step whose opening
+ * minute has passed, or step 1 before any opens; the gap after a step closes still belongs to it. The
+ * front's guess for labels only: the preview's `round` / `stepPosition` are the server's answer.
+ */
+export function stepInForce(t: Pick<Timeline, 'steps'>, now: string): number {
+  let at = 0;
+  t.steps.forEach((p, i) => {
+    const opens = opensMoment(p);
+    if (opens != null && opens <= now) at = i;
+  });
+  return at;
+}
+
+/** The step drawer offers the sync only on an existing step (`index` null = "Add step") that is the one in force. */
+export function isStepInForce(t: Pick<Timeline, 'steps'>, index: number | null, now: string): boolean {
+  return index != null && index === stepInForce(t, now);
+}
+
+/** QA round of a step: the stored one (API), else counted from the "Loads results" switches (mock). */
+export function stepRound(t: Pick<Timeline, 'steps'>, index: number): number {
+  return t.steps[index]?.round ?? t.steps.slice(1, index + 1).filter((p) => p.batch).length + 1;
 }
 
 /** Opening minute of a step as `YYYY-MM-DDTHH:mm` in Rome (null when its day is unreadable), comparable with `nowInRome()`. */
@@ -253,7 +212,7 @@ export function timelineStart(t: Timeline): number {
 // ---------------------------------------------------------------------------------------------
 // View models for the presentational components.
 
-export type MenuAction = 'add-results' | 'edit' | 'export' | 'clear-test' | 'close';
+export type MenuAction = 'add-results' | 'edit' | 'people' | 'export' | 'clear-test' | 'close';
 
 export interface StepCardVM {
   n: number;
@@ -283,6 +242,8 @@ export interface StepCardVM {
    * "Waiting for results", never "Opens today at 00:00" (timeline-edit front contract § 3).
    */
   waiting: boolean;
+  /** "No assessors assigned" on the step in force when nobody holds its role in this timeline; '' otherwise. */
+  nobody: string;
 }
 
 export interface TimelineVM {
@@ -310,7 +271,19 @@ export interface TimelineVM {
   progressWidth: string | null;
   /** `soon`: shown greyed out with "Coming soon" (no API yet). */
   menu: { action: MenuAction; label: string; danger: boolean; soon: boolean }[];
+  /** The step in force has nobody assigned to its role (People). */
+  needsPeople: boolean;
+  /** On hold (waiting for results) and able to take a sync now: the card shows its own load button. */
+  waitingLoad: boolean;
 }
+
+/** Timeline role behind each step audience, and how a warning names it. Programs are not assigned to timelines. */
+const AUDIENCE_ROLE: Partial<Record<NonNullable<CycleStep['audienceKey']>, { role: 'ASSESSOR' | 'LEAD_ASSESSOR' | 'TPB' | 'PPU'; plural: string }>> = {
+  assessors: { role: 'ASSESSOR', plural: 'assessors' },
+  lead_assessors: { role: 'LEAD_ASSESSOR', plural: 'lead assessors' },
+  tpb: { role: 'TPB', plural: 'third-party brokers' },
+  ppu: { role: 'PPU', plural: 'PPU people' },
+};
 
 const STATUS_CLASS: Record<string, string> = {
   Live: 'bg-(--st-indigo-bg) text-(--st-indigo-fg)',
@@ -319,8 +292,11 @@ const STATUS_CLASS: Record<string, string> = {
   Closed: 'bg-(--surface-3) text-(--text-muted)',
 };
 
-/** Live data has no load, export, test or close endpoint yet: those actions show as "Coming soon". */
-export function timelineVM(t: Timeline): TimelineVM {
+/**
+ * Live data has no export, test or close endpoint yet: those actions show as "Coming soon".
+ * `loadable`: the timeline can take a sync now (`loadTargets`) and no load runs; the menu names the round in force.
+ */
+export function timelineVM(t: Timeline, loadable = false): TimelineVM {
   const soon = t.apiId != null;
   const n = t.steps.length;
   const closed = t.status === 'Closed';
@@ -355,8 +331,13 @@ export function timelineVM(t: Timeline): TimelineVM {
       dayWord: st.kind === 'future' && st.days === 1 ? 'day' : 'days',
       hasProgress: st.kind === 'active' && st.of > 0,
       waiting: held && (i === 0 || (opens != null && opens <= now)),
+      nobody: '',
     };
   });
+  // Who should be working now: the step in progress, else (on hold) the first step whose day came.
+  const inForce = closed ? -1 : steps.findIndex((s) => s.state === 'active') >= 0 ? steps.findIndex((s) => s.state === 'active') : steps.findIndex((s) => s.waiting);
+  const need = inForce >= 0 ? AUDIENCE_ROLE[t.steps[inForce].audienceKey ?? 'programs'] : undefined;
+  if (need && t.assigned && t.assigned[need.role] === 0) steps[inForce].nobody = `No ${need.plural} assigned`;
   const rail = states.map((s) => (closed ? 'done' : s.kind));
   const ai = rail.indexOf('active');
   const pct = ai >= 0 && states[ai].kind === 'active' ? (states[ai] as { pct: number }).pct : 0;
@@ -376,8 +357,17 @@ export function timelineVM(t: Timeline): TimelineVM {
   });
 
   const menu: TimelineVM['menu'] = [];
-  if (t.status === 'Live' || (soon && !closed)) menu.push({ action: 'add-results', label: 'Add results to this timeline', danger: false, soon });
-  menu.push({ action: 'edit', label: 'Edit timeline', danger: false, soon: false }, { action: 'export', label: 'Export comments', danger: false, soon });
+  if (loadable) {
+    const round = stepRound(t, stepInForce(t, nowInRome()));
+    menu.push({ action: 'add-results', label: `Load results into QA round ${round}`, danger: false, soon: false });
+  }
+  else if (!soon && t.status === 'Live') menu.push({ action: 'add-results', label: 'Add results to this timeline', danger: false, soon: false });
+  menu.push(
+    { action: 'edit', label: 'Edit timeline', danger: false, soon: false },
+    // People live on the server only: a mock timeline shows it greyed out.
+    { action: 'people', label: 'People', danger: false, soon: !soon },
+    { action: 'export', label: 'Export comments', danger: false, soon },
+  );
   if (t.test) menu.push({ action: 'clear-test', label: 'Clear test results', danger: true, soon });
   if (t.kind !== 'Official timeline' && t.kind !== 'Official' && !closed) menu.push({ action: 'close', label: 'Close timeline', danger: true, soon });
 
@@ -405,5 +395,40 @@ export function timelineVM(t: Timeline): TimelineVM {
     rounds,
     progressWidth,
     menu,
+    needsPeople: steps.some((p) => !!p.nobody),
+    waitingLoad: loadable && held,
   };
+}
+
+/** What a collapsed complementary batch says about itself: the step that matters now and its state. */
+export interface TimelineNow {
+  /** "Step 2 of 5 · QA open for Science Programs", or "All 5 steps completed". */
+  step: string;
+  /** Same words as the step card: "In progress", "Waiting for results", "Opens in 3 days", "Completed". */
+  state: string;
+  tone: 'active' | 'waiting' | 'future' | 'done';
+  /** "closes 20 Nov, 23:59 CET" while a step runs; '' otherwise. */
+  when: string;
+}
+
+/**
+ * One line for a collapsed timeline card, read from its view model so it never disagrees with the steps below:
+ * the step in progress, else the step on hold (waiting for results), else the next step to open, else "completed".
+ */
+export function timelineNow(vm: TimelineVM): TimelineNow {
+  const n = vm.steps.length;
+  const label = (s: StepCardVM) => `Step ${s.n} of ${n} · ${s.name}`;
+  const active = vm.steps.find((s) => s.state === 'active');
+  if (active) return { step: label(active), state: 'In progress', tone: 'active', when: active.to ? `closes ${active.to}` : '' };
+  const held = vm.steps.find((s) => s.waiting);
+  if (held) return { step: label(held), state: 'Waiting for results', tone: 'waiting', when: '' };
+  const next = vm.steps.find((s) => s.state === 'future');
+  if (next) {
+    const state = next.days === 0 ? `Opens today at ${next.opensTime}` : `Opens in ${next.days} ${next.dayWord}`;
+    return { step: label(next), state, tone: 'future', when: '' };
+  }
+  // Closed early ("Close timeline"): the steps that never opened say "Not opened" (`stepState`), so count what ran.
+  const ran = vm.steps.filter((s) => s.doneText !== 'Not opened').length;
+  if (n && ran < n) return { step: `${ran} of ${n} steps ran`, state: 'Closed early', tone: 'done', when: '' };
+  return { step: n ? `All ${n} steps completed` : 'No steps yet', state: 'Completed', tone: 'done', when: '' };
 }

@@ -1,14 +1,15 @@
-import { Component, computed, effect, input, linkedSignal, model, output, untracked } from '@angular/core';
+import { Component, computed, effect, inject, input, linkedSignal, model, output, untracked } from '@angular/core';
 import { DefaultStep } from '../../../core/api/cycles.models';
 import { ApiFieldError } from '../../../core/http/api-envelope';
-import { FormField, applyEach, form, required, validate } from '@angular/forms/signals';
+import { FormField, applyEach, form, validate } from '@angular/forms/signals';
+import { requiredText } from '../../../core/forms/text-validators';
 import { HlmInput } from '@spartan/input';
 import { QaButtonImports, QaDatePicker, QaDialogImports, QaDrawerImports, QaMultiSelect, QaSelectOption, QaSwitch, QaTooltipImports, discardGuard } from '../../../ui';
-import { DEFAULT_STEP_DATES, PROGRAMS, STEP_NAMES, Timeline } from './cycle.mock';
+import { DEFAULT_STEP_DATES, PROGRAMS, RESULT_TYPES, STEP_NAMES, Timeline } from './cycle.mock';
 import { StepDraftRow, formatNumber, officialRelative, stepOrderErrors, stepRow, stepState } from './cycle.logic';
-import { StepDateIssue, boundaryPart, nextAudience, stepDateIssues, toApiDay } from './cycle.mapper';
-import { DEFAULT_CLOSES_TIME, DEFAULT_OPENS_TIME, nowInRome, parseTime } from '../../../core/domain/rome-date';
-import { PROGRAM_OPTIONS, TYPE_OPTIONS } from './load-drawer';
+import { StepDateIssue, boundaryPart, nextAudience, roundsOf, stepDateIssues, toApiDay } from './cycle.mapper';
+import { RomeClock } from '../../../core/domain/rome-clock';
+import { DEFAULT_CLOSES_TIME, DEFAULT_OPENS_TIME, parseTime } from '../../../core/domain/rome-date';
 
 /** Edit an existing timeline (official or not) or create a new sub-timeline (timeline null). */
 export interface TimelineRequest {
@@ -37,6 +38,8 @@ export interface TimelineSaveFeedback {
 
 /** The API allows 1 to 5 steps (one per audience). */
 const MAX_STEPS = 5;
+/** QA rounds a timeline can have (server `ROUND_ABOVE_MAX`, contract timeline-sync § 6). */
+const MAX_ROUNDS = 2;
 
 interface TimelineDraft {
   name: string;
@@ -46,6 +49,10 @@ interface TimelineDraft {
   test: boolean;
   runNow: boolean;
 }
+
+/** Mock pickers (design preview without the API); the live view passes the catalogs. */
+const PROGRAM_OPTIONS = Object.entries(PROGRAMS).map(([value, name]) => ({ value, label: `${value} ${name}` }));
+const TYPE_OPTIONS = RESULT_TYPES.map(([t]) => ({ value: t, label: t }));
 
 /** "Edit official timeline", "Edit timeline" and "New sub-timeline" drawers (steps table, validation). */
 @Component({
@@ -140,6 +147,10 @@ interface TimelineDraft {
             </div>
             @for (rf of tlForm.steps; track $index; let i = $index, last = $last) {
               @let row = rf().value();
+              <!-- Round label where a round starts, named as on the Cycle card's round band (Juanpa, 2026-11-05). It follows the Loads results switches live. -->
+              @if (i === 0 || rounds()[i] !== rounds()[i - 1]) {
+                <div class="px-[14px] pt-3 pb-1 text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--text-muted) uppercase">QA round {{ rounds()[i] }}</div>
+              }
               <div [class]="last ? '' : 'border-b border-(--surface-4)'">
                 @if (confirmRow() === i) {
                   <div class="flex min-h-[52px] flex-wrap items-center gap-2 px-[14px] py-2 @3xl:py-0">
@@ -217,6 +228,7 @@ interface TimelineDraft {
           @if (stepsError()) {
             <span role="alert" class="text-(length:--fs-13) text-(--danger)">{{ stepsError() }}</span>
           }
+          <span class="text-(length:--fs-13) leading-[1.5] font-normal text-pretty text-(--text-4)">Step 1 starts QA round 1. Each later step that loads results starts the next round.</span>
           @if (closedCount()) {
             <span class="text-(length:--fs-13) leading-[1.5] font-normal text-pretty text-(--text-4)">Closed steps keep their dates as the record of the cycle.</span>
           }
@@ -272,6 +284,8 @@ interface TimelineDraft {
   `,
 })
 export class TimelineDrawer {
+  /** "Before now" checks follow the clock while the drawer stays open. */
+  private readonly clock = inject(RomeClock);
   readonly open = model(false);
   readonly request = input.required<TimelineRequest>();
   /** Source of "Reset to official timeline" and of the default step names; null before the cycle has one. */
@@ -361,6 +375,8 @@ export class TimelineDrawer {
   );
 
   protected readonly draft = linkedSignal<TimelineDraft>(() => this.initialDraft());
+  /** Round of each step, as the server counts it (step 1 starts round 1, every later "Loads results" step starts the next). */
+  protected readonly rounds = computed(() => roundsOf(this.draft().steps));
   /** Esc / overlay / X / Cancel ask before dropping edits (also blocks tab close while open). */
   protected readonly discard = discardGuard(this.open, () => JSON.stringify(this.draft()) !== JSON.stringify(this.initialDraft()));
 
@@ -404,12 +420,12 @@ export class TimelineDrawer {
   }
 
   protected readonly tlForm = form(this.draft, (f) => {
-    required(f.name, { message: 'Enter a name for the timeline.', when: () => !this.isOfficialEdit() });
+    requiredText(f.name, { message: 'Enter a name for the timeline.', when: () => !this.isOfficialEdit() });
     validate(f.programs, ({ value }) =>
       !this.isMain() && !value().length ? { kind: 'required', message: 'Select at least one program.' } : undefined,
     );
     applyEach(f.steps, (s) => {
-      required(s.name, { message: 'Enter a name for the step.' });
+      requiredText(s.name, { message: 'Enter a name for the step.' });
       // Live data: both dates of every step are required (the API has no open-ended step).
       validate(s.start, ({ value }) => (this.live() && !toApiDay(value()) ? { kind: 'date', message: 'Enter an opening date, for example 06 Jul 2026.' } : undefined));
       validate(s.end, ({ value }) => (this.live() && !toApiDay(value()) ? { kind: 'date', message: 'Enter a closing date, for example 11 Jul 2026.' } : undefined));
@@ -446,7 +462,7 @@ export class TimelineDrawer {
   private readonly dateIssues = computed((): readonly StepDateIssue[] => {
     const rows = this.draft().steps;
     if (!this.live()) return stepOrderErrors(rows).map((bad) => (bad ? { start: 'Starts before the previous step closes.' } : {}));
-    return stepDateIssues(rows, { now: this.isNew() ? nowInRome() : undefined });
+    return stepDateIssues(rows, { now: this.isNew() ? this.clock.minute() : undefined });
   });
 
   protected issue(i: number, key: 'start' | 'end'): string {
@@ -487,9 +503,17 @@ export class TimelineDrawer {
     return this.feedback()?.fields.find((f) => f.field.startsWith(`steps[${i}]`))?.message ?? '';
   }
 
-  /** Whole-list problems: step 1 must load results (live data), or the server's `steps` message. */
+  /**
+   * More "Loads results" steps than the server accepts on create (`ROUND_ABOVE_MAX`): shown as soon as the switch
+   * moves. Not on an existing live timeline: its switches are fixed and the edit sends no round, so an older
+   * timeline with more rounds can still be renamed or re-dated.
+   */
+  protected readonly tooManyRounds = computed(() => !this.fixedSteps() && this.rounds().some((r) => r > MAX_ROUNDS));
+
+  /** Whole-list problems: at most 2 QA rounds, step 1 must load results (live data), or the server's `steps` message. */
   protected readonly stepsError = computed(() => {
     const first = this.draft().steps[0];
+    if (this.tooManyRounds()) return `A timeline has at most ${MAX_ROUNDS} QA rounds. Turn off "Loads results" on a later step.`;
     if (this.live() && this.tried() && first && !first.batch) return 'Step 1 must load results.';
     return this.serverError('steps');
   });
@@ -533,6 +557,7 @@ export class TimelineDrawer {
     this.tried.set(true);
     if (this.tlForm().invalid() || this.draft().steps.some((_, i) => this.issue(i, 'start') || this.issue(i, 'end'))) return;
     if (this.live() && this.draft().steps[0] && !this.draft().steps[0].batch) return;
+    if (this.tooManyRounds()) return;
     if (this.activeChanged()) {
       this.confirmActive.set(true);
       return;

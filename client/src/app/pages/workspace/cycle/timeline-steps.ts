@@ -155,6 +155,13 @@ import { TimelineVM } from './cycle.logic';
                   }
                 }
               }
+              @if (s.nobody) {
+                <!-- Nobody holds this step's role in the timeline: say it where the admin looks, with the way out. -->
+                <span class="inline-flex items-center gap-1.5 rounded-full bg-(--st-editing-bg) px-2 py-[2px] text-(length:--fs-11) font-semibold text-(--st-editing-fg)">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" /></svg>{{ s.nobody }}
+                </span>
+                <button hlmBtn qaBtn tone="link" size="sm" flush="start" type="button" (click)="assignPeople.emit()" [attr.aria-label]="'Assign people to ' + timeline().name" class="relative z-10">Assign people</button>
+              }
             </div>
           </li>
         }
@@ -171,6 +178,8 @@ export class TimelineSteps {
   /** Index of the clicked step card. */
   readonly openStep = output<number>();
   readonly viewProgress = output<number>();
+  /** "Assign people" on a step nobody can work: the view opens the People drawer of this timeline. */
+  readonly assignPeople = output<void>();
 
   protected readonly cols = computed(() => {
     const n = Math.max(1, this.timeline().stepCount);

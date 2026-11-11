@@ -66,6 +66,18 @@ describe('discardGuard', () => {
     expect(host.open()).toBe(false);
   });
 
+  it('a drawer closed by a save while it was asking reopens clean, without the question', () => {
+    const host = TestBed.createComponent(Host).componentInstance;
+    host.text.set('draft');
+    expect(host.discard.guard()).toBe(false); // Esc while saving
+    expect(host.discard.confirming()).toBe(true);
+
+    host.open.set(false); // the save lands and closes the drawer
+    host.text.set('');
+    host.open.set(true); // opened again later
+    expect(host.discard.confirming()).toBe(false);
+  });
+
   it('an open drawer with text counts as unsaved for the page; closed, it does not', () => {
     const host = TestBed.createComponent(Host).componentInstance;
     const unsaved = TestBed.inject(UnsavedChanges);
