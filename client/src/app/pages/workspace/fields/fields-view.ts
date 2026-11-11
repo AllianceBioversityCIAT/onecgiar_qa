@@ -272,10 +272,6 @@ export class FieldsView {
     this.patch(e.id, { core: e.value });
   }
 
-  protected setAi(e: FieldRowEvent<boolean>): void {
-    this.patch(e.id, { ai: e.value });
-  }
-
   protected async openConfirm(): Promise<void> {
     if (this.openingReview()) return;
     this.openingReview.set(true);

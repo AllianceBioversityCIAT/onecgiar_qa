@@ -5,7 +5,7 @@ import { FieldRowVm, FieldState } from './fields-config';
 import { CONDITIONAL_HELP, FIELD_STATES, REQUIRED_HIDDEN_HELP } from './fields-copy';
 
 /**
- * One field of the Fields matrix: name, In QA segmented, Core / AI switches and documentation ⓘ.
+ * One field of the Fields matrix: name, In QA segmented, Core switch and documentation ⓘ.
  * Wide: one grid row matching the column header. Compact (matrix under 900px): two lines.
  */
 @Component({
@@ -24,7 +24,6 @@ export class FieldsRow {
 
   readonly stateChange = output<FieldState>();
   readonly coreChange = output<boolean>();
-  readonly aiChange = output<boolean>();
 
   protected readonly states = FIELD_STATES;
   protected readonly requiredHiddenHelp = REQUIRED_HIDDEN_HELP;

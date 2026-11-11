@@ -60,7 +60,7 @@
         type="button"
         [attr.aria-pressed]="coreOnly()"
         (click)="toggleCoreOnly()"
-        title="Core and AI are properties of assessed fields, not states of their own."
+        title="Core is a property of assessed fields, not a state of its own."
         class="inline-flex min-h-[30px] items-center gap-[7px] rounded-full px-3 text-(length:--fs-13) font-medium whitespace-nowrap outline-none focus-visible:shadow-(--focus-ring) max-sm:min-h-10"
         [class]="coreOnly() ? 'bg-(--tint-2) text-(--accent)' : 'bg-(--surface-3) text-(--text-3) hover:bg-(--surface-4)'"
       >
@@ -116,7 +116,6 @@
             (toggle)="toggleSection(section.id)"
             (stateChange)="setState($event)"
             (coreChange)="setCore($event)"
-            (aiChange)="setAi($event)"
             [readOnly]="readOnly()"
           />
         } @empty {
