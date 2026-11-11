@@ -122,6 +122,22 @@ describe('cycle.mapper', () => {
     });
   });
 
+  it('create: step 1 always loads results (the server requires it), even if its row came in off', () => {
+    const body = toCreateBody(
+      {
+        name: 'X',
+        programs: ['SP05'],
+        types: [],
+        steps: [
+          { name: 'Open', start: '06 Jul 2027', startTime: '00:00', end: '07 Jul 2027', endTime: '23:59', batch: false, audience: 'assessors' },
+          { name: 'Lead', start: '08 Jul 2027', startTime: '00:00', end: '09 Jul 2027', endTime: '23:59', batch: false, audience: 'lead_assessors' },
+        ],
+      },
+      cat,
+    );
+    expect(body.steps.map((s) => [s.round, s.requiresLoad])).toEqual([[1, true], [1, false]]);
+  });
+
   it('edit: version plus only what changed; a step by position with its changed keys', () => {
     const before = toViewTimeline(api(), cat);
     const steps = before.steps.map(stepRow);

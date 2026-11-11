@@ -55,6 +55,11 @@ const PROGRAM_OPTIONS = Object.entries(PROGRAMS).map(([value, name]) => ({ value
 const TYPE_OPTIONS = RESULT_TYPES.map(([t]) => ({ value: t, label: t }));
 
 /** "Edit official timeline", "Edit timeline" and "New sub-timeline" drawers (steps table, validation). */
+/** Step 1 always loads results (the server requires it and its switch is fixed on): the row that ends up first gets the mark. */
+function firstLoads(steps: StepDraftRow[]): StepDraftRow[] {
+  return steps.length && !steps[0].batch ? [{ ...steps[0], batch: true }, ...steps.slice(1)] : steps;
+}
+
 @Component({
   selector: 'qa-cycle-timeline-drawer',
   imports: [FormField, QaButtonImports, HlmInput, QaDatePicker, QaDialogImports, QaDrawerImports, QaSwitch, QaTooltipImports, QaMultiSelect],
@@ -194,8 +199,8 @@ const TYPE_OPTIONS = RESULT_TYPES.map(([t]) => ({ value: t, label: t }));
                     </span>
                     <span class="col-span-3 col-start-2 flex min-h-10 items-center justify-between gap-3 @3xl:col-span-1 @3xl:col-start-auto @3xl:min-h-0 @3xl:justify-center">
                       <span aria-hidden="true" class="text-(length:--fs-13) font-medium text-(--text-2) @3xl:hidden">Loads results</span>
-                      @if (i < closedCount() || fixedSteps()) {
-                        <span class="text-(length:--fs-13) text-(--text-3)">{{ row.batch ? 'Yes' : 'No' }}</span>
+                      @if (i === 0 || i < closedCount() || fixedSteps()) {
+                        <span class="text-(length:--fs-13) text-(--text-3)">{{ i === 0 || row.batch ? 'Yes' : 'No' }}</span>
                       } @else {
                         <qa-switch [checked]="row.batch" (checkedChange)="patchRow(i, { batch: $event })" [aria-label]="'Step ' + (i + 1) + ' loads results'" />
                       }
@@ -228,12 +233,9 @@ const TYPE_OPTIONS = RESULT_TYPES.map(([t]) => ({ value: t, label: t }));
           @if (stepsError()) {
             <span role="alert" class="text-(length:--fs-13) text-(--danger)">{{ stepsError() }}</span>
           }
-          <span class="text-(length:--fs-13) leading-[1.5] font-normal text-pretty text-(--text-4)">Step 1 starts QA round 1. Each later step that loads results starts the next round.</span>
+          <span class="text-(length:--fs-13) leading-[1.5] font-normal text-pretty text-(--text-4)">Loading is manual: use Load results when the step opens. Mark the steps where you will load results; step 1 always does, and each later one starts the next QA round.</span>
           @if (closedCount()) {
             <span class="text-(length:--fs-13) leading-[1.5] font-normal text-pretty text-(--text-4)">Closed steps keep their dates as the record of the cycle.</span>
-          }
-          @if (d.steps.length && !d.steps[0].batch) {
-            <div role="status" class="rounded-[8px] bg-(--st-editing-bg) px-3 py-2 text-(length:--fs-13) leading-[1.5] text-(--st-editing-fg)">Step 1 doesn't load results, so this timeline starts with nothing to assess.</div>
           }
         </div>
 
@@ -531,7 +533,7 @@ export class TimelineDrawer {
     this.draft.update((d) => {
       if (d.steps.length >= this.maxSteps()) return d;
       const audience = this.live() ? nextAudience(d.steps.flatMap((s) => (s.audience ? [s.audience] : []))) ?? undefined : undefined;
-      return { ...d, steps: [...d.steps, { name: '', start: '', end: '', startTime: DEFAULT_OPENS_TIME, endTime: DEFAULT_CLOSES_TIME, batch: false, audience }] };
+      return { ...d, steps: firstLoads([...d.steps, { name: '', start: '', end: '', startTime: DEFAULT_OPENS_TIME, endTime: DEFAULT_CLOSES_TIME, batch: false, audience }]) };
     });
   }
 
@@ -544,7 +546,7 @@ export class TimelineDrawer {
 
   protected removeRow(i: number): void {
     this.confirmRow.set(null);
-    this.draft.update((d) => ({ ...d, steps: d.steps.filter((_, k) => k !== i) }));
+    this.draft.update((d) => ({ ...d, steps: firstLoads(d.steps.filter((_, k) => k !== i)) }));
   }
 
   protected resetRows(): void {
