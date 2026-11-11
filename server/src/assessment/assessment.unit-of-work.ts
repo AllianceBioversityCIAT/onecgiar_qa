@@ -47,7 +47,9 @@ export interface AssessmentUnitOfWork {
  * finish that counts the non-withdrawn comments (T-11) waits for it. A load takes the timeline `FOR UPDATE` and never
  * touches an assessment row; nothing takes an assessment row first and then a
  * timeline, so there is no cycle (P-38). The service issues the calls in that
- * order; the store never reorders them.
+ * order; the store never reorders them. A deadlock (1213) reruns the work, at
+ * most `DEADLOCK_ATTEMPTS` times: concurrent first writes and concurrent ends
+ * can deadlock, and the victim is rolled back whole.
  */
 @Injectable()
 export class DrizzleAssessmentUnitOfWork implements AssessmentUnitOfWork {
@@ -57,16 +59,47 @@ export class DrizzleAssessmentUnitOfWork implements AssessmentUnitOfWork {
     @Inject(IDEMPOTENCY_CLOCK) private readonly clock: IdempotencyClock,
   ) {}
 
-  run<T>(
+  async run<T>(
     work: (repositories: AssessmentRepositories) => Promise<T>,
   ): Promise<T> {
-    return this.db.transaction(
-      (tx) =>
-        work({
-          assessments: new DrizzleAssessmentWriteStore(tx),
-          idempotency: new DrizzleIdempotencyStore(tx, this.clock),
-        }),
-      { isolationLevel: 'read committed' },
-    );
+    // A deadlock victim is rolled back whole, so the work runs again from the
+    // top on a new transaction. Bounded: a deadlock that keeps coming is thrown.
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await this.db.transaction(
+          (tx) =>
+            work({
+              assessments: new DrizzleAssessmentWriteStore(tx),
+              idempotency: new DrizzleIdempotencyStore(tx, this.clock),
+            }),
+          { isolationLevel: 'read committed' },
+        );
+      } catch (error) {
+        if (attempt >= DEADLOCK_ATTEMPTS || !isDeadlock(error)) throw error;
+      }
+    }
   }
+}
+
+/** How many times the work runs before a deadlock is thrown. */
+export const DEADLOCK_ATTEMPTS = 3;
+
+/**
+ * True for a MySQL deadlock (ER_LOCK_DEADLOCK, errno 1213), raised directly or
+ * as the `cause` of a drizzle wrapper. A lock wait timeout (1205) and every
+ * other error are not retried: only a deadlock leaves the work safe to repeat.
+ */
+function isDeadlock(error: unknown): boolean {
+  for (
+    let current: unknown = error, depth = 0;
+    current instanceof Error && depth < 3;
+    current = (current as Error & { cause?: unknown }).cause, depth++
+  ) {
+    const { code, errno } = current as Error & {
+      code?: unknown;
+      errno?: unknown;
+    };
+    if (code === 'ER_LOCK_DEADLOCK' || errno === 1213) return true;
+  }
+  return false;
 }

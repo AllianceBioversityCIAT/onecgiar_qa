@@ -40,6 +40,8 @@ import {
   ASSESSMENT_STORE,
   DrizzleAssessmentStore,
 } from './assessment.store.js';
+import { QuickCommentsController } from './quick-comments.controller.js';
+import { QuickCommentsService } from './quick-comments.service.js';
 import { WorklistController } from './worklist.controller.js';
 import { WorklistService } from './worklist.service.js';
 import { DrizzleWorklistStore, WORKLIST_STORE } from './worklist.store.js';
@@ -54,7 +56,11 @@ import { DrizzleWorklistStore, WORKLIST_STORE } from './worklist.store.js';
  * of the comment idempotency is bound with the service it reads from.
  */
 @Module({
-  controllers: [WorklistController, AssessmentController],
+  controllers: [
+    WorklistController,
+    AssessmentController,
+    QuickCommentsController,
+  ],
   imports: [
     DrizzleModule,
     DynamoDbModule,
@@ -83,6 +89,8 @@ import { DrizzleWorklistStore, WORKLIST_STORE } from './worklist.store.js';
       useClass: DrizzleAssessmentUnitOfWork,
     },
     AssessmentService,
+    // The quick comments shared by role (T-11, FR-12): over the same stores and unit of work.
+    QuickCommentsService,
     {
       // The crash window of the comment create (P-17): a key left `executed`
       // without a stored answer is replayed with the comment re-read from its

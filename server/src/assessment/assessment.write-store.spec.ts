@@ -39,7 +39,11 @@ describe('the locks of the lock order', () => {
       'where (`result_assessments`.`timeline_result_id` = ? and `result_assessments`.`step_position` = ?)',
     );
     expect(text).toMatch(/ limit \? for update$/);
-    expect(text).toMatch(/^select `id`, `status`, `field_config_version` from /);
+    expect(text).toMatch(
+      /^select `id`, `status`, `field_config_version`, \(select `timeline_results`\.`ended_at` is not null from `timeline_results` where `timeline_results`\.`id` = `result_assessments`\.`timeline_result_id`\) from /,
+    );
+    // The membership's end is a scalar subquery of the select list: it adds no lock of its own.
+    expect(text.match(/for update/g)).toHaveLength(1);
     expect(params).toEqual([70, 1, 1]);
   });
 });

@@ -37,8 +37,10 @@ import { CatalogService } from '../users/catalogs/catalog.service.js';
 import type { AuthenticatedUser } from '../users/current-user.cache.js';
 import { Permission } from '../users/permissions.js';
 import {
+  AssessmentBusyError,
   AssessmentCommentFieldInvalidError,
   AssessmentCommentNotOpenError,
+  AssessmentCoreUncommentedError,
   AssessmentFieldKeysInvalidError,
   AssessmentFinishedError,
   AssessmentNoFieldConfigError,
@@ -54,9 +56,16 @@ import {
 import {
   ASSESSMENT_STORE,
   type AssessmentStore,
+  type AssessmentWriteStore,
   type CommentRecord,
+  type LockedAssessment,
   type MembershipRecord,
 } from './assessment.store.js';
+import {
+  endAfterValidation,
+  endOnFinish,
+  type CoreFieldState,
+} from './assessment-rules.js';
 import {
   buildAssessmentView,
   type ViewComment,
@@ -74,6 +83,7 @@ import {
 import {
   resolveAccess,
   writeDecision,
+  type MembershipFacts,
   type ReadOnlyReason,
   type WorklistAccess,
   type WriteDecision,
@@ -150,6 +160,35 @@ const toViewComment = (row: CommentRecord): ViewComment => ({
 const wholeSecond = (at: Date): Date =>
   new Date(Math.floor(at.getTime() / 1000) * 1000);
 
+/**
+ * Raised under the assessment lock when the row pins another field-configuration
+ * version than the one the request judged its keys by: a second first writer
+ * created the row with a version the first request did not read (T-10). The
+ * transaction rolls back and the request runs once more, now against the row.
+ */
+class PinnedVersionChangedError extends Error {}
+
+/** What the transaction of a write knows before the lock: the request side of design 7.5. */
+interface WriteContext {
+  timeline: WorklistTimeline;
+  access: WorklistAccess;
+  membership: MembershipRecord;
+  facts: MembershipFacts;
+  hasLoad: boolean;
+  now: RomeMinute;
+  at: Date;
+  stepPosition: number;
+  roleCode: string;
+  /** The assessment row as the first read saw it; `null` = it did not exist. */
+  held: MembershipRecord['assessment'];
+  /** The version the request judged its keys by. */
+  version: number;
+  user: AuthenticatedUser;
+}
+
+/** The end an in-transaction write applied. */
+type EndStatus = 'quality_assessed' | 'returned';
+
 @Injectable()
 export class AssessmentService {
   private readonly logger = new Logger(AssessmentService.name);
@@ -190,8 +229,8 @@ export class AssessmentService {
    * it is under the lock (a finish that committed after the first read refuses
    * there, 409 `ASSESSMENT_FINISHED`). Only the fields whose state changes are
    * written, and one audit row names them; a request that changes nothing writes
-   * no validation and no audit row. This task never ends the assessment (the
-   * end rule is T-11).
+   * no validation and no audit row. A write that leaves every core field green
+   * ends the assessment in the same transaction (FR-14, OQ-2, `applyEnd`).
    */
   async validate(
     user: AuthenticatedUser,
@@ -201,6 +240,19 @@ export class AssessmentService {
     requestId: string,
   ): Promise<ValidationSummary> {
     const at = this.clock();
+    return await this.withPinnedRetry(() =>
+      this.validateAt(at, user, timelineId, resultCode, input, requestId),
+    );
+  }
+
+  private async validateAt(
+    at: Date,
+    user: AuthenticatedUser,
+    timelineId: number,
+    resultCode: number,
+    input: ValidateInput,
+    requestId: string,
+  ): Promise<ValidationSummary> {
     const now = nowInRome(at);
 
     const { timeline, access, membership, facts, hasLoad, decision, readStep } =
@@ -216,7 +268,7 @@ export class AssessmentService {
       throw new AssessmentFinishedError();
     }
 
-    const { assessed, version } = await this.assessedOf(
+    const { assessed, core, version } = await this.assessedOf(
       timeline,
       membership,
       held,
@@ -238,29 +290,22 @@ export class AssessmentService {
       };
     }
 
+    const context: WriteContext = {
+      timeline,
+      access,
+      membership,
+      facts,
+      hasLoad,
+      now,
+      at,
+      stepPosition,
+      roleCode: decision.row.role,
+      held,
+      version,
+      user,
+    };
     return await this.unitOfWork.run(async ({ assessments }) => {
-      const steps = await assessments.lockTimelineShared(timeline.id);
-      if (steps === null) throw new AssessmentNotFoundError();
-      // The same minute, the steps as they are under the share lock (design 7.5, step 3).
-      this.assertWritable(writeDecision(access, facts, { steps, now, hasLoad }));
-      if (held === null) {
-        await assessments.ensureAssessment({
-          timelineResultId: membership.membershipId,
-          stepPosition,
-          roleCode: decision.row.role,
-          fieldConfigVersion: version,
-          createdBy: user.id,
-          at,
-        });
-      }
-      const locked = await assessments.lockAssessment(
-        membership.membershipId,
-        stepPosition,
-      );
-      // The row was created or seen a moment ago and is never deleted: a miss is a defect, not a user error.
-      if (locked === undefined) throw new Error('assessment_row_missing');
-      // FR-16, UNDER the lock: this read decides (a finish may have committed since the first one).
-      if (locked.status !== 'pending') throw new AssessmentFinishedError();
+      const locked = await this.lockForWrite(assessments, context);
 
       const state = new Map(
         (await assessments.findValidations(locked.id)).map((row) => [
@@ -297,15 +342,263 @@ export class AssessmentService {
         });
         for (const key of changed) state.set(key, input.validated);
       }
-      return {
+      // FR-14 (OQ-2): the write that leaves every core field green ends the assessment, in this transaction.
+      // Only a write that turned something green can complete the core; a configuration with no core field never ends here.
+      let end: AssessmentSummary = {
         status: locked.status,
         assessedBy: null,
         finishedAt: null,
-        validations: [...state]
-          .map(([fieldKey, validated]) => ({ fieldKey, validated }))
-          .sort((x, y) => (x.fieldKey < y.fieldKey ? -1 : 1)),
       };
+      if (
+        changed.length > 0 &&
+        input.validated &&
+        endAfterValidation(
+          core.map((key) => ({
+            key,
+            validated: state.get(key) ?? false,
+            commented: false,
+          })),
+        ) === 'quality_assessed'
+      ) {
+        end = await this.applyEnd(
+          assessments,
+          context,
+          locked,
+          'quality_assessed',
+          requestId,
+        );
+      }
+      return { ...end, validations: this.validationRows(state) };
     });
+  }
+
+  /**
+   * FR-14, FR-15, FR-16, FR-17, FR-21 (design 7.5, DD-5): Finish assessment.
+   * The same steps as a validation, in the same lock order. Under the
+   * assessment lock the end rule reads the core fields of the PINNED version:
+   * none, or none grey, ends it `quality_assessed` (OQ-2); a grey core field
+   * with no non-withdrawn comment is a 409 `ASSESSMENT_CORE_UNCOMMENTED` naming
+   * the keys (OQ-9); otherwise it is `returned`. Either way Assessed by is the
+   * caller. The end is ONE conditional UPDATE on `status = 'pending'`: of
+   * several concurrent finishes the database lets one through and the others
+   * get 409 `ASSESSMENT_FINISHED`, whatever the order they read the row in.
+   * The release row, the comment visibility and the end audit row are written
+   * after it, so a loser writes none of them. The clock is read once.
+   */
+  async finish(
+    user: AuthenticatedUser,
+    timelineId: number,
+    resultCode: number,
+    requestId: string,
+  ): Promise<ValidationSummary> {
+    const at = this.clock();
+    return await this.withPinnedRetry(() =>
+      this.finishAt(at, user, timelineId, resultCode, requestId),
+    );
+  }
+
+  private async finishAt(
+    at: Date,
+    user: AuthenticatedUser,
+    timelineId: number,
+    resultCode: number,
+    requestId: string,
+  ): Promise<ValidationSummary> {
+    const now = nowInRome(at);
+    const { timeline, access, membership, facts, hasLoad, decision, readStep } =
+      await this.resolveWrite(user, timelineId, resultCode, now);
+    const stepPosition = decision.stepPosition;
+    const held =
+      membership.assessment !== null && readStep === stepPosition
+        ? membership.assessment
+        : null;
+
+    // FR-16: an ended membership or assessment takes no finish.
+    if (membership.ended || (held !== null && held.status !== 'pending')) {
+      throw new AssessmentFinishedError();
+    }
+
+    const { core, version } = await this.assessedOf(timeline, membership, held);
+    const context: WriteContext = {
+      timeline,
+      access,
+      membership,
+      facts,
+      hasLoad,
+      now,
+      at,
+      stepPosition,
+      roleCode: decision.row.role,
+      held,
+      version,
+      user,
+    };
+    return await this.unitOfWork.run(async ({ assessments }) => {
+      const locked = await this.lockForWrite(assessments, context);
+      const state = new Map(
+        (await assessments.findValidations(locked.id)).map((row) => [
+          row.fieldKey,
+          row.validated,
+        ]),
+      );
+      const commented = new Set(
+        await assessments.findCommentedFieldKeys(locked.id),
+      );
+      const coreStates: CoreFieldState[] = core.map((key) => ({
+        key,
+        validated: state.get(key) ?? false,
+        commented: commented.has(key),
+      }));
+      const outcome = endOnFinish(coreStates);
+      if (typeof outcome === 'object') {
+        // Rolls the transaction back: a row created for this request goes with it.
+        throw new AssessmentCoreUncommentedError([...outcome.fieldKeys]);
+      }
+      const end = await this.applyEnd(
+        assessments,
+        context,
+        locked,
+        outcome,
+        requestId,
+      );
+      return { ...end, validations: this.validationRows(state) };
+    });
+  }
+
+  /** Every validation row as the answer lists it, by field key. */
+  private validationRows(
+    state: ReadonlyMap<string, boolean>,
+  ): ValidationSummary['validations'] {
+    return [...state]
+      .map(([fieldKey, validated]) => ({ fieldKey, validated }))
+      .sort((x, y) => (x.fieldKey < y.fieldKey ? -1 : 1));
+  }
+
+  /**
+   * The first steps of every write under the lock, in the lock order of design
+   * 5: the timeline `FOR SHARE` (the steps are judged again with the same
+   * minute, and the step the role writes in must still be the position the
+   * request judged), the assessment row created on the first write and locked
+   * `FOR UPDATE`, then the facts read UNDER that lock: an ended membership or
+   * a status that is no longer `pending` is 409 `ASSESSMENT_FINISHED` (FR-16),
+   * and a row that pins another version than the request judged by sends the
+   * request round once more (`PinnedVersionChangedError`).
+   */
+  private async lockForWrite(
+    assessments: AssessmentWriteStore,
+    context: WriteContext,
+  ): Promise<LockedAssessment> {
+    const { timeline, membership, stepPosition } = context;
+    const steps = await assessments.lockTimelineShared(timeline.id);
+    if (steps === null) throw new AssessmentNotFoundError();
+    // The same minute, the steps as they are under the share lock (design 7.5, step 3).
+    const rejudged = this.assertWritable(
+      writeDecision(context.access, context.facts, {
+        steps,
+        now: context.now,
+        hasLoad: context.hasLoad,
+      }),
+    );
+    if (rejudged.stepPosition !== stepPosition) {
+      throw new AssessmentStepClosedError();
+    }
+    if (context.held === null) {
+      await assessments.ensureAssessment({
+        timelineResultId: membership.membershipId,
+        stepPosition,
+        roleCode: context.roleCode,
+        fieldConfigVersion: context.version,
+        createdBy: context.user.id,
+        at: context.at,
+      });
+    }
+    const locked = await assessments.lockAssessment(
+      membership.membershipId,
+      stepPosition,
+    );
+    // The row was created or seen a moment ago and is never deleted: a miss is a defect, not a user error.
+    if (locked === undefined) throw new Error('assessment_row_missing');
+    // FR-16, UNDER the lock: these reads decide (an end may have committed since the first read).
+    if (locked.membershipEnded || locked.status !== 'pending') {
+      throw new AssessmentFinishedError();
+    }
+    if (locked.fieldConfigVersion !== context.version) {
+      throw new PinnedVersionChangedError();
+    }
+    return locked;
+  }
+
+  /**
+   * The end of an assessment, under its lock (design 7.5): the conditional
+   * UPDATE first (0 rows is 409 `ASSESSMENT_FINISHED`, and nothing else was
+   * written), then the one release row, the comments becoming visible to the
+   * program, and the end audit row. `quality_assessed` queues a `qaed`
+   * release, `returned` a `not_qaed` one (FR-18). T-12 dispatches it.
+   */
+  private async applyEnd(
+    assessments: AssessmentWriteStore,
+    context: WriteContext,
+    locked: LockedAssessment,
+    status: EndStatus,
+    requestId: string,
+  ): Promise<AssessmentSummary> {
+    const { membership, user, at } = context;
+    const finishedAt = wholeSecond(at);
+    const ended = await assessments.endAssessment({
+      assessmentId: locked.id,
+      status,
+      actorId: user.id,
+      at: finishedAt,
+    });
+    if (!ended) throw new AssessmentFinishedError();
+    await assessments.insertRelease({
+      assessmentId: locked.id,
+      timelineResultId: membership.membershipId,
+      resultId: membership.resultId,
+      phaseYear: membership.phaseYear,
+      outcome: status === 'quality_assessed' ? 'qaed' : 'not_qaed',
+      at: finishedAt,
+    });
+    await assessments.markCommentsVisible(locked.id, finishedAt);
+    await assessments.insertAudit({
+      assessmentId: locked.id,
+      actorId: user.id,
+      action:
+        status === 'quality_assessed'
+          ? 'end_quality_assessed'
+          : 'end_returned',
+      fieldKeys: null,
+      commentId: null,
+      requestId,
+      at,
+    });
+    return {
+      status,
+      assessedBy: { id: user.id, nickname: user.nickname },
+      finishedAt: finishedAt.toISOString(),
+    };
+  }
+
+  /**
+   * Runs a write once more when it found, under the lock, another pinned
+   * version than it judged by. A second mismatch is 503 `SERVICE_UNAVAILABLE`
+   * (`AssessmentBusyError`), retryable and with nothing written, never an
+   * unhandled error that the filter turns into a 500.
+   */
+  private async withPinnedRetry<T>(run: () => Promise<T>): Promise<T> {
+    try {
+      return await run();
+    } catch (error) {
+      if (!(error instanceof PinnedVersionChangedError)) throw error;
+    }
+    try {
+      return await run();
+    } catch (error) {
+      if (error instanceof PinnedVersionChangedError) {
+        throw new AssessmentBusyError(error);
+      }
+      throw error;
+    }
   }
 
   /**
@@ -318,7 +611,7 @@ export class AssessmentService {
     timeline: WorklistTimeline,
     membership: MembershipRecord,
     held: MembershipRecord['assessment'],
-  ): Promise<{ assessed: string[]; version: number }> {
+  ): Promise<{ assessed: string[]; core: string[]; version: number }> {
     let items: readonly ConfigItem[];
     let version: number;
     if (held !== null) {
@@ -338,14 +631,19 @@ export class AssessmentService {
       items = effective.items;
       version = effective.version;
     }
-    const assessed = items
-      .filter(
-        (item) =>
-          item.resultTypeKey === membership.resultTypeKey &&
-          item.visibility === 'assessed',
-      )
-      .map((item) => item.fieldKey);
-    return { assessed, version };
+    const assessedItems = items.filter(
+      (item) =>
+        item.resultTypeKey === membership.resultTypeKey &&
+        item.visibility === 'assessed',
+    );
+    return {
+      assessed: assessedItems.map((item) => item.fieldKey),
+      // The core fields are Assessed fields flagged `isCore` (FR-14), in configuration order.
+      core: assessedItems
+        .filter((item) => item.isCore)
+        .map((item) => item.fieldKey),
+      version,
+    };
   }
 
   /**
@@ -376,6 +674,28 @@ export class AssessmentService {
     idempotency?: IdempotencyHandle,
   ): Promise<ViewComment> {
     const at = this.clock();
+    return await this.withPinnedRetry(() =>
+      this.commentAt(
+        at,
+        user,
+        timelineId,
+        resultCode,
+        input,
+        requestId,
+        idempotency,
+      ),
+    );
+  }
+
+  private async commentAt(
+    at: Date,
+    user: AuthenticatedUser,
+    timelineId: number,
+    resultCode: number,
+    input: CommentInput,
+    requestId: string,
+    idempotency?: IdempotencyHandle,
+  ): Promise<ViewComment> {
     const now = nowInRome(at);
 
     const { timeline, access, membership, facts, hasLoad, decision, readStep } =
@@ -412,31 +732,23 @@ export class AssessmentService {
     });
     const createdAt = wholeSecond(at);
 
+    const context: WriteContext = {
+      timeline,
+      access,
+      membership,
+      facts,
+      hasLoad,
+      now,
+      at,
+      stepPosition,
+      roleCode: decision.row.role,
+      held,
+      version,
+      user,
+    };
     const id = await this.unitOfWork.run(
       async ({ assessments, idempotency: fence }) => {
-        const steps = await assessments.lockTimelineShared(timeline.id);
-        if (steps === null) throw new AssessmentNotFoundError();
-        this.assertWritable(
-          writeDecision(access, facts, { steps, now, hasLoad }),
-        );
-        if (held === null) {
-          await assessments.ensureAssessment({
-            timelineResultId: membership.membershipId,
-            stepPosition,
-            roleCode: decision.row.role,
-            fieldConfigVersion: version,
-            createdBy: user.id,
-            at,
-          });
-        }
-        const locked = await assessments.lockAssessment(
-          membership.membershipId,
-          stepPosition,
-        );
-        // The row was created or seen a moment ago and is never deleted: a miss is a defect, not a user error.
-        if (locked === undefined) throw new Error('assessment_row_missing');
-        // FR-16, UNDER the lock: this read decides.
-        if (locked.status !== 'pending') throw new AssessmentFinishedError();
+        const locked = await this.lockForWrite(assessments, context);
 
         const commentId = await assessments.insertComment({
           assessmentId: locked.id,

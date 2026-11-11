@@ -189,6 +189,15 @@ export function toErrorBody(
   ) {
     error.fields = body.fields as ApiErrorBody['fields'];
   }
+  // The finish refusal names the core fields to comment on: keys only (FR-15).
+  if (
+    code === 'ASSESSMENT_CORE_UNCOMMENTED' &&
+    typeof body === 'object' &&
+    Array.isArray(body.fields) &&
+    body.fields.every((field) => typeof field === 'string')
+  ) {
+    error.fields = body.fields as string[];
+  }
   if (status === 429) {
     const retryAfter = retryAfterOf(response);
     if (retryAfter !== undefined) error.retryAfter = retryAfter;

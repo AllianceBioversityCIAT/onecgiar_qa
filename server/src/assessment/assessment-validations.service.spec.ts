@@ -906,6 +906,8 @@ describe('part-B advisories on the validation write', () => {
         roleCode: 'ASSESSOR',
       });
       world.effectiveVersions = [2, 1];
+      // A is refused the row B pinned, and runs again against version 2 (T-11 guard): its items exist.
+      world.versionItems[2] = { policy_change: items() };
 
       await Promise.all([
         service.validate(assessorB(), 1, 5001, check([ASSESSED[1]!]), 'req-b'),

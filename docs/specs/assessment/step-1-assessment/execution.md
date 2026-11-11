@@ -800,3 +800,73 @@ The back lead chose "continue and re-estimate" after the T-9 tripwire.
 | Review rounds | 19 | 34 |
 
 Within the re-estimated budget.
+
+### T-11: Writes II — ends (auto Quality Assessed, finish → returned) and quick comments — PASS
+
+| | |
+|---|---|
+| Date | 2026-11-11 |
+| Final status | PASS (attempt 2 of 2) |
+| Requirements covered | FR-12, FR-14, FR-15, FR-16, FR-17 (incl. *BUT* at the unit-of-work level), FR-21 |
+| OQ gate | OQ-2 and OQ-9, `execution.md` T-1 entry |
+| Skills | nestjs-expert, tdd (as task) |
+| Effort | default in attempt 1; `high` in attempt 2 (rework bump) |
+| Review mode | lenses: concurrency and correctness, two Reviewers in parallel |
+
+- **Routes:** finish (`POST …/assessment/finish`), quick comments (list and save per role). The release row is only **queued** in the end transaction; dispatch is T-12.
+- **Files** (under `server/`):
+  - new: `src/assessment/quick-comments.service.ts`, `quick-comments.controller.ts`, `dto/quick-comment.dto.ts`, `models/quick-comment.model.ts`; specs `assessment-ends.service.spec.ts`, `assessment.end-store.spec.ts`, `assessment.errors.spec.ts`, `assessment.unit-of-work.deadlock.spec.ts`, `quick-comments.service.spec.ts`; e2e `test/assessment-ends.e2e-spec.ts`, `test/quick-comments.e2e-spec.ts`;
+  - edited: `assessment.controller.ts`, `assessment.errors.ts` (`AssessmentQuickCommentsForbiddenError`, `AssessmentBusyError`), `assessment.module.ts`, `assessment.service.ts`, `assessment.store.ts`, `assessment.unit-of-work.ts`, `assessment.write-store.spec.ts`, `assessment-validations.service.spec.ts`, `test/support/assessment-app.ts`, `test/support/in-memory-assessment.ts`;
+  - shared, outside the module: `common/http-exception.filter.ts` + spec, `common/api-response.ts` (`ApiErrorBody.fields` widened to `ApiFieldError[] | string[]`), `common/error-codes.spec.ts`.
+- **Consumers (the task listed none; actual):** `common/http-exception.filter.ts` and `common/api-response.ts` (the T-6 forward pointer), `MembershipRecord` (+ `resultId`, `phaseYear`), `AuditEventWrite.assessmentId` (now nullable). The client still types `fields` as `ApiFieldError[]` (`client/src/app/core/http/api-envelope.ts:48,70`); see the T-17 pointer.
+- **Lock order** (design § 5, `design.md:117`): timeline `FOR SHARE` (step re-judged; the position must equal the first) → `ensureAssessment` (first write) → assessment `FOR UPDATE` with `membershipEnded` as a scalar subquery in the same statement → `findValidations` → `findCommentedFieldKeys` (finish) → writes. End writes: conditional `UPDATE … WHERE id = ? AND status = 'pending'` first, then `insertRelease`, `markCommentsVisible`, end audit; a loser writes none.
+- **Statements:** auto-QA validation 14 (4 reads + 10 in the transaction); finish 13 (4 + 9).
+
+**Attempt 1 — FAIL (concurrency lens); correctness lens PASS**
+
+- **Observed red** (specs against skeletons): ends spec `Tests 32 failed | 5 passed (37)`, e2e `Tests 22 failed (22)`, e.g. `expected { status: 'pending', …(3) } to match object { status: 'quality_assessed', …(2) }`, `expected [] to have a length of 5 but got +0`, filter `"fields": ["general.title","toc.outcomes"]` missing, deadlock `expected 1 to be 3`.
+- **Falsifiers (observed red, then restored):**
+  1. end guard removed in the fake: `AssertionError: expected 5 to be 1` on `world.endUpdatesMatched`; removed from the Drizzle statement: `expected 'update `result_assessments` set `stat…' to contain 'where (`result_assessments`.`id` = ? …'`.
+  2. auto-QA over every Assessed field: 20 failed, incl. *Last core goes green* and the zero-core case.
+  - filter forwarding broken: `fields` missing in the filter spec and the finish e2e; deadlock retry removed: 5 failed.
+- **Evidence re-run (Leader inline):** unit `Tests 3609 passed | 6 skipped (3615)`, e2e `Tests 1113 passed (1113)`. **VERIFIED.**
+- **Correctness Reviewer: PASS.** Comment visibility at any end (every non-withdrawn comment, including core fields that went green) judged conformant: design `:209` and FR-15 `:318` say "every non-withdrawn comment"; FR-14 `:302` sets a minimum. ADMIN refused for quick comments is correct (§ 6 "a live grant of that role", DD-2).
+- **Concurrency Reviewer: FAIL** (verbatim):
+  > **Discovered Issue:** The FR-17 *BUT* test "a validation that commits before the finish is kept, and one queued after it is refused" (`assessment-ends.service.spec.ts:756-774`) runs one call after another. The refused validation is turned away by the check before the lock (`assessment.service.ts:266`, `held.status !== 'pending'`). It never waits behind the finish. Mutation trace: delete `locked.status !== 'pending'` from `lockForWrite` (`:521`) and this test stays green. No T-11 test makes a real finish commit while a validation is in flight.
+  > **Violated Rule:** `tasks.md:288` and `:280`; `requirements.md:332` and `:338`.
+  > **Remediation Suggestion:** Add a concurrent case … assert 409 `ASSESSMENT_FINISHED`, no validation row and no audit row from that request. Confirm the test goes red when the `:521` status check is removed.
+
+**Attempt 2 — PASS**
+
+- **Changes:** the fake's `beforeLockAssessment` may be async and is awaited inside `lockAssessment`; a new test commits a whole finish there while a validate waits for the lock (409 `ASSESSMENT_FINISHED`, status `returned`, no validation or audit row from it, `endUpdatesMatched` 1). Advisories applied: a second `PinnedVersionChangedError` → typed 503 `SERVICE_UNAVAILABLE` (`AssessmentBusyError`, like `FieldConfigBusyError`); the 2-assessor auto-QA test asserts `world.validations`; a service-level deadlock test runs the real `DrizzleAssessmentUnitOfWork` over a fake transaction (1213 after the first audit insert → one clock read, one audit row, one set of validations); `holdLockUntil` reset after release; the e2e 404 test now compares an out-of-scope code with a missing one as full bodies; the fake header documents that a duplicate insert does not wait.
+- **Reds:** removing `locked.status !== 'pending'` from `lockForWrite` → the new test `Error: expected a refusal` (`1 failed | 39 passed`) while the old sequential test stays green; the second-mismatch mapping before the fix → `expected { status: undefined, body: undefined } to match object { status: 503, …(1) }`; deadlock retry removed → `Error: Deadlock found when trying to get lock`. Both original falsifiers still red (`expected 5 to be 1`; 21 failed).
+- **Clock grep** (non-spec files in `server/src/assessment`): only `assessment.module.ts:76` and `:79`.
+- **Evidence re-run (Leader inline):** lint and build clean; unit `Test Files 93 passed | 1 skipped (94)`, `Tests 3612 passed | 6 skipped (3618)`; e2e `Test Files 22 passed (22)`, `Tests 1113 passed (1113)`. **VERIFIED.**
+- **Concurrency Reviewer: PASS.** The async hook reproduces the MySQL order (finish holds `FOR UPDATE`, the validate waits, then reads `returned`); the `vi.mock` replaces only the write-store constructor, so the real retry loop, `isDeadlock`, the attempt bound and READ COMMITTED stay under test.
+- **Runtime events:** the Implementer used two shell edits on its own test lines against the brief's "file tools" rule; one heredoc aborted and wrote nothing. No effect on the result.
+
+**Forward pointers closed:** T-6 (the filter forwards `fields` for `ASSESSMENT_CORE_UNCOMMENTED` only; `.fields` pinned); T-10 (deadlock retry on 1213, at most 3 attempts; the version guard for `validate`, `comment` and `finish`, rerun once against the pinned row with the same clock; `membershipEnded` read under the lock; step-position equality).
+
+**Decisions made:**
+
+- Quick comments: list and save only with a live grant of exactly that role (ASSESSOR, LEAD_ASSESSOR, TPB, PPU); ADMIN and others → 403 `AUTH_PERMISSION_DENIED`; an unknown role → 400; TPB never sees the ASSESSOR list; dedupe on the sha-256 of the trimmed text per role (201 + one `quick_comment_save` audit row without text; a repeat → 200, no audit). The list has no limit (the design gives none).
+- `ASSESSMENT_FINISHED` is checked before `ASSESSMENT_CORE_UNCOMMENTED`; a refused finish rolls back and leaves no row.
+- The release row takes `resultId` and `phaseYear` from the membership.
+- The fake deliberately has no row lock for the 5-finish test (`holdLockUntil`), so only the conditional UPDATE decides; the real-MySQL path is covered by the under-lock status check tests.
+
+**Forward pointers:**
+
+- **→ T-12:** the release ack that ends memberships must take timeline `FOR SHARE` → assessment `FOR UPDATE` first, so `membershipEnded` stays stable (Reviewer). This joins the T-5 note that `endAsReturned` takes no load-row lock.
+- **→ T-15:** front contract: the 409 `ASSESSMENT_CORE_UNCOMMENTED` carries `fields` as strings (field keys); quick comments are open to roles that cannot comment yet (§ 6 allows it).
+- **→ T-17:** widen the client `ApiError.fields` type (`client/src/app/core/http/api-envelope.ts:48,70`) or read the 409 keys separately.
+- **→ T-16 HITL:** two concurrent quick-comment saves of the same text (1062 catch and deadlock retry) and the losing-first-writer case, against real MySQL.
+
+**Running totals:**
+
+| Measure | Actual | Re-estimated budget |
+|---|---|---|
+| Tasks | 12 of 21 | 21 |
+| Production LOC | ≈ 7,190 TS + 141 SQL | 11,000 |
+| Review rounds | 23 | 34 |
+
+Within the re-estimated budget.

@@ -137,6 +137,8 @@ export async function buildAssessmentApp(
     // Granted like the assessor, but assigned to no timeline.
     other: await actor('sub-other', [['ASSESSOR', 'KP']], 'Otto'),
     guest: await actor('sub-guest', []),
+    // A role that must not see the ASSESSOR quick comments (FR-12).
+    tpb: await actor('sub-tpb', [['TPB']], 'Tess'),
     // Granted a result type of the 2026 Reporting catalog (the view reads that catalog).
     policy: await actor('sub-policy', [['ASSESSOR', 'policy_change']], 'Pia'),
     // A second assessor of the same kind, to write or withdraw beside `policy`.

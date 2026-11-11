@@ -1,6 +1,6 @@
 // @akili-spec assessment/step-1-assessment
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, desc, eq, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, ne, sql, type SQL } from 'drizzle-orm';
 import { DRIZZLE } from '../database/drizzle/drizzle.constants.js';
 import type { DrizzleDB } from '../database/drizzle/drizzle.module.js';
 import {
@@ -26,6 +26,9 @@ import {
   assessmentAuditEvents,
   type AssessmentAuditAction,
 } from '../database/drizzle/schema/assessment-audit-events.js';
+import { assessmentReleases } from '../database/drizzle/schema/assessment-releases.js';
+import { quickComments } from '../database/drizzle/schema/quick-comments.js';
+import { isDuplicateKeyError } from '../common/idempotency/idempotency.errors.js';
 import { timelineSteps } from '../database/drizzle/schema/timeline-steps.js';
 import { timelines } from '../database/drizzle/schema/timelines.js';
 import type { WorklistAccess } from './scope.js';
@@ -52,6 +55,9 @@ export interface MembershipCriteria {
 export interface MembershipRecord {
   membershipId: number;
   resultCode: number;
+  /** The phase's own result id and year, carried onto the release row of an end (FR-18). */
+  resultId: number;
+  phaseYear: number;
   /** The title copied at load time; null until the backfill reaches the row. */
   title: string | null;
   programId: number;
@@ -125,6 +131,15 @@ export interface AssessmentStore {
    * caller's scope: the service does, and answers the same 404.
    */
   findCommentContext(commentId: number): Promise<CommentContext | null>;
+  /** One statement: the quick comments of a role, newest first (FR-12). */
+  listQuickComments(roleCode: string): Promise<QuickCommentRecord[]>;
+}
+
+/** A reusable comment text of a role (FR-12). */
+export interface QuickCommentRecord {
+  id: number;
+  body: string;
+  createdAt: Date;
 }
 
 // ---- Write port (T-10) -----------------------------------------------------
@@ -145,6 +160,40 @@ export interface LockedAssessment {
   id: number;
   status: ResultAssessmentStatus;
   fieldConfigVersion: number;
+  /** The membership has ended, read in the same statement as the lock (design 5, 7.5). */
+  membershipEnded: boolean;
+}
+
+/** The end of an assessment (FR-14, FR-15): the status to set and who ends it. */
+export interface AssessmentEndWrite {
+  assessmentId: number;
+  status: Exclude<ResultAssessmentStatus, 'pending'>;
+  actorId: number;
+  at: Date;
+}
+
+/** The release row an end queues (FR-18, NFR-3): `pending`, one per assessment. */
+export interface NewReleaseRow {
+  assessmentId: number;
+  timelineResultId: number;
+  resultId: number;
+  phaseYear: number;
+  outcome: 'qaed' | 'not_qaed';
+  at: Date;
+}
+
+/** A quick comment to save (FR-12): the body is already trimmed, the hash is its sha-256. */
+export interface NewQuickCommentRow {
+  roleCode: string;
+  body: string;
+  bodyHash: string;
+  createdBy: number;
+  at: Date;
+}
+
+/** What a quick-comment save found or made: `created` is false when the text was already saved. */
+export interface SavedQuickComment extends QuickCommentRecord {
+  created: boolean;
 }
 
 export interface ValidationWrite {
@@ -154,7 +203,8 @@ export interface ValidationWrite {
 
 /** One append-only audit row (FR-21): ids and keys only, never a body or a value. */
 export interface AuditEventWrite {
-  assessmentId: number;
+  /** `null` for an event that belongs to no assessment (a quick-comment save). */
+  assessmentId: number | null;
   actorId: number;
   action: AssessmentAuditAction;
   fieldKeys: readonly string[] | null;
@@ -231,6 +281,24 @@ export interface AssessmentWriteStore {
   withdrawComment(commentId: number, at: Date): Promise<boolean>;
   /** One statement. */
   insertCommentEvent(event: CommentEventWrite): Promise<void>;
+  /**
+   * One conditional statement: `UPDATE … SET status, finished_at, finished_by
+   * WHERE id = ? AND status = 'pending'`. `false` when it matched nothing:
+   * another end got there, and the database decides the race (FR-17).
+   */
+  endAssessment(end: AssessmentEndWrite): Promise<boolean>;
+  /** One statement: the distinct field keys that carry a non-withdrawn comment. */
+  findCommentedFieldKeys(assessmentId: number): Promise<string[]>;
+  /** One statement: every non-withdrawn comment not yet visible becomes visible to the program at `at`. */
+  markCommentsVisible(assessmentId: number, at: Date): Promise<void>;
+  /** One statement: the `pending` release of an end. Unique per assessment. */
+  insertRelease(row: NewReleaseRow): Promise<void>;
+  /**
+   * One `INSERT`, plus one `SELECT` when the text was already saved (the 1062
+   * of `uq_quick_comments_role_hash`): the existing row is returned with
+   * `created: false`.
+   */
+  saveQuickComment(row: NewQuickCommentRow): Promise<SavedQuickComment>;
 }
 
 // ---- Drizzle adapter -------------------------------------------------------
@@ -239,6 +307,8 @@ type AssessmentDb = Pick<DrizzleDB, 'select'>;
 
 const t = timelineResults;
 const a = resultAssessments;
+const MEMBERSHIP_TABLE = sql.identifier('timeline_results');
+const ASSESSMENT_TABLE = sql.identifier('result_assessments');
 
 /** Drizzle adapter of `AssessmentStore`: read-only. */
 @Injectable()
@@ -256,6 +326,8 @@ export class DrizzleAssessmentStore implements AssessmentStore {
         .select({
           membershipId: t.id,
           resultCode: t.resultCode,
+          resultId: t.resultId,
+          phaseYear: t.phaseYear,
           title: t.title,
           programId: t.programClarisaId,
           resultTypeKey: t.resultTypeKey,
@@ -315,6 +387,8 @@ export class DrizzleAssessmentStore implements AssessmentStore {
     return {
       membershipId: row.membershipId,
       resultCode: row.resultCode,
+      resultId: row.resultId,
+      phaseYear: row.phaseYear,
       title: row.title,
       programId: row.programId,
       resultTypeKey: row.resultTypeKey,
@@ -420,11 +494,31 @@ export class DrizzleAssessmentStore implements AssessmentStore {
     const [row] = await this.buildCommentContextQuery(commentId);
     return row ?? null;
   }
+
+  /** The quick-comments statement; public so a spec can read its SQL. */
+  buildQuickCommentsQuery(roleCode: string) {
+    return this.db
+      .select({
+        id: quickComments.id,
+        body: quickComments.body,
+        createdAt: quickComments.createdAt,
+      })
+      .from(quickComments)
+      .where(eq(quickComments.roleCode, roleCode))
+      .orderBy(desc(quickComments.createdAt), desc(quickComments.id));
+  }
+
+  async listQuickComments(roleCode: string): Promise<QuickCommentRecord[]> {
+    return await this.buildQuickCommentsQuery(roleCode);
+  }
 }
 
 // ---- Drizzle write adapter (T-10) -------------------------------------------
 
-type AssessmentWriteDb = Pick<DrizzleDB, 'select' | 'insert' | 'update'>;
+type AssessmentWriteDb = Pick<
+  DrizzleDB,
+  'select' | 'selectDistinct' | 'insert' | 'update'
+>;
 
 /**
  * Drizzle adapter of `AssessmentWriteStore`. It is built ON a transaction by
@@ -493,6 +587,9 @@ export class DrizzleAssessmentWriteStore implements AssessmentWriteStore {
         id: a.id,
         status: a.status,
         fieldConfigVersion: a.fieldConfigVersion,
+        // A scalar subquery of the select list: it adds no statement and no lock (the `FOR UPDATE` covers the assessment row only).
+        // Spelled with table-qualified identifiers: drizzle drops the qualifier of a column in a single-table select.
+        membershipEnded: sql<number>`(select ${MEMBERSHIP_TABLE}.${sql.identifier('ended_at')} is not null from ${MEMBERSHIP_TABLE} where ${MEMBERSHIP_TABLE}.${sql.identifier('id')} = ${ASSESSMENT_TABLE}.${sql.identifier('timeline_result_id')})`,
       })
       .from(a)
       .where(
@@ -513,7 +610,9 @@ export class DrizzleAssessmentWriteStore implements AssessmentWriteStore {
       timelineResultId,
       stepPosition,
     );
-    return row;
+    return row === undefined
+      ? undefined
+      : { ...row, membershipEnded: Number(row.membershipEnded) === 1 };
   }
 
   findValidations(assessmentId: number): Promise<ValidationRecord[]> {
@@ -629,5 +728,125 @@ export class DrizzleAssessmentWriteStore implements AssessmentWriteStore {
 
   async insertCommentEvent(event: CommentEventWrite): Promise<void> {
     await this.buildInsertCommentEvent(event);
+  }
+  buildEndAssessment(end: AssessmentEndWrite) {
+    return this.db
+      .update(a)
+      .set({
+        status: end.status,
+        finishedAt: end.at,
+        finishedBy: end.actorId,
+      })
+      .where(
+        and(
+          eq(a.id, end.assessmentId),
+          // The guard: only a pending assessment ends, so the second of two
+          // concurrent ends matches nothing (FR-17).
+          eq(a.status, 'pending'),
+        ),
+      );
+  }
+
+  async endAssessment(end: AssessmentEndWrite): Promise<boolean> {
+    const [header] = await this.buildEndAssessment(end);
+    return header.affectedRows > 0;
+  }
+
+  buildCommentedFieldKeys(assessmentId: number) {
+    return this.db
+      .selectDistinct({ fieldKey: assessmentComments.fieldKey })
+      .from(assessmentComments)
+      .where(
+        and(
+          eq(assessmentComments.assessmentId, assessmentId),
+          ne(assessmentComments.state, 'withdrawn'),
+        ),
+      );
+  }
+
+  async findCommentedFieldKeys(assessmentId: number): Promise<string[]> {
+    const rows = await this.buildCommentedFieldKeys(assessmentId);
+    return rows.map((row) => row.fieldKey);
+  }
+
+  buildMarkCommentsVisible(assessmentId: number, at: Date) {
+    return this.db
+      .update(assessmentComments)
+      .set({ visibleToProgramAt: at })
+      .where(
+        and(
+          eq(assessmentComments.assessmentId, assessmentId),
+          ne(assessmentComments.state, 'withdrawn'),
+          isNull(assessmentComments.visibleToProgramAt),
+        ),
+      );
+  }
+
+  async markCommentsVisible(assessmentId: number, at: Date): Promise<void> {
+    await this.buildMarkCommentsVisible(assessmentId, at);
+  }
+
+  buildInsertRelease(row: NewReleaseRow) {
+    // `status` takes its default (`pending`), `attempts` 0, no lease.
+    return this.db.insert(assessmentReleases).values({
+      assessmentId: row.assessmentId,
+      timelineResultId: row.timelineResultId,
+      resultId: row.resultId,
+      phaseYear: row.phaseYear,
+      outcome: row.outcome,
+      createdAt: row.at,
+    });
+  }
+
+  async insertRelease(row: NewReleaseRow): Promise<void> {
+    await this.buildInsertRelease(row);
+  }
+
+  buildInsertQuickComment(row: NewQuickCommentRow) {
+    return this.db.insert(quickComments).values({
+      roleCode: row.roleCode,
+      body: row.body,
+      bodyHash: row.bodyHash,
+      createdBy: row.createdBy,
+      createdAt: row.at,
+    });
+  }
+
+  buildFindQuickComment(roleCode: string, bodyHash: string) {
+    return this.db
+      .select({
+        id: quickComments.id,
+        body: quickComments.body,
+        createdAt: quickComments.createdAt,
+      })
+      .from(quickComments)
+      .where(
+        and(
+          eq(quickComments.roleCode, roleCode),
+          eq(quickComments.bodyHash, bodyHash),
+        ),
+      )
+      .limit(1);
+  }
+
+  async saveQuickComment(row: NewQuickCommentRow): Promise<SavedQuickComment> {
+    try {
+      const [header] = await this.buildInsertQuickComment(row);
+      return {
+        id: header.insertId,
+        body: row.body,
+        createdAt: row.at,
+        created: true,
+      };
+    } catch (error) {
+      if (!isDuplicateKeyError(error)) throw error;
+      // The same text of the same role is already saved: answer that row.
+      const [existing] = await this.buildFindQuickComment(
+        row.roleCode,
+        row.bodyHash,
+      );
+      if (existing === undefined) throw error;
+      return { ...existing, created: false };
+    }
   }
 }

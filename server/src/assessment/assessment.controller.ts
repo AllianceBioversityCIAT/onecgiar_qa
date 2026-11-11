@@ -88,7 +88,7 @@ export class AssessmentController {
   @ApiOperation({
     summary: 'Set Assessed fields green or grey, or check all',
     description:
-      'Send `validated` and exactly one of `fieldKeys` (1 to 200 Assessed fields of the pinned configuration) and `all: true` (every Assessed field). Setting a field to the state it already has succeeds and changes nothing. Only the fields that change are written, with one audit row. A View only, Hidden or unknown key is a 400 naming it. The assessment row is created at the first write. Refused with 409 once the step is not open or the assessment ended.',
+      'Send `validated` and exactly one of `fieldKeys` (1 to 200 Assessed fields of the pinned configuration) and `all: true` (every Assessed field). Setting a field to the state it already has succeeds and changes nothing. Only the fields that change are written, with one audit row. A View only, Hidden or unknown key is a 400 naming it. The assessment row is created at the first write. A write that leaves every core field green ends the assessment as `quality_assessed` in the same transaction, with the caller as "Assessed by" (an assessment with no core field never ends this way). Refused with 409 once the step is not open or the assessment ended.',
   })
   @ApiOkEnvelope(ValidationSummaryModel)
   @ApiErrorResponses({
@@ -163,6 +163,40 @@ export class AssessmentController {
       { fieldKey: body.fieldKey, body: body.body },
       requestIdOf(request),
       idempotencyHandleOf(request),
+    );
+  }
+
+  @ApiOperation({
+    summary: 'Finish the assessment',
+    description:
+      'Ends a pending assessment with the caller as "Assessed by". With no grey core field (or no core field at all) it becomes `quality_assessed`; if every grey core field carries a non-withdrawn comment it becomes `returned`; otherwise it is a 409 `ASSESSMENT_CORE_UNCOMMENTED` whose `error.fields` are the core field keys still to validate or comment on. The end queues one release to Reporting and makes every non-withdrawn comment visible to the program. Of several concurrent finishes exactly one succeeds and the others get 409 `ASSESSMENT_FINISHED`. One audit row.',
+  })
+  @ApiOkEnvelope(ValidationSummaryModel)
+  @ApiErrorResponses({
+    400: ['VALIDATION_FAILED'],
+    401: ['AUTH_TOKEN_INVALID', 'AUTH_USER_NOT_ADMITTED'],
+    403: ['ASSESSMENT_READ_ONLY'],
+    404: ['ASSESSMENT_NOT_FOUND'],
+    409: [
+      'ASSESSMENT_CORE_UNCOMMENTED',
+      'ASSESSMENT_FINISHED',
+      'ASSESSMENT_STEP_CLOSED',
+      'ASSESSMENT_NO_FIELD_CONFIG',
+    ],
+    503: ['SERVICE_UNAVAILABLE'],
+  })
+  @HttpCode(200)
+  @Post('timelines/:timelineId/results/:resultCode/assessment/finish')
+  finish(
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() request: RequestWithId,
+    @Param() params: AssessmentParams,
+  ): Promise<ValidationSummary> {
+    return this.assessments.finish(
+      user,
+      params.timelineId,
+      params.resultCode,
+      requestIdOf(request),
     );
   }
 

@@ -34,6 +34,7 @@ import type {
   FieldConfigEffective,
 } from '../../src/admin-config/field-config/field-config.module.js';
 import type {
+  AssessmentEndWrite,
   AssessmentStore,
   AssessmentWriteStore,
   AuditEventWrite,
@@ -45,6 +46,10 @@ import type {
   MembershipRecord,
   NewAssessmentRow,
   NewCommentRow,
+  NewQuickCommentRow,
+  NewReleaseRow,
+  QuickCommentRecord,
+  SavedQuickComment,
   ValidationRecord,
   ValidationWrite,
 } from '../../src/assessment/assessment.store.js';
@@ -96,6 +101,9 @@ export interface FakeMembership {
   changedFields?: string[] | null;
   /** `timeline_results.snapshot_sk`; default `SNAP#<code>` (a test of the real key passes the runner's own). */
   snapshotSk?: string;
+  /** The phase's result id (default: the result code) and year (default: the cycle's year, 2026). */
+  resultId?: number;
+  phaseYear?: number;
 }
 
 export interface FakeAssessment {
@@ -130,6 +138,23 @@ export interface FakeComment {
   stepPosition?: number;
   round?: number;
   withdrawnAt?: Date | null;
+  /** Set by the write side when an end makes the comment visible to the program. */
+  visibleToProgramAt?: Date | null;
+}
+
+/** One `assessment_releases` row, as the write side queued it. */
+export interface FakeRelease extends NewReleaseRow {
+  status: 'pending';
+}
+
+/** One `quick_comments` row. */
+export interface FakeQuickComment {
+  id: number;
+  roleCode: string;
+  body: string;
+  bodyHash: string;
+  createdBy: number;
+  createdAt: Date;
 }
 
 /** One `comment_events` row, as the write side appended it. */
@@ -180,8 +205,28 @@ export class InMemoryAssessmentWorld {
   audits: FakeAuditEvent[] = [];
   /** The append-only `comment_events` rows (ADR-006). */
   commentEvents: FakeCommentEvent[] = [];
+  /**
+   * How many end UPDATEs matched a row, whatever became of their transaction
+   * (it is never undone): with the `status = 'pending'` guard it is the number
+   * of ends the database let through, one per assessment (FR-17).
+   */
+  endUpdatesMatched = 0;
+  /** The release rows the ends queued (FR-18). */
+  releases: FakeRelease[] = [];
+  /** The saved quick comments of every role. */
+  quickComments: FakeQuickComment[] = [];
+  nextQuickCommentId = 9000;
   /** The id the write side gives the next comment it inserts. */
   nextCommentId = 7000;
+  /**
+   * A deferred interleaving: while set, `lockAssessment` waits until this many
+   * transactions reached it, then lets them all read the row together. The fake
+   * has no row lock, so every one of them reads `pending`: only the conditional
+   * end UPDATE (`endAssessment`) can then decide who ends it, which is the
+   * guard a finish race stands on (FR-17).
+   */
+  holdLockUntil: number | null = null;
+  private lockArrivals: Array<() => void> = [];
   /**
    * The version `effectiveFor` answers, one per call, then 1 (a first write
    * that races another sees the configuration as it was at ITS read).
@@ -202,9 +247,12 @@ export class InMemoryAssessmentWorld {
   /**
    * Called inside `lockAssessment`, right before the row is read: a deferred
    * interleaving. A test uses it to let another writer commit between the
-   * service's reads and the row lock, the way a second request would.
+   * service's reads and the row lock, the way a second request would. It may
+   * be async: the lock waits for it, so a whole second request (a finish) can
+   * run to its commit while this transaction is in flight, as it does behind a
+   * row lock.
    */
-  beforeLockAssessment: (() => void) | null = null;
+  beforeLockAssessment: (() => void | Promise<void>) | null = null;
   /** Called inside `lockTimelineShared`, before the timeline is read: a timeline edit that commits first. */
   beforeLockTimeline: (() => void) | null = null;
   /** The write-port calls of the transactions, in the order they ran: the lock order of design 5. */
@@ -221,6 +269,21 @@ export class InMemoryAssessmentWorld {
 
   resetStatements(): void {
     this.statements = 0;
+  }
+
+  /** Called by `lockAssessment`: waits for `holdLockUntil` arrivals when it is set. */
+  async arriveAtLock(): Promise<void> {
+    if (this.holdLockUntil === null) return;
+    await new Promise<void>((resolve) => {
+      this.lockArrivals.push(resolve);
+      if (this.lockArrivals.length >= (this.holdLockUntil ?? 0)) {
+        const waiting = this.lockArrivals;
+        this.lockArrivals = [];
+        // Released once: a later lock in the same test (a retry, a follow-up request) must not wait for arrivals that never come.
+        this.holdLockUntil = null;
+        for (const release of waiting) release();
+      }
+    });
   }
 }
 
@@ -519,6 +582,8 @@ export class InMemoryAssessmentStore implements AssessmentStore {
     return Promise.resolve({
       membershipId: found.id,
       resultCode: found.resultCode,
+      resultId: found.resultId ?? found.resultCode,
+      phaseYear: found.phaseYear ?? timeline?.cycleYear ?? 2026,
       title: found.title,
       programId: found.programId,
       resultTypeKey: found.resultTypeKey,
@@ -562,6 +627,16 @@ export class InMemoryAssessmentStore implements AssessmentStore {
         .map((c, index) => ({ c, index }))
         .filter(({ c }) => c.assessmentId === assessmentId)
         .map(({ c, index }) => commentRecordOf(this.world, c, index)),
+    );
+  }
+
+  listQuickComments(roleCode: string): Promise<QuickCommentRecord[]> {
+    this.world.statements += 1;
+    return Promise.resolve(
+      this.world.quickComments
+        .filter((q) => q.roleCode === roleCode)
+        .sort((x, y) => y.createdAt.getTime() - x.createdAt.getTime() || y.id - x.id)
+        .map(({ id, body, createdAt }) => ({ id, body, createdAt })),
     );
   }
 
@@ -662,6 +737,15 @@ export class FakeFieldConfigEffective implements FieldConfigEffective {
  * `ensureAssessment` keeps an existing row (the duplicate-key no-op),
  * `lockAssessment` reads the row as it is at the moment of the lock, and each
  * call is as many counted statements as the adapter runs.
+ *
+ * Limitation: the fake holds no row locks, and `ensureAssessment` does not WAIT
+ * on a duplicate insert. In MySQL a second first writer blocks on the first
+ * one's uncommitted row until it commits or rolls back, so a writer that found
+ * the duplicate never relies on a row that then vanishes. Here the first
+ * inserter's row is visible at once and its undo log removes it on a rollback,
+ * so a second first writer that took the duplicate no-op would lose the row
+ * under it (MySQL cannot do that). Tests that need the winner's row seed it,
+ * or race writers on an existing row.
  */
 export class InMemoryAssessmentWriteStore implements AssessmentWriteStore {
   /**
@@ -714,26 +798,28 @@ export class InMemoryAssessmentWriteStore implements AssessmentWriteStore {
     return Promise.resolve();
   }
 
-  lockAssessment(
+  async lockAssessment(
     timelineResultId: number,
     stepPosition: number,
   ): Promise<LockedAssessment | undefined> {
     this.world.statements += 1;
     this.world.writeLog.push('lockAssessment');
-    this.world.beforeLockAssessment?.();
+    await this.world.beforeLockAssessment?.();
+    await this.world.arriveAtLock();
     const row = this.world.assessments.find(
       (a) =>
         a.membershipId === timelineResultId && a.stepPosition === stepPosition,
     );
-    return Promise.resolve(
-      row === undefined
-        ? undefined
-        : {
-            id: row.id,
-            status: row.status,
-            fieldConfigVersion: row.fieldConfigVersion ?? 1,
-          },
-    );
+    return row === undefined
+      ? undefined
+      : {
+          id: row.id,
+          status: row.status,
+          fieldConfigVersion: row.fieldConfigVersion ?? 1,
+          membershipEnded:
+            this.world.memberships.find((m) => m.id === timelineResultId)
+              ?.ended ?? false,
+        };
   }
 
   findValidations(assessmentId: number): Promise<ValidationRecord[]> {
@@ -841,6 +927,116 @@ export class InMemoryAssessmentWriteStore implements AssessmentWriteStore {
       );
     });
     return Promise.resolve();
+  }
+
+  endAssessment(end: AssessmentEndWrite): Promise<boolean> {
+    this.world.statements += 1;
+    this.world.writeLog.push('endAssessment');
+    const held = this.world.assessments.find((a) => a.id === end.assessmentId);
+    // The conditional UPDATE: it matches the row only while it is `pending`.
+    if (held === undefined || held.status !== 'pending') {
+      return Promise.resolve(false);
+    }
+    this.world.endUpdatesMatched += 1;
+    held.status = end.status;
+    held.finishedBy = end.actorId;
+    held.finishedAt = end.at;
+    this.undo.push(() => {
+      held.status = 'pending';
+      held.finishedBy = null;
+      held.finishedAt = null;
+    });
+    return Promise.resolve(true);
+  }
+
+  findCommentedFieldKeys(assessmentId: number): Promise<string[]> {
+    this.world.statements += 1;
+    this.world.writeLog.push('findCommentedFieldKeys');
+    return Promise.resolve([
+      ...new Set(
+        this.world.comments
+          .filter(
+            (c) => c.assessmentId === assessmentId && c.state !== 'withdrawn',
+          )
+          .map((c) => c.fieldKey ?? 'general.title'),
+      ),
+    ]);
+  }
+
+  markCommentsVisible(assessmentId: number, at: Date): Promise<void> {
+    this.world.statements += 1;
+    this.world.writeLog.push('markCommentsVisible');
+    for (const comment of this.world.comments) {
+      if (
+        comment.assessmentId !== assessmentId ||
+        comment.state === 'withdrawn' ||
+        (comment.visibleToProgramAt ?? null) !== null
+      ) {
+        continue;
+      }
+      comment.visibleToProgramAt = at;
+      this.undo.push(() => {
+        comment.visibleToProgramAt = null;
+      });
+    }
+    return Promise.resolve();
+  }
+
+  insertRelease(row: NewReleaseRow): Promise<void> {
+    this.world.statements += 1;
+    this.world.writeLog.push('insertRelease');
+    // The unique key `uq_assessment_releases_assessment`: one release per end.
+    if (this.world.releases.some((r) => r.assessmentId === row.assessmentId)) {
+      return Promise.reject(
+        Object.assign(new Error('Duplicate entry'), {
+          code: 'ER_DUP_ENTRY',
+          errno: 1062,
+        }),
+      );
+    }
+    const created: FakeRelease = { ...row, status: 'pending' };
+    this.world.releases.push(created);
+    this.undo.push(() => {
+      this.world.releases = this.world.releases.filter((r) => r !== created);
+    });
+    return Promise.resolve();
+  }
+
+  saveQuickComment(row: NewQuickCommentRow): Promise<SavedQuickComment> {
+    this.world.statements += 1;
+    this.world.writeLog.push('saveQuickComment');
+    const existing = this.world.quickComments.find(
+      (q) => q.roleCode === row.roleCode && q.bodyHash === row.bodyHash,
+    );
+    if (existing !== undefined) {
+      this.world.statements += 1;
+      return Promise.resolve({
+        id: existing.id,
+        body: existing.body,
+        createdAt: existing.createdAt,
+        created: false,
+      });
+    }
+    const created: FakeQuickComment = {
+      id: this.world.nextQuickCommentId++,
+      roleCode: row.roleCode,
+      body: row.body,
+      bodyHash: row.bodyHash,
+      createdBy: row.createdBy,
+      createdAt: row.at,
+    };
+    this.world.quickComments.push(created);
+    this.undo.push(() => {
+      this.world.quickComments = this.world.quickComments.filter(
+        (q) => q !== created,
+      );
+    });
+    return Promise.resolve({
+      id: created.id,
+      body: created.body,
+      createdAt: created.createdAt,
+      created: true,
+    });
   }
 }
 

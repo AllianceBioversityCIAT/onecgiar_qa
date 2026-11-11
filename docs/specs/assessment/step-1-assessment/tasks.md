@@ -270,7 +270,7 @@ Gate edges from **T-1** are listed on the last line of the graph. Nothing else w
 - **Skills:** nestjs-expert, error-handling-patterns, tdd
 
 ## T-11: Writes II — ends (auto Quality Assessed, finish → returned) and quick comments
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-10, T-1 (OQ-2, OQ-9)
 - **Requirements:**

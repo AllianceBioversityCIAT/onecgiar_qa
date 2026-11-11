@@ -4,6 +4,7 @@ import {
   ConflictException,
   ForbiddenException,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { errorBody, FIELD_ERRORS } from '../common/error-codes.js';
 
@@ -40,6 +41,20 @@ export class AssessmentFinishedError extends ConflictException {
   }
 }
 
+/**
+ * A write kept finding another pinned configuration version under the lock than
+ * the one it judged by, even after its one retry: 503 `SERVICE_UNAVAILABLE`,
+ * retryable, nothing committed. The pin is set once, on the row's creation, so
+ * a second mismatch means the row changed under the request twice; the step is
+ * not closed and the assessment not ended, so no 409 of this module fits. The
+ * cause is the mismatch itself, never part of the answer.
+ */
+export class AssessmentBusyError extends ServiceUnavailableException {
+  constructor(cause?: unknown) {
+    super(errorBody('SERVICE_UNAVAILABLE'), { cause });
+  }
+}
+
 /** The timeline resolves to no field configuration for the result's type. */
 export class AssessmentNoFieldConfigError extends ConflictException {
   constructor() {
@@ -50,12 +65,21 @@ export class AssessmentNoFieldConfigError extends ConflictException {
 /**
  * Finish refused: grey core fields without a non-withdrawn comment. `fields`
  * are the uncommented core keys, carried for the 409 response details (design 6,
- * FR-15). The global filter forwards them in the response body once the finish
- * route (T-11) wires it; until then the catalog text alone is answered.
+ * FR-15): the global filter forwards them as `error.fields`.
  */
 export class AssessmentCoreUncommentedError extends ConflictException {
   constructor(readonly fields: string[]) {
-    super(errorBody('ASSESSMENT_CORE_UNCOMMENTED'));
+    super({ ...errorBody('ASSESSMENT_CORE_UNCOMMENTED'), fields });
+  }
+}
+
+/**
+ * The quick comments of a role are for the users who hold a live grant of that
+ * role (FR-12): any other caller, an ADMIN included, is refused.
+ */
+export class AssessmentQuickCommentsForbiddenError extends ForbiddenException {
+  constructor() {
+    super(errorBody('AUTH_PERMISSION_DENIED'));
   }
 }
 
