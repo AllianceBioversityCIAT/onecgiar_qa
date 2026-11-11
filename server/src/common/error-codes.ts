@@ -304,6 +304,42 @@ export const ERROR_CATALOG = {
     status: 409,
     message: 'There are no changes to publish.',
   },
+
+  // --- Assessment (step 1) -------------------------------------------------
+  ASSESSMENT_NOT_FOUND: {
+    status: 404,
+    message: 'This result is not available to you in this timeline.',
+  },
+  ASSESSMENT_READ_ONLY: {
+    status: 403,
+    message: 'You can view this assessment but not change it.',
+  },
+  ASSESSMENT_STEP_CLOSED: {
+    status: 409,
+    message: 'This step is closed, so the assessment can no longer change.',
+  },
+  ASSESSMENT_FINISHED: {
+    status: 409,
+    message: 'This assessment is already finished and cannot change.',
+  },
+  ASSESSMENT_NO_FIELD_CONFIG: {
+    status: 409,
+    message:
+      'No field configuration applies to this result yet. Ask an admin to publish one.',
+  },
+  ASSESSMENT_CORE_UNCOMMENTED: {
+    status: 409,
+    message:
+      'Some core fields are not validated and have no comment. Validate them or comment on them before finishing.',
+  },
+  ASSESSMENT_NOT_COMMENT_AUTHOR: {
+    status: 403,
+    message: 'Only the author of a comment can withdraw it.',
+  },
+  ASSESSMENT_COMMENT_NOT_OPEN: {
+    status: 409,
+    message: 'This comment can no longer be withdrawn.',
+  },
 } as const satisfies Record<string, { status: number; message: string }>;
 
 export type ErrorCode = keyof typeof ERROR_CATALOG;

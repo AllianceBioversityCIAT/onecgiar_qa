@@ -134,6 +134,8 @@ describe('ReportingResultsFeedClient', () => {
             values: {
               'capacity_sharing.length_of_training': { value: 4, degree: 2 },
             },
+            // Synthetic (not in the contract example): one named id, one id with no row.
+            labels: { countries: { '170': 'Colombia', '999': null } },
           },
         ],
         notEligible: [{ resultId: 900003, reason: 'not_submitted' }],
@@ -149,6 +151,70 @@ describe('ReportingResultsFeedClient', () => {
       expect(init?.headers).toMatchObject({
         'x-api-key': KEY,
         'content-type': 'application/json',
+      });
+    });
+
+    describe('details: labels (FR-20, DD-6)', () => {
+      const withLabels = (labels: unknown, present = true) => {
+        const body = fixture('results-details') as {
+          results: Array<Record<string, unknown>>;
+        };
+        if (present) body.results[0].labels = labels;
+        else delete body.results[0].labels;
+        fetchMock.mockResolvedValue(json(body));
+        return client.details({ phaseYear: 2026, resultIds: [900001] });
+      };
+
+      it('present: kept as sent, a null label included', async () => {
+        const { results } = await withLabels({
+          countries: { '170': 'Colombia', '999': null },
+          regions: {},
+        });
+        expect(results[0].labels).toEqual({
+          countries: { '170': 'Colombia', '999': null },
+          regions: {},
+        });
+        expect(spy.lines.join('\n')).not.toContain('labels_malformed');
+      });
+
+      it('absent: no labels key and no log line', async () => {
+        const { results } = await withLabels(undefined, false);
+        expect(results[0]).not.toHaveProperty('labels');
+        expect(spy.lines.join('\n')).not.toContain('labels_malformed');
+      });
+
+      it.each([
+        ['an array', [1, 2]],
+        ['a number', 7],
+        ['null', null],
+        ['a list that is an array', { countries: ['Colombia'] }],
+        ['a list that is a string', { countries: 'Colombia' }],
+        ['number values', { countries: { '170': 170 } }],
+        [
+          'one bad list among good ones',
+          { ok: { '1': 'One' }, bad: { '2': 2 } },
+        ],
+      ])(
+        'malformed (%s): dropped, the load does not fail, the values stay, only the reason word is logged',
+        async (_name, labels) => {
+          const { results } = await withLabels(labels);
+          expect(results[0]).not.toHaveProperty('labels');
+          expect(results[0].values).toEqual({
+            'capacity_sharing.length_of_training': { value: 4, degree: 2 },
+          });
+          const logged = spy.lines.filter((l) =>
+            l.includes('labels_malformed'),
+          );
+          expect(logged).toHaveLength(1);
+          expect(logged[0]).toBe(
+            'upstream_bad_labels source=reporting reason=labels_malformed',
+          );
+        },
+      );
+
+      it('never puts a label in a log line', async () => {
+        await withLabels({ countries: { '170': 'SECRET-LABEL', '2': 2 } });
+        expect(spy.lines.join('\n')).not.toContain('SECRET-LABEL');
       });
     });
 

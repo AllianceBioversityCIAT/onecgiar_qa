@@ -1,0 +1,1071 @@
+# Step 1 assessment — Execution Log
+
+## 1. Document Control
+
+| Field | Value |
+|---|---|
+| Spec path | `docs/specs/assessment/step-1-assessment` |
+| Branch | `feat/assessment-step-1` (worktree `onecgiar_qa-assessment`) |
+| Approval mode | gated |
+| Leader | Claude Code, `opus` (T1) |
+| Implementer / Reviewer | `akili-implementer` (`sonnet`, T2) / `akili-reviewer` (`opus`, T3) |
+| Started | 2026-11-10 |
+| Budget (design § 10) | 21 tasks · ≈ 4,800 production LOC · ≈ 26 review rounds |
+
+**Persona drift at start (2026-11-10):** `akili doctor --agents` reported that `leader.md` primary-instructions and test-harness, `reviewer.md` audit-checklist, and `tester.md` prove-behavior are OUTDATED (they match v2.30/2.32, and the CLI is v2.37.2). `implementer.md` is current. `--fix` was not run, because `.agents/` is a shared file that this spec branch must not edit. The drift was reported to the back lead and is pending on `staging`.
+
+## 2. Task Execution History
+
+### T-2: Migration `0009_assessment` and Drizzle schemas — PASS
+
+| | |
+|---|---|
+| Date | 2026-11-10 |
+| Final status | PASS (attempt 1 of 1) |
+| Requirements covered | FR-10, FR-11, FR-12, FR-13, FR-17, FR-18, FR-19, FR-21, FR-24, NFR-3 (keys), NFR-7 (size check) |
+| Skills | nestjs-expert, nestjs-best-practices (as task) |
+| Effort | medium |
+
+**Attempt 1**
+
+- **Files changed:**
+  - new schemas `server/src/database/drizzle/schema/{result-assessments, assessment-field-validations, assessment-comments, comment-events, quick-comments, assessment-audit-events, assessment-releases}.ts`;
+  - `timeline-results.ts` (+ `title`), `schema/index.ts`, `schema.spec.ts`;
+  - generated `server/drizzle/0009_assessment.sql`, `meta/0009_snapshot.json` and `meta/_journal.json`;
+  - hand-written `server/drizzle/rollback/0009_assessment.down.sql`;
+  - `server/src/ingestion/loads.unit-of-work.spec.ts:3655`: a one-line regex update. The new column extends the insert column list, so this is consumer fallout and lies outside the named scope.
+- **Implementer verification:** `pnpm lint` clean, `pnpm build` clean, `pnpm test --reporter=dot`: `Test Files 71 passed | 1 skipped (72)`, `Tests 3058 passed | 4 skipped (3062)`. The SQL came from `drizzle-kit generate --name assessment`. No `db:migrate` was run.
+- **Falsifier (red run, observed):** the committed `0009_assessment.sql` was mutated temporarily, removing the unique key on `result_assessments` and the `COLLATE` on `title` to simulate a regeneration. It was then restored byte for byte. The run was `vitest run src/database/drizzle/schema/schema.spec.ts` → `Tests 2 failed | 201 passed (203)`. Verbatim:
+  - `allows one assessment per membership and step (FR-17)` — `AssertionError: expected 'CREATE TABLE `result_assessments` (\n…' to match /CONSTRAINT `uq_result_assessments_mem…/`
+  - `adds title varchar(1000) with an explicit _ci collation to timeline_results (FR-24)` — `AssertionError: expected 'CREATE TABLE `result_assessments` (\n…' to contain 'ALTER TABLE `timeline_results` ADD `t…'`
+- **Evidence re-run (Leader inline, non-author):** `pnpm -C server lint`, `build` and `test --reporter=dot` gave the same counts → **VERIFIED**.
+- **Reviewer verdict:** PASS. Every § 5 key, check and enum matches. The assertions read the generated SQL (the disqualifier does not apply). The SQL shows no sign of a hand edit. The rollback drops exactly the 7 tables and `title`.
+- **Runtime events:** none.
+
+**Decisions made**
+
+- The comment `state` enum declares all 10 states (TRD § 7.3 plus `withdrawn`), per DD-10 and FR-19. `comment_events.from_state` and `to_state` use the same list.
+- The FK `fk_assessment_field_validations_assessment` is named by hand in the TS schema, because the default name has 67 characters and MySQL allows 64. It reaches the SQL through the generator. A test pins that every constraint name is 64 characters or fewer and that every FK is `ON DELETE no action`.
+- Where § 5 is silent:
+  - `field_config_version` is `int unsigned`, with no FK;
+  - `value_copy` is `json NOT NULL`;
+  - `state` defaults to `open`;
+  - `request_id` is nullable, as in `field_config_audit_events`;
+  - there is no FK on `comment_id`, `assessment_releases.timeline_result_id` or `field_config_version`;
+  - `attempts` defaults to 0, and `status` defaults to `pending`.
+- Environment: the worktree had no `node_modules`. The Implementer ran `npx pnpm@10.6.5 install --frozen-lockfile`, because the global pnpm 12 refuses the pinned 10.6.5.
+
+**ADVISORY (4R, recorded only)**
+
+- RISK: `comment_events` has no `reason` or `body` column, while TRD ADR-006 and § 5.1 list them and design § 5 leaves them out. If P2-3911 needs a reason, DD-10's "transitions, not schema" fails. Raised at the T-2 gate as a possible amendment.
+- READABILITY: `field_config_version` does not say whether it holds `field_config_versions.id` or the per-cycle `number`. T-10 should state which.
+- RELIABILITY: `request_id` is nullable, while FR-21 says every audit row holds one. The T-10 and T-11 writers must always set it.
+- RELIABILITY: § 5 has no unique key for comment idempotency, so T-10 must cover NFR-3 for double-clicked comments through `@Idempotent()`.
+- RISK: the CHECKs on the JSON column (`chk_value_copy_size`) and the cross-column checks are verified only as SQL text. The T-16 HITL confirms that MySQL 8 accepts them.
+
+**Issues encountered**
+
+- `server/src/database/AGENTS.md` (the migration list and schema guarantees) is not updated. It is a shared guide outside T-2's scope, so it is recorded for `/akili-archive`.
+
+**Spawns:** implementer 54 calls, 147,623 tokens, ended complete; reviewer 19 calls, 66,613 tokens, ended complete.
+
+**Running totals (budget tripwire):**
+
+| Measure | Actual | Budget |
+|---|---|---|
+| Tasks | 1 of 21 | 21 |
+| Production LOC | ≈ 415 (TS) + 141 (generated SQL and rollback) | 4,800 |
+| Review rounds | 1 | 26 |
+
+Within budget.
+
+**Gate (2026-11-10).** The T-2 gate offered adding `reason` to `comment_events`. The back lead answered "Continue" without taking up the amendment, so the column is not added. It stays an advisory (the P2-3911 schema risk).
+
+### T-3: Pure rules — role steps, status, transitions, end rule, scope — PASS
+
+| | |
+|---|---|
+| Date | 2026-11-10 |
+| Final status | PASS (attempt 2 of 2) |
+| Requirements covered | FR-1 (predicates of all five scenarios), FR-2 (step open and hold, pure), FR-5 (table, TS evaluator and SQL CASE from one table), FR-14 and FR-15 (end rule), FR-19 (transition table and predicate) |
+| Skills | nestjs-expert, tdd (as task) |
+| Effort | attempt 1 `high`, raised above the T2 default `medium` because the tables decide visibility (a security-like scope leak). Attempt 2 `xhigh` (the rework bump) |
+
+**Attempt 1 — FAIL**
+
+- **Files changed** (all new): `server/src/assessment/{role-steps, qa-status, comment-transitions, assessment-rules, scope}.ts`, each with its `.spec.ts`. That is 717 production lines and 125 tests.
+- **Implementer verification:** lint 0 warnings, build clean, `Test Files 76 passed | 1 skipped (77)`, `Tests 3183 passed | 4 skipped (3187)`.
+- **Falsifiers (observed red):**
+  1. ASSESSOR `round: 1` changed to `2`: 31 failed. Among them, `scope.spec.ts > FR-1 Assessor sees only their scope > lists only the (policy_change, SP01) membership` failed with `AssertionError: expected [ false, false, false ] to deeply equal [ true, false, false ]`.
+  2. Exclusions dropped in `programSet`: 5 failed. Among them, `no scope rows, SP02 actively excluded` failed with `AssertionError: expected true to be false // Object.is equality`.
+  3. The FR-5 clarification row mapped to `returned_to_program`: 4 failed. Among them, `statusOf (FR-5 table) > returned assessment, clarification thread, membership not ended` failed with `AssertionError: expected 'returned_to_program' to be 'clarification_requested' // Object.is equality`. The SQL CASE text snapshot also went red.
+- **Evidence re-run (Leader inline):** same counts. `grep "new Date()|Date.now"` over the non-spec files of `src/assessment` returned 0. **VERIFIED.**
+- **Reviewer verdict: FAIL** (verbatim):
+  > 1. **Discovered Issue:** `server/src/assessment/scope.ts:31` creates `const authorization = new AuthorizationService();` at module level and uses it only for `admin: authorization.can(user, Permission.ADMIN_ACCESS)`. That is an `@Injectable` provider built outside Nest DI, inside a file the task says has no I/O and no providers. No other production file does this; the only other `new AuthorizationService()` calls are in `*.spec.ts`. A test or module that overrides the `AuthorizationService` provider would not reach this copy, so the admin decision would silently stop following it.
+  >    **Violated Rule:** `server/AGENTS.md:63`: "inject with `@Inject(Token)` explicitly (constructor parameters), including classes". `server/src/users/AGENTS.md:3`: other modules use `AuthorizationService` through `UsersModule`.
+  >    **Remediation Suggestion:** Keep `scope.ts` pure. Have `resolveAccess` take the admin answer from its caller, for example `resolveAccess(user, timelineRoles, isAdmin)`. In T-6/T-7 the caller computes it with the injected `AuthorizationService.can(user, Permission.ADMIN_ACCESS)`. Do not rebuild the permission check by hand in `scope.ts`.
+- **Runtime events:** none.
+
+**Attempt 2 — PASS**
+
+- **Files changed:** `scope.ts` and `scope.spec.ts` only. The other four modules are byte-identical to attempt 1.
+  - `resolveAccess(user, timelineRoles, isAdmin: boolean)` takes the admin answer as a required parameter, and there is no module-level instance.
+  - The spec computes `isAdmin` with a spec-local `AuthorizationService`, as the users specs already do.
+  - Three new tests: "FR-1 the admin answer comes from the caller".
+- **Red then green:** before the fix, two of the new tests were red, with `AssertionError: expected false to be true // Object.is equality` (`Tests 2 failed | 67 passed (69)`).
+- **Implementer verification:** lint and build clean, `Tests 3186 passed | 4 skipped (3190)`. The three falsifiers were re-run, and each went red as in attempt 1.
+- **Evidence re-run (Leader inline):** same counts. `grep "new AuthorizationService|new Date()|Date.now"` over the non-spec files returned 0. **VERIFIED.**
+- **Reviewer verdict: PASS.** Issue 1 is resolved and nothing regressed. The ADMIN rows still exercise the real permission rule.
+- **Runtime events:** none.
+
+**Decisions made (Implementer assumptions, accepted by the Reviewer):**
+
+- The FR-5 table is read in requirement order, and the first matching row wins. A membership that matches no row gets the status `null` and is never listed.
+- `inScope` ignores the ended filter, so an ended membership can still be read by URL. `listedFor` applies the filter.
+- An ADMIN who also holds an ASSESSOR assignment and a live grant gets the reviewer row, limited to their own program scope and exclusions. This follows FR-1 and FR-2 to the letter, and it differs on purpose from `canReview`'s ADMIN program exemption (DD-13). T-7 and T-10 must not "fix" it.
+- `statusSqlCase(columns)` takes column fragments from the caller. Status literals are guarded by `/^[a-z_]+$/`, and no parameters are bound.
+- `isAdmin` is a required boolean with no default, so a caller that forgets it does not compile.
+
+**ADVISORY (4R, recorded only):**
+
+- RELIABILITY: the FR-19 lift in `listedFor` also lists memberships that ended `timeline_closed`. For those, `statusOf` gives `null`, because FR-5 rows 3 and 4 allow only `endReason` null or `returned`. T-7 must handle this.
+- RISK: `ProgramSet { mode: 'in', ids: [] }` can happen. T-7 must turn it into an always-false condition, never `IN ()`.
+- RELIABILITY: `statusSqlCase` assumes the clarification flag is exactly 0 or 1. T-7 must pass `EXISTS(...)` or `COALESCE(..., 0)`.
+- RISK: T-7 and the write path must compute `isAdmin` only with the injected `AuthorizationService.can(user, Permission.ADMIN_ACCESS)`, never with a role-code comparison.
+- READABILITY: `RoleStepRow.permission` is declared but never read.
+
+**Forward pointers to T-7:** the four advisories above (FR-19 `timeline_closed`, empty `IN`, 0/1 clarification flag, `isAdmin` source).
+
+**Spawns:** implementer 52 calls, 207,248 tokens, ended complete; reviewer 25 calls, 91,705 tokens, ended complete (FAIL); implementer 38 calls, 121,471 tokens, ended complete; reviewer not reported by host at the time of writing, ended complete (PASS).
+
+**Running totals:**
+
+| Measure | Actual | Budget |
+|---|---|---|
+| Tasks | 2 of 21 | 21 |
+| Production LOC | ≈ 1,140 TS (415 + 725) + 141 SQL | 4,800 |
+| Review rounds | 3 | 26 |
+
+Within budget.
+
+### T-4: Labels from Reporting — port, parse, snapshot, fixture — PASS
+
+| | |
+|---|---|
+| Date | 2026-11-10 |
+| Final status | PASS (attempt 1 of 1) |
+| Requirements covered | FR-20 (*Rename is not an update*; one hash for equal values; labels absent, malformed or `null`) |
+| Skills | nestjs-expert, aws-serverless, error-handling-patterns (as task) |
+| Effort | `high`, raised above `medium` because the task changes pinned ingestion behavior (DD-12) |
+
+**P-31 settled (Leader, inline, before the spawn).** Reporting commit `448debd0f` (`onecgiar_pr`, local) gives `QaResultsDetailsItem.labels: Record<string, Record<string, string | null>>`: "`{}` (never absent) when it holds none. `null` is an id with no row." This matches the design, so no Pivot. The commit does not touch `docs/qa-catalog.en.md`; the shape was read from `qa-results-response.dto.ts`.
+
+**Attempt 1**
+
+- **Files changed** (under `server/src/`):
+  - `ingestion/results-feed.port.ts` (`FeedLabels`, `labels?`);
+  - `ingestion/reporting-results-feed.client.ts` (lenient `parseLabels`, log line `upstream_bad_labels source=reporting reason=labels_malformed`);
+  - `ingestion/snapshot-store.port.ts`;
+  - `ingestion/dynamo-snapshot-store.ts` (`packJson`, `unpackJson`, `toRecord`: one row-to-record path);
+  - `database/dynamodb/entities/result-snapshot.entity.ts` (`labels`, `labelsGz`);
+  - `ingestion/load-rules.ts` (exports `SNAPSHOT_SK_PREFIX` and `snapshotKeyOf`);
+  - `ingestion/load-runner.ts`;
+  - `ingestion/fixtures/results-details.json` (synthetic labels: `countries` `170` → "Colombia", `999` → `null`);
+  - specs: `reporting-results-feed.client.spec.ts`, `dynamo-snapshot-store.spec.ts`, `dynamo-snapshot-store.dynamo-local.spec.ts`, `load-rules.spec.ts`, `load-runner.spec.ts`.
+
+  `test/support/fake-snapshot-store.ts` needed no change. About 134 production lines.
+- **Implementer verification:**
+  - lint and build clean;
+  - unit: `Test Files 76 passed | 1 skipped (77)`, `Tests 3210 passed | 6 skipped (3216)`;
+  - e2e: `Test Files 16 passed (16)`, `Tests 968 passed (968)`.
+- **Falsifiers (observed red):**
+  1. Labels added to the hash in the runner: `Tests 4 failed | 43 passed (47)`. The failing test is `load-runner.spec.ts > labels (FR-20, DD-6) > re-entry with the same values and a renamed label: one hash, changed_fields [], no earlier snapshot read, the old labels kept`, with `AssertionError: expected 'e5d16f698f8f47c755f8736cadb710b733946…' to be 'd35b1d88d66d811545929847a371613822f56…' // Object.is equality`.
+  2. `parseLabels` made to throw `BadShape`: `Tests 8 failed | 62 passed (70)`. For example, `details: labels (FR-20, DD-6) > malformed (number values): dropped, the load does not fail, the values stay, only the reason word is logged` failed with `FeedError: reporting_feed_unavailable`.
+- **Evidence re-run (Leader inline):** lint, build, unit and e2e give the same counts. **VERIFIED.**
+- **Reviewer verdict: PASS.**
+  - The hash and the conflict check compare `values` only, so the first labels win (P-6).
+  - No label text is logged.
+  - The disqualifier does not apply: the rename fixture diverges, and the hash is not mocked.
+  - `snapshotKeyOf` is tested with the real `snapshotSortSuffix`.
+- **Runtime events:** none.
+
+**Decisions made:**
+
+- A present `labels: null` is malformed: it is dropped, with the fixed log line.
+- Any malformed part drops the whole `labels` object (§ 7.8).
+- `{}` is stored as `"{}"`.
+- `hashValues` stays private and is tested through the runner.
+
+**Issues encountered:** `DYNAMODB_ENDPOINT` was not set, so the two new cases in `dynamo-snapshot-store.dynamo-local.spec.ts` were written but did not run. **Gap:** they must run once against DynamoDB Local before the spec closes, at T-16 at the latest.
+
+**ADVISORY (4R, recorded only):**
+
+- RELIABILITY: `onLabelsMalformed` logs once per result, so a bad batch gives up to 50 identical warning lines.
+- RISK: the DynamoDB Local cases have not run (see the gap above).
+- READABILITY: `ingestion/AGENTS.md:24` still calls `fixtures/` "Reporting contract examples", while `results-details.json` now carries synthetic labels. T-15 should cover it.
+- READABILITY: the casts in `packJson` could be simpler.
+
+**Spawns:** implementer 41 calls, 140,276 tokens, ended complete; reviewer not reported by host, ended complete (PASS).
+
+**Running totals:**
+
+| Measure | Actual | Budget |
+|---|---|---|
+| Tasks | 3 of 21 | 21 |
+| Production LOC | ≈ 1,275 TS + 141 SQL | 4,800 |
+| Review rounds | 4 | 26 |
+
+Within budget.
+
+### T-5: Ingestion — title copy, `endAsReleasedQaed`, count inside `end()` — PASS
+
+| | |
+|---|---|
+| Date | 2026-11-10 |
+| Final status | PASS (attempt 1 of 1) |
+| Requirements covered | FR-24 (title stored; `returnedNotResubmitted` counted in the end transaction), FR-18 (store method `endAsReleasedQaed` only; no caller until T-12) |
+| Skills | nestjs-expert, tdd (as task) |
+| Effort | `xhigh`, raised above `medium` because the task moves a count into a transaction and needs a real interleaving test (effort dial: concurrency) |
+| Review mode | parallel lens reviewers (2): concurrency + reliability, regression + risk; each with baseline conformance |
+
+**Attempt 1**
+
+- **Files changed** (under `server/`):
+  - `src/ingestion/load-runner.ts` (title on the membership; both pre-counts removed);
+  - `src/ingestion/loads.unit-of-work.ts` (`end()` counts on the transaction handle after the load-row lock; `EndLoadCommand.returnedNotResubmitted` removed);
+  - `src/ingestion/loads.store.ts` (`endAsReleasedQaed`);
+  - `test/support/in-memory-loads.ts`;
+  - specs: `src/ingestion/load-runner.spec.ts`, `src/ingestion/loads.unit-of-work.spec.ts`.
+
+  `loads.service.ts` (the preview, P-2) is untouched. About 94 production lines.
+- **Implementer verification:**
+  - lint and build clean;
+  - unit: `Test Files 76 passed | 1 skipped (77)`, `Tests 3246 passed | 6 skipped (3252)`;
+  - e2e (focused): `ingestion-loads`, `ingestion-loads-privacy`, `openapi`: 96 passed. The full `pnpm test:e2e` was blocked twice by the host resource guard (RAM below 4,500 MB) and reported under *Not Done* as owed.
+- **Red runs (observed):**
+  - title: `load-runner.spec.ts -t "the title of the membership"` → 4 failed, e.g. `expected null to be 'Climate-smart rice in the Mekong'`;
+  - interleaving against the old code: `loads.unit-of-work.spec.ts -t "is read inside the end transaction"` → 3 failed, e.g. `expected { total: 0, byProgram: {}, byType: {} } to deeply equal { total: 2, … }`. This red differs from the prediction: it comes from `end()` not counting at all, because the count was the runner's;
+  - store: first run against a stub returning `not_found` → 3 failed, e.g. `expected { ended: false, reason: 'not_found' } to deeply equal { ended: true }`.
+- **Falsifiers (observed red, then restored):**
+  1. M1, the count in a separate transaction before the end: `loads.unit-of-work.spec.ts` → 2 failed. The deferred-interleaving test failed at `expect(storedCount(world)).toEqual(await world.store.countReturnedNotResubmitted(11))`: stored `total:2`, rows say `total:1`.
+  2. M2, `IS NULL` dropped from `endAsReleasedQaed`: `-t endAsReleasedQaed` → 3 failed: expected `where (id = ? and ended_at is null)`, received `where id = ?`.
+- **Evidence re-run (Leader inline):** lint, build and unit give the same counts. **VERIFIED.** The full e2e, blocked for the Leader too (4 attempts, about 3.7 GB free), was then run with `RG_FORCE=1` at the user's explicit authorization: `Test Files 16 passed (16)`, `Tests 968 passed (968)`. The owed item is closed.
+- **Reviewer verdicts:** concurrency + reliability **PASS**; regression + risk **PASS**.
+  - The count runs on the transaction's own handle after `lockLoadInStartOrder` (`loads.unit-of-work.ts:648`). The stub test pins `via === 'tx'` and no pool count.
+  - The Disqualifier does not apply. `DeferredCount` wraps the real `InMemoryLoadsTransactions`, which has round trips and row locks, so the lot really blocks on the load-row lock.
+  - `end()` has two callers (`load-runner.ts:281`, `:678`); both are updated.
+  - There is one membership insert path, and it carries the title for new rows and round-2 re-entries.
+  - The in-memory fake matches the adapter for `endAsReleasedQaed`.
+- **Runtime events:** none.
+
+**Continuations:** none. The *Not Done* item (full e2e owed) was closed by the Leader's forced re-run after the user authorized it.
+
+**Decisions made:**
+
+- **Count error at end (user decision, 2026-11-10: "Accept and record it").** A count error now rolls back the whole end transaction. At a failed end, the runner retries 3 times, then logs `end_not_written`, and the lease later reads the load as ABANDONED instead of `failed` with its reason. On the completed path, a count failure leads to `fail()`, which counts again. Before T-5, a failed end counted best effort (timeline-sync archive `execution.md:193`). § 7.8 requires the in-transaction count and says nothing about count failure. The count and the end hit the same database, so an outage takes down both. Accepted as is, with no spec amendment.
+- `end()` always counts, at a failed end too, and runs `recordProgress`. This adds two statements per end under the load-row lock. The summary always carries `returnedNotResubmitted`, which `storedSummary` already filled when reading, so the API output is unchanged.
+- The title is cut by code point to 1,000 characters, which matches utf8mb4 `varchar(1000)`. `title` is optional on `LotMembership` and `NewMembershipValues`.
+- `endAsReleasedQaed` returns `{ended:true}` or `{ended:false, reason:'not_found'|'already_ended'}`, with one read after a zero-row update (same shape as `endAsReturned`, P-1).
+- Which test catches which mutation: the literal Falsifier wording ("the count on the pool again inside `end()`") is caught by the stub test's `via === 'tx'` and no-pool assertions, not by the deferred test. Under READ COMMITTED with the load row held, a pool read after the lock is as accurate. The race form (M1, a count before the lock) is what the deferred-interleaving test catches.
+
+**Issues encountered / gaps:**
+
+- **Gap:** M2 is caught only by SQL-text assertions on the stub driver. The in-memory fake has its own guard and stayed green. The already-ended effect on a live MySQL row is not checked (no disposable MySQL). Recorded as a gap, not as coverage; open for T-12 or a HITL.
+- `tsc` over the tests shows 2 pre-existing `title` missing-property errors, from T-2: `src/ingestion/loads.service.spec.ts:194` and `test/ingestion-loads.e2e-spec.ts:256`. Vitest does not typecheck, so nothing is hidden today. They were left out of scope.
+- The full e2e was blocked by the host RAM guard and needed the user-authorized `RG_FORCE=1`.
+
+**ADVISORY (4R, recorded only):**
+
+- RELIABILITY: a persistent count-only bug, such as a query timeout, would turn every failure reason into ABANDONED (see the decision above). A runner test that pins a throwing count (`end_not_written`, no `load_end` row) would document it.
+- RESILIENCE (for T-12): the load-row lock serializes this load's lots, but not a concurrent `endAsReturned` from the release ack. A round-1 row ended `returned` that commits after the count is missed until the next end. One line for T-12's design.
+- READABILITY: `server/src/ingestion/AGENTS.md:19` is stale. It still says `endAsReturned` is "port only", and it does not mention `endAsReleasedQaed` or the count in `end()`. Goes to the FR-25 pending items (T-15).
+- RELIABILITY: adding `title: null` to the two fixtures above would make `tsc` over the tests clean.
+
+**Spawns:**
+
+| Role | Calls | Tokens | Ended |
+|---|---|---|---|
+| implementer | 154 | 326,633 | partial (*Not Done*: full e2e owed) |
+| reviewer (concurrency) | 13 | 57,872 | complete (PASS) |
+| reviewer (regression) | 18 | 69,787 | complete (PASS) |
+
+**Running totals:**
+
+| Measure | Actual | Budget |
+|---|---|---|
+| Tasks | 4 of 21 | 21 |
+| Production LOC | ≈ 1,370 TS + 141 SQL | 4,800 |
+| Review rounds | 6 | 26 |
+
+Within budget.
+
+### T-6: Assessment module wiring, error codes, catalog export — PASS
+
+| | |
+|---|---|
+| Date | 2026-11-11 |
+| Final status | PASS (attempt 2 of 2) |
+| Requirements covered | FR-22 (the module is registered; authenticated routes come later), FR-25 (the 8 error codes in the catalog), DD-1 |
+| Skills | nestjs-expert (as task) |
+| Effort | `medium` in attempt 1 (wiring); `high` in attempt 2 (rework bump) |
+| Review mode | lens checklist, single Reviewer |
+
+**Attempt 1 — FAIL**
+
+- **Files changed** (under `server/src/`):
+  - new: `assessment/assessment.module.ts`, `assessment/assessment.errors.ts` (8 typed errors), `assessment/assessment.module.spec.ts`;
+  - edited: `app.module.ts` (registers `AssessmentModule`), `common/error-codes.ts` (+8 codes), `common/error-codes.spec.ts`, `admin-config/field-config/field-config.module.ts` (exports `FIELD_CONFIG_EFFECTIVE` and `FIELD_CATALOG_SOURCE`), `admin-config/field-config/field-config.module.spec.ts` (pins 2 exports), `admin-config/AGENTS.md` (the "only export" sentence became false and was rewritten; this module guide is a listed consumer, P-15).
+- **Bindings:**
+  - `LOADS_STORE` → `DrizzleLoadsStore`, `SNAPSHOT_STORE` → `DynamoSnapshotStore`, `RESULTS_FEED` → `ReportingResultsFeedClient`;
+  - `ADMIN_CONFIG_CLOCK`, `IDEMPOTENCY_STORE` → `DrizzleIdempotencyStore`, `IDEMPOTENCY_CLOCK`;
+  - imports: `DrizzleModule`, `DynamoDbModule`, `ConfigModule.forFeature(catalogsConfig)`, `UsersModule`, `FieldConfigModule`.
+- **Implementer verification:**
+  - lint and build clean;
+  - unit: `Test Files 77 passed | 1 skipped (78)`, `Tests 3267 passed | 6 skipped (3273)`;
+  - `test/openapi.e2e-spec.ts`: 15 passed.
+- **Red run:** not observed before the code. The implementer wrote the code before the specs, so the first run was green. This differs from the prediction ("greenfield artifact"); the first observed reds are the falsifiers.
+- **Falsifiers (observed red, then restored):**
+  1. `IngestionModule` imported: `expected [ [Function DrizzleModule], …(5) ] to not include [Function IngestionModule]` (`assessment.module.spec.ts:70`).
+  2. `FIELD_CATALOG_SOURCE` removed from the exports:
+     - `field-config.module.spec.ts` failed with `expected [ Symbol(FIELD_CONFIG_EFFECTIVE) ] to deeply equal [ Array(2) ]`.
+     - The module spec first stayed green, because the `strict:false` lookup found the provider inside `FieldConfigModule`. A probe provider that injects through the import list was added, and then it failed with `Nest can't resolve dependencies of the Probe (?, AuthorizationService) … Symbol(FIELD_CATALOG_SOURCE)`.
+- **Evidence re-run (Leader inline):** same counts. **VERIFIED.**
+- **Reviewer verdict: FAIL** (verbatim):
+  > 1. **Discovered Issue:** `assessment.errors.ts` `AssessmentCoreUncommentedError` keeps `fields` off the response. `error-codes.spec.ts` then pins that absence: "carries the uncommented core keys on the error, outside the response" asserts `not.toContain('"a"')`. The class's own docstring says the opposite ("`fields` are for the response details and logs"). The spec needs the keys in the 409. Also, `http-exception.filter.ts:185-191` forwards `fields` only for `VALIDATION_FAILED`, and no task names that filter change. T-11's Consumers is "none", so this test is a trap that T-11 would have to undo without the spec saying so.
+  >    * **Violated Rule:** `design.md` § 6 (line 132): "409 `ASSESSMENT_CORE_UNCOMMENTED` (`fields` = keys)". `requirements.md` FR-15 (line 315): "else 409 `ASSESSMENT_CORE_UNCOMMENTED` with the field keys". `tasks.md` T-11 (line 278): "`ASSESSMENT_CORE_UNCOMMENTED` with keys".
+  >    * **Remediation Suggestion:** Delete the "outside the response" test, or turn it into a test that the response body carries the keys (`{ ...errorBody('ASSESSMENT_CORE_UNCOMMENTED'), fields }`). Make the docstring match the behavior. If the keys are not carried in T-6, write a forward pointer for T-11 in `execution.md`: the filter must forward `fields` for this code, and `http-exception.filter.ts` plus its spec become T-11 consumers.
+
+  The same Reviewer judged two items correct:
+  - Leaving `IDEMPOTENCY_REPLAY_READER` unbound is right. `tasks.md:251` gives "the comment replay reader" to T-10.
+  - The `admin-config/AGENTS.md` edit was necessary and is accurate.
+- **Runtime events:** none.
+
+**Leader adjudication:** the FAIL is in scope, because the test is part of the T-6 diff. I chose the narrow remediation:
+
+- delete the test;
+- correct the docstring;
+- leave `http-exception.filter.ts` alone, since forwarding the field keys is T-11's work;
+- record the forward pointer below.
+
+Two items were added as `[advisory-grade]`: a strict per-module lookup in the module spec, and a JSDoc reflow.
+
+**Attempt 2 — PASS**
+
+- **Files changed:**
+  - `common/error-codes.spec.ts`: the "outside the response" test is deleted;
+  - `assessment/assessment.errors.ts`: the docstring now says the keys are carried for the 409 details, and that the filter forwards them from T-11;
+  - `assessment/assessment.module.spec.ts`: `moduleRef.select(AssessmentModule).get(token, { strict: true })` for all six bindings; only `MYSQL_POOL` and `DRIZZLE` are overridden;
+  - `admin-config/field-config/field-config.module.ts`: JSDoc reflow.
+
+  `http-exception.filter.ts` is untouched.
+- **Implementer verification:**
+  - lint and build clean;
+  - unit: `Test Files 77 passed | 1 skipped (78)`, `Tests 3266 passed | 6 skipped (3272)`;
+  - openapi e2e: 15 passed.
+- **Falsifiers (observed red, then restored):**
+  1. `ADMIN_CONFIG_CLOCK` binding deleted: `Nest could not find Symbol(ADMIN_CONFIG_CLOCK) element (this provider does not exist in the current context)`.
+  2. `IDEMPOTENCY_CLOCK` binding deleted: `Nest can't resolve dependencies of the DrizzleIdempotencyStore (Symbol(DRIZZLE), ?, Symbol(IDEMPOTENCY_TOKEN_FACTORY)) … AssessmentModule`.
+  3. `IngestionModule` imported: `expected [ [Function DrizzleModule], …(5) ] to not include [Function IngestionModule]`.
+  4. `FIELD_CATALOG_SOURCE` export removed: `Nest can't resolve dependencies of the Probe (?, AuthorizationService) … Symbol(FIELD_CATALOG_SOURCE)` and `expected [ Symbol(FIELD_CONFIG_EFFECTIVE) ] to deeply equal [ Array(2) ]`.
+- **Evidence re-run (Leader inline):** lint, build, unit and openapi e2e give the same counts. **VERIFIED.**
+- **Reviewer verdict: PASS.** The attempt-1 finding is resolved. There are 8 codes with the § 6 statuses (404, 403, 409×5, 403), and every error is built with `errorBody(code)` (P-18). There is no `IngestionModule` (DD-1, P-24). `AuthorizationService` comes through `UsersModule`. The Disqualifier does not apply (only connection overrides).
+- **Runtime events:** none.
+
+**Forward pointer → T-11 (recorded 2026-11-11; copy it into the T-11 brief):** `AssessmentCoreUncommentedError` carries `fields`, the uncommented core keys. `http-exception.filter.ts:185-191` forwards `fields` only for `VALIDATION_FAILED`. T-11 must make the filter forward `fields` for `ASSESSMENT_CORE_UNCOMMENTED`, as required by design § 6 (line 132), FR-15 (line 315) and `tasks.md` T-11 (line 278). That makes `server/src/common/http-exception.filter.ts` and its spec T-11 consumers. A test should also pin `new AssessmentCoreUncommentedError(['general.title']).fields` equal to the input (Reviewer advisory). Today no test covers the keys, because the attempt-1 test was deleted.
+
+**Forward pointer → T-10 (recorded 2026-11-11):** `IDEMPOTENCY_REPLAY_READER` is not bound in `AssessmentModule`. T-10 binds it together with the comment service (`tasks.md:251`).
+
+**Decisions made:**
+
+- The 8 error messages are the implementer's wording, because the design gives only codes and statuses. The Reviewer checked them: they leak no data, and `ASSESSMENT_NOT_FOUND` does not reveal whether the result exists.
+- DD-1's "imports `UsersModule` and `FieldConfigModule` only" is read as "no other feature module". `DrizzleModule`, `DynamoDbModule` and `ConfigModule.forFeature` are infrastructure, as in `FieldConfigModule`.
+
+**Issues encountered:** none beyond the attempt-1 FAIL.
+
+**ADVISORY (4R, recorded only):**
+
+- READABILITY (spec drift): `design.md:89` says "9 ASSESSMENT_* codes", while § 6 and T-6 say 8. The code follows 8. Fix the document in T-15.
+- RISK: the T-15 module guide should say that DD-1's "only" covers feature modules, so it is not read literally.
+- READABILITY: the Probe test reads `Reflect.getMetadata('imports', AssessmentModule)`, which depends on static `imports`. It needs a one-line comment if the module ever moves to dynamic imports.
+
+**Spawns:**
+
+| Role | Calls | Tokens | Ended |
+|---|---|---|---|
+| implementer (attempt 1) | 42 | 114,959 | complete |
+| reviewer (attempt 1) | 19 | 65,709 | fail |
+| implementer (attempt 2) | 19 | 85,907 | complete |
+| reviewer (attempt 2) | 6 | 45,171 | complete (PASS) |
+
+**Running totals:**
+
+| Measure | Actual | Budget |
+|---|---|---|
+| Tasks | 5 of 21 | 21 |
+| Production LOC | ≈ 1,535 TS + 141 SQL | 4,800 |
+| Review rounds | 8 | 26 |
+
+Within budget.
+
+### T-7: Worklist store and service (scope, filters, status, sort, cursor, counters) — PASS
+
+| | |
+|---|---|
+| Date | 2026-11-11 |
+| Final status | PASS (attempt 2 of 2) |
+| Requirements covered | FR-1 (scope, revoked grant, admin sees all, role with no active row), FR-3 (default official; active cycle only), FR-4 (Auto-validated hidden incl. counters; search by title), FR-5, FR-6, FR-7, FR-19 (predicate), NFR-1 (statement count) |
+| Skills | nestjs-expert, api-design-principles, tdd (as task) |
+| Effort | default in attempt 1; `high` in attempt 2 (rework bump) |
+| Review mode | full, single Reviewer (scope-leak lens) |
+
+**Attempt 1 — FAIL**
+
+- **Files changed** (under `server/`):
+  - new: `src/assessment/worklist.store.ts` (port, `DrizzleWorklistStore`, `scopeCondition`), `worklist-cursor.ts`, `worklist.service.ts`, `worklist.service.spec.ts`, `worklist.store.spec.ts`, `test/support/in-memory-assessment.ts` (counts statements);
+  - edited: `src/assessment/assessment.module.ts` (binds `WORKLIST_STORE`, `TIMELINE_LOADS` → existing `DrizzleTimelineLoads`, `WorklistService`), `assessment.module.spec.ts` (strict lookup of the three).
+- **Observed red** (stub service, real fake and spec): `Tests 35 failed | 2 passed (37)`, e.g. `AssertionError: expected [] to deeply equal [ 1, 4 ]` (Admin sees all), `expected [] to have a length of 120 but got +0` (Sort by Science Program). The two stub passes were strengthened (a `100% done` title for the `%` escape) or are covered by falsifier 1.
+- **Falsifiers (observed red, then restored):**
+  1. per-row comment count: `AssertionError: expected 34 to be less than or equal to 8` (NFR-1 test).
+  2. counters without the Auto-validated hiding: `- "total": 10, + "total": 13,`.
+  3. `changedFields` returned: `expected '{"rows":[{"membershipId":34,…' not to contain 'general.title'`, plus the documented-columns test (extra key `changedFields`).
+- **Statement count:** 4 at 30 rows and 4 at 1,000 rows (timeline join, load probe, page, counters).
+- **Disqualifier respected:** 120 rows over 5 programs named Mango, Zebra, Apple, Quince, Berry (not in id order), paged at 25; 12 sort × direction combinations each page every row once.
+- **Implementer verification:** lint and build clean; `Test Files 79 passed | 1 skipped (80)`, `Tests 3315 passed | 6 skipped (3321)`.
+- **Evidence re-run (Leader inline):** same counts. **VERIFIED.**
+- **Reviewer verdict: FAIL** (verbatim, condensed to the issue):
+  > **Discovered Issue:** `InMemoryWorklistStore.findTimelines` (`server/test/support/in-memory-assessment.ts:123-147`) returns every timeline whatever its cycle. `FakeTimeline.cycleId` is accepted but never filtered, so the fake's scope is looser than the Drizzle SQL, which inner-joins `cycles.status = 'active'` (`worklist.store.ts:252-255`). On top of that, the adapter's `findTimelines` SQL has no assertion. Two FR-1 and FR-3 rules therefore have no test that would fail: active cycle only; removed assignment (`isNull(timelineUsers.removedAt)`).
+  > **Violated Rule:** `requirements.md:83`, `:135`, `:93`; `tasks.md:176-177`, `:186`; `design.md:177`.
+  > **Remediation Suggestion:** give the fake a cycle status and filter on it; a service test for a non-active cycle (admin and assessor); a `buildTimelinesQuery` builder with `toSQL()` assertions on the cycles join and the `removed_at` condition inside the `timeline_users` join.
+
+  The Reviewer accepted the ten choices the spec left open (below) except the missing `findTimelines` SQL assertion, which is the issue above.
+
+**Attempt 2 — PASS**
+
+- **Files changed:** `worklist.store.ts` (public `buildTimelinesQuery(userId, timelineId?)`; same SQL), `test/support/in-memory-assessment.ts` (`FakeTimeline.cycleStatus`, default `'active'`, filtered; header documents that `DrizzleTimelineLoads` also counts a running load with a live lease), `worklist.service.spec.ts` (`it.each(['draft','closed'])` for admin and assessor), `worklist.store.spec.ts` (3 `findTimelines` SQL tests; an exclusion-branch `not in (?, ?)` test, Reviewer advisory).
+- **Observed red** (new tests against attempt-1 code): `Tests 5 failed | 50 passed (55)`, `AssertionError: expected [ 1, 2 ] to deeply equal [ 1 ]`, `TypeError: store.buildTimelinesQuery is not a function` (×3).
+- **Falsifiers (observed red, then restored):** cycles join removed → `expected 'select …' to contain 'inner join `cycles` on'`; status condition removed → `… to contain '`cycles`.`status` = ?'`; `removed_at` removed → `… to contain '`timeline_users`.`removed_at` is null'`; the fake's cycle filter removed → `expected [ 1, 2 ] to deeply equal [ 1 ]` (2 failed); `notInArray` removed → the exclusion test red.
+- **Implementer verification:** lint and build clean; `Test Files 79 passed | 1 skipped (80)`, `Tests 3321 passed | 6 skipped (3327)`.
+- **Evidence re-run (Leader inline):** same counts. **VERIFIED.**
+- **Reviewer verdict: PASS** (targeted re-review plus regression check). Issue 1 is resolved; the verdicts on the other choices stand.
+- **Runtime events:** none.
+
+**Decisions made (spec silent; Reviewer judged each acceptable):**
+
+- Cursor is base64url JSON `{s, d, v, c, i}`: `i` (membership id) is added to design's `{s,d,v,c}` because an admin can hold one result code in two rounds. Validated like `users-query.repository.ts`; any failure → `VALIDATION_FAILED` on `cursor`, including another sort or direction.
+- Page size default 25, bounds 1–100 in the service (`limit`); tiebreak result code then membership id, ascending.
+- Counters are one grouped statement over the scope, ignoring other filters, with the page's `hideAutoValidated`; they include `total` (FR-4 "the total says 10", `requirements.md:150`).
+- Service result adds `noActiveRole` (FR-1) and `nextCursor` (→ `meta.page` in T-8).
+- 404 `TIMELINES_NOT_FOUND` when the timeline is not in the active cycle, or a non-admin has no active `timeline_users` row; assigned with no live grant → empty 200 with `noActiveRole: true`.
+- Comment count is a correlated scalar subquery (still one statement). Program and result-type sorts use `FIELD(…)` over the catalog order; `answered` sorts as the constant 0.
+- With no status filter, `COALESCE(statusCase,'') <> 'auto_validated'`: a row with no status rule stays visible with `status: null`.
+- FR-19 lift only when the programs step is open, a reviewer row covers the membership and the user authored a `clarification_requested` comment (matches T-3 `listedFor`).
+
+**Gaps and forward pointers:**
+
+- Nothing ran against a live MySQL; the adapter is pinned by `toSQL()` text and behavior by the fake. NFR-1's p95 of 500 ms at 1,000 rows (comment subquery in SELECT, ORDER BY and keyset WHERE) is to be checked at T-16 HITL on dev.
+- **→ T-8:** state in the OpenAPI model that `timelines()` `roles` can include `'ADMIN'` (design § 6 example shows `['ASSESSOR']`); decide whether `counters.total` is exposed (FR-4 needs it).
+
+**Running totals:**
+
+| Measure | Actual | Budget |
+|---|---|---|
+| Tasks | 6 of 21 | 21 |
+| Production LOC | ≈ 2,552 TS + 141 SQL | 4,800 |
+| Review rounds | 10 | 26 |
+
+Within budget.
+
+### T-8: Worklist routes — PASS
+
+| | |
+|---|---|
+| Date | 2026-11-11 |
+| Final status | PASS (attempt 1, with an evidence follow-up) |
+| Requirements covered | FR-1 (out-of-scope timeline → 404), FR-3 (*BUT* unassigned `?timeline` → 404 `TIMELINES_NOT_FOUND`), FR-4 (filter options inside the scope; counters total), FR-7 (limit 1–100, default 25), FR-22 |
+| Skills | nestjs-expert, api-design-principles (as task) |
+| Effort | default |
+| Review mode | checklist, single Reviewer |
+
+- **Routes** (`@ReadAccess()`): `GET /api/v1/worklist/timelines`, `GET /api/v1/timelines/:timelineId/worklist`, `GET /api/v1/timelines/:timelineId/worklist/options`.
+- **Files changed** (under `server/`):
+  - new: `src/assessment/worklist.controller.ts`, `dto/worklist-params.ts`, `dto/worklist.query.ts`, `models/worklist.model.ts`, `test/assessment-worklist.e2e-spec.ts` (33 tests, HTTP only), `test/support/assessment-app.ts` (real `AppModule`; only stores, loads probe, clock, catalog sources and JWKS are overridden);
+  - edited: `assessment.module.ts` (controller), `worklist.service.ts` (new `options()`; the timeline lookup and 404 moved to a private `offered()`), `worklist.service.spec.ts` (7 `options()` tests).
+- **Observed red** (before the controller): `Tests 33 failed (33)`, e.g. `- "code": "TIMELINES_NOT_FOUND", + "code": "NOT_FOUND",` and `AssertionError: /api/v1/worklist/timelines: expected undefined to be defined`.
+- **Falsifiers (observed red, then restored):**
+  1. empty 200 instead of the 404: `AssertionError: expected 200 to be 404` in 3 tests (`Tests 3 failed | 30 passed (33)`).
+  2. `options()` exclusion subtraction removed: `AssertionError: expected [ 1, 2, 3, 4, 5 ] to deeply equal [ 1, 3, 5 ]` (the "all" scope test; for a list scope the exclusion is already applied by `resolveAccess` in `scope.ts`, so that test stays green by design).
+- **Evidence correction:** the Implementer's first report claimed 2 `options()` unit tests, but none was on disk. The shell had refused the compound command that appended them. The Reviewer flagged it and the Leader confirmed it (`git status`, `grep -c options` = 0, unit count unchanged at 3321). The follow-up added the 7 tests above and the falsifier 2 red.
+- **Implementer verification (after the follow-up):** lint and build clean; unit `Test Files 79 passed | 1 skipped (80)`, `Tests 3328 passed | 6 skipped (3334)`; focused e2e `Tests 48 passed (48)`.
+- **Evidence re-run (Leader inline, after the follow-up):** lint and build clean; unit `Tests 3328 passed | 6 skipped (3334)`; full e2e `Test Files 17 passed (17)`, `Tests 1001 passed (1001)`. **VERIFIED.**
+- **Reviewer verdict: PASS.** Routes match design § 6 rows 1–3. 401 on all three routes. The 404 is byte-equal for unassigned and missing timelines. `meta.page.nextCursor` is null on the last page. No email or changed-field keys appear (`assessedBy` is `{id, nickname}`). The Disqualifier does not apply (the guards, pipe, filter, interceptor and controller are real). `options()` was read for scope leak (exclusions, revoked grant, disabled role, removed assignment, non-active cycle) and none was found. The Reviewer's advisories (missing `options()` tests; the `writable` description for an admin holding an assessor row) were both applied in the follow-up, which changes only tests and one model description.
+- **Runtime events:** the shell refused a compound append command without the Implementer noticing (see the evidence correction above).
+
+**Decisions made (spec silent; Reviewer judged each acceptable):**
+
+- `WorklistService.options()` was added outside the listed scope, because the route is in design § 6:127 and no service answered it. It needs no SQL: it builds the programs (scope minus exclusions; all for ADMIN), the result types (granted keys, or all) and the 8 statuses. A caller with no active role gets empty lists.
+- `data` adds `noActiveRole` (FR-1, `requirements.md:109`) to design § 6's `{rows, counters, writable}`. `counters.total` is exposed (FR-4).
+- The page object passes through `Paged<T>` with one documented cast; `common/` is untouched.
+- Query: `status`, `programId` and `resultTypeKey` accept CSV or repeated values, capped at 50. `limit` is validated 1–100 in the DTO as well as in the service. An unknown parameter is a 400 `UNKNOWN_FIELD`.
+- The OpenAPI `roles` description says an admin carries `'ADMIN'`.
+
+**Forward pointer → T-15:** record `noActiveRole`, `counters.total`, `'ADMIN'` in `roles`, and the options shape (`{key,label}` and `{id,code,name}`) in `front-contract.md`, since they go beyond design § 6:126. Also add the new suite to the `test/AGENTS.md` suite table.
+
+**Running totals:**
+
+| Measure | Actual | Budget |
+|---|---|---|
+| Tasks | 7 of 21 | 21 |
+| Production LOC | ≈ 3,120 TS + 141 SQL | 4,800 |
+| Review rounds | 11 | 26 |
+
+Within budget, but the LOC tripwire is close: 65 % of the lines are spent at 33 % of the tasks.
+
+### T-13: Title backfill — PASS
+
+| | |
+|---|---|
+| Date | 2026-11-11 |
+| Final status | PASS (attempt 2 of 2) |
+| Requirements covered | FR-24 (earlier memberships get their title without manual SQL), DD-9 |
+| Skills | nestjs-expert, aws-serverless (as task) |
+| Effort | default in attempt 1; `high` in attempt 2 (rework bump) |
+| Review mode | checklist, single Reviewer |
+
+**Attempt 1 — FAIL**
+
+- **Files changed** (under `server/`):
+  - new: `src/assessment/title-backfill.ts` (the `TitleBackfill` bootstrap hook and `DrizzleTitleBackfillStore` behind `TITLE_BACKFILL_STORE`), `title-backfill.spec.ts`;
+  - edited: `assessment.module.ts`; `ingestion/load-rules.ts` (exports `titleOf` and `TITLE_MAX_CHARACTERS`, moved verbatim from `load-runner.ts`); `ingestion/load-runner.ts` (imports them); `vitest.config.e2e.ts` (`TITLE_BACKFILL_DISABLED`).
+- **Observed red:** `Error: Cannot find module './title-backfill.js'` (`Tests no tests`). This is the predicted greenfield red; the falsifier supplies the behavioral red.
+- **Falsifier:** dropping `isNull(title)` from the update turned the deferred fixture red (`AssertionError: expected 'Title of 1077' to be 'Written meanwhile'`) and the SQL test red (`Received: "update `timeline_results` set `title` = ? where `timeline_results`.`id` = ?"`). The fake applies the guard only when the real adapter's `toSQL()` contains it; the Reviewer judged this coupling sound, not tautological.
+- **Implementer verification:** unit `Tests 3340 passed | 6 skipped (3346)`; e2e `Tests 1001 passed (1001)`.
+- **Evidence re-run (Leader inline):** same counts. **VERIFIED.**
+- **Reviewer verdict: FAIL** (verbatim):
+  > **Discovered Issue:** `title-backfill.ts:105` reads `process.env.TITLE_BACKFILL_DISABLED` inside a Nest provider. No other provider under `src/` outside `src/config/` reads `process.env`.
+  > **Violated Rule:** `server/AGENTS.md:77` ("Inside the app, read env only through `src/config/`"). Also `server/src/config/AGENTS.md:3` and `:41`.
+  > **Remediation Suggestion:** remove the env check; (a) preferred: a `test/support/` helper that overrides `TITLE_BACKFILL_STORE` in each `Test.createTestingModule` loading `AppModule`; (b) a typed `src/config` flag (scope extension).
+
+  The Reviewer judged the `titleOf` move behavior-preserving and acceptable, although the task lists no consumers.
+
+**Leader adjudication:** remediation (a). The scope was extended to `test/support/**`, the e2e specs that build `AppModule`, and `test/perf/idempotency-overhead.measure.ts`, for the override only. Two advisories were added: stop the backfill on shutdown, and a direct `titleOf` test with the marker moved.
+
+**Attempt 2 — PASS**
+
+- **Files changed:**
+  - new: `test/support/without-title-backfill.ts` (`withoutTitleBackfill(builder)` and `emptyTitleBackfillStore`);
+  - the helper applied at 15 `createTestingModule` sites: 4 `test/support/*-app.ts`, 10 e2e specs, `test/perf/idempotency-overhead.measure.ts`;
+  - `title-backfill.ts`: the env read removed; a `stopRequested` flag checked per row and per page; `beforeApplicationShutdown()` sets it and awaits the run (it runs before `DrizzleModule`'s `onApplicationShutdown` → `pool.end()`);
+  - `load-rules.ts`: `TITLE_MAX_CHARACTERS` below the `@akili-spec` marker; `load-rules.spec.ts`: a direct `titleOf` describe;
+  - `vitest.config.e2e.ts` restored.
+- **Reds (observed, then restored):**
+  1. helper override removed: `AssertionError: expected DrizzleTitleBackfillStore{ db: {} } to be { …(2) }` (2 failed);
+  2. stop-flag checks removed: `expected [ … ] to have a length of 5 but got 120` and `… length of 50 but got 120` (2 failed);
+  3. `isNull(title)` removed: the deferred fixture, the update SQL and the page SQL tests red (3 failed).
+- **Negative control:** without the helper, 13 `assessment_title_backfill` log lines appeared in 2 e2e files; with it, 0.
+- **Implementer verification:** lint and build clean; unit `Test Files 80 passed | 1 skipped (81)`, `Tests 3354 passed | 6 skipped (3360)`; e2e `Test Files 17 passed (17)`, `Tests 1001 passed (1001)`.
+- **Evidence re-run (Leader inline):** same counts; `grep -c assessment_title_backfill` on the full e2e output = 0; no `process.env` under `src/assessment/`. **VERIFIED.**
+- **Reviewer verdict: PASS.** Issue 1 is resolved. The override is at all 15 sites, and the only other `app.init()` in `src` (`idempotency.interceptor.spec.ts:918`) loads neither module. Each stop check has its own test, and the shutdown is proven to wait for the run.
+- **Runtime events:** none.
+
+**Decisions made:**
+
+- Paging uses an id cursor (`id > ? ORDER BY id LIMIT 50`), not an offset; a page shorter than 50 ends the run.
+- `UPDATE … SET title = ? WHERE id = ? AND title IS NULL`; a row counts as titled only when `affectedRows > 0`. With several app instances, the losing writer is a no-op.
+- Logging: one line `{event:'assessment_title_backfill', scanned, titled, missing}` on success; on failure, the error class name only (no message, title, host or personal data).
+- **Accepted deviation from DD-9 ("reads at most one snapshot per untitled row once"):** rows whose Reporting title is not a string, and rows whose snapshot is missing, stay null and are re-read on every bootstrap (one snapshot get per row). This costs reads and never changes data. Accepted by the Leader on 2026-11-11 and reported to the back lead; revisit if the count of such rows grows.
+
+**Forward pointers:**
+
+- **→ T-15:** add a line to `test/AGENTS.md` (near `:40`): every builder that loads `AppModule` and calls `init()` must wrap it in `withoutTitleBackfill`. Also list `test/support/without-title-backfill.ts` and the `assessment-worklist` suite there.
+- **→ T-16 (HITL on dev):** `setTitleIfNull`'s `affectedRows` path and the page query are pinned only by `toSQL()`; check them against MySQL.
+
+**Running totals:**
+
+| Measure | Actual | Budget |
+|---|---|---|
+| Tasks | 8 of 21 | 21 |
+| Production LOC | ≈ 3,300 TS + 141 SQL | 4,800 |
+| Review rounds | 13 | 26 |
+
+Within budget. The LOC tripwire is close: 69 % of the lines are spent at 38 % of the tasks.
+
+### T-1: Settle the open-question defaults (gate) — PASS
+
+| | |
+|---|---|
+| Date | 2026-11-11 |
+| Final status | PASS (no code; skip-eligible review) |
+| Requirements covered | every `[OQ-n default]` row, DD-15 |
+| Authority | The back lead (Juanda) delegated the decisions to the Leader on 2026-11-11: "Toma las decisiones tu y dejalo documentado en la US". Each OQ below was decided and recorded individually, with its own line, so this is not a bulk "yes". Business (Angel) has not answered yet and can override any line |
+| Record | Jira comment on P2-3910 (id 44785, all nine OQs) and on P2-3909 (id 44786, OQ-3, OQ-4, OQ-5), both 2026-11-11 |
+
+Every decision takes the spec default (`proposal.md` § 12), so no spec amendment is needed. Exception: OQ-3 was later closed by the back lead with a different outcome (drop, not hide); requirements.md and proposal.md were amended on 2026-11-11.
+
+| OQ | Decision | Who and when | Gates |
+|---|---|---|---|
+| OQ-1 | Release sent right after the end commits (Finish or automatic Quality Assessed), not at step 1 close | Leader, delegated by the back lead, 2026-11-11 · P2-3910 comment 44785 | T-12 |
+| OQ-2 | Automatic Quality Assessed in the same transaction as the last green core field (AC16); zero core fields → Finish ends it as Quality Assessed | same · P2-3910 comment 44785 | T-11 |
+| OQ-3 | **Closed 2026-11-11 by the back lead: Action Area is dropped**, not hidden. It is a concept of the 2022–2024 portfolio and does not apply to the Science Programs. Removed from P2-3909's scope (requirements FR-6, proposal § 6, § 9 and § 12 amended). Remnant sweep: no column, filter, OpenAPI model, fixture or mapper exists; `worklist.service.spec.ts` already asserts the row has no Action Area key | Back lead, 2026-11-11 · P2-3909 comment 44786 (amended) | T-7/T-8 (no code change) |
+| OQ-4 | Export comments button hidden until P2-3914 | same · P2-3909 comment 44786 | (client) |
+| OQ-5 | States and the worklist predicate modeled now; the answer action moves to P2-3911 | same · P2-3910 comment 44785, P2-3909 comment 44786 | T-10 |
+| OQ-6 | One finish wins; "Assessed by" is that person | same · P2-3910 comment 44785 | — |
+| OQ-7 | ToC group = `toc.*` + `contributors.science_programs`, a virtual "Theory of Change" section at its first field's catalog position, always complete; Hidden → View only | same · P2-3910 comment 44785 | T-9 (ToC rule) |
+| OQ-8 | Withdraw while the program has not answered and step 1 or step 2 is open | same · P2-3910 comment 44785 | T-10 |
+| OQ-9 | Every grey core field needs a non-withdrawn comment before Finish, else 409 `ASSESSMENT_CORE_UNCOMMENTED` with the keys | same · P2-3910 comment 44785 | T-11 |
+
+**Rule for the blocked tasks:** the briefs for T-9, T-10, T-11 and T-12 cite their OQ line above. If Angel later answers differently, run the Correction Closure sweep (spec amendment) before the affected task is built or reworked.
+
+**Risk accepted:** OQ-1 and OQ-2 change what the program sees (an immediate `not_qaed` lets the program edit in Reporting before step 2; automatic QA locks the result before non-core comments). They were decided without the business owner, on the back lead's delegation.
+
+### T-9: Assessment view (read) — PASS
+
+| | |
+|---|---|
+| Date | 2026-11-11 |
+| Final status | PASS (attempt 2 of 2, plus a small follow-up) |
+| Requirements covered | FR-1 (*Out-of-scope result by URL* → 404), FR-2 (writable flag, read-only reason, admin read-only), FR-8, FR-9 (incl. *BUT* Hidden absent from the body), FR-11 (labels or ids), NFR-2 |
+| OQ gate | OQ-7, `execution.md` T-1 entry (ToC group, Hidden → View only) |
+| Skills | nestjs-expert, aws-serverless (as task) |
+| Effort | default in attempt 1; `high` in attempt 2 (rework bump) |
+| Review mode | full, single Reviewer |
+
+- **Route:** `GET /timelines/:timelineId/results/:resultCode/assessment?round=` (round honored for ADMIN only; default latest).
+- **Files** (under `server/`):
+  - new: `src/assessment/assessment-view.ts` (pure), `assessment.store.ts`, `assessment.service.ts`, `assessment.controller.ts`, `dto/assessment-params.ts`, `models/assessment.model.ts`, specs `assessment-view.spec.ts`, `assessment.service.spec.ts`, `assessment.store.spec.ts`, `test/assessment-view.e2e-spec.ts`, `test/support/real-load-writer.ts` (runs the real `LoadRunner`, so every `sk` is the writer's own `SNAP#` key);
+  - edited: `assessment.module.ts`, `test/support/assessment-app.ts`, `test/support/in-memory-assessment.ts`;
+  - edited outside the module (attempt 2): `admin-config/field-config/field-config.module.ts` (port gains `versionItems(versionId, resultTypeKey)`), `field-config.service.ts` + spec, `field-config-catalog.ts` + spec (`CatalogField.controlLists`), `admin-config/AGENTS.md` (`:44`, `:53`).
+
+**Attempt 1 — FAIL**
+
+- **Red run:** produced after the code existed, by moving the implementation files aside (`Cannot find module './assessment-view.js'` …). Process deviation, recorded; attempt 2 observed its reds before the fixes.
+- **Falsifiers:** `snapshot_sk` without `snapshotKeyOf` → `Error: assessment_snapshot_missing` (12 red); Hidden not filtered in the service → `expected { key: 'general.description', … } to be undefined` and the e2e body test red; 403 for out of scope → `expected 403 to be 404`.
+- **Evidence re-run (Leader inline):** unit `Tests 3388 passed | 6 skipped (3394)`, e2e `Tests 1016 passed (1016)`. **VERIFIED.**
+- **Reviewer verdict: FAIL** (verbatim, condensed to the four issues):
+  > 1. Production `effectiveFor` runs 5 statements, not 3 … So a real open runs 8 statements without an assessment row and **10 with one**. The "exactly 8" assertions pass only because the fake is looser than production. (requirements.md:418; tasks.md:224; design.md:187) — read the items of the **pinned** version in one statement.
+  > 2. Labels are looked up by field key (`assessment-view.ts:129`). Reporting keys them by control list (`results-feed.port.ts:45-48`) … In production every field would get `labels: null`. The tests build labels keyed by field key, so they reproduce the bug. (FR-8, FR-11, FR-20; design.md:245)
+  > 3. `DrizzleAssessmentStore` has no `toSQL()` spec … `eq(timelineId)` (`scopeCondition` carries no timeline, so dropping it leaks across timelines) … T-7 failed on this same defect. (requirements.md:92, :115, :430; design.md:188)
+  > 4. `other` never looks at the configuration … a key configured Hidden in the pinned version but missing from the current catalog … is returned under `other`. (FR-9 *BUT*; design.md:192)
+
+  The Leader confirmed issue 2 against `results-feed.port.ts` and issue 1 against `design.md:187` before the rework.
+
+**Attempt 2 — PASS**
+
+- **Red run (before the fixes):** 15 failed | 68 passed across 4 spec files, e.g. `expected 10 to be 6`, `expected { '7': 'SP07' } to be null`, `TypeError: store.buildValidationsQuery is not a function`, `expected [ 'removed.hidden', …(3) ] to deeply equal [ 'removed.other_type', …(2) ]`.
+- **Fixes:** `findMembership` joins `field_config_versions` on (`cycle_id`, `number`) and returns the pinned version id; with a row the service reads `versionItems` (1 statement); labels are filtered by the field's `controlLists`; 11 `toSQL()` store tests; `other` keys whose item is `hidden` are dropped. Advisories: `TimelineNotFoundError` from `effectiveFor` → the same 404; e2e asserts no `@`; the service spec's `add` runs the real `LoadRunner`.
+- **Statement count:** 6 with an assessment row, 8 without (asserted exactly in the service spec and the e2e; the fake counts 5 for `effectiveFor`, like production).
+- **Falsifiers (observed red, then restored):** (a) `effectiveFor` on the with-row path → `expected 10 to be 6`; (b) labels by field key → 6 unit + 1 e2e red; (c) `eq(timelineId)` dropped → `expected ' where (…' to contain '`timeline_results`.`timeline_id` = ?'` (4 red); (c2) round applied to non-admins → red; (d) hidden `other` kept → view and raw-body e2e red; (e) the three original falsifiers still red.
+- **Reviewer verdict: PASS** (full re-review). No regressions.
+- **Follow-up (Leader request after the PASS, from a Reviewer risk advisory):** a `null` or absent `control_list` is now "no list" instead of 503, because `shapeCatalog` also feeds `LoadRunner` and the field-config screens; real shape errors stay 503. Red first: `UpstreamUnavailableError: The service is temporarily unavailable…` (`Tests 1 failed | 32 passed (33)`). `admin-config/AGENTS.md` updated.
+- **Evidence re-run (Leader inline, final tree):** lint and build clean; unit `Test Files 83 passed | 1 skipped (84)`, `Tests 3412 passed | 6 skipped (3418)`; e2e `Test Files 18 passed (18)`, `Tests 1019 passed (1019)`. **VERIFIED.**
+- **Runtime events:** none.
+
+**Consumers (the task listed none; actual):** the `FieldConfigEffective` port (`versionItems`, additive) and `CatalogField.controlLists` / `shapeCatalog`, consumed by `field-config.service.ts:254`, `:653`, `load-runner.ts:238`, `:580` and the view. All suites green.
+
+**Decisions made:**
+
+- The ToC section sits just before the catalog section holding its first field; that section is not split. A ToC field configured Assessed stays Assessed; only Hidden or unclassified becomes View only.
+- An ended membership stays readable (scope without the worklist's ended filter; FR-2).
+- A pinned version number with no version row → 409 `ASSESSMENT_NO_FIELD_CONFIG` (no fallback to `effectiveFor`). With a row, the type-in-timeline check is skipped.
+- `FieldConfigCatalogMissingError` (Reporting has no catalog for the year) → 409 `ASSESSMENT_NO_FIELD_CONFIG`; an unreadable catalog → 503. FR-8 names 503 for "cannot be read"; a missing year is treated as a configuration gap.
+- A missing snapshot → 500, logged by id only.
+- The read-only reason adds `finished` when status ≠ `pending` (FR-16); the worklist row does not.
+- The header title is shown even when `general.title` is configured Hidden (FR-8 requires a title).
+- `other` fields and Not applicable fields carry `labels: null`.
+- Withdrawn comments are returned to the assessor with their state.
+
+**Forward pointers:**
+
+- **→ P2-3911 / step-2 SP view:** filter withdrawn comments (FR-13).
+- **→ T-16 HITL:** check the TEST and PROD catalogs for `control_list` shapes; nothing here ran against MySQL.
+
+**Running totals:**
+
+| Measure | Actual | Budget |
+|---|---|---|
+| Tasks | 10 of 21 | 21 |
+| Production LOC | ≈ 4,620 TS + 141 SQL | 4,800 |
+| Review rounds | 15 | 26 |
+
+**Budget tripwire hit:** production LOC is at 96 % of the budget with 11 tasks left (T-10, T-11, T-12, T-14, T-15 and the client T-17 to T-21). The overrun is certain; reported to the back lead before T-10.
+
+### Budget re-estimate — 2026-11-11
+
+The back lead chose "continue and re-estimate" after the T-9 tripwire.
+
+| Measure | Original (design § 10) | Re-estimated | Basis |
+|---|---|---|---|
+| Production LOC | ≈ 4,800 | ≈ 11,000 | ≈ 4,620 spent at 10 of 21 tasks. Remaining estimates: T-10 ≈ 1,200, T-11 ≈ 800, T-12 ≈ 800, T-14/T-15 ≈ 200 (mostly tests and docs), client T-17 to T-20 ≈ 3,000, plus about 5 % margin |
+| Review rounds | ≈ 26 | ≈ 34 | 15 rounds over 10 tasks (1.5 per task) × 11 remaining tasks ≈ 17, rounded and adjusted for doc and HITL tasks |
+
+**Why the overrun:** the original figure did not count OpenAPI models, DTOs and SQL builders exposed for `toSQL()` tests. Those layers made up about a third of T-7 to T-9.
+
+**No scope was cut.** The new tripwire is 90 % of the re-estimate, about 9,900 LOC or 31 rounds.
+
+### T-10 part A: Writes I — unit of work, validations, check all — PASS
+
+| | |
+|---|---|
+| Date | 2026-11-11 |
+| Final status | PASS (attempt 1). Part B (comments, withdraw, replay reader) follows as its own commit; T-10 stays `[ ]` until it passes |
+| Requirements covered | FR-2 (step window, pinned clock), FR-10 (single field and check all, incl. *BUT* 400 naming the field; same state is a no-op), FR-16 (no write after the end), FR-21 (one audit row per applied change), NFR-4, NFR-7 |
+| OQ gate | none for part A (OQ-5 and OQ-8 apply to part B; `execution.md` T-1 entry) |
+| Skills | nestjs-expert, error-handling-patterns, tdd (as task) |
+| Effort | default |
+| Review mode | lenses: correctness and privacy, two Reviewers in parallel |
+
+- **Route:** `PUT /timelines/:timelineId/results/:resultCode/assessment/validations`, body exactly one of `fieldKeys` (1–200 keys of ≤ 200 characters) or `all: true`.
+- **Files** (under `server/`): new `src/assessment/assessment.unit-of-work.ts` (token, interfaces, READ COMMITTED wrapper), `assessment-validations.service.spec.ts` (41), `assessment.write-store.spec.ts` (6 `toSQL()`), `dto/validate-assessment.body.ts`, `test/assessment-validations.e2e-spec.ts` (23); edited `assessment.controller.ts`, `assessment.errors.ts` (`AssessmentFieldKeysInvalidError`), `assessment.module.ts`, `assessment.service.ts`, `assessment.service.spec.ts` (constructor only), `assessment.store.ts` (write port and `DrizzleAssessmentWriteStore`), `models/assessment.model.ts`, `test/support/assessment-app.ts`, `test/support/in-memory-assessment.ts` (fake unit of work, `beforeLockAssessment` / `beforeLockTimeline` hooks, rollback).
+- **Lock order** (design § 5, `design.md:117`; § 7.5): `lockTimelineShared` (`FOR SHARE` + steps) → re-judge the step with the same minute → `ensureAssessment` (`INSERT … ON DUPLICATE KEY UPDATE id = id`, first write only) → `lockAssessment` (`FOR UPDATE`) → `status !== 'pending'` refused on the locked row → `findValidations` → `upsertValidations` → `insertAudit`. Pinned by `world.writeLog`.
+- **Observed red** (stub `validate` returning an empty summary): service `Tests 38 failed | 3 passed (41)`, e.g. `expected [] to deeply equal [ { assessmentId: 1000, …(2) } ]`, `Error: expected a refusal` (08:59, 17:31); e2e `Tests 23 failed (23)` (`expected 404 to be 200`, route missing). The `toSQL()` spec failed on the import first (not a behavioral red).
+- **Falsifiers (observed red, then restored):**
+  1. `nowInRome(new Date())`: `Tests 31 failed | 10 passed (41)`, e.g. `AssessmentStepClosedError: This step is closed…` on 09:00. The Reviewer confirmed the pair of accepted and refused cases makes a host-clock mutant fail at any real time.
+  2. status check under the lock removed: `FR-16 … re-reads the status UNDER the assessment lock …` → `Error: expected a refusal` (forced interleaving via `beforeLockAssessment`).
+  3. value copy: part B.
+- **Clock grep** (`grep -rn "new Date()\|Date.now()" server/src/assessment`, non-spec files): only `assessment.module.ts:66` (`ADMIN_CONFIG_CLOCK`) and `:69` (`IDEMPOTENCY_CLOCK`, pre-existing). **Leader adjudication:** the clause targets production code; the two `new Date()` fixture values in T-7's `worklist.service.spec.ts` are accepted.
+- **Statements:** first write 15 (3 reads + 5 `effectiveFor` + 7 in the transaction); next write 10 (pinned `versionItems`); no-op 8; a grey-only request on a missing assessment writes nothing and opens no transaction.
+- **Implementer verification:** lint and build clean; unit `Test Files 85 passed | 1 skipped (86)`, `Tests 3459 passed | 6 skipped (3465)`; e2e `Test Files 19 passed (19)`, `Tests 1042 passed (1042)`.
+- **Evidence re-run (Leader inline):** same counts; clock grep as above. **VERIFIED.**
+- **Reviewer verdicts:**
+  - correctness: **PASS** (lock order, READ COMMITTED, clock read once and the same minute judged twice, forced interleaving, error mapping per `design.md:129` and FR-10, audit per FR-21, rollback tested, ODKU pinned);
+  - privacy: **PASS** (audit rows hold only ids, configuration keys and a sanitized request id; every result-dependent refusal comes after the scope check, so no existence oracle; the 400 echoes only capped caller keys; no new log line).
+- **Runtime events:** none.
+
+**Decisions made:**
+
+- The status check under the lock is in code on the `FOR UPDATE` row (design § 7.5); the SQL-level `WHERE status = 'pending'` belongs to the end path (T-11).
+- Error mapping: out of scope → byte-equal 404 `ASSESSMENT_NOT_FOUND`; admin → 403 `ASSESSMENT_READ_ONLY`; every step refusal incl. `no_step` → 409 `ASSESSMENT_STEP_CLOSED`; an ended membership → 409 `ASSESSMENT_FINISHED`; wrong keys → 400 `VALIDATION_FAILED` naming each key as sent (Hidden and unknown keys look the same).
+- Assessed keys come from the pinned version items (or `effectiveFor` before the row exists); the catalog's applicable fields are not intersected.
+- Audit actions `validate`, `unvalidate`, `check_all`, `uncheck_all`, with only the changed keys.
+- Response `{ status, assessedBy, finishedAt, validations }`; `assessedBy` is `{id, nickname}` and null until T-11.
+
+**Advisories carried into part B (Leader decision, to avoid a separate round):** early return when `all: true` targets zero Assessed fields and no row exists (DD-3 "created lazily"); fix the `assessment.store.ts:163` comment (a duplicate ODKU takes an X lock); a test for two concurrent first writes (one row, first writer's version and creator kept) and a note on the fake's whole-world rollback; a `no_step` → 409 test; an out-of-scope caller on a finished assessment → the same 404; e2e full-body equality (without `meta.requestId` and `meta.timestamp`) and no `@`.
+
+**Forward pointers:**
+
+- **→ T-11:** retry on deadlock (MySQL 1213) in the unit of work, since concurrent ODKU and ends can hit it; consider reading `membership.ended` under the lock and asserting the re-judged `stepPosition` equals the first; guard `locked.fieldConfigVersion === version` when another writer created the row.
+- **→ T-14:** design § 7.9 asks for one `event: 'assessment'` log line per write request (`action, timelineId, membershipId, outcome, reason?, requestId, actorId`); not emitted yet. Confirm the owning task before T-14's log spy.
+
+### T-10 part B: Writes I — comments, withdraw, replay reader — PASS (T-10 closed)
+
+| | |
+|---|---|
+| Date | 2026-11-11 |
+| Final status | PASS (attempt 1). With part A (`4db573f`), T-10 is done |
+| Requirements covered | FR-11 (value at the time of writing incl. labels; comment on a non-assessed field → 400; idempotent create; 1–2,000 characters), FR-13 (not someone else's comment → 403; second withdraw → 409; OQ-8 window), FR-16, FR-19 (only `open` and `withdrawn` written), FR-21, NFR-4, NFR-7 |
+| OQ gate | OQ-5 and OQ-8, `execution.md` T-1 entry |
+| Skills | nestjs-expert, error-handling-patterns, tdd (as task) |
+| Effort | default |
+| Review mode | lenses: correctness and privacy, two Reviewers in parallel |
+
+- **Routes:** `POST /timelines/:timelineId/results/:resultCode/assessment/comments` (201, `@Idempotent()`), `POST /assessment-comments/:commentId/withdraw` (200).
+- **Files** (under `server/`): new `src/assessment/comment-value-copy.ts` (pure `buildValueCopy`, `storedLength`) + spec, `assessment-comments.service.spec.ts`, `assessment.unit-of-work.spec.ts`, `dto/create-comment.body.ts`, `test/assessment-comments.e2e-spec.ts`; edited `assessment.controller.ts`, `assessment.errors.ts`, `assessment.module.ts` (binds `IDEMPOTENCY_REPLAY_READER` → `service.replayComment`, the T-6 forward pointer) + spec, `assessment.service.ts`, `assessment.store.ts` (`insertComment`, `withdrawComment`, `insertCommentEvent`, `findCommentContext`) + specs, `assessment.unit-of-work.ts`, `assessment-view.ts` (exports `labelsForField`, shared with the copy), `role-steps.ts` (`isWithdrawWindowOpen`), `dto/assessment-params.ts`, `assessment-validations.service.spec.ts`, `test/assessment-validations.e2e-spec.ts`, `test/support/assessment-app.ts`, `test/support/in-memory-assessment.ts` (per-transaction undo log instead of a whole-world restore).
+- **Lock order** (design § 5, `design.md:117`): create — timeline `FOR SHARE` (+ steps) → `ensureAssessment` (first write) → assessment `FOR UPDATE` → status check → comment → event → audit → `markExecuted`; withdraw — timeline `FOR SHARE` (window re-judged) → assessment `FOR UPDATE` → `UPDATE … WHERE id = ? AND state = 'open'` → event → audit (no status check, OQ-8).
+- **Observed red** (before production code): unit `Tests 6 failed | 316 passed (322)` (`Cannot find module './comment-value-copy.js'`, `store.buildInsertComment is not a function`, `Nest could not find Symbol(IDEMPOTENCY_REPLAY_READER)`, and the carried advisory `expected [ Array(1) ] to deeply equal []`); e2e `Tests 49 failed | 23 passed (72)` (`expected 404 to be 201`); service spec once the pure module existed `Tests 60 failed | 15 passed (75)` (`service.comment is not a function`). The advisory tests for concurrent first writes, `no_step` and the finished-assessment 404 were green on first run (they pin existing behavior).
+- **Falsifiers (observed red, then restored):**
+  3. value copied from the result's latest snapshot: `expected { value: 'New title' } to deeply equal { value: 'Old title' }` (unit and e2e). The fixture holds two real-writer memberships of one result with different titles; a guard test asserts it.
+  - withdraw window (program answered; pre-check and the fake's `state = 'open'` guard removed): `Tests 7 failed | 54 passed (61)`, e2e `expected 200 to be 409`. With only the pre-check removed the tests stay green, because the conditional UPDATE decides; the SQL guard is pinned by `toSQL()`.
+  - `markExecuted` skipped: `expected [] to deeply equal [ { key: 'key-1', targetId: 7000 } ]`; e2e crash-window test red.
+- **Clock grep** (non-spec files): only `assessment.module.ts:70` (`ADMIN_CONFIG_CLOCK`) and `:73` (`IDEMPOTENCY_CLOCK`). The T-10 Done-when grep clause holds.
+- **Statements:** comment create 15 first / 10 next (+1 when keyed); withdraw 10.
+- **Implementer verification:** lint and build clean; unit `Test Files 88 passed | 1 skipped (89)`, `Tests 3546 passed | 6 skipped (3552)`; e2e `Test Files 20 passed (20)`, `Tests 1091 passed (1091)`.
+- **Evidence re-run (Leader inline):** same counts; clock grep as above. **VERIFIED.**
+- **Reviewer verdicts:**
+  - correctness: **PASS** (both lock orders match `design.md:117` with no cycle against the T-11 end path; falsifier 3 sound and the Disqualifier avoided; the 64 KiB cut is a binary search over code points, elements or entries and never yields invalid JSON; fence inside the transaction; same key with a different body → 422; keys scoped by actor; undo-log rollback sound);
+  - privacy: **PASS** (only the field's own value and lists are copied, never a Hidden field; events and audit hold no body or value; replay is per actor; withdraw 404s byte-equal, 403 only after scope; errors echo no key or body; no new log line).
+- **Part-A advisories carried and applied:** zero-target `all: true` creates no row; ODKU comment fixed; concurrent first writes in both orders; `no_step` → 409; out-of-scope caller on a finished assessment → the same 404; e2e full-body equality and no `@`.
+- **Runtime events:** none.
+
+**Decisions made:**
+
+- Withdraw resolves the comment's own timeline and membership and applies the caller's scope; missing, out of scope and no row give the same 404; the 403 `ASSESSMENT_NOT_COMMENT_AUTHOR` (also for a non-author ADMIN) only after that.
+- Create is allowed only in the assessor's own step (not while step 2 is open). The withdraw window is the `assessors` or `programs` step in progress, while the comment is `open`.
+- `created_at` and `withdrawn_at` are cut to whole seconds so a replay equals the 201; event and audit rows keep the raw instant.
+- The 64 KiB limit is measured as MySQL JSON text; over it, labels are dropped first, then the value is cut and `value_truncated` set.
+- Idempotency: reserve outside the transaction, `markExecuted` inside, target id = comment id (field-config pattern, P-17). `replayComment` re-reads the current row, so a crash-path replay after a withdraw shows `withdrawn` while a completed-key replay shows the stored `open` answer.
+
+**Forward pointers:**
+
+- **→ T-11:** retry on deadlock (1213) in the unit of work now covers concurrent first comments too; the `locked.fieldConfigVersion === version` guard must cover `comment` as well as `validate`; consider reading `membership.ended` under the lock.
+- **→ T-14:** design § 7.9's `event: 'assessment'` log line per write request (T-14 lists § 7.9); add a withdraw case for a caller assigned only on another timeline to the byte-equal 404 test; a second actor reusing a key gets a fresh comment; `expect(world.transactions).toBe(0)` on the closed-window and not-open withdraw cases, and direct `isWithdrawWindowOpen` rows in `role-steps.spec.ts`; a sibling key in `comment-value-copy.spec.ts` to show other fields are left out.
+- **→ T-15:** in `server/src/assessment/AGENTS.md` and the front contract, record that `idempotency_keys.response_body` keeps the comment body, value copy and nickname until the retention purge (a withdraw does not clear it), the replay difference above, and that 404 refusals are byte-equal but not time-equal (same accepted pattern as the read).
+- **→ T-16 HITL:** check `storedLength` against MySQL `LENGTH(CAST(? AS JSON))` near the 64 KiB boundary.
+- **→ P2-3911:** the program-answer writer must take timeline share → assessment `FOR UPDATE` before updating a comment.
+
+**Running totals:**
+
+| Measure | Actual | Re-estimated budget |
+|---|---|---|
+| Tasks | 11 of 21 | 21 |
+| Production LOC | ≈ 6,150 TS + 141 SQL | 11,000 |
+| Review rounds | 19 | 34 |
+
+Within the re-estimated budget.
+
+### T-11: Writes II — ends (auto Quality Assessed, finish → returned) and quick comments — PASS
+
+| | |
+|---|---|
+| Date | 2026-11-11 |
+| Final status | PASS (attempt 2 of 2) |
+| Requirements covered | FR-12, FR-14, FR-15, FR-16, FR-17 (incl. *BUT* at the unit-of-work level), FR-21 |
+| OQ gate | OQ-2 and OQ-9, `execution.md` T-1 entry |
+| Skills | nestjs-expert, tdd (as task) |
+| Effort | default in attempt 1; `high` in attempt 2 (rework bump) |
+| Review mode | lenses: concurrency and correctness, two Reviewers in parallel |
+
+- **Routes:** finish (`POST …/assessment/finish`), quick comments (list and save per role). The release row is only **queued** in the end transaction; dispatch is T-12.
+- **Files** (under `server/`):
+  - new: `src/assessment/quick-comments.service.ts`, `quick-comments.controller.ts`, `dto/quick-comment.dto.ts`, `models/quick-comment.model.ts`; specs `assessment-ends.service.spec.ts`, `assessment.end-store.spec.ts`, `assessment.errors.spec.ts`, `assessment.unit-of-work.deadlock.spec.ts`, `quick-comments.service.spec.ts`; e2e `test/assessment-ends.e2e-spec.ts`, `test/quick-comments.e2e-spec.ts`;
+  - edited: `assessment.controller.ts`, `assessment.errors.ts` (`AssessmentQuickCommentsForbiddenError`, `AssessmentBusyError`), `assessment.module.ts`, `assessment.service.ts`, `assessment.store.ts`, `assessment.unit-of-work.ts`, `assessment.write-store.spec.ts`, `assessment-validations.service.spec.ts`, `test/support/assessment-app.ts`, `test/support/in-memory-assessment.ts`;
+  - shared, outside the module: `common/http-exception.filter.ts` + spec, `common/api-response.ts` (`ApiErrorBody.fields` widened to `ApiFieldError[] | string[]`), `common/error-codes.spec.ts`.
+- **Consumers (the task listed none; actual):** `common/http-exception.filter.ts` and `common/api-response.ts` (the T-6 forward pointer), `MembershipRecord` (+ `resultId`, `phaseYear`), `AuditEventWrite.assessmentId` (now nullable). The client still types `fields` as `ApiFieldError[]` (`client/src/app/core/http/api-envelope.ts:48,70`); see the T-17 pointer.
+- **Lock order** (design § 5, `design.md:117`): timeline `FOR SHARE` (step re-judged; the position must equal the first) → `ensureAssessment` (first write) → assessment `FOR UPDATE` with `membershipEnded` as a scalar subquery in the same statement → `findValidations` → `findCommentedFieldKeys` (finish) → writes. End writes: conditional `UPDATE … WHERE id = ? AND status = 'pending'` first, then `insertRelease`, `markCommentsVisible`, end audit; a loser writes none.
+- **Statements:** auto-QA validation 14 (4 reads + 10 in the transaction); finish 13 (4 + 9).
+
+**Attempt 1 — FAIL (concurrency lens); correctness lens PASS**
+
+- **Observed red** (specs against skeletons): ends spec `Tests 32 failed | 5 passed (37)`, e2e `Tests 22 failed (22)`, e.g. `expected { status: 'pending', …(3) } to match object { status: 'quality_assessed', …(2) }`, `expected [] to have a length of 5 but got +0`, filter `"fields": ["general.title","toc.outcomes"]` missing, deadlock `expected 1 to be 3`.
+- **Falsifiers (observed red, then restored):**
+  1. end guard removed in the fake: `AssertionError: expected 5 to be 1` on `world.endUpdatesMatched`; removed from the Drizzle statement: `expected 'update `result_assessments` set `stat…' to contain 'where (`result_assessments`.`id` = ? …'`.
+  2. auto-QA over every Assessed field: 20 failed, incl. *Last core goes green* and the zero-core case.
+  - filter forwarding broken: `fields` missing in the filter spec and the finish e2e; deadlock retry removed: 5 failed.
+- **Evidence re-run (Leader inline):** unit `Tests 3609 passed | 6 skipped (3615)`, e2e `Tests 1113 passed (1113)`. **VERIFIED.**
+- **Correctness Reviewer: PASS.** Comment visibility at any end (every non-withdrawn comment, including core fields that went green) judged conformant: design `:209` and FR-15 `:318` say "every non-withdrawn comment"; FR-14 `:302` sets a minimum. ADMIN refused for quick comments is correct (§ 6 "a live grant of that role", DD-2).
+- **Concurrency Reviewer: FAIL** (verbatim):
+  > **Discovered Issue:** The FR-17 *BUT* test "a validation that commits before the finish is kept, and one queued after it is refused" (`assessment-ends.service.spec.ts:756-774`) runs one call after another. The refused validation is turned away by the check before the lock (`assessment.service.ts:266`, `held.status !== 'pending'`). It never waits behind the finish. Mutation trace: delete `locked.status !== 'pending'` from `lockForWrite` (`:521`) and this test stays green. No T-11 test makes a real finish commit while a validation is in flight.
+  > **Violated Rule:** `tasks.md:288` and `:280`; `requirements.md:332` and `:338`.
+  > **Remediation Suggestion:** Add a concurrent case … assert 409 `ASSESSMENT_FINISHED`, no validation row and no audit row from that request. Confirm the test goes red when the `:521` status check is removed.
+
+**Attempt 2 — PASS**
+
+- **Changes:** the fake's `beforeLockAssessment` may be async and is awaited inside `lockAssessment`; a new test commits a whole finish there while a validate waits for the lock (409 `ASSESSMENT_FINISHED`, status `returned`, no validation or audit row from it, `endUpdatesMatched` 1). Advisories applied: a second `PinnedVersionChangedError` → typed 503 `SERVICE_UNAVAILABLE` (`AssessmentBusyError`, like `FieldConfigBusyError`); the 2-assessor auto-QA test asserts `world.validations`; a service-level deadlock test runs the real `DrizzleAssessmentUnitOfWork` over a fake transaction (1213 after the first audit insert → one clock read, one audit row, one set of validations); `holdLockUntil` reset after release; the e2e 404 test now compares an out-of-scope code with a missing one as full bodies; the fake header documents that a duplicate insert does not wait.
+- **Reds:** removing `locked.status !== 'pending'` from `lockForWrite` → the new test `Error: expected a refusal` (`1 failed | 39 passed`) while the old sequential test stays green; the second-mismatch mapping before the fix → `expected { status: undefined, body: undefined } to match object { status: 503, …(1) }`; deadlock retry removed → `Error: Deadlock found when trying to get lock`. Both original falsifiers still red (`expected 5 to be 1`; 21 failed).
+- **Clock grep** (non-spec files in `server/src/assessment`): only `assessment.module.ts:76` and `:79`.
+- **Evidence re-run (Leader inline):** lint and build clean; unit `Test Files 93 passed | 1 skipped (94)`, `Tests 3612 passed | 6 skipped (3618)`; e2e `Test Files 22 passed (22)`, `Tests 1113 passed (1113)`. **VERIFIED.**
+- **Concurrency Reviewer: PASS.** The async hook reproduces the MySQL order (finish holds `FOR UPDATE`, the validate waits, then reads `returned`); the `vi.mock` replaces only the write-store constructor, so the real retry loop, `isDeadlock`, the attempt bound and READ COMMITTED stay under test.
+- **Runtime events:** the Implementer used two shell edits on its own test lines against the brief's "file tools" rule; one heredoc aborted and wrote nothing. No effect on the result.
+
+**Forward pointers closed:** T-6 (the filter forwards `fields` for `ASSESSMENT_CORE_UNCOMMENTED` only; `.fields` pinned); T-10 (deadlock retry on 1213, at most 3 attempts; the version guard for `validate`, `comment` and `finish`, rerun once against the pinned row with the same clock; `membershipEnded` read under the lock; step-position equality).
+
+**Decisions made:**
+
+- Quick comments: list and save only with a live grant of exactly that role (ASSESSOR, LEAD_ASSESSOR, TPB, PPU); ADMIN and others → 403 `AUTH_PERMISSION_DENIED`; an unknown role → 400; TPB never sees the ASSESSOR list; dedupe on the sha-256 of the trimmed text per role (201 + one `quick_comment_save` audit row without text; a repeat → 200, no audit). The list has no limit (the design gives none).
+- `ASSESSMENT_FINISHED` is checked before `ASSESSMENT_CORE_UNCOMMENTED`; a refused finish rolls back and leaves no row.
+- The release row takes `resultId` and `phaseYear` from the membership.
+- The fake deliberately has no row lock for the 5-finish test (`holdLockUntil`), so only the conditional UPDATE decides; the real-MySQL path is covered by the under-lock status check tests.
+
+**Forward pointers:**
+
+- **→ T-12:** the release ack that ends memberships must take timeline `FOR SHARE` → assessment `FOR UPDATE` first, so `membershipEnded` stays stable (Reviewer). This joins the T-5 note that `endAsReturned` takes no load-row lock.
+- **→ T-15:** front contract: the 409 `ASSESSMENT_CORE_UNCOMMENTED` carries `fields` as strings (field keys); quick comments are open to roles that cannot comment yet (§ 6 allows it).
+- **→ T-17:** widen the client `ApiError.fields` type (`client/src/app/core/http/api-envelope.ts:48,70`) or read the 409 keys separately.
+- **→ T-16 HITL:** two concurrent quick-comment saves of the same text (1062 catch and deadlock retry) and the losing-first-writer case, against real MySQL.
+
+**Running totals:**
+
+| Measure | Actual | Re-estimated budget |
+|---|---|---|
+| Tasks | 12 of 21 | 21 |
+| Production LOC | ≈ 7,190 TS + 141 SQL | 11,000 |
+| Review rounds | 23 | 34 |
+
+Within the re-estimated budget.
+
+### T-12: Release outbox — PASS
+
+| | |
+|---|---|
+| Date | 2026-11-11 |
+| Final status | PASS (attempt 2 of 2) |
+| Requirements covered | FR-18 (incl. *Reporting down* and *MUST NOT* two releases), FR-5, FR-21 (`release_sent` / `release_refused`), NFR-3, NFR-6 |
+| OQ gate | OQ-1 (send right after the end commits), `execution.md` T-1 entry |
+| Skills | nestjs-expert, error-handling-patterns, tdd (as task) |
+| Effort | default in attempt 1; `high` in attempt 2 (rework bump) |
+| Review mode | lenses: concurrency and external contract, two Reviewers in parallel |
+
+- **Routes:** `GET /api/v1/assessment-releases?status=pending|refused` (ADMIN; `status` optional, default `pending`; capped at 500 rows), `POST /api/v1/assessment-releases/retry` (ADMIN; at most 3 claim rounds; `{ attempted, sent, refused, stillPending }`).
+- **Files** (under `server/`):
+  - new: `src/assessment/release.store.ts`, `release.service.ts`, `releases.controller.ts`, `dto/release-query.dto.ts`, `models/release.model.ts`; specs `release.service.spec.ts`, `release.store.spec.ts`; e2e `test/assessment-releases.e2e-spec.ts`;
+  - edited: `assessment.service.ts` (fire-and-forget `dispatchRelease()` after an end commit, `.catch` logs), `assessment.module.ts`, `assessment.unit-of-work.ts` (`releases`, `loads` repositories on the transaction handle), `assessment-ends.service.spec.ts`, three service specs (+ `noReleaseDispatch`), `test/support/in-memory-assessment.ts`, `test/support/assessment-app.ts` (`RESULTS_FEED` fake exposed as `a.feed`, `RELEASE_STORE`, `RELEASE_PAUSE`).
+- **Consumers:** `ingestion/loads.store.ts` `endAsReturned` and `endAsReleasedQaed` now have a caller (the ack). `AssessmentService` gains a required dispatcher constructor parameter.
+- **Claim** (one transaction, one send batch): read the oldest due row's phase year (unlocked) → that year's due ids `FOR UPDATE SKIP LOCKED` (≤ 50) → one row per result id → conditional `UPDATE … SET lease_until = now + 60 s, attempts = least(attempts + 1, 255) WHERE id IN (…) AND status = 'pending' AND (lease_until IS NULL OR lease_until < now)` → throw `release_claim_mismatch` if `affectedRows` ≠ ids read → read the leased rows. `WORST_CASE_SEND_MS` (36 s) < `RELEASE_LEASE_MS` (60 s) is guarded at module load and by a unit test.
+- **Ack** (one transaction per batch): timelines `FOR SHARE` sorted → assessments `FOR UPDATE` sorted → conditional settle (`id = ? AND status = 'pending'`) → membership end (`qaed` → `endAsReleasedQaed`; `not_qaed` → `endAsReturned`, round 1 only) → audit row. `released` and `not_in_qa` → `sent`; any other reason → `refused` (trimmed to 32); an unanswered item stays `pending`.
+
+**Attempt 1 — FAIL (concurrency lens); external contract lens PASS**
+
+- **Observed red** (against skeletons): unit `Tests 22 failed | 41 passed (63)`, e.g. `expected [] to have a length of 3 but got +0`; store spec 7 failed (`release store: not implemented`). The e2e file was written after the code; its red is falsifier 3.
+- **Falsifiers (observed red, then restored):** 1. lease condition dropped (fake and Drizzle) → two-dispatcher test `expected 'hung' to deeply equal { attempted: 0, … }` and the claim SQL spec; 2. `not_in_qa` as refused → the retry test `expected { attempted: 2, sent: +0, … }`; 3. dispatch awaited in the request → `assessment-ends.service.spec.ts` NFR-6 test and the e2e `expected 'hung' not to be 'hung'`.
+- **Contract Reviewer: PASS** (payload `phase_year` + `items[{result_id, outcome}]`, ≤ 50, unique result ids; ADMIN-only via `@RequirePermission(ADMIN_ACCESS)`; log line ids and reason word only; disqualifier respected: every retry test scripts 503 before success).
+- **Concurrency Reviewer: FAIL** (verbatim):
+  > **Discovered Issue:** One claim leases up to 50 rows for 60 s (`release.service.ts:114-118`). Those rows are then sent in **sequential** batches, one per phase year and per unique-result split (`release.service.ts:126-131`). One batch can take up to about 36 s […]. Two batches in one round can therefore run past the lease. […] D2's claim finds `lease_until < now`, takes the 2026 rows and sends them too. Reporting gets two releases for one end. […] No test covers lease expiry during a multi-batch round.
+  > **Violated Rule:** `requirements.md` FR-18, Scenario *Reporting down*: "AND IT MUST NOT send two releases for one end, even under concurrent retries"; `design.md` § 7.6 step 1; NFR-3.
+
+**Attempt 2 — PASS**
+
+- **Changes:** one claim = one send batch (above); `dispatch({ maxRounds })` runs one claim + one send-and-ack per round (auto: 50 rounds; `/retry`: 3); the ack logs `already_ended`, `not_round_1` and `no_actor` instead of discarding them; `claimDue` fails loudly on an affected-rows mismatch.
+- **Reds:** the new fake-clock test (`release.service.spec.ts:645`: two phase years, batch 1 takes +40 s, a second dispatcher at +61 s during the second send) went red on the attempt-1 code with `expected 'hung' to deeply equal { attempted: +0, … }`; the budget test red before `WORST_CASE_SEND_MS` existed. Falsifiers on the final code: 1 → 11 failed; 2 → 1 failed; 3 → 1 failed (unit; the e2e variant was red on attempt 1, path unchanged). Files restored byte-identical.
+- **Clock grep** (non-spec files in `server/src/assessment`): only `assessment.module.ts:85` and `:88`. No `process.env`.
+- **Evidence re-run (Leader inline):** lint and build clean; unit `Test Files 95 passed | 1 skipped (96)`, `Tests 3648 passed | 6 skipped (3654)`; e2e (`--maxWorkers=2`, no `RG_FORCE`) `Test Files 23 passed (23)`, `Tests 1119 passed (1119)`. **VERIFIED.**
+- **Concurrency Reviewer: PASS.** The 36 s bound is real (the 10 s abort covers the body read; jitter applies to the waits only); no await between claim commit and send; the unlocked year read only picks the year (worst case is liveness, never a double send); the new test truly interleaves.
+
+**Forward pointers closed:** T-11 (the ack takes timeline `FOR SHARE` → assessment `FOR UPDATE` before ending memberships); T-5 (`endAsReleasedQaed` has its caller).
+
+**Decisions made:**
+
+- **Refused is final.** `/retry` only picks `pending` rows; a refused row (e.g. `not_submitted`) is listed for the admin but not resent, and its membership stays active. This reads FR-18 "see which releases are pending or refused, and retry them" through design § 7.6 (refused is a settled outcome). Decided by the Leader under the back lead's delegation; business (Angel) may override in a later story.
+- Own 3-attempt retry in `ReleaseService` (the runner's helper is private), only on `FeedError` kind `unavailable`, waits 1 s and 4 s ± 20 %; 401 and 400 are not retried and the row stays `pending`.
+- Audit actor of `release_sent` / `release_refused` = the assessment's `finished_by`; `request_id` = `release-<releaseId>`.
+- A result id twice in one phase year goes to separate calls (Reporting rejects duplicates, P-4).
+
+**Forward pointers:**
+
+- **→ T-14:** (a) take the lease `now` inside the claim transaction, or skip a batch when `clock() > leaseUntil − WORST_CASE_SEND_MS` right before sending (pool wait or a slow ack can still eat the 24 s margin; data stays correct through the conditional settle and `not_in_qa`, but Reporting would get a second call); (b) when the oldest year's rows are all skip-locked, try the next due year instead of ending the sweep; (c) import the feed timeout instead of copying `CATALOG_TIMEOUT_MS` into `FEED_TIMEOUT_MS`; (d) fake fidelity: dedupe after the limit as MySQL does, and the 255 cap on `attempts`.
+- **→ T-15:** `ingestion/AGENTS.md` "no caller" sentence for `endAsReturned` / `endAsReleasedQaed` is now false; the new `assessment/AGENTS.md` records the second feed binding (DD-1) and `ReleaseService` as the outbox sender; reword the `/retry` OpenAPI text ("at most 3 batches"; `stillPending` counts only claimed rows); the T-5 gap stays open: a load end takes the timeline `FOR SHARE` like the ack, so the ack's `endAsReturned` does not wait for `countReturnedNotResubmitted` — document it; § 5 "no cycle" is too strong (`ensureAssessment` vs the ack on `timeline_results` can deadlock; the 1213 retry resolves it).
+- **→ T-16 HITL (real MySQL):** two concurrent dispatches on one row (`SKIP LOCKED`, the affected-rows check, `least(attempts + 1, 255)`); the ack lock order against a concurrent timeline edit.
+- **→ T-17+ (client):** the admin header pending count reads `GET /assessment-releases?status=pending` (array length, ≤ 500; a leased row counts as pending; the response does not say it was cut).
+- **→ qa-context open question (business):** one result in two memberships of the same phase year: the second release gets `not_in_qa` and counts as sent, though Reporting kept the first outcome.
+
+**Running totals:**
+
+| Measure | Actual | Re-estimated budget |
+|---|---|---|
+| Tasks | 13 of 21 | 21 |
+| Production LOC | ≈ 8,060 TS + 141 SQL | 11,000 |
+| Review rounds | 26 | 34 |
+
+Within the re-estimated budget.
+
+### T-14: Cross-cutting HTTP suites — concurrency, clock, privacy, OpenAPI — PASS
+
+| | |
+|---|---|
+| Date | 2026-11-11 |
+| Final status | PASS (attempt 2 of 2) |
+| Requirements covered | FR-2 (over HTTP, clock overridden), FR-17 (5 parallel finishes and validate vs finish, over HTTP), FR-22, NFR-3, NFR-4, NFR-5 |
+| Skills | nestjs-expert (as task) |
+| Effort | default in attempt 1; `high` in attempt 2 (rework bump) |
+| Review mode | full, one Reviewer |
+
+- **Files** (under `server/`):
+  - production: new `src/assessment/assessment-log.ts` (`loggedWrite`: one `event:'assessment'` line per write request with `action, timelineId?, membershipId?, outcome (ok|refused|error), reason?, requestId, actorId`; reason = catalog error code, else `http_<status>`, else `internal_error`); edited `assessment.service.ts` (validate, comment, finish, withdraw wrapped), `quick-comments.service.ts` (save wrapped), `release.service.ts`, `release.store.ts` (hardening below). ≈ 185 production lines;
+  - tests: new `test/assessment-privacy.e2e-spec.ts`, `test/assessment-concurrency.e2e-spec.ts`, `test/assessment-clock.e2e-spec.ts`, `test/support/assessment-seed.ts`, `src/assessment/assessment-log.spec.ts`; edited `test/openapi.e2e-spec.ts` (12 routes, envelopes, exact error codes per status against `ERROR_CATALOG`, replay header, 503 on `GET /assessment-releases`), `test/assessment-comments.e2e-spec.ts`, `test/support/assessment-app.ts` (`setClock`, `nicknames`, `names`), `test/support/in-memory-assessment.ts`, `release.service.spec.ts`, `release.store.spec.ts`, `role-steps.spec.ts`, `comment-value-copy.spec.ts`.
+- **Release hardening (T-12 pointers a–d):** the lease `now` is read inside the claim transaction (`claimDue(clock, leaseMs, limit)` → `claimInTransaction`); a claimed batch is skipped and left pending (log outcome `lease_short`) when `clock() > leaseUntil − WORST_CASE_SEND_MS` right before the send; `buildDueYears` (group by phase year, ordered by `min(id)`, limit 10) lets the claim pass over a year whose rows are all skip-locked; `FEED_TIMEOUT_MS = CATALOG_TIMEOUT_MS` (imported); the fake dedupes after the limit and caps `attempts` at 255.
+- **T-10 pointers:** withdraw by a caller assigned only on another timeline → byte-equal 404; a second actor reusing a key gets a fresh comment; `transactions` 0 on the closed-window and not-open withdraws; direct `isWithdrawWindowOpen` rows; a sibling key left out of the value copy.
+
+**Attempt 1 — FAIL (full)**
+
+- **Observed red:** privacy `validate: one line: expected [] to have a length of 1 but got +0`; hardening 5 red (`…10:01:00.000Z to deeply equal …10:01:30.000Z`, skip, next year, dedupe `[7001, 7003]`, cap `256`).
+- **Falsifiers (observed red, then restored):** comment body in the log line → privacy red; `if (!ended) throw new AssessmentFinishedError()` removed in `applyEnd` → `expected [] to have a length of 4 but got +0` and `expected [200, 500] to deeply equal [200, 409]` (Reviewer judged this a valid "remove the conditional end": the SQL predicate is pinned by `assessment.end-store.spec.ts`).
+- **Evidence re-run (Leader inline):** unit `Tests 3674 passed | 6 skipped (3680)`, e2e `Tests 1131 passed (1131)`. **VERIFIED.**
+- **Reviewer: FAIL** (verbatim, abridged):
+  > 1. The allowed-keys check is a subset check, not an exact one (`test/assessment-privacy.e2e-spec.ts:152`). Only `finish` pins `timelineId`/`membershipId`. […] delete `trace.membershipId = membership.membershipId` in `validateAt`/`commentAt` […] and the suite stays green. Violated: design.md § 7.9.
+  > 2. Person names are never planted. The actors' `firstName` is the sub and `lastName` is `'Actor'` (`test/support/assessment-app.ts:130-137`). […] Violated: requirements.md FR-22 and NFR-5 ("nickname, name or email").
+
+**Attempt 2 — PASS**
+
+- **Changes (tests only):** `expectDecisionLine` asserts each write line with `toEqual` (exact keys, real `actorId`; `membershipId` left out only for quick-comment saves and finish on a missing result); planted first and last names for three actors; a forced-5xx case over HTTP (`outcome:'error'`, `reason:'internal_error'`, no leak in answer or logs); the view answer contains `PLANTED_VALUE` and the re-read quick comments contain `PLANTED_QUICK`; the clock suite asserts `writable:false` and `readOnlyReason` after close, `writable:true` inside.
+- **Mutation reds:** `trace.membershipId` removed in validate → `expected {…(5)} to deeply equal {…(6)}`; `user.firstName` logged on finish → red. Both original falsifiers red again on the final code. Restored.
+- **Clock grep:** only `assessment.module.ts:85` and `:88` (pre-existing providers; the module pattern).
+- **Evidence re-run (Leader inline):** lint and build clean; unit `Test Files 96 passed | 1 skipped (97)`, `Tests 3674 passed | 6 skipped (3680)`; e2e `Test Files 26 passed (26)`, `Tests 1132 passed (1132)`. **VERIFIED.**
+- **Reviewer: PASS.** Spy matches the reference (all `Logger.prototype` levels, `overrideLogger`, `console.*`, stdout, stderr); hardening a–d correct; a `lease_short` skip increments `attempts` but `attempts` does not gate the claim, so no starvation.
+
+**Forward pointers closed:** T-10 (§ 7.9 log line; withdraw and idempotency extras); T-12 (a–d).
+
+**Decisions made:**
+
+- The `event:'assessment'` line is written by a service-level wrapper, not an interceptor (the membership id is only known inside the service).
+- No `assessment` line on an idempotent comment replay (answered by the interceptor; matches the ingestion reference) and none on `POST /assessment-releases/retry` (the dispatcher writes its own `assessment_release` lines). Accepted gap: an admin retry is not tied to its caller in the logs.
+
+**Forward pointers:**
+
+- **→ T-15:** document in `assessment/AGENTS.md` the `event:'assessment'` line, the `lease_short` outcome, `claimDue(clock, leaseMs, limit)` and the locked-year pass; drop the redundant subset check at `assessment-privacy.e2e-spec.ts:179`; NFR-4's literal grep matches the two `() => new Date()` clock providers in `assessment.module.ts` — record them as the allowed binding.
+- **→ T-16 HITL (real MySQL):** `buildDueYears` under `ONLY_FULL_GROUP_BY`; two real dispatchers where one holds the oldest year; the clock read after a pool wait; the HTTP concurrency suites use the fake's `holdLockUntil` barrier, so true row-lock ordering stays a real-MySQL check.
+
+**Running totals:**
+
+| Measure | Actual | Re-estimated budget |
+|---|---|---|
+| Tasks | 14 of 21 | 21 |
+| Production LOC | ≈ 8,245 TS + 141 SQL | 11,000 |
+| Review rounds | 28 | 34 |
+
+Within the re-estimated budget.
+
+### T-15: Documents — front contract, module guide, pending items — PASS
+
+| | |
+|---|---|
+| Date | 2026-11-11 |
+| Final status | PASS (attempt 2 of 2) |
+| Requirements covered | FR-25 (all items), DD-13 (deep-link gap documented) |
+| Skills | cognitive-doc-design (as task) |
+| Effort | default in attempt 1; `high` in attempt 2 (rework bump) |
+| Review mode | checklist, docs against code |
+
+- **Files:** new `docs/specs/assessment/step-1-assessment/front-contract.md` (every route, shapes read from the DTOs, models, controllers, `assessment.errors.ts`, `api-response.ts`, the filter; 8 statuses, read-only reasons, envelope, error tables, the forward-pointer items from T-8, T-10, T-11, T-12, DD-13), new `server/src/assessment/AGENTS.md`; edited `server/src/ingestion/AGENTS.md` (`:19`, `:24`, `:45`, `snapshotKeyOf` and labels bullet, `changed_fields` emptiness rule), `server/src/admin-config/AGENTS.md` (`:82`), `server/test/AGENTS.md` (suites, support files, `withoutTitleBackfill` rule), `design.md:89` (8 codes); comments and text only in `server/src/ingestion/loads.store.ts` (JSDoc `:308-321`), `server/src/assessment/releases.controller.ts` (`/retry` description); `server/test/assessment-privacy.e2e-spec.ts` (redundant subset check removed).
+- **Verification:** `grep -o "ASSESSMENT_[A-Z_]*" … | sort -u` over `assessment.errors.ts` and over the contract → **EQUAL** (8 codes), re-run by the Leader. Falsifier: `// ASSESSMENT_FAKE_CODE` appended → `3d2 < ASSESSMENT_FAKE_CODE`, exit 1; file restored (`git diff --stat` empty).
+- **Falsified sentences rewritten:** "no caller" / "port only" (`ingestion/AGENTS.md:19`, `:45`, `loads.store.ts` JSDoc); "not built" (`admin-config/AGENTS.md:82`); "only export" — already correct at HEAD (`admin-config/AGENTS.md:44` lists both exports), no change.
+
+**Attempt 1 — FAIL (checklist)**
+
+- **Reviewer: FAIL** (verbatim, abridged): 1. `front-contract.md:73` "only `ASSESSOR` can use [quick comments] today" — the code admits any live grant of ASSESSOR, LEAD_ASSESSOR, TPB or PPU (`quick-comments.service.ts:24-26,129-138`). 2. `assessment/AGENTS.md:33` quoted the clock literal, so the NFR-4 grep (`tasks.md:257`) hit the guide itself. 3. `assessment/AGENTS.md:14` "one statement per read" — the code runs 2 (timelines) and 4 (page). 4. No pending items for root `AGENTS.md`, `docs/ux-ui/design.md` § 7 and TRD § 5.1 / § 7.3 (FR-25, `requirements.md:411`); not editing shared files is correct (`akili-archive.md:139-141`), but `execution.md` had no `## Constitution Impact` block to carry them.
+
+**Attempt 2 — PASS**
+
+- **Changes:** findings 1–3 fixed; advisories applied (load lock wording, the ack's own `DrizzleLoadsStore(tx)`, `internal_error` and pre-service refusals in the log section, crash-window replay bullet, worklist filter caps, optional `Idempotency-Key`, stale JSDoc, reserved-tables paragraph). Finding 4: the Leader's `## Constitution Impact` block below. The Reviewer caught one false line in the Leader's draft (the withdraw window); it was corrected before this entry.
+- **Evidence re-run (Leader inline):** clock grep → only `assessment.module.ts:85` and `:88`; error-code comparison EQUAL; lint and build clean; unit `Tests 3674 passed | 6 skipped (3680)`; e2e `Tests 1132 passed (1132)`. **VERIFIED.**
+- **Reviewer: PASS.**
+
+**Forward pointers closed:** T-8 (contract extras, `test/AGENTS.md` suite), T-13 (`withoutTitleBackfill` rule), T-10 (idempotency retention, replay, byte-equal 404), T-11 (`fields` strings, quick-comment roles), T-12 (`ingestion/AGENTS.md`, second feed binding, `/retry` wording, T-5 gap documented, § 5 "no cycle" qualified in the module guide), T-14 (log line, `lease_short`, `claimDue` signature, clock binding, subset check), T-4 (`fixtures/` labels), T-5 (`ingestion/AGENTS.md:19`), T-6 (`design.md:89`, DD-1 "only" covers feature modules).
+
+**Forward pointers:**
+
+- **→ admin-config (owner, outside this spec):** timeline readiness always lists `NO_RESULTS_LOADED` (`timeline-view.ts:112` hardcodes it and never reads the loads port), so the item never clears after a load. Now documented in `admin-config/AGENTS.md:82`; needs its own fix story.
+- **→ back lead:** the `LOADS_STORE` provider at `assessment.module.ts:81` is injected nowhere (the ack builds its own `DrizzleLoadsStore(tx)`). Kept; the guide calls it a leftover copy of ingestion's binding. Remove it in a later cleanup or keep it on purpose.
+- **→ archive:** `design.md` § 5 still says "no lock cycle"; the module guide qualifies it (the 1213 retry resolves `ensureAssessment` vs the ack).
+
+**Running totals:**
+
+| Measure | Actual | Re-estimated budget |
+|---|---|---|
+| Tasks | 15 of 21 | 21 |
+| Production LOC | ≈ 8,245 TS + 141 SQL (T-15 is docs and comments) | 11,000 |
+| Review rounds | 30 | 34 |
+
+Within the re-estimated budget. Remaining: T-16 (API HITL, back lead), client T-17 to T-20 and UI HITL T-21 (≈ 3,000 LOC estimated, 4 review rounds left in the budget for 5 tasks — a re-estimate is due before T-17).
+
+## Constitution Impact
+
+FR-25 pending items. This branch is a spec branch, so no shared file is edited here (`.claude/commands/akili-archive.md:139-141`, `.claude/skills/kaizen/SKILL.md:111`). `/akili-archive` collects these; each is applied on the apply-capable branch or by its owner. The `ingestion/AGENTS.md` `changed_fields` rule was a module-guide deliverable of this spec and is already applied (T-15).
+
+| Field | Value |
+|---|---|
+| Kind | guide-sync |
+| Target | `AGENTS.md` (root) — Spec organization domain table (after the `ingestion` row, `:33`) and `## Module Guides` index (under `server/AGENTS.md`, `:79-86`) |
+| Edit | Domain row: `` | `assessment` | Step-by-step assessment of loaded results: worklist, field validations, comments, ends, release to Reporting (`server/src/assessment/`) | ``. Index line: `` - `server/src/assessment/AGENTS.md` — assessment module: bindings (DD-1), lock order, unit of work and retries, release outbox, logging and privacy, testing. `` Also list `server/src/ingestion/AGENTS.md` if it is still missing from the index. |
+| Severity | Medium |
+| Status | pending |
+
+| Field | Value |
+|---|---|
+| Kind | factual-sweep |
+| Target | `docs/ux-ui/design.md` § 7 *Status vocabulary*, row "Result QA stage" (`:130`) |
+| Edit | Stale: "Round 1: Pending · In review · Assessed by 1 assessor · Assessed by 2 assessors — Round 2: Pending · Assessed — Final: Quality assessed. "Automatic" exists in data but is not under assessment". Replace with the FR-5 vocabulary (`requirements.md:163`): "Pending · Returned to program · Clarification requested · Pending for TPB review · Pending PPU · Unresolved · Quality Assessed · Auto-validated (computed, never stored; Auto-validated is listed only when filtered for)". Owner: design (UX doc). |
+| Severity | Medium |
+| Status | pending |
+
+| Field | Value |
+|---|---|
+| Kind | factual-sweep |
+| Target | `docs/trd/trd.md` § 5.1 MySQL entities (`:167`) |
+| Edit | Add the migration `0009_assessment` tables: `result_assessments` (one per membership and role step; status `pending`/`quality_assessed`/`returned`; finished_by/at; pinned field-config version), `assessment_field_validations`, `assessment_comments` (value copy, `value_truncated`, `visible_to_program_at`, thread state), `comment_events`, `quick_comments` (per role, sha-256 dedupe), `assessment_audit_events`, `assessment_releases` (outbox: outcome `qaed`/`not_qaed`, status `pending`/`sent`/`refused`, attempts, lease_until, reason; unique `assessment_id`). Also `timeline_results.title` and end reason `released_qaed` now written. |
+| Severity | Medium |
+| Status | pending |
+
+| Field | Value |
+|---|---|
+| Kind | factual-sweep |
+| Target | `docs/trd/trd.md` § 7.3 Comment state machine (`:231`) and § 7.4 Closure (`:242`) |
+| Edit | § 7.3: add `OPEN ──author, no SP answer, step 1 or step 2 open──▶ WITHDRAWN` (closed; an ended assessment does not close the window, FR-13) and note that P2-3910 writes only `open` and `withdrawn`; `clarification_requested` and the answer back to `open` are defined but unwritten (OQ-5, moved to P2-3911). § 7.4: Reporting is notified through `POST /api/qa/results/release` (contract `qa-catalog.en.md`), by an after-commit outbox (`assessment_releases`) retried with leases until acknowledged; `not_in_qa` counts as released; `not_found` / `other_phase` / `not_submitted` are refused and final. "Endpoint TBD, PRD OQ-2" is stale. |
+| Severity | Medium |
+| Status | pending |

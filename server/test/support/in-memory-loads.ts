@@ -1,5 +1,6 @@
 // @akili-spec ingestion/step-1-loads
 // @akili-spec ingestion/timeline-sync
+// @akili-spec assessment/step-1-assessment
 import type { Cycle } from '../../src/database/drizzle/schema/cycles.js';
 import type {
   NewTimelineAuditEvent,
@@ -17,6 +18,7 @@ import type { Timeline } from '../../src/database/drizzle/schema/timelines.js';
 import type { ReturnedNotResubmitted } from '../../src/ingestion/load-rules.js';
 import type {
   CycleMembershipRow,
+  EndAsReleasedQaedOutcome,
   EndAsReturnedOutcome,
   LoadEndValues,
   LoadInsertOutcome,
@@ -384,6 +386,8 @@ export class InMemoryLoadsStore implements LoadsStore {
       entryRound: values.entryRound,
       previousMembershipId: values.previousMembershipId,
       changedFields: values.changedFields && [...values.changedFields],
+      // The column is nullable: a membership written without a title reads null.
+      title: values.title ?? null,
     };
     this.world.history.push(
       `result:insert:${values.resultCode}@${values.timelineId}`,
@@ -455,6 +459,25 @@ export class InMemoryLoadsStore implements LoadsStore {
       return { ended: false, reason: 'not_round_1' };
     }
     return { ended: false, reason: 'already_ended' };
+  }
+
+  /**
+   * Step-1-assessment design 7.8: the conditional UPDATE (`ended_at IS NULL`, no
+   * round condition), then the read that says why a zero-row update matched
+   * nothing. An ended row keeps its first instant and reason.
+   */
+  async endAsReleasedQaed(
+    id: number,
+    at: Date,
+  ): Promise<EndAsReleasedQaedOutcome> {
+    const row = this.t.results.find((r) => r.id === id);
+    if (!row) return { ended: false, reason: 'not_found' };
+    if (row.endedAt !== null) return { ended: false, reason: 'already_ended' };
+    this.world.history.push(`result:released_qaed:${id}`);
+    row.endedAt = at;
+    row.endReason = 'released_qaed';
+    row.activeKey = null;
+    return { ended: true };
   }
 
   /** Design 7.3 step 7: round-1 rows of the timeline ended `returned` with no round-2 row of the code here, by program and type. */
@@ -721,6 +744,21 @@ export class TransactionalLoadsStore extends InMemoryLoadsStore {
         : [];
     return this.statement({ current: true, locks }, () =>
       super.endAsReturned(id, at),
+    );
+  }
+
+  /** The UPDATE locks the row it ends and the `active_key` entry it frees; an ended or missing row matches nothing and locks nothing. */
+  override endAsReleasedQaed(id: number, at: Date) {
+    const row = this.t.results.find((r) => r.id === id);
+    const locks =
+      row && row.endedAt === null
+        ? ([
+            [`timeline_results:${row.id}`, 'X'],
+            [`timeline_results:active:${row.cycleId}:${row.resultCode}`, 'X'],
+          ] as const)
+        : [];
+    return this.statement({ current: true, locks }, () =>
+      super.endAsReleasedQaed(id, at),
     );
   }
 

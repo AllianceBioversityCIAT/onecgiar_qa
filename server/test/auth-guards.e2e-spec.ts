@@ -3,6 +3,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { AppModule } from '../src/app.module.js';
+import { withoutTitleBackfill } from './support/without-title-backfill.js';
 import { Public } from '../src/auth/decorators/public.decorator.js';
 import { ReadAccess } from '../src/auth/decorators/read-access.decorator.js';
 import { RequirePermission } from '../src/auth/decorators/require-permission.decorator.js';
@@ -197,9 +198,9 @@ async function buildWorld(): Promise<World> {
   // The cache's only time source: tests move it, no real timer is involved.
   const clock = { now: 1_700_000_000_000 };
 
-  const moduleRef = await Test.createTestingModule({
-    imports: [AppModule, ProbeModule],
-  })
+  const moduleRef = await withoutTitleBackfill(
+    Test.createTestingModule({ imports: [AppModule, ProbeModule] }),
+  )
     .overrideProvider(USERS_STORE)
     .useValue(usersStore)
     .overrideProvider(ROLE_ASSIGNMENTS_STORE)

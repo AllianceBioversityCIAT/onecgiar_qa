@@ -97,6 +97,44 @@ function contract(
       expect(await store.get(5121, snapshotSortSuffix(snap()))).toBeNull();
     });
 
+    it('labels round-trip through get and history, and an item without labels reads none', async () => {
+      const { store } = make();
+      const labels = { countries: { '170': 'Colombia', '999': null } };
+      await store.put(snap({ labels }));
+      await store.put(snap({ loadId: 11, hash: 'h2' }));
+      const sk = snapshotSortSuffix(snap());
+      expect((await store.get(5120, sk))?.labels).toEqual(labels);
+      const h = await store.history(5120);
+      expect(h[0].labels).toEqual(labels);
+      expect(h[1]).not.toHaveProperty('labels');
+    });
+
+    it('the same values and hash with renamed labels is a no-op and the first labels stay (FR-20, P-6)', async () => {
+      const { store, size } = make();
+      const first = { countries: { '170': 'Colombia' } };
+      await store.put(snap({ labels: first }));
+      await expect(
+        store.put(
+          snap({ labels: { countries: { '170': 'Republic of Colombia' } } }),
+        ),
+      ).resolves.toBeUndefined();
+      await expect(store.put(snap())).resolves.toBeUndefined();
+      expect(size()).toBe(1);
+      expect(
+        (await store.get(5120, snapshotSortSuffix(snap())))?.labels,
+      ).toEqual(first);
+    });
+
+    it('another hash is still a conflict whatever the labels', async () => {
+      const { store } = make();
+      await store.put(snap({ labels: { countries: { '170': 'Colombia' } } }));
+      await expect(
+        store.put(
+          snap({ hash: 'h2', labels: { countries: { '170': 'Colombia' } } }),
+        ),
+      ).rejects.toBeInstanceOf(SnapshotConflictError);
+    });
+
     it('history is ordered by year, cycle, timeline and load', async () => {
       const { store } = make();
       await store.put(snap({ phaseYear: 2027, timelineId: 7, loadId: 3 }));
@@ -143,5 +181,25 @@ describe('DynamoSnapshotStore gzip', () => {
     expect(h[1].values).toEqual({ small: 1 });
     const sk = snapshotSortSuffix(snap({ values: big }));
     expect((await store.get(5120, sk))?.values).toEqual(big);
+  });
+
+  it('round-trips 300 KB of labels through gzip and keeps small labels plain', async () => {
+    const { client, items } = createFakeDynamoClient();
+    const store = new DynamoSnapshotStore(client, 'test-table');
+    const big = { list: { '1': randomBytes(150 * 1024).toString('hex') } };
+    const small = { list: { '1': 'One' } };
+    await store.put(snap({ labels: big }));
+    await store.put(snap({ loadId: 11, labels: small }));
+    const stored = [...items.values()];
+    const bigItem = stored.find((i) => 'labelsGz' in i)!;
+    expect(bigItem.labels).toBeUndefined();
+    expect(bigItem.values).toBeDefined();
+    expect(stored.filter((i) => 'labels' in i)).toHaveLength(1);
+    const h = await store.history(5120);
+    expect(h[0].labels).toEqual(big);
+    expect(h[1].labels).toEqual(small);
+    expect((await store.get(5120, snapshotSortSuffix(snap())))?.labels).toEqual(
+      big,
+    );
   });
 });

@@ -5,6 +5,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { AppModule } from '../src/app.module.js';
+import { withoutTitleBackfill } from './support/without-title-backfill.js';
 import { COGNITO_TIMEOUT_MS } from '../src/auth/cognito-auth.client.js';
 import {
   IS_PUBLIC_KEY,
@@ -114,9 +115,11 @@ async function buildWorld(extraModules: unknown[] = []): Promise<World> {
   const users = new UsersRepository(usersStore);
   const assignments = new RoleAssignmentsRepository(assignmentsStore);
 
-  const moduleRef = await Test.createTestingModule({
-    imports: [AppModule, ...(extraModules as never[])],
-  })
+  const moduleRef = await withoutTitleBackfill(
+    Test.createTestingModule({
+      imports: [AppModule, ...(extraModules as never[])],
+    }),
+  )
     .overrideProvider(USERS_STORE)
     .useValue(usersStore)
     .overrideProvider(ROLE_ASSIGNMENTS_STORE)

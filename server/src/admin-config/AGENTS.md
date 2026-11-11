@@ -41,7 +41,7 @@ Cycles and QA timelines: the admin API that says *when* QA runs, *for which* Sci
 
 ## Field configuration (`field-config/`)
 
-Which fields QA shows, per cycle and result type: a **draft** the ADMIN edits, and **immutable versions** published from it. Spec: `docs/specs/archive/2026-10-27-admin-config--field-configuration/` (`design.md` DD-1 to DD-12). A timeline uses a version by its start date, never by editing it. `FieldConfigModule` (`field-config.module.ts`) is its own Nest module so its replay reader answers a publication. Its **only export** is `FIELD_CONFIG_EFFECTIVE` (`field-config.module.ts:31, 95`), the port later review stories inject: `effectiveFor(cycleId, timelineId, resultTypeKey)`.
+Which fields QA shows, per cycle and result type: a **draft** the ADMIN edits, and **immutable versions** published from it. Spec: `docs/specs/archive/2026-10-27-admin-config--field-configuration/` (`design.md` DD-1 to DD-12). A timeline uses a version by its start date, never by editing it. `FieldConfigModule` (`field-config.module.ts`) is its own Nest module so its replay reader answers a publication. Its **exports** are `FIELD_CONFIG_EFFECTIVE` (`field-config.module.ts:31`), the port later review stories inject: `effectiveFor(cycleId, timelineId, resultTypeKey)` (five statements: it resolves the timeline's version) and `versionItems(versionId, resultTypeKey)` (one statement; the assessment view reads a version an assessment already pinned with it), and `FIELD_CATALOG_SOURCE`, so `AssessmentModule` shares the catalog cache.
 
 | File | Role |
 |---|---|
@@ -50,7 +50,7 @@ Which fields QA shows, per cycle and result type: a **draft** the ADMIN edits, a
 | `field-config-rules.ts` | Pure `validateDraftEdit`: `INVALID` and `NOT_ASSESSED`, every problem at once, paths `items[i].<field>` |
 | `field-config-diff.ts` | Pure `diffConfig`: what the draft changes against the latest version (empty means nothing to publish) |
 | `field-config-versions.ts` | Pure `versionFor` and `receiveAndKeep` (the version rule) |
-| `field-config-catalog.ts` | `shapeCatalog` (Reporting JSON, malformed is 503), `applicableFields` |
+| `field-config-catalog.ts` | `shapeCatalog` (Reporting JSON, malformed is 503), `applicableFields`; `CatalogField.controlLists` = the field's own `control_list` plus its subfields' lists (any depth, each once), which key the snapshot labels; a `null` or absent `control_list` means no list, any other malformed value is 503 |
 | `reporting-qa-catalog.client.ts`, `field-catalog.ports.ts` | `FIELD_CATALOG_SOURCE`: `GET /qa/catalog?phase_year=<cycle year>`, cache per year (1 h fresh, 24 h stale copy). A 404 is 409 `FIELD_CONFIG_CATALOG_MISSING` and is never cached |
 | `field-config.store.ts`, `field-config.unit-of-work.ts` | Port and Drizzle adapter; one READ COMMITTED transaction per write |
 | `dto/`, `models/` | Pipe shape (items 1 to 2,000, unknown key is `UNKNOWN_FIELD`) and OpenAPI models |
@@ -79,7 +79,7 @@ Which fields QA shows, per cycle and result type: a **draft** the ADMIN edits, a
 
 ## Reserved tables (NFR-6)
 
-`timeline_loads` and `timeline_results` are **not created** by migration `0003`. They are reserved for the load stories (P2-3905, P2-3906): `timeline_loads` hangs from `timeline_id` + `timeline_step_id`, `timeline_results` from `timeline_id` + `result_id` + `load_id`. Nothing in the six tables needs to change for them. Readiness already lists `NO_RESULTS_LOADED` for every timeline until they exist; later work adds items without changing the existing ones. The loads port (`TIMELINE_LOADS`, `DrizzleTimelineLoads`) reads them; see *Loads port* above. The visibility predicate for assessors (P2-3909) and the result filter are **not built** here (editing steps, P2-3904, is built: spec `timeline-edit`).
+`timeline_loads` and `timeline_results` are **not created** by migration `0003`: they came with `0007_timeline_loads.sql` (rounds in `0008`) and belong to the ingestion module (`src/ingestion/AGENTS.md`); `timeline_loads` hangs from `timeline_id` + `timeline_step_id`, `timeline_results` from `timeline_id` + `result_id` + `load_id`. Nothing in the six tables of this module changed for them. Readiness still lists `NO_RESULTS_LOADED` for **every** timeline: `viewTimeline` (`timeline-view.ts:112`) starts the list with it and does not read the loads port, so the item does not clear when a load exists. The loads port (`TIMELINE_LOADS`, `DrizzleTimelineLoads`) reads the tables for the step states and the edit rules; see *Loads port* above. The visibility predicate for assessors (P2-3909) and the result filter are **built, but not here**: they live in `src/assessment/scope.ts` (`inScope`, `listedFor`) and the worklist store, which read the assignments and scope rows of this module (spec `docs/specs/assessment/step-1-assessment/`). Editing steps (P2-3904) is built here: spec `timeline-edit`.
 
 ## Testing
 

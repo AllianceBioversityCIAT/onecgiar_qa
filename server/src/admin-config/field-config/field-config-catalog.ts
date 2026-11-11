@@ -30,6 +30,13 @@ export interface CatalogField {
   isNew: boolean;
   /** Reporting's help text; the key is absent when the row has none. */
   description?: string;
+  /**
+   * The control lists the field names: its own `control_list`, then those of its
+   * subfields at any depth, each once, in catalog order. Reporting keys the
+   * snapshot labels by these names (FR-20), so a view reads a field's labels by
+   * them. Empty for a field that names none.
+   */
+  controlLists: string[];
 }
 
 export interface FieldCatalog {
@@ -64,6 +71,32 @@ function rows(body: Json, key: string): Json[] {
     if (!isObject(r)) malformed(`${key}[${i}]`);
   });
   return v as Json[];
+}
+
+/**
+ * The control lists a row names: its own, then its subfields' (depth first),
+ * each once. A `null` or absent `control_list` means no list. Any other value
+ * that is not a text, or `subfields` that is not a list of rows, is malformed
+ * Reporting data (503), never skipped.
+ */
+function controlListsOf(row: Json, at: string, into: string[] = []): string[] {
+  const own = row.control_list;
+  // `null` or absent: no list. A display-only attribute must not take loads down.
+  if (own !== undefined && own !== null) {
+    if (typeof own !== 'string' || own === '') {
+      return malformed(`${at}.control_list`);
+    }
+    if (!into.includes(own)) into.push(own);
+  }
+  const subfields = row.subfields;
+  if (subfields !== undefined) {
+    if (!Array.isArray(subfields)) return malformed(`${at}.subfields`);
+    subfields.forEach((sub, i) => {
+      if (!isObject(sub)) malformed(`${at}.subfields[${i}]`);
+      controlListsOf(sub as Json, `${at}.subfields[${i}]`, into);
+    });
+  }
+  return into;
 }
 
 /** `["*"]` becomes every type key; any other key must be a known type. */
@@ -135,6 +168,7 @@ export function shapeCatalog(raw: unknown): FieldCatalog {
           ? 'conditional'
           : 'optional',
       isNew: r.is_new === true,
+      controlLists: controlListsOf(r, at),
       ...(r.description === undefined ? {} : { description: r.description }),
     };
   });

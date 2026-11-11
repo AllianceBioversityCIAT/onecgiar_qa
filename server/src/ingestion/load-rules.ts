@@ -210,6 +210,15 @@ export function isResubmitted(
   return Math.floor(submitted / 1000) > Math.floor(endedAt.getTime() / 1000);
 }
 
+/** The membership column keeps the whole sort key; the snapshot store is read by the part after it (`snapshotSortSuffix`). */
+export const SNAPSHOT_SK_PREFIX = 'SNAP#';
+
+/** `timeline_results.snapshot_sk` to the key `SnapshotStore.get` wants (DD-7, P-7). */
+export const snapshotKeyOf = (snapshotSk: string): string =>
+  snapshotSk.startsWith(SNAPSHOT_SK_PREFIX)
+    ? snapshotSk.slice(SNAPSHOT_SK_PREFIX.length)
+    : snapshotSk;
+
 /** JSON with every object's keys sorted, so equal values always hash alike (step-1 design 5.2). */
 export function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
@@ -332,4 +341,22 @@ export function timelineHasLoad(facts: HasLoadFacts): boolean {
   return (
     facts.memberships > 0 || facts.completedLoads > 0 || facts.runningLoadAlive
   );
+}
+
+// @akili-spec assessment/step-1-assessment
+/** The longest title the `timeline_results.title` column holds, in characters (`varchar(1000)`). */
+export const TITLE_MAX_CHARACTERS = 1000;
+
+/**
+ * FR-24, design 7.8: the membership's title is the string `general.title` of
+ * the details, cut to 1,000 characters; anything else (absent, a number, an
+ * object, null) is null. Cut by character, not by UTF-16 unit, so a cut never
+ * leaves half of an emoji for the column to refuse. The load and the title
+ * backfill share this one rule.
+ */
+export function titleOf(values: Record<string, unknown>): string | null {
+  const title = values['general.title'];
+  if (typeof title !== 'string') return null;
+  if (title.length <= TITLE_MAX_CHARACTERS) return title;
+  return Array.from(title).slice(0, TITLE_MAX_CHARACTERS).join('');
 }

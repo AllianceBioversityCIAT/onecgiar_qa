@@ -1,4 +1,5 @@
 // @akili-spec ingestion/step-1-loads
+// @akili-spec assessment/step-1-assessment
 import { Logger } from '@nestjs/common';
 import { FakeResultsFeed } from '../../test/support/fake-results-feed.js';
 import { FakeSnapshotStore } from '../../test/support/fake-snapshot-store.js';
@@ -23,6 +24,7 @@ import {
   FeedError,
   type FeedDetailsQuery,
   type FeedIntakeQuery,
+  type FeedLabels,
   type FeedListItem,
 } from './results-feed.port.js';
 
@@ -185,6 +187,7 @@ function memberRow(
     entryRound: 1,
     previousMembershipId: null,
     changedFields: null,
+    title: null,
   };
 }
 
@@ -225,6 +228,8 @@ interface FeedScript {
   catalogVersion?: string;
   /** Values per result id (default one field). */
   values?: Record<number, Record<string, unknown>>;
+  /** Labels per result id (default none, as an older Reporting sends). */
+  labels?: Record<number, FeedLabels>;
   /** The answers of intake in call order: `'ok'` answers from the query; the last one repeats (default `['ok']`). */
   intake?: Array<'ok' | Error>;
   /** The same for details. */
@@ -267,6 +272,7 @@ function script(
       resultCode: id + 4000,
       resultTypeKey: typeOf.get(id)!,
       values: s.values?.[id] ?? { title: `result ${id}` },
+      ...(s.labels?.[id] ? { labels: s.labels[id] } : {}),
     })),
     notEligible: [],
   });
@@ -1048,6 +1054,7 @@ async function seedSnapshot(
   ctx: ReturnType<typeof build>,
   row: TimelineResult,
   values: Record<string, unknown>,
+  labels?: FeedLabels,
 ): Promise<void> {
   await ctx.snapshots.put({
     resultCode: row.resultCode,
@@ -1062,6 +1069,7 @@ async function seedSnapshot(
     hash: row.snapshotHash,
     loadedAt: '2026-11-03T09:00:00.000Z',
     values,
+    ...(labels ? { labels } : {}),
   });
 }
 
@@ -1465,4 +1473,195 @@ describe('the zone of the process (P-8, FR-4)', () => {
       skipped: { RETURNED_NOT_RESUBMITTED: 1 },
     });
   });
+});
+
+describe('labels (FR-20, DD-6)', () => {
+  const COLOMBIA = { countries: { '170': 'Colombia', '999': null } };
+  const RENAMED = { countries: { '170': 'Republic of Colombia', '999': null } };
+
+  it('writes the labels with the snapshot and leaves the hash as the hash of the values alone', async () => {
+    const ctx = build();
+    script(ctx.feed, items(1, 1), {
+      values: { 1001: { b: [2, { y: 1, x: 0 }], a: null } },
+      labels: { 1001: COLOMBIA },
+    });
+
+    await runToEnd(ctx);
+
+    const [snapshot] = await ctx.snapshots.history(5001);
+    expect(snapshot!.labels).toEqual(COLOMBIA);
+    // The same literal as the values-only case above: the labels are not in it.
+    expect(snapshot!.hash).toBe(
+      'd35b1d88d66d811545929847a371613822f5679f2f589f664b7825160af660b6',
+    );
+    expect(ctx.world.results[0]!.snapshotHash).toBe(snapshot!.hash);
+  });
+
+  it('a result with no labels is stored with none', async () => {
+    const ctx = build();
+    script(ctx.feed, items(1, 1));
+
+    await runToEnd(ctx);
+
+    expect(await ctx.snapshots.history(5001)).toHaveLength(1);
+    expect((await ctx.snapshots.history(5001))[0]).not.toHaveProperty('labels');
+  });
+
+  it('re-entry with the same values and a renamed label: one hash, changed_fields [], no earlier snapshot read, the old labels kept', async () => {
+    const row = returnedRow(1, 5003, { snapshotHash: SAME_HASH });
+    const ctx = build({ members: [row], load: ROUND_2_LOAD });
+    await seedSnapshot(ctx, row, SAME_VALUES, COLOMBIA);
+    script(ctx.feed, [item(3, 'policy_change', LATER)], {
+      values: { 1003: SAME_VALUES },
+      labels: { 1003: RENAMED },
+    });
+    const gets = vi.spyOn(ctx.snapshots, 'get');
+
+    const load = await runToEnd(ctx);
+
+    expect(load.status).toBe('completed');
+    const [member] = roundTwo(ctx.world);
+    expect(member!.changedFields).toEqual([]);
+    expect(member!.snapshotHash).toBe(SAME_HASH);
+    expect(gets).not.toHaveBeenCalled();
+    // The round-2 snapshot carries the renamed label, the round-1 one the old one.
+    const history = await ctx.snapshots.history(5003);
+    const round1 = history.find((r) => r.loadId === ROUND_1_LOAD)!;
+    const round2 = history.find((r) => r.loadId === 1)!;
+    expect(history).toHaveLength(2);
+    expect(round1.labels).toEqual(COLOMBIA);
+    expect(round2.labels).toEqual(RENAMED);
+    expect(round1.hash).toBe(round2.hash);
+  });
+
+  it('a changed value with a renamed label still lists only the value key', async () => {
+    const row = returnedRow(1, 5002, { snapshotHash: 'a'.repeat(64) });
+    const ctx = build({ members: [row], load: ROUND_2_LOAD });
+    await seedSnapshot(ctx, row, { title: 'Old', note: 'same' }, COLOMBIA);
+    script(ctx.feed, [item(2, 'policy_change', LATER)], {
+      values: { 1002: { title: 'New', note: 'same' } },
+      labels: { 1002: RENAMED },
+    });
+
+    await runToEnd(ctx);
+
+    expect(roundTwo(ctx.world)[0]!.changedFields).toEqual(['title']);
+  });
+});
+
+// @akili-spec assessment/step-1-assessment
+describe('the title of the membership (FR-24, design 7.8)', () => {
+  /** Runs one result with these values and returns the membership the load wrote. */
+  async function membershipWith(values: Record<string, unknown>) {
+    const ctx = build();
+    script(ctx.feed, items(1, 1), { values: { 1001: values } });
+
+    const load = await runToEnd(ctx);
+
+    expect(load.status).toBe('completed');
+    expect(ctx.world.results).toHaveLength(1);
+    return ctx.world.results[0]!;
+  }
+
+  it('writes the general.title of the snapshot into the membership', async () => {
+    const row = await membershipWith({
+      'general.title': 'Climate-smart rice in the Mekong',
+      title: 'not this key',
+    });
+
+    expect(row.title).toBe('Climate-smart rice in the Mekong');
+  });
+
+  it('cuts a title longer than 1,000 characters to its first 1,000 and keeps a title of exactly 1,000', async () => {
+    const longer = await membershipWith({
+      'general.title': `${'a'.repeat(999)}bcd`,
+    });
+    const exact = await membershipWith({ 'general.title': 'z'.repeat(1000) });
+
+    expect(longer.title).toBe(`${'a'.repeat(999)}b`);
+    expect(exact.title).toBe('z'.repeat(1000));
+  });
+
+  it('counts characters, not UTF-16 units: a cut never splits an emoji in two', async () => {
+    // 999 letters, then a 2-unit emoji as character 1,000, then a letter.
+    const row = await membershipWith({
+      'general.title': `${'a'.repeat(999)}\u{1F33E}b`,
+    });
+
+    expect(row.title).toBe(`${'a'.repeat(999)}\u{1F33E}`);
+  });
+
+  it.each([
+    ['a number', 2026],
+    ['an object', { en: 'A title' }],
+    ['a list', ['A title']],
+    ['a boolean', true],
+    ['null', null],
+  ])('a title that is %s is stored as null', async (_what, value) => {
+    const row = await membershipWith({ 'general.title': value });
+
+    expect(row.title).toBeNull();
+  });
+
+  it('a result with no general.title is stored with a null title', async () => {
+    const row = await membershipWith({ description: 'No title here' });
+
+    expect(row.title).toBeNull();
+  });
+
+  it('a re-submitted result in round 2 gets the title of its new snapshot, not the round-1 one', async () => {
+    const row = returnedRow(1, 5001, { snapshotHash: 'a'.repeat(64) });
+    const ctx = build({ members: [row], load: ROUND_2_LOAD });
+    await seedSnapshot(ctx, row, { 'general.title': 'Old title' });
+    script(ctx.feed, [item(1, 'policy_change', LATER)], {
+      values: { 1001: { 'general.title': 'New title' } },
+    });
+
+    await runToEnd(ctx);
+
+    expect(roundTwo(ctx.world)[0]!.title).toBe('New title');
+  });
+
+  it('never logs the title', async () => {
+    await membershipWith({ 'general.title': 'A secret-ish title' });
+
+    expect(logged.length).toBeGreaterThan(0);
+    expect(logged.join('\n')).not.toContain('secret-ish');
+  });
+});
+
+// @akili-spec assessment/step-1-assessment
+describe('the end counts the returned results itself (FR-24, design 7.8, P-2)', () => {
+  it.each([
+    { end: 'a completed end', details: ['ok'], status: 'completed' },
+    {
+      end: 'a failed end',
+      details: [new FeedError('rejected', 400)],
+      status: 'failed',
+    },
+  ] as const)(
+    '$end reads no count on the pool store: the unit of work counts inside its own transaction, and the summary carries the result',
+    async ({ details, status }) => {
+      // 5001 was returned in round 1 and the feed sends it back with the old
+      // date: not re-submitted. 5002 is new, so the run reaches details.
+      const row = returnedRow(1, 5001);
+      const ctx = build({ members: [row], load: ROUND_2_LOAD });
+      script(
+        ctx.feed,
+        [item(1, 'policy_change', RETURNED_AT), item(2, 'policy_change')],
+        { details: [...details] },
+      );
+      const pool = vi.spyOn(ctx.world.store, 'countReturnedNotResubmitted');
+
+      const load = await runToEnd(ctx);
+
+      expect(load.status).toBe(status);
+      expect(pool).not.toHaveBeenCalled();
+      expect(summaryOf(load).returnedNotResubmitted).toEqual({
+        total: 1,
+        byProgram: { '3': 1 },
+        byType: { policy_change: 1 },
+      });
+    },
+  );
 });
