@@ -362,7 +362,7 @@ Gate edges from **T-1** are listed on the last line of the graph. Nothing else w
 - **Skills:** nestjs-expert
 
 ## T-15: Documents — front contract, module guide, pending items
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** S
 - **Depends on:** T-14, T-13
 - **Requirements:** FR-25 (all items), DD-13 (the known gap for Overview and Notifications deep links)

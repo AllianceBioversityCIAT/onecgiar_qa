@@ -990,3 +990,82 @@ Within the re-estimated budget.
 | Review rounds | 28 | 34 |
 
 Within the re-estimated budget.
+
+### T-15: Documents — front contract, module guide, pending items — PASS
+
+| | |
+|---|---|
+| Date | 2026-11-11 |
+| Final status | PASS (attempt 2 of 2) |
+| Requirements covered | FR-25 (all items), DD-13 (deep-link gap documented) |
+| Skills | cognitive-doc-design (as task) |
+| Effort | default in attempt 1; `high` in attempt 2 (rework bump) |
+| Review mode | checklist, docs against code |
+
+- **Files:** new `docs/specs/assessment/step-1-assessment/front-contract.md` (every route, shapes read from the DTOs, models, controllers, `assessment.errors.ts`, `api-response.ts`, the filter; 8 statuses, read-only reasons, envelope, error tables, the forward-pointer items from T-8, T-10, T-11, T-12, DD-13), new `server/src/assessment/AGENTS.md`; edited `server/src/ingestion/AGENTS.md` (`:19`, `:24`, `:45`, `snapshotKeyOf` and labels bullet, `changed_fields` emptiness rule), `server/src/admin-config/AGENTS.md` (`:82`), `server/test/AGENTS.md` (suites, support files, `withoutTitleBackfill` rule), `design.md:89` (8 codes); comments and text only in `server/src/ingestion/loads.store.ts` (JSDoc `:308-321`), `server/src/assessment/releases.controller.ts` (`/retry` description); `server/test/assessment-privacy.e2e-spec.ts` (redundant subset check removed).
+- **Verification:** `grep -o "ASSESSMENT_[A-Z_]*" … | sort -u` over `assessment.errors.ts` and over the contract → **EQUAL** (8 codes), re-run by the Leader. Falsifier: `// ASSESSMENT_FAKE_CODE` appended → `3d2 < ASSESSMENT_FAKE_CODE`, exit 1; file restored (`git diff --stat` empty).
+- **Falsified sentences rewritten:** "no caller" / "port only" (`ingestion/AGENTS.md:19`, `:45`, `loads.store.ts` JSDoc); "not built" (`admin-config/AGENTS.md:82`); "only export" — already correct at HEAD (`admin-config/AGENTS.md:44` lists both exports), no change.
+
+**Attempt 1 — FAIL (checklist)**
+
+- **Reviewer: FAIL** (verbatim, abridged): 1. `front-contract.md:73` "only `ASSESSOR` can use [quick comments] today" — the code admits any live grant of ASSESSOR, LEAD_ASSESSOR, TPB or PPU (`quick-comments.service.ts:24-26,129-138`). 2. `assessment/AGENTS.md:33` quoted the clock literal, so the NFR-4 grep (`tasks.md:257`) hit the guide itself. 3. `assessment/AGENTS.md:14` "one statement per read" — the code runs 2 (timelines) and 4 (page). 4. No pending items for root `AGENTS.md`, `docs/ux-ui/design.md` § 7 and TRD § 5.1 / § 7.3 (FR-25, `requirements.md:411`); not editing shared files is correct (`akili-archive.md:139-141`), but `execution.md` had no `## Constitution Impact` block to carry them.
+
+**Attempt 2 — PASS**
+
+- **Changes:** findings 1–3 fixed; advisories applied (load lock wording, the ack's own `DrizzleLoadsStore(tx)`, `internal_error` and pre-service refusals in the log section, crash-window replay bullet, worklist filter caps, optional `Idempotency-Key`, stale JSDoc, reserved-tables paragraph). Finding 4: the Leader's `## Constitution Impact` block below. The Reviewer caught one false line in the Leader's draft (the withdraw window); it was corrected before this entry.
+- **Evidence re-run (Leader inline):** clock grep → only `assessment.module.ts:85` and `:88`; error-code comparison EQUAL; lint and build clean; unit `Tests 3674 passed | 6 skipped (3680)`; e2e `Tests 1132 passed (1132)`. **VERIFIED.**
+- **Reviewer: PASS.**
+
+**Forward pointers closed:** T-8 (contract extras, `test/AGENTS.md` suite), T-13 (`withoutTitleBackfill` rule), T-10 (idempotency retention, replay, byte-equal 404), T-11 (`fields` strings, quick-comment roles), T-12 (`ingestion/AGENTS.md`, second feed binding, `/retry` wording, T-5 gap documented, § 5 "no cycle" qualified in the module guide), T-14 (log line, `lease_short`, `claimDue` signature, clock binding, subset check), T-4 (`fixtures/` labels), T-5 (`ingestion/AGENTS.md:19`), T-6 (`design.md:89`, DD-1 "only" covers feature modules).
+
+**Forward pointers:**
+
+- **→ admin-config (owner, outside this spec):** timeline readiness always lists `NO_RESULTS_LOADED` (`timeline-view.ts:112` hardcodes it and never reads the loads port), so the item never clears after a load. Now documented in `admin-config/AGENTS.md:82`; needs its own fix story.
+- **→ back lead:** the `LOADS_STORE` provider at `assessment.module.ts:81` is injected nowhere (the ack builds its own `DrizzleLoadsStore(tx)`). Kept; the guide calls it a leftover copy of ingestion's binding. Remove it in a later cleanup or keep it on purpose.
+- **→ archive:** `design.md` § 5 still says "no lock cycle"; the module guide qualifies it (the 1213 retry resolves `ensureAssessment` vs the ack).
+
+**Running totals:**
+
+| Measure | Actual | Re-estimated budget |
+|---|---|---|
+| Tasks | 15 of 21 | 21 |
+| Production LOC | ≈ 8,245 TS + 141 SQL (T-15 is docs and comments) | 11,000 |
+| Review rounds | 30 | 34 |
+
+Within the re-estimated budget. Remaining: T-16 (API HITL, back lead), client T-17 to T-20 and UI HITL T-21 (≈ 3,000 LOC estimated, 4 review rounds left in the budget for 5 tasks — a re-estimate is due before T-17).
+
+## Constitution Impact
+
+FR-25 pending items. This branch is a spec branch, so no shared file is edited here (`.claude/commands/akili-archive.md:139-141`, `.claude/skills/kaizen/SKILL.md:111`). `/akili-archive` collects these; each is applied on the apply-capable branch or by its owner. The `ingestion/AGENTS.md` `changed_fields` rule was a module-guide deliverable of this spec and is already applied (T-15).
+
+| Field | Value |
+|---|---|
+| Kind | guide-sync |
+| Target | `AGENTS.md` (root) — Spec organization domain table (after the `ingestion` row, `:33`) and `## Module Guides` index (under `server/AGENTS.md`, `:79-86`) |
+| Edit | Domain row: `` | `assessment` | Step-by-step assessment of loaded results: worklist, field validations, comments, ends, release to Reporting (`server/src/assessment/`) | ``. Index line: `` - `server/src/assessment/AGENTS.md` — assessment module: bindings (DD-1), lock order, unit of work and retries, release outbox, logging and privacy, testing. `` Also list `server/src/ingestion/AGENTS.md` if it is still missing from the index. |
+| Severity | Medium |
+| Status | pending |
+
+| Field | Value |
+|---|---|
+| Kind | factual-sweep |
+| Target | `docs/ux-ui/design.md` § 7 *Status vocabulary*, row "Result QA stage" (`:130`) |
+| Edit | Stale: "Round 1: Pending · In review · Assessed by 1 assessor · Assessed by 2 assessors — Round 2: Pending · Assessed — Final: Quality assessed. "Automatic" exists in data but is not under assessment". Replace with the FR-5 vocabulary (`requirements.md:163`): "Pending · Returned to program · Clarification requested · Pending for TPB review · Pending PPU · Unresolved · Quality Assessed · Auto-validated (computed, never stored; Auto-validated is listed only when filtered for)". Owner: design (UX doc). |
+| Severity | Medium |
+| Status | pending |
+
+| Field | Value |
+|---|---|
+| Kind | factual-sweep |
+| Target | `docs/trd/trd.md` § 5.1 MySQL entities (`:167`) |
+| Edit | Add the migration `0009_assessment` tables: `result_assessments` (one per membership and role step; status `pending`/`quality_assessed`/`returned`; finished_by/at; pinned field-config version), `assessment_field_validations`, `assessment_comments` (value copy, `value_truncated`, `visible_to_program_at`, thread state), `comment_events`, `quick_comments` (per role, sha-256 dedupe), `assessment_audit_events`, `assessment_releases` (outbox: outcome `qaed`/`not_qaed`, status `pending`/`sent`/`refused`, attempts, lease_until, reason; unique `assessment_id`). Also `timeline_results.title` and end reason `released_qaed` now written. |
+| Severity | Medium |
+| Status | pending |
+
+| Field | Value |
+|---|---|
+| Kind | factual-sweep |
+| Target | `docs/trd/trd.md` § 7.3 Comment state machine (`:231`) and § 7.4 Closure (`:242`) |
+| Edit | § 7.3: add `OPEN ──author, no SP answer, step 1 or step 2 open──▶ WITHDRAWN` (closed; an ended assessment does not close the window, FR-13) and note that P2-3910 writes only `open` and `withdrawn`; `clarification_requested` and the answer back to `open` are defined but unwritten (OQ-5, moved to P2-3911). § 7.4: Reporting is notified through `POST /api/qa/results/release` (contract `qa-catalog.en.md`), by an after-commit outbox (`assessment_releases`) retried with leases until acknowledged; `not_in_qa` counts as released; `not_found` / `other_phase` / `not_submitted` are refused and final. "Endpoint TBD, PRD OQ-2" is stale. |
+| Severity | Medium |
+| Status | pending |

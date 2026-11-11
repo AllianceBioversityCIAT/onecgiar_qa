@@ -86,7 +86,7 @@ server/
     loads.unit-of-work.ts, loads.store.ts                      changed: end() counts inside its tx; + endAsReleasedQaed
     fixtures/results-details.json                              changed: synthetic labels
   src/admin-config/field-config/field-config.module.ts         changed: also exports FIELD_CATALOG_SOURCE
-  src/common/error-codes.ts                                    changed: 9 ASSESSMENT_* codes
+  src/common/error-codes.ts                                    changed: 8 ASSESSMENT_* codes
   test/assessment-*.e2e-spec.ts, test/support/in-memory-assessment.ts   new
 client/src/app/
   core/api/assessment-api.ts · assessment.models.ts             new

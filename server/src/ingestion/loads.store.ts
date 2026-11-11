@@ -305,8 +305,9 @@ export interface LoadsStore {
    * `UPDATE timeline_results SET ended_at = ?, end_reason = 'returned' WHERE id
    * = ? AND entry_round = 1 AND ended_at IS NULL` (design 7.5, DD-10, FR-6): one
    * conditional update, a no-op on an ended or a non-round-1 row. A zero-row
-   * update is followed by one read to say why. Port only: no route, job or unit
-   * of work command calls it in this spec.
+   * update is followed by one read to say why. Its one caller is the release
+   * ack of the assessment module (`assessment/release.service.ts`); no route
+   * or load job calls it.
    */
   endAsReturned(id: number, at: Date): Promise<EndAsReturnedOutcome>;
   // @akili-spec assessment/step-1-assessment
@@ -316,8 +317,8 @@ export interface LoadsStore {
    * the same conditional shape as `endAsReturned` with no round condition, so a
    * membership of either round ends when Reporting acknowledges its `qaed`
    * release. A no-op on an ended row, which keeps its first instant and reason;
-   * a zero-row update is followed by one read to say why. Port only: the release
-   * ack (T-12) is its one caller.
+   * a zero-row update is followed by one read to say why. Its one caller is the
+   * release ack of the assessment module (`assessment/release.service.ts`).
    */
   endAsReleasedQaed(id: number, at: Date): Promise<EndAsReleasedQaedOutcome>;
   /**

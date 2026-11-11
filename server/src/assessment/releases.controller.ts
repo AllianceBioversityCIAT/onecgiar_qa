@@ -74,7 +74,7 @@ export class ReleasesController {
   @ApiOperation({
     summary: 'Send the due releases now',
     description:
-      'Claims every pending release whose lease has passed, sends it to Reporting and acknowledges it, in at most 3 batches of up to 50 (one phase year each); call again for the rest. Answers once the sweep is done: what was claimed, sent, refused and left pending. A row sent a moment ago by another dispatch is not sent twice. Admin only.',
+      'Claims the pending releases whose lease has passed, sends them to Reporting and acknowledges them, in at most 3 batches of up to 50 rows (one phase year each); call again until `attempted` is 0 to reach the rest. Answers once the sweep is done: `attempted` (rows claimed), `sent`, `refused`, and `stillPending`, which counts only the claimed rows that were not acknowledged (rows the sweep did not claim are not counted). A refused release is final and is not retried. A row sent a moment ago by another dispatch is not sent twice. Admin only.',
   })
   @ApiOkEnvelope(ReleaseRetryModel)
   @ApiErrorResponses({

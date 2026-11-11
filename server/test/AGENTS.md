@@ -25,6 +25,21 @@ pnpm exec vitest run --config ./vitest.config.e2e.ts test/auth-session.e2e-spec.
 | `users-admin-idempotency.e2e-spec.ts` | Every users-admin write over HTTP with `Idempotency-Key` (11 routes): replay returns the first answer and runs nothing (side-effect counters), reuse 422, in-flight 409, take-over fence, replayed refusals, 503 when the key store is down, the crash clause, OpenAPI of the header |
 | `users-admin-idempotency-privacy.e2e-spec.ts` | NFR-2 / FR-9 log spy over keyed writes: first run = one `users_admin` line with `idempotency=none`; replay, in-flight and reused = exactly one `event:"idempotency"` line and no service line; take-over = `idempotency=taken_over`; no body, email, name or key in any line |
 | `catalogs.e2e-spec.ts` | `/catalogs/*`: ADMIN-only shapes (roles never include PROGRAM), cached copy served when the source fails |
+| `assessment-worklist.e2e-spec.ts` | The three worklist routes: scope by role and assignment, filters, sort and cursor, counters, `noActiveRole`, the byte-equal 404 |
+| `assessment-view.e2e-spec.ts` | The assessment view: sections, Hidden fields removed, labels, `readOnlyReason`, ADMIN `round`, a read never creates the assessment |
+| `assessment-validations.e2e-spec.ts` | `PUT …/assessment/validations`: single, many and `all`, refusals, the end by core fields |
+| `assessment-comments.e2e-spec.ts` | Comment create (value copy, truncation, `Idempotency-Key` replay) and withdraw (author, window, byte-equal 404) |
+| `assessment-ends.e2e-spec.ts` | Finish: `quality_assessed`, `returned`, 409 with `fields` as keys, the queued release, the answer not waiting on Reporting |
+| `assessment-releases.e2e-spec.ts` | The release outbox: admin list, `/retry` (3 batches, `stillPending`), refused is final, the ack ends memberships |
+| `assessment-concurrency.e2e-spec.ts` | 5 parallel finishes over HTTP: exactly one wins; uses the fake's `holdLockUntil`, so real row-lock order is a MySQL check |
+| `assessment-clock.e2e-spec.ts` | FR-2 over HTTP with `ADMIN_CONFIG_CLOCK` overridden: step open and closed at the Rome minute |
+| `assessment-privacy.e2e-spec.ts` | NFR-5 log spy over every assessment route with planted strings; one fixed-shape `event:'assessment'` line per write |
+| `quick-comments.e2e-spec.ts` | `GET` and `POST /quick-comments`: live grant of the role, 201 then 200, audit rows |
+| `support/without-title-backfill.ts` | `withoutTitleBackfill(builder)`: replaces `TITLE_BACKFILL_STORE` with an empty store |
+| `support/assessment-app.ts` | `buildAssessmentApp()`: the real app over the in-memory assessment world (worklist, assessment, release stores, feed, snapshots, clock, catalog and config fakes) |
+| `support/in-memory-assessment.ts` | The assessment world: fake stores and unit of work, the fake's `holdLockUntil` barrier, `InMemoryReleaseStore` |
+| `support/real-load-writer.ts` | `runRealLoad`: a real `LoadRunner` over the in-memory loads world, so `snapshot_sk` is the key the loader wrote (never hand-build `SNAP#…`) |
+| `support/assessment-seed.ts` | The shared world of the cross-cutting suites: timeline, step window, two assessors, a pinned configuration |
 | `support/in-memory-stores.ts` | Fake stores that emulate unique keys and `active_key`; `writes` counter; the lock-emulating transactional world (`InMemoryDatabase`, `InMemoryUsersAdminUnitOfWork`: row locks `S`/`X`, uncommitted writes, snapshot vs committed reads) used for the unit-of-work and concurrency specs |
 | `support/in-memory-idempotency.ts` | `InMemoryIdempotencyStore` (same contract as `DrizzleIdempotencyStore`, row locks shared with the transactional world), `FakeClock`, `roundTrip` |
 | `support/idempotency-sql-driver.ts` | `SqlDriver`: a stand-in for the mysql2 pool that executes the SQL the real `DrizzleIdempotencyStore` generates over an in-memory table (unknown SQL throws), so a dropped WHERE condition changes a concurrency test's outcome; it cannot prove MySQL's own locking (P-12, T-8) |
@@ -42,6 +57,8 @@ Override providers with `Test.createTestingModule({ imports: [AppModule] })`:
 - `CognitoAuthClient` → an object of `vi.fn()`s (so "Cognito not called" is observable);
 - `USERS_STORE`, `ROLE_ASSIGNMENTS_STORE`, `USER_PROGRAMS_STORE` → in-memory stores (for the users admin routes also `USERS_ADMIN_UNIT_OF_WORK`, `USERS_QUERY_STORE`, `CognitoAdminClient` → fakes; see `support/users-admin-app.ts`); `ADMISSION_UNIT_OF_WORK` → a unit of work over them;
 - `JWKS_CACHE` → `localJwksCache(signer)`; `CURRENT_USER_CLOCK` → a fixed or controllable clock.
+
+- **Every builder that loads `AppModule` (or `AssessmentModule`) and calls `init()` wraps its `Test.createTestingModule(…)` in `withoutTitleBackfill` (`support/without-title-backfill.ts`)**: the title backfill starts on `init()` and would reach for a database these apps do not have.
 
 Then `const app = moduleRef.createNestApplication(); configureApp(app); await app.init();`.
 
