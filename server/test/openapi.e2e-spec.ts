@@ -333,6 +333,171 @@ describe('OpenAPI document (e2e)', () => {
     });
   });
 
+  it('assessment FR-25 (T-14): documents each of its 12 routes with its success statuses and the error codes it can answer', () => {
+    const codesOf = (key: string, status: string): string[] => {
+      const response = operationOf(doc, key).responses[status] as
+        | { description?: string }
+        | undefined;
+      return [...String(response?.description).matchAll(/`([A-Z_]+)`/g)]
+        .map((match) => match[1])
+        .sort();
+    };
+    const auth = ['AUTH_TOKEN_INVALID', 'AUTH_USER_NOT_ADMITTED'];
+    const assessment = '/api/v1/timelines/:timelineId/results/:resultCode/assessment';
+    const routes: Array<{
+      key: string;
+      ok: string[];
+      errors: Record<string, string[]>;
+    }> = [
+      {
+        key: 'GET /api/v1/worklist/timelines',
+        ok: ['200'],
+        errors: { '401': auth },
+      },
+      {
+        key: 'GET /api/v1/timelines/:timelineId/worklist',
+        ok: ['200'],
+        errors: {
+          '400': ['VALIDATION_FAILED'],
+          '401': auth,
+          '404': ['TIMELINES_NOT_FOUND'],
+        },
+      },
+      {
+        key: 'GET /api/v1/timelines/:timelineId/worklist/options',
+        ok: ['200'],
+        errors: { '401': auth, '404': ['TIMELINES_NOT_FOUND'] },
+      },
+      {
+        key: `GET ${assessment}`,
+        ok: ['200'],
+        errors: {
+          '400': ['VALIDATION_FAILED'],
+          '401': auth,
+          '404': ['ASSESSMENT_NOT_FOUND'],
+          '409': ['ASSESSMENT_NO_FIELD_CONFIG'],
+          '503': ['SERVICE_UNAVAILABLE'],
+        },
+      },
+      {
+        key: `PUT ${assessment}/validations`,
+        ok: ['200'],
+        errors: {
+          '400': ['MALFORMED_JSON', 'VALIDATION_FAILED'],
+          '403': ['ASSESSMENT_READ_ONLY'],
+          '404': ['ASSESSMENT_NOT_FOUND'],
+          '409': [
+            'ASSESSMENT_FINISHED',
+            'ASSESSMENT_NO_FIELD_CONFIG',
+            'ASSESSMENT_STEP_CLOSED',
+          ],
+          '413': ['PAYLOAD_TOO_LARGE'],
+        },
+      },
+      {
+        key: `POST ${assessment}/comments`,
+        ok: ['201'],
+        errors: {
+          '403': ['ASSESSMENT_READ_ONLY'],
+          '404': ['ASSESSMENT_NOT_FOUND'],
+          '409': expect.arrayContaining([
+            'ASSESSMENT_FINISHED',
+            'ASSESSMENT_STEP_CLOSED',
+          ]) as unknown as string[],
+          '413': ['PAYLOAD_TOO_LARGE'],
+        },
+      },
+      {
+        key: `POST ${assessment}/finish`,
+        ok: ['200'],
+        errors: {
+          '403': ['ASSESSMENT_READ_ONLY'],
+          '404': ['ASSESSMENT_NOT_FOUND'],
+          '409': [
+            'ASSESSMENT_CORE_UNCOMMENTED',
+            'ASSESSMENT_FINISHED',
+            'ASSESSMENT_NO_FIELD_CONFIG',
+            'ASSESSMENT_STEP_CLOSED',
+          ],
+        },
+      },
+      {
+        key: 'POST /api/v1/assessment-comments/:commentId/withdraw',
+        ok: ['200'],
+        errors: {
+          '400': ['VALIDATION_FAILED'],
+          '403': ['ASSESSMENT_NOT_COMMENT_AUTHOR'],
+          '404': ['ASSESSMENT_NOT_FOUND'],
+          '409': ['ASSESSMENT_COMMENT_NOT_OPEN', 'ASSESSMENT_STEP_CLOSED'],
+        },
+      },
+      {
+        key: 'GET /api/v1/quick-comments',
+        ok: ['200'],
+        errors: {
+          '400': ['VALIDATION_FAILED'],
+          '401': auth,
+          '403': ['AUTH_PERMISSION_DENIED'],
+        },
+      },
+      {
+        key: 'POST /api/v1/quick-comments',
+        ok: ['200', '201'],
+        errors: {
+          '400': ['MALFORMED_JSON', 'VALIDATION_FAILED'],
+          '403': ['AUTH_PERMISSION_DENIED'],
+          '413': ['PAYLOAD_TOO_LARGE'],
+        },
+      },
+      {
+        key: 'GET /api/v1/assessment-releases',
+        ok: ['200'],
+        errors: {
+          '400': ['VALIDATION_FAILED'],
+          '403': ['AUTH_PERMISSION_DENIED'],
+          '503': ['SERVICE_UNAVAILABLE'],
+        },
+      },
+      {
+        key: 'POST /api/v1/assessment-releases/retry',
+        ok: ['200'],
+        errors: { '401': auth, '403': ['AUTH_PERMISSION_DENIED'] },
+      },
+    ];
+    const documented = documentedRoutes(doc);
+    for (const { key, ok, errors } of routes) {
+      expect(documented, key).toContain(key);
+      const operation = operationOf(doc, key);
+      expect(operation.summary, `${key}: summary`).toBeTruthy();
+      const statuses = Object.keys(operation.responses);
+      for (const status of ok) {
+        expect(statuses, `${key}: ${status}`).toContain(status);
+        const schema = (
+          operation.responses[status] as {
+            content?: Record<string, { schema?: any }>;
+          }
+        ).content?.['application/json']?.schema;
+        expect(schema?.required, `${key} ${status}`).toEqual(
+          expect.arrayContaining(['success', 'data', 'meta']),
+        );
+      }
+      expect(statuses, `${key}: 401`).toContain('401');
+      for (const [status, codes] of Object.entries(errors)) {
+        expect(codesOf(key, status), `${key} ${status}`).toEqual(codes);
+        for (const code of codesOf(key, status)) {
+          expect(
+            ERROR_CATALOG[code as keyof typeof ERROR_CATALOG]?.status,
+            `${key} ${status}: ${code}`,
+          ).toBe(Number(status));
+        }
+      }
+    }
+    // The comment create is keyed (P-17): the replay is declared on its 201.
+    expect(
+      JSON.stringify(operationOf(doc, `POST ${assessment}/comments`).responses['201']),
+    ).toContain('Idempotency-Replayed');
+  });
+
   it('timeline-step-times FR-1, FR-9, FR-10: documents the step moments, the deprecated day keys and the time zone, and how to send a boundary', () => {
     const schemas = doc.components?.schemas as Record<string, any>;
     const step = schemas.TimelineStepModel;

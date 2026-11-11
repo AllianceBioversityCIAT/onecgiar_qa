@@ -1,6 +1,7 @@
 // @akili-spec assessment/step-1-assessment
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, lt, min, or, sql } from 'drizzle-orm';
+import type { AdminConfigClock } from '../admin-config/admin-config.clock.js';
 import { DRIZZLE } from '../database/drizzle/drizzle.constants.js';
 import type { DrizzleDB } from '../database/drizzle/drizzle.module.js';
 import {
@@ -29,6 +30,8 @@ export interface DueRelease {
   outcome: AssessmentRelease['outcome'];
   /** Counts this claim. */
   attempts: number;
+  /** When this claim's lease ends: the send must finish before it. */
+  leaseUntil: Date;
 }
 
 /** One row of the admin list (design 6). */
@@ -51,14 +54,25 @@ export const RELEASE_LIST_LIMIT = 500;
 export interface ReleaseStore {
   /**
    * The claim (design 7.6 step 1), ONE transaction, ONE send batch: the rows
-   * are of the one phase year of the oldest due row, with no result id twice,
-   * at most `limit`. The due ids are read `FOR UPDATE SKIP LOCKED` (so a second dispatcher never takes a row the
-   * first one holds), then ONE conditional `UPDATE ... SET lease_until, attempts
-   * = attempts + 1 WHERE id IN (...) AND status = 'pending' AND (lease_until IS
+   * are of ONE phase year, with no result id twice, at most `limit` read. The
+   * due years are read oldest row first; for each, the due ids are read `FOR
+   * UPDATE SKIP LOCKED` (so a second dispatcher never takes a row the first
+   * one holds), and the first year with a row it can lock is the batch: a year
+   * whose rows are all held by another dispatcher is passed over, not the end
+   * of the sweep. Then ONE conditional `UPDATE ... SET lease_until, attempts =
+   * attempts + 1 WHERE id IN (...) AND status = 'pending' AND (lease_until IS
    * NULL OR lease_until < now)`, then the leased rows are read back. A row is
-   * due when it is `pending` and its lease is null or past. At most `limit`.
+   * due when it is `pending` and its lease is null or past.
+   *
+   * `clock` is read INSIDE the transaction, after the connection was obtained,
+   * so a wait for the pool does not eat the lease: `leaseUntil = clock() +
+   * leaseMs`, and each returned row carries it.
    */
-  claimDue(now: Date, leaseUntil: Date, limit: number): Promise<DueRelease[]>;
+  claimDue(
+    clock: AdminConfigClock,
+    leaseMs: number,
+    limit: number,
+  ): Promise<DueRelease[]>;
   /** One statement: the `pending` or `refused` rows, oldest first, at most `RELEASE_LIST_LIMIT`. */
   list(status: ReleaseListStatus): Promise<ReleaseListItem[]>;
 }
@@ -108,6 +122,9 @@ const dueColumns = {
   attempts: r.attempts,
 };
 
+/** A claim looks at this many due years at most: phase years are a handful, and a claim that finds nothing in them leaves the rest to the next sweep. */
+export const DUE_YEARS_MAX = 10;
+
 /** Due: `pending`, with no lease or one that has passed. */
 const dueCondition = (now: Date) =>
   and(eq(r.status, 'pending'), or(isNull(r.leaseUntil), lt(r.leaseUntil, now)));
@@ -119,14 +136,15 @@ type ReleaseDb = Pick<DrizzleDB, 'select' | 'update' | 'transaction'>;
 export class DrizzleReleaseStore implements ReleaseStore {
   constructor(@Inject(DRIZZLE) private readonly db: ReleaseDb) {}
 
-  /** The phase year of the oldest due row: the one year a claim takes. */
-  buildOldestDue(now: Date) {
+  /** The phase years that have a due row, the one with the oldest due row first (no lock: a year all of whose rows are held is still listed). At most `DUE_YEARS_MAX`. */
+  buildDueYears(now: Date) {
     return this.db
       .select({ phaseYear: r.phaseYear })
       .from(r)
       .where(dueCondition(now))
-      .orderBy(asc(r.id))
-      .limit(1);
+      .groupBy(r.phaseYear)
+      .orderBy(asc(min(r.id)))
+      .limit(DUE_YEARS_MAX);
   }
 
   /** The due ids of one phase year, locked: a row another dispatcher holds is skipped, never waited for. */
@@ -168,32 +186,51 @@ export class DrizzleReleaseStore implements ReleaseStore {
   }
 
   async claimDue(
-    now: Date,
-    leaseUntil: Date,
+    clock: AdminConfigClock,
+    leaseMs: number,
     limit: number,
   ): Promise<DueRelease[]> {
     return await this.db.transaction(
-      async (tx) => {
-        const bound = new DrizzleReleaseStore(tx);
-        // ONE claim is ONE send batch: one phase year, no result id twice,
-        // so the lease always outlasts the single send it covers (NFR-3).
-        const [oldest] = await bound.buildOldestDue(now);
-        if (oldest === undefined) return [];
-        const locked = await bound.buildDueSelect(now, limit, oldest.phaseYear);
-        const seen = new Set<number>();
-        const ids = locked
-          .filter((row) => !seen.has(row.resultId) && seen.add(row.resultId))
-          .map((row) => row.id);
-        if (ids.length === 0) return [];
-        // The rows are locked by the read above, so the UPDATE matches every one of them: anything else is a defect, and rolling back beats sending rows that are not leased.
-        const [header] = await bound.buildClaimUpdate(ids, now, leaseUntil);
-        if (header.affectedRows !== ids.length) {
-          throw new Error('release_claim_mismatch');
-        }
-        return await bound.buildLeasedRows(ids);
-      },
+      async (tx) =>
+        await new DrizzleReleaseStore(tx).claimInTransaction(
+          clock,
+          leaseMs,
+          limit,
+        ),
       { isolationLevel: 'read committed' },
     );
+  }
+
+  /** The body of the claim, on the store built ON the transaction. */
+  async claimInTransaction(
+    clock: AdminConfigClock,
+    leaseMs: number,
+    limit: number,
+  ): Promise<DueRelease[]> {
+    // Read here, after the pool handed the connection over: the lease is measured from the transaction's own start.
+    const now = clock();
+    const leaseUntil = new Date(now.getTime() + leaseMs);
+    // ONE claim is ONE send batch: one phase year, no result id twice,
+    // so the lease always outlasts the single send it covers (NFR-3).
+    for (const { phaseYear } of await this.buildDueYears(now)) {
+      const locked = await this.buildDueSelect(now, limit, phaseYear);
+      const seen = new Set<number>();
+      const ids = locked
+        .filter((row) => !seen.has(row.resultId) && seen.add(row.resultId))
+        .map((row) => row.id);
+      // Every row of this year is held by another dispatcher: try the next year.
+      if (ids.length === 0) continue;
+      // The rows are locked by the read above, so the UPDATE matches every one of them: anything else is a defect, and rolling back beats sending rows that are not leased.
+      const [header] = await this.buildClaimUpdate(ids, now, leaseUntil);
+      if (header.affectedRows !== ids.length) {
+        throw new Error('release_claim_mismatch');
+      }
+      return (await this.buildLeasedRows(ids)).map((row) => ({
+        ...row,
+        leaseUntil,
+      }));
+    }
+    return [];
   }
 
   buildList(status: ReleaseListStatus) {

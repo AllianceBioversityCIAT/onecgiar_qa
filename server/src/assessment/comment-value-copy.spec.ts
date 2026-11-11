@@ -34,6 +34,17 @@ describe('what is copied', () => {
     });
   });
 
+  it('leaves every other field out: a sibling key of the values and its labels never reach the copy', () => {
+    const copy = buildValueCopy({
+      values: { 'general.title': 'Mine', 'general.description': 'Sibling text' },
+      labels: { initiatives: { '3': 'Sibling label' } },
+      fieldKey: 'general.title',
+      controlLists: [],
+    });
+    expect(copy).toEqual({ valueCopy: { value: 'Mine' }, truncated: false });
+    expect(JSON.stringify(copy)).not.toContain('Sibling');
+  });
+
   it('keeps a null label as it is (an id with no row is shown as the id)', () => {
     const copy = buildValueCopy({
       values: { f: [1] },

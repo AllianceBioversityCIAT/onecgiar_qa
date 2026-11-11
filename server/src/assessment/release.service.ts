@@ -1,5 +1,6 @@
 // @akili-spec assessment/step-1-assessment
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { CATALOG_TIMEOUT_MS } from '../users/catalogs/catalog-http.js';
 import {
   ADMIN_CONFIG_CLOCK,
   type AdminConfigClock,
@@ -52,8 +53,8 @@ export const RELEASE_LEASE_MS = 60 * 1000;
 const MAX_ATTEMPTS = 3;
 const BACKOFF_MS = [1000, 4000] as const;
 const JITTER = 0.2;
-/** The timeout of one feed call (`catalog-http.ts`, NFR-4). */
-const FEED_TIMEOUT_MS = 10 * 1000;
+/** The timeout of one feed call: the one `catalog-http.ts` gives every Reporting client (NFR-4), imported so the two cannot drift. */
+const FEED_TIMEOUT_MS = CATALOG_TIMEOUT_MS;
 /**
  * The longest ONE send can take: every attempt times out, and both waits are
  * spread 20 % up. A claim covers exactly one send batch, so this must stay
@@ -132,10 +133,10 @@ export class ReleaseService implements ReleaseDispatcher {
     for (let round = 0; round < maxRounds; round++) {
       let due: DueRelease[];
       try {
-        const now = this.clock();
+        // The store reads the clock inside its transaction: a wait for the pool is not taken from the lease.
         due = await this.store.claimDue(
-          now,
-          new Date(now.getTime() + RELEASE_LEASE_MS),
+          this.clock,
+          RELEASE_LEASE_MS,
           RELEASE_BATCH,
         );
       } catch (error) {
@@ -144,6 +145,18 @@ export class ReleaseService implements ReleaseDispatcher {
       }
       if (due.length === 0) break;
       total.attempted += due.length;
+      // The lease must outlast a worst-case send. Past that point another dispatcher could take the rows while they are in flight and Reporting would get a second call: leave them pending, the lease runs out and the next sweep sends them.
+      if (
+        this.clock().getTime() >
+        due[0]!.leaseUntil.getTime() - WORST_CASE_SEND_MS
+      ) {
+        this.log({
+          outcome: 'lease_short',
+          phaseYear: due[0]!.phaseYear,
+          rows: due.length,
+        });
+        continue;
+      }
       // One claim is one batch: one phase year, no result id twice (the store's contract).
       const settled = await this.sendAndAck(due[0]!.phaseYear, due);
       total.sent += settled.sent;

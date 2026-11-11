@@ -345,7 +345,7 @@ Gate edges from **T-1** are listed on the last line of the graph. Nothing else w
 - **Skills:** nestjs-expert, aws-serverless
 
 ## T-14: Cross-cutting HTTP suites — concurrency, clock, privacy, OpenAPI
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-8, T-11, T-12
 - **Requirements:** FR-17 (over HTTP: 5 parallel finishes), FR-2 (over HTTP, with the clock overridden as in admin-config e2e), FR-22 (*no PII in logs*; nickname only), NFR-3, NFR-4, NFR-5

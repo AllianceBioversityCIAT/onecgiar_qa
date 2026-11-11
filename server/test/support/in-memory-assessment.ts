@@ -242,6 +242,8 @@ export class InMemoryAssessmentWorld {
   /** The outbox columns of each release, by assessment id (T-12). */
   releaseMeta = new Map<number, FakeReleaseMeta>();
   nextReleaseId = 500;
+  /** Release ids (outbox ids) another dispatcher holds `FOR UPDATE`: `SKIP LOCKED` leaves them out of a claim. */
+  lockedReleaseIds = new Set<number>();
   /** The saved quick comments of every role. */
   quickComments: FakeQuickComment[] = [];
   nextQuickCommentId = 9000;
@@ -1096,8 +1098,14 @@ export class InMemoryAssessmentWriteStore implements AssessmentWriteStore {
 export class InMemoryReleaseStore implements ReleaseStore {
   constructor(private readonly world: InMemoryAssessmentWorld) {}
 
-  claimDue(now: Date, leaseUntil: Date, limit: number): Promise<DueRelease[]> {
+  claimDue(
+    clock: () => Date,
+    leaseMs: number,
+    limit: number,
+  ): Promise<DueRelease[]> {
     this.world.writeLog.push('claimDue');
+    const now = clock();
+    const leaseUntil = new Date(now.getTime() + leaseMs);
     const dueRows = this.world.releases
       .filter((release) => {
         const meta = this.world.metaOf(release);
@@ -1107,20 +1115,28 @@ export class InMemoryReleaseStore implements ReleaseStore {
         );
       })
       .sort((a, b) => this.world.metaOf(a).id - this.world.metaOf(b).id);
-    // ONE claim is ONE send batch: the phase year of the oldest due row, no result id twice.
-    const year = dueRows[0]?.phaseYear;
-    const seen = new Set<number>();
-    const due = dueRows
-      .filter(
-        (r) =>
-          r.phaseYear === year && !seen.has(r.resultId) && seen.add(r.resultId),
-      )
-      .slice(0, limit);
+    // The due years, the one with the oldest due row first (the real read takes no lock).
+    const years = [...new Set(dueRows.map((r) => r.phaseYear))].slice(0, 10);
+    // ONE claim is ONE send batch: the first year with a row it can lock; `SKIP LOCKED` leaves the held rows out, then `LIMIT`, and only then the result-id dedupe, as the real claim does.
+    let due: FakeRelease[] = [];
+    for (const year of years) {
+      const read = dueRows
+        .filter(
+          (r) =>
+            r.phaseYear === year &&
+            !this.world.lockedReleaseIds.has(this.world.metaOf(r).id),
+        )
+        .slice(0, limit);
+      const seen = new Set<number>();
+      due = read.filter((r) => !seen.has(r.resultId) && seen.add(r.resultId));
+      if (due.length > 0) break;
+    }
     return Promise.resolve(
       due.map((release) => {
         const meta = this.world.metaOf(release);
         meta.leaseUntil = leaseUntil;
-        meta.attempts += 1;
+        // A tinyint: the real claim stops at 255.
+        meta.attempts = Math.min(meta.attempts + 1, 255);
         const membership = this.world.memberships.find(
           (m) => m.id === release.timelineResultId,
         );
@@ -1133,6 +1149,7 @@ export class InMemoryReleaseStore implements ReleaseStore {
           phaseYear: release.phaseYear,
           outcome: release.outcome,
           attempts: meta.attempts,
+          leaseUntil,
         };
       }),
     );

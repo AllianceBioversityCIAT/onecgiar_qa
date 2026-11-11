@@ -20,14 +20,15 @@ const NOW = new Date('2026-11-13T10:00:00Z');
 const LEASE = new Date('2026-11-13T10:01:00Z');
 
 describe('the claim (design 7.6 step 1)', () => {
-  it('takes the phase year of the oldest due row, without a lock', () => {
-    const { sql: text, params } = reads.buildOldestDue(NOW).toSQL();
+  it('lists the due phase years, the one with the oldest due row first, without a lock', () => {
+    const { sql: text, params } = reads.buildDueYears(NOW).toSQL();
     expect(text).toMatch(
       /^select `phase_year` from `assessment_releases` where /,
     );
-    expect(text).toContain('order by `assessment_releases`.`id`');
+    expect(text).toContain('group by `assessment_releases`.`phase_year`');
+    expect(text).toContain('order by min(`assessment_releases`.`id`)');
     expect(text).not.toContain('for update');
-    expect(params).toEqual(['pending', '2026-11-13 10:00:00.000', 1]);
+    expect(params).toEqual(['pending', '2026-11-13 10:00:00.000', 10]);
   });
 
   it('reads the due ids of that one year FOR UPDATE SKIP LOCKED: pending, with a null or a past lease, oldest first, at most the limit', () => {
@@ -75,6 +76,85 @@ describe('the claim (design 7.6 step 1)', () => {
     expect(text).toContain('`timeline_results`.`timeline_id`');
     expect(text).toContain('`assessment_releases`.`id` in (?, ?)');
     expect(text).not.toContain('for update');
+  });
+});
+
+/** The claim's transaction body with its four statements scripted: what each one answers, in the order the loop asks. */
+class ScriptedClaim extends DrizzleReleaseStore {
+  readonly asked: string[] = [];
+  constructor(
+    private readonly years: number[],
+    private readonly lockable: Record<
+      number,
+      Array<{ id: number; resultId: number }>
+    >,
+  ) {
+    super(mock);
+  }
+  buildDueYears() {
+    this.asked.push('years');
+    return Promise.resolve(this.years.map((phaseYear) => ({ phaseYear }))) as never;
+  }
+  buildDueSelect(_now: Date, _limit: number, phaseYear: number) {
+    this.asked.push(`select ${phaseYear}`);
+    return Promise.resolve(this.lockable[phaseYear] ?? []) as never;
+  }
+  buildClaimUpdate(ids: readonly number[]) {
+    this.asked.push(`update ${ids.join(',')}`);
+    return Promise.resolve([{ affectedRows: ids.length }]) as never;
+  }
+  buildLeasedRows(ids: readonly number[]) {
+    this.asked.push(`read ${ids.join(',')}`);
+    return Promise.resolve(
+      ids.map((id) => ({ id, phaseYear: 2026 })),
+    ) as never;
+  }
+}
+
+describe('the claim loop over the due years (T-14)', () => {
+  it('passes over a year whose rows another dispatcher holds and claims the next one', async () => {
+    const claim = new ScriptedClaim([2025, 2026], {
+      2025: [],
+      2026: [
+        { id: 7, resultId: 70 },
+        { id: 8, resultId: 70 },
+        { id: 9, resultId: 90 },
+      ],
+    });
+
+    const rows = await claim.claimInTransaction(() => NOW, 60_000, 50);
+
+    // The duplicate result id 70 is dropped after the read: ids 7 and 9.
+    expect(claim.asked).toEqual([
+      'years',
+      'select 2025',
+      'select 2026',
+      'update 7,9',
+      'read 7,9',
+    ]);
+    expect(rows.map((row) => row.id)).toEqual([7, 9]);
+    // The lease is measured from the clock read inside the claim, and every row carries it.
+    expect(rows.every((row) => row.leaseUntil.getTime() === NOW.getTime() + 60_000)).toBe(true);
+  });
+
+  it('claims nothing, and writes nothing, when every due year is held', async () => {
+    const claim = new ScriptedClaim([2025, 2026], {});
+    expect(await claim.claimInTransaction(() => NOW, 60_000, 50)).toEqual([]);
+    expect(claim.asked).toEqual(['years', 'select 2025', 'select 2026']);
+  });
+
+  it('reads the clock once, inside the transaction, after the connection was handed over', async () => {
+    const reads: string[] = [];
+    const claim = new ScriptedClaim([], {});
+    await claim.claimInTransaction(
+      () => {
+        reads.push(`clock after ${claim.asked.join(',') || 'nothing'}`);
+        return NOW;
+      },
+      60_000,
+      50,
+    );
+    expect(reads).toEqual(['clock after nothing']);
   });
 });
 

@@ -2,6 +2,9 @@
 import { Logger } from '@nestjs/common';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  CATALOG_TIMEOUT_MS,
+} from '../users/catalogs/catalog-http.js';
+import {
   FeedError,
   type FeedRelease,
   type FeedReleaseQuery,
@@ -14,6 +17,7 @@ import {
   type FakeMembership,
 } from '../../test/support/in-memory-assessment.js';
 import { FakeResultsFeed } from '../../test/support/fake-results-feed.js';
+import type { ReleaseStore } from './release.store.js';
 import {
   RELEASE_LEASE_MS,
   ReleaseService,
@@ -55,7 +59,11 @@ const notReleasedAll =
     })),
   });
 
-function setup() {
+function setup(
+  wrap: (store: InMemoryReleaseStore, clock: { now: Date }) => ReleaseStore = (
+    store,
+  ) => store,
+) {
   const world = new InMemoryAssessmentWorld();
   world.timelines.push({
     id: 1,
@@ -68,7 +76,7 @@ function setup() {
   const feed = new FakeResultsFeed();
   const pauses: number[] = [];
   const service = new ReleaseService(
-    new InMemoryReleaseStore(world),
+    wrap(new InMemoryReleaseStore(world), clock),
     feed,
     new InMemoryAssessmentUnitOfWork(world),
     () => clock.now,
@@ -700,6 +708,155 @@ describe('ReleaseService.dispatch (design 7.6)', () => {
       expect(WORST_CASE_SEND_MS).toBeLessThan(RELEASE_LEASE_MS);
       // 3 tries of the 10 s feed timeout, plus 1 s and 4 s waits spread 20 % up.
       expect(WORST_CASE_SEND_MS).toBe(3 * 10_000 + 5_000 * 1.2);
+    });
+  });
+
+  describe('hardening of the claim (T-14)', () => {
+    /** The pool wait before the claim's transaction: the clock moves between the service's decision and the transaction's first statement. */
+    const slowPool = (waitMs: number) => (
+      store: InMemoryReleaseStore,
+      clock: { now: Date },
+    ): ReleaseStore => ({
+      list: (status) => store.list(status),
+      claimDue: (...args) => {
+        clock.now = new Date(clock.now.getTime() + waitMs);
+        return store.claimDue(...args);
+      },
+    });
+    /** Time that passes AFTER the claim committed and before the send starts (a slow ack of the previous round, a busy event loop). */
+    const lateAfterClaim = (lateMs: number) => (
+      store: InMemoryReleaseStore,
+      clock: { now: Date },
+    ): ReleaseStore => ({
+      list: (status) => store.list(status),
+      claimDue: async (...args) => {
+        const rows = await store.claimDue(...args);
+        clock.now = new Date(clock.now.getTime() + lateMs);
+        return rows;
+      },
+    });
+
+    it('measures the lease from the clock read INSIDE the claim, after a pool wait', async () => {
+      const { world, feed, service, queue, row } = setup(slowPool(30_000));
+      const membership = queue('qaed');
+      feed.script('release', releasedAll);
+
+      await service.dispatch();
+
+      // The service decided at START; the transaction began 30 s later: the lease runs from there.
+      expect(world.metaOf(row(membership)).leaseUntil).toEqual(
+        new Date(START.getTime() + 30_000 + RELEASE_LEASE_MS),
+      );
+    });
+
+    it('sends when exactly the worst-case send still fits in the lease', async () => {
+      const { feed, service, queue, row } = setup(
+        lateAfterClaim(RELEASE_LEASE_MS - WORST_CASE_SEND_MS),
+      );
+      const membership = queue('qaed');
+      feed.script('release', releasedAll);
+
+      await service.dispatch();
+
+      expect(feed.callsOf('release')).toHaveLength(1);
+      expect(row(membership).status).toBe('sent');
+    });
+
+    it('skips a claimed batch whose lease can no longer cover a worst-case send: nothing is sent, the rows stay pending and the next dispatch after the lease sends them', async () => {
+      const { world, clock, feed, service, queue, row } = setup(
+        lateAfterClaim(RELEASE_LEASE_MS - WORST_CASE_SEND_MS + 1),
+      );
+      const membership = queue('qaed');
+      feed.script('release', releasedAll);
+      const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
+
+      const result = await service.dispatch();
+
+      expect(feed.callsOf('release')).toHaveLength(0);
+      expect(result).toEqual({
+        attempted: 1,
+        sent: 0,
+        refused: 0,
+        stillPending: 1,
+      });
+      expect(row(membership).status).toBe('pending');
+      expect(JSON.parse(String(warn.mock.calls[0]![0]))).toEqual({
+        event: 'assessment_release',
+        outcome: 'lease_short',
+        phaseYear: 2026,
+        rows: 1,
+      });
+      warn.mockRestore();
+
+      // The lease runs out and the row is due again.
+      clock.now = new Date(START.getTime() + 2 * RELEASE_LEASE_MS);
+      const later = await new ReleaseService(
+        new InMemoryReleaseStore(world),
+        feed,
+        new InMemoryAssessmentUnitOfWork(world),
+        () => clock.now,
+      ).dispatch();
+      expect(later.sent).toBe(1);
+      expect(row(membership).status).toBe('sent');
+    });
+
+    it('takes the feed timeout from the one the feed client uses, not a copy', () => {
+      expect(WORST_CASE_SEND_MS).toBe(3 * CATALOG_TIMEOUT_MS + 5_000 * 1.2);
+    });
+
+    it('tries the next due phase year when every row of the oldest year is locked by another dispatcher', async () => {
+      const { world, feed, service, queue, row } = setup();
+      const old = queue('qaed', { phaseYear: 2025 });
+      const current = queue('qaed', { phaseYear: 2026 });
+      feed.script('release', releasedAll);
+      // Another dispatcher holds the 2025 row (`SKIP LOCKED` leaves it out).
+      world.lockedReleaseIds.add(world.metaOf(row(old)).id);
+
+      const result = await service.dispatch();
+
+      expect(feed.callsOf('release')).toHaveLength(1);
+      expect(feed.callsOf('release')[0]!.phaseYear).toBe(2026);
+      expect(result.sent).toBe(1);
+      expect(row(current).status).toBe('sent');
+      // The locked row was neither sent nor leased by this dispatch.
+      expect(row(old).status).toBe('pending');
+      expect(world.metaOf(row(old))).toMatchObject({
+        attempts: 0,
+        leaseUntil: null,
+      });
+    });
+  });
+
+  describe('the fake claims as MySQL does (T-14)', () => {
+    it('applies the limit BEFORE the result-id dedupe, so a duplicate inside the limit leaves a shorter batch', async () => {
+      const { world, queue } = setup();
+      queue('qaed', { resultId: 7001 });
+      queue('not_qaed', { resultId: 7001 });
+      queue('qaed', { resultId: 7003 });
+
+      const rows = await new InMemoryReleaseStore(world).claimDue(
+        () => START,
+        RELEASE_LEASE_MS,
+        2,
+      );
+
+      // `limit 2` reads rows 1 and 2; they share a result id, so one is kept. Row 3 waits for the next claim.
+      expect(rows.map((r) => r.resultId)).toEqual([7001]);
+    });
+
+    it('stops counting attempts at 255 (a tinyint)', async () => {
+      const { world, queue, row } = setup();
+      const membership = queue('qaed');
+      world.metaOf(row(membership)).attempts = 255;
+
+      const rows = await new InMemoryReleaseStore(world).claimDue(
+        () => START,
+        RELEASE_LEASE_MS,
+        50,
+      );
+
+      expect(rows[0]!.attempts).toBe(255);
+      expect(world.metaOf(row(membership)).attempts).toBe(255);
     });
   });
 

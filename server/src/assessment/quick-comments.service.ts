@@ -1,6 +1,6 @@
 // @akili-spec assessment/step-1-assessment
 import { createHash } from 'node:crypto';
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import {
   ADMIN_CONFIG_CLOCK,
   type AdminConfigClock,
@@ -8,6 +8,7 @@ import {
 import { isLiveAssignment } from '../users/current-user.cache.js';
 import type { AuthenticatedUser } from '../users/current-user.cache.js';
 import { AssessmentQuickCommentsForbiddenError } from './assessment.errors.js';
+import { loggedWrite } from './assessment-log.js';
 import {
   ASSESSMENT_STORE,
   type AssessmentStore,
@@ -55,6 +56,8 @@ const wholeSecond = (at: Date): Date =>
  */
 @Injectable()
 export class QuickCommentsService {
+  private readonly logger = new Logger(QuickCommentsService.name);
+
   constructor(
     @Inject(ASSESSMENT_STORE) private readonly store: AssessmentStore,
     @Inject(ASSESSMENT_UNIT_OF_WORK)
@@ -77,6 +80,19 @@ export class QuickCommentsService {
    * is read once.
    */
   async save(
+    user: AuthenticatedUser,
+    role: string,
+    body: string,
+    requestId: string,
+  ): Promise<QuickCommentSaved> {
+    return await loggedWrite(
+      this.logger,
+      { action: 'quick_comment_save', actorId: user.id, requestId },
+      () => this.saveAt(user, role, body, requestId),
+    );
+  }
+
+  private async saveAt(
     user: AuthenticatedUser,
     role: string,
     body: string,

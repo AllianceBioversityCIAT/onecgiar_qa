@@ -560,6 +560,25 @@ describe('assessment comments (e2e)', () => {
       expect(a.world.audits).toHaveLength(1);
     });
 
+    it('a second actor reusing the key of another actor gets a fresh comment, not a replay', async () => {
+      const first = await a.send('post', createPath(), {
+        token: policy(),
+        key: 'shared-key',
+        body,
+      });
+      const second = await a.send('post', createPath(), {
+        token: policy2(),
+        key: 'shared-key',
+        body,
+      });
+      expect(first.status).toBe(201);
+      expect(second.status).toBe(201);
+      expect(second.headers['idempotency-replayed']).toBeUndefined();
+      expect(second.body.data.id).not.toBe(first.body.data.id);
+      expect(second.body.data.author.id).toBe(a.users.policy2.id);
+      expect(a.world.comments).toHaveLength(2);
+    });
+
     it('a create without a key is not remembered: two sends are two comments', async () => {
       await a.send('post', createPath(), { token: policy(), body });
       await a.send('post', createPath(), { token: policy(), body });
@@ -656,6 +675,29 @@ describe('assessment comments (e2e)', () => {
       expect(a.world.comments[0]!.state).toBe('open');
     });
 
+    it('a caller assigned only on another timeline gets the same bytes as a comment that does not exist', async () => {
+      await withComment();
+      // policy2 is moved: assigned on timeline 2 only, so the comment's timeline is not theirs.
+      a.world.timelineUsers = a.world.timelineUsers.filter(
+        (row) => row.userId !== a.users.policy2.id,
+      );
+      a.world.timelineUsers.push({
+        timelineId: 2,
+        userId: a.users.policy2.id,
+        roleCode: 'ASSESSOR',
+      });
+      const otherTimeline = await a.send('post', withdrawPath(700), {
+        token: policy2(),
+      });
+      const missing = await a.send('post', withdrawPath(424242), {
+        token: policy2(),
+      });
+      expectError(missing, 404, 'ASSESSMENT_NOT_FOUND');
+      expect(shape(otherTimeline)).toEqual(shape(missing));
+      expect(a.world.comments[0]!.state).toBe('open');
+      expect(a.world.transactions).toBe(0);
+    });
+
     it.each([
       ['step 1 is open', '2026-11-13T10:00:00Z', 200],
       ['step 2 is open', '2026-11-24T10:00:00Z', 200],
@@ -667,6 +709,8 @@ describe('assessment comments (e2e)', () => {
       if (status === 409) {
         expectError(res, 409, 'ASSESSMENT_STEP_CLOSED');
         expect(a.world.comments[0]!.state).toBe('open');
+        // Refused before any transaction opened.
+        expect(a.world.transactions).toBe(0);
       } else {
         expect(res.status).toBe(200);
       }
@@ -683,6 +727,7 @@ describe('assessment comments (e2e)', () => {
           'ASSESSMENT_COMMENT_NOT_OPEN',
         );
         expect(a.world.comments[0]!.state).toBe(state);
+        expect(a.world.transactions).toBe(0);
       },
     );
 

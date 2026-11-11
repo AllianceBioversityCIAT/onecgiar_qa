@@ -7,6 +7,7 @@ import {
   enabledReviewerRows,
   findRoleStep,
   isRoleStepOpen,
+  isWithdrawWindowOpen,
   ROLE_STEPS,
   roleStepState,
 } from './role-steps.js';
@@ -124,5 +125,43 @@ describe('step open at the clock minute (FR-2)', () => {
       'upcoming',
     );
     expect(audienceStepState('tpb', timing('2026-11-15T10:00:00Z'))).toBeNull();
+  });
+});
+
+// OQ-8 (FR-13): a withdraw is allowed while step 1 (assessors) OR step 2
+// (programs) is open, on the same minute rule as FR-2. The expected values are
+// written out from the two windows above (Rome is UTC+1: 09:00 is 08:00 UTC).
+describe('withdraw window (OQ-8, FR-13)', () => {
+  it.each<[string, string, boolean]>([
+    ['before step 1 (08:59 on 12 Nov)', '2026-11-12T07:59:00Z', false],
+    ['step 1 opens (09:00 on 12 Nov)', '2026-11-12T08:00:00Z', true],
+    ['inside step 1', '2026-11-15T10:00:00Z', true],
+    ['step 1 closing minute (17:30:59 on 20 Nov)', '2026-11-20T16:30:59Z', true],
+    ['between the steps (17:31 on 20 Nov)', '2026-11-20T16:31:00Z', false],
+    ['the day before step 2', '2026-11-22T10:00:00Z', false],
+    ['step 2 opens (09:00 on 23 Nov)', '2026-11-23T08:00:00Z', true],
+    ['step 2 closing minute (17:30:59 on 27 Nov)', '2026-11-27T16:30:59Z', true],
+    ['after step 2 (17:31 on 27 Nov)', '2026-11-27T16:31:00Z', false],
+  ])('%s -> open: %s', (_name, utc, open) => {
+    expect(isWithdrawWindowOpen(timing(utc))).toBe(open);
+  });
+
+  it('is closed while the timeline has no load, even inside a window (DD-2)', () => {
+    expect(isWithdrawWindowOpen(timing('2026-11-15T10:00:00Z', false))).toBe(
+      false,
+    );
+    expect(isWithdrawWindowOpen(timing('2026-11-24T10:00:00Z', false))).toBe(
+      false,
+    );
+  });
+
+  it('is closed when the timeline has neither step', () => {
+    expect(
+      isWithdrawWindowOpen({
+        steps: [],
+        now: nowInRome(new Date('2026-11-15T10:00:00Z')),
+        hasLoad: true,
+      }),
+    ).toBe(false);
   });
 });

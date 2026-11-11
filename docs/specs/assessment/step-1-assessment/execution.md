@@ -934,3 +934,59 @@ Within the re-estimated budget.
 | Review rounds | 26 | 34 |
 
 Within the re-estimated budget.
+
+### T-14: Cross-cutting HTTP suites — concurrency, clock, privacy, OpenAPI — PASS
+
+| | |
+|---|---|
+| Date | 2026-11-11 |
+| Final status | PASS (attempt 2 of 2) |
+| Requirements covered | FR-2 (over HTTP, clock overridden), FR-17 (5 parallel finishes and validate vs finish, over HTTP), FR-22, NFR-3, NFR-4, NFR-5 |
+| Skills | nestjs-expert (as task) |
+| Effort | default in attempt 1; `high` in attempt 2 (rework bump) |
+| Review mode | full, one Reviewer |
+
+- **Files** (under `server/`):
+  - production: new `src/assessment/assessment-log.ts` (`loggedWrite`: one `event:'assessment'` line per write request with `action, timelineId?, membershipId?, outcome (ok|refused|error), reason?, requestId, actorId`; reason = catalog error code, else `http_<status>`, else `internal_error`); edited `assessment.service.ts` (validate, comment, finish, withdraw wrapped), `quick-comments.service.ts` (save wrapped), `release.service.ts`, `release.store.ts` (hardening below). ≈ 185 production lines;
+  - tests: new `test/assessment-privacy.e2e-spec.ts`, `test/assessment-concurrency.e2e-spec.ts`, `test/assessment-clock.e2e-spec.ts`, `test/support/assessment-seed.ts`, `src/assessment/assessment-log.spec.ts`; edited `test/openapi.e2e-spec.ts` (12 routes, envelopes, exact error codes per status against `ERROR_CATALOG`, replay header, 503 on `GET /assessment-releases`), `test/assessment-comments.e2e-spec.ts`, `test/support/assessment-app.ts` (`setClock`, `nicknames`, `names`), `test/support/in-memory-assessment.ts`, `release.service.spec.ts`, `release.store.spec.ts`, `role-steps.spec.ts`, `comment-value-copy.spec.ts`.
+- **Release hardening (T-12 pointers a–d):** the lease `now` is read inside the claim transaction (`claimDue(clock, leaseMs, limit)` → `claimInTransaction`); a claimed batch is skipped and left pending (log outcome `lease_short`) when `clock() > leaseUntil − WORST_CASE_SEND_MS` right before the send; `buildDueYears` (group by phase year, ordered by `min(id)`, limit 10) lets the claim pass over a year whose rows are all skip-locked; `FEED_TIMEOUT_MS = CATALOG_TIMEOUT_MS` (imported); the fake dedupes after the limit and caps `attempts` at 255.
+- **T-10 pointers:** withdraw by a caller assigned only on another timeline → byte-equal 404; a second actor reusing a key gets a fresh comment; `transactions` 0 on the closed-window and not-open withdraws; direct `isWithdrawWindowOpen` rows; a sibling key left out of the value copy.
+
+**Attempt 1 — FAIL (full)**
+
+- **Observed red:** privacy `validate: one line: expected [] to have a length of 1 but got +0`; hardening 5 red (`…10:01:00.000Z to deeply equal …10:01:30.000Z`, skip, next year, dedupe `[7001, 7003]`, cap `256`).
+- **Falsifiers (observed red, then restored):** comment body in the log line → privacy red; `if (!ended) throw new AssessmentFinishedError()` removed in `applyEnd` → `expected [] to have a length of 4 but got +0` and `expected [200, 500] to deeply equal [200, 409]` (Reviewer judged this a valid "remove the conditional end": the SQL predicate is pinned by `assessment.end-store.spec.ts`).
+- **Evidence re-run (Leader inline):** unit `Tests 3674 passed | 6 skipped (3680)`, e2e `Tests 1131 passed (1131)`. **VERIFIED.**
+- **Reviewer: FAIL** (verbatim, abridged):
+  > 1. The allowed-keys check is a subset check, not an exact one (`test/assessment-privacy.e2e-spec.ts:152`). Only `finish` pins `timelineId`/`membershipId`. […] delete `trace.membershipId = membership.membershipId` in `validateAt`/`commentAt` […] and the suite stays green. Violated: design.md § 7.9.
+  > 2. Person names are never planted. The actors' `firstName` is the sub and `lastName` is `'Actor'` (`test/support/assessment-app.ts:130-137`). […] Violated: requirements.md FR-22 and NFR-5 ("nickname, name or email").
+
+**Attempt 2 — PASS**
+
+- **Changes (tests only):** `expectDecisionLine` asserts each write line with `toEqual` (exact keys, real `actorId`; `membershipId` left out only for quick-comment saves and finish on a missing result); planted first and last names for three actors; a forced-5xx case over HTTP (`outcome:'error'`, `reason:'internal_error'`, no leak in answer or logs); the view answer contains `PLANTED_VALUE` and the re-read quick comments contain `PLANTED_QUICK`; the clock suite asserts `writable:false` and `readOnlyReason` after close, `writable:true` inside.
+- **Mutation reds:** `trace.membershipId` removed in validate → `expected {…(5)} to deeply equal {…(6)}`; `user.firstName` logged on finish → red. Both original falsifiers red again on the final code. Restored.
+- **Clock grep:** only `assessment.module.ts:85` and `:88` (pre-existing providers; the module pattern).
+- **Evidence re-run (Leader inline):** lint and build clean; unit `Test Files 96 passed | 1 skipped (97)`, `Tests 3674 passed | 6 skipped (3680)`; e2e `Test Files 26 passed (26)`, `Tests 1132 passed (1132)`. **VERIFIED.**
+- **Reviewer: PASS.** Spy matches the reference (all `Logger.prototype` levels, `overrideLogger`, `console.*`, stdout, stderr); hardening a–d correct; a `lease_short` skip increments `attempts` but `attempts` does not gate the claim, so no starvation.
+
+**Forward pointers closed:** T-10 (§ 7.9 log line; withdraw and idempotency extras); T-12 (a–d).
+
+**Decisions made:**
+
+- The `event:'assessment'` line is written by a service-level wrapper, not an interceptor (the membership id is only known inside the service).
+- No `assessment` line on an idempotent comment replay (answered by the interceptor; matches the ingestion reference) and none on `POST /assessment-releases/retry` (the dispatcher writes its own `assessment_release` lines). Accepted gap: an admin retry is not tied to its caller in the logs.
+
+**Forward pointers:**
+
+- **→ T-15:** document in `assessment/AGENTS.md` the `event:'assessment'` line, the `lease_short` outcome, `claimDue(clock, leaseMs, limit)` and the locked-year pass; drop the redundant subset check at `assessment-privacy.e2e-spec.ts:179`; NFR-4's literal grep matches the two `() => new Date()` clock providers in `assessment.module.ts` — record them as the allowed binding.
+- **→ T-16 HITL (real MySQL):** `buildDueYears` under `ONLY_FULL_GROUP_BY`; two real dispatchers where one holds the oldest year; the clock read after a pool wait; the HTTP concurrency suites use the fake's `holdLockUntil` barrier, so true row-lock ordering stays a real-MySQL check.
+
+**Running totals:**
+
+| Measure | Actual | Re-estimated budget |
+|---|---|---|
+| Tasks | 14 of 21 | 21 |
+| Production LOC | ≈ 8,245 TS + 141 SQL | 11,000 |
+| Review rounds | 28 | 34 |
+
+Within the re-estimated budget.

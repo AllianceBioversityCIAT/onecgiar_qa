@@ -96,7 +96,16 @@ export function withoutRequestMeta(body: {
 /** `at` is the clock of the services (inside step 1 by default). */
 export async function buildAssessmentApp(
   at: Date = new Date('2026-03-15T10:00:00.000Z'),
+  options: {
+    nicknames?: Partial<Record<'policy' | 'policy2', string>>;
+    /** Planted person names (FR-22 forbids a name in any log line). */
+    names?: Partial<
+      Record<'policy' | 'policy2' | 'admin', { first: string; last: string }>
+    >;
+  } = {},
 ) {
+  // The clock the services read; `setClock` moves it (FR-2 over HTTP).
+  let current = at;
   const w = adminWorld();
   const world = new InMemoryAssessmentWorld();
   // The comment create is keyed (P-17): the interceptor reserves in this store and the unit of work marks it.
@@ -123,12 +132,13 @@ export async function buildAssessmentApp(
     sub: string,
     roles: Array<[string, string?]>,
     nickname: string | null = null,
+    name?: { first: string; last: string },
   ) => {
     const user = await w.users.create({
       email: `${sub}@cgiar.org`,
       cognitoSub: sub,
-      firstName: sub,
-      lastName: 'Actor',
+      firstName: name?.first ?? sub,
+      lastName: name?.last ?? 'Actor',
       authSource: 'sso',
       nickname,
     });
@@ -142,7 +152,12 @@ export async function buildAssessmentApp(
     return user;
   };
   const users = {
-    admin: await actor('sub-admin', [['ADMIN']], 'Ada'),
+    admin: await actor(
+      'sub-admin',
+      [['ADMIN']],
+      'Ada',
+      options.names?.admin,
+    ),
     assessor: await actor('sub-assessor', [['ASSESSOR', 'KP']], 'Ana'),
     // Granted like the assessor, but assigned to no timeline.
     other: await actor('sub-other', [['ASSESSOR', 'KP']], 'Otto'),
@@ -150,12 +165,18 @@ export async function buildAssessmentApp(
     // A role that must not see the ASSESSOR quick comments (FR-12).
     tpb: await actor('sub-tpb', [['TPB']], 'Tess'),
     // Granted a result type of the 2026 Reporting catalog (the view reads that catalog).
-    policy: await actor('sub-policy', [['ASSESSOR', 'policy_change']], 'Pia'),
+    policy: await actor(
+      'sub-policy',
+      [['ASSESSOR', 'policy_change']],
+      options.nicknames?.policy ?? 'Pia',
+      options.names?.policy,
+    ),
     // A second assessor of the same kind, to write or withdraw beside `policy`.
     policy2: await actor(
       'sub-policy2',
       [['ASSESSOR', 'policy_change']],
-      'Pablo',
+      options.nicknames?.policy2 ?? 'Pablo',
+      options.names?.policy2,
     ),
   };
 
@@ -198,7 +219,7 @@ export async function buildAssessmentApp(
     .overrideProvider(IDEMPOTENCY_CLOCK)
     .useValue(idemClock.now)
     .overrideProvider(ADMIN_CONFIG_CLOCK)
-    .useValue(() => at)
+    .useValue(() => current)
     .overrideProvider(RESULT_TYPE_SOURCE)
     .useValue({ list: async () => RESULT_TYPES })
     .overrideProvider(SCIENCE_PROGRAM_SOURCE)
@@ -228,9 +249,14 @@ export async function buildAssessmentApp(
   const programScope = (userId: number, programIds: number[]) =>
     w.programs.replaceScope(userId, programIds);
 
+  const setClock = (next: Date) => {
+    current = next;
+  };
+
   return {
     app,
     world,
+    setClock,
     users,
     send,
     programScope,

@@ -49,6 +49,7 @@ import {
   AssessmentReadOnlyError,
   AssessmentStepClosedError,
 } from './assessment.errors.js';
+import { loggedWrite, type WriteLogTrace } from './assessment-log.js';
 import {
   ASSESSMENT_UNIT_OF_WORK,
   type AssessmentUnitOfWork,
@@ -244,13 +245,27 @@ export class AssessmentService {
     input: ValidateInput,
     requestId: string,
   ): Promise<ValidationSummary> {
-    const at = this.clock();
-    const summary = await this.withPinnedRetry(() =>
-      this.validateAt(at, user, timelineId, resultCode, input, requestId),
+    return await loggedWrite(
+      this.logger,
+      { action: 'validate', actorId: user.id, requestId, timelineId },
+      async (trace) => {
+        const at = this.clock();
+        const summary = await this.withPinnedRetry(() =>
+          this.validateAt(
+            at,
+            user,
+            timelineId,
+            resultCode,
+            input,
+            requestId,
+            trace,
+          ),
+        );
+        // Only a write that ended the assessment queued a release.
+        if (summary.status !== 'pending') this.dispatchRelease();
+        return summary;
+      },
     );
-    // Only a write that ended the assessment queued a release.
-    if (summary.status !== 'pending') this.dispatchRelease();
-    return summary;
   }
 
   private async validateAt(
@@ -260,11 +275,13 @@ export class AssessmentService {
     resultCode: number,
     input: ValidateInput,
     requestId: string,
+    trace: WriteLogTrace,
   ): Promise<ValidationSummary> {
     const now = nowInRome(at);
 
     const { timeline, access, membership, facts, hasLoad, decision, readStep } =
       await this.resolveWrite(user, timelineId, resultCode, now);
+    trace.membershipId = membership.membershipId;
     const stepPosition = decision.stepPosition;
     const held =
       membership.assessment !== null && readStep === stepPosition
@@ -399,12 +416,18 @@ export class AssessmentService {
     resultCode: number,
     requestId: string,
   ): Promise<ValidationSummary> {
-    const at = this.clock();
-    const summary = await this.withPinnedRetry(() =>
-      this.finishAt(at, user, timelineId, resultCode, requestId),
+    return await loggedWrite(
+      this.logger,
+      { action: 'finish', actorId: user.id, requestId, timelineId },
+      async (trace) => {
+        const at = this.clock();
+        const summary = await this.withPinnedRetry(() =>
+          this.finishAt(at, user, timelineId, resultCode, requestId, trace),
+        );
+        this.dispatchRelease();
+        return summary;
+      },
     );
-    this.dispatchRelease();
-    return summary;
   }
 
   /**
@@ -427,10 +450,12 @@ export class AssessmentService {
     timelineId: number,
     resultCode: number,
     requestId: string,
+    trace: WriteLogTrace,
   ): Promise<ValidationSummary> {
     const now = nowInRome(at);
     const { timeline, access, membership, facts, hasLoad, decision, readStep } =
       await this.resolveWrite(user, timelineId, resultCode, now);
+    trace.membershipId = membership.membershipId;
     const stepPosition = decision.stepPosition;
     const held =
       membership.assessment !== null && readStep === stepPosition
@@ -695,17 +720,24 @@ export class AssessmentService {
     requestId: string,
     idempotency?: IdempotencyHandle,
   ): Promise<ViewComment> {
-    const at = this.clock();
-    return await this.withPinnedRetry(() =>
-      this.commentAt(
-        at,
-        user,
-        timelineId,
-        resultCode,
-        input,
-        requestId,
-        idempotency,
-      ),
+    return await loggedWrite(
+      this.logger,
+      { action: 'comment', actorId: user.id, requestId, timelineId },
+      async (trace) => {
+        const at = this.clock();
+        return await this.withPinnedRetry(() =>
+          this.commentAt(
+            at,
+            user,
+            timelineId,
+            resultCode,
+            input,
+            requestId,
+            trace,
+            idempotency,
+          ),
+        );
+      },
     );
   }
 
@@ -716,12 +748,14 @@ export class AssessmentService {
     resultCode: number,
     input: CommentInput,
     requestId: string,
+    trace: WriteLogTrace,
     idempotency?: IdempotencyHandle,
   ): Promise<ViewComment> {
     const now = nowInRome(at);
 
     const { timeline, access, membership, facts, hasLoad, decision, readStep } =
       await this.resolveWrite(user, timelineId, resultCode, now);
+    trace.membershipId = membership.membershipId;
     const stepPosition = decision.stepPosition;
     const held =
       membership.assessment !== null && readStep === stepPosition
@@ -849,6 +883,19 @@ export class AssessmentService {
     commentId: number,
     requestId: string,
   ): Promise<ViewComment> {
+    return await loggedWrite(
+      this.logger,
+      { action: 'withdraw', actorId: user.id, requestId },
+      (trace) => this.withdrawAt(user, commentId, requestId, trace),
+    );
+  }
+
+  private async withdrawAt(
+    user: AuthenticatedUser,
+    commentId: number,
+    requestId: string,
+    trace: WriteLogTrace,
+  ): Promise<ViewComment> {
     const at = this.clock();
     const now = nowInRome(at);
 
@@ -878,6 +925,9 @@ export class AssessmentService {
     ) {
       throw new AssessmentNotFoundError();
     }
+    // Ids only, and only once the comment is inside the caller's scope.
+    trace.timelineId = timeline.id;
+    trace.membershipId = membership.membershipId;
 
     if (context.authorId !== user.id) {
       throw new AssessmentNotCommentAuthorError();
