@@ -1,7 +1,8 @@
 import { Component, computed, effect, input, linkedSignal, model, output, untracked } from '@angular/core';
 import { DefaultStep } from '../../../core/api/cycles.models';
 import { ApiFieldError } from '../../../core/http/api-envelope';
-import { FormField, applyEach, form, required, validate } from '@angular/forms/signals';
+import { FormField, applyEach, form, validate } from '@angular/forms/signals';
+import { requiredText } from '../../../core/forms/text-validators';
 import { HlmInput } from '@spartan/input';
 import { QaButtonImports, QaDatePicker, QaDialogImports, QaDrawerImports, QaMultiSelect, QaSelectOption, QaSwitch, QaTooltipImports, discardGuard } from '../../../ui';
 import { DEFAULT_STEP_DATES, PROGRAMS, RESULT_TYPES, STEP_NAMES, Timeline } from './cycle.mock';
@@ -416,12 +417,12 @@ export class TimelineDrawer {
   }
 
   protected readonly tlForm = form(this.draft, (f) => {
-    required(f.name, { message: 'Enter a name for the timeline.', when: () => !this.isOfficialEdit() });
+    requiredText(f.name, { message: 'Enter a name for the timeline.', when: () => !this.isOfficialEdit() });
     validate(f.programs, ({ value }) =>
       !this.isMain() && !value().length ? { kind: 'required', message: 'Select at least one program.' } : undefined,
     );
     applyEach(f.steps, (s) => {
-      required(s.name, { message: 'Enter a name for the step.' });
+      requiredText(s.name, { message: 'Enter a name for the step.' });
       // Live data: both dates of every step are required (the API has no open-ended step).
       validate(s.start, ({ value }) => (this.live() && !toApiDay(value()) ? { kind: 'date', message: 'Enter an opening date, for example 06 Jul 2026.' } : undefined));
       validate(s.end, ({ value }) => (this.live() && !toApiDay(value()) ? { kind: 'date', message: 'Enter a closing date, for example 11 Jul 2026.' } : undefined));
