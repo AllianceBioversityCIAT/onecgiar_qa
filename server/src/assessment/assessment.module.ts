@@ -16,7 +16,13 @@ import { DrizzleLoadsStore, LOADS_STORE } from '../ingestion/loads.store.js';
 import { ReportingResultsFeedClient } from '../ingestion/reporting-results-feed.client.js';
 import { RESULTS_FEED } from '../ingestion/results-feed.port.js';
 import { SNAPSHOT_STORE } from '../ingestion/snapshot-store.port.js';
+import {
+  DrizzleTimelineLoads,
+  TIMELINE_LOADS,
+} from '../admin-config/timelines/timeline-loads.js';
 import { UsersModule } from '../users/users.module.js';
+import { WorklistService } from './worklist.service.js';
+import { DrizzleWorklistStore, WORKLIST_STORE } from './worklist.store.js';
 
 /**
  * Step-1 assessment (spec assessment/step-1-assessment, DD-1). Imports
@@ -44,6 +50,10 @@ import { UsersModule } from '../users/users.module.js';
     // The idempotency store of the comment create (P-17); its clock is also the one a unit of work gives its transaction-bound store.
     { provide: IDEMPOTENCY_STORE, useClass: DrizzleIdempotencyStore },
     { provide: IDEMPOTENCY_CLOCK, useValue: () => new Date() },
+    // The worklist (T-7): its read port, the "has a load" probe of the step states (the admin-config adapter, bound here because TimelinesModule exports nothing), and the service.
+    { provide: WORKLIST_STORE, useClass: DrizzleWorklistStore },
+    { provide: TIMELINE_LOADS, useClass: DrizzleTimelineLoads },
+    WorklistService,
   ],
 })
 export class AssessmentModule {}

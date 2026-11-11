@@ -406,3 +406,71 @@ Two items were added as `[advisory-grade]`: a strict per-module lookup in the mo
 | Review rounds | 8 | 26 |
 
 Within budget.
+
+### T-7: Worklist store and service (scope, filters, status, sort, cursor, counters) — PASS
+
+| | |
+|---|---|
+| Date | 2026-11-11 |
+| Final status | PASS (attempt 2 of 2) |
+| Requirements covered | FR-1 (scope, revoked grant, admin sees all, role with no active row), FR-3 (default official; active cycle only), FR-4 (Auto-validated hidden incl. counters; search by title), FR-5, FR-6, FR-7, FR-19 (predicate), NFR-1 (statement count) |
+| Skills | nestjs-expert, api-design-principles, tdd (as task) |
+| Effort | default in attempt 1; `high` in attempt 2 (rework bump) |
+| Review mode | full, single Reviewer (scope-leak lens) |
+
+**Attempt 1 — FAIL**
+
+- **Files changed** (under `server/`):
+  - new: `src/assessment/worklist.store.ts` (port, `DrizzleWorklistStore`, `scopeCondition`), `worklist-cursor.ts`, `worklist.service.ts`, `worklist.service.spec.ts`, `worklist.store.spec.ts`, `test/support/in-memory-assessment.ts` (counts statements);
+  - edited: `src/assessment/assessment.module.ts` (binds `WORKLIST_STORE`, `TIMELINE_LOADS` → existing `DrizzleTimelineLoads`, `WorklistService`), `assessment.module.spec.ts` (strict lookup of the three).
+- **Observed red** (stub service, real fake and spec): `Tests 35 failed | 2 passed (37)`, e.g. `AssertionError: expected [] to deeply equal [ 1, 4 ]` (Admin sees all), `expected [] to have a length of 120 but got +0` (Sort by Science Program). The two stub passes were strengthened (a `100% done` title for the `%` escape) or are covered by falsifier 1.
+- **Falsifiers (observed red, then restored):**
+  1. per-row comment count: `AssertionError: expected 34 to be less than or equal to 8` (NFR-1 test).
+  2. counters without the Auto-validated hiding: `- "total": 10, + "total": 13,`.
+  3. `changedFields` returned: `expected '{"rows":[{"membershipId":34,…' not to contain 'general.title'`, plus the documented-columns test (extra key `changedFields`).
+- **Statement count:** 4 at 30 rows and 4 at 1,000 rows (timeline join, load probe, page, counters).
+- **Disqualifier respected:** 120 rows over 5 programs named Mango, Zebra, Apple, Quince, Berry (not in id order), paged at 25; 12 sort × direction combinations each page every row once.
+- **Implementer verification:** lint and build clean; `Test Files 79 passed | 1 skipped (80)`, `Tests 3315 passed | 6 skipped (3321)`.
+- **Evidence re-run (Leader inline):** same counts. **VERIFIED.**
+- **Reviewer verdict: FAIL** (verbatim, condensed to the issue):
+  > **Discovered Issue:** `InMemoryWorklistStore.findTimelines` (`server/test/support/in-memory-assessment.ts:123-147`) returns every timeline whatever its cycle. `FakeTimeline.cycleId` is accepted but never filtered, so the fake's scope is looser than the Drizzle SQL, which inner-joins `cycles.status = 'active'` (`worklist.store.ts:252-255`). On top of that, the adapter's `findTimelines` SQL has no assertion. Two FR-1 and FR-3 rules therefore have no test that would fail: active cycle only; removed assignment (`isNull(timelineUsers.removedAt)`).
+  > **Violated Rule:** `requirements.md:83`, `:135`, `:93`; `tasks.md:176-177`, `:186`; `design.md:177`.
+  > **Remediation Suggestion:** give the fake a cycle status and filter on it; a service test for a non-active cycle (admin and assessor); a `buildTimelinesQuery` builder with `toSQL()` assertions on the cycles join and the `removed_at` condition inside the `timeline_users` join.
+
+  The Reviewer accepted the ten choices the spec left open (below) except the missing `findTimelines` SQL assertion, which is the issue above.
+
+**Attempt 2 — PASS**
+
+- **Files changed:** `worklist.store.ts` (public `buildTimelinesQuery(userId, timelineId?)`; same SQL), `test/support/in-memory-assessment.ts` (`FakeTimeline.cycleStatus`, default `'active'`, filtered; header documents that `DrizzleTimelineLoads` also counts a running load with a live lease), `worklist.service.spec.ts` (`it.each(['draft','closed'])` for admin and assessor), `worklist.store.spec.ts` (3 `findTimelines` SQL tests; an exclusion-branch `not in (?, ?)` test, Reviewer advisory).
+- **Observed red** (new tests against attempt-1 code): `Tests 5 failed | 50 passed (55)`, `AssertionError: expected [ 1, 2 ] to deeply equal [ 1 ]`, `TypeError: store.buildTimelinesQuery is not a function` (×3).
+- **Falsifiers (observed red, then restored):** cycles join removed → `expected 'select …' to contain 'inner join `cycles` on'`; status condition removed → `… to contain '`cycles`.`status` = ?'`; `removed_at` removed → `… to contain '`timeline_users`.`removed_at` is null'`; the fake's cycle filter removed → `expected [ 1, 2 ] to deeply equal [ 1 ]` (2 failed); `notInArray` removed → the exclusion test red.
+- **Implementer verification:** lint and build clean; `Test Files 79 passed | 1 skipped (80)`, `Tests 3321 passed | 6 skipped (3327)`.
+- **Evidence re-run (Leader inline):** same counts. **VERIFIED.**
+- **Reviewer verdict: PASS** (targeted re-review plus regression check). Issue 1 is resolved; the verdicts on the other choices stand.
+- **Runtime events:** none.
+
+**Decisions made (spec silent; Reviewer judged each acceptable):**
+
+- Cursor is base64url JSON `{s, d, v, c, i}`: `i` (membership id) is added to design's `{s,d,v,c}` because an admin can hold one result code in two rounds. Validated like `users-query.repository.ts`; any failure → `VALIDATION_FAILED` on `cursor`, including another sort or direction.
+- Page size default 25, bounds 1–100 in the service (`limit`); tiebreak result code then membership id, ascending.
+- Counters are one grouped statement over the scope, ignoring other filters, with the page's `hideAutoValidated`; they include `total` (FR-4 "the total says 10", `requirements.md:150`).
+- Service result adds `noActiveRole` (FR-1) and `nextCursor` (→ `meta.page` in T-8).
+- 404 `TIMELINES_NOT_FOUND` when the timeline is not in the active cycle, or a non-admin has no active `timeline_users` row; assigned with no live grant → empty 200 with `noActiveRole: true`.
+- Comment count is a correlated scalar subquery (still one statement). Program and result-type sorts use `FIELD(…)` over the catalog order; `answered` sorts as the constant 0.
+- With no status filter, `COALESCE(statusCase,'') <> 'auto_validated'`: a row with no status rule stays visible with `status: null`.
+- FR-19 lift only when the programs step is open, a reviewer row covers the membership and the user authored a `clarification_requested` comment (matches T-3 `listedFor`).
+
+**Gaps and forward pointers:**
+
+- Nothing ran against a live MySQL; the adapter is pinned by `toSQL()` text and behavior by the fake. NFR-1's p95 of 500 ms at 1,000 rows (comment subquery in SELECT, ORDER BY and keyset WHERE) is to be checked at T-16 HITL on dev.
+- **→ T-8:** state in the OpenAPI model that `timelines()` `roles` can include `'ADMIN'` (design § 6 example shows `['ASSESSOR']`); decide whether `counters.total` is exposed (FR-4 needs it).
+
+**Running totals:**
+
+| Measure | Actual | Budget |
+|---|---|---|
+| Tasks | 6 of 21 | 21 |
+| Production LOC | ≈ 2,552 TS + 141 SQL | 4,800 |
+| Review rounds | 10 | 26 |
+
+Within budget.

@@ -20,6 +20,12 @@ import { RESULTS_FEED } from '../ingestion/results-feed.port.js';
 import { SNAPSHOT_STORE } from '../ingestion/snapshot-store.port.js';
 import { AuthorizationService } from '../users/authorization.service.js';
 import { UsersModule } from '../users/users.module.js';
+import {
+  DrizzleTimelineLoads,
+  TIMELINE_LOADS,
+} from '../admin-config/timelines/timeline-loads.js';
+import { WorklistService } from './worklist.service.js';
+import { DrizzleWorklistStore, WORKLIST_STORE } from './worklist.store.js';
 import { AssessmentModule } from './assessment.module.js';
 
 describe('AssessmentModule wiring (DD-1, P-24)', () => {
@@ -47,6 +53,15 @@ describe('AssessmentModule wiring (DD-1, P-24)', () => {
     );
     expect(own.get(IDEMPOTENCY_STORE, { strict: true })).toBeInstanceOf(
       DrizzleIdempotencyStore,
+    );
+    expect(own.get(WORKLIST_STORE, { strict: true })).toBeInstanceOf(
+      DrizzleWorklistStore,
+    );
+    expect(own.get(TIMELINE_LOADS, { strict: true })).toBeInstanceOf(
+      DrizzleTimelineLoads,
+    );
+    expect(own.get(WorklistService, { strict: true })).toBeInstanceOf(
+      WorklistService,
     );
     expect(
       (own.get(ADMIN_CONFIG_CLOCK, { strict: true }) as () => Date)(),

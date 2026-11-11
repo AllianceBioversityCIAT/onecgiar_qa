@@ -160,7 +160,7 @@ Gate edges from **T-1** are listed on the last line of the graph. Nothing else w
 - **Skills:** nestjs-expert
 
 ## T-7: Worklist store and service (scope, filters, status, sort, cursor, counters)
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-5 (title column), T-6
 - **Requirements:**
