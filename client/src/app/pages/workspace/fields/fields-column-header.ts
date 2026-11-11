@@ -9,7 +9,7 @@ import { FIELD_HEAD_HELP } from './fields-copy';
   host: { class: 'contents' },
   template: `
     <div
-      class="sticky top-0 z-12 grid h-10 grid-cols-[minmax(0,1fr)_352px_64px_64px_28px] items-center gap-4 border-b border-(--border) bg-(--surface-3) px-5 text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase"
+      class="sticky top-0 z-12 grid h-10 grid-cols-[minmax(0,1fr)_352px_64px_28px] items-center gap-4 border-b border-(--border) bg-(--surface-3) px-5 text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase"
       [class]="stuck() ? 'rounded-none shadow-[0_1px_0_var(--border)]' : 'rounded-t-[11px]'"
     >
       <span>Field</span>

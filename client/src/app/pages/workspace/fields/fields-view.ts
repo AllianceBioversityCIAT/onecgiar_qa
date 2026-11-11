@@ -272,10 +272,6 @@ export class FieldsView {
     this.patch(e.id, { core: e.value });
   }
 
-  protected setAi(e: FieldRowEvent<boolean>): void {
-    this.patch(e.id, { ai: e.value });
-  }
-
   protected async openConfirm(): Promise<void> {
     if (this.openingReview()) return;
     this.openingReview.set(true);
@@ -334,6 +330,9 @@ export class FieldsView {
     this.lastAction.set(null);
     if (this.filtering()) this.kept.update((ids) => new Set(ids).add(id));
     // From what applies: a Core left on while the field was not assessed never comes back by itself.
-    this.store.edit(type.key, id, { ...effective(this.configOf(type.key, field)), ...patch });
+    // The AI flag has no control any more (Juanda, 11-nov-2026): it keeps its published value, so an
+    // edit never changes it behind the admin's back nor shows a change they cannot see or undo.
+    const ai = fromOptions(field.published).ai;
+    this.store.edit(type.key, id, { ...effective(this.configOf(type.key, field)), ai, ...patch });
   }
 }
