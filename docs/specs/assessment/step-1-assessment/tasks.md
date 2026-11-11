@@ -23,7 +23,7 @@ Gate edges from **T-1** are listed on the last line of the graph. Nothing else w
 ---
 
 ## T-1: Settle the open-question defaults (gate)
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** S
 - **Depends on:** none
 - **Requirements:** every `[OQ-n default]` row (FR-6 OQ-3/OQ-4, FR-9 OQ-7, FR-13 OQ-8, FR-14 OQ-2, FR-15 OQ-9, FR-18 OQ-1, FR-19 OQ-5), DD-15

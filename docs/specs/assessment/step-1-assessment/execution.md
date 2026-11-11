@@ -588,3 +588,31 @@ Within budget, but the LOC tripwire is close: 65 % of the lines are spent at 33 
 | Review rounds | 13 | 26 |
 
 Within budget. The LOC tripwire is close: 69 % of the lines are spent at 38 % of the tasks.
+
+### T-1: Settle the open-question defaults (gate) — PASS
+
+| | |
+|---|---|
+| Date | 2026-11-11 |
+| Final status | PASS (no code; skip-eligible review) |
+| Requirements covered | every `[OQ-n default]` row, DD-15 |
+| Authority | The back lead (Juanda) delegated the decisions to the Leader on 2026-11-11: "Toma las decisiones tu y dejalo documentado en la US". Each OQ below was decided and recorded individually, with its own line, so this is not a bulk "yes". Business (Angel) has not answered yet and can override any line |
+| Record | Jira comment on P2-3910 (id 44785, all nine OQs) and on P2-3909 (id 44786, OQ-3, OQ-4, OQ-5), both 2026-11-11 |
+
+Every decision takes the spec default (`proposal.md` § 12), so no spec amendment is needed.
+
+| OQ | Decision | Who and when | Gates |
+|---|---|---|---|
+| OQ-1 | Release sent right after the end commits (Finish or automatic Quality Assessed), not at step 1 close | Leader, delegated by the back lead, 2026-11-11 · P2-3910 comment 44785 | T-12 |
+| OQ-2 | Automatic Quality Assessed in the same transaction as the last green core field (AC16); zero core fields → Finish ends it as Quality Assessed | same · P2-3910 comment 44785 | T-11 |
+| OQ-3 | Action Area column hidden until a source is agreed | same · P2-3909 comment 44786 | (applied in T-7/T-8) |
+| OQ-4 | Export comments button hidden until P2-3914 | same · P2-3909 comment 44786 | (client) |
+| OQ-5 | States and the worklist predicate modeled now; the answer action moves to P2-3911 | same · P2-3910 comment 44785, P2-3909 comment 44786 | T-10 |
+| OQ-6 | One finish wins; "Assessed by" is that person | same · P2-3910 comment 44785 | — |
+| OQ-7 | ToC group = `toc.*` + `contributors.science_programs`, a virtual "Theory of Change" section at its first field's catalog position, always complete; Hidden → View only | same · P2-3910 comment 44785 | T-9 (ToC rule) |
+| OQ-8 | Withdraw while the program has not answered and step 1 or step 2 is open | same · P2-3910 comment 44785 | T-10 |
+| OQ-9 | Every grey core field needs a non-withdrawn comment before Finish, else 409 `ASSESSMENT_CORE_UNCOMMENTED` with the keys | same · P2-3910 comment 44785 | T-11 |
+
+**Rule for the blocked tasks:** the briefs for T-9, T-10, T-11 and T-12 cite their OQ line above. If Angel later answers differently, run the Correction Closure sweep (spec amendment) before the affected task is built or reworked.
+
+**Risk accepted:** OQ-1 and OQ-2 change what the program sees (an immediate `not_qaed` lets the program edit in Reporting before step 2; automatic QA locks the result before non-core comments). They were decided without the business owner, on the back lead's delegation.
