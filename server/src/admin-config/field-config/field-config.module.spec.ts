@@ -5,6 +5,7 @@ import {
   DRIZZLE,
   MYSQL_POOL,
 } from '../../database/drizzle/drizzle.constants.js';
+import { FIELD_CATALOG_SOURCE } from './field-catalog.ports.js';
 import {
   FIELD_CONFIG_EFFECTIVE,
   FieldConfigModule,
@@ -12,7 +13,7 @@ import {
 import { FieldConfigService } from './field-config.service.js';
 
 describe('FieldConfigModule wiring (P-6, T-2 forward pointer)', () => {
-  it('resolves every provider of the read flows, including the catalog client that needs the clock and the catalogs config, and exports only the effective port', async () => {
+  it('resolves every provider of the read flows, including the catalog client that needs the clock and the catalogs config, and exports only the effective port and the catalog source', async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [FieldConfigModule],
     })
@@ -26,6 +27,7 @@ describe('FieldConfigModule wiring (P-6, T-2 forward pointer)', () => {
     expect(effective).toBeInstanceOf(FieldConfigService);
     expect(Reflect.getMetadata('exports', FieldConfigModule)).toEqual([
       FIELD_CONFIG_EFFECTIVE,
+      FIELD_CATALOG_SOURCE,
     ]);
     await moduleRef.close();
   });

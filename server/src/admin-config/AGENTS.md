@@ -41,7 +41,7 @@ Cycles and QA timelines: the admin API that says *when* QA runs, *for which* Sci
 
 ## Field configuration (`field-config/`)
 
-Which fields QA shows, per cycle and result type: a **draft** the ADMIN edits, and **immutable versions** published from it. Spec: `docs/specs/archive/2026-10-27-admin-config--field-configuration/` (`design.md` DD-1 to DD-12). A timeline uses a version by its start date, never by editing it. `FieldConfigModule` (`field-config.module.ts`) is its own Nest module so its replay reader answers a publication. Its **only export** is `FIELD_CONFIG_EFFECTIVE` (`field-config.module.ts:31, 95`), the port later review stories inject: `effectiveFor(cycleId, timelineId, resultTypeKey)`.
+Which fields QA shows, per cycle and result type: a **draft** the ADMIN edits, and **immutable versions** published from it. Spec: `docs/specs/archive/2026-10-27-admin-config--field-configuration/` (`design.md` DD-1 to DD-12). A timeline uses a version by its start date, never by editing it. `FieldConfigModule` (`field-config.module.ts`) is its own Nest module so its replay reader answers a publication. Its **exports** are `FIELD_CONFIG_EFFECTIVE` (`field-config.module.ts:31`), the port later review stories inject: `effectiveFor(cycleId, timelineId, resultTypeKey)`, and `FIELD_CATALOG_SOURCE`, so `AssessmentModule` shares the catalog cache.
 
 | File | Role |
 |---|---|

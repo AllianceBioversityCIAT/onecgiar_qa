@@ -298,3 +298,111 @@ Within budget.
 | Review rounds | 6 | 26 |
 
 Within budget.
+
+### T-6: Assessment module wiring, error codes, catalog export — PASS
+
+| | |
+|---|---|
+| Date | 2026-11-11 |
+| Final status | PASS (attempt 2 of 2) |
+| Requirements covered | FR-22 (the module is registered; authenticated routes come later), FR-25 (the 8 error codes in the catalog), DD-1 |
+| Skills | nestjs-expert (as task) |
+| Effort | `medium` in attempt 1 (wiring); `high` in attempt 2 (rework bump) |
+| Review mode | lens checklist, single Reviewer |
+
+**Attempt 1 — FAIL**
+
+- **Files changed** (under `server/src/`):
+  - new: `assessment/assessment.module.ts`, `assessment/assessment.errors.ts` (8 typed errors), `assessment/assessment.module.spec.ts`;
+  - edited: `app.module.ts` (registers `AssessmentModule`), `common/error-codes.ts` (+8 codes), `common/error-codes.spec.ts`, `admin-config/field-config/field-config.module.ts` (exports `FIELD_CONFIG_EFFECTIVE` and `FIELD_CATALOG_SOURCE`), `admin-config/field-config/field-config.module.spec.ts` (pins 2 exports), `admin-config/AGENTS.md` (the "only export" sentence became false and was rewritten; this module guide is a listed consumer, P-15).
+- **Bindings:**
+  - `LOADS_STORE` → `DrizzleLoadsStore`, `SNAPSHOT_STORE` → `DynamoSnapshotStore`, `RESULTS_FEED` → `ReportingResultsFeedClient`;
+  - `ADMIN_CONFIG_CLOCK`, `IDEMPOTENCY_STORE` → `DrizzleIdempotencyStore`, `IDEMPOTENCY_CLOCK`;
+  - imports: `DrizzleModule`, `DynamoDbModule`, `ConfigModule.forFeature(catalogsConfig)`, `UsersModule`, `FieldConfigModule`.
+- **Implementer verification:**
+  - lint and build clean;
+  - unit: `Test Files 77 passed | 1 skipped (78)`, `Tests 3267 passed | 6 skipped (3273)`;
+  - `test/openapi.e2e-spec.ts`: 15 passed.
+- **Red run:** not observed before the code. The implementer wrote the code before the specs, so the first run was green. This differs from the prediction ("greenfield artifact"); the first observed reds are the falsifiers.
+- **Falsifiers (observed red, then restored):**
+  1. `IngestionModule` imported: `expected [ [Function DrizzleModule], …(5) ] to not include [Function IngestionModule]` (`assessment.module.spec.ts:70`).
+  2. `FIELD_CATALOG_SOURCE` removed from the exports:
+     - `field-config.module.spec.ts` failed with `expected [ Symbol(FIELD_CONFIG_EFFECTIVE) ] to deeply equal [ Array(2) ]`.
+     - The module spec first stayed green, because the `strict:false` lookup found the provider inside `FieldConfigModule`. A probe provider that injects through the import list was added, and then it failed with `Nest can't resolve dependencies of the Probe (?, AuthorizationService) … Symbol(FIELD_CATALOG_SOURCE)`.
+- **Evidence re-run (Leader inline):** same counts. **VERIFIED.**
+- **Reviewer verdict: FAIL** (verbatim):
+  > 1. **Discovered Issue:** `assessment.errors.ts` `AssessmentCoreUncommentedError` keeps `fields` off the response. `error-codes.spec.ts` then pins that absence: "carries the uncommented core keys on the error, outside the response" asserts `not.toContain('"a"')`. The class's own docstring says the opposite ("`fields` are for the response details and logs"). The spec needs the keys in the 409. Also, `http-exception.filter.ts:185-191` forwards `fields` only for `VALIDATION_FAILED`, and no task names that filter change. T-11's Consumers is "none", so this test is a trap that T-11 would have to undo without the spec saying so.
+  >    * **Violated Rule:** `design.md` § 6 (line 132): "409 `ASSESSMENT_CORE_UNCOMMENTED` (`fields` = keys)". `requirements.md` FR-15 (line 315): "else 409 `ASSESSMENT_CORE_UNCOMMENTED` with the field keys". `tasks.md` T-11 (line 278): "`ASSESSMENT_CORE_UNCOMMENTED` with keys".
+  >    * **Remediation Suggestion:** Delete the "outside the response" test, or turn it into a test that the response body carries the keys (`{ ...errorBody('ASSESSMENT_CORE_UNCOMMENTED'), fields }`). Make the docstring match the behavior. If the keys are not carried in T-6, write a forward pointer for T-11 in `execution.md`: the filter must forward `fields` for this code, and `http-exception.filter.ts` plus its spec become T-11 consumers.
+
+  The same Reviewer judged two items correct:
+  - Leaving `IDEMPOTENCY_REPLAY_READER` unbound is right. `tasks.md:251` gives "the comment replay reader" to T-10.
+  - The `admin-config/AGENTS.md` edit was necessary and is accurate.
+- **Runtime events:** none.
+
+**Leader adjudication:** the FAIL is in scope, because the test is part of the T-6 diff. I chose the narrow remediation:
+
+- delete the test;
+- correct the docstring;
+- leave `http-exception.filter.ts` alone, since forwarding the field keys is T-11's work;
+- record the forward pointer below.
+
+Two items were added as `[advisory-grade]`: a strict per-module lookup in the module spec, and a JSDoc reflow.
+
+**Attempt 2 — PASS**
+
+- **Files changed:**
+  - `common/error-codes.spec.ts`: the "outside the response" test is deleted;
+  - `assessment/assessment.errors.ts`: the docstring now says the keys are carried for the 409 details, and that the filter forwards them from T-11;
+  - `assessment/assessment.module.spec.ts`: `moduleRef.select(AssessmentModule).get(token, { strict: true })` for all six bindings; only `MYSQL_POOL` and `DRIZZLE` are overridden;
+  - `admin-config/field-config/field-config.module.ts`: JSDoc reflow.
+
+  `http-exception.filter.ts` is untouched.
+- **Implementer verification:**
+  - lint and build clean;
+  - unit: `Test Files 77 passed | 1 skipped (78)`, `Tests 3266 passed | 6 skipped (3272)`;
+  - openapi e2e: 15 passed.
+- **Falsifiers (observed red, then restored):**
+  1. `ADMIN_CONFIG_CLOCK` binding deleted: `Nest could not find Symbol(ADMIN_CONFIG_CLOCK) element (this provider does not exist in the current context)`.
+  2. `IDEMPOTENCY_CLOCK` binding deleted: `Nest can't resolve dependencies of the DrizzleIdempotencyStore (Symbol(DRIZZLE), ?, Symbol(IDEMPOTENCY_TOKEN_FACTORY)) … AssessmentModule`.
+  3. `IngestionModule` imported: `expected [ [Function DrizzleModule], …(5) ] to not include [Function IngestionModule]`.
+  4. `FIELD_CATALOG_SOURCE` export removed: `Nest can't resolve dependencies of the Probe (?, AuthorizationService) … Symbol(FIELD_CATALOG_SOURCE)` and `expected [ Symbol(FIELD_CONFIG_EFFECTIVE) ] to deeply equal [ Array(2) ]`.
+- **Evidence re-run (Leader inline):** lint, build, unit and openapi e2e give the same counts. **VERIFIED.**
+- **Reviewer verdict: PASS.** The attempt-1 finding is resolved. There are 8 codes with the § 6 statuses (404, 403, 409×5, 403), and every error is built with `errorBody(code)` (P-18). There is no `IngestionModule` (DD-1, P-24). `AuthorizationService` comes through `UsersModule`. The Disqualifier does not apply (only connection overrides).
+- **Runtime events:** none.
+
+**Forward pointer → T-11 (recorded 2026-11-11; copy it into the T-11 brief):** `AssessmentCoreUncommentedError` carries `fields`, the uncommented core keys. `http-exception.filter.ts:185-191` forwards `fields` only for `VALIDATION_FAILED`. T-11 must make the filter forward `fields` for `ASSESSMENT_CORE_UNCOMMENTED`, as required by design § 6 (line 132), FR-15 (line 315) and `tasks.md` T-11 (line 278). That makes `server/src/common/http-exception.filter.ts` and its spec T-11 consumers. A test should also pin `new AssessmentCoreUncommentedError(['general.title']).fields` equal to the input (Reviewer advisory). Today no test covers the keys, because the attempt-1 test was deleted.
+
+**Forward pointer → T-10 (recorded 2026-11-11):** `IDEMPOTENCY_REPLAY_READER` is not bound in `AssessmentModule`. T-10 binds it together with the comment service (`tasks.md:251`).
+
+**Decisions made:**
+
+- The 8 error messages are the implementer's wording, because the design gives only codes and statuses. The Reviewer checked them: they leak no data, and `ASSESSMENT_NOT_FOUND` does not reveal whether the result exists.
+- DD-1's "imports `UsersModule` and `FieldConfigModule` only" is read as "no other feature module". `DrizzleModule`, `DynamoDbModule` and `ConfigModule.forFeature` are infrastructure, as in `FieldConfigModule`.
+
+**Issues encountered:** none beyond the attempt-1 FAIL.
+
+**ADVISORY (4R, recorded only):**
+
+- READABILITY (spec drift): `design.md:89` says "9 ASSESSMENT_* codes", while § 6 and T-6 say 8. The code follows 8. Fix the document in T-15.
+- RISK: the T-15 module guide should say that DD-1's "only" covers feature modules, so it is not read literally.
+- READABILITY: the Probe test reads `Reflect.getMetadata('imports', AssessmentModule)`, which depends on static `imports`. It needs a one-line comment if the module ever moves to dynamic imports.
+
+**Spawns:**
+
+| Role | Calls | Tokens | Ended |
+|---|---|---|---|
+| implementer (attempt 1) | 42 | 114,959 | complete |
+| reviewer (attempt 1) | 19 | 65,709 | fail |
+| implementer (attempt 2) | 19 | 85,907 | complete |
+| reviewer (attempt 2) | 6 | 45,171 | complete (PASS) |
+
+**Running totals:**
+
+| Measure | Actual | Budget |
+|---|---|---|
+| Tasks | 5 of 21 | 21 |
+| Production LOC | ≈ 1,535 TS + 141 SQL | 4,800 |
+| Review rounds | 8 | 26 |
+
+Within budget.

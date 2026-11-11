@@ -143,7 +143,7 @@ Gate edges from **T-1** are listed on the last line of the graph. Nothing else w
 - **Skills:** nestjs-expert, tdd
 
 ## T-6: Assessment module wiring, error codes, catalog export
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** S
 - **Depends on:** T-3
 - **Requirements:** FR-22 (authenticated routes), FR-25 (error codes), DD-1
