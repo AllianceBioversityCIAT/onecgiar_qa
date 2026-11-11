@@ -1,8 +1,10 @@
 import { Component, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
 import { Observable, of, throwError } from 'rxjs';
 import { LoadsApi } from '../../../core/api/loads-api';
 import { LoadPreview } from '../../../core/api/loads.models';
+import { RomeClock } from '../../../core/domain/rome-clock';
 import { ApiError } from '../../../core/http/api-envelope';
 import { Timeline } from './cycle.mock';
 import { LoadDrawer, LoadDrawerNames, RunRequest } from './load-drawer';
@@ -54,7 +56,7 @@ const NAMES: LoadDrawerNames = {
 class Host {
   readonly open = signal(true);
   readonly request = signal<RunRequest>({ timelineId: 't28', fromStep: false });
-  readonly targets = [T27, T28];
+  targets: Timeline[] = [T27, T28];
   readonly names = NAMES;
   readonly busy = signal(false);
   readonly started: string[] = [];
@@ -188,5 +190,32 @@ describe('LoadDrawer', () => {
     fixture.detectChanges();
     loadButton().click();
     expect(fixture.componentInstance.started).toEqual(['t28']);
+  });
+
+  it('a page left open follows the clock: the step a sync enters moves when the next step opens', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2026-11-12T08:00:00Z')); // 12 Nov, 09:00 in Rome: step 1 in force
+      const twoSteps: Timeline = {
+        ...T28,
+        steps: [
+          { name: 'Assessors review', audience: 'Assessors', start: '10 Nov 2026', end: '12 Nov 2026', batch: true, ran: '' },
+          { name: 'Programs respond', audience: 'Assessors', start: '13 Nov 2026', end: '15 Nov 2026', batch: false, ran: '' },
+        ],
+      };
+      const fixture = TestBed.createComponent(Host);
+      fixture.componentInstance.targets = [T27, twoSteps];
+      fixture.detectChanges();
+      await fixture.whenStable();
+      const drawer = fixture.debugElement.query(By.directive(LoadDrawer)).componentInstance as LoadDrawer;
+      const stepOf = () => drawer['options']().find((o) => o.value === 't28')?.description;
+      expect(stepOf()).toContain('Step 1');
+
+      vi.setSystemTime(new Date('2026-11-13T08:00:00Z')); // next day, 09:00 in Rome: step 2 opened
+      TestBed.inject(RomeClock).tick();
+      expect(stepOf()).toContain('Step 2');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
