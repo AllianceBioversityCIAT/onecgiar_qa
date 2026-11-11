@@ -53,6 +53,9 @@
               <span class="text-(length:--fs-12) font-normal text-(--text-4)">of the 2026 target</span>
             </div>
           }
+          @if (card.instruction) {
+            <qa-review-instruction-note [text]="card.instruction" />
+          }
           @if (card.ai; as ai) {
             <qa-review-ai-note
               [ai]="ai"
@@ -67,9 +70,7 @@
           <qa-review-card-actions
             [actions]="actions"
             [label]="card.eyebrow"
-            (approve)="act.emit({ id: card.id, action: 'approve' })"
-            (undo)="act.emit({ id: card.id, action: 'undo' })"
-            (comment)="act.emit({ id: card.id, action: 'comment' })"
+            (act)="act.emit({ id: card.id, action: $event })"
           />
         }
       </div>

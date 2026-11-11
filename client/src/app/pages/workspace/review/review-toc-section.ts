@@ -2,6 +2,7 @@ import { Component, input, output } from '@angular/core';
 import { QaTooltipImports } from '../../../ui';
 import { ReviewAiNote } from './review-ai-note';
 import { ReviewCardActions } from './review-card-actions';
+import { ReviewInstructionNote } from './review-instruction-note';
 import { CardAction, TocCardVm, TocGroupVm } from './review-model';
 import { ReviewStateChips } from './review-state-chips';
 import { TOC_TIP } from './review.mock';
@@ -14,7 +15,7 @@ export interface TocCardAction {
 /** "Theory of change" section: contributions grouped by science program (or the ToC mapping card). */
 @Component({
   selector: 'qa-review-toc-section',
-  imports: [QaTooltipImports, ReviewAiNote, ReviewCardActions, ReviewStateChips],
+  imports: [QaTooltipImports, ReviewAiNote, ReviewCardActions, ReviewInstructionNote, ReviewStateChips],
   templateUrl: './review-toc-section.html',
   host: { class: 'contents' },
 })

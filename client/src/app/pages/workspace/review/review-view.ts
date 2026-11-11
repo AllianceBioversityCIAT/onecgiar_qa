@@ -13,11 +13,11 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { form, requiredError, submit, validate } from '@angular/forms/signals';
 import { ActivatedRoute, Router } from '@angular/router';
 import { map } from 'rxjs';
-import { QaButtonImports, QaTooltipImports } from '../../../ui';
+import { QaButtonImports, QaSelectImports, QaSelectOption, QaTooltipImports } from '../../../ui';
 import { RESULTS as QA_RESULTS, RESULT_STAGE_CLASSES, RESULT_STAGE_LABELS, resultStage } from '../results/results.mock';
 import { ReviewAside } from './review-aside';
 import { ReviewCodeInfo } from './review-code-info';
-import { CommentsDrawerVm, ReviewCommentsDrawer } from './review-comments-drawer';
+import { CommentsDrawerMode, CommentsDrawerVm, ReviewCommentsDrawer } from './review-comments-drawer';
 import { ReviewFieldCard } from './review-field-card';
 import { FooterMode, ReviewFooter } from './review-footer';
 import {
@@ -32,6 +32,7 @@ import {
   groupToc,
   isAssessable,
   isResolved,
+  roleScope,
 } from './review-model';
 import { ReviewTocSection, TocCardAction } from './review-toc-section';
 import {
@@ -46,6 +47,8 @@ import {
   PROGRAMS,
   PUBLISHED_PROGRAMS,
   RESULTS,
+  REVIEW_ROLES,
+  ReviewRole,
   ResultStatus,
   ReviewResult,
   ReviewState,
@@ -75,12 +78,16 @@ interface ClosingState {
 
 const NARROW_PX = 900;
 
-/** "Result review" (/results/:code): the assessor goes through each section, approves or comments fields. */
+/**
+ * "Result review" (/results/:code): the assessor goes through each section, approves or comments fields.
+ * The lead assessor, the TPB and the PPU use the same page with their own buttons ("Viewing as", ?as=lead|tpb|ppu).
+ */
 @Component({
   selector: 'qa-review-view',
   templateUrl: './review-view.html',
   imports: [
     QaButtonImports,
+    QaSelectImports,
     QaTooltipImports,
     ReviewAside,
     ReviewCodeInfo,
@@ -97,9 +104,22 @@ export class ReviewView {
   private readonly scroller = viewChild<ElementRef<HTMLElement>>('scroller');
   private readonly titleRow = viewChild<ElementRef<HTMLElement>>('titleRow');
 
-  private readonly routeCode = toSignal(inject(ActivatedRoute).paramMap.pipe(map((p) => p.get('code'))), {
+  private readonly route = inject(ActivatedRoute);
+  private readonly routeCode = toSignal(this.route.paramMap.pipe(map((p) => p.get('code'))), {
     initialValue: null,
   });
+  private readonly routeRole = toSignal(this.route.queryParamMap.pipe(map((p) => p.get('as'))), { initialValue: null });
+
+  /**
+   * Who is reviewing. Design preview: picked with "Viewing as" and kept in the URL (?as=lead).
+   * TODO(api): take it from the signed-in user's assignments (core/auth RoleName); keep the menu only for
+   * people who hold more than one reviewing role.
+   */
+  protected readonly role = computed<ReviewRole>(
+    () => REVIEW_ROLES.find((r) => r.value === this.routeRole())?.value ?? 'assessor',
+  );
+  protected readonly roleOptions: readonly QaSelectOption[] = REVIEW_ROLES;
+  private readonly isAssessor = computed(() => this.role() === 'assessor');
 
   // ---- Local state (TODO(api): persist approvals/comments/status through the review endpoint) ----
   private readonly reviews = signal<Readonly<Record<string, ReviewState>>>({});
@@ -146,8 +166,9 @@ export class ReviewView {
     return this.state()[id] ?? { approved: false, highlighted: false, comments: [] };
   }
 
+  /** AI notes help the assessor write comments; the other roles do not see them. */
   private aiShown(fid: string): boolean {
-    return !!this.aiData()[fid] && !this.aiHidden()[this.code() + ':' + fid];
+    return this.isAssessor() && !!this.aiData()[fid] && !this.aiHidden()[this.code() + ':' + fid];
   }
 
   private aiFor(fid: string) {
@@ -155,12 +176,17 @@ export class ReviewView {
   }
 
   private actionable(d: FieldDef): boolean {
-    return !this.readOnly() && isAssessable(d);
+    return !this.readOnly() && isAssessable(d) && roleScope(this.role(), d, this.fs(d.id)).mine;
+  }
+
+  /** The field still needs the current role. */
+  private pending(d: FieldDef): boolean {
+    return roleScope(this.role(), d, this.fs(d.id)).open;
   }
 
   private readonly allDefs = computed(() => this.sections().flatMap((s) => this.defsIn(s.id)));
   private readonly actDefs = computed(() => this.allDefs().filter((d) => this.actionable(d)));
-  protected readonly resolvedCount = computed(() => this.actDefs().filter((d) => isResolved(d, this.fs(d.id))).length);
+  protected readonly resolvedCount = computed(() => this.actDefs().filter((d) => !this.pending(d)).length);
   protected readonly totalCount = computed(() => this.actDefs().length);
   protected readonly openCount = computed(() => this.totalCount() - this.resolvedCount());
 
@@ -169,7 +195,7 @@ export class ReviewView {
       name: s.name,
       n: i + 1,
       active: i === this.idx(),
-      open: this.defsIn(s.id).filter((d) => this.actionable(d) && !isResolved(d, this.fs(d.id))).length,
+      open: this.defsIn(s.id).filter((d) => this.actionable(d) && this.pending(d)).length,
     })),
   );
 
@@ -189,7 +215,7 @@ export class ReviewView {
       isAuto: status === 'Automatic',
       assessor: r.assessor ?? '—',
       showAssessedBy: assessed,
-      instructions: this.readOnly() ? INSTRUCTIONS.readOnly : INSTRUCTIONS.assessor,
+      instructions: this.readOnly() ? INSTRUCTIONS.readOnly : INSTRUCTIONS[this.role()],
       locked: !this.readOnly() && !PUBLISHED_PROGRAMS.includes(r.program),
       details: [
         { label: 'Science program', value: r.program + ' ' + PROGRAMS[r.program] },
@@ -206,21 +232,19 @@ export class ReviewView {
     if (this.isToc()) return [];
     return this.defsIn(this.current().id)
       .filter((d) => d.mode !== 'hidden' || this.showAll())
-      .map((d) => buildFieldVm(d, this.fs(d.id), this.base(), this.readOnly(), this.aiFor(d.id)));
+      .map((d) => buildFieldVm(d, this.fs(d.id), this.base(), this.readOnly(), this.aiFor(d.id), this.role()));
   });
 
   protected readonly tocGroups = computed(() =>
     this.isToc()
-      ? groupToc(this.tocDefs().map((def) => ({ def, vm: buildTocCardVm(def, this.fs(def.id), this.readOnly(), this.aiFor(def.id)) })))
+      ? groupToc(this.tocDefs().map((def) => ({ def, vm: buildTocCardVm(def, this.fs(def.id), this.readOnly(), this.aiFor(def.id), this.role()) })))
       : [],
   );
   private readonly tocReal = computed(() => this.tocDefs().filter((d) => !d.mapping));
   protected readonly tocCount = computed(() => this.tocReal().length);
   protected readonly tocPrograms = computed(() => new Set(this.tocReal().map((d) => d.prog)).size);
   protected readonly tocReviewed = computed(() => this.tocReal().filter((d) => isResolved(d, this.fs(d.id))).length);
-  private readonly tocOpen = computed(
-    () => this.tocDefs().filter((d) => this.actionable(d) && !isResolved(d, this.fs(d.id))).length,
-  );
+  private readonly tocOpen = computed(() => this.tocDefs().filter((d) => this.actionable(d) && this.pending(d)).length);
 
   protected readonly cycle = CYCLE;
   protected readonly iaTip = IA_TIP;
@@ -236,7 +260,7 @@ export class ReviewView {
 
   // ---- Approve remaining ----
   private readonly bulkEligible = computed(() => {
-    if (this.readOnly() || this.isToc()) return [];
+    if (this.readOnly() || this.isToc() || !this.isAssessor()) return [];
     return this.defsIn(this.current().id).filter((d) => this.bulkCandidate(d) && !this.mismatchShown(d.id));
   });
   protected readonly bulkCount = computed(() => this.bulkEligible().length);
@@ -275,9 +299,13 @@ export class ReviewView {
   );
   protected readonly skippedCount = this.skipped.asReadonly();
 
+  /** Only the assessor finishes an assessment; the other roles work field by field. */
+  protected readonly canFinish = computed(() => !this.readOnly() && this.isAssessor());
+
   // ---- Comments drawer + form (Signal Forms) ----
   protected readonly drawerOpen = signal(false);
   private readonly drawerFid = signal<string | null>(null);
+  private readonly drawerMode = signal<CommentsDrawerMode>('comment');
   protected readonly commentModel = signal({ text: '' });
   protected readonly commentForm = form(this.commentModel, (f) => {
     validate(f.text, ({ value }) => (value().trim() ? null : requiredError({ message: 'Write a comment before adding it.' })));
@@ -292,12 +320,17 @@ export class ReviewView {
     const d = fid ? allDefsFor(this.base()).find((x) => x.id === fid) : undefined;
     if (!d) return null;
     const fs = this.fs(d.id);
+    const last = fs.comments.length - 1;
     return {
       label: d.label,
       section: SECTIONS.find((s) => s.id === d.sec)?.name ?? '',
       value: fieldValue(d, this.base()),
       highlighted: fs.highlighted,
       comments: fs.comments,
+      mode: this.drawerMode(),
+      instruction: fs.highlighted ? (fs.instruction ?? '') : '',
+      // Only the last entry, and only while nobody answered it.
+      withdrawIndex: this.isAssessor() && last >= 0 && fs.comments[last].role === 'Assessor' ? last : -1,
     };
   });
 
@@ -320,6 +353,19 @@ export class ReviewView {
   }
 
   // ---- Actions ----
+  /** Switches "Viewing as"; the assessor is the default, so it leaves no ?as= in the URL. */
+  protected setRole(value: string | null): void {
+    this.drawerOpen.set(false);
+    this.finishStep.set('none');
+    this.bulk.set(null);
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { as: value && value !== 'assessor' ? value : null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
+
   private setField(fid: string, patch: Partial<FieldState>, extra?: FieldComment): void {
     const code = this.code();
     this.reviews.update((all) => {
@@ -359,9 +405,22 @@ export class ReviewView {
       case 'approve':
         return this.setField(fid, { approved: true });
       case 'undo':
+        // TODO(api): each role's undo calls its own endpoint.
+        if (this.role() === 'tpb') return this.setField(fid, { decision: undefined });
+        if (this.role() === 'ppu') return this.setField(fid, { done: false });
         return this.setField(fid, { approved: false });
       case 'comment':
-        return this.openDrawer(fid);
+        return this.openDrawer(fid, undefined, this.isAssessor() ? 'comment' : 'read');
+      case 'highlight':
+        return this.openDrawer(fid, this.fs(fid).instruction ?? '', 'instruction');
+      case 'unhighlight':
+        return this.setField(fid, { highlighted: false, instruction: undefined, decision: undefined, done: false });
+      case 'agree':
+        return this.setField(fid, { decision: 'agreed' });
+      case 'changes':
+        return this.setField(fid, { decision: 'changes' });
+      case 'done':
+        return this.setField(fid, { done: true });
       case 'ai-toggle':
         return this.aiOpen.update((m) => ({ ...m, [key]: !m[key] }));
       case 'ai-hide':
@@ -459,10 +518,11 @@ export class ReviewView {
   }
 
   // ---- Drawer ----
-  protected openDrawer(fid: string, preset?: string): void {
+  protected openDrawer(fid: string, preset?: string, mode: CommentsDrawerMode = 'comment'): void {
     // Re-opening the same field keeps an unsent draft (closing with text asks before discarding it).
-    if (preset !== undefined || this.drawerFid() !== fid) this.commentModel.set({ text: preset ?? '' });
+    if (preset !== undefined || this.drawerFid() !== fid || this.drawerMode() !== mode) this.commentModel.set({ text: preset ?? '' });
     this.drawerFid.set(fid);
+    this.drawerMode.set(mode);
     this.draftError.set(false);
     this.drawerOpen.set(true);
     this.focusTick.update((n) => n + 1);
@@ -478,6 +538,13 @@ export class ReviewView {
     const fid = this.drawerFid();
     if (!fid) return;
     const ok = await submit(this.commentForm, async () => {
+      if (this.drawerMode() === 'instruction') {
+        // TODO(api): mark the field as highlight with the lead assessor's instruction for the TPB.
+        this.setField(fid, { highlighted: true, instruction: this.commentModel().text.trim() });
+        this.commentModel.set({ text: '' });
+        this.drawerOpen.set(false);
+        return undefined;
+      }
       // TODO(api): post the comment to the field thread.
       this.setField(
         fid,
@@ -492,5 +559,18 @@ export class ReviewView {
       this.draftError.set(true);
       this.focusTick.update((n) => n + 1);
     }
+  }
+
+  /** The assessor takes back a comment the program has not answered yet. */
+  protected withdrawComment(index: number): void {
+    const fid = this.drawerFid();
+    if (!fid) return;
+    // TODO(api): delete the comment from the field thread (only while the program has not answered it).
+    const code = this.code();
+    this.reviews.update((all) => {
+      const cur = all[code] ?? buildReview(this.base());
+      const f = cur[fid] ?? { approved: false, highlighted: false, comments: [] };
+      return { ...all, [code]: { ...cur, [fid]: { ...f, comments: f.comments.filter((_, i) => i !== index) } } };
+    });
   }
 }

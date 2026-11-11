@@ -53,6 +53,10 @@
     <div class="box-border w-full rounded-[8px] border border-(--border) bg-(--surface-3) px-3 py-2.5 text-(length:--fs-14) leading-[1.55] text-pretty wrap-anywhere text-(--text)">{{ f.value }}</div>
   }
 
+  @if (f.instruction) {
+    <qa-review-instruction-note [text]="f.instruction" />
+  }
+
   @if (f.ai; as ai) {
     <qa-review-ai-note
       [ai]="ai"
@@ -67,8 +71,6 @@
   <qa-review-card-actions
     [actions]="actions"
     [label]="f.label"
-    (approve)="act.emit('approve')"
-    (undo)="act.emit('undo')"
-    (comment)="act.emit('comment')"
+    (act)="act.emit($event)"
   />
 }

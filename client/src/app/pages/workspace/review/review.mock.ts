@@ -61,17 +61,42 @@ export interface TocDef extends FieldDef {
 
 export interface FieldComment {
   readonly who: string;
-  readonly role: 'Assessor' | 'Reporting tool';
+  /** "Program": the program's answer, written in the Reporting Tool embed (Santi via Yeck, 2026-11-11). */
+  readonly role: 'Assessor' | 'Reporting tool' | 'Program';
   readonly date: string;
   readonly text: string;
   readonly system?: boolean;
+  /** Program answers only: the program accepts the comment (and corrects the field) or rejects it. */
+  readonly reply?: 'accepted' | 'rejected';
 }
 
 export interface FieldState {
   readonly approved: boolean;
+  /** Set by the lead assessor, with an instruction for the third-party broker. */
   readonly highlighted: boolean;
   readonly comments: readonly FieldComment[];
+  /** Lead assessor's instruction for the third-party broker (only while highlighted). */
+  readonly instruction?: string;
+  /** Third-party broker's decision on a highlighted field. */
+  readonly decision?: 'agreed' | 'changes';
+  /** PPU marked the required change as done in the Reporting Tool. */
+  readonly done?: boolean;
 }
+
+/**
+ * Who is reviewing. Each role sees the same page with its own buttons (Yeck, 2026-11-11):
+ * assessor approves or comments · lead assessor marks a field as highlight with an instruction for the TPB ·
+ * TPB decides "Agreed with program" or "Required changes" · PPU marks the change as done.
+ * Admin and Program are not here: the program answers inside the Reporting Tool embed.
+ */
+export type ReviewRole = 'assessor' | 'lead' | 'tpb' | 'ppu';
+
+export const REVIEW_ROLES: readonly { readonly value: ReviewRole; readonly label: string }[] = [
+  { value: 'assessor', label: 'Assessor' },
+  { value: 'lead', label: 'Lead assessor' },
+  { value: 'tpb', label: 'Third-party broker' },
+  { value: 'ppu', label: 'PPU' },
+];
 
 export type ReviewState = Readonly<Record<string, FieldState>>;
 
@@ -100,6 +125,9 @@ export const CYCLE = {
 export const INSTRUCTIONS = {
   assessor:
     'Review each field against the assessor guidance. Approve it, or leave a comment explaining what needs to change.',
+  lead: 'Read the comments and the program’s answers. If a field needs a decision, mark it as highlight and tell the third-party broker what to check.',
+  tpb: 'Each highlighted field has an instruction from the lead assessor. Decide whether you agree with the program or changes are required.',
+  ppu: 'Apply each required change in the Reporting Tool, then mark it as done here.',
   readOnly: 'Approved automatically by the knowledge product auto-check. Nothing to review.',
 } as const;
 
@@ -300,28 +328,53 @@ export function buildReview(r: ReviewResult): ReviewState {
     text,
     system: true,
   });
+  const prog = (date: string, reply: 'accepted' | 'rejected', text: string): FieldComment => ({
+    who: 'K. Rahman',
+    role: 'Program',
+    date,
+    text,
+    reply,
+  });
 
   if (r.code === 'QA-2026-0841') {
     ['level', 'category', 'hlo', 'sp', 'source', 'toc2'].forEach((id) => set(id, { approved: true }));
-    set('title', { comments: [c(A, '08 Jul 2026', 'Name the three rice systems in the title, or drop the number.')] });
+    set('title', {
+      comments: [
+        c(A, '08 Jul 2026', 'Name the three rice systems in the title, or drop the number.'),
+        prog('09 Jul 2026', 'rejected', 'The three systems are named in the description. The title follows the name used in the innovation catalogue.'),
+      ],
+    });
     set('description', {
       comments: [
         c('M. Chen', '08 Jul 2026', 'The description reports validation across three systems but does not say how many seasons or sites. Please add both.'),
+        prog('09 Jul 2026', 'accepted', 'Added: two seasons, nine sites.'),
         sync('09 Jul 2026', 'Description changed'),
       ],
     });
     set('partners', {
-      comments: [c(A, '08 Jul 2026', 'Add the role of each partner in the validation.'), sync('10 Jul 2026', 'Partners changed')],
+      comments: [
+        c(A, '08 Jul 2026', 'Add the role of each partner in the validation.'),
+        prog('10 Jul 2026', 'accepted', 'Each partner now has its role.'),
+        sync('10 Jul 2026', 'Partners changed'),
+      ],
     });
     set('readiness', {
       highlighted: true,
-      comments: [c(A, '09 Jul 2026', 'Level 5 needs validation outside controlled conditions. The field trials suggest level 6 may apply. Please check.')],
+      instruction: 'The program says every trial was run on station. Check the trial protocol in the evidence and decide whether level 5 holds.',
+      comments: [
+        c(A, '09 Jul 2026', 'Level 5 needs validation outside controlled conditions. The field trials suggest level 6 may apply. Please check.'),
+        prog('10 Jul 2026', 'rejected', 'All trials were run on research stations under controlled conditions, so level 5 is right.'),
+      ],
     });
     set('link', { comments: [c(A, '09 Jul 2026', 'The handle opens a restricted item. Please share an open link.')] });
     set('toc3', {
       comments: [
         c('M. Chen', '08 Jul 2026', 'This contribution is mapped to a 2030 Outcome, but the evidence only covers a single season in one country. Please confirm whether the mapping should be to an Intermediate Outcome instead.'),
+        prog('10 Jul 2026', 'rejected', 'The 2030 Outcome is the one in our approved theory of change.'),
       ],
+      highlighted: true,
+      instruction: 'Compare the evidence with the 2030 Outcome. If one season in one country is not enough, the mapping changes.',
+      decision: 'changes',
     });
     return st;
   }
@@ -339,6 +392,7 @@ export function buildReview(r: ReviewResult): ReviewState {
     ];
     if (i < answered) {
       const dd = defs.find((x) => x.id === id);
+      comments.push(prog('10 Jul 2026', 'accepted', 'Corrected in the Reporting Tool.'));
       comments.push(sync('10 Jul 2026', (dd ? dd.label : 'Field') + ' changed'));
     }
     set(id, { comments });
