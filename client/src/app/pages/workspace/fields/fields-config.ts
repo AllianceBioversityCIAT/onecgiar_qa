@@ -86,15 +86,16 @@ export function stateLabel(state: FieldState): string {
   return STATE_LABEL[state];
 }
 
-/** "View only, was Assessed" / "Assessed, was Hidden; Core on" / "Core turned on; AI helper turned off". */
+/**
+ * "View only, was Assessed" / "Assessed, was Hidden; Core on" / "Core turned on". The AI flag is no longer shown
+ * (Juanda, 11-nov-2026: the team will not define AI fields) but still travels as stored, so nothing is erased.
+ */
 export function describeChange(from: FieldConfig, to: FieldConfig): string {
   if (from.state !== to.state) {
-    const flags = [to.core && 'Core on', to.ai && 'AI helper on'].filter(Boolean).join(', ');
-    return `${STATE_LABEL[to.state]}, was ${STATE_LABEL[from.state]}${flags ? '; ' + flags : ''}`;
+    return `${STATE_LABEL[to.state]}, was ${STATE_LABEL[from.state]}${to.core ? '; Core on' : ''}`;
   }
   const parts: string[] = [];
   if (from.core !== to.core) parts.push(`Core turned ${to.core ? 'on' : 'off'}`);
-  if (from.ai !== to.ai) parts.push(`AI helper turned ${to.ai ? 'on' : 'off'}`);
   return parts.join('; ');
 }
 
