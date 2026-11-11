@@ -80,15 +80,11 @@
         <span aria-hidden="true" class="text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase">Core</span>
         <qa-switch [checked]="r.effective.core" (checkedChange)="coreChange.emit($event)" [disabled]="readOnly() || !r.active" [aria-label]="'Core: ' + r.name" />
       </div>
-      <div class="flex min-h-10 items-center gap-2" [class.opacity-55]="r.dim">
-        <span aria-hidden="true" class="text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase">AI</span>
-        <qa-switch [checked]="r.effective.ai" (checkedChange)="aiChange.emit($event)" [disabled]="readOnly() || !r.active" [aria-label]="'AI helper: ' + r.name" />
-      </div>
     </div>
   </div>
 } @else {
   <!-- Wide: one grid row, same columns as the sticky header -->
-  <div [style.--qa-i]="reveal()" class="qa-reveal relative grid min-h-[52px] grid-cols-[minmax(0,1fr)_352px_64px_64px_28px] items-center gap-4 border-b border-(--surface-4) bg-(--surface) px-5 hover:bg-(--surface-2)">
+  <div [style.--qa-i]="reveal()" class="qa-reveal relative grid min-h-[52px] grid-cols-[minmax(0,1fr)_352px_64px_28px] items-center gap-4 border-b border-(--surface-4) bg-(--surface) px-5 hover:bg-(--surface-2)">
     @if (r.changed) {
       <span aria-hidden="true" class="absolute top-0 bottom-0 left-0 w-[3px] bg-(--primary)"></span>
     }
@@ -96,9 +92,6 @@
     <ng-container [ngTemplateOutlet]="segmented" />
     <div class="flex justify-center" [class.opacity-55]="r.dim">
       <qa-switch [checked]="r.effective.core" (checkedChange)="coreChange.emit($event)" [disabled]="readOnly() || !r.active" [aria-label]="'Core: ' + r.name" />
-    </div>
-    <div class="flex justify-center" [class.opacity-55]="r.dim">
-      <qa-switch [checked]="r.effective.ai" (checkedChange)="aiChange.emit($event)" [disabled]="readOnly() || !r.active" [aria-label]="'AI helper: ' + r.name" />
     </div>
     <div class="flex">
       <ng-container [ngTemplateOutlet]="docButton" />

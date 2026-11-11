@@ -56,7 +56,7 @@ const NAME_WIDTHS = [
             </div>
           } @else {
             <div
-              class="grid min-h-[52px] grid-cols-[minmax(0,1fr)_352px_64px_64px_28px] items-center gap-4 border-b border-(--surface-4) px-5 last:border-b-0"
+              class="grid min-h-[52px] grid-cols-[minmax(0,1fr)_352px_64px_28px] items-center gap-4 border-b border-(--surface-4) px-5 last:border-b-0"
             >
               <div class="flex flex-col gap-1.5 py-2">
                 <qa-skeleton class="h-3.5" [class]="names[i]" />
@@ -65,7 +65,6 @@ const NAME_WIDTHS = [
                 }
               </div>
               <qa-skeleton class="h-[30px] w-[198px] rounded-[8px]" />
-              <qa-skeleton class="h-[18px] w-8 justify-self-center rounded-full" />
               <qa-skeleton class="h-[18px] w-8 justify-self-center rounded-full" />
               <span></span>
             </div>
@@ -79,6 +78,6 @@ export class FieldsSkeleton {
   readonly compact = input(false);
   protected readonly rows = skeletonRows();
   protected readonly names = NAME_WIDTHS;
-  /** Widths of the CORE and AI labels next to the switches (compact). */
-  protected readonly switches = ['w-8', 'w-4'];
+  /** Width of the CORE label next to its switch (compact). */
+  protected readonly switches = ['w-8'];
 }

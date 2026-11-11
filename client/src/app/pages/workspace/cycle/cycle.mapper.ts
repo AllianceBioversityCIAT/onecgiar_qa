@@ -159,7 +159,8 @@ export function toCreateBody(d: CreateDraft, cat: CycleCatalogs): TimelineCreate
       opensAt: toApiMoment(r.start, r.startTime),
       closesAt: toApiMoment(r.end, r.endTime),
       round: rounds[i],
-      requiresLoad: r.batch,
+      // Step 1 always loads results: the server refuses it otherwise (timeline-rules, step 1).
+      requiresLoad: i === 0 || r.batch,
     };
   });
   return {
