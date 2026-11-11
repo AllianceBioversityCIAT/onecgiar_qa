@@ -519,3 +519,72 @@ Within budget.
 | Review rounds | 11 | 26 |
 
 Within budget, but the LOC tripwire is close: 65 % of the lines are spent at 33 % of the tasks.
+
+### T-13: Title backfill — PASS
+
+| | |
+|---|---|
+| Date | 2026-11-11 |
+| Final status | PASS (attempt 2 of 2) |
+| Requirements covered | FR-24 (earlier memberships get their title without manual SQL), DD-9 |
+| Skills | nestjs-expert, aws-serverless (as task) |
+| Effort | default in attempt 1; `high` in attempt 2 (rework bump) |
+| Review mode | checklist, single Reviewer |
+
+**Attempt 1 — FAIL**
+
+- **Files changed** (under `server/`):
+  - new: `src/assessment/title-backfill.ts` (the `TitleBackfill` bootstrap hook and `DrizzleTitleBackfillStore` behind `TITLE_BACKFILL_STORE`), `title-backfill.spec.ts`;
+  - edited: `assessment.module.ts`; `ingestion/load-rules.ts` (exports `titleOf` and `TITLE_MAX_CHARACTERS`, moved verbatim from `load-runner.ts`); `ingestion/load-runner.ts` (imports them); `vitest.config.e2e.ts` (`TITLE_BACKFILL_DISABLED`).
+- **Observed red:** `Error: Cannot find module './title-backfill.js'` (`Tests no tests`). This is the predicted greenfield red; the falsifier supplies the behavioral red.
+- **Falsifier:** dropping `isNull(title)` from the update turned the deferred fixture red (`AssertionError: expected 'Title of 1077' to be 'Written meanwhile'`) and the SQL test red (`Received: "update `timeline_results` set `title` = ? where `timeline_results`.`id` = ?"`). The fake applies the guard only when the real adapter's `toSQL()` contains it; the Reviewer judged this coupling sound, not tautological.
+- **Implementer verification:** unit `Tests 3340 passed | 6 skipped (3346)`; e2e `Tests 1001 passed (1001)`.
+- **Evidence re-run (Leader inline):** same counts. **VERIFIED.**
+- **Reviewer verdict: FAIL** (verbatim):
+  > **Discovered Issue:** `title-backfill.ts:105` reads `process.env.TITLE_BACKFILL_DISABLED` inside a Nest provider. No other provider under `src/` outside `src/config/` reads `process.env`.
+  > **Violated Rule:** `server/AGENTS.md:77` ("Inside the app, read env only through `src/config/`"). Also `server/src/config/AGENTS.md:3` and `:41`.
+  > **Remediation Suggestion:** remove the env check; (a) preferred: a `test/support/` helper that overrides `TITLE_BACKFILL_STORE` in each `Test.createTestingModule` loading `AppModule`; (b) a typed `src/config` flag (scope extension).
+
+  The Reviewer judged the `titleOf` move behavior-preserving and acceptable, although the task lists no consumers.
+
+**Leader adjudication:** remediation (a). The scope was extended to `test/support/**`, the e2e specs that build `AppModule`, and `test/perf/idempotency-overhead.measure.ts`, for the override only. Two advisories were added: stop the backfill on shutdown, and a direct `titleOf` test with the marker moved.
+
+**Attempt 2 — PASS**
+
+- **Files changed:**
+  - new: `test/support/without-title-backfill.ts` (`withoutTitleBackfill(builder)` and `emptyTitleBackfillStore`);
+  - the helper applied at 15 `createTestingModule` sites: 4 `test/support/*-app.ts`, 10 e2e specs, `test/perf/idempotency-overhead.measure.ts`;
+  - `title-backfill.ts`: the env read removed; a `stopRequested` flag checked per row and per page; `beforeApplicationShutdown()` sets it and awaits the run (it runs before `DrizzleModule`'s `onApplicationShutdown` → `pool.end()`);
+  - `load-rules.ts`: `TITLE_MAX_CHARACTERS` below the `@akili-spec` marker; `load-rules.spec.ts`: a direct `titleOf` describe;
+  - `vitest.config.e2e.ts` restored.
+- **Reds (observed, then restored):**
+  1. helper override removed: `AssertionError: expected DrizzleTitleBackfillStore{ db: {} } to be { …(2) }` (2 failed);
+  2. stop-flag checks removed: `expected [ … ] to have a length of 5 but got 120` and `… length of 50 but got 120` (2 failed);
+  3. `isNull(title)` removed: the deferred fixture, the update SQL and the page SQL tests red (3 failed).
+- **Negative control:** without the helper, 13 `assessment_title_backfill` log lines appeared in 2 e2e files; with it, 0.
+- **Implementer verification:** lint and build clean; unit `Test Files 80 passed | 1 skipped (81)`, `Tests 3354 passed | 6 skipped (3360)`; e2e `Test Files 17 passed (17)`, `Tests 1001 passed (1001)`.
+- **Evidence re-run (Leader inline):** same counts; `grep -c assessment_title_backfill` on the full e2e output = 0; no `process.env` under `src/assessment/`. **VERIFIED.**
+- **Reviewer verdict: PASS.** Issue 1 is resolved. The override is at all 15 sites, and the only other `app.init()` in `src` (`idempotency.interceptor.spec.ts:918`) loads neither module. Each stop check has its own test, and the shutdown is proven to wait for the run.
+- **Runtime events:** none.
+
+**Decisions made:**
+
+- Paging uses an id cursor (`id > ? ORDER BY id LIMIT 50`), not an offset; a page shorter than 50 ends the run.
+- `UPDATE … SET title = ? WHERE id = ? AND title IS NULL`; a row counts as titled only when `affectedRows > 0`. With several app instances, the losing writer is a no-op.
+- Logging: one line `{event:'assessment_title_backfill', scanned, titled, missing}` on success; on failure, the error class name only (no message, title, host or personal data).
+- **Accepted deviation from DD-9 ("reads at most one snapshot per untitled row once"):** rows whose Reporting title is not a string, and rows whose snapshot is missing, stay null and are re-read on every bootstrap (one snapshot get per row). This costs reads and never changes data. Accepted by the Leader on 2026-11-11 and reported to the back lead; revisit if the count of such rows grows.
+
+**Forward pointers:**
+
+- **→ T-15:** add a line to `test/AGENTS.md` (near `:40`): every builder that loads `AppModule` and calls `init()` must wrap it in `withoutTitleBackfill`. Also list `test/support/without-title-backfill.ts` and the `assessment-worklist` suite there.
+- **→ T-16 (HITL on dev):** `setTitleIfNull`'s `affectedRows` path and the page query are pinned only by `toSQL()`; check them against MySQL.
+
+**Running totals:**
+
+| Measure | Actual | Budget |
+|---|---|---|
+| Tasks | 8 of 21 | 21 |
+| Production LOC | ≈ 3,300 TS + 141 SQL | 4,800 |
+| Review rounds | 13 | 26 |
+
+Within budget. The LOC tripwire is close: 69 % of the lines are spent at 38 % of the tasks.

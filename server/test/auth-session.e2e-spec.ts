@@ -3,6 +3,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { AppModule } from '../src/app.module.js';
+import { withoutTitleBackfill } from './support/without-title-backfill.js';
 import {
   ADMISSION_UNIT_OF_WORK,
   type AdmissionUnitOfWork,
@@ -136,7 +137,9 @@ async function buildWorld(): Promise<World> {
     run: (work) => work({ users, assignments }),
   };
 
-  const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+  const moduleRef = await withoutTitleBackfill(
+    Test.createTestingModule({ imports: [AppModule] }),
+  )
     .overrideProvider(CognitoAuthClient)
     .useValue(client)
     .overrideProvider(USERS_STORE)

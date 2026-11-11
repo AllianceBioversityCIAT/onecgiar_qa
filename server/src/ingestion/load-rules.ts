@@ -342,3 +342,21 @@ export function timelineHasLoad(facts: HasLoadFacts): boolean {
     facts.memberships > 0 || facts.completedLoads > 0 || facts.runningLoadAlive
   );
 }
+
+// @akili-spec assessment/step-1-assessment
+/** The longest title the `timeline_results.title` column holds, in characters (`varchar(1000)`). */
+export const TITLE_MAX_CHARACTERS = 1000;
+
+/**
+ * FR-24, design 7.8: the membership's title is the string `general.title` of
+ * the details, cut to 1,000 characters; anything else (absent, a number, an
+ * object, null) is null. Cut by character, not by UTF-16 unit, so a cut never
+ * leaves half of an emoji for the column to refuse. The load and the title
+ * backfill share this one rule.
+ */
+export function titleOf(values: Record<string, unknown>): string | null {
+  const title = values['general.title'];
+  if (typeof title !== 'string') return null;
+  if (title.length <= TITLE_MAX_CHARACTERS) return title;
+  return Array.from(title).slice(0, TITLE_MAX_CHARACTERS).join('');
+}

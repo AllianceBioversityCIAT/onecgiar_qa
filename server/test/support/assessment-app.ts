@@ -5,6 +5,7 @@ import request from 'supertest';
 import { ADMIN_CONFIG_CLOCK } from '../../src/admin-config/admin-config.clock.js';
 import { TIMELINE_LOADS } from '../../src/admin-config/timelines/timeline-loads.js';
 import { AppModule } from '../../src/app.module.js';
+import { withoutTitleBackfill } from './without-title-backfill.js';
 import { WORKLIST_STORE } from '../../src/assessment/worklist.store.js';
 import { JWKS_CACHE } from '../../src/auth/token-verifier.service.js';
 import { configureApp } from '../../src/common/configure-app.js';
@@ -87,7 +88,9 @@ export async function buildAssessmentApp(
     guest: await actor('sub-guest', []),
   };
 
-  const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+  const moduleRef = await withoutTitleBackfill(
+    Test.createTestingModule({ imports: [AppModule] }),
+  )
     .overrideProvider(USERS_STORE)
     .useValue(w.db.stores.users)
     .overrideProvider(ROLE_ASSIGNMENTS_STORE)

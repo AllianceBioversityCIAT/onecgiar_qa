@@ -21,6 +21,11 @@ import {
   TIMELINE_LOADS,
 } from '../admin-config/timelines/timeline-loads.js';
 import { UsersModule } from '../users/users.module.js';
+import {
+  DrizzleTitleBackfillStore,
+  TITLE_BACKFILL_STORE,
+  TitleBackfill,
+} from './title-backfill.js';
 import { WorklistController } from './worklist.controller.js';
 import { WorklistService } from './worklist.service.js';
 import { DrizzleWorklistStore, WORKLIST_STORE } from './worklist.store.js';
@@ -56,6 +61,9 @@ import { DrizzleWorklistStore, WORKLIST_STORE } from './worklist.store.js';
     { provide: WORKLIST_STORE, useClass: DrizzleWorklistStore },
     { provide: TIMELINE_LOADS, useClass: DrizzleTimelineLoads },
     WorklistService,
+    // The title backfill (T-13, FR-24): a bootstrap hook that is not awaited.
+    { provide: TITLE_BACKFILL_STORE, useClass: DrizzleTitleBackfillStore },
+    TitleBackfill,
   ],
 })
 export class AssessmentModule {}

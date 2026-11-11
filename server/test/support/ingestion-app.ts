@@ -7,6 +7,7 @@ import { FIELD_CATALOG_SOURCE } from '../../src/admin-config/field-config/field-
 import type { RomeMinute } from '../../src/admin-config/rome-date.js';
 import { TIMELINES_STORE } from '../../src/admin-config/timelines/timelines.store.js';
 import { AppModule } from '../../src/app.module.js';
+import { withoutTitleBackfill } from './without-title-backfill.js';
 import { JWKS_CACHE } from '../../src/auth/token-verifier.service.js';
 import { configureApp } from '../../src/common/configure-app.js';
 import {
@@ -317,7 +318,9 @@ export async function buildIngestionApp(
   await actor('sub-ppu', [['PPU']]);
   await actor('sub-guest', []);
 
-  let builder = Test.createTestingModule({ imports: [AppModule] })
+  let builder = withoutTitleBackfill(
+    Test.createTestingModule({ imports: [AppModule] }),
+  )
     .overrideProvider(USERS_STORE)
     .useValue(w.db.stores.users)
     .overrideProvider(ROLE_ASSIGNMENTS_STORE)

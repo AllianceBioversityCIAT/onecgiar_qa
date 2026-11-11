@@ -32,6 +32,7 @@ import {
   skipVerdict,
   SNAPSHOT_SK_PREFIX,
   snapshotKeyOf,
+  titleOf,
   type LoadSummary,
   type TakeVerdict,
 } from './load-rules.js';
@@ -121,23 +122,6 @@ const sum = (counts: Record<string, number>): number =>
 
 const hashValues = (values: Record<string, unknown>): string =>
   createHash('sha256').update(canonicalJson(values)).digest('hex');
-
-/** The longest title the `timeline_results.title` column holds, in characters (`varchar(1000)`). */
-const TITLE_MAX_CHARACTERS = 1000;
-
-// @akili-spec assessment/step-1-assessment
-/**
- * FR-24, design 7.8: the membership's title is the string `general.title` of
- * the details, cut to 1,000 characters; anything else (absent, a number, an
- * object, null) is null. Cut by character, not by UTF-16 unit, so a cut never
- * leaves half of an emoji for the column to refuse.
- */
-function titleOf(values: Record<string, unknown>): string | null {
-  const title = values['general.title'];
-  if (typeof title !== 'string') return null;
-  if (title.length <= TITLE_MAX_CHARACTERS) return title;
-  return Array.from(title).slice(0, TITLE_MAX_CHARACTERS).join('');
-}
 
 /**
  * The run of a started load (design 7.3). `run` returns at once and records its

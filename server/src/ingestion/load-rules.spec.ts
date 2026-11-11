@@ -17,6 +17,7 @@ import {
   stepInForce,
   syncWindow,
   timelineHasLoad,
+  titleOf,
   type CycleMembership,
   type LoadSummary,
   type RoundStep,
@@ -939,5 +940,56 @@ describe('snapshotKeyOf (DD-7, KZ-ingestion--timeline-sync-1)', () => {
 
   it('strips only the leading prefix', () => {
     expect(snapshotKeyOf('SNAP#SNAP#1')).toBe('SNAP#1');
+  });
+});
+
+describe('titleOf (FR-24, design 7.8)', () => {
+  const emoji = '\u{1F600}';
+
+  it('returns the string general.title as it is up to 1,000 characters', () => {
+    expect(titleOf({ 'general.title': 'A title' })).toBe('A title');
+    expect(titleOf({ 'general.title': 'a'.repeat(1000) })).toBe(
+      'a'.repeat(1000),
+    );
+    expect(titleOf({ 'general.title': '' })).toBe('');
+  });
+
+  it('cuts a longer title at 1,000 code points', () => {
+    const cut = titleOf({ 'general.title': 'a'.repeat(1001) });
+
+    expect(cut).toBe('a'.repeat(1000));
+  });
+
+  it('never splits an emoji at the cut: a pair of UTF-16 units counts as one character', () => {
+    // 999 letters + one emoji + one more letter: the 1,000th character is the whole emoji.
+    const atBoundary = titleOf({
+      'general.title': `${'a'.repeat(999)}${emoji}b`,
+    });
+    // 1,001 emoji: exactly 1,000 whole emoji remain, never a lone half.
+    const allEmoji = titleOf({ 'general.title': emoji.repeat(1001) });
+
+    expect(atBoundary).toBe(`${'a'.repeat(999)}${emoji}`);
+    expect(allEmoji).toBe(emoji.repeat(1000));
+    expect(Array.from(allEmoji ?? '')).toHaveLength(1000);
+    // 1,000 emoji are 2,000 UTF-16 units but only 1,000 characters: kept whole.
+    expect(titleOf({ 'general.title': emoji.repeat(1000) })).toBe(
+      emoji.repeat(1000),
+    );
+  });
+
+  it.each([
+    ['a number', 42],
+    ['an object', { text: 'x' }],
+    ['an array', ['x']],
+    ['null', null],
+    ['a boolean', true],
+    ['undefined', undefined],
+  ])('is null when general.title is %s', (_label, value) => {
+    expect(titleOf({ 'general.title': value })).toBeNull();
+  });
+
+  it('is null when general.title is absent', () => {
+    expect(titleOf({})).toBeNull();
+    expect(titleOf({ 'general.description': 'x' })).toBeNull();
   });
 });

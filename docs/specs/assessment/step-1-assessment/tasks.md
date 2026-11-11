@@ -328,7 +328,7 @@ Gate edges from **T-1** are listed on the last line of the graph. Nothing else w
 - **Skills:** nestjs-expert, error-handling-patterns, tdd
 
 ## T-13: Title backfill
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** S
 - **Depends on:** T-5
 - **Requirements:** FR-24 (earlier memberships get their title without manual SQL)

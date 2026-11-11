@@ -3,6 +3,7 @@ import type { OpenAPIObject } from '@nestjs/swagger';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { AppModule } from '../src/app.module.js';
+import { withoutTitleBackfill } from './support/without-title-backfill.js';
 import { JWKS_CACHE } from '../src/auth/token-verifier.service.js';
 import { configureApp } from '../src/common/configure-app.js';
 import { ERROR_CATALOG } from '../src/common/error-codes.js';
@@ -35,7 +36,9 @@ type Operation = {
 };
 
 async function buildApp(withDocs: boolean): Promise<NestExpressApplication> {
-  const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+  const moduleRef = await withoutTitleBackfill(
+    Test.createTestingModule({ imports: [AppModule] }),
+  )
     .overrideProvider(JWKS_CACHE)
     .useValue(localJwksCache(newKeyPair('openapi-e2e-kid')))
     .compile();
