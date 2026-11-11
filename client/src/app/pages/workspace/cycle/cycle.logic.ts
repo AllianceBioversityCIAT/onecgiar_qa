@@ -1,7 +1,7 @@
 // Pure helpers and view models of the Cycle view (ported from the mockup's cyPhaseState,
 // cardVM and officialRelative).
 import { StepAudience } from '../../../core/api/cycles.models';
-import { DEFAULT_CLOSES_TIME, DEFAULT_OPENS_TIME, nowInRome, todayInRome, zoneAt } from '../../../core/domain/rome-date';
+import { DEFAULT_CLOSES_TIME, DEFAULT_OPENS_TIME, calendarDate, nowInRome, todayInRome, zoneAt } from '../../../core/domain/rome-date';
 import {
   CORRECTION_AUDIENCE,
   CycleStep,
@@ -15,12 +15,12 @@ import {
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const DAY = 864e5;
 
-/** Parses "06 Jul 2026". Returns null when the text is not a valid date. */
+/** Parses "06 Jul 2026". Returns null when the text is not a real date ("31 Feb 2026" too). */
 export function parseDate(text: string | null | undefined): Date | null {
   const m = /^\s*(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\s*$/.exec(text ?? '');
   if (!m) return null;
   const mi = MONTHS.findIndex((x) => x.toLowerCase() === m[2].toLowerCase());
-  return mi < 0 ? null : new Date(+m[3], mi, +m[1]);
+  return mi < 0 ? null : calendarDate(+m[3], mi, +m[1]);
 }
 
 export function formatDate(d: Date): string {
