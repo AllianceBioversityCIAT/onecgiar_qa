@@ -474,3 +474,48 @@ Within budget.
 | Review rounds | 10 | 26 |
 
 Within budget.
+
+### T-8: Worklist routes — PASS
+
+| | |
+|---|---|
+| Date | 2026-11-11 |
+| Final status | PASS (attempt 1, with an evidence follow-up) |
+| Requirements covered | FR-1 (out-of-scope timeline → 404), FR-3 (*BUT* unassigned `?timeline` → 404 `TIMELINES_NOT_FOUND`), FR-4 (filter options inside the scope; counters total), FR-7 (limit 1–100, default 25), FR-22 |
+| Skills | nestjs-expert, api-design-principles (as task) |
+| Effort | default |
+| Review mode | checklist, single Reviewer |
+
+- **Routes** (`@ReadAccess()`): `GET /api/v1/worklist/timelines`, `GET /api/v1/timelines/:timelineId/worklist`, `GET /api/v1/timelines/:timelineId/worklist/options`.
+- **Files changed** (under `server/`):
+  - new: `src/assessment/worklist.controller.ts`, `dto/worklist-params.ts`, `dto/worklist.query.ts`, `models/worklist.model.ts`, `test/assessment-worklist.e2e-spec.ts` (33 tests, HTTP only), `test/support/assessment-app.ts` (real `AppModule`; only stores, loads probe, clock, catalog sources and JWKS are overridden);
+  - edited: `assessment.module.ts` (controller), `worklist.service.ts` (new `options()`; the timeline lookup and 404 moved to a private `offered()`), `worklist.service.spec.ts` (7 `options()` tests).
+- **Observed red** (before the controller): `Tests 33 failed (33)`, e.g. `- "code": "TIMELINES_NOT_FOUND", + "code": "NOT_FOUND",` and `AssertionError: /api/v1/worklist/timelines: expected undefined to be defined`.
+- **Falsifiers (observed red, then restored):**
+  1. empty 200 instead of the 404: `AssertionError: expected 200 to be 404` in 3 tests (`Tests 3 failed | 30 passed (33)`).
+  2. `options()` exclusion subtraction removed: `AssertionError: expected [ 1, 2, 3, 4, 5 ] to deeply equal [ 1, 3, 5 ]` (the "all" scope test; for a list scope the exclusion is already applied by `resolveAccess` in `scope.ts`, so that test stays green by design).
+- **Evidence correction:** the Implementer's first report claimed 2 `options()` unit tests, but none was on disk. The shell had refused the compound command that appended them. The Reviewer flagged it and the Leader confirmed it (`git status`, `grep -c options` = 0, unit count unchanged at 3321). The follow-up added the 7 tests above and the falsifier 2 red.
+- **Implementer verification (after the follow-up):** lint and build clean; unit `Test Files 79 passed | 1 skipped (80)`, `Tests 3328 passed | 6 skipped (3334)`; focused e2e `Tests 48 passed (48)`.
+- **Evidence re-run (Leader inline, after the follow-up):** lint and build clean; unit `Tests 3328 passed | 6 skipped (3334)`; full e2e `Test Files 17 passed (17)`, `Tests 1001 passed (1001)`. **VERIFIED.**
+- **Reviewer verdict: PASS.** Routes match design § 6 rows 1–3. 401 on all three routes. The 404 is byte-equal for unassigned and missing timelines. `meta.page.nextCursor` is null on the last page. No email or changed-field keys appear (`assessedBy` is `{id, nickname}`). The Disqualifier does not apply (the guards, pipe, filter, interceptor and controller are real). `options()` was read for scope leak (exclusions, revoked grant, disabled role, removed assignment, non-active cycle) and none was found. The Reviewer's advisories (missing `options()` tests; the `writable` description for an admin holding an assessor row) were both applied in the follow-up, which changes only tests and one model description.
+- **Runtime events:** the shell refused a compound append command without the Implementer noticing (see the evidence correction above).
+
+**Decisions made (spec silent; Reviewer judged each acceptable):**
+
+- `WorklistService.options()` was added outside the listed scope, because the route is in design § 6:127 and no service answered it. It needs no SQL: it builds the programs (scope minus exclusions; all for ADMIN), the result types (granted keys, or all) and the 8 statuses. A caller with no active role gets empty lists.
+- `data` adds `noActiveRole` (FR-1, `requirements.md:109`) to design § 6's `{rows, counters, writable}`. `counters.total` is exposed (FR-4).
+- The page object passes through `Paged<T>` with one documented cast; `common/` is untouched.
+- Query: `status`, `programId` and `resultTypeKey` accept CSV or repeated values, capped at 50. `limit` is validated 1–100 in the DTO as well as in the service. An unknown parameter is a 400 `UNKNOWN_FIELD`.
+- The OpenAPI `roles` description says an admin carries `'ADMIN'`.
+
+**Forward pointer → T-15:** record `noActiveRole`, `counters.total`, `'ADMIN'` in `roles`, and the options shape (`{key,label}` and `{id,code,name}`) in `front-contract.md`, since they go beyond design § 6:126. Also add the new suite to the `test/AGENTS.md` suite table.
+
+**Running totals:**
+
+| Measure | Actual | Budget |
+|---|---|---|
+| Tasks | 7 of 21 | 21 |
+| Production LOC | ≈ 3,120 TS + 141 SQL | 4,800 |
+| Review rounds | 11 | 26 |
+
+Within budget, but the LOC tripwire is close: 65 % of the lines are spent at 33 % of the tasks.

@@ -188,7 +188,7 @@ Gate edges from **T-1** are listed on the last line of the graph. Nothing else w
 - **Skills:** nestjs-expert, api-design-principles, tdd
 
 ## T-8: Worklist routes
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** S
 - **Depends on:** T-7
 - **Requirements:** FR-1 (*Out-of-scope result by URL*: 404 for a timeline not offered), FR-3 (*BUT* `?timeline` not assigned → 404 `TIMELINES_NOT_FOUND`), FR-7 (limit bounds 1–100, default 25), FR-22

@@ -16,7 +16,7 @@ import { CatalogService } from '../users/catalogs/catalog.service.js';
 import type { AuthenticatedUser } from '../users/current-user.cache.js';
 import { Permission } from '../users/permissions.js';
 import { InvalidListQueryError } from '../users/users.errors.js';
-import type { QaStatus } from './qa-status.js';
+import { QA_STATUS_LABELS, QA_STATUSES, type QaStatus } from './qa-status.js';
 import {
   audienceStepState,
   enabledReviewerRows,
@@ -103,6 +103,12 @@ export interface WorklistPage {
   writable: boolean;
   /** FR-1: the caller is assigned but no enabled role of theirs has a worklist. */
   noActiveRole: boolean;
+}
+
+export interface WorklistOptions {
+  programs: Array<{ id: number; code: string; name: string }>;
+  resultTypes: Array<{ key: string; label: string }>;
+  statuses: Array<{ key: QaStatus; label: string }>;
 }
 
 const FINISHED_STATUSES: readonly QaStatus[] = [
@@ -216,14 +222,7 @@ export class WorklistService {
         ? null
         : decodeWorklistCursor(query.cursor, { sort, dir });
 
-    const [timeline] = await this.store.findTimelines(user.id, timelineId);
-    if (!timeline) throw new TimelineNotFoundError(timelineId);
-    const admin = this.authorization.can(user, Permission.ADMIN_ACCESS);
-    // No assignment and no admin right: the timeline is not offered (FR-3).
-    if (!admin && timeline.roleCodes.length === 0) {
-      throw new TimelineNotFoundError(timelineId);
-    }
-    const access = resolveAccess(user, timeline.roleCodes, admin);
+    const { timeline, admin, access } = await this.offered(user, timelineId);
     if (!admin && access.reviewerRows.length === 0) {
       // Assigned, but no enabled role with a live grant (FR-1): empty, not 403.
       return {
@@ -330,6 +329,67 @@ export class WorklistService {
         ),
       ),
       noActiveRole: false,
+    };
+  }
+
+  /**
+   * The filter options of the worklist (FR-4): the programs and result types
+   * inside the caller's scope, and every status. Scope only, no row is read:
+   * the catalog lookups, no per-row work. An assigned caller with no enabled
+   * role gets empty lists, like the page.
+   */
+  async options(
+    user: AuthenticatedUser,
+    timelineId: number,
+  ): Promise<WorklistOptions> {
+    const { admin, access } = await this.offered(user, timelineId);
+    const [programs, resultTypes] = await Promise.all([
+      this.catalog.listSciencePrograms(),
+      this.catalog.listResultTypes(),
+    ]);
+    const rows = access.reviewerRows;
+    if (!admin && rows.length === 0) {
+      return { programs: [], resultTypes: [], statuses: [] };
+    }
+    const programAllowed = (id: number) =>
+      admin ||
+      rows.some((row) =>
+        row.programs.mode === 'all'
+          ? !row.programs.excluded.includes(id)
+          : row.programs.ids.includes(id),
+      );
+    const typeAllowed = (key: string) =>
+      admin ||
+      rows.some(
+        (row) => row.resultTypes === 'all' || row.resultTypes.includes(key),
+      );
+    return {
+      programs: programs
+        .filter((program) => programAllowed(program.id))
+        .map(({ id, code, name }) => ({ id, code, name })),
+      resultTypes: resultTypes
+        .filter((type) => typeAllowed(type.key))
+        .map((type) => ({ key: type.key, label: type.name })),
+      statuses: QA_STATUSES.map((key) => ({
+        key,
+        label: QA_STATUS_LABELS[key],
+      })),
+    };
+  }
+
+  /** FR-3: the timeline when it is offered to the caller (ADMIN: any of the active cycle; otherwise one they are assigned to), else the 404. */
+  private async offered(user: AuthenticatedUser, timelineId: number) {
+    const [timeline] = await this.store.findTimelines(user.id, timelineId);
+    if (!timeline) throw new TimelineNotFoundError(timelineId);
+    const admin = this.authorization.can(user, Permission.ADMIN_ACCESS);
+    // No assignment and no admin right: the timeline is not offered (FR-3).
+    if (!admin && timeline.roleCodes.length === 0) {
+      throw new TimelineNotFoundError(timelineId);
+    }
+    return {
+      timeline,
+      admin,
+      access: resolveAccess(user, timeline.roleCodes, admin),
     };
   }
 

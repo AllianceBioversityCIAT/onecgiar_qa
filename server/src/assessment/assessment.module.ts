@@ -21,6 +21,7 @@ import {
   TIMELINE_LOADS,
 } from '../admin-config/timelines/timeline-loads.js';
 import { UsersModule } from '../users/users.module.js';
+import { WorklistController } from './worklist.controller.js';
 import { WorklistService } from './worklist.service.js';
 import { DrizzleWorklistStore, WORKLIST_STORE } from './worklist.store.js';
 
@@ -34,6 +35,7 @@ import { DrizzleWorklistStore, WORKLIST_STORE } from './worklist.store.js';
  * of the comment idempotency is bound with the service it reads from.
  */
 @Module({
+  controllers: [WorklistController],
   imports: [
     DrizzleModule,
     DynamoDbModule,

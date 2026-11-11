@@ -907,3 +907,128 @@ describe('FR-19: clarification predicate', () => {
     expect(codes(await march.service.list(assessorA(), 1))).toEqual([]);
   });
 });
+
+describe('options (FR-4: filter options inside the scope)', () => {
+  const excluding = (
+    user: AuthenticatedUser,
+    programIds: number[],
+  ): AuthenticatedUser =>
+    ({
+      ...user,
+      exclusions: programIds.map((programId) => ({
+        programId,
+        status: 'active',
+      })),
+    }) as unknown as AuthenticatedUser;
+  const assigned = (world: ReturnType<typeof setup>['world'], userId = 10) =>
+    world.timelineUsers.push({
+      timelineId: 1,
+      userId,
+      roleCode: 'ASSESSOR',
+    });
+  const programIds = (options: { programs: Array<{ id: number }> }) =>
+    options.programs.map((program) => program.id);
+
+  it('lists the programs and result types of the caller scope, and every status', async () => {
+    const { world, service } = setup();
+    assigned(world);
+    const options = await service.options(assessorA(), 1);
+    expect(options.programs).toEqual([{ id: 1, code: 'SP01', name: 'Mango' }]);
+    expect(options.resultTypes).toEqual([
+      { key: 'policy_change', label: 'Policy change' },
+    ]);
+    expect(options.statuses).toHaveLength(8);
+    expect(options.statuses[0]).toEqual({ key: 'pending', label: 'Pending' });
+  });
+
+  it('program scope "all" with active exclusions: the excluded programs are absent', async () => {
+    const { world, service } = setup();
+    assigned(world);
+    const user = excluding(
+      userOf(10, [assignment('ASSESSOR', 'policy_change')], []),
+      [2, 4],
+    );
+    expect(programIds(await service.options(user, 1))).toEqual([1, 3, 5]);
+  });
+
+  it('program scope as a list with an exclusion: the excluded one is absent', async () => {
+    const { world, service } = setup();
+    assigned(world);
+    const user = excluding(
+      userOf(10, [assignment('ASSESSOR', 'policy_change')], [1, 2, 3]),
+      [2],
+    );
+    expect(programIds(await service.options(user, 1))).toEqual([1, 3]);
+  });
+
+  it('a revoked grant (no live reviewer row): empty lists', async () => {
+    const { world, service } = setup();
+    assigned(world);
+    const user = userOf(
+      10,
+      [assignment('ASSESSOR', 'policy_change', { revokedAt: new Date() })],
+      [1],
+    );
+    expect(await service.options(user, 1)).toEqual({
+      programs: [],
+      resultTypes: [],
+      statuses: [],
+    });
+  });
+
+  it('an assigned caller with no enabled role: empty lists', async () => {
+    const { world, service } = setup();
+    world.timelineUsers.push({
+      timelineId: 1,
+      userId: 10,
+      roleCode: 'LEAD_ASSESSOR',
+    });
+    const user = userOf(10, [assignment('LEAD_ASSESSOR', '*')]);
+    expect(await service.options(user, 1)).toEqual({
+      programs: [],
+      resultTypes: [],
+      statuses: [],
+    });
+  });
+
+  it('a removed assignment, or a timeline of a cycle that is not active: TimelineNotFoundError', async () => {
+    const { world, service } = setup();
+    world.timelineUsers.push({
+      timelineId: 1,
+      userId: 10,
+      roleCode: 'ASSESSOR',
+      removed: true,
+    });
+    await expect(service.options(assessorA(), 1)).rejects.toThrow(
+      TimelineNotFoundError,
+    );
+    world.timelines.push({
+      id: 3,
+      name: 'Draft',
+      kind: 'official',
+      cycleStatus: 'draft',
+      steps: defaultFakeSteps(),
+    });
+    world.timelineUsers.push({
+      timelineId: 3,
+      userId: 10,
+      roleCode: 'ASSESSOR',
+    });
+    await expect(service.options(assessorA(), 3)).rejects.toThrow(
+      TimelineNotFoundError,
+    );
+    await expect(service.options(admin(), 3)).rejects.toThrow(
+      TimelineNotFoundError,
+    );
+  });
+
+  it('an ADMIN gets every program and result type', async () => {
+    const { service } = setup();
+    const options = await service.options(admin(), 1);
+    expect(programIds(options)).toEqual([1, 2, 3, 4, 5]);
+    expect(options.resultTypes.map((type) => type.key)).toEqual([
+      'policy_change',
+      'innovation_use',
+    ]);
+  });
+});
