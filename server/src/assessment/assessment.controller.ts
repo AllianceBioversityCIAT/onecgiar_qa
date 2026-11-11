@@ -1,20 +1,35 @@
 // @akili-spec assessment/step-1-assessment
-import { Controller, Get, Inject, Param, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Inject,
+  Param,
+  Put,
+  Query,
+  Req,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
 import { ReadAccess } from '../auth/decorators/read-access.decorator.js';
 import { ApiErrorResponses, ApiOkEnvelope } from '../common/api-response.js';
 import { ACCESS_TOKEN_SCHEME } from '../common/openapi.js';
+import { requestIdOf, type RequestWithId } from '../common/request-id.js';
 import type { AuthenticatedUser } from '../users/current-user.cache.js';
 import {
   AssessmentService,
   type AssessmentViewResponse,
+  type ValidationSummary,
 } from './assessment.service.js';
 import {
   AssessmentParams,
   AssessmentViewQuery,
 } from './dto/assessment-params.js';
-import { AssessmentViewModel } from './models/assessment.model.js';
+import { ValidateAssessmentBody } from './dto/validate-assessment.body.js';
+import {
+  AssessmentViewModel,
+  ValidationSummaryModel,
+} from './models/assessment.model.js';
 
 /**
  * The assessment routes (design 6). A thin HTTP layer over `AssessmentService`,
@@ -55,6 +70,45 @@ export class AssessmentController {
       params.timelineId,
       params.resultCode,
       query.round,
+    );
+  }
+
+  @ApiOperation({
+    summary: 'Set Assessed fields green or grey, or check all',
+    description:
+      'Send `validated` and exactly one of `fieldKeys` (1 to 200 Assessed fields of the pinned configuration) and `all: true` (every Assessed field). Setting a field to the state it already has succeeds and changes nothing. Only the fields that change are written, with one audit row. A View only, Hidden or unknown key is a 400 naming it. The assessment row is created at the first write. Refused with 409 once the step is not open or the assessment ended.',
+  })
+  @ApiOkEnvelope(ValidationSummaryModel)
+  @ApiErrorResponses({
+    400: ['VALIDATION_FAILED', 'MALFORMED_JSON'],
+    401: ['AUTH_TOKEN_INVALID', 'AUTH_USER_NOT_ADMITTED'],
+    403: ['ASSESSMENT_READ_ONLY'],
+    404: ['ASSESSMENT_NOT_FOUND'],
+    409: [
+      'ASSESSMENT_STEP_CLOSED',
+      'ASSESSMENT_FINISHED',
+      'ASSESSMENT_NO_FIELD_CONFIG',
+    ],
+    413: ['PAYLOAD_TOO_LARGE'],
+    503: ['SERVICE_UNAVAILABLE'],
+  })
+  @Put('timelines/:timelineId/results/:resultCode/assessment/validations')
+  validate(
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() request: RequestWithId,
+    @Param() params: AssessmentParams,
+    @Body() body: ValidateAssessmentBody,
+  ): Promise<ValidationSummary> {
+    return this.assessments.validate(
+      user,
+      params.timelineId,
+      params.resultCode,
+      {
+        validated: body.validated,
+        ...(body.fieldKeys === undefined ? {} : { fieldKeys: body.fieldKeys }),
+        ...(body.all === undefined ? {} : { all: true }),
+      },
+      requestIdOf(request),
     );
   }
 }

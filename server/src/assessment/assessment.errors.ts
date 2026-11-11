@@ -1,10 +1,11 @@
 // @akili-spec assessment/step-1-assessment
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
-import { errorBody } from '../common/error-codes.js';
+import { errorBody, FIELD_ERRORS } from '../common/error-codes.js';
 
 // Typed refusals of the assessment routes (FR-25, design 6). Like the loads
 // errors they extend the Nest HTTP exceptions, so the global filter maps them
@@ -69,5 +70,24 @@ export class AssessmentNotCommentAuthorError extends ForbiddenException {
 export class AssessmentCommentNotOpenError extends ConflictException {
   constructor() {
     super(errorBody('ASSESSMENT_COMMENT_NOT_OPEN'));
+  }
+}
+
+/**
+ * A validation request names a field that is not Assessed in the pinned
+ * configuration: View only, Hidden or unknown (FR-10 *Check all skips other
+ * fields*). A 400 `VALIDATION_FAILED` whose `fields` name each wrong key as the
+ * client sent it, in the order sent.
+ */
+export class AssessmentFieldKeysInvalidError extends BadRequestException {
+  constructor(readonly fieldKeys: readonly string[]) {
+    super({
+      ...errorBody('VALIDATION_FAILED'),
+      fields: fieldKeys.map((field) => ({
+        field,
+        code: 'INVALID',
+        message: FIELD_ERRORS.INVALID(),
+      })),
+    });
   }
 }

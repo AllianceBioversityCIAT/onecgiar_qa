@@ -20,6 +20,7 @@ import {
   defaultFakeSteps,
   FakeFieldConfigEffective,
   InMemoryAssessmentStore,
+  InMemoryAssessmentUnitOfWork,
   InMemoryAssessmentWorld,
   InMemoryTimelineLoads,
   InMemoryWorklistStore,
@@ -144,6 +145,7 @@ function setup(
     } as unknown as CatalogService,
     new AuthorizationService(),
     () => now,
+    new InMemoryAssessmentUnitOfWork(world),
   );
   /**
    * A membership in timeline 1 whose snapshot was written by the REAL

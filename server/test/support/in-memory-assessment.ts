@@ -35,11 +35,20 @@ import type {
 } from '../../src/admin-config/field-config/field-config.module.js';
 import type {
   AssessmentStore,
+  AssessmentWriteStore,
+  AuditEventWrite,
   CommentRecord,
+  LockedAssessment,
   MembershipCriteria,
   MembershipRecord,
+  NewAssessmentRow,
   ValidationRecord,
+  ValidationWrite,
 } from '../../src/assessment/assessment.store.js';
+import type {
+  AssessmentRepositories,
+  AssessmentUnitOfWork,
+} from '../../src/assessment/assessment.unit-of-work.js';
 
 // The worklist port over plain rows, with the semantics of the Drizzle adapter:
 // the scope is the T-3 predicate (`listedFor`), the status is `statusOf`, the
@@ -93,7 +102,13 @@ export interface FakeAssessment {
   fieldConfigVersion?: number;
   /** The id of that version row, which the membership statement joins in. Default: the number; `null` = no such row. */
   fieldConfigVersionId?: number | null;
+  /** Set by the write side when it creates the row. */
+  roleCode?: string;
+  createdBy?: number;
 }
+
+/** One `assessment_audit_events` row, as the write side appended it. */
+export type FakeAuditEvent = AuditEventWrite;
 
 export interface FakeComment {
   assessmentId: number;
@@ -147,6 +162,22 @@ export class InMemoryAssessmentWorld {
   assessments: FakeAssessment[] = [];
   comments: FakeComment[] = [];
   validations: FakeValidation[] = [];
+  /** The append-only audit rows (FR-21). */
+  audits: FakeAuditEvent[] = [];
+  /** The id the write side gives the next assessment row it creates. */
+  nextAssessmentId = 1000;
+  /** Transactions the unit of work ran (committed or rolled back). */
+  transactions = 0;
+  /**
+   * Called inside `lockAssessment`, right before the row is read: a deferred
+   * interleaving. A test uses it to let another writer commit between the
+   * service's reads and the row lock, the way a second request would.
+   */
+  beforeLockAssessment: (() => void) | null = null;
+  /** Called inside `lockTimelineShared`, before the timeline is read: a timeline edit that commits first. */
+  beforeLockTimeline: (() => void) | null = null;
+  /** The write-port calls of the transactions, in the order they ran: the lock order of design 5. */
+  writeLog: string[] = [];
   users: FakeUser[] = [];
   /** The effective items of `FakeFieldConfigEffective`, by result type. A type with none reads every field Hidden. */
   fieldConfigItems: Record<string, EffectiveFieldConfig['items']> = {};
@@ -560,5 +591,138 @@ export class FakeFieldConfigEffective implements FieldConfigEffective {
     return Promise.resolve(
       this.world.versionItems[versionId]?.[resultTypeKey] ?? [],
     );
+  }
+}
+
+/**
+ * The write port over the world, with the semantics of the Drizzle adapter:
+ * `ensureAssessment` keeps an existing row (the duplicate-key no-op),
+ * `lockAssessment` reads the row as it is at the moment of the lock, and each
+ * call is as many counted statements as the adapter runs.
+ */
+export class InMemoryAssessmentWriteStore implements AssessmentWriteStore {
+  constructor(private readonly world: InMemoryAssessmentWorld) {}
+
+  lockTimelineShared(timelineId: number): Promise<WorklistStep[] | null> {
+    this.world.statements += 2;
+    this.world.writeLog.push('lockTimelineShared');
+    this.world.beforeLockTimeline?.();
+    const timeline = this.world.timelines.find((t) => t.id === timelineId);
+    return Promise.resolve(
+      timeline === undefined
+        ? null
+        : [...timeline.steps].sort((a, b) => a.position - b.position),
+    );
+  }
+
+  ensureAssessment(row: NewAssessmentRow): Promise<void> {
+    this.world.statements += 1;
+    this.world.writeLog.push('ensureAssessment');
+    const exists = this.world.assessments.some(
+      (a) =>
+        a.membershipId === row.timelineResultId &&
+        a.stepPosition === row.stepPosition,
+    );
+    if (!exists) {
+      this.world.assessments.push({
+        id: this.world.nextAssessmentId++,
+        membershipId: row.timelineResultId,
+        stepPosition: row.stepPosition,
+        status: 'pending',
+        fieldConfigVersion: row.fieldConfigVersion,
+        roleCode: row.roleCode,
+        createdBy: row.createdBy,
+      });
+    }
+    return Promise.resolve();
+  }
+
+  lockAssessment(
+    timelineResultId: number,
+    stepPosition: number,
+  ): Promise<LockedAssessment | undefined> {
+    this.world.statements += 1;
+    this.world.writeLog.push('lockAssessment');
+    this.world.beforeLockAssessment?.();
+    const row = this.world.assessments.find(
+      (a) =>
+        a.membershipId === timelineResultId && a.stepPosition === stepPosition,
+    );
+    return Promise.resolve(
+      row === undefined
+        ? undefined
+        : {
+            id: row.id,
+            status: row.status,
+            fieldConfigVersion: row.fieldConfigVersion ?? 1,
+          },
+    );
+  }
+
+  findValidations(assessmentId: number): Promise<ValidationRecord[]> {
+    this.world.statements += 1;
+    this.world.writeLog.push('findValidations');
+    return Promise.resolve(
+      this.world.validations
+        .filter((v) => v.assessmentId === assessmentId)
+        .map(({ fieldKey, validated }) => ({ fieldKey, validated })),
+    );
+  }
+
+  upsertValidations(
+    assessmentId: number,
+    rows: readonly ValidationWrite[],
+  ): Promise<void> {
+    if (rows.length === 0) return Promise.resolve();
+    this.world.statements += 1;
+    this.world.writeLog.push('upsertValidations');
+    for (const row of rows) {
+      const held = this.world.validations.find(
+        (v) => v.assessmentId === assessmentId && v.fieldKey === row.fieldKey,
+      );
+      if (held === undefined) {
+        this.world.validations.push({ assessmentId, ...row });
+      } else {
+        held.validated = row.validated;
+      }
+    }
+    return Promise.resolve();
+  }
+
+  insertAudit(event: AuditEventWrite): Promise<void> {
+    this.world.statements += 1;
+    this.world.writeLog.push('insertAudit');
+    this.world.audits.push({ ...event });
+    return Promise.resolve();
+  }
+}
+
+/**
+ * One transaction over the world: what `work` wrote is kept when it resolves
+ * and put back as it was when it throws (the rollback). The rows are copied
+ * per row, so a write through the fake never leaks into the saved copy.
+ */
+export class InMemoryAssessmentUnitOfWork implements AssessmentUnitOfWork {
+  constructor(private readonly world: InMemoryAssessmentWorld) {}
+
+  async run<T>(
+    work: (repositories: AssessmentRepositories) => Promise<T>,
+  ): Promise<T> {
+    this.world.transactions += 1;
+    const saved = {
+      assessments: this.world.assessments.map((a) => ({ ...a })),
+      validations: this.world.validations.map((v) => ({ ...v })),
+      audits: this.world.audits.map((a) => ({ ...a })),
+    };
+    try {
+      return await work({
+        assessments: new InMemoryAssessmentWriteStore(this.world),
+      });
+    } catch (error) {
+      this.world.assessments = saved.assessments;
+      this.world.validations = saved.validations;
+      this.world.audits = saved.audits;
+      throw error;
+    }
   }
 }

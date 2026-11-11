@@ -1,6 +1,6 @@
 // @akili-spec assessment/step-1-assessment
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, desc, eq, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, sql, type SQL } from 'drizzle-orm';
 import { DRIZZLE } from '../database/drizzle/drizzle.constants.js';
 import type { DrizzleDB } from '../database/drizzle/drizzle.module.js';
 import {
@@ -21,12 +21,18 @@ import {
   type TimelineResultStatus,
 } from '../database/drizzle/schema/timeline-results.js';
 import { users } from '../database/drizzle/schema/users.js';
+import {
+  assessmentAuditEvents,
+  type AssessmentAuditAction,
+} from '../database/drizzle/schema/assessment-audit-events.js';
+import { timelineSteps } from '../database/drizzle/schema/timeline-steps.js';
+import { timelines } from '../database/drizzle/schema/timelines.js';
 import type { WorklistAccess } from './scope.js';
-import { scopeCondition } from './worklist.store.js';
+import { scopeCondition, type WorklistStep } from './worklist.store.js';
 
-// Port of the assessment reads (design 5, 6, 7.4; DD-3: a read never writes).
-// The read side only: three methods, one statement each. The write side
-// (T-10 and later) adds its own unit of work and does not change these.
+// Port of the assessment reads (design 5, 6, 7.4; DD-3: a read never writes):
+// three methods, one statement each. The write side below (T-10) is a second
+// port that only the unit of work builds, on its transaction.
 
 export const ASSESSMENT_STORE = Symbol('ASSESSMENT_STORE');
 
@@ -104,6 +110,74 @@ export interface AssessmentStore {
   findValidations(assessmentId: number): Promise<ValidationRecord[]>;
   /** One statement: the comments of an assessment, oldest first, with the author's nickname. */
   findComments(assessmentId: number): Promise<CommentRecord[]>;
+}
+
+// ---- Write port (T-10) -----------------------------------------------------
+
+/** The assessment row to create on the first write (DD-3): it pins the field-configuration version. */
+export interface NewAssessmentRow {
+  timelineResultId: number;
+  stepPosition: number;
+  roleCode: string;
+  /** The version NUMBER `effectiveFor` resolved at the first write. */
+  fieldConfigVersion: number;
+  createdBy: number;
+  at: Date;
+}
+
+/** The assessment row as read under `FOR UPDATE`. */
+export interface LockedAssessment {
+  id: number;
+  status: ResultAssessmentStatus;
+  fieldConfigVersion: number;
+}
+
+export interface ValidationWrite {
+  fieldKey: string;
+  validated: boolean;
+}
+
+/** One append-only audit row (FR-21): ids and keys only, never a body or a value. */
+export interface AuditEventWrite {
+  assessmentId: number;
+  actorId: number;
+  action: AssessmentAuditAction;
+  fieldKeys: readonly string[] | null;
+  commentId: number | null;
+  requestId: string | null;
+  at: Date;
+}
+
+/**
+ * The statements of one assessment write, bound to ONE transaction by the unit
+ * of work (design 5, 7.5). Their order is the lock order: the timeline
+ * `FOR SHARE`, then the assessment row `FOR UPDATE`, then the rows under it.
+ */
+export interface AssessmentWriteStore {
+  /**
+   * Two statements: the timeline row `FOR SHARE`, then its steps (stable under
+   * that lock, because a timeline edit takes the row `FOR UPDATE` first).
+   * `null` when the timeline is gone.
+   */
+  lockTimelineShared(timelineId: number): Promise<WorklistStep[] | null>;
+  /** One statement: `INSERT … ON DUPLICATE KEY UPDATE id = id`. A duplicate only locks nothing and changes nothing. */
+  ensureAssessment(row: NewAssessmentRow): Promise<void>;
+  /** One statement: the row of (membership, step) `FOR UPDATE`. */
+  lockAssessment(
+    timelineResultId: number,
+    stepPosition: number,
+  ): Promise<LockedAssessment | undefined>;
+  /** One statement: the validations of the assessment, read under its lock. */
+  findValidations(assessmentId: number): Promise<ValidationRecord[]>;
+  /** One statement for any number of rows; none for an empty list. */
+  upsertValidations(
+    assessmentId: number,
+    rows: readonly ValidationWrite[],
+    actorId: number,
+    at: Date,
+  ): Promise<void>;
+  /** One statement. */
+  insertAudit(event: AuditEventWrite): Promise<void>;
 }
 
 // ---- Drizzle adapter -------------------------------------------------------
@@ -258,5 +332,160 @@ export class DrizzleAssessmentStore implements AssessmentStore {
 
   async findComments(assessmentId: number): Promise<CommentRecord[]> {
     return await this.buildCommentsQuery(assessmentId);
+  }
+}
+
+// ---- Drizzle write adapter (T-10) -------------------------------------------
+
+type AssessmentWriteDb = Pick<DrizzleDB, 'select' | 'insert'>;
+
+/**
+ * Drizzle adapter of `AssessmentWriteStore`. It is built ON a transaction by
+ * `DrizzleAssessmentUnitOfWork`, never on the pool, so the locks it takes live
+ * as long as that transaction. The `build*` methods are public so a spec can
+ * read each statement's SQL.
+ */
+export class DrizzleAssessmentWriteStore implements AssessmentWriteStore {
+  private readonly reads: DrizzleAssessmentStore;
+
+  constructor(private readonly db: AssessmentWriteDb) {
+    this.reads = new DrizzleAssessmentStore(db);
+  }
+
+  buildTimelineLock(timelineId: number) {
+    return this.db
+      .select({ id: timelines.id })
+      .from(timelines)
+      .where(eq(timelines.id, timelineId))
+      .limit(1)
+      .for('share');
+  }
+
+  buildTimelineSteps(timelineId: number) {
+    return this.db
+      .select({
+        position: timelineSteps.position,
+        name: timelineSteps.name,
+        audience: timelineSteps.audience,
+        opensAt: timelineSteps.opensAt,
+        closesAt: timelineSteps.closesAt,
+      })
+      .from(timelineSteps)
+      .where(eq(timelineSteps.timelineId, timelineId))
+      .orderBy(asc(timelineSteps.position));
+  }
+
+  async lockTimelineShared(timelineId: number): Promise<WorklistStep[] | null> {
+    const [row] = await this.buildTimelineLock(timelineId);
+    if (row === undefined) return null;
+    return await this.buildTimelineSteps(timelineId);
+  }
+
+  buildEnsureAssessment(row: NewAssessmentRow) {
+    return this.db
+      .insert(a)
+      .values({
+        timelineResultId: row.timelineResultId,
+        stepPosition: row.stepPosition,
+        roleCode: row.roleCode,
+        fieldConfigVersion: row.fieldConfigVersion,
+        createdAt: row.at,
+        createdBy: row.createdBy,
+      })
+      // The key onto itself: on a duplicate nothing changes (the pinned version stays).
+      .onDuplicateKeyUpdate({ set: { id: sql`${sql.identifier('id')}` } });
+  }
+
+  async ensureAssessment(row: NewAssessmentRow): Promise<void> {
+    await this.buildEnsureAssessment(row);
+  }
+
+  buildAssessmentLock(timelineResultId: number, stepPosition: number) {
+    return this.db
+      .select({
+        id: a.id,
+        status: a.status,
+        fieldConfigVersion: a.fieldConfigVersion,
+      })
+      .from(a)
+      .where(
+        and(
+          eq(a.timelineResultId, timelineResultId),
+          eq(a.stepPosition, stepPosition),
+        ),
+      )
+      .limit(1)
+      .for('update');
+  }
+
+  async lockAssessment(
+    timelineResultId: number,
+    stepPosition: number,
+  ): Promise<LockedAssessment | undefined> {
+    const [row] = await this.buildAssessmentLock(
+      timelineResultId,
+      stepPosition,
+    );
+    return row;
+  }
+
+  findValidations(assessmentId: number): Promise<ValidationRecord[]> {
+    return this.reads.findValidations(assessmentId);
+  }
+
+  buildUpsertValidations(
+    assessmentId: number,
+    rows: readonly ValidationWrite[],
+    actorId: number,
+    at: Date,
+  ) {
+    // `VALUES()` is deprecated since MySQL 8.0.20 but supported on 8.x; the
+    // row-alias form has no drizzle builder (the same call as the field
+    // configuration's draft items).
+    const column = (name: string) => sql`values(${sql.identifier(name)})`;
+    return this.db
+      .insert(assessmentFieldValidations)
+      .values(
+        rows.map((row) => ({
+          assessmentId,
+          fieldKey: row.fieldKey,
+          validated: row.validated,
+          updatedAt: at,
+          updatedBy: actorId,
+        })),
+      )
+      .onDuplicateKeyUpdate({
+        set: {
+          validated: column('validated'),
+          updatedAt: column('updated_at'),
+          updatedBy: column('updated_by'),
+        },
+      });
+  }
+
+  async upsertValidations(
+    assessmentId: number,
+    rows: readonly ValidationWrite[],
+    actorId: number,
+    at: Date,
+  ): Promise<void> {
+    if (rows.length === 0) return;
+    await this.buildUpsertValidations(assessmentId, rows, actorId, at);
+  }
+
+  buildInsertAudit(event: AuditEventWrite) {
+    return this.db.insert(assessmentAuditEvents).values({
+      assessmentId: event.assessmentId,
+      actorId: event.actorId,
+      action: event.action,
+      fieldKeys: event.fieldKeys === null ? null : [...event.fieldKeys],
+      commentId: event.commentId,
+      requestId: event.requestId,
+      createdAt: event.at,
+    });
+  }
+
+  async insertAudit(event: AuditEventWrite): Promise<void> {
+    await this.buildInsertAudit(event);
   }
 }

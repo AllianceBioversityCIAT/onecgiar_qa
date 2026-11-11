@@ -11,6 +11,7 @@ import { FIELD_CATALOG_SOURCE } from '../../src/admin-config/field-config/field-
 import { shapeCatalog } from '../../src/admin-config/field-config/field-config-catalog.js';
 import { FIELD_CONFIG_EFFECTIVE } from '../../src/admin-config/field-config/field-config.module.js';
 import { ASSESSMENT_STORE } from '../../src/assessment/assessment.store.js';
+import { ASSESSMENT_UNIT_OF_WORK } from '../../src/assessment/assessment.unit-of-work.js';
 import { WORKLIST_STORE } from '../../src/assessment/worklist.store.js';
 import { UpstreamUnavailableError } from '../../src/users/catalogs/catalogs.errors.js';
 import { SNAPSHOT_STORE } from '../../src/ingestion/snapshot-store.port.js';
@@ -27,6 +28,7 @@ import { USERS_STORE } from '../../src/users/users.repository.js';
 import {
   FakeFieldConfigEffective,
   InMemoryAssessmentStore,
+  InMemoryAssessmentUnitOfWork,
   InMemoryAssessmentWorld,
   InMemoryTimelineLoads,
   InMemoryWorklistStore,
@@ -127,6 +129,8 @@ export async function buildAssessmentApp(
     .useValue(new InMemoryWorklistStore(world))
     .overrideProvider(ASSESSMENT_STORE)
     .useValue(new InMemoryAssessmentStore(world))
+    .overrideProvider(ASSESSMENT_UNIT_OF_WORK)
+    .useValue(new InMemoryAssessmentUnitOfWork(world))
     .overrideProvider(SNAPSHOT_STORE)
     .useValue(snapshots)
     .overrideProvider(FIELD_CONFIG_EFFECTIVE)

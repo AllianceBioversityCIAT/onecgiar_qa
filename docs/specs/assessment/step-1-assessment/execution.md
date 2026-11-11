@@ -700,3 +700,47 @@ The back lead chose "continue and re-estimate" after the T-9 tripwire.
 **Why the overrun:** the original figure did not count OpenAPI models, DTOs and SQL builders exposed for `toSQL()` tests. Those layers made up about a third of T-7 to T-9.
 
 **No scope was cut.** The new tripwire is 90 % of the re-estimate, about 9,900 LOC or 31 rounds.
+
+### T-10 part A: Writes I — unit of work, validations, check all — PASS
+
+| | |
+|---|---|
+| Date | 2026-11-11 |
+| Final status | PASS (attempt 1). Part B (comments, withdraw, replay reader) follows as its own commit; T-10 stays `[ ]` until it passes |
+| Requirements covered | FR-2 (step window, pinned clock), FR-10 (single field and check all, incl. *BUT* 400 naming the field; same state is a no-op), FR-16 (no write after the end), FR-21 (one audit row per applied change), NFR-4, NFR-7 |
+| OQ gate | none for part A (OQ-5 and OQ-8 apply to part B; `execution.md` T-1 entry) |
+| Skills | nestjs-expert, error-handling-patterns, tdd (as task) |
+| Effort | default |
+| Review mode | lenses: correctness and privacy, two Reviewers in parallel |
+
+- **Route:** `PUT /timelines/:timelineId/results/:resultCode/assessment/validations`, body exactly one of `fieldKeys` (1–200 keys of ≤ 200 characters) or `all: true`.
+- **Files** (under `server/`): new `src/assessment/assessment.unit-of-work.ts` (token, interfaces, READ COMMITTED wrapper), `assessment-validations.service.spec.ts` (41), `assessment.write-store.spec.ts` (6 `toSQL()`), `dto/validate-assessment.body.ts`, `test/assessment-validations.e2e-spec.ts` (23); edited `assessment.controller.ts`, `assessment.errors.ts` (`AssessmentFieldKeysInvalidError`), `assessment.module.ts`, `assessment.service.ts`, `assessment.service.spec.ts` (constructor only), `assessment.store.ts` (write port and `DrizzleAssessmentWriteStore`), `models/assessment.model.ts`, `test/support/assessment-app.ts`, `test/support/in-memory-assessment.ts` (fake unit of work, `beforeLockAssessment` / `beforeLockTimeline` hooks, rollback).
+- **Lock order** (design § 5, `design.md:117`; § 7.5): `lockTimelineShared` (`FOR SHARE` + steps) → re-judge the step with the same minute → `ensureAssessment` (`INSERT … ON DUPLICATE KEY UPDATE id = id`, first write only) → `lockAssessment` (`FOR UPDATE`) → `status !== 'pending'` refused on the locked row → `findValidations` → `upsertValidations` → `insertAudit`. Pinned by `world.writeLog`.
+- **Observed red** (stub `validate` returning an empty summary): service `Tests 38 failed | 3 passed (41)`, e.g. `expected [] to deeply equal [ { assessmentId: 1000, …(2) } ]`, `Error: expected a refusal` (08:59, 17:31); e2e `Tests 23 failed (23)` (`expected 404 to be 200`, route missing). The `toSQL()` spec failed on the import first (not a behavioral red).
+- **Falsifiers (observed red, then restored):**
+  1. `nowInRome(new Date())`: `Tests 31 failed | 10 passed (41)`, e.g. `AssessmentStepClosedError: This step is closed…` on 09:00. The Reviewer confirmed the pair of accepted and refused cases makes a host-clock mutant fail at any real time.
+  2. status check under the lock removed: `FR-16 … re-reads the status UNDER the assessment lock …` → `Error: expected a refusal` (forced interleaving via `beforeLockAssessment`).
+  3. value copy: part B.
+- **Clock grep** (`grep -rn "new Date()\|Date.now()" server/src/assessment`, non-spec files): only `assessment.module.ts:66` (`ADMIN_CONFIG_CLOCK`) and `:69` (`IDEMPOTENCY_CLOCK`, pre-existing). **Leader adjudication:** the clause targets production code; the two `new Date()` fixture values in T-7's `worklist.service.spec.ts` are accepted.
+- **Statements:** first write 15 (3 reads + 5 `effectiveFor` + 7 in the transaction); next write 10 (pinned `versionItems`); no-op 8; a grey-only request on a missing assessment writes nothing and opens no transaction.
+- **Implementer verification:** lint and build clean; unit `Test Files 85 passed | 1 skipped (86)`, `Tests 3459 passed | 6 skipped (3465)`; e2e `Test Files 19 passed (19)`, `Tests 1042 passed (1042)`.
+- **Evidence re-run (Leader inline):** same counts; clock grep as above. **VERIFIED.**
+- **Reviewer verdicts:**
+  - correctness: **PASS** (lock order, READ COMMITTED, clock read once and the same minute judged twice, forced interleaving, error mapping per `design.md:129` and FR-10, audit per FR-21, rollback tested, ODKU pinned);
+  - privacy: **PASS** (audit rows hold only ids, configuration keys and a sanitized request id; every result-dependent refusal comes after the scope check, so no existence oracle; the 400 echoes only capped caller keys; no new log line).
+- **Runtime events:** none.
+
+**Decisions made:**
+
+- The status check under the lock is in code on the `FOR UPDATE` row (design § 7.5); the SQL-level `WHERE status = 'pending'` belongs to the end path (T-11).
+- Error mapping: out of scope → byte-equal 404 `ASSESSMENT_NOT_FOUND`; admin → 403 `ASSESSMENT_READ_ONLY`; every step refusal incl. `no_step` → 409 `ASSESSMENT_STEP_CLOSED`; an ended membership → 409 `ASSESSMENT_FINISHED`; wrong keys → 400 `VALIDATION_FAILED` naming each key as sent (Hidden and unknown keys look the same).
+- Assessed keys come from the pinned version items (or `effectiveFor` before the row exists); the catalog's applicable fields are not intersected.
+- Audit actions `validate`, `unvalidate`, `check_all`, `uncheck_all`, with only the changed keys.
+- Response `{ status, assessedBy, finishedAt, validations }`; `assessedBy` is `{id, nickname}` and null until T-11.
+
+**Advisories carried into part B (Leader decision, to avoid a separate round):** early return when `all: true` targets zero Assessed fields and no row exists (DD-3 "created lazily"); fix the `assessment.store.ts:163` comment (a duplicate ODKU takes an X lock); a test for two concurrent first writes (one row, first writer's version and creator kept) and a note on the fake's whole-world rollback; a `no_step` → 409 test; an out-of-scope caller on a finished assessment → the same 404; e2e full-body equality (without `meta.requestId` and `meta.timestamp`) and no `@`.
+
+**Forward pointers:**
+
+- **→ T-11:** retry on deadlock (MySQL 1213) in the unit of work, since concurrent ODKU and ends can hit it; consider reading `membership.ended` under the lock and asserting the re-judged `stepPosition` equals the first; guard `locked.fieldConfigVersion === version` when another writer created the row.
+- **→ T-14:** design § 7.9 asks for one `event: 'assessment'` log line per write request (`action, timelineId, membershipId, outcome, reason?, requestId, actorId`); not emitted yet. Confirm the owning task before T-14's log spy.

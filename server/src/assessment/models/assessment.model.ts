@@ -221,6 +221,27 @@ export class AssessmentSummaryModel {
   finishedAt!: string | null;
 }
 
+export class AssessmentValidationModel {
+  @ApiProperty({ type: String, example: 'general.title' })
+  fieldKey!: string;
+
+  @ApiProperty({
+    type: Boolean,
+    description: 'true = green; false = set back to grey',
+  })
+  validated!: boolean;
+}
+
+/** The answer of `PUT …/assessment/validations`: the end state and every validation the assessment holds. */
+export class ValidationSummaryModel extends AssessmentSummaryModel {
+  @ApiProperty({
+    type: [AssessmentValidationModel],
+    description:
+      'Every validation row of the assessment after the request, by field key. Empty when the assessment does not exist yet',
+  })
+  validations!: AssessmentValidationModel[];
+}
+
 export class AssessmentViewModel {
   @ApiProperty({ type: AssessmentHeaderModel })
   header!: AssessmentHeaderModel;

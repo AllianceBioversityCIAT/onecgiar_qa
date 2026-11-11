@@ -29,6 +29,10 @@ import {
 import { AssessmentController } from './assessment.controller.js';
 import { AssessmentService } from './assessment.service.js';
 import {
+  ASSESSMENT_UNIT_OF_WORK,
+  DrizzleAssessmentUnitOfWork,
+} from './assessment.unit-of-work.js';
+import {
   ASSESSMENT_STORE,
   DrizzleAssessmentStore,
 } from './assessment.store.js';
@@ -67,8 +71,13 @@ import { DrizzleWorklistStore, WORKLIST_STORE } from './worklist.store.js';
     { provide: WORKLIST_STORE, useClass: DrizzleWorklistStore },
     { provide: TIMELINE_LOADS, useClass: DrizzleTimelineLoads },
     WorklistService,
-    // The assessment view (T-9): its read port, and the service. The write side joins them in T-10.
+    // The assessment view (T-9): its read port, and the service. The write side (T-10) is the unit of work below.
     { provide: ASSESSMENT_STORE, useClass: DrizzleAssessmentStore },
+    // The write side (T-10): one READ COMMITTED transaction per write, in the lock order of design 5.
+    {
+      provide: ASSESSMENT_UNIT_OF_WORK,
+      useClass: DrizzleAssessmentUnitOfWork,
+    },
     AssessmentService,
     // The title backfill (T-13, FR-24): a bootstrap hook that is not awaited.
     { provide: TITLE_BACKFILL_STORE, useClass: DrizzleTitleBackfillStore },

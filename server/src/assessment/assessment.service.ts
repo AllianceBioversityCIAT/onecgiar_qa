@@ -17,9 +17,10 @@ import {
 import type { ConfigItem } from '../admin-config/field-config/field-config-diff.js';
 import {
   FIELD_CONFIG_EFFECTIVE,
+  type EffectiveFieldConfig,
   type FieldConfigEffective,
 } from '../admin-config/field-config/field-config.module.js';
-import { nowInRome } from '../admin-config/rome-date.js';
+import { nowInRome, type RomeMinute } from '../admin-config/rome-date.js';
 import {
   TIMELINE_LOADS,
   type TimelineLoads,
@@ -35,9 +36,17 @@ import { CatalogService } from '../users/catalogs/catalog.service.js';
 import type { AuthenticatedUser } from '../users/current-user.cache.js';
 import { Permission } from '../users/permissions.js';
 import {
+  AssessmentFieldKeysInvalidError,
+  AssessmentFinishedError,
   AssessmentNoFieldConfigError,
   AssessmentNotFoundError,
+  AssessmentReadOnlyError,
+  AssessmentStepClosedError,
 } from './assessment.errors.js';
+import {
+  ASSESSMENT_UNIT_OF_WORK,
+  type AssessmentUnitOfWork,
+} from './assessment.unit-of-work.js';
 import {
   ASSESSMENT_STORE,
   type AssessmentStore,
@@ -58,6 +67,7 @@ import {
   writeDecision,
   type ReadOnlyReason,
   type WorklistAccess,
+  type WriteDecision,
 } from './scope.js';
 import {
   WORKLIST_STORE,
@@ -83,6 +93,18 @@ export interface AssessmentSummary {
   status: 'pending' | 'quality_assessed' | 'returned';
   assessedBy: { id: number; nickname: string | null } | null;
   finishedAt: string | null;
+}
+
+/** The request of `PUT …/assessment/validations`: the new state, and the fields it applies to (exactly one of the two selectors, FR-10). */
+export interface ValidateInput {
+  validated: boolean;
+  fieldKeys?: readonly string[];
+  all?: boolean;
+}
+
+/** The answer of a validation write: the assessment's end state and every validation row it holds (design 6). */
+export interface ValidationSummary extends AssessmentSummary {
+  validations: Array<{ fieldKey: string; validated: boolean }>;
 }
 
 /** The answer of `GET …/results/:resultCode/assessment` (design 6). */
@@ -124,7 +146,226 @@ export class AssessmentService {
     @Inject(CatalogService) private readonly catalog: CatalogService,
     private readonly authorization: AuthorizationService,
     @Inject(ADMIN_CONFIG_CLOCK) private readonly clock: AdminConfigClock,
+    @Inject(ASSESSMENT_UNIT_OF_WORK)
+    private readonly unitOfWork: AssessmentUnitOfWork,
   ) {}
+
+  /**
+   * FR-2, FR-10, FR-16, FR-21 (design 7.5): set one or more Assessed fields
+   * green or grey, or every Assessed field (check all). The clock is read ONCE;
+   * the same minute judges the step before the transaction and again under the
+   * timeline lock (NFR-4).
+   *
+   * Before the transaction (no lock): the membership is resolved inside the
+   * caller's scope (404, the same one the read answers), the step is judged
+   * (403 `ASSESSMENT_READ_ONLY` for an ADMIN with no reviewer row, 409
+   * `ASSESSMENT_STEP_CLOSED`), an ended assessment is refused (409
+   * `ASSESSMENT_FINISHED`), and the keys are checked against the Assessed fields
+   * of the PINNED version (400 naming each wrong key). A request that only greys
+   * fields of an assessment that does not exist yet is answered without writing:
+   * there is nothing to undo, and a no-op creates no row.
+   *
+   * In the transaction, in the lock order of design 5: the timeline `FOR SHARE`
+   * (its steps are re-judged with the same minute), the assessment row created
+   * on the first write and locked `FOR UPDATE`, and only then the status read as
+   * it is under the lock (a finish that committed after the first read refuses
+   * there, 409 `ASSESSMENT_FINISHED`). Only the fields whose state changes are
+   * written, and one audit row names them; a request that changes nothing writes
+   * no validation and no audit row. This task never ends the assessment (the
+   * end rule is T-11).
+   */
+  async validate(
+    user: AuthenticatedUser,
+    timelineId: number,
+    resultCode: number,
+    input: ValidateInput,
+    requestId: string,
+  ): Promise<ValidationSummary> {
+    const at = this.clock();
+    const now = nowInRome(at);
+
+    const { timeline, access, membership, facts, hasLoad, decision, readStep } =
+      await this.resolveWrite(user, timelineId, resultCode, now);
+    const stepPosition = decision.stepPosition;
+    const held =
+      membership.assessment !== null && readStep === stepPosition
+        ? membership.assessment
+        : null;
+
+    // FR-16: an ended membership or assessment takes no more validations.
+    if (membership.ended || (held !== null && held.status !== 'pending')) {
+      throw new AssessmentFinishedError();
+    }
+
+    // The pinned version when the row exists, the timeline's when it does not (DD-3).
+    let items: readonly ConfigItem[];
+    let version: number;
+    if (held !== null) {
+      if (held.fieldConfigVersionId === null) {
+        throw new AssessmentNoFieldConfigError();
+      }
+      items = await this.fieldConfig.versionItems(
+        held.fieldConfigVersionId,
+        membership.resultTypeKey,
+      );
+      version = held.fieldConfigVersion;
+    } else {
+      const effective = await this.effectiveConfig(
+        timeline,
+        membership.resultTypeKey,
+      );
+      items = effective.items;
+      version = effective.version;
+    }
+    const assessed = items
+      .filter(
+        (item) =>
+          item.resultTypeKey === membership.resultTypeKey &&
+          item.visibility === 'assessed',
+      )
+      .map((item) => item.fieldKey);
+    const target =
+      input.all === true ? assessed : [...new Set(input.fieldKeys ?? [])];
+    const wrong = target.filter((key) => !assessed.includes(key));
+    if (wrong.length > 0) throw new AssessmentFieldKeysInvalidError(wrong);
+
+    // Nothing to undo before the first write: no row, no transaction, no audit.
+    if (held === null && !input.validated) {
+      return {
+        status: 'pending',
+        assessedBy: null,
+        finishedAt: null,
+        validations: [],
+      };
+    }
+
+    return await this.unitOfWork.run(async ({ assessments }) => {
+      const steps = await assessments.lockTimelineShared(timeline.id);
+      if (steps === null) throw new AssessmentNotFoundError();
+      // The same minute, the steps as they are under the share lock (design 7.5, step 3).
+      this.assertWritable(writeDecision(access, facts, { steps, now, hasLoad }));
+      if (held === null) {
+        await assessments.ensureAssessment({
+          timelineResultId: membership.membershipId,
+          stepPosition,
+          roleCode: decision.row.role,
+          fieldConfigVersion: version,
+          createdBy: user.id,
+          at,
+        });
+      }
+      const locked = await assessments.lockAssessment(
+        membership.membershipId,
+        stepPosition,
+      );
+      // The row was created or seen a moment ago and is never deleted: a miss is a defect, not a user error.
+      if (locked === undefined) throw new Error('assessment_row_missing');
+      // FR-16, UNDER the lock: this read decides (a finish may have committed since the first one).
+      if (locked.status !== 'pending') throw new AssessmentFinishedError();
+
+      const state = new Map(
+        (await assessments.findValidations(locked.id)).map((row) => [
+          row.fieldKey,
+          row.validated,
+        ]),
+      );
+      // A field with no row is grey: writing grey to it changes nothing (FR-10).
+      const changed = target.filter(
+        (key) => (state.get(key) ?? false) !== input.validated,
+      );
+      if (changed.length > 0) {
+        await assessments.upsertValidations(
+          locked.id,
+          changed.map((fieldKey) => ({ fieldKey, validated: input.validated })),
+          user.id,
+          at,
+        );
+        await assessments.insertAudit({
+          assessmentId: locked.id,
+          actorId: user.id,
+          action:
+            input.all === true
+              ? input.validated
+                ? 'check_all'
+                : 'uncheck_all'
+              : input.validated
+                ? 'validate'
+                : 'unvalidate',
+          fieldKeys: changed,
+          commentId: null,
+          requestId,
+          at,
+        });
+        for (const key of changed) state.set(key, input.validated);
+      }
+      return {
+        status: locked.status,
+        assessedBy: null,
+        finishedAt: null,
+        validations: [...state]
+          .map(([fieldKey, validated]) => ({ fieldKey, validated }))
+          .sort((x, y) => (x.fieldKey < y.fieldKey ? -1 : 1)),
+      };
+    });
+  }
+
+  /**
+   * Steps 1 and 2 of a write (design 7.5): the timeline, the caller's rows and
+   * the membership inside them (one 404 for "not yours" and "not there"), then
+   * the step judged at `now`. Three statements, as the read's first three: the
+   * timeline and rows, the membership, the load probe.
+   */
+  private async resolveWrite(
+    user: AuthenticatedUser,
+    timelineId: number,
+    resultCode: number,
+    now: RomeMinute,
+  ) {
+    const [timeline] = await this.worklist.findTimelines(user.id, timelineId);
+    if (timeline === undefined) throw new AssessmentNotFoundError();
+    const admin = this.authorization.can(user, Permission.ADMIN_ACCESS);
+    const access = resolveAccess(user, timeline.roleCodes, admin);
+    if (!admin && access.reviewerRows.length === 0) {
+      throw new AssessmentNotFoundError();
+    }
+    const readStep = this.assessmentStep(timeline, access);
+    const membership = await this.store.findMembership({
+      timelineId: timeline.id,
+      resultCode,
+      access,
+      round: null,
+      assessmentStepPosition: readStep,
+    });
+    if (membership === null) throw new AssessmentNotFoundError();
+    const hasLoad = (await this.loads.withLoad([timeline.id])).has(timeline.id);
+    const facts = {
+      resultType: membership.resultTypeKey,
+      programId: membership.programId,
+      round: membership.round,
+      status: membership.status,
+      ended: membership.ended,
+      endReason: membership.endReason,
+    };
+    const decision = this.assertWritable(
+      writeDecision(access, facts, { steps: timeline.steps, now, hasLoad }),
+    );
+    return { timeline, access, membership, facts, hasLoad, decision, readStep };
+  }
+
+  /** The refusal of a write decision: 404 (not in scope), 403 (an ADMIN with no reviewer row), 409 (the step is not open). */
+  private assertWritable(
+    decision: WriteDecision,
+  ): Extract<WriteDecision, { writable: true }> {
+    if (decision.writable) return decision;
+    switch (decision.reason) {
+      case 'not_in_scope':
+        throw new AssessmentNotFoundError();
+      case 'admin_read_only':
+        throw new AssessmentReadOnlyError();
+      default:
+        throw new AssessmentStepClosedError();
+    }
+  }
 
   /**
    * FR-1, FR-2, FR-8, FR-9, FR-11 (read): the assessment view of one result.
@@ -301,13 +542,21 @@ export class AssessmentService {
         membership.resultTypeKey,
       );
     }
+    return (await this.effectiveConfig(timeline, membership.resultTypeKey))
+      .items;
+  }
+
+  /** What the timeline resolves to now (five statements): no version, or a type it does not cover, is the 409; a vanished timeline the 404. */
+  private async effectiveConfig(
+    timeline: WorklistTimeline,
+    resultTypeKey: string,
+  ): Promise<EffectiveFieldConfig> {
     try {
-      const effective = await this.fieldConfig.effectiveFor(
+      return await this.fieldConfig.effectiveFor(
         timeline.cycleId,
         timeline.id,
-        membership.resultTypeKey,
+        resultTypeKey,
       );
-      return effective.items;
     } catch (error) {
       if (
         error instanceof FieldConfigNoVersionError ||
