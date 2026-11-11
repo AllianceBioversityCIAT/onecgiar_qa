@@ -616,3 +616,74 @@ Every decision takes the spec default (`proposal.md` § 12), so no spec amendmen
 **Rule for the blocked tasks:** the briefs for T-9, T-10, T-11 and T-12 cite their OQ line above. If Angel later answers differently, run the Correction Closure sweep (spec amendment) before the affected task is built or reworked.
 
 **Risk accepted:** OQ-1 and OQ-2 change what the program sees (an immediate `not_qaed` lets the program edit in Reporting before step 2; automatic QA locks the result before non-core comments). They were decided without the business owner, on the back lead's delegation.
+
+### T-9: Assessment view (read) — PASS
+
+| | |
+|---|---|
+| Date | 2026-11-11 |
+| Final status | PASS (attempt 2 of 2, plus a small follow-up) |
+| Requirements covered | FR-1 (*Out-of-scope result by URL* → 404), FR-2 (writable flag, read-only reason, admin read-only), FR-8, FR-9 (incl. *BUT* Hidden absent from the body), FR-11 (labels or ids), NFR-2 |
+| OQ gate | OQ-7, `execution.md` T-1 entry (ToC group, Hidden → View only) |
+| Skills | nestjs-expert, aws-serverless (as task) |
+| Effort | default in attempt 1; `high` in attempt 2 (rework bump) |
+| Review mode | full, single Reviewer |
+
+- **Route:** `GET /timelines/:timelineId/results/:resultCode/assessment?round=` (round honored for ADMIN only; default latest).
+- **Files** (under `server/`):
+  - new: `src/assessment/assessment-view.ts` (pure), `assessment.store.ts`, `assessment.service.ts`, `assessment.controller.ts`, `dto/assessment-params.ts`, `models/assessment.model.ts`, specs `assessment-view.spec.ts`, `assessment.service.spec.ts`, `assessment.store.spec.ts`, `test/assessment-view.e2e-spec.ts`, `test/support/real-load-writer.ts` (runs the real `LoadRunner`, so every `sk` is the writer's own `SNAP#` key);
+  - edited: `assessment.module.ts`, `test/support/assessment-app.ts`, `test/support/in-memory-assessment.ts`;
+  - edited outside the module (attempt 2): `admin-config/field-config/field-config.module.ts` (port gains `versionItems(versionId, resultTypeKey)`), `field-config.service.ts` + spec, `field-config-catalog.ts` + spec (`CatalogField.controlLists`), `admin-config/AGENTS.md` (`:44`, `:53`).
+
+**Attempt 1 — FAIL**
+
+- **Red run:** produced after the code existed, by moving the implementation files aside (`Cannot find module './assessment-view.js'` …). Process deviation, recorded; attempt 2 observed its reds before the fixes.
+- **Falsifiers:** `snapshot_sk` without `snapshotKeyOf` → `Error: assessment_snapshot_missing` (12 red); Hidden not filtered in the service → `expected { key: 'general.description', … } to be undefined` and the e2e body test red; 403 for out of scope → `expected 403 to be 404`.
+- **Evidence re-run (Leader inline):** unit `Tests 3388 passed | 6 skipped (3394)`, e2e `Tests 1016 passed (1016)`. **VERIFIED.**
+- **Reviewer verdict: FAIL** (verbatim, condensed to the four issues):
+  > 1. Production `effectiveFor` runs 5 statements, not 3 … So a real open runs 8 statements without an assessment row and **10 with one**. The "exactly 8" assertions pass only because the fake is looser than production. (requirements.md:418; tasks.md:224; design.md:187) — read the items of the **pinned** version in one statement.
+  > 2. Labels are looked up by field key (`assessment-view.ts:129`). Reporting keys them by control list (`results-feed.port.ts:45-48`) … In production every field would get `labels: null`. The tests build labels keyed by field key, so they reproduce the bug. (FR-8, FR-11, FR-20; design.md:245)
+  > 3. `DrizzleAssessmentStore` has no `toSQL()` spec … `eq(timelineId)` (`scopeCondition` carries no timeline, so dropping it leaks across timelines) … T-7 failed on this same defect. (requirements.md:92, :115, :430; design.md:188)
+  > 4. `other` never looks at the configuration … a key configured Hidden in the pinned version but missing from the current catalog … is returned under `other`. (FR-9 *BUT*; design.md:192)
+
+  The Leader confirmed issue 2 against `results-feed.port.ts` and issue 1 against `design.md:187` before the rework.
+
+**Attempt 2 — PASS**
+
+- **Red run (before the fixes):** 15 failed | 68 passed across 4 spec files, e.g. `expected 10 to be 6`, `expected { '7': 'SP07' } to be null`, `TypeError: store.buildValidationsQuery is not a function`, `expected [ 'removed.hidden', …(3) ] to deeply equal [ 'removed.other_type', …(2) ]`.
+- **Fixes:** `findMembership` joins `field_config_versions` on (`cycle_id`, `number`) and returns the pinned version id; with a row the service reads `versionItems` (1 statement); labels are filtered by the field's `controlLists`; 11 `toSQL()` store tests; `other` keys whose item is `hidden` are dropped. Advisories: `TimelineNotFoundError` from `effectiveFor` → the same 404; e2e asserts no `@`; the service spec's `add` runs the real `LoadRunner`.
+- **Statement count:** 6 with an assessment row, 8 without (asserted exactly in the service spec and the e2e; the fake counts 5 for `effectiveFor`, like production).
+- **Falsifiers (observed red, then restored):** (a) `effectiveFor` on the with-row path → `expected 10 to be 6`; (b) labels by field key → 6 unit + 1 e2e red; (c) `eq(timelineId)` dropped → `expected ' where (…' to contain '`timeline_results`.`timeline_id` = ?'` (4 red); (c2) round applied to non-admins → red; (d) hidden `other` kept → view and raw-body e2e red; (e) the three original falsifiers still red.
+- **Reviewer verdict: PASS** (full re-review). No regressions.
+- **Follow-up (Leader request after the PASS, from a Reviewer risk advisory):** a `null` or absent `control_list` is now "no list" instead of 503, because `shapeCatalog` also feeds `LoadRunner` and the field-config screens; real shape errors stay 503. Red first: `UpstreamUnavailableError: The service is temporarily unavailable…` (`Tests 1 failed | 32 passed (33)`). `admin-config/AGENTS.md` updated.
+- **Evidence re-run (Leader inline, final tree):** lint and build clean; unit `Test Files 83 passed | 1 skipped (84)`, `Tests 3412 passed | 6 skipped (3418)`; e2e `Test Files 18 passed (18)`, `Tests 1019 passed (1019)`. **VERIFIED.**
+- **Runtime events:** none.
+
+**Consumers (the task listed none; actual):** the `FieldConfigEffective` port (`versionItems`, additive) and `CatalogField.controlLists` / `shapeCatalog`, consumed by `field-config.service.ts:254`, `:653`, `load-runner.ts:238`, `:580` and the view. All suites green.
+
+**Decisions made:**
+
+- The ToC section sits just before the catalog section holding its first field; that section is not split. A ToC field configured Assessed stays Assessed; only Hidden or unclassified becomes View only.
+- An ended membership stays readable (scope without the worklist's ended filter; FR-2).
+- A pinned version number with no version row → 409 `ASSESSMENT_NO_FIELD_CONFIG` (no fallback to `effectiveFor`). With a row, the type-in-timeline check is skipped.
+- `FieldConfigCatalogMissingError` (Reporting has no catalog for the year) → 409 `ASSESSMENT_NO_FIELD_CONFIG`; an unreadable catalog → 503. FR-8 names 503 for "cannot be read"; a missing year is treated as a configuration gap.
+- A missing snapshot → 500, logged by id only.
+- The read-only reason adds `finished` when status ≠ `pending` (FR-16); the worklist row does not.
+- The header title is shown even when `general.title` is configured Hidden (FR-8 requires a title).
+- `other` fields and Not applicable fields carry `labels: null`.
+- Withdrawn comments are returned to the assessor with their state.
+
+**Forward pointers:**
+
+- **→ P2-3911 / step-2 SP view:** filter withdrawn comments (FR-13).
+- **→ T-16 HITL:** check the TEST and PROD catalogs for `control_list` shapes; nothing here ran against MySQL.
+
+**Running totals:**
+
+| Measure | Actual | Budget |
+|---|---|---|
+| Tasks | 10 of 21 | 21 |
+| Production LOC | ≈ 4,620 TS + 141 SQL | 4,800 |
+| Review rounds | 15 | 26 |
+
+**Budget tripwire hit:** production LOC is at 96 % of the budget with 11 tasks left (T-10, T-11, T-12, T-14, T-15 and the client T-17 to T-21). The overrun is certain; reported to the back lead before T-10.

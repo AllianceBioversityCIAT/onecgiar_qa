@@ -205,7 +205,7 @@ Gate edges from **T-1** are listed on the last line of the graph. Nothing else w
 - **Skills:** nestjs-expert, api-design-principles
 
 ## T-9: Assessment view (read)
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-4, T-6, T-1 (OQ-7 only, for the ToC rule)
 - **Requirements:**

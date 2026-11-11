@@ -53,6 +53,13 @@ export interface FieldConfigEffective {
     timelineId: number,
     resultTypeKey: string,
   ): Promise<EffectiveFieldConfig>;
+  /**
+   * The items of one PUBLISHED version for one result type, in ONE statement:
+   * what a consumer that already knows the version (an assessment pins it, so a
+   * later publication never moves it) reads instead of `effectiveFor`, which
+   * runs five statements to find it.
+   */
+  versionItems(versionId: number, resultTypeKey: string): Promise<ConfigItem[]>;
 }
 
 /**

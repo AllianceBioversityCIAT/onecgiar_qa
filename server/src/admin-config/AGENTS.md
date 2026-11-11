@@ -41,7 +41,7 @@ Cycles and QA timelines: the admin API that says *when* QA runs, *for which* Sci
 
 ## Field configuration (`field-config/`)
 
-Which fields QA shows, per cycle and result type: a **draft** the ADMIN edits, and **immutable versions** published from it. Spec: `docs/specs/archive/2026-10-27-admin-config--field-configuration/` (`design.md` DD-1 to DD-12). A timeline uses a version by its start date, never by editing it. `FieldConfigModule` (`field-config.module.ts`) is its own Nest module so its replay reader answers a publication. Its **exports** are `FIELD_CONFIG_EFFECTIVE` (`field-config.module.ts:31`), the port later review stories inject: `effectiveFor(cycleId, timelineId, resultTypeKey)`, and `FIELD_CATALOG_SOURCE`, so `AssessmentModule` shares the catalog cache.
+Which fields QA shows, per cycle and result type: a **draft** the ADMIN edits, and **immutable versions** published from it. Spec: `docs/specs/archive/2026-10-27-admin-config--field-configuration/` (`design.md` DD-1 to DD-12). A timeline uses a version by its start date, never by editing it. `FieldConfigModule` (`field-config.module.ts`) is its own Nest module so its replay reader answers a publication. Its **exports** are `FIELD_CONFIG_EFFECTIVE` (`field-config.module.ts:31`), the port later review stories inject: `effectiveFor(cycleId, timelineId, resultTypeKey)` (five statements: it resolves the timeline's version) and `versionItems(versionId, resultTypeKey)` (one statement; the assessment view reads a version an assessment already pinned with it), and `FIELD_CATALOG_SOURCE`, so `AssessmentModule` shares the catalog cache.
 
 | File | Role |
 |---|---|
@@ -50,7 +50,7 @@ Which fields QA shows, per cycle and result type: a **draft** the ADMIN edits, a
 | `field-config-rules.ts` | Pure `validateDraftEdit`: `INVALID` and `NOT_ASSESSED`, every problem at once, paths `items[i].<field>` |
 | `field-config-diff.ts` | Pure `diffConfig`: what the draft changes against the latest version (empty means nothing to publish) |
 | `field-config-versions.ts` | Pure `versionFor` and `receiveAndKeep` (the version rule) |
-| `field-config-catalog.ts` | `shapeCatalog` (Reporting JSON, malformed is 503), `applicableFields` |
+| `field-config-catalog.ts` | `shapeCatalog` (Reporting JSON, malformed is 503), `applicableFields`; `CatalogField.controlLists` = the field's own `control_list` plus its subfields' lists (any depth, each once), which key the snapshot labels; a `null` or absent `control_list` means no list, any other malformed value is 503 |
 | `reporting-qa-catalog.client.ts`, `field-catalog.ports.ts` | `FIELD_CATALOG_SOURCE`: `GET /qa/catalog?phase_year=<cycle year>`, cache per year (1 h fresh, 24 h stale copy). A 404 is 409 `FIELD_CONFIG_CATALOG_MISSING` and is never cached |
 | `field-config.store.ts`, `field-config.unit-of-work.ts` | Port and Drizzle adapter; one READ COMMITTED transaction per write |
 | `dto/`, `models/` | Pipe shape (items 1 to 2,000, unknown key is `UNKNOWN_FIELD`) and OpenAPI models |

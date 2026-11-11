@@ -9,7 +9,11 @@ import type {
 import type { CycleStatus } from '../../src/database/drizzle/schema/cycles.js';
 import type { TimelineKind } from '../../src/database/drizzle/schema/timelines.js';
 import { statusOf, type QaStatus } from '../../src/assessment/qa-status.js';
-import { listedFor, type MembershipFacts } from '../../src/assessment/scope.js';
+import {
+  inScope,
+  listedFor,
+  type MembershipFacts,
+} from '../../src/assessment/scope.js';
 import type {
   WorklistPageCriteria,
   WorklistRecord,
@@ -20,6 +24,22 @@ import type {
   WorklistTimeline,
 } from '../../src/assessment/worklist.store.js';
 import type { RomeMinute } from '../../src/admin-config/rome-date.js';
+import {
+  FieldConfigNoVersionError,
+  TimelineNotFoundError,
+} from '../../src/admin-config/admin-config.errors.js';
+import type { ConfigItem } from '../../src/admin-config/field-config/field-config-diff.js';
+import type {
+  EffectiveFieldConfig,
+  FieldConfigEffective,
+} from '../../src/admin-config/field-config/field-config.module.js';
+import type {
+  AssessmentStore,
+  CommentRecord,
+  MembershipCriteria,
+  MembershipRecord,
+  ValidationRecord,
+} from '../../src/assessment/assessment.store.js';
 
 // The worklist port over plain rows, with the semantics of the Drizzle adapter:
 // the scope is the T-3 predicate (`listedFor`), the status is `statusOf`, the
@@ -32,6 +52,8 @@ export interface FakeTimeline {
   cycleId?: number;
   /** Status of the timeline's cycle; the worklist reads the active cycle only. Default `active`. */
   cycleStatus?: CycleStatus;
+  /** Year of the timeline's cycle, the catalog year of the view. Default 2026. */
+  cycleYear?: number;
   name: string;
   kind: TimelineKind;
   steps: WorklistStep[];
@@ -56,6 +78,8 @@ export interface FakeMembership {
   ended?: boolean;
   endReason?: TimelineResultEndReason | null;
   changedFields?: string[] | null;
+  /** `timeline_results.snapshot_sk`; default `SNAP#<code>` (a test of the real key passes the runner's own). */
+  snapshotSk?: string;
 }
 
 export interface FakeAssessment {
@@ -64,12 +88,28 @@ export interface FakeAssessment {
   stepPosition: number;
   status: ResultAssessmentStatus;
   finishedBy?: number | null;
+  finishedAt?: Date | null;
+  /** The version NUMBER the assessment pinned (`result_assessments.field_config_version`). Default 1. */
+  fieldConfigVersion?: number;
+  /** The id of that version row, which the membership statement joins in. Default: the number; `null` = no such row. */
+  fieldConfigVersionId?: number | null;
 }
 
 export interface FakeComment {
   assessmentId: number;
   authorId: number;
   state: CommentState;
+  id?: number;
+  fieldKey?: string;
+  body?: string;
+  createdAt?: Date;
+  valueCopy?: { value: unknown; labels?: unknown };
+}
+
+export interface FakeValidation {
+  assessmentId: number;
+  fieldKey: string;
+  validated: boolean;
 }
 
 export interface FakeUser {
@@ -106,7 +146,16 @@ export class InMemoryAssessmentWorld {
   memberships: FakeMembership[] = [];
   assessments: FakeAssessment[] = [];
   comments: FakeComment[] = [];
+  validations: FakeValidation[] = [];
   users: FakeUser[] = [];
+  /** The effective items of `FakeFieldConfigEffective`, by result type. A type with none reads every field Hidden. */
+  fieldConfigItems: Record<string, EffectiveFieldConfig['items']> = {};
+  /** The items of a PINNED version, by version id then result type: what `versionItems` reads. Nothing falls back to `fieldConfigItems`. */
+  versionItems: Record<number, Record<string, ConfigItem[]>> = {};
+  /** Set to make `effectiveFor` throw `FieldConfigNoVersionError`. */
+  noFieldConfigVersion = false;
+  /** Set to make `effectiveFor` throw `TimelineNotFoundError` (the timeline vanished between two reads). */
+  effectiveTimelineGone = false;
 
   resetStatements(): void {
     this.statements = 0;
@@ -351,6 +400,165 @@ export class InMemoryTimelineLoads implements TimelineLoads {
           .map((m) => m.timelineId)
           .filter((id) => timelineIds.includes(id)),
       ),
+    );
+  }
+}
+
+/**
+ * The assessment read port over the same world, with the semantics of the
+ * Drizzle adapter: the scope is the T-3 predicate `inScope` (the SQL twin is
+ * `scopeCondition`), the membership is the latest round inside it, and each
+ * call is one counted statement.
+ */
+export class InMemoryAssessmentStore implements AssessmentStore {
+  constructor(private readonly world: InMemoryAssessmentWorld) {}
+
+  findMembership(
+    criteria: MembershipCriteria,
+  ): Promise<MembershipRecord | null> {
+    this.world.statements += 1;
+    const timeline = this.world.timelines.find(
+      (t) => t.id === criteria.timelineId,
+    );
+    const found = this.world.memberships
+      .filter(
+        (m) =>
+          m.timelineId === criteria.timelineId &&
+          m.resultCode === criteria.resultCode,
+      )
+      .filter((m) => {
+        const facts: MembershipFacts = {
+          resultType: m.resultTypeKey,
+          programId: m.programId,
+          round: m.round ?? 1,
+          status: m.status ?? 'pending',
+          ended: m.ended ?? false,
+          endReason: m.endReason ?? null,
+        };
+        return (
+          inScope(criteria.access, facts) &&
+          (!criteria.access.admin ||
+            criteria.round === null ||
+            facts.round === criteria.round)
+        );
+      })
+      .sort((x, y) => (y.round ?? 1) - (x.round ?? 1))[0];
+    if (found === undefined) return Promise.resolve(null);
+    const assessment = this.world.assessments.find(
+      (a) =>
+        a.membershipId === found.id &&
+        criteria.assessmentStepPosition !== null &&
+        a.stepPosition === criteria.assessmentStepPosition,
+    );
+    const finisher =
+      assessment?.finishedBy === undefined || assessment.finishedBy === null
+        ? undefined
+        : this.world.users.find((u) => u.id === assessment.finishedBy);
+    return Promise.resolve({
+      membershipId: found.id,
+      resultCode: found.resultCode,
+      title: found.title,
+      programId: found.programId,
+      resultTypeKey: found.resultTypeKey,
+      round: found.round ?? 1,
+      status: found.status ?? 'pending',
+      ended: found.ended ?? false,
+      endReason: found.endReason ?? null,
+      snapshotSk: found.snapshotSk ?? `SNAP#${found.resultCode}`,
+      cycleYear: timeline?.cycleYear ?? 2026,
+      assessment:
+        assessment === undefined
+          ? null
+          : {
+              id: assessment.id,
+              status: assessment.status,
+              fieldConfigVersion: assessment.fieldConfigVersion ?? 1,
+              fieldConfigVersionId:
+                assessment.fieldConfigVersionId === undefined
+                  ? (assessment.fieldConfigVersion ?? 1)
+                  : assessment.fieldConfigVersionId,
+              finishedAt: assessment.finishedAt ?? null,
+              finishedById: finisher?.id ?? null,
+              finishedByNickname: finisher?.nickname ?? null,
+            },
+    });
+  }
+
+  findValidations(assessmentId: number): Promise<ValidationRecord[]> {
+    this.world.statements += 1;
+    return Promise.resolve(
+      this.world.validations
+        .filter((v) => v.assessmentId === assessmentId)
+        .map(({ fieldKey, validated }) => ({ fieldKey, validated })),
+    );
+  }
+
+  findComments(assessmentId: number): Promise<CommentRecord[]> {
+    this.world.statements += 1;
+    return Promise.resolve(
+      this.world.comments
+        .map((c, index) => ({ c, index }))
+        .filter(({ c }) => c.assessmentId === assessmentId)
+        .map(({ c, index }) => ({
+          id: c.id ?? index + 1,
+          fieldKey: c.fieldKey ?? 'general.title',
+          authorId: c.authorId,
+          authorNickname:
+            this.world.users.find((u) => u.id === c.authorId)?.nickname ?? null,
+          body: c.body ?? 'A comment',
+          state: c.state,
+          stepPosition: 1,
+          round: 1,
+          valueCopy: c.valueCopy ?? { value: null },
+          valueTruncated: false,
+          createdAt: c.createdAt ?? new Date('2026-03-10T09:00:00.000Z'),
+          withdrawnAt:
+            c.state === 'withdrawn'
+              ? (c.createdAt ?? new Date('2026-03-10T09:00:00.000Z'))
+              : null,
+        })),
+    );
+  }
+}
+
+/**
+ * `FieldConfigEffective` over the world, counting what production runs.
+ * `effectiveFor` is FIVE statements: `listTimelineStarts` is three (the
+ * timelines, their steps, their scope rows), then `listVersions` and
+ * `listVersionItems`. `versionItems` is ONE (`listVersionItems`). The e2e
+ * statement budget (NFR-2) is therefore the real one.
+ */
+export class FakeFieldConfigEffective implements FieldConfigEffective {
+  constructor(private readonly world: InMemoryAssessmentWorld) {}
+
+  effectiveFor(
+    _cycleId: number,
+    timelineId: number,
+    resultTypeKey: string,
+  ): Promise<EffectiveFieldConfig> {
+    this.world.statements += 5;
+    if (this.world.effectiveTimelineGone) {
+      return Promise.reject(new TimelineNotFoundError(timelineId));
+    }
+    if (this.world.noFieldConfigVersion) {
+      return Promise.reject(new FieldConfigNoVersionError(timelineId));
+    }
+    return Promise.resolve({
+      timelineId,
+      resultTypeKey,
+      version: 1,
+      provisional: false,
+      items: this.world.fieldConfigItems[resultTypeKey] ?? [],
+    });
+  }
+
+  versionItems(
+    versionId: number,
+    resultTypeKey: string,
+  ): Promise<ConfigItem[]> {
+    this.world.statements += 1;
+    return Promise.resolve(
+      this.world.versionItems[versionId]?.[resultTypeKey] ?? [],
     );
   }
 }

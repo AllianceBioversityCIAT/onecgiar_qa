@@ -26,6 +26,12 @@ import {
   TITLE_BACKFILL_STORE,
   TitleBackfill,
 } from './title-backfill.js';
+import { AssessmentController } from './assessment.controller.js';
+import { AssessmentService } from './assessment.service.js';
+import {
+  ASSESSMENT_STORE,
+  DrizzleAssessmentStore,
+} from './assessment.store.js';
 import { WorklistController } from './worklist.controller.js';
 import { WorklistService } from './worklist.service.js';
 import { DrizzleWorklistStore, WORKLIST_STORE } from './worklist.store.js';
@@ -40,7 +46,7 @@ import { DrizzleWorklistStore, WORKLIST_STORE } from './worklist.store.js';
  * of the comment idempotency is bound with the service it reads from.
  */
 @Module({
-  controllers: [WorklistController],
+  controllers: [WorklistController, AssessmentController],
   imports: [
     DrizzleModule,
     DynamoDbModule,
@@ -61,6 +67,9 @@ import { DrizzleWorklistStore, WORKLIST_STORE } from './worklist.store.js';
     { provide: WORKLIST_STORE, useClass: DrizzleWorklistStore },
     { provide: TIMELINE_LOADS, useClass: DrizzleTimelineLoads },
     WorklistService,
+    // The assessment view (T-9): its read port, and the service. The write side joins them in T-10.
+    { provide: ASSESSMENT_STORE, useClass: DrizzleAssessmentStore },
+    AssessmentService,
     // The title backfill (T-13, FR-24): a bootstrap hook that is not awaited.
     { provide: TITLE_BACKFILL_STORE, useClass: DrizzleTitleBackfillStore },
     TitleBackfill,

@@ -799,6 +799,13 @@ export class FieldConfigService implements FieldConfigEffective {
       items: await this.store.listVersionItems(version.id, resultTypeKey),
     };
   }
+
+  versionItems(
+    versionId: number,
+    resultTypeKey: string,
+  ): Promise<ConfigItem[]> {
+    return this.store.listVersionItems(versionId, resultTypeKey);
+  }
 }
 
 export type { ConfigItem, FieldCatalog };

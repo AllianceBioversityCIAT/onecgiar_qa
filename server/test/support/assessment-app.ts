@@ -1,4 +1,5 @@
 // @akili-spec assessment/step-1-assessment
+import { readFileSync } from 'node:fs';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
@@ -6,7 +7,14 @@ import { ADMIN_CONFIG_CLOCK } from '../../src/admin-config/admin-config.clock.js
 import { TIMELINE_LOADS } from '../../src/admin-config/timelines/timeline-loads.js';
 import { AppModule } from '../../src/app.module.js';
 import { withoutTitleBackfill } from './without-title-backfill.js';
+import { FIELD_CATALOG_SOURCE } from '../../src/admin-config/field-config/field-catalog.ports.js';
+import { shapeCatalog } from '../../src/admin-config/field-config/field-config-catalog.js';
+import { FIELD_CONFIG_EFFECTIVE } from '../../src/admin-config/field-config/field-config.module.js';
+import { ASSESSMENT_STORE } from '../../src/assessment/assessment.store.js';
 import { WORKLIST_STORE } from '../../src/assessment/worklist.store.js';
+import { UpstreamUnavailableError } from '../../src/users/catalogs/catalogs.errors.js';
+import { SNAPSHOT_STORE } from '../../src/ingestion/snapshot-store.port.js';
+import { FakeSnapshotStore } from './fake-snapshot-store.js';
 import { JWKS_CACHE } from '../../src/auth/token-verifier.service.js';
 import { configureApp } from '../../src/common/configure-app.js';
 import {
@@ -17,6 +25,8 @@ import { ROLE_ASSIGNMENTS_STORE } from '../../src/users/role-assignments.reposit
 import { USER_PROGRAMS_STORE } from '../../src/users/user-programs.repository.js';
 import { USERS_STORE } from '../../src/users/users.repository.js';
 import {
+  FakeFieldConfigEffective,
+  InMemoryAssessmentStore,
   InMemoryAssessmentWorld,
   InMemoryTimelineLoads,
   InMemoryWorklistStore,
@@ -58,6 +68,20 @@ export async function buildAssessmentApp(
 ) {
   const w = adminWorld();
   const world = new InMemoryAssessmentWorld();
+  const snapshots = new FakeSnapshotStore();
+  // The Reporting catalog of every year is the 2026 fixture; `down` makes it unreadable (503).
+  const fieldCatalog = shapeCatalog(
+    JSON.parse(
+      readFileSync(
+        new URL(
+          '../../src/admin-config/field-config/fixtures/reporting-qa-catalog-2026.json',
+          import.meta.url,
+        ),
+        'utf8',
+      ),
+    ),
+  );
+  const catalogSource = { down: false };
   const actor = async (
     sub: string,
     roles: Array<[string, string?]>,
@@ -86,6 +110,8 @@ export async function buildAssessmentApp(
     // Granted like the assessor, but assigned to no timeline.
     other: await actor('sub-other', [['ASSESSOR', 'KP']], 'Otto'),
     guest: await actor('sub-guest', []),
+    // Granted a result type of the 2026 Reporting catalog (the view reads that catalog).
+    policy: await actor('sub-policy', [['ASSESSOR', 'policy_change']], 'Pia'),
   };
 
   const moduleRef = await withoutTitleBackfill(
@@ -99,6 +125,19 @@ export async function buildAssessmentApp(
     .useValue(w.db.stores.programs)
     .overrideProvider(WORKLIST_STORE)
     .useValue(new InMemoryWorklistStore(world))
+    .overrideProvider(ASSESSMENT_STORE)
+    .useValue(new InMemoryAssessmentStore(world))
+    .overrideProvider(SNAPSHOT_STORE)
+    .useValue(snapshots)
+    .overrideProvider(FIELD_CONFIG_EFFECTIVE)
+    .useValue(new FakeFieldConfigEffective(world))
+    .overrideProvider(FIELD_CATALOG_SOURCE)
+    .useValue({
+      forYear: () =>
+        catalogSource.down
+          ? Promise.reject(new UpstreamUnavailableError())
+          : Promise.resolve(fieldCatalog),
+    })
     .overrideProvider(TIMELINE_LOADS)
     .useValue(new InMemoryTimelineLoads(world))
     .overrideProvider(ADMIN_CONFIG_CLOCK)
@@ -131,5 +170,5 @@ export async function buildAssessmentApp(
   const programScope = (userId: number, programIds: number[]) =>
     w.programs.replaceScope(userId, programIds);
 
-  return { app, world, users, send, programScope };
+  return { app, world, users, send, programScope, snapshots, catalogSource };
 }
