@@ -9,13 +9,13 @@
 - Team: Yeck (front), Juanda (back), Juanpa (design), Santi (QA business). *(Yeck, 2026-10-06)*
 
 ## QA flow (per result)
-1. **Assessor** reviews each field: approves it or comments what to change.
-2. **Program member (SP)** accepts or rejects each comment; when accepting, corrects it in the Reporting Tool.
-3. **Lead assessor** reviews the rejected comments and marks them *highlighted*.
-4. **Third-party broker (TPB)** decides each highlighted field.
-5. **PPU** applies the agreed correction in the Reporting Tool.
+1. **Assessor** reviews each field: approves it or comments what to change. They can withdraw a comment while the program has not answered it.
+2. **Program member (SP)** accepts or rejects each comment; when accepting, corrects it in the Reporting Tool. The program answers inside the Reporting Tool embed: there is no program screen in the new QA.
+3. **Lead assessor** does not close comments. They read the comments and the program's answers and, when something must be done, mark the field as *highlight* with an instruction for the TPB.
+4. **Third-party broker (TPB)** decides each highlighted field: *Agreed with program* or *Required changes*.
+5. **PPU** applies the required change in the Reporting Tool and marks it as done in QA (*Mark when done*).
 
-*(Santi, 2026-09-30)*
+*(Santi, 2026-09-30; steps 1–5 detailed by Santi via Yeck, 2026-11-11)*
 
 ## Knowledge Products (KPs)
 When a load brings results into step 1, each KP falls into one of three groups (the 2025 rule):
@@ -30,9 +30,8 @@ When a load brings results into step 1, each KP falls into one of three groups (
 - Taking a result into QA ("intake") locks it In QA in Reporting: its program can no longer edit or unsubmit it until QA releases it. *(Reporting contract v1.29; step-1-loads spec, 2026-11-04)*
 
 ## Platform roles
-- **QA lead / coordination** — opens and closes phases, builds batches, assigns assessors.
-- **Assessor** · **Lead assessor** · **Third-party broker** · **PPU** — see the flow above.
-*(Juanpa's mockup, 2026-10-05)*
+- Six roles: **Admin** (QA coordination: opens and closes phases, builds batches, assigns assessors) · **Assessor** · **Lead assessor** · **Third-party broker (TPB)** · **PPU** · **Program**. There is no PCU and no Guest role. *(Santi via Yeck, 2026-11-11)*
+- The server stores them as `ADMIN`, `ASSESSOR`, `LEAD_ASSESSOR`, `TPB`, `PPU`, `PROGRAM` (`client/src/app/core/auth/auth.models.ts`).
 
 ## What coordination asks for
 - Open and close phases without depending on the technical team.
@@ -52,7 +51,6 @@ Overview · Results (+ per-field detail with "AI match") · Cycle (phases + batc
 - **Highlighted**: a field in disagreement that goes up to the broker.
 
 ## Open questions (do not assume an answer)
-- There is no screen for the program member (SP) in the mockup.
 - Only the Reporting → QA sync is modeled; the way back (PPU corrects) is missing.
 - Can a user have several roles? The mockup assumes one.
 - A module inside the Reporting Tool, or a standalone platform?
