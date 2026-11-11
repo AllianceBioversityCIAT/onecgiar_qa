@@ -55,6 +55,11 @@ const PROGRAM_OPTIONS = Object.entries(PROGRAMS).map(([value, name]) => ({ value
 const TYPE_OPTIONS = RESULT_TYPES.map(([t]) => ({ value: t, label: t }));
 
 /** "Edit official timeline", "Edit timeline" and "New sub-timeline" drawers (steps table, validation). */
+/** Step 1 always loads results (the server requires it and its switch is fixed on): the row that ends up first gets the mark. */
+function firstLoads(steps: StepDraftRow[]): StepDraftRow[] {
+  return steps.length && !steps[0].batch ? [{ ...steps[0], batch: true }, ...steps.slice(1)] : steps;
+}
+
 @Component({
   selector: 'qa-cycle-timeline-drawer',
   imports: [FormField, QaButtonImports, HlmInput, QaDatePicker, QaDialogImports, QaDrawerImports, QaSwitch, QaTooltipImports, QaMultiSelect],
@@ -528,7 +533,7 @@ export class TimelineDrawer {
     this.draft.update((d) => {
       if (d.steps.length >= this.maxSteps()) return d;
       const audience = this.live() ? nextAudience(d.steps.flatMap((s) => (s.audience ? [s.audience] : []))) ?? undefined : undefined;
-      return { ...d, steps: [...d.steps, { name: '', start: '', end: '', startTime: DEFAULT_OPENS_TIME, endTime: DEFAULT_CLOSES_TIME, batch: false, audience }] };
+      return { ...d, steps: firstLoads([...d.steps, { name: '', start: '', end: '', startTime: DEFAULT_OPENS_TIME, endTime: DEFAULT_CLOSES_TIME, batch: false, audience }]) };
     });
   }
 
@@ -541,7 +546,7 @@ export class TimelineDrawer {
 
   protected removeRow(i: number): void {
     this.confirmRow.set(null);
-    this.draft.update((d) => ({ ...d, steps: d.steps.filter((_, k) => k !== i) }));
+    this.draft.update((d) => ({ ...d, steps: firstLoads(d.steps.filter((_, k) => k !== i)) }));
   }
 
   protected resetRows(): void {
