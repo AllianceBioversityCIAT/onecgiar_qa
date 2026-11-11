@@ -140,26 +140,6 @@ export class OverviewView {
     return name ? `Welcome back, ${name}` : 'Welcome back';
   });
 
-  /**
-   * Line under the greeting, for every live timeline (not only the official one):
-   * "4 live timelines · the next step closes in **4 days** (23 Jul)".
-   */
-  protected readonly context = computed(() => {
-    const live = this.timelines.filter((b) => b.status === 'Live');
-    if (!live.length) return null;
-    const head = `${live.length} live ${live.length === 1 ? 'timeline' : 'timelines'} · `;
-    const next = live
-      .map((b) => timelineInfo(b))
-      .filter((i) => i.when === 'closes')
-      .map((i) => ({ days: daysFromToday(i.phase.end || i.phase.start), date: i.date }))
-      .sort((a, b) => a.days - b.days)[0];
-    if (!next) return { lead: head + 'no step open', key: '', tail: '' };
-    // The number of days (or "today") is the part worth a glance; it is the only bold bit.
-    return next.days <= 0
-      ? { lead: head + 'the next step closes ', key: 'today', tail: '' }
-      : { lead: head + 'the next step closes in ', key: `${next.days} ${next.days === 1 ? 'day' : 'days'}`, tail: ` (${next.date})` };
-  });
-
   // ---------- Timelines ----------
   /** Timelines that are not closed: official first, then live by closing date, then scheduled. */
   protected readonly timelines = TIMELINES.filter((b) => b.status !== 'Closed')
