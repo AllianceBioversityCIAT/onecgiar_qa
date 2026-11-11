@@ -1,6 +1,7 @@
 import { Component, DestroyRef, computed, effect, inject, input, linkedSignal, model, untracked } from '@angular/core';
-import { FieldTree, FormField, email, form, required, submit } from '@angular/forms/signals';
+import { FieldTree, FormField, form, submit } from '@angular/forms/signals';
 import { HlmInputImports } from '@spartan/input';
+import { emailText, requiredText } from '../../../core/forms/text-validators';
 import { UnsavedChanges } from '../../../core/forms/unsaved-changes';
 import { submission } from '../../../core/http/submission';
 import { QaButtonImports, QaDrawerCloseGuard, QaDrawerImports, QaMultiSelect, QaMultiSelectOption, QaSelect, QaSelectOption, QaSwitch, QaTooltipImports } from '../../../ui';
@@ -120,11 +121,11 @@ export class AssessorDrawer {
   protected readonly personForm = form(this.draft, (p) => {
     const isNew = () => this.isNew();
     const namesEditable = () => this.namesEditable();
-    required(p.firstName, { message: 'Enter their first name.', when: namesEditable });
-    required(p.lastName, { message: 'Enter their last name.', when: namesEditable });
-    required(p.email, { message: 'Enter their email address.', when: isNew });
-    email(p.email, { message: 'Enter a valid email address.' });
-    required(p.nick, { message: 'Enter a nickname.' });
+    requiredText(p.firstName, { message: 'Enter their first name.', when: namesEditable });
+    requiredText(p.lastName, { message: 'Enter their last name.', when: namesEditable });
+    requiredText(p.email, { message: 'Enter their email address.', when: isNew });
+    emailText(p.email, { message: 'Enter a valid email address.' });
+    requiredText(p.nick, { message: 'Enter a nickname.' });
   });
 
   protected readonly title = computed(() => (this.isNew() ? 'Invite assessor' : (this.person()?.name ?? '')));

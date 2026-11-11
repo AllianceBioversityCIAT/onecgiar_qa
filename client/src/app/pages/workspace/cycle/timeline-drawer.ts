@@ -1,13 +1,15 @@
-import { Component, computed, effect, input, linkedSignal, model, output, untracked } from '@angular/core';
+import { Component, computed, effect, inject, input, linkedSignal, model, output, untracked } from '@angular/core';
 import { DefaultStep } from '../../../core/api/cycles.models';
 import { ApiFieldError } from '../../../core/http/api-envelope';
-import { FormField, applyEach, form, required, validate } from '@angular/forms/signals';
+import { FormField, applyEach, form, validate } from '@angular/forms/signals';
+import { requiredText } from '../../../core/forms/text-validators';
 import { HlmInput } from '@spartan/input';
 import { QaButtonImports, QaDatePicker, QaDialogImports, QaDrawerImports, QaMultiSelect, QaSelectOption, QaSwitch, QaTooltipImports, discardGuard } from '../../../ui';
 import { DEFAULT_STEP_DATES, PROGRAMS, RESULT_TYPES, STEP_NAMES, Timeline } from './cycle.mock';
 import { StepDraftRow, formatNumber, officialRelative, stepOrderErrors, stepRow, stepState } from './cycle.logic';
 import { StepDateIssue, boundaryPart, nextAudience, roundsOf, stepDateIssues, toApiDay } from './cycle.mapper';
-import { DEFAULT_CLOSES_TIME, DEFAULT_OPENS_TIME, nowInRome, parseTime } from '../../../core/domain/rome-date';
+import { RomeClock } from '../../../core/domain/rome-clock';
+import { DEFAULT_CLOSES_TIME, DEFAULT_OPENS_TIME, parseTime } from '../../../core/domain/rome-date';
 
 /** Edit an existing timeline (official or not) or create a new sub-timeline (timeline null). */
 export interface TimelineRequest {
@@ -282,6 +284,8 @@ const TYPE_OPTIONS = RESULT_TYPES.map(([t]) => ({ value: t, label: t }));
   `,
 })
 export class TimelineDrawer {
+  /** "Before now" checks follow the clock while the drawer stays open. */
+  private readonly clock = inject(RomeClock);
   readonly open = model(false);
   readonly request = input.required<TimelineRequest>();
   /** Source of "Reset to official timeline" and of the default step names; null before the cycle has one. */
@@ -416,12 +420,12 @@ export class TimelineDrawer {
   }
 
   protected readonly tlForm = form(this.draft, (f) => {
-    required(f.name, { message: 'Enter a name for the timeline.', when: () => !this.isOfficialEdit() });
+    requiredText(f.name, { message: 'Enter a name for the timeline.', when: () => !this.isOfficialEdit() });
     validate(f.programs, ({ value }) =>
       !this.isMain() && !value().length ? { kind: 'required', message: 'Select at least one program.' } : undefined,
     );
     applyEach(f.steps, (s) => {
-      required(s.name, { message: 'Enter a name for the step.' });
+      requiredText(s.name, { message: 'Enter a name for the step.' });
       // Live data: both dates of every step are required (the API has no open-ended step).
       validate(s.start, ({ value }) => (this.live() && !toApiDay(value()) ? { kind: 'date', message: 'Enter an opening date, for example 06 Jul 2026.' } : undefined));
       validate(s.end, ({ value }) => (this.live() && !toApiDay(value()) ? { kind: 'date', message: 'Enter a closing date, for example 11 Jul 2026.' } : undefined));
@@ -458,7 +462,7 @@ export class TimelineDrawer {
   private readonly dateIssues = computed((): readonly StepDateIssue[] => {
     const rows = this.draft().steps;
     if (!this.live()) return stepOrderErrors(rows).map((bad) => (bad ? { start: 'Starts before the previous step closes.' } : {}));
-    return stepDateIssues(rows, { now: this.isNew() ? nowInRome() : undefined });
+    return stepDateIssues(rows, { now: this.isNew() ? this.clock.minute() : undefined });
   });
 
   protected issue(i: number, key: 'start' | 'end'): string {

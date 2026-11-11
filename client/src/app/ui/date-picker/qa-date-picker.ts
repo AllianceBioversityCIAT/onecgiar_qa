@@ -7,6 +7,7 @@ import {
   provideBrnPopoverConfig,
   provideBrnPopoverDefaultOptions,
 } from '@spartan-ng/brain/popover';
+import { calendarDate, todayInRomeDate } from '../../core/domain/rome-date';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const MONTHS_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -18,7 +19,7 @@ function toDate(m: RegExpExecArray | null, year?: number): Date | null {
   if (!m) return null;
   const mi = MONTHS.findIndex((x) => x.toLowerCase() === m[2].toLowerCase());
   const y = m[3] ? +m[3] : year;
-  return mi < 0 || !y ? null : new Date(y, mi, +m[1]);
+  return mi < 0 || !y ? null : calendarDate(y, mi, +m[1]);
 }
 
 /** "06 Jul 2026" → Date. */
@@ -141,8 +142,8 @@ export class QaDatePicker {
   protected readonly rangeStart = linkedSignal<Date | undefined>(() => this.range()?.[0]);
   protected readonly rangeEnd = linkedSignal<Date | undefined>(() => this.range()?.[1]);
 
-  /** Month the calendar opens on: the current value, or today. */
-  protected readonly focusStart = computed(() => (this.mode() === 'range' ? this.range()?.[0] : this.selected()) ?? new Date());
+  /** Month the calendar opens on: the current value, or today in Rome (step dates are Rome days). */
+  protected readonly focusStart = computed(() => (this.mode() === 'range' ? this.range()?.[0] : this.selected()) ?? todayInRomeDate());
 
   protected pickDay(d: Date | undefined, pop: BrnPopover): void {
     if (!d) return;

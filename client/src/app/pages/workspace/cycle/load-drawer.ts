@@ -4,7 +4,7 @@ import { LoadsApi } from '../../../core/api/loads-api';
 import { LOAD_ERROR, LoadPreview } from '../../../core/api/loads.models';
 import { toApiError } from '../../../core/http/api-envelope';
 import { QaButtonImports, QaDrawerImports, QaLoadingImports, QaSelect, QaSelectOption } from '../../../ui';
-import { nowInRome } from '../../../core/domain/rome-date';
+import { RomeClock } from '../../../core/domain/rome-clock';
 import { Timeline } from './cycle.mock';
 import { formatNumber, stepInForce, stepRound } from './cycle.logic';
 import { CATALOG_MISSING_MESSAGE, WINDOW_CLOSED_MESSAGE, skipLabel } from './load.copy';
@@ -167,6 +167,8 @@ export interface LoadDrawerNames {
 })
 export class LoadDrawer {
   private readonly api = inject(LoadsApi);
+  /** Re-runs the step guesses when the minute moves (a drawer left open follows the clock). */
+  private readonly clock = inject(RomeClock);
 
   readonly open = model(false);
   readonly request = input.required<RunRequest>();
@@ -194,11 +196,11 @@ export class LoadDrawer {
   /** Step in force of the selected timeline, 1-based (front guess; the preview has the server's). */
   protected readonly fromStepNumber = computed(() => {
     const t = this.selected();
-    return t ? stepInForce(t, nowInRome()) + 1 : 1;
+    return t ? stepInForce(t, this.clock.minute()) + 1 : 1;
   });
-  /** Each target names the round and step a sync would enter now (the clock is read when the list changes). */
+  /** Each target names the round and step a sync would enter now (follows the clock). */
   protected readonly options = computed<QaSelectOption[]>(() => {
-    const now = nowInRome();
+    const now = this.clock.minute();
     return this.targets().map((t) => {
       const at = stepInForce(t, now);
       return { value: t.id, label: t.name, description: `QA round ${stepRound(t, at)} · Step ${at + 1} · ${t.steps[at]?.name ?? ''}` };
