@@ -687,3 +687,16 @@ Every decision takes the spec default (`proposal.md` § 12), so no spec amendmen
 | Review rounds | 15 | 26 |
 
 **Budget tripwire hit:** production LOC is at 96 % of the budget with 11 tasks left (T-10, T-11, T-12, T-14, T-15 and the client T-17 to T-21). The overrun is certain; reported to the back lead before T-10.
+
+### Budget re-estimate — 2026-11-11
+
+The back lead chose "continue and re-estimate" after the T-9 tripwire.
+
+| Measure | Original (design § 10) | Re-estimated | Basis |
+|---|---|---|---|
+| Production LOC | ≈ 4,800 | ≈ 11,000 | ≈ 4,620 spent at 10 of 21 tasks. Remaining estimates: T-10 ≈ 1,200, T-11 ≈ 800, T-12 ≈ 800, T-14/T-15 ≈ 200 (mostly tests and docs), client T-17 to T-20 ≈ 3,000, plus about 5 % margin |
+| Review rounds | ≈ 26 | ≈ 34 | 15 rounds over 10 tasks (1.5 per task) × 11 remaining tasks ≈ 17, rounded and adjusted for doc and HITL tasks |
+
+**Why the overrun:** the original figure did not count OpenAPI models, DTOs and SQL builders exposed for `toSQL()` tests. Those layers made up about a third of T-7 to T-9.
+
+**No scope was cut.** The new tripwire is 90 % of the re-estimate, about 9,900 LOC or 31 rounds.
