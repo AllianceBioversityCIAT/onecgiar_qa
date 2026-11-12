@@ -1,5 +1,6 @@
 import {
   ApiExtraModels,
+  ApiNoContentResponse,
   ApiOperation,
   ApiProperty,
   ApiTags,
@@ -22,6 +23,7 @@ import type { ConfigType } from '@nestjs/config';
 import type { Response } from 'express';
 import type { RequestWithId } from '../common/request-id.js';
 import { authConfig } from '../config/auth.config.js';
+import { AccountRecoveryService } from './account-recovery.service.js';
 import { AdmissionService } from './admission.service.js';
 import { AuthDecisionInterceptor, logAuthDecision } from './auth-decision.js';
 import {
@@ -33,6 +35,11 @@ import { UsernameClaimMissingError } from './auth.errors.js';
 import { Public } from './decorators/public.decorator.js';
 import { CallbackDto } from './dto/callback.dto.js';
 import { CompleteNewPasswordDto } from './dto/complete-new-password.dto.js';
+import {
+  ForgotPasswordDto,
+  ForgotPasswordResponse,
+  ResetPasswordDto,
+} from './dto/forgot-password.dto.js';
 import { LoginDto } from './dto/login.dto.js';
 import { ProviderUrlQuery } from './dto/provider-url.query.js';
 import { UserProfile, toUserProfile } from './me.controller.js';
@@ -94,6 +101,8 @@ export class AuthController {
     private readonly client: CognitoAuthClient,
     @Inject(TokenVerifier) private readonly verifier: TokenVerifier,
     @Inject(AdmissionService) private readonly admission: AdmissionService,
+    @Inject(AccountRecoveryService)
+    private readonly recovery: AccountRecoveryService,
     @Inject(authConfig.KEY) config: ConfigType<typeof authConfig>,
   ) {
     this.allowedOrigins = config.allowedOrigins;
@@ -184,6 +193,70 @@ export class AuthController {
       dto.session,
     );
     return this.issueSession(request, response, tokens);
+  }
+
+  @ApiOperation({
+    summary: 'Forgot password: email a verification code (custom users)',
+    description:
+      'Public, throttled. Always 202 with the same body, whether or not the email has an account (no enumeration). Cognito emails a verification code; an active custom user who never set a password gets a new temporary password instead. CGIAR (SSO) accounts reset their password through CGIAR.',
+  })
+  @ApiOkEnvelope(ForgotPasswordResponse, { status: 202 })
+  @ApiErrorResponses({
+    400: ['VALIDATION_FAILED', 'MALFORMED_JSON'],
+    415: ['UNSUPPORTED_MEDIA_TYPE'],
+    429: ['TOO_MANY_REQUESTS'],
+    503: ['AUTH_SERVICE_UNAVAILABLE'],
+  })
+  @AuthThrottle()
+  @HttpCode(202)
+  @Post('forgot-password')
+  async forgotPassword(
+    @Body() dto: ForgotPasswordDto,
+    @Req() request: RequestWithId,
+  ): Promise<ForgotPasswordResponse> {
+    const outcome = await this.recovery.forgotPassword(dto.email);
+    logAuthDecision(request, {
+      outcome: 'ok',
+      status: 202,
+      reason: `recovery_${outcome}`,
+    });
+    return { accepted: true };
+  }
+
+  @ApiOperation({
+    summary: 'Reset password with the emailed verification code',
+    description:
+      'Public, throttled. Sets the new password; the user then signs in with it. A wrong or expired code, or an email with nothing to reset, is one answer: 400 `AUTH_RESET_CODE_INVALID`.',
+  })
+  @ApiNoContentResponse({ description: 'Password changed' })
+  @ApiErrorResponses({
+    400: [
+      'VALIDATION_FAILED',
+      'MALFORMED_JSON',
+      'AUTH_RESET_CODE_INVALID',
+      'AUTH_PASSWORD_POLICY',
+    ],
+    415: ['UNSUPPORTED_MEDIA_TYPE'],
+    429: ['TOO_MANY_REQUESTS'],
+    503: ['AUTH_SERVICE_UNAVAILABLE'],
+  })
+  @AuthThrottle()
+  @HttpCode(204)
+  @Post('reset-password')
+  async resetPassword(
+    @Body() dto: ResetPasswordDto,
+    @Req() request: RequestWithId,
+  ): Promise<void> {
+    await this.client.confirmForgotPassword(
+      dto.email,
+      dto.code,
+      dto.newPassword,
+    );
+    logAuthDecision(request, {
+      outcome: 'ok',
+      status: 204,
+      reason: 'password_reset',
+    });
   }
 
   @ApiOperation({
