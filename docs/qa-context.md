@@ -9,13 +9,13 @@
 - Team: Yeck (front), Juanda (back), Juanpa (design), Santi (QA business). *(Yeck, 2026-10-06)*
 
 ## QA flow (per result)
-1. **Assessor** reviews each field: approves it or comments what to change. They can withdraw a comment while the program has not answered it.
+1. **Assessor** reviews each field: approves it or comments what to change. They can withdraw a comment while the program has not answered it. Any answer from the program, a rejection included, opens the field again for the assessor. *(Santi via Yeck, 2026-11-12)*
 2. **Program member (SP)** accepts or rejects each comment; when accepting, corrects it in the Reporting Tool. The program answers inside the Reporting Tool embed: there is no program screen in the new QA.
-3. **Lead assessor** does not close comments. They read the comments and the program's answers and, when something must be done, mark the field as *highlight* with an instruction for the TPB.
-4. **Third-party broker (TPB)** decides each highlighted field: *Agreed with program* or *Required changes*.
+3. **Lead assessor** does not close comments and has no final step. They look at every commented field (not only the rejected ones) and mark as *highlight* the ones they see fit, with an instruction for the TPB.
+4. **Third-party broker (TPB)** decides each highlighted field: *Agreed with program* or *Required changes*. With *Required changes* they leave a note for the PPU. No final step either.
 5. **PPU** applies the required change in the Reporting Tool and marks it as done in QA (*Mark when done*).
 
-*(Santi, 2026-09-30; steps 1–5 detailed by Santi via Yeck, 2026-11-11)*
+*(Santi, 2026-09-30; steps 1–5 detailed by Santi via Yeck, 2026-11-11 and 2026-11-12)*
 
 ## Knowledge Products (KPs)
 When a load brings results into step 1, each KP falls into one of three groups (the 2025 rule):
