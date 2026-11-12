@@ -9,12 +9,15 @@ export interface RoleSection {
   readonly hint: string;
 }
 
-/** Timeline roles in the order they work (front contract § 4: only these four can be assigned). */
+/**
+ * Timeline roles in the order they work (front contract § 4: only these four can be assigned).
+ * Hints follow Santi's rules (via Yeck, 2026-11-11/12; docs/qa-context.md, QA flow).
+ */
 export const ROLE_SECTIONS: readonly RoleSection[] = [
   { role: 'ASSESSOR', title: 'Assessors', hint: 'Approve or comment each field (step 1).' },
-  { role: 'LEAD_ASSESSOR', title: 'Lead assessors', hint: 'Send disputed core comments to the broker (step 3).' },
-  { role: 'TPB', title: 'Third-party brokers', hint: 'Decide each comment sent to them (step 4).' },
-  { role: 'PPU', title: 'PPU', hint: 'Apply the broker’s decisions and mark them done (step 5).' },
+  { role: 'LEAD_ASSESSOR', title: 'Lead assessors', hint: 'Mark as highlight the comments that need the broker, with an instruction (step 3).' },
+  { role: 'TPB', title: 'Third-party brokers', hint: 'Decide each highlighted field: agree with the program or require changes (step 4).' },
+  { role: 'PPU', title: 'PPU', hint: 'Apply the required changes in the Reporting Tool and mark them done (step 5).' },
 ];
 
 /** First and last name, or the email when the account has no name yet (SSO users can come without one). */

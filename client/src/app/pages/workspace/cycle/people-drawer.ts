@@ -15,7 +15,7 @@ import { ROLE_SECTIONS, personName } from './timeline-people.logic';
   imports: [QaButtonImports, QaDrawerImports, QaLoadingImports, QaSelectImports, RouterLink],
   providers: [TimelinePeople],
   template: `
-    <qa-drawer [(open)]="open" [title]="'People · ' + (timeline()?.name ?? '')" [subtitle]="subtitle()" width="720px">
+    <qa-drawer [(open)]="open" [title]="'People · ' + (timeline()?.name ?? '')" [subtitle]="subtitle()" width="480px">
       @if (open()) {
         @switch (people.state()) {
           @case ('error') {
@@ -53,10 +53,11 @@ import { ROLE_SECTIONS, personName } from './timeline-people.logic';
                           }
                         </div>
                         @if (canWrite()) {
+                          <!-- A link, not an outlined button: with four lists, one outlined button per person was noisy (Juanpa, 2026-11-12). -->
                           <button
                             hlmBtn
                             qaBtn
-                            tone="secondary"
+                            tone="link"
                             size="sm"
                             type="button"
                             [loading]="people.isRemoving(u)"
@@ -116,7 +117,7 @@ import { ROLE_SECTIONS, personName } from './timeline-people.logic';
                   <qa-skeleton class="h-3 w-64 max-w-full" />
                   <div class="flex flex-col rounded-[10px] border border-(--border)">
                     @for (r of skeletonPeople; track r) {
-                      <div class="flex min-h-12 items-center gap-3 px-3 py-2"><qa-skeleton class="h-3.5 w-48" /><qa-skeleton class="ml-auto h-8 w-20 rounded-[8px]" /></div>
+                      <div class="flex min-h-12 items-center gap-3 px-3 py-2"><qa-skeleton class="h-3.5 w-48" /><qa-skeleton class="ml-auto h-3.5 w-14" /></div>
                     }
                   </div>
                   <qa-skeleton class="h-9 w-full rounded-[8px]" />
