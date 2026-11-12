@@ -193,7 +193,7 @@ export const ApiOkEnvelope = (
   options: {
     description?: string;
     extraModels?: Type<unknown>[];
-    status?: 200 | 201;
+    status?: 200 | 201 | 202;
     paged?: boolean;
     /** Response headers of the answer (e.g. `Idempotency-Replayed`). */
     headers?: Record<string, { description: string; schema: object }>;

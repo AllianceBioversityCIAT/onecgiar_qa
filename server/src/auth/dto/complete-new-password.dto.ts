@@ -1,6 +1,6 @@
 import {
   EmailField,
-  PASSWORD_MAX_LENGTH,
+  PasswordField,
   SESSION_MAX_LENGTH,
   TextField,
 } from './auth-fields.js';
@@ -10,10 +10,9 @@ export class CompleteNewPasswordDto {
   @EmailField()
   email!: string;
 
-  @TextField(PASSWORD_MAX_LENGTH, {
-    description: 'New password (Cognito password policy applies)',
-    format: 'password',
-  })
+  @PasswordField(
+    'New password (Cognito password policy applies; leading and trailing spaces are ignored)',
+  )
   newPassword!: string;
 
   /** The challenge session Cognito returned from the login. */

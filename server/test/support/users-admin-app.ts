@@ -3,6 +3,7 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { AppModule } from '../../src/app.module.js';
 import { CognitoAdminClient } from '../../src/auth/cognito-admin.client.js';
+import { AccessNotifier } from '../../src/notifications/access-notifier.service.js';
 import { JWKS_CACHE } from '../../src/auth/token-verifier.service.js';
 import { configureApp } from '../../src/common/configure-app.js';
 import {
@@ -95,6 +96,8 @@ export async function buildUsersAdminApp() {
     .useValue(new InMemoryUsersQueryStore(w.db))
     .overrideProvider(CognitoAdminClient)
     .useValue(w.cognito)
+    .overrideProvider(AccessNotifier)
+    .useValue(w.notifier)
     .overrideProvider(RESULT_TYPE_SOURCE)
     .useValue({ list: async () => RESULT_TYPES })
     .overrideProvider(SCIENCE_PROGRAM_SOURCE)

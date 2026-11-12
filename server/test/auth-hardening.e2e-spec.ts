@@ -174,6 +174,8 @@ function silenceLogs() {
 const FR10_PUBLIC_ROUTES: readonly string[] = [
   'POST /api/v1/auth/login',
   'POST /api/v1/auth/complete-new-password',
+  'POST /api/v1/auth/forgot-password',
+  'POST /api/v1/auth/reset-password',
   'GET /api/v1/auth/provider-url',
   'POST /api/v1/auth/callback',
   'POST /api/v1/auth/session/refresh',

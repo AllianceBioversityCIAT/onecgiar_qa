@@ -9,6 +9,7 @@ import { IDEMPOTENCY_LEASE_MS } from '../common/idempotency/idempotency.store.js
 import type { CognitoAdminClient } from '../auth/cognito-admin.client.js';
 import type { CatalogService } from './catalogs/catalog.service.js';
 import type { CurrentUserCache } from './current-user.cache.js';
+import type { AccessNotifier } from '../notifications/access-notifier.service.js';
 import { UsersAdminService, type AdminContext } from './users-admin.service.js';
 import type {
   UsersAdminRepositories,
@@ -242,6 +243,7 @@ const serviceOver = (w: AdminWorld, unitOfWork: UsersAdminUnitOfWork) =>
     w.catalogs as unknown as CatalogService,
     w.cognito as unknown as CognitoAdminClient,
     w.cache as unknown as CurrentUserCache,
+    w.notifier as unknown as AccessNotifier,
   );
 
 async function failureOf(work: Promise<unknown>): Promise<HttpException> {

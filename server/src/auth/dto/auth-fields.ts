@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { applyDecorators } from '@nestjs/common';
+import { Transform } from 'class-transformer';
 import { IsEmail, IsNotEmpty, IsString, MaxLength } from 'class-validator';
 
 // The shape rules of the auth routes (NFR-3), written once. Every one of them
@@ -11,6 +12,8 @@ export const EMAIL_MAX_LENGTH = 255;
 /** Generous bounds: they keep oversized input away from Cognito, they are not policy. */
 export const PASSWORD_MAX_LENGTH = 256;
 export const CODE_MAX_LENGTH = 2048;
+/** Cognito verification codes are 6 digits; the bound only keeps junk away. */
+export const RESET_CODE_MAX_LENGTH = 20;
 export const SESSION_MAX_LENGTH = 8192;
 export const URI_MAX_LENGTH = 2048;
 
@@ -21,6 +24,7 @@ export const URI_MAX_LENGTH = 2048;
  */
 export const EmailField = (description = 'Email address') =>
   applyDecorators(
+    Trim(),
     IsString(),
     MaxLength(EMAIL_MAX_LENGTH, { context: { max: EMAIL_MAX_LENGTH } }),
     IsEmail(),
@@ -43,4 +47,22 @@ export const TextField = (
     IsNotEmpty(),
     MaxLength(max, { context: { max } }),
     ApiProperty({ type: String, ...docs, minLength: 1, maxLength: max }),
+  );
+
+/**
+ * Drops leading and trailing whitespace before validation. Credentials are
+ * often pasted with a space at an end, and Cognito never accepts one there
+ * (its password pattern starts and ends with a non-space), so trimming can
+ * only turn a certain refusal into the intended value.
+ */
+export const Trim = () =>
+  Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  );
+
+/** A password (sign-in or new): trimmed at both ends, then a non-empty bounded string. */
+export const PasswordField = (description: string) =>
+  applyDecorators(
+    Trim(),
+    TextField(PASSWORD_MAX_LENGTH, { description, format: 'password' }),
   );

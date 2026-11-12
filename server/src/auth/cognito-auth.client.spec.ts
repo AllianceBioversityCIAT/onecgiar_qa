@@ -7,6 +7,8 @@ import {
   COGNITO_TIMEOUT_MS,
   CognitoAuthClient,
   InvalidCredentialsError,
+  PasswordPolicyError,
+  ResetCodeInvalidError,
   UpstreamUnavailableError,
 } from './cognito-auth.client.js';
 
@@ -356,5 +358,92 @@ describe('CognitoAuthClient — error mapping (FR-4, NFR-6, NFR-7)', () => {
     ]) {
       expect(logged).not.toContain(secret);
     }
+  });
+});
+
+describe('CognitoAuthClient — password recovery', () => {
+  it('ForgotPassword with the email as username and its SecretHash', async () => {
+    fetchMock.mockResolvedValueOnce(
+      json({ CodeDeliveryDetails: { DeliveryMedium: 'EMAIL' } }),
+    );
+
+    await expect(client.forgotPassword('ada@example.org')).resolves.toEqual({
+      kind: 'sent',
+    });
+
+    expect(lastCall().headers['x-amz-target']).toBe(
+      'AWSCognitoIdentityProviderService.ForgotPassword',
+    );
+    expect(lastIdpBody()).toEqual({
+      ClientId: CLIENT_ID,
+      Username: 'ada@example.org',
+      SecretHash: hash('ada@example.org'),
+    });
+  });
+
+  it('a refusal is returned with the Cognito error name, not thrown', async () => {
+    fetchMock.mockResolvedValueOnce(cognitoError('NotAuthorizedException'));
+
+    await expect(client.forgotPassword('ada@example.org')).resolves.toEqual({
+      kind: 'refused',
+      upstreamType: 'NotAuthorizedException',
+    });
+  });
+
+  it('ForgotPassword unavailable → 503', async () => {
+    fetchMock.mockResolvedValueOnce(
+      cognitoError('InternalErrorException', 500),
+    );
+
+    await expect(
+      client.forgotPassword('ada@example.org'),
+    ).rejects.toBeInstanceOf(UpstreamUnavailableError);
+  });
+
+  it('ConfirmForgotPassword sends the code, the new password and the SecretHash', async () => {
+    fetchMock.mockResolvedValueOnce(json({}));
+
+    await client.confirmForgotPassword(
+      'ada@example.org',
+      '123456',
+      'N3w-pass!',
+    );
+
+    expect(lastCall().headers['x-amz-target']).toBe(
+      'AWSCognitoIdentityProviderService.ConfirmForgotPassword',
+    );
+    expect(lastIdpBody()).toEqual({
+      ClientId: CLIENT_ID,
+      Username: 'ada@example.org',
+      ConfirmationCode: '123456',
+      Password: 'N3w-pass!',
+      SecretHash: hash('ada@example.org'),
+    });
+  });
+
+  it.each([
+    'CodeMismatchException',
+    'ExpiredCodeException',
+    'UserNotFoundException',
+    'NotAuthorizedException',
+  ])('%s → 400 AUTH_RESET_CODE_INVALID (one answer for all)', async (type) => {
+    fetchMock.mockResolvedValueOnce(cognitoError(type));
+
+    const error = await client
+      .confirmForgotPassword('ada@example.org', '1', 'N3w-pass!')
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(ResetCodeInvalidError);
+    expect((error as ResetCodeInvalidError).getResponse()).toMatchObject({
+      code: 'AUTH_RESET_CODE_INVALID',
+    });
+  });
+
+  it('a new password that breaks the policy → 400 AUTH_PASSWORD_POLICY', async () => {
+    fetchMock.mockResolvedValueOnce(cognitoError('InvalidPasswordException'));
+
+    await expect(
+      client.confirmForgotPassword('ada@example.org', '123456', 'weak'),
+    ).rejects.toBeInstanceOf(PasswordPolicyError);
   });
 });
