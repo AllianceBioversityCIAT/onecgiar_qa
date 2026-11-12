@@ -70,6 +70,8 @@ export const AUTH_ERROR = {
   REDIRECT_URI_NOT_ALLOWED: 'AUTH_REDIRECT_URI_NOT_ALLOWED',
   TOO_MANY_REQUESTS: 'TOO_MANY_REQUESTS',
   SERVICE_UNAVAILABLE: 'AUTH_SERVICE_UNAVAILABLE',
+  RESET_CODE_INVALID: 'AUTH_RESET_CODE_INVALID',
+  VALIDATION_FAILED: 'VALIDATION_FAILED',
 } as const;
 
 /** Admission refusals that close the session on refresh (the server clears the cookies, FR-13). */
