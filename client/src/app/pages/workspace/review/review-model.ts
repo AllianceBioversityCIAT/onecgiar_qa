@@ -23,6 +23,7 @@ export type CardAction =
   | 'unhighlight'
   | 'agree'
   | 'changes'
+  | 'edit-note'
   | 'done'
   | 'ai-toggle'
   | 'ai-hide'
@@ -49,8 +50,10 @@ export interface FieldActions {
   readonly undo: 'approval' | 'decision' | 'done' | null;
   /** Lead assessor: "Mark as highlight", or "Edit instruction" + "Remove highlight" once highlighted. */
   readonly highlight: 'mark' | 'edit' | null;
-  /** Third-party broker: "Agreed with program" / "Required changes". */
+  /** Third-party broker: "Agreed with program" / "Required changes" (which opens the note for the PPU). */
   readonly decide: boolean;
+  /** Third-party broker, after "Required changes": "Edit note" for the PPU. */
+  readonly editNote: boolean;
   /** PPU: "Mark when done". */
   readonly markDone: boolean;
   readonly secondary: boolean;
@@ -67,6 +70,8 @@ export interface CardStatusVm {
   readonly highlighted: boolean;
   /** Lead assessor's instruction for the third-party broker, shown on the card while highlighted. */
   readonly instruction: string;
+  /** Third-party broker's note for the PPU, shown on the card after "Required changes". */
+  readonly ppuNote: string;
   readonly ai: AiVm | null;
   readonly actions: FieldActions | null;
 }
@@ -137,13 +142,13 @@ export interface ResultHeaderVm {
 export const isAssessable =(d: FieldDef): boolean => d.mode === 'core' || d.mode === 'assessed';
 
 /**
- * Assessor: approved, the last word in the thread is the assessor's comment, or the program rejected the comment
- * (that goes to the lead assessor, not back to the assessor). ToC needs approval.
+ * Assessor: approved, or the last word in the thread is the assessor's comment. ToC needs approval.
+ * A program's answer, rejection included, opens the field again for the assessor (Santi via Yeck, 2026-11-12).
  */
 export function isResolved(d: FieldDef, fs: FieldState): boolean {
-  if (d.sec === 'toc') return fs.approved || programRejected(fs);
+  if (d.sec === 'toc') return fs.approved;
   const last = fs.comments[fs.comments.length - 1];
-  return fs.approved || (!!last && last.role === 'Assessor') || programRejected(fs);
+  return fs.approved || (!!last && last.role === 'Assessor');
 }
 
 /** The program rejected the assessor's comment (its last answer in the thread). */
@@ -154,7 +159,8 @@ export function programRejected(fs: FieldState): boolean {
 
 /**
  * Fields a role works on, and whether each one still needs it.
- * Lead assessor: the comments the program rejected (marking one as highlight is what the lead does with it).
+ * Lead assessor: every field with an assessor's comment; they mark as highlight the ones they see fit, rejected or not.
+ * There is no final step for them (Santi via Yeck, 2026-11-12).
  * TPB: highlighted fields, until decided. PPU: "Required changes", until done.
  */
 export function roleScope(role: ReviewRole, d: FieldDef, fs: FieldState): { readonly mine: boolean; readonly open: boolean } {
@@ -162,7 +168,7 @@ export function roleScope(role: ReviewRole, d: FieldDef, fs: FieldState): { read
     case 'assessor':
       return { mine: true, open: !isResolved(d, fs) };
     case 'lead': {
-      const mine = programRejected(fs);
+      const mine = fs.comments.some((c) => c.role === 'Assessor');
       return { mine, open: mine && !fs.highlighted };
     }
     case 'tpb':
@@ -201,6 +207,7 @@ function roleActions(role: ReviewRole, fs: FieldState): FieldActions | null {
     undo: null,
     highlight: null,
     decide: false,
+    editNote: false,
     markDone: false,
     secondary: cnt > 0,
     secondaryLabel: 'View comments',
@@ -216,11 +223,12 @@ function roleActions(role: ReviewRole, fs: FieldState): FieldActions | null {
         secondaryLabel: cnt > 0 ? 'View comments' : 'Add comment',
       };
     case 'lead':
-      // Any commented field can be highlighted; the rejected ones are the lead's queue.
+      // Every commented field is the lead's to look at; they highlight the ones that need the TPB.
       return cnt > 0 ? { ...none, highlight: fs.highlighted ? 'edit' : 'mark' } : null;
     case 'tpb':
       if (!fs.highlighted) return cnt > 0 ? none : null;
-      return { ...none, decide: !fs.decision, undo: fs.decision ? 'decision' : null };
+      // "Required changes" carries a note for the PPU, which the TPB can edit afterwards.
+      return { ...none, decide: !fs.decision, editNote: fs.decision === 'changes', undo: fs.decision ? 'decision' : null };
     case 'ppu':
       if (!(fs.highlighted && fs.decision === 'changes')) return cnt > 0 ? none : null;
       return { ...none, markDone: !fs.done, undo: fs.done ? 'done' : null };
@@ -238,7 +246,7 @@ function cardStatus(
   const cnt = fs.comments.length;
   const last = fs.comments[cnt - 1];
   if (!withDecision) {
-    return { id: d.id, states: [], answeredDate: '', highlighted: false, instruction: '', ai, actions: null };
+    return { id: d.id, states: [], answeredDate: '', highlighted: false, instruction: '', ppuNote: '', ai, actions: null };
   }
   const answered = !fs.approved && !!last && last.role === 'Reporting tool';
   return {
@@ -247,6 +255,7 @@ function cardStatus(
     answeredDate: answered ? dShort(last.date) : '',
     highlighted: fs.highlighted,
     instruction: fs.highlighted ? (fs.instruction ?? '') : '',
+    ppuNote: fs.highlighted && fs.decision === 'changes' ? (fs.ppuNote ?? '') : '',
     ai,
     actions: readOnly ? null : roleActions(role, fs),
   };

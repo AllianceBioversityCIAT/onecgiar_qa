@@ -56,6 +56,9 @@
           @if (card.instruction) {
             <qa-review-instruction-note [text]="card.instruction" />
           }
+          @if (card.ppuNote) {
+            <qa-review-instruction-note [text]="card.ppuNote" label="Note for the PPU" />
+          }
           @if (card.ai; as ai) {
             <qa-review-ai-note
               [ai]="ai"

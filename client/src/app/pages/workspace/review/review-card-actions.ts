@@ -5,7 +5,7 @@ import { CardAction, FieldActions } from './review-model';
 /**
  * Button row of a field card. The buttons depend on the role (review-model.ts `roleActions`):
  * assessor Approve / Undo / Add comment · lead assessor Mark as highlight (Edit instruction, Remove highlight) ·
- * TPB Agreed with program / Required changes · PPU Mark when done. Everyone can open the comments.
+ * TPB Agreed with program / Required changes (with a note for the PPU; Edit note) · PPU Mark when done. Everyone can open the comments.
  */
 @Component({
   selector: 'qa-review-card-actions',
@@ -25,7 +25,10 @@ import { CardAction, FieldActions } from './review-model';
     }
     @if (a.decide) {
       <button hlmBtn qaBtn tone="secondary" size="sm" type="button" (click)="act.emit('agree')">Agreed with program<span class="sr-only">: {{ label() }}</span></button>
-      <button hlmBtn qaBtn tone="secondary" size="sm" type="button" (click)="act.emit('changes')">Required changes<span class="sr-only">: {{ label() }}</span></button>
+      <button hlmBtn qaBtn tone="secondary" size="sm" type="button" aria-haspopup="dialog" (click)="act.emit('changes')">Required changes<span class="sr-only">: {{ label() }}</span></button>
+    }
+    @if (a.editNote) {
+      <button hlmBtn qaBtn tone="secondary" size="sm" type="button" aria-haspopup="dialog" (click)="act.emit('edit-note')">Edit note<span class="sr-only"> for the PPU on {{ label() }}</span></button>
     }
     @if (a.markDone) {
       <button hlmBtn qaBtn tone="primary" size="sm" type="button" (click)="act.emit('done')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M20 6L9 17l-5-5" /></svg>Mark when done<span class="sr-only">: {{ label() }}</span></button>

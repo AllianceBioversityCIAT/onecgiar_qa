@@ -79,6 +79,8 @@ export interface FieldState {
   readonly instruction?: string;
   /** Third-party broker's decision on a highlighted field. */
   readonly decision?: 'agreed' | 'changes';
+  /** Third-party broker's note for the PPU with "Required changes" (Santi via Yeck, 2026-11-12). */
+  readonly ppuNote?: string;
   /** PPU marked the required change as done in the Reporting Tool. */
   readonly done?: boolean;
 }
@@ -86,7 +88,7 @@ export interface FieldState {
 /**
  * Who is reviewing. Each role sees the same page with its own buttons (Yeck, 2026-11-11):
  * assessor approves or comments · lead assessor marks a field as highlight with an instruction for the TPB ·
- * TPB decides "Agreed with program" or "Required changes" · PPU marks the change as done.
+ * TPB decides "Agreed with program" or "Required changes" (with a note for the PPU) · PPU marks the change as done.
  * Admin and Program are not here: the program answers inside the Reporting Tool embed.
  */
 export type ReviewRole = 'assessor' | 'lead' | 'tpb' | 'ppu';
@@ -126,8 +128,8 @@ export const INSTRUCTIONS = {
   assessor:
     'Review each field against the assessor guidance. Approve it, or leave a comment explaining what needs to change.',
   lead: 'Read the comments and the program’s answers. If a field needs a decision, mark it as highlight and tell the third-party broker what to check.',
-  tpb: 'Each highlighted field has an instruction from the lead assessor. Decide whether you agree with the program or changes are required.',
-  ppu: 'Apply each required change in the Reporting Tool, then mark it as done here.',
+  tpb: 'Each highlighted field has an instruction from the lead assessor. Decide whether you agree with the program or changes are required; with changes, leave a note for the PPU.',
+  ppu: 'Apply each required change in the Reporting Tool, following the third-party broker’s note, then mark it as done here.',
   readOnly: 'Approved automatically by the knowledge product auto-check. Nothing to review.',
 } as const;
 
@@ -375,6 +377,7 @@ export function buildReview(r: ReviewResult): ReviewState {
       highlighted: true,
       instruction: 'Compare the evidence with the 2030 Outcome. If one season in one country is not enough, the mapping changes.',
       decision: 'changes',
+      ppuNote: 'Map this contribution to the Intermediate Outcome on climate-resilient rice systems.',
     });
     return st;
   }

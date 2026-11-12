@@ -8,6 +8,9 @@
     @if (f.mode !== 'instruction' && f.instruction) {
       <qa-review-instruction-note [text]="f.instruction" />
     }
+    @if (f.mode !== 'note' && f.ppuNote) {
+      <qa-review-instruction-note [text]="f.ppuNote" label="Note for the PPU" />
+    }
 
     @if (f.comments.length) {
       <ol class="m-0 flex list-none flex-col gap-2.5 p-0" aria-label="Comments">
@@ -46,8 +49,8 @@
 
     @if (f.mode !== 'read') {
     <form id="review-comment-form" class="contents" novalidate (submit)="onSubmit($event)">
-      @if (f.mode === 'instruction') {
-        <label for="review-comment-draft" class="-mb-2 text-(length:--fs-13) font-semibold text-(--text-2)">Instruction for the third-party broker</label>
+      @if (f.mode === 'instruction' || f.mode === 'note') {
+        <label for="review-comment-draft" class="-mb-2 text-(length:--fs-13) font-semibold text-(--text-2)">{{ f.mode === 'note' ? 'Note for the PPU' : 'Instruction for the third-party broker' }}</label>
       } @else {
       <div class="-mb-2 flex flex-wrap items-center gap-2">
         <button type="button" [qaMenuTrigger]="quick" (qaMenuOpened)="onQuickOpened()" class="inline-flex min-h-[30px] items-center gap-[7px] rounded-[8px] border border-dashed border-(--border-strong) px-2.5 text-(length:--fs-13) font-medium text-(--text-3) hover:border-solid hover:border-(--accent) hover:text-(--accent) focus-visible:shadow-(--focus-ring) focus-visible:outline-none">
@@ -62,14 +65,14 @@
         #draftBox
         id="review-comment-draft"
         [formField]="text()"
-        [placeholder]="f.mode === 'instruction' ? 'What should the third-party broker check?' : 'Write a comment'"
+        [placeholder]="f.mode === 'instruction' ? 'What should the third-party broker check?' : f.mode === 'note' ? 'What should the PPU change in the Reporting Tool?' : 'Write a comment'"
         [attr.aria-invalid]="showError()"
         [attr.aria-describedby]="showError() ? 'review-comment-error' : null"
         class="box-border min-h-24 w-full resize-y rounded-[8px] border bg-(--field-bg) px-3 py-2.5 text-(length:--fs-14) leading-[1.55] text-(--text) outline-none placeholder:text-(--text-muted) focus:border-(--primary)"
         [class]="showError() ? 'border-(--danger)' : 'border-(--border)'"
       ></textarea>
       @if (showError()) {
-        <span id="review-comment-error" class="sr-only" role="alert">{{ f.mode === 'instruction' ? 'Write the instruction before marking the field.' : 'Write a comment before adding it.' }}</span>
+        <span id="review-comment-error" class="sr-only" role="alert">{{ f.mode === 'instruction' ? 'Write the instruction before marking the field.' : f.mode === 'note' ? 'Write the note for the PPU first.' : 'Write a comment before adding it.' }}</span>
       }
     </form>
     }
@@ -86,6 +89,9 @@
       @switch (field()?.mode) {
         @case ('instruction') {
           <button hlmBtn qaBtn tone="primary" type="submit" form="review-comment-form">{{ field()?.highlighted ? 'Save instruction' : 'Mark as highlight' }}</button>
+        }
+        @case ('note') {
+          <button hlmBtn qaBtn tone="primary" type="submit" form="review-comment-form">{{ field()?.ppuNote ? 'Save note' : 'Required changes' }}</button>
         }
         @case ('read') {
           <button hlmBtn qaBtn tone="secondary" type="button" (click)="open.set(false)">Close</button>

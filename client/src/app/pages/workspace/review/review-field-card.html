@@ -56,6 +56,9 @@
   @if (f.instruction) {
     <qa-review-instruction-note [text]="f.instruction" />
   }
+  @if (f.ppuNote) {
+    <qa-review-instruction-note [text]="f.ppuNote" label="Note for the PPU" />
+  }
 
   @if (f.ai; as ai) {
     <qa-review-ai-note

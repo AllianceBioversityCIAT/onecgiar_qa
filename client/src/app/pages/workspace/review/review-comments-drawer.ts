@@ -7,9 +7,10 @@ import { FieldComment, QUICK_COMMENTS } from './review.mock';
 
 /**
  * What the form at the bottom does: the assessor adds a comment, the lead assessor writes the instruction for the
- * third-party broker (and marks the field as highlight), the TPB and the PPU only read.
+ * third-party broker (and marks the field as highlight), the TPB writes the note for the PPU with "Required changes",
+ * and otherwise the TPB and the PPU only read.
  */
-export type CommentsDrawerMode = 'comment' | 'instruction' | 'read';
+export type CommentsDrawerMode = 'comment' | 'instruction' | 'note' | 'read';
 
 export interface CommentsDrawerVm {
   readonly label: string;
@@ -20,6 +21,8 @@ export interface CommentsDrawerVm {
   readonly mode: CommentsDrawerMode;
   /** Lead assessor's instruction, shown above the thread while the field is highlighted (read modes). */
   readonly instruction: string;
+  /** Third-party broker's note for the PPU, shown above the thread after "Required changes". */
+  readonly ppuNote: string;
   /** The assessor's comment that can still be withdrawn (the program has not answered it), or -1. */
   readonly withdrawIndex: number;
 }

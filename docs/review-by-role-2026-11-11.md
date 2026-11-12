@@ -35,3 +35,15 @@ Review only had the assessor's buttons. Santi's flow needs the lead assessor, th
   - Does the TPB leave a note for the PPU with "Required changes"?
 - Not verified: 768 and 1024 px, dark mode.
 - `docs/ux-ui/design.md` (Review row) gets updated once the design is approved.
+
+## Follow-up, 2026-11-12 (Santi's answers via Yeck)
+- Lead assessor: no final step. Their list and count take every field with an assessor's comment, not only the ones the program rejected (`roleScope`, `review-model.ts`).
+- TPB: no final step. "Required changes" opens the drawer with a "Note for the PPU" field and saves the decision with the note. Afterwards the TPB has "Edit note"; Undo clears the decision and the note. The note shows on the card and in the drawer for the TPB and the PPU. The mock has a note on ToC contribution 3.
+- A program's rejection opens the field again for the assessor: `programRejected` is out of `isResolved`, back to the earlier rule.
+- PPU unchanged (Mark when done).
+- Overview by role follows: the lead counts commented fields (64 in the mock, 23 of them rejected), and the PPU list labels its note "Third-party broker’s note".
+- Tested: `ng build` passes. In Playwright on QA-2026-0841:
+  - The assessor has 14 fields open again, the rejected title included.
+  - The lead has 4 of 6 commented fields open.
+  - TPB: Required changes → note drawer → the card shows the note, with Edit note and Undo.
+  - The PPU sees the same note with Mark when done.

@@ -329,6 +329,7 @@ export class ReviewView {
       comments: fs.comments,
       mode: this.drawerMode(),
       instruction: fs.highlighted ? (fs.instruction ?? '') : '',
+      ppuNote: fs.highlighted && fs.decision === 'changes' ? (fs.ppuNote ?? '') : '',
       // Only the last entry, and only while nobody answered it.
       withdrawIndex: this.isAssessor() && last >= 0 && fs.comments[last].role === 'Assessor' ? last : -1,
     };
@@ -406,7 +407,7 @@ export class ReviewView {
         return this.setField(fid, { approved: true });
       case 'undo':
         // TODO(api): each role's undo calls its own endpoint.
-        if (this.role() === 'tpb') return this.setField(fid, { decision: undefined });
+        if (this.role() === 'tpb') return this.setField(fid, { decision: undefined, ppuNote: undefined });
         if (this.role() === 'ppu') return this.setField(fid, { done: false });
         return this.setField(fid, { approved: false });
       case 'comment':
@@ -414,11 +415,13 @@ export class ReviewView {
       case 'highlight':
         return this.openDrawer(fid, this.fs(fid).instruction ?? '', 'instruction');
       case 'unhighlight':
-        return this.setField(fid, { highlighted: false, instruction: undefined, decision: undefined, done: false });
+        return this.setField(fid, { highlighted: false, instruction: undefined, decision: undefined, ppuNote: undefined, done: false });
       case 'agree':
         return this.setField(fid, { decision: 'agreed' });
       case 'changes':
-        return this.setField(fid, { decision: 'changes' });
+      case 'edit-note':
+        // "Required changes" asks for the note for the PPU first (Santi via Yeck, 2026-11-12).
+        return this.openDrawer(fid, this.fs(fid).ppuNote ?? '', 'note');
       case 'done':
         return this.setField(fid, { done: true });
       case 'ai-toggle':
@@ -538,6 +541,13 @@ export class ReviewView {
     const fid = this.drawerFid();
     if (!fid) return;
     const ok = await submit(this.commentForm, async () => {
+      if (this.drawerMode() === 'note') {
+        // TODO(api): save the TPB's "Required changes" decision with its note for the PPU.
+        this.setField(fid, { decision: 'changes', ppuNote: this.commentModel().text.trim() });
+        this.commentModel.set({ text: '' });
+        this.drawerOpen.set(false);
+        return undefined;
+      }
       if (this.drawerMode() === 'instruction') {
         // TODO(api): mark the field as highlight with the lead assessor's instruction for the TPB.
         this.setField(fid, { highlighted: true, instruction: this.commentModel().text.trim() });
