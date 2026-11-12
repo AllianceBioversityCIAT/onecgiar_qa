@@ -18,6 +18,8 @@ import { localJwksCache, newKeyPair } from './support/jwt-test-keys.js';
 const PUBLIC_ROUTES = [
   'POST /api/v1/auth/login',
   'POST /api/v1/auth/complete-new-password',
+  'POST /api/v1/auth/forgot-password',
+  'POST /api/v1/auth/reset-password',
   'GET /api/v1/auth/provider-url',
   'POST /api/v1/auth/callback',
   'POST /api/v1/auth/session/refresh',

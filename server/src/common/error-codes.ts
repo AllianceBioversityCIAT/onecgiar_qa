@@ -85,10 +85,15 @@ export const ERROR_CATALOG = {
     message:
       'The password change took too long or is no longer valid. Sign in again to restart it.',
   },
+  AUTH_RESET_CODE_INVALID: {
+    status: 400,
+    message:
+      'The verification code is wrong or has expired. Check the latest email we sent, or ask for a new code.',
+  },
   AUTH_PASSWORD_POLICY: {
     status: 400,
     message:
-      'The new password does not meet the password requirements. Choose a stronger password.',
+      'The new password does not meet the requirements: at least 8 characters, with an uppercase letter, a lowercase letter, a number and a symbol.',
   },
   AUTH_SESSION_MISSING: {
     status: 401,
@@ -201,7 +206,7 @@ export const ERROR_CATALOG = {
   USERS_INVITATION_NOT_APPLICABLE: {
     status: 409,
     message:
-      'An invitation can only be resent to a custom-account user, invited by QA, who has not signed in yet.',
+      'An invitation can only be sent to an active custom-account user who has no password yet, or whose sign-in account was removed. A user with a password can use "Forgot password?" on the sign-in page.',
   },
   USERS_LAST_ADMIN: {
     status: 409,

@@ -100,8 +100,13 @@ export class CognitoAdminClient {
           UserAttributes: [
             { Name: 'email', Value: input.email },
             { Name: 'email_verified', Value: 'true' },
-            { Name: 'given_name', Value: input.givenName },
-            { Name: 'family_name', Value: input.familyName },
+            // A user QA knows without a name (none yet) gets no empty attribute.
+            ...(input.givenName
+              ? [{ Name: 'given_name', Value: input.givenName }]
+              : []),
+            ...(input.familyName
+              ? [{ Name: 'family_name', Value: input.familyName }]
+              : []),
           ],
           DesiredDeliveryMediums: ['EMAIL'],
         }),

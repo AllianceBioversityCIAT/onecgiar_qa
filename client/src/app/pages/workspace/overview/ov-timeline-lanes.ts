@@ -58,7 +58,10 @@ const LABEL_CLASS: Record<LaneStepState, string> = {
         <h3 id="overview-lanes-title" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">
           Progress by timeline
         </h3>
-        <a hlmBtn qaBtn tone="link" size="sm" routerLink="/cycle" class="-mr-2.5">Open Cycle</a>
+        <!-- Cycle is an admin screen: the other roles see the timelines without the link. -->
+        @if (cycleLink()) {
+          <a hlmBtn qaBtn tone="link" size="sm" routerLink="/cycle" class="-mr-2.5">Open Cycle</a>
+        }
       </div>
 
       <ul class="m-0 flex list-none flex-col p-0">
@@ -144,6 +147,8 @@ const LABEL_CLASS: Record<LaneStepState, string> = {
 })
 export class OvTimelineLanes {
   readonly lanes = input.required<readonly TimelineLaneVm[]>();
+  /** "Open Cycle" in the header (admin only). */
+  readonly cycleLink = input(true);
   /** Open the stages pop-up of a timeline. */
   readonly viewStages = output<string>();
 

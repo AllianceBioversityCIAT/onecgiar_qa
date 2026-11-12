@@ -1,15 +1,61 @@
-<!-- Overview (QA lead): a dashboard where each block answers one question of the QA admin. Data comes from overview.mock.ts. -->
+<!-- Overview: the QA admin's dashboard (each block answers one of her questions), or, for the assessor, lead assessor, TPB
+     and PPU, "Your work" and a few figures of their own (Juanpa, 2026-11-11). Data: overview.mock.ts, overview-roles.mock.ts. -->
 
 <!-- Page header -->
-<div class="flex scroll-mt-6 flex-wrap items-start gap-4 px-4 pt-8 sm:px-6 lg:px-8">
-  <div class="flex min-w-0 flex-1 flex-col gap-1">
+<div class="flex scroll-mt-6 flex-wrap items-start gap-x-4 gap-y-2 px-4 pt-8 sm:px-6 lg:px-8">
+  <!-- At least 320px for the greeting: on phones "Viewing as" wraps under it. -->
+  <div class="flex min-w-[min(100%,320px)] flex-[1_1_320px] flex-col gap-1">
     <h1 class="m-0 text-(length:--fs-26) font-bold leading-[1.2] tracking-[-0.02em] text-(--text)">{{ greeting() }}</h1>
-    @if (context(); as c) {
-      <p class="m-0 text-(length:--fs-14) font-normal text-(--text-3)">{{ c.lead }}<span class="font-semibold text-(--text)">{{ c.key }}</span>{{ c.tail }}</p>
-    }
+    <!-- A warm line that follows the greeting and covers the whole page. No status here: each timeline's status lives in
+         "Progress by timeline" and the sidebar's cycle card (Juanpa, 2026-11-11). -->
+    <p class="m-0 text-(length:--fs-14) font-normal text-(--text-3)">{{ subtitle() }}</p>
   </div>
+  <!-- "Viewing as": design preview of each role's Overview, as in Review (the real role comes from the signed-in user). -->
+  <qa-select
+    [value]="role()"
+    (valueChange)="setRole($event)"
+    [options]="roleOptions"
+    label="Viewing as"
+    appearance="inline"
+    panelWidth="240px"
+    class="mt-1.5 flex-none"
+  />
 </div>
 
+@if (role() !== 'admin') {
+  <!-- Body of a reviewing role: what needs them first, then where the timelines are, then their own figures. -->
+  <div class="flex flex-col items-stretch gap-6 px-4 pt-6 pb-8 sm:px-6 lg:px-8">
+    @if (yourWork(); as w) {
+      <qa-ov-your-work [data]="w" />
+    }
+    <div class="grid grid-cols-1 gap-5 xl:grid-cols-12">
+      @switch (role()) {
+        @case ('assessor') {
+          <!-- Will I finish on time? -->
+          <qa-ov-pace class="xl:col-span-12" title="Your pace" [series]="myPace()" />
+          <!-- Where are my results? · Do the programs take my comments? -->
+          <qa-ov-type-progress class="xl:col-span-7" [rows]="myTypes" [query]="myQuery" />
+          <qa-ov-split class="xl:col-span-5" [data]="myComments" headingId="overview-comments-title" />
+        }
+        @case ('lead') {
+          <!-- Where do I start? · Where is the guidance unclear? -->
+          <qa-ov-ranked class="xl:col-span-6" [data]="leadPrograms" headingId="overview-lead-programs-title" />
+          <qa-ov-ranked class="xl:col-span-6" [data]="leadFields" headingId="overview-lead-fields-title" />
+        }
+        @case ('tpb') {
+          <!-- What's next? · How have I decided so far? -->
+          <qa-ov-next-items class="xl:col-span-7" [data]="tpbNext" />
+          <qa-ov-split class="xl:col-span-5" [data]="tpbDecisions" headingId="overview-decisions-title" />
+        }
+        @case ('ppu') {
+          <qa-ov-next-items class="xl:col-span-12" [data]="ppuNext" />
+        }
+      }
+    </div>
+    <!-- Where is each timeline? (no Cycle link: Cycle is an admin screen) -->
+    <qa-ov-timeline-lanes [lanes]="lanes()" [cycleLink]="false" (viewStages)="openStages($event)" />
+  </div>
+} @else {
 <!-- Body -->
 <div class="flex flex-col items-stretch gap-6 px-4 pt-6 pb-8 sm:px-6 lg:px-8">
   <!-- Filters for the whole page (agreed with María Julia and Ángel, 2026-10-27): every block below counts only what they keep.
@@ -66,6 +112,7 @@
     <qa-ov-assessor-load class="xl:col-span-5" [load]="assessorLoad()" [scope]="loadScope()" />
   </div>
 </div>
+}
 
 <!-- Pop-up -->
 <qa-ov-stages [(open)]="stagesOpen" [data]="stagesData()" />

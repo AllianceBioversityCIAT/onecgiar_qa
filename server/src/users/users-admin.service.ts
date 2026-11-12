@@ -7,9 +7,22 @@ import type {
   InvitationState,
   User,
 } from '../database/drizzle/schema/users.js';
+import type {
+  AccessRoleLine,
+  SignInPath,
+} from '../notifications/access-email.js';
+import {
+  type AccessChange,
+  AccessNotifier,
+} from '../notifications/access-notifier.service.js';
 import { CatalogService } from './catalogs/catalog.service.js';
 import { CurrentUserCache, isLiveAssignment } from './current-user.cache.js';
-import { GRANTABLE_ROLES, isGrantableRole, RoleCode } from './permissions.js';
+import {
+  findRoleDefinition,
+  GRANTABLE_ROLES,
+  isGrantableRole,
+  RoleCode,
+} from './permissions.js';
 import type { UserAuditAction } from '../database/drizzle/schema/user-audit-events.js';
 import {
   lockTargetUser,
@@ -129,6 +142,40 @@ interface Grant {
   resultTypeKey: string | null;
 }
 
+/** A committed role change, for the access email: the grants before and after. */
+interface RoleChange {
+  target: User;
+  before: Grant[];
+  after: Grant[];
+}
+
+/** Grants grouped per role for the email, in catalog order of the roles. */
+function roleLines(
+  grants: readonly Grant[],
+  names: ReadonlyMap<string, string>,
+): AccessRoleLine[] {
+  const byRole = new Map<string, Grant[]>();
+  for (const grant of grants) {
+    byRole.set(grant.roleCode, [...(byRole.get(grant.roleCode) ?? []), grant]);
+  }
+  return [...byRole.entries()].map(([code, held]) => {
+    const role = findRoleDefinition(code)?.name ?? code;
+    if (held.every((g) => g.resultTypeKey === null)) {
+      return { role, resultTypes: null };
+    }
+    if (held.some((g) => g.resultTypeKey === ALL_RESULT_TYPES)) {
+      return { role, resultTypes: 'all' };
+    }
+    return {
+      role,
+      resultTypes: held
+        .map((g) => g.resultTypeKey!)
+        .map((key) => names.get(key) ?? key)
+        .sort((a, b) => a.localeCompare(b)),
+    };
+  });
+}
+
 const grantKey = (roleCode: string, resultTypeKey: string | null) =>
   `${roleCode}|${resultTypeKey ?? ''}`;
 
@@ -179,6 +226,7 @@ export class UsersAdminService {
     @Inject(CatalogService) private readonly catalogs: CatalogService,
     @Inject(CognitoAdminClient) private readonly cognito: CognitoAdminClient,
     @Inject(CurrentUserCache) private readonly cache: CurrentUserCache,
+    @Inject(AccessNotifier) private readonly notifier: AccessNotifier,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -238,6 +286,19 @@ export class UsersAdminService {
           await this.markExecuted(repos, ctx, user.id);
           return { userId: user.id, invitation: invitation.state };
         });
+        // After the commit: the email never decides the outcome.
+        await this.announce({
+          kind: 'granted',
+          email: input.email,
+          firstName: input.firstName,
+          grants: input.grants,
+          signIn:
+            input.accountType === 'sso'
+              ? 'sso'
+              : invitation.state === 'sent'
+                ? 'temporary_password'
+                : 'existing_password',
+        });
         return created;
       },
       (result) => result.userId,
@@ -288,10 +349,19 @@ export class UsersAdminService {
 
       const grants = shape.grants.map((g) => g.grant);
       const exclusions = shape.exclusions as ExclusionInput[];
-      return this.mutate(ctx, userId, async (repos, target) => {
+      let change: RoleChange | undefined;
+      const result = await this.mutate(ctx, userId, async (repos, target) => {
         // No short-circuit: every part runs, and any of them may be the refusal.
         const edited = await this.applyEdit(repos, ctx, target, wanted);
+        const before = await this.heldGrants(repos, target.id);
         const roled = await this.applyRoles(repos, ctx, target, grants);
+        if (roled) {
+          change = {
+            target,
+            before,
+            after: await this.heldGrants(repos, target.id),
+          };
+        }
         const scoped = await this.applyPrograms(
           repos,
           ctx,
@@ -306,6 +376,8 @@ export class UsersAdminService {
         );
         return edited || roled || scoped || reconciled;
       });
+      if (change) await this.announceRoleChange(ctx, change);
+      return result;
     });
   }
 
@@ -321,9 +393,21 @@ export class UsersAdminService {
   ): Promise<UserChangeResult> {
     return this.logged('roles', ctx, userId, async () => {
       const grants = await this.validateRoles(roles);
-      return this.mutate(ctx, userId, (repos, target) =>
-        this.applyRoles(repos, ctx, target, grants),
-      );
+      let change: RoleChange | undefined;
+      const result = await this.mutate(ctx, userId, async (repos, target) => {
+        const before = await this.heldGrants(repos, target.id);
+        const roled = await this.applyRoles(repos, ctx, target, grants);
+        if (roled) {
+          change = {
+            target,
+            before,
+            after: await this.heldGrants(repos, target.id),
+          };
+        }
+        return roled;
+      });
+      if (change) await this.announceRoleChange(ctx, change);
+      return result;
     });
   }
 
@@ -420,8 +504,9 @@ export class UsersAdminService {
    * guard first, oneself included.
    */
   deactivate(ctx: AdminContext, userId: number): Promise<UserChangeResult> {
-    return this.logged('deactivate', ctx, userId, () =>
-      this.mutate(ctx, userId, async (repos, target) => {
+    return this.logged('deactivate', ctx, userId, async () => {
+      let removed: { target: User; grants: Grant[] } | undefined;
+      const result = await this.mutate(ctx, userId, async (repos, target) => {
         if (!target.isActive) return false;
         const views = await repos.assignments.findActiveViewsByUserId(
           target.id,
@@ -438,29 +523,75 @@ export class UsersAdminService {
         await this.audit(repos, ctx, target.id, 'deactivate', {
           isActive: { before: true, after: false },
         });
+        removed = { target, grants: await this.heldGrants(repos, target.id) };
         return true;
-      }),
-    );
+      });
+      // Only someone who could use QA is told they no longer can.
+      if (removed && removed.grants.length > 0) {
+        await this.announce({
+          kind: 'removed',
+          email: removed.target.email,
+          firstName: removed.target.firstName,
+          grants: [],
+          signIn: this.signInOf(removed.target),
+        });
+      }
+      return result;
+    });
   }
 
+  /**
+   * Reactivates the user. A custom user whose Cognito account is gone (removed
+   * from the shared pool meanwhile) gets it back first: `AdminCreateUser`
+   * emails a temporary password, and the stale `cognito_sub` is cleared in the
+   * same transaction so the next sign-in links the new account by its verified
+   * email (admission step 2). A Cognito failure (503) writes nothing.
+   */
   activate(ctx: AdminContext, userId: number): Promise<UserChangeResult> {
-    return this.logged('activate', ctx, userId, () =>
-      this.mutate(ctx, userId, async (repos, target) => {
+    return this.logged('activate', ctx, userId, async () => {
+      const current = await this.users.findById(userId);
+      const account =
+        current && !current.isActive && current.authSource === 'custom'
+          ? await this.ensureCognitoAccount(current)
+          : null;
+      let granted: { target: User; grants: Grant[] } | undefined;
+      const result = await this.mutate(ctx, userId, async (repos, target) => {
         if (target.isActive) return false;
         await repos.users.update(target.id, { isActive: true });
         await this.audit(repos, ctx, target.id, 'reactivate', {
           isActive: { before: false, after: true },
         });
+        if (account === 'created') {
+          await this.recordRecreatedAccount(repos, ctx, target);
+        }
+        granted = { target, grants: await this.heldGrants(repos, target.id) };
         return true;
-      }),
-    );
+      });
+      if (granted && granted.grants.length > 0) {
+        await this.announce({
+          kind: 'granted',
+          email: granted.target.email,
+          firstName: granted.target.firstName,
+          grants: granted.grants,
+          signIn: this.signInOf(granted.target, account),
+        });
+      }
+      return result;
+    });
   }
 
   // -------------------------------------------------------------------------
   // Invitation (FR-8)
   // -------------------------------------------------------------------------
 
-  /** Only for a custom user QA invited who has never signed in; Cognito first, then the audited write. */
+  /**
+   * For an active custom user who has no password yet, or whose Cognito
+   * account is gone (DD-7 amended): Cognito first, then the audited write.
+   * - no account in the pool → `AdminCreateUser` (new temporary password), the
+   *   stale `cognito_sub` is cleared and the person gets the access email;
+   * - `FORCE_CHANGE_PASSWORD` → `RESEND` (new temporary password);
+   * - any other state → 409: the person has a password ("Forgot password?").
+   */
   resendInvitation(
     ctx: AdminContext,
     userId: number,
@@ -473,30 +604,65 @@ export class UsersAdminService {
       }
       this.assertInvitable(current);
 
-      const outcome = await this.withinCognitoBudget(() =>
-        this.cognito.resendInvitation(current.email),
-      );
-      if (outcome === 'not_applicable') {
-        throw new InvitationNotApplicableError('Cognito has nothing to resend');
+      const account = await this.ensureCognitoAccount(current);
+      if (account === 'present') {
+        throw new InvitationNotApplicableError(
+          'the account already has a password',
+        );
+      }
+      if (account === 'pending') {
+        const outcome = await this.withinCognitoBudget(() =>
+          this.cognito.resendInvitation(current.email),
+        );
+        if (outcome === 'not_applicable') {
+          throw new InvitationNotApplicableError(
+            'Cognito has nothing to resend',
+          );
+        }
       }
 
+      let granted: { target: User; grants: Grant[] } | undefined;
       try {
-        return await this.mutate(ctx, userId, async (repos, target) => {
+        const result = await this.mutate(ctx, userId, async (repos, target) => {
           this.assertInvitable(target);
+          if (account === 'created') {
+            await this.recordRecreatedAccount(repos, ctx, target);
+            granted = {
+              target,
+              grants: await this.heldGrants(repos, target.id),
+            };
+            return true;
+          }
           const invitedAt = new Date();
-          await repos.users.update(target.id, { invitedAt });
+          await repos.users.update(target.id, {
+            invitedAt,
+            invitation: 'sent',
+          });
           await this.audit(repos, ctx, target.id, 'invitation_resend', {
             invitedAt: {
               before: target.invitedAt?.toISOString() ?? null,
               after: invitedAt.toISOString(),
             },
+            ...(target.invitation === 'sent'
+              ? {}
+              : { invitation: { before: target.invitation, after: 'sent' } }),
           });
           return true;
         });
+        if (granted && granted.grants.length > 0) {
+          await this.announce({
+            kind: 'granted',
+            email: granted.target.email,
+            firstName: granted.target.firstName,
+            grants: granted.grants,
+            signIn: 'temporary_password',
+          });
+        }
+        return result;
       } catch (error) {
         // Cognito already sent the email but QA could not record it (the user
-        // signed in or was deactivated meanwhile, or the write failed). The
-        // reason rides on the error so `logged` writes ONE line (design 7 Logging).
+        // was deactivated meanwhile, or the write failed). The reason rides on
+        // the error so `logged` writes ONE line (design 7 Logging).
         if (typeof error === 'object' && error !== null) {
           FORCED_LOG_REASONS.set(error, 'cognito_sent_not_recorded');
         }
@@ -847,21 +1013,180 @@ export class UsersAdminService {
     }
   }
 
+  /** The invitation (FR-8, amended): custom accounts only, never a deactivated user (DD-15: QA would refuse their sign-in). */
   private assertInvitable(user: User): void {
     if (user.authSource !== 'custom') {
       throw new InvitationNotApplicableError('the account is SSO');
     }
-    if (user.lastLoginAt !== null) {
-      throw new InvitationNotApplicableError('the user has signed in');
-    }
-    // DD-15: QA refuses this user's sign-in (403), so no temporary password is sent.
     if (!user.isActive) {
       throw new InvitationNotApplicableError('the user is deactivated');
     }
-    if (user.invitation !== 'sent') {
-      throw new InvitationNotApplicableError(
-        `the invitation is ${user.invitation}`,
+  }
+
+  /**
+   * The person's Cognito account, created when it is missing (it was removed
+   * from the shared pool, or never existed). `created`: Cognito emailed a
+   * temporary password. `pending`: the account still waits for its first
+   * password. `present`: the account has a password. One 10 s budget.
+   */
+  private ensureCognitoAccount(
+    user: User,
+  ): Promise<'created' | 'pending' | 'present'> {
+    return this.withinCognitoBudget(async () => {
+      const account = await this.cognito.getUser(user.email);
+      if (account) {
+        return account.status === 'FORCE_CHANGE_PASSWORD'
+          ? 'pending'
+          : 'present';
+      }
+      const outcome = await this.cognito.createUser({
+        email: user.email,
+        givenName: user.firstName ?? '',
+        familyName: user.lastName ?? '',
+      });
+      return outcome === 'created' ? 'created' : 'present';
+    });
+  }
+
+  /**
+   * A recreated Cognito account has a new `sub`: the old one is cleared so the
+   * next sign-in links the new account by its verified email (admission step
+   * 2) instead of failing as an email collision. Audited as an invitation.
+   */
+  private async recordRecreatedAccount(
+    repos: UsersAdminRepositories,
+    ctx: AdminContext,
+    target: User,
+  ): Promise<void> {
+    const invitedAt = new Date();
+    await repos.users.update(target.id, {
+      cognitoSub: null,
+      invitation: 'sent',
+      invitedAt,
+    });
+    await this.audit(repos, ctx, target.id, 'invitation_resend', {
+      invitedAt: {
+        before: target.invitedAt?.toISOString() ?? null,
+        after: invitedAt.toISOString(),
+      },
+      ...(target.invitation === 'sent'
+        ? {}
+        : { invitation: { before: target.invitation, after: 'sent' } }),
+      cognitoAccount: { before: 'missing', after: 'created' },
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Access email (after the commit; never decides the outcome)
+  // -------------------------------------------------------------------------
+
+  /** The grantable roles the user holds now, read in the transaction. */
+  private async heldGrants(
+    repos: UsersAdminRepositories,
+    userId: number,
+  ): Promise<Grant[]> {
+    return (await repos.assignments.findActiveByUserId(userId))
+      .filter((a) => isGrantableRole(a.roleCode))
+      .map((a) => ({ roleCode: a.roleCode, resultTypeKey: a.resultTypeKey }));
+  }
+
+  /**
+   * After a committed role change of an active user: removed (no role left),
+   * granted (first role) or updated. A custom user who gains or keeps access
+   * gets their Cognito account back if it is gone; a failure there is logged
+   * and the email still goes out (the admin can resend the invitation).
+   */
+  private async announceRoleChange(
+    ctx: AdminContext,
+    change: RoleChange,
+  ): Promise<void> {
+    const { target, before, after } = change;
+    if (!target.isActive) return;
+    const kind =
+      after.length === 0
+        ? 'removed'
+        : before.length === 0
+          ? 'granted'
+          : 'updated';
+    let account: 'created' | 'pending' | 'present' | null = null;
+    if (kind !== 'removed' && target.authSource === 'custom') {
+      account = await this.restoreAfterCommit(ctx, target);
+    }
+    await this.announce({
+      kind,
+      email: target.email,
+      firstName: target.firstName,
+      grants: after,
+      signIn: this.signInOf(target, account),
+    });
+  }
+
+  /** `ensureCognitoAccount` + its audited record, outside the role change's transaction. */
+  private async restoreAfterCommit(
+    ctx: AdminContext,
+    target: User,
+  ): Promise<'created' | 'pending' | 'present' | null> {
+    try {
+      const account = await this.ensureCognitoAccount(target);
+      if (account === 'created') {
+        await this.unitOfWork.run(async (repos) => {
+          const locked = await lockTargetUser(repos, target.id);
+          await this.recordRecreatedAccount(repos, ctx, locked);
+        });
+        this.cache.invalidate(target.id);
+      }
+      return account;
+    } catch {
+      this.logger.warn(
+        JSON.stringify({
+          event: 'users_admin',
+          action: 'account_restore',
+          targetId: target.id,
+          actorId: ctx.actorId,
+          outcome: 'error',
+          requestId: ctx.requestId,
+        }),
       );
+      return null;
+    }
+  }
+
+  /** How the person signs in, for the email's instructions. */
+  private signInOf(
+    user: User,
+    account: 'created' | 'pending' | 'present' | null = null,
+  ): SignInPath {
+    if (user.authSource !== 'custom') return 'sso';
+    if (account === 'created' || account === 'pending') {
+      return 'temporary_password';
+    }
+    if (account === 'present') return 'existing_password';
+    return user.lastLoginAt === null && user.invitation === 'sent'
+      ? 'temporary_password'
+      : 'existing_password';
+  }
+
+  /** Builds the role lines (result type names from the catalog when it answers) and sends. Never throws. */
+  private async announce(
+    change: Omit<AccessChange, 'roles'> & { grants: readonly Grant[] },
+  ): Promise<void> {
+    // Nothing to tell someone who still cannot use QA.
+    if (change.kind !== 'removed' && change.grants.length === 0) return;
+    try {
+      const names = new Map<string, string>();
+      if (change.grants.some((g) => g.resultTypeKey !== null)) {
+        try {
+          for (const type of await this.catalogs.listResultTypes()) {
+            names.set(type.key, type.name);
+          }
+        } catch {
+          // No catalog copy: the keys stand in for the names.
+        }
+      }
+      const { grants, ...rest } = change;
+      await this.notifier.notify({ ...rest, roles: roleLines(grants, names) });
+    } catch {
+      this.logger.warn('access_email outcome=error');
     }
   }
 

@@ -9,6 +9,8 @@ import {
   AdmissionService,
 } from './admission.service.js';
 import { DrizzleAdmissionUnitOfWork } from './admission.unit-of-work.js';
+import { AccountRecoveryService } from './account-recovery.service.js';
+import { CognitoAdminModule } from './cognito-admin.module.js';
 import { CognitoAuthClient } from './cognito-auth.client.js';
 import { AuthThrottlerModule } from './auth-throttle.js';
 import { AuthController } from './auth.controller.js';
@@ -25,6 +27,7 @@ import { JWKS_CACHE, TokenVerifier } from './token-verifier.service.js';
   imports: [
     DrizzleModule,
     UsersModule,
+    CognitoAdminModule,
     ConfigModule.forFeature(authConfig),
     AuthThrottlerModule,
   ],
@@ -37,6 +40,7 @@ import { JWKS_CACHE, TokenVerifier } from './token-verifier.service.js';
     OriginGuard,
     { provide: ADMISSION_UNIT_OF_WORK, useClass: DrizzleAdmissionUnitOfWork },
     AdmissionService,
+    AccountRecoveryService,
   ],
   exports: [TokenVerifier, AdmissionService],
 })

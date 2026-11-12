@@ -33,6 +33,23 @@ export class AuthApi {
       .pipe(unwrap<Session>());
   }
 
+  /**
+   * Starts a password reset for a custom (non-CGIAR) account. Always 202 `{ accepted: true }`,
+   * whether or not the account exists, so the answer never tells which emails are registered.
+   */
+  forgotPassword(email: string): Observable<{ accepted: boolean }> {
+    return this.http
+      .post<ApiEnvelope<{ accepted: boolean }>>(`${this.base}/forgot-password`, { email })
+      .pipe(unwrap<{ accepted: boolean }>());
+  }
+
+  /** Sets a new password with the emailed verification code. 204, no body. */
+  resetPassword(email: string, code: string, newPassword: string): Observable<void> {
+    return this.http
+      .post<ApiEnvelope<void>>(`${this.base}/reset-password`, { email, code, newPassword })
+      .pipe(unwrap<void>());
+  }
+
   providerUrl(redirectUri: string): Observable<{ url: string }> {
     return this.http
       .get<ApiEnvelope<{ url: string }>>(`${this.base}/provider-url`, {
