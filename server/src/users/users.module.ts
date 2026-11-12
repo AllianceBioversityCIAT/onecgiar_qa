@@ -35,6 +35,7 @@ import {
 } from './user-programs.repository.js';
 import { UsersAdminController } from './users-admin.controller.js';
 import { UsersAdminService } from './users-admin.service.js';
+import { NotificationsModule } from '../notifications/notifications.module.js';
 import {
   DrizzleUsersAdminUnitOfWork,
   USERS_ADMIN_UNIT_OF_WORK,
@@ -62,6 +63,7 @@ import {
     DrizzleModule,
     ConfigModule.forFeature(catalogsConfig),
     CognitoAdminModule,
+    NotificationsModule,
   ],
   controllers: [CatalogsController, UsersAdminController],
   providers: [

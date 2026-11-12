@@ -11,6 +11,7 @@ Environment validation and typed configuration. This is the **only** place in th
 | `mysql.config.ts` | `mysqlConfig`: `DATABASE_URL`, `DATABASE_POOL_SIZE` (default 10) |
 | `openapi.config.ts` | `openApiConfig`: `enabled` — `OPENAPI_ENABLED` if set, else on unless `NODE_ENV=production` |
 | `catalogs.config.ts` | `catalogsConfig`: `REPORTING_API_URL`, `CLARISA_API_URL` and the shared `CLARISA_API_KEY` (base URLs and key of the catalog sources) |
+| `notifications.config.ts` | `notificationsConfig`: Notification Microservice base URL (`NOTIFICATION_API_URL`, default production), `enabled` (`NOTIFICATION_EMAIL_ENABLED`), `appUrl` (`APP_URL`, else the first `https://` of `ALLOWED_ORIGINS`). The service is authenticated with `CLARISA_API_KEY`, still read only in `catalogs.config.ts` |
 | `cognito-admin.config.ts` | `cognitoAdminConfig`: region, pool id and `credentials` only when both `COGNITO_ADMIN_*` keys are set (else the SDK default chain, i.e. the host's IAM role) |
 | `dynamodb.config.ts` | `dynamoDbConfig`: `AWS_REGION`, `DYNAMODB_TABLE_NAME`, optional `DYNAMODB_ENDPOINT`, and `credentials` only when both `DYNAMODB_*` keys are set (else the SDK default chain) |
 
@@ -30,6 +31,9 @@ Environment validation and typed configuration. This is the **only** place in th
 | `COGNITO_USER_POOL_URL` | no | user-pool API endpoint override, `https://` only |
 | `REPORTING_API_URL`, `CLARISA_API_URL` | yes | base URLs with the `/api` path, `https://` only |
 | `CLARISA_API_KEY` | yes | **secret**: local `.env` or the secret store only; sent as `x-api-key` to Reporting only |
+| `NOTIFICATION_API_URL` | no | Notification Microservice base URL, `https://` only, without `/send`; default `https://reports.prms.cgiar.org/api/email` |
+| `NOTIFICATION_EMAIL_ENABLED` | no | `true` / `false`; default `true`. e2e sets `false` |
+| `APP_URL` | no | QA web origin linked from emails (exact origin like `ALLOWED_ORIGINS` entries) |
 | `ALLOWED_ORIGINS` | yes | comma-separated exact origins; `https://` only, except `http://localhost:<port>`; no path or trailing slash |
 | `OPENAPI_ENABLED` | no | `true` / `false`; default on unless `NODE_ENV=production` (Swagger UI at `/api/v1/docs`) |
 | `SEED_ADMIN_EMAIL` | no | first ADMIN for `pnpm db:seed` |
@@ -39,7 +43,7 @@ Environment validation and typed configuration. This is the **only** place in th
 
 - **Adding a variable:** add it to `REQUIRED_ENV_VARS` (if required) and validate its format in `validateEnv`, expose it through a `registerAs` namespace, add it to `.env.example` (empty or a safe example — never a real secret), to `vitest.config.e2e.ts` `env` (a dummy value), and to `docs/infrastructure.md` § 6. Add a unit test that names it when missing.
 - **Consumers inject the namespace** (`@Inject(authConfig.KEY) config: ConfigType<typeof authConfig>`), never `process.env`.
-- **Secrets:** read only here, with no fallback literal: `COGNITO_CLIENT_SECRET` in `auth.config.ts`, `DYNAMODB_SECRET_ACCESS_KEY` in `dynamodb.config.ts`, `COGNITO_ADMIN_SECRET_ACCESS_KEY` in `cognito-admin.config.ts`; `CLARISA_API_KEY` in `catalogs.config.ts` (read only there, sent as `x-api-key` to Reporting). `src/auth/no-qa-tokens.spec.ts` pins the reading line of each of the three secrets and of `CLARISA_API_KEY`, and flags fallbacks, literals, logs and `process.env[...]` for the `*SECRET*` names (for `CLARISA_API_KEY` it pins the reader file and line only).
+- **Secrets:** read only here, with no fallback literal: `COGNITO_CLIENT_SECRET` in `auth.config.ts`, `DYNAMODB_SECRET_ACCESS_KEY` in `dynamodb.config.ts`, `COGNITO_ADMIN_SECRET_ACCESS_KEY` in `cognito-admin.config.ts`; `CLARISA_API_KEY` in `catalogs.config.ts` (read only there, sent as `x-api-key` to Reporting and, through `catalogsConfig`, to the Notification Microservice by `src/notifications/email.client.ts`). `src/auth/no-qa-tokens.spec.ts` pins the reading line of each of the three secrets and of `CLARISA_API_KEY`, and flags fallbacks, literals, logs and `process.env[...]` for the `*SECRET*` names (for `CLARISA_API_KEY` it pins the reader file and line only).
 - Endpoints that receive credentials must be validated as `https://`.
 
 ## Testing

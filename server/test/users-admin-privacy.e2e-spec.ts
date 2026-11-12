@@ -374,7 +374,8 @@ describe('NFR-2: no personal data or key in any log, on every mutation route', (
   it('writes ONE decision line when Cognito resent the invitation but QA could not record it', async () => {
     const invitee = await seedTarget({ invitation: 'sent' });
     w.cognito.resendInvitation.mockImplementationOnce(async () => {
-      await w.users.update(invitee.id, { lastLoginAt: new Date() });
+      // Deactivated meanwhile: the in-transaction re-check refuses (DD-15).
+      await w.users.update(invitee.id, { isActive: false });
       return 'resent';
     });
     const res = await asAdmin('post', `/users/${invitee.id}/invitation`);
