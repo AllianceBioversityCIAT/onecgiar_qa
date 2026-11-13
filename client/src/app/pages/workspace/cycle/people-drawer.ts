@@ -7,7 +7,7 @@ import { TimelinePeople } from './timeline-people';
 import { ROLE_SECTIONS, personName } from './timeline-people.logic';
 
 /**
- * "People" drawer of a timeline: who works in it, per role (assessors, lead assessors, brokers, PPU),
+ * "People" drawer of a timeline: who works in it, per role (assessors, lead assessors, third-party brokers, PPU),
  * with add and remove. Only people holding that role in Assessors can be picked.
  */
 @Component({

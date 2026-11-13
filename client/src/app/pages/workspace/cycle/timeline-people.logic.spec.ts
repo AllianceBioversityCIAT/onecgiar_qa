@@ -66,7 +66,7 @@ describe('timeline-people.logic', () => {
 
   it('peopleSummary: counts per role with singular and plural', () => {
     expect(peopleSummary([assignment(1, 1, 'ASSESSOR'), assignment(2, 2, 'ASSESSOR'), assignment(3, 3, 'LEAD_ASSESSOR')])).toBe(
-      '2 assessors · 1 lead assessor · 0 brokers · 0 PPU',
+      '2 assessors · 1 lead assessor · 0 third-party brokers · 0 PPU',
     );
   });
 });
