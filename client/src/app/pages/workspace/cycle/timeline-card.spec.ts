@@ -156,5 +156,14 @@ describe('TimelineCard — collapsible complementary batch', () => {
       assign!.click();
       expect(actions).toEqual(['people']);
     });
+
+    it('open, the card does not repeat "Assign people": the step keeps its own link', () => {
+      const t: Timeline = { ...LIVE, steps: LIVE.steps.map((p, i) => (i === 1 ? { ...p, audienceKey: 'assessors' as const } : p)), assigned: none };
+      fixture.componentRef.setInput('timeline', timelineVM(t));
+      fixture.componentRef.setInput('collapsible', true);
+      fixture.componentRef.setInput('expanded', true);
+      fixture.detectChanges();
+      expect([...el().querySelectorAll('button')].filter((b) => b.textContent?.trim().startsWith('Assign people')).length).toBe(1);
+    });
   });
 });

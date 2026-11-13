@@ -79,7 +79,7 @@ const NOW_TONE: Record<TimelineNow['tone'], string> = {
           }
         </div>
         @if (t.canEdit) {
-          <qa-cycle-timeline-actions [timeline]="t" (action)="menuAction.emit($event)">
+          <qa-cycle-timeline-actions [timeline]="t" [stepsShown]="!collapsible() || expanded()" (action)="menuAction.emit($event)">
             @if (canAddStep()) {
               <button hlmBtn qaBtn tone="secondary" type="button" (click)="addStep.emit()" class="gap-[7px] max-sm:flex-1">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>Add step
