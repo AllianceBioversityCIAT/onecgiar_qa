@@ -23,7 +23,7 @@
           panelWidth="260px"
         />
       } @else if (store.cycle(); as cycle) {
-        <span class="text-(length:--fs-14) text-(--text-3)">Cycle <span class="font-semibold text-(--text)">{{ cycle.name }}</span></span>
+        <span class="text-(length:--fs-14) text-(--text-3)">Cycle <span class="font-semibold text-(--text)">{{ cycleShortName(cycle.name) }}</span></span>
       } @else if (store.state() === 'loading') {
         <span aria-hidden="true" class="flex items-center gap-2"><qa-skeleton class="h-3.5 w-10" /><qa-skeleton class="h-3.5 w-24" /></span>
       }
