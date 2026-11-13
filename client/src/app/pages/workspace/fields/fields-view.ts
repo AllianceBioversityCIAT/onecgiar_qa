@@ -1,4 +1,5 @@
 import { Component, DestroyRef, ElementRef, afterNextRender, computed, effect, inject, linkedSignal, signal, viewChild } from '@angular/core';
+import { cycleShortName } from '../../../core/domain/cycle-label';
 import { FieldConfigField, FieldConfigResultType, PublishTimelines } from '../../../core/api/field-config.models';
 import { QaButtonImports, QaSelect, QaSelectOption, QaSkeleton } from '../../../ui';
 import {
@@ -98,10 +99,11 @@ export class FieldsView {
   protected readonly cycleOptions = computed<readonly QaSelectOption[]>(() =>
     this.store.cycles().map((c) => ({
       value: String(c.id),
-      label: c.name,
+      label: cycleShortName(c.name),
       description: c.status === 'active' ? 'Active cycle' : 'Draft cycle',
     })),
   );
+  protected readonly cycleShortName = cycleShortName;
   protected readonly cycleValue = computed(() => (this.store.cycle() ? String(this.store.cycle()!.id) : null));
 
   protected readonly typeOptions = computed<readonly QaSelectOption[]>(() =>
