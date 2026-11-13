@@ -43,14 +43,14 @@ export function candidatesFor(role: AssignableRole, team: readonly UserSummary[]
     .sort((a, b) => personName(a).localeCompare(personName(b)));
 }
 
-/** "3 assessors · 1 lead assessor · 0 brokers · 1 PPU": the drawer subtitle. */
+/** "3 assessors · 1 lead assessor · 0 third-party brokers · 1 PPU": the drawer subtitle. */
 export function peopleSummary(users: readonly TimelineUser[]): string {
   const n = (role: AssignableRole) => users.filter((u) => u.role === role).length;
   const word = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
   return [
     word(n('ASSESSOR'), 'assessor', 'assessors'),
     word(n('LEAD_ASSESSOR'), 'lead assessor', 'lead assessors'),
-    word(n('TPB'), 'broker', 'brokers'),
+    word(n('TPB'), 'third-party broker', 'third-party brokers'),
     `${n('PPU')} PPU`,
   ].join(' · ');
 }

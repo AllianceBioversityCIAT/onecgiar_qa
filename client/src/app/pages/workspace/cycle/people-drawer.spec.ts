@@ -28,7 +28,7 @@ class FakePeople {
   readonly roleError = signal({});
   private readonly users = signal<readonly TimelineUser[]>([named, nameless]);
   readonly byRole = computed(() => assignedByRole(this.users()));
-  readonly summary = computed(() => '1 assessor · 1 lead assessor · 0 brokers · 0 PPU');
+  readonly summary = computed(() => '1 assessor · 1 lead assessor · 0 third-party brokers · 0 PPU');
   candidates(role: AssignableRole): readonly UserSummary[] {
     return role === 'ASSESSOR' ? [candidate] : [];
   }
