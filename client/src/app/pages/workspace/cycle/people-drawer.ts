@@ -72,8 +72,9 @@ import { peopleSummary, personName, sectionsFor } from './timeline-people.logic'
                 }
 
                 @let options = optionsFor(s.role);
-                <!-- Nobody else holds the role: one line saying where to give it, instead of an empty picker and a disabled Add. -->
-                @if (canWrite() && options.length) {
+                <!-- No one left to add: one line instead of an empty picker and a disabled Add. The picker stays while an
+                     add runs (adding the last holder empties the list mid-way). -->
+                @if (canWrite() && (options.length || people.isAdding(s.role))) {
                   <div class="flex flex-wrap items-end gap-2">
                     <qa-select
                       [value]="picked()[s.role] ?? null"
@@ -98,8 +99,12 @@ import { peopleSummary, personName, sectionsFor } from './timeline-people.logic'
                     >Add</button>
                   </div>
                 }
-                @if (canWrite() && !options.length) {
-                  <p class="m-0 text-(length:--fs-12) text-(--text-3)">Only people with this role can be added. Give the role in <a routerLink="/assessors" class="font-semibold text-(--accent) underline underline-offset-2 outline-none focus-visible:shadow-(--focus-ring)">Assessors</a>.</p>
+                @if (canWrite() && !options.length && !people.isAdding(s.role)) {
+                  @if (people.byRole()[s.role].length) {
+                    <p class="m-0 text-(length:--fs-12) text-(--text-3)">Everyone who holds this role is already here. To add someone else, give them the role in <a routerLink="/assessors" class="font-semibold text-(--accent) underline underline-offset-2 outline-none focus-visible:shadow-(--focus-ring)">Assessors</a>.</p>
+                  } @else {
+                    <p class="m-0 text-(length:--fs-12) text-(--text-3)">Only people with this role can be added. Give the role in <a routerLink="/assessors" class="font-semibold text-(--accent) underline underline-offset-2 outline-none focus-visible:shadow-(--focus-ring)">Assessors</a>.</p>
+                  }
                 }
                 @if (people.roleError()[s.role]; as message) {
                   <p role="alert" class="m-0 text-(length:--fs-13) text-(--danger)">{{ message }}</p>

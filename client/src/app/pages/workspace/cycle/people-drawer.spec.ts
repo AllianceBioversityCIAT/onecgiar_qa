@@ -33,7 +33,7 @@ class FakePeople {
     return role === 'ASSESSOR' ? [candidate] : [];
   }
   load = vi.fn(() => Promise.resolve(true));
-  isAdding = () => false;
+  isAdding = (_role: AssignableRole) => false;
   isRemoving = () => false;
 }
 
@@ -70,13 +70,44 @@ describe('PeopleDrawer', () => {
     expect(assessors.querySelector('a[href="/assessors"]')).toBeNull();
   });
 
-  it('a role nobody else holds shows only that line: no empty picker, no disabled Add', () => {
+  const hasAdd = (el: HTMLElement) => [...el.querySelectorAll('button')].some((b) => b.textContent?.trim() === 'Add');
+
+  it('a role with no one left to add shows only one line: no empty picker, no disabled Add', () => {
     const fixture = render();
     const lead = section(fixture.nativeElement, 'LEAD_ASSESSOR');
     const assessors = section(fixture.nativeElement, 'ASSESSOR');
 
-    expect([...lead.querySelectorAll('button')].some((b) => b.textContent?.trim() === 'Add')).toBe(false);
-    expect([...assessors.querySelectorAll('button')].some((b) => b.textContent?.trim() === 'Add')).toBe(true);
+    expect(hasAdd(lead)).toBe(false);
+    expect(lead.querySelector('qa-select')).toBeNull();
+    expect(lead.textContent).toContain('give them the role in Assessors');
+    expect(hasAdd(assessors)).toBe(true);
+  });
+
+  it('a role nobody holds at all says only people with the role can be added', () => {
+    const fixture = render();
+    const tpb = section(fixture.nativeElement, 'TPB');
+    expect(tpb.textContent).toContain('Only people with this role can be added');
+    expect(hasAdd(tpb)).toBe(false);
+  });
+
+  it('after adding the last person who holds the role, it says everyone is here (not "only people with this role")', () => {
+    const fixture = render();
+    const lead = section(fixture.nativeElement, 'LEAD_ASSESSOR');
+    expect(lead.textContent).toContain('Everyone who holds this role is already here');
+    expect(lead.textContent).not.toContain('Only people with this role can be added');
+  });
+
+  it('keeps the picker while an add runs, even if that empties the list', () => {
+    TestBed.configureTestingModule({ providers: [provideRouter([])] });
+    class Adding extends FakePeople {
+      override isAdding = (role: AssignableRole) => role === 'LEAD_ASSESSOR';
+    }
+    TestBed.overrideComponent(PeopleDrawer, { set: { providers: [{ provide: TimelinePeople, useClass: Adding }] } });
+    const fixture = TestBed.createComponent(PeopleDrawer);
+    fixture.componentRef.setInput('timeline', TIMELINE);
+    fixture.componentRef.setInput('open', true);
+    fixture.detectChanges();
+    expect(hasAdd(section(fixture.nativeElement, 'LEAD_ASSESSOR'))).toBe(true);
   });
 
   it('shows only the roles the timeline uses (a fast track without lead nor broker steps), and says only those', () => {
