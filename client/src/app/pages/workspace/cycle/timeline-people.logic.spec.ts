@@ -1,6 +1,6 @@
 import { TimelineUser } from '../../../core/api/cycles.models';
 import { UserSummary } from '../../../core/api/users.models';
-import { assignedByRole, candidatesFor, peopleSummary, personName } from './timeline-people.logic';
+import { assignedByRole, candidatesFor, peopleSummary, personName, sectionsFor } from './timeline-people.logic';
 
 const user = (id: number, first: string | null, roles: UserSummary['roles'], status: UserSummary['status'] = 'active'): UserSummary => ({
   id,
@@ -66,7 +66,34 @@ describe('timeline-people.logic', () => {
 
   it('peopleSummary: counts per role with singular and plural', () => {
     expect(peopleSummary([assignment(1, 1, 'ASSESSOR'), assignment(2, 2, 'ASSESSOR'), assignment(3, 3, 'LEAD_ASSESSOR')])).toBe(
-      '2 assessors · 1 lead assessor · 0 brokers · 0 PPU',
+      '2 assessors · 1 lead assessor · 0 third-party brokers · 0 PPU',
     );
+  });
+});
+
+describe('sectionsFor', () => {
+  const steps = (...keys: string[]) => keys.map((audienceKey) => ({ audienceKey }));
+  const roles = (s: readonly { role: string }[]) => s.map((x) => x.role);
+
+  it('keeps only the roles the steps use, assessors always', () => {
+    expect(roles(sectionsFor(steps('programs', 'ppu'), []))).toEqual(['ASSESSOR', 'PPU']);
+    expect(roles(sectionsFor(steps('assessors', 'programs', 'lead_assessors', 'tpb', 'ppu'), []))).toEqual(['ASSESSOR', 'LEAD_ASSESSOR', 'TPB', 'PPU']);
+  });
+
+  it('never hides a role that still has someone assigned', () => {
+    const lead = { role: 'LEAD_ASSESSOR' } as TimelineUser;
+    expect(roles(sectionsFor(steps('assessors', 'ppu'), [lead]))).toEqual(['ASSESSOR', 'LEAD_ASSESSOR', 'PPU']);
+  });
+
+  it('steps without audiences (mock data) show every role', () => {
+    expect(roles(sectionsFor([{}, {}], []))).toEqual(['ASSESSOR', 'LEAD_ASSESSOR', 'TPB', 'PPU']);
+    expect(roles(sectionsFor([], []))).toEqual(['ASSESSOR', 'LEAD_ASSESSOR', 'TPB', 'PPU']);
+  });
+});
+
+describe('peopleSummary — only the roles asked for', () => {
+  it('names the shown roles in workflow order', () => {
+    const u = (role: TimelineUser['role']) => ({ role }) as TimelineUser;
+    expect(peopleSummary([u('ASSESSOR'), u('PPU')], ['PPU', 'ASSESSOR'])).toBe('1 assessor · 1 PPU');
   });
 });

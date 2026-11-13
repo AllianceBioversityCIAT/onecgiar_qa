@@ -184,6 +184,14 @@ describe('cycle.logic', () => {
       ]);
       expect(timelineVM(t, true).menu.find((m) => m.action === 'add-results')?.label).toBe('Load results into QA round 2');
     });
+
+    it('on hold, the load leaves the menu and goes to the card button, with the same name', () => {
+      const t = timeline('Waiting for results', [step('Assess', '10 Nov 2026', '12 Nov 2026')]);
+      const vm = timelineVM(t, true);
+      expect(vm.waitingLoad).toBe(true);
+      expect(vm.loadLabel).toBe('Load results into QA round 1');
+      expect(vm.menu.some((m) => m.action === 'add-results')).toBe(false);
+    });
   });
 
   describe('timelineNow — one line for a collapsed complementary batch', () => {

@@ -2,7 +2,7 @@ import { NgTemplateOutlet } from '@angular/common';
 import { Component, ElementRef, computed, effect, inject, signal, viewChild } from '@angular/core';
 import { HlmInputImports } from '@spartan/input';
 import { TableSort } from '../../../core/list/table-sort';
-import { QaButtonImports, QaMenuImports, QaMultiSelect, QaMultiSelectOption, QaReveal } from '../../../ui';
+import { QaButtonImports, QaMenuImports, QaMultiSelect, QaMultiSelectOption, QaReveal, QaSegmented, QaSegmentedOption } from '../../../ui';
 import { AssessorsSkeleton } from './assessors-skeleton';
 import { AssessorDrawer, DrawerSession } from './assessor-drawer';
 import { AssessorsStore } from './assessors-store';
@@ -40,12 +40,12 @@ const reviewedOf = (p: TeamMember) => p.prog.reduce((a, e) => a + e.reviewed, 0)
 @Component({
   selector: 'qa-assessors-view',
   templateUrl: './assessors-view.html',
-  imports: [NgTemplateOutlet, QaButtonImports, QaReveal, AssessorsSkeleton, HlmInputImports, QaMenuImports, QaMultiSelect, AssessorDrawer, AssessorRoleCell, AssessorTypesCell],
+  imports: [NgTemplateOutlet, QaButtonImports, QaReveal, QaSegmented, AssessorsSkeleton, HlmInputImports, QaMenuImports, QaMultiSelect, AssessorDrawer, AssessorRoleCell, AssessorTypesCell],
   providers: [AssessorsStore],
 })
 export class AssessorsView {
   protected readonly store = inject(AssessorsStore);
-  /** Active team, or the removed people while "Show removed people" is on. */
+  /** Active team, or the removed people while "Removed" is chosen. */
   protected readonly showRemoved = signal(false);
   protected readonly team = computed(() => (this.showRemoved() ? (this.store.removed() ?? []) : this.store.team()));
 
@@ -237,17 +237,30 @@ export class AssessorsView {
 
   protected readonly loadingRemoved = signal(false);
 
-  protected async toggleRemoved(): Promise<void> {
-    if (this.loadingRemoved()) return;
-    if (!this.showRemoved() && this.store.removed() === null) {
-      this.loadingRemoved.set(true);
-      try {
-        await this.store.loadRemoved();
-      } finally {
-        this.loadingRemoved.set(false);
-      }
+  /**
+   * "[ Team 24 | Removed ]": always visible, the chosen side marked. Counts only when known (the removed list
+   * loads on demand, so it has no number until it is opened once).
+   */
+  protected readonly view = computed(() => (this.showRemoved() ? 'removed' : 'team'));
+  protected readonly viewOptions = computed<readonly QaSegmentedOption[]>(() => [
+    { value: 'team', label: 'Team', count: this.store.state() === 'ready' ? this.store.team().length : undefined },
+    // Until the team is in, the switch waits (the error and loading states belong to the team list).
+    { value: 'removed', label: 'Removed', count: this.store.removed()?.length, disabled: this.store.state() !== 'ready' },
+  ]);
+
+  /** Switches the list; the removed people load the first time (skeleton meanwhile, back to the team if it fails). */
+  protected async selectView(value: string | null): Promise<void> {
+    const removed = value === 'removed';
+    if (removed === this.showRemoved()) return;
+    this.showRemoved.set(removed);
+    if (!removed || this.store.removed() !== null || this.loadingRemoved()) return;
+    this.loadingRemoved.set(true);
+    try {
+      await this.store.loadRemoved();
+    } finally {
+      this.loadingRemoved.set(false);
     }
-    this.showRemoved.update((v) => !v);
+    if (this.store.removed() === null) this.showRemoved.set(false);
   }
 
   protected reactivate(member: TeamMember): void {
