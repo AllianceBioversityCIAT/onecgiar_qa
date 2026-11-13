@@ -123,21 +123,38 @@ describe('TimelineCard — collapsible complementary batch', () => {
       expect(el().querySelector('[data-testid="timeline-now"]')?.textContent).toContain('No one assigned');
     });
 
-    it('on hold and able to load: a "Load results" button on the card runs the load action', () => {
+    const loadBtn = () => [...el().querySelectorAll('button')].find((b) => b.textContent?.trim().startsWith('Load results into QA round'));
+
+    it('on hold and able to load: the card button carries the full name and runs the load action', () => {
       const held: Timeline = { ...LIVE, status: 'Waiting for results', steps: LIVE.steps.map((p) => ({ ...p, state: 'upcoming' as const })) };
       fixture.componentRef.setInput('timeline', timelineVM(held, true));
       fixture.detectChanges();
       const actions = withActions();
 
-      [...el().querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Load results')!.click();
+      expect(loadBtn()?.textContent).toContain('Load results into QA round 1');
+      loadBtn()!.click();
       expect(actions).toEqual(['add-results']);
     });
 
-    it('no "Load results" button when the timeline cannot take a sync now', () => {
+    it('no load button when the timeline cannot take a sync now', () => {
       const held: Timeline = { ...LIVE, status: 'Waiting for results', steps: LIVE.steps.map((p) => ({ ...p, state: 'upcoming' as const })) };
       fixture.componentRef.setInput('timeline', timelineVM(held, false));
       fixture.detectChanges();
-      expect([...el().querySelectorAll('button')].some((b) => b.textContent?.trim() === 'Load results')).toBe(false);
+      expect(loadBtn()).toBeUndefined();
+    });
+
+    it('a live timeline with a step nobody can work: an "Assign people" button on the card opens People', () => {
+      const t: Timeline = { ...LIVE, apiId: 7, steps: LIVE.steps.map((p, i) => (i === 1 ? { ...p, audienceKey: 'assessors' as const } : p)), assigned: none };
+      fixture.componentRef.setInput('timeline', timelineVM(t));
+      fixture.componentRef.setInput('collapsible', true);
+      fixture.componentRef.setInput('expanded', false);
+      fixture.detectChanges();
+      const actions = withActions();
+
+      const assign = [...el().querySelectorAll('button')].find((b) => b.textContent?.trim().startsWith('Assign people'));
+      expect(assign).toBeDefined();
+      assign!.click();
+      expect(actions).toEqual(['people']);
     });
   });
 });
