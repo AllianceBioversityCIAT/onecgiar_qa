@@ -44,13 +44,44 @@ export function candidatesFor(role: AssignableRole, team: readonly UserSummary[]
 }
 
 /** "3 assessors · 1 lead assessor · 0 third-party brokers · 1 PPU": the drawer subtitle. */
-export function peopleSummary(users: readonly TimelineUser[]): string {
+export function peopleSummary(users: readonly TimelineUser[], roles: readonly AssignableRole[] = ASSIGNABLE_ROLES): string {
   const n = (role: AssignableRole) => users.filter((u) => u.role === role).length;
   const word = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
-  return [
-    word(n('ASSESSOR'), 'assessor', 'assessors'),
-    word(n('LEAD_ASSESSOR'), 'lead assessor', 'lead assessors'),
-    word(n('TPB'), 'third-party broker', 'third-party brokers'),
-    `${n('PPU')} PPU`,
-  ].join(' · ');
+  const parts: Record<AssignableRole, string> = {
+    ASSESSOR: word(n('ASSESSOR'), 'assessor', 'assessors'),
+    LEAD_ASSESSOR: word(n('LEAD_ASSESSOR'), 'lead assessor', 'lead assessors'),
+    TPB: word(n('TPB'), 'third-party broker', 'third-party brokers'),
+    PPU: `${n('PPU')} PPU`,
+  };
+  // Workflow order, only the roles asked for (the ones the drawer shows).
+  return ASSIGNABLE_ROLES.filter((r) => roles.includes(r)).map((r) => parts[r]).join(' · ');
+}
+
+/** Timeline role behind each step audience (programs are not assigned to timelines). */
+const AUDIENCE_TO_ROLE: Readonly<Record<string, AssignableRole>> = {
+  assessors: 'ASSESSOR',
+  lead_assessors: 'LEAD_ASSESSOR',
+  tpb: 'TPB',
+  ppu: 'PPU',
+};
+
+/**
+ * The role blocks a timeline's People drawer shows: the roles its steps use (a KP fast track has no lead
+ * assessor nor broker step), assessors always, and any role that still has someone assigned so nobody hides.
+ * Steps without audiences (mock data) show every role.
+ */
+export function sectionsFor(
+  steps: readonly { readonly audienceKey?: string }[],
+  users: readonly TimelineUser[],
+): readonly RoleSection[] {
+  const used = new Set<AssignableRole>(['ASSESSOR']);
+  let known = false;
+  for (const s of steps) {
+    const role = s.audienceKey ? AUDIENCE_TO_ROLE[s.audienceKey] : undefined;
+    if (s.audienceKey) known = true;
+    if (role) used.add(role);
+  }
+  if (!known) return ROLE_SECTIONS;
+  for (const u of users) used.add(u.role);
+  return ROLE_SECTIONS.filter((s) => used.has(s.role));
 }
