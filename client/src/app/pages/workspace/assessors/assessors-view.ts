@@ -244,7 +244,8 @@ export class AssessorsView {
   protected readonly view = computed(() => (this.showRemoved() ? 'removed' : 'team'));
   protected readonly viewOptions = computed<readonly QaSegmentedOption[]>(() => [
     { value: 'team', label: 'Team', count: this.store.state() === 'ready' ? this.store.team().length : undefined },
-    { value: 'removed', label: 'Removed', count: this.store.removed()?.length },
+    // Until the team is in, the switch waits (the error and loading states belong to the team list).
+    { value: 'removed', label: 'Removed', count: this.store.removed()?.length, disabled: this.store.state() !== 'ready' },
   ]);
 
   /** Switches the list; the removed people load the first time (skeleton meanwhile, back to the team if it fails). */

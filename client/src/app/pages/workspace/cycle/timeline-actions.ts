@@ -5,7 +5,8 @@ import { MenuAction, TimelineVM } from './cycle.logic';
 /**
  * Actions of a batch, the same on the main batch and on every complementary batch (Juanpa, 2026-11-12):
  * everything lives in the "…" menu; the card shows a button only when it unblocks something —
- * "Assign people" when the step in force has nobody for its role, "Load results into QA round N" while on hold.
+ * "Assign people" when the step in force has nobody for its role and the steps are collapsed (open, the step's own
+ * link says it), and "Load results into QA round N" while on hold.
  */
 @Component({
   selector: 'qa-cycle-timeline-actions',
@@ -13,7 +14,7 @@ import { MenuAction, TimelineVM } from './cycle.logic';
   host: { class: 'flex flex-none flex-wrap items-center gap-2 max-sm:w-full' },
   template: `
     @let t = timeline();
-    @if (t.needsPeople && t.canAssign) {
+    @if (t.needsPeople && t.canAssign && !stepsShown()) {
       <button hlmBtn qaBtn tone="secondary" type="button" (click)="action.emit('people')" class="gap-[7px] max-sm:flex-1">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM19 8v6M22 11h-6" /></svg>Assign people<span class="sr-only"> to {{ t.name }}</span>
       </button>
@@ -47,5 +48,7 @@ import { MenuAction, TimelineVM } from './cycle.logic';
 })
 export class TimelineActions {
   readonly timeline = input.required<TimelineVM>();
+  /** The steps are on screen: their own "Assign people" link already shows, so the header does not repeat it. */
+  readonly stepsShown = input(false);
   readonly action = output<MenuAction>();
 }
