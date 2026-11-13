@@ -275,6 +275,10 @@ export interface TimelineVM {
   needsPeople: boolean;
   /** On hold (waiting for results) and able to take a sync now: the card shows its own load button. */
   waitingLoad: boolean;
+  /** "Load results into QA round 2" while the timeline can take a sync; '' otherwise. */
+  loadLabel: string;
+  /** People can be assigned here (live timelines; a mock one has no People). */
+  canAssign: boolean;
 }
 
 /** Timeline role behind each step audience, and how a warning names it. Programs are not assigned to timelines. */
@@ -357,10 +361,9 @@ export function timelineVM(t: Timeline, loadable = false): TimelineVM {
   });
 
   const menu: TimelineVM['menu'] = [];
-  if (loadable) {
-    const round = stepRound(t, stepInForce(t, nowInRome()));
-    menu.push({ action: 'add-results', label: `Load results into QA round ${round}`, danger: false, soon: false });
-  }
+  const loadLabel = loadable ? `Load results into QA round ${stepRound(t, stepInForce(t, nowInRome()))}` : '';
+  // On hold, the card shows the load as its own button with this same name; then it leaves the "…" menu.
+  if (loadable && !held) menu.push({ action: 'add-results', label: loadLabel, danger: false, soon: false });
   else if (!soon && t.status === 'Live') menu.push({ action: 'add-results', label: 'Add results to this timeline', danger: false, soon: false });
   menu.push(
     { action: 'edit', label: 'Edit timeline', danger: false, soon: false },
@@ -397,6 +400,8 @@ export function timelineVM(t: Timeline, loadable = false): TimelineVM {
     menu,
     needsPeople: steps.some((p) => !!p.nobody),
     waitingLoad: loadable && held,
+    loadLabel,
+    canAssign: menu.some((m) => m.action === 'people' && !m.soon),
   };
 }
 
