@@ -1,10 +1,10 @@
-import { Component, effect, inject, input, model, output, signal, untracked } from '@angular/core';
+import { Component, computed, effect, inject, input, model, output, signal, untracked } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { AssignableRole, TimelineUser } from '../../../core/api/cycles.models';
 import { QaButtonImports, QaDrawerImports, QaLoadingImports, QaSelectImports, QaSelectOption, skeletonRows } from '../../../ui';
 import { Timeline } from './cycle.mock';
 import { TimelinePeople } from './timeline-people';
-import { ROLE_SECTIONS, personName } from './timeline-people.logic';
+import { peopleSummary, personName, sectionsFor } from './timeline-people.logic';
 
 /**
  * "People" drawer of a timeline: who works in it, per role (assessors, lead assessors, third-party brokers, PPU),
@@ -29,7 +29,7 @@ import { ROLE_SECTIONS, personName } from './timeline-people.logic';
             @if (!canWrite()) {
               <p role="status" class="m-0 rounded-[8px] bg-(--surface-2) px-3 py-2 text-(length:--fs-13) text-(--text-3)">The cycle is closed: assignments can no longer change.</p>
             }
-            @for (s of sections; track s.role; let i = $index) {
+            @for (s of sections(); track s.role; let i = $index) {
               <section [qaReveal]="i" class="flex flex-col gap-3" [attr.aria-labelledby]="'people-' + s.role">
                 <div class="flex flex-col gap-0.5">
                   <h3 [id]="'people-' + s.role" class="m-0 flex items-baseline gap-2 text-(length:--fs-14) font-bold text-(--text)">
@@ -73,15 +73,15 @@ import { ROLE_SECTIONS, personName } from './timeline-people.logic';
                 }
 
                 @let options = optionsFor(s.role);
-                @if (canWrite()) {
+                <!-- Nobody else holds the role: one line saying where to give it, instead of an empty picker and a disabled Add. -->
+                @if (canWrite() && options.length) {
                   <div class="flex flex-wrap items-end gap-2">
                     <qa-select
                       [value]="picked()[s.role] ?? null"
                       (valueChange)="pick(s.role, $event)"
                       [options]="options"
                       [label]="'Add to ' + s.title"
-                      [placeholder]="options.length ? 'Choose a person' : 'No one else holds this role'"
-                      [disabled]="!options.length"
+                      placeholder="Choose a person"
                       searchable
                       searchPlaceholder="Search by name or email"
                       panelWidth="420px"
@@ -141,7 +141,8 @@ export class PeopleDrawer {
   readonly changed = output<void>();
 
   protected readonly people = inject(TimelinePeople);
-  protected readonly sections = ROLE_SECTIONS;
+  /** Only the roles this timeline's steps use (plus any role someone still holds here). */
+  protected readonly sections = computed(() => sectionsFor(this.timeline()?.steps ?? [], this.people.users()));
   protected readonly skeletonBlocks = skeletonRows(4);
   protected readonly skeletonPeople = skeletonRows(2);
   protected readonly name = personName;
@@ -161,7 +162,7 @@ export class PeopleDrawer {
   }
 
   protected subtitle(): string {
-    return this.people.state() === 'ready' ? this.people.summary() : 'Who works in this timeline';
+    return this.people.state() === 'ready' ? peopleSummary(this.people.users(), this.sections().map((s) => s.role)) : 'Who works in this timeline';
   }
 
   protected optionsFor(role: AssignableRole): readonly QaSelectOption[] {

@@ -26,7 +26,7 @@ class FakePeople {
   readonly loadError = signal('');
   readonly busy = signal<ReadonlySet<string>>(new Set());
   readonly roleError = signal({});
-  private readonly users = signal<readonly TimelineUser[]>([named, nameless]);
+  readonly users = signal<readonly TimelineUser[]>([named, nameless]);
   readonly byRole = computed(() => assignedByRole(this.users()));
   readonly summary = computed(() => '1 assessor · 1 lead assessor · 0 third-party brokers · 0 PPU');
   candidates(role: AssignableRole): readonly UserSummary[] {
@@ -40,11 +40,11 @@ class FakePeople {
 const TIMELINE: Timeline = { id: '7', name: 'July', kind: 'Sub-timeline', status: 'Live', results: 0, programs: [], types: [], steps: [], apiId: 7, version: 1 };
 
 describe('PeopleDrawer', () => {
-  const render = () => {
+  const render = (timeline: Timeline = TIMELINE) => {
     TestBed.configureTestingModule({ providers: [provideRouter([])] });
     TestBed.overrideComponent(PeopleDrawer, { set: { providers: [{ provide: TimelinePeople, useClass: FakePeople }] } });
     const fixture = TestBed.createComponent(PeopleDrawer);
-    fixture.componentRef.setInput('timeline', TIMELINE);
+    fixture.componentRef.setInput('timeline', timeline);
     fixture.componentRef.setInput('open', true);
     fixture.detectChanges();
     return fixture;
@@ -68,5 +68,29 @@ describe('PeopleDrawer', () => {
 
     expect(lead.querySelector('a[href="/assessors"]')?.textContent?.trim()).toBe('Assessors');
     expect(assessors.querySelector('a[href="/assessors"]')).toBeNull();
+  });
+
+  it('a role nobody else holds shows only that line: no empty picker, no disabled Add', () => {
+    const fixture = render();
+    const lead = section(fixture.nativeElement, 'LEAD_ASSESSOR');
+    const assessors = section(fixture.nativeElement, 'ASSESSOR');
+
+    expect([...lead.querySelectorAll('button')].some((b) => b.textContent?.trim() === 'Add')).toBe(false);
+    expect([...assessors.querySelectorAll('button')].some((b) => b.textContent?.trim() === 'Add')).toBe(true);
+  });
+
+  it('shows only the roles the timeline uses (a fast track without lead nor broker steps), and says only those', () => {
+    const step = (audienceKey: 'assessors' | 'programs' | 'ppu') => ({ name: audienceKey, start: '01 Nov 2026', end: '02 Nov 2026', audienceKey }) as Timeline['steps'][number];
+    const fast: Timeline = { ...TIMELINE, steps: [step('assessors'), step('programs'), step('ppu')] };
+    const fixture = render(fast);
+    const doc = (fixture.nativeElement as HTMLElement).ownerDocument;
+
+    expect(section(fixture.nativeElement, 'ASSESSOR')).toBeTruthy();
+    expect(section(fixture.nativeElement, 'PPU')).toBeTruthy();
+    expect(doc.querySelector('[aria-labelledby="people-TPB"]')).toBeNull();
+    // The lead assessor still shows: someone is assigned there, so they never hide.
+    expect(section(fixture.nativeElement, 'LEAD_ASSESSOR')).toBeTruthy();
+    expect(doc.body.textContent).toContain('1 assessor · 1 lead assessor · 0 PPU');
+    expect(doc.body.textContent).not.toContain('third-party broker');
   });
 });
