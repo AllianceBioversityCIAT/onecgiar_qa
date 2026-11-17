@@ -20,6 +20,19 @@ import {
   DrizzleTimelinesStore,
   TIMELINES_STORE,
 } from '../admin-config/timelines/timelines.store.js';
+import { FieldConfigModule } from '../admin-config/field-config/field-config.module.js';
+import { AI_JOBS_PUBLISHER } from '../ai-suggestions/ai-jobs.port.js';
+import {
+  AI_RUN_STORE,
+  DynamoAiRunStore,
+} from '../ai-suggestions/ai-run.store.js';
+import {
+  AI_JOBS_PAUSE,
+  defaultAiJobsPause,
+  SqsAiJobsPublisher,
+} from '../ai-suggestions/sqs-ai-jobs.publisher.js';
+import { aiJobsConfig } from '../config/ai-jobs.config.js';
+import { AI_ENQUEUE, AiEnqueueService } from './ai-enqueue.service.js';
 import { DEFAULT_KP_RULES, KP_RULES } from './kp-classifier.js';
 import { DynamoSnapshotStore } from './dynamo-snapshot-store.js';
 import {
@@ -49,12 +62,18 @@ import { SNAPSHOT_STORE } from './snapshot-store.port.js';
  * admin-config, which those modules do not export: `DrizzleTimelinesStore`
  * (stateless over `DRIZZLE`) and `ReportingQaCatalogClient` (its own catalog
  * copy; the runner forces a refresh when the version differs, DD-10).
+ * `FieldConfigModule` is imported for the AI jobs only (spec
+ * assessment/ai-suggestions, FR-1); it imports no ingestion module.
  */
 @Module({
   imports: [
     DrizzleModule,
     DynamoDbModule,
     ConfigModule.forFeature(catalogsConfig),
+    ConfigModule.forFeature(aiJobsConfig),
+    // Spec assessment/ai-suggestions FR-1: the effective configuration (its
+    // `FIELD_CATALOG_SOURCE` export is shadowed by this module's own binding).
+    FieldConfigModule,
   ],
   controllers: [LoadsController],
   providers: [
@@ -89,6 +108,14 @@ import { SNAPSHOT_STORE } from './snapshot-store.port.js';
           Promise.resolve({ id: loadId, status: 'running' as const }),
       } satisfies IdempotencyReplayReader,
     },
+    // Spec assessment/ai-suggestions (FR-2, FR-3, DD-4): the AI job queue, off
+    // when `AI_JOBS_QUEUE_URL` is unset, the run counter, and the hook the
+    // runner calls after each recorded lot.
+    { provide: AI_JOBS_PAUSE, useValue: defaultAiJobsPause },
+    { provide: AI_JOBS_PUBLISHER, useClass: SqsAiJobsPublisher },
+    { provide: AI_RUN_STORE, useClass: DynamoAiRunStore },
+    AiEnqueueService,
+    { provide: AI_ENQUEUE, useExisting: AiEnqueueService },
   ],
 })
 export class IngestionModule {}

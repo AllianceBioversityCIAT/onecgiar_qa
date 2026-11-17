@@ -86,7 +86,7 @@ describe('ElectroDB reads the worker items (T-2)', () => {
     const { client } = createFakeDynamoClient();
     const [item] = Object.values(aiExamples());
     const other = (over: Record<string, unknown>) => {
-      const next = {
+      const next: Record<string, unknown> = {
         ...item,
         ...over,
         suggestionId: `x${String(over.snapKey ?? over.promptVersion)}`,

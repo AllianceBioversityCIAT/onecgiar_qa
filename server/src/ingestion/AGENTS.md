@@ -11,7 +11,8 @@ Timeline sync: the ADMIN brings the eligible results of Reporting into one timel
 | Path | Role |
 |---|---|
 | `ingestion.module.ts` | Wires the module (see *Bindings* below) |
-| `loads.controller.ts` | 4 routes (`GET .../loads/preview`, `POST .../loads` `@Idempotent()` 202, `GET .../loads`, `GET .../loads/:loadId`). `ADMIN_ACCESS` at class level; `preview` is declared before `:loadId` so the literal wins |
+| `loads.controller.ts` | 6 routes (`GET .../loads/preview`, `POST .../loads` `@Idempotent()` 202, `GET .../loads`, `GET .../loads/:loadId`, and the AI run of a load: `GET` / `POST .../loads/:loadId/ai-jobs`). `ADMIN_ACCESS` at class level; `preview` is declared before `:loadId` so the literal wins |
+| `ai-enqueue.service.ts` | Spec assessment/ai-suggestions FR-2, FR-3: the AI jobs of a recorded lot, the run status, the re-enqueue (see *AI jobs*) |
 | `loads.service.ts` | `preview`, `start`, `list`, `get`; one `ingestion` log line per request; the `LOAD_RUNNER` port the start fires after the commit |
 | `load-runner.ts` | The run: lots of 50, 3 attempts with 1 s then 4 s waits (±20 %), heartbeat every 60 s, catalog-version check with one forced refresh, the KP release port (`KP_RELEASE_ENABLED = true`) |
 | `load-rules.ts` | Pure: `LOAD_LEASE_MS` (5 min), `syncWindow`, `stepInForce`, `entryRound`, `effectiveLoadStatus`, `membershipEnds`, `skipVerdict`, `isResubmitted`, `canonicalJson`, `changedFields`, `mergeSummary` (the 0008 summary keys) |
@@ -25,7 +26,7 @@ Timeline sync: the ADMIN brings the eligible results of Reporting into one timel
 
 ## Bindings (read before changing admin-config's catalog or timelines store)
 
-`IngestionModule` does not import the admin-config modules. It binds its **own** collaborators:
+`IngestionModule` imports one admin-config module, `FieldConfigModule`, for `FIELD_CONFIG_EFFECTIVE` (the AI-input fields, spec assessment/ai-suggestions FR-1); its `FIELD_CATALOG_SOURCE` export is shadowed by the binding below. `FieldConfigModule` imports nothing of ingestion. Otherwise it binds its **own** collaborators:
 
 - Its own `TIMELINES_STORE` (`DrizzleTimelinesStore`, stateless over `DRIZZLE`).
 - Its own `FIELD_CATALOG_SOURCE` (`ReportingQaCatalogClient`). **There are therefore two catalog caches**, one here and one in admin-config. A change to the key, the credential or the URL in admin-config's binding must be mirrored here, or the run reads with different credentials than the field configuration.
@@ -54,6 +55,7 @@ The other direction: `admin-config/timelines` reads the ingestion tables through
 - **A KP to review is assessed in step 1** (S-9 corrected 2026-11-04): `pending`, `awaits_step` always null. The column stays in `0007`, unused.
 - **No PII in logs (NFR-7).** One `event: 'ingestion'` line per request (`route`, `timelineId` or `loadId`, `outcome`, `reason?`): ids and fixed words only; only the runner's lines carry `round`, never a result title, name, body, URL or header. `FeedError` messages are fixed text.
 - **Audit:** `timeline_audit_events` gets a `load_start` row in the start's transaction and a `load_end` row when the load ends, both with the round; append-only, no PII.
+- **AI jobs (spec assessment/ai-suggestions).** After a lot is recorded (never after the snapshots alone: DD-2), `AiEnqueueService.enqueueLot` sends one SQS job per (inserted `pending` membership, AI-input production field) and SETs `expected` on `AIRUN#load-<loadId>` (run id `load-<loadId>`, DD-1; SET, never ADD, so a retried lot counts once; the worker ADDs the other counters). It never throws: an SQS, DynamoDB or configuration failure is one `event:'ai_enqueue'` line (`route`, `loadId`, counts, `outcome` `ok`/`failed`/`disabled`) and the lot goes on (NFR-1). Without `AI_JOBS_QUEUE_URL` nothing is sent (`disabled`) and the two AI routes answer 409 `AI_JOBS_DISABLED`; `POST .../ai-jobs` resends the jobs of the load's still-active pending memberships (the worker skips stored ones).
 - **Typed errors from the catalog.** New codes go in `common/error-codes.ts` and, for the front, in `docs/specs/archive/2026-11-09-ingestion--timeline-sync/front-contract.md` (section 8). A code in `loads.errors.ts` missing from the contract is a review failure.
 
 ## Known gaps

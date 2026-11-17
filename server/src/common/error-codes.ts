@@ -294,6 +294,11 @@ export const ERROR_CATALOG = {
     message:
       "Reporting has no QA catalog for this cycle's year, so there are no results to load.",
   },
+  // Spec assessment/ai-suggestions (FR-3): the admin AI routes say so instead of a silent no-op.
+  AI_JOBS_DISABLED: {
+    status: 409,
+    message: 'AI disabled: no queue configured.',
+  },
 
   // --- Field configuration -------------------------------------------------
   FIELD_CONFIG_CATALOG_MISSING: {
