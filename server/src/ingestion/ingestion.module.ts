@@ -32,6 +32,7 @@ import {
   SqsAiJobsPublisher,
 } from '../ai-suggestions/sqs-ai-jobs.publisher.js';
 import { aiJobsConfig } from '../config/ai-jobs.config.js';
+import { dynamoDbConfig } from '../config/dynamodb.config.js';
 import { AI_ENQUEUE, AiEnqueueService } from './ai-enqueue.service.js';
 import { DEFAULT_KP_RULES, KP_RULES } from './kp-classifier.js';
 import { DynamoSnapshotStore } from './dynamo-snapshot-store.js';
@@ -71,6 +72,8 @@ import { SNAPSHOT_STORE } from './snapshot-store.port.js';
     DynamoDbModule,
     ConfigModule.forFeature(catalogsConfig),
     ConfigModule.forFeature(aiJobsConfig),
+    // The SQS client reuses the DynamoDB principal (sqsClientConfig).
+    ConfigModule.forFeature(dynamoDbConfig),
     // Spec assessment/ai-suggestions FR-1: the effective configuration (its
     // `FIELD_CATALOG_SOURCE` export is shadowed by this module's own binding).
     FieldConfigModule,
