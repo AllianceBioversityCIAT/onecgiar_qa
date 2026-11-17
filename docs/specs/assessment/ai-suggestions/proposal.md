@@ -43,7 +43,7 @@ The AI worker is built and deployed in TEST (SQS `qa-ai-suggestions-test` → La
 
 **In:** the five points above; an ADMIN route to re-enqueue a load's jobs; the TPB read-only view with the "copied" mark; PPU 403.
 
-**Out:** an agentic chatbot; suggestions on fields that are not AI input or not in `production.json`; W3/Bilateral; the metrics job and any per-reviewer figure (AC9); infrastructure (queue, IAM, `sqs:SendMessage` — requested from Cris); prompt changes.
+**Out:** an agentic chatbot; suggestions on fields that are not Assessed or not in `production.json` (FR-1; the `isAiInput` flag is not read since 2026-11-17); W3/Bilateral; the metrics job and any per-reviewer figure (AC9); infrastructure (queue, IAM, `sqs:SendMessage` — requested from Cris); prompt changes.
 
 ## 5. Plan and dates
 
