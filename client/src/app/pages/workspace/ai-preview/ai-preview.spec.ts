@@ -3,12 +3,10 @@ import { ActivatedRoute, Route, UrlSegment, convertToParamMap } from '@angular/r
 import { of } from 'rxjs';
 import { AiSuggestionsApi } from '../../../core/api/ai-suggestions-api';
 import { APP_CONFIG } from '../../../core/config/app-config';
-import { ProductionEnvironment } from '../../../../environments/environment.model';
-import { environment as development } from '../../../../environments/environment.development';
-import { environment as qatest } from '../../../../environments/environment.qatest';
 import { routes } from '../../../app.routes';
 import { AiPreviewPage } from './ai-preview';
-import { aiPreviewMatch } from './ai-preview.guard';
+import { AI_PREVIEW } from './ai-preview.flag';
+import { aiPreviewMatch, aiPreviewOn } from './ai-preview.guard';
 
 const base = {
   name: 'test' as const,
@@ -24,27 +22,24 @@ function match(config: object): unknown {
 }
 
 describe('AI preview (plan B, P2-3918)', () => {
-  it('is on in development and test; production cannot turn it on (a compile error)', () => {
-    // The tests build with the test environment file, so production is checked by its type: if
-    // ProductionEnvironment ever accepted `true`, this directive would be unused and the build would fail.
-    const production: ProductionEnvironment = {
-      name: 'production',
-      apiBaseUrl: 'https://api.test/api/v1',
-      ssoCallbackPath: '/auth/callback',
-      // @ts-expect-error aiPreview: true never compiles in production
-      aiPreview: true,
-    };
-    expect(production.name).toBe('production');
-    expect(development.aiPreview).toBe(true);
-    expect(qatest.aiPreview).toBe(true);
+  it('is on in the build the tests run with (development swaps in ai-preview.flag.on.ts)', () => {
+    // The production value is `ai-preview.flag.ts`, typed `false`: setting it to true is a compile
+    // error, so a production build fails (checked by hand, see the spec's execution log).
+    expect(AI_PREVIEW).toBe(true);
   });
 
-  it('the route does not match when the flag is off or absent', () => {
-    expect(match({ ...base, aiPreview: false })).toBe(false);
+  it('never opens where the environment says production, whatever the build flag', () => {
+    expect(aiPreviewOn(true, 'production')).toBe(false);
+    expect(aiPreviewOn(false, 'test')).toBe(false);
+    expect(aiPreviewOn(false, 'development')).toBe(false);
+    expect(aiPreviewOn(true, 'test')).toBe(true);
+    expect(aiPreviewOn(true, 'development')).toBe(true);
+  });
+
+  it('the route guard reads the environment name', () => {
+    expect(match({ ...base, name: 'production' })).toBe(false);
     TestBed.resetTestingModule();
-    expect(match(base)).toBe(false);
-    TestBed.resetTestingModule();
-    expect(match({ ...base, aiPreview: true })).toBe(true);
+    expect(match(base)).toBe(true);
   });
 
   it('is registered behind the flag guard, under the signed-in shell', () => {
