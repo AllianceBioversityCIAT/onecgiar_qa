@@ -6,4 +6,6 @@
  * because CI and the deploy overwrite the environment files from Secrets Manager.
  * Delete both files, the page and the route once the chip is on the Review page (plan A).
  */
+// The literal type IS the guard: `false as const` would let `true as const` compile in production.
+// eslint-disable-next-line @typescript-eslint/prefer-as-const
 export const AI_PREVIEW: false = false;

@@ -1,5 +1,5 @@
 // @akili-spec assessment/ai-suggestions
-import { AI_LEVEL_FIELDS } from '../../src/ai-suggestions/production.js';
+import { AI_LEVEL_FIELDS } from '../../src/ai-suggestions/ai-config.js';
 import type { AiUsageMark } from '../../src/assessment/ai-suggestions-rules.js';
 import type {
   AiUsageRow,

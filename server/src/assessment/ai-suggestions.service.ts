@@ -9,7 +9,7 @@ import {
   type AiSuggestionItem,
   type AiSuggestionStore,
 } from '../ai-suggestions/ai-suggestion.store.js';
-import { AI_PRODUCTION } from '../ai-suggestions/production.js';
+import { productionFieldOf } from '../ai-suggestions/ai-config.js';
 import { snapshotKeyOf } from '../ingestion/load-rules.js';
 import type { AuthenticatedUser } from '../users/current-user.cache.js';
 import {
@@ -144,8 +144,9 @@ export class AiSuggestionsService {
         await this.usage.record({
           ...base,
           action: 'shown',
-          aiLevel: item.suggestedValue ?? null,
-          reportedLevel: item.reportedValue ?? null,
+          // Levels only: a category or use numbers (contract 2.0.0) has none.
+          aiLevel: levelOrNull(item.suggestedValue),
+          reportedLevel: levelOrNull(item.reportedValue),
         });
         return;
       case 'copied':
@@ -212,7 +213,7 @@ export class AiSuggestionsService {
       return await this.suggestions.listForSnapshot(
         membership.resultCode,
         snapshotKeyOf(membership.snapshotSk),
-        AI_PRODUCTION.promptVersion,
+        (fieldKey) => productionFieldOf(fieldKey)?.promptVersion,
       );
     } catch (error) {
       this.logger.error(
@@ -221,4 +222,14 @@ export class AiSuggestionsService {
       throw new AiSuggestionsUnavailableError(error);
     }
   }
+}
+
+/** An integer level (0–9) or null: indicative values are not levels. */
+function levelOrNull(value: unknown): number | null {
+  return typeof value === 'number' &&
+    Number.isInteger(value) &&
+    value >= 0 &&
+    value <= 9
+    ? value
+    : null;
 }

@@ -14,7 +14,9 @@ export function needsReason(
   reportedLevel: number | null,
   ai: AvailableSuggestionView | null,
 ): boolean {
+  // IRL / IUL only: an indicative field (category, use numbers) never asks for a reason.
   if (!isLevelField(fieldKey) || ai === null || reportedLevel === null) return false;
+  if (ai.valueKind !== 'level') return false;
   return reportedLevel - ai.suggestedValue >= 2;
 }
 

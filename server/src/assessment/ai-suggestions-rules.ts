@@ -1,6 +1,10 @@
 // @akili-spec assessment/ai-suggestions
 import type { AiSuggestionItem } from '../ai-suggestions/ai-suggestion.store.js';
-import { AI_LEVEL_FIELDS } from '../ai-suggestions/production.js';
+import {
+  AI_LEVEL_FIELDS,
+  productionFieldOf,
+} from '../ai-suggestions/ai-config.js';
+import type { AiValueKind } from '../ai-suggestions/production-contract.js';
 import { RoleCode } from '../users/permissions.js';
 import type { WorklistAccess } from './scope.js';
 
@@ -52,8 +56,58 @@ export const AI_UNAVAILABLE_REASONS = [
 ] as const;
 export type AiUnavailableReason = (typeof AI_UNAVAILABLE_REASONS)[number];
 
-export const AI_SIGNALS = ['green', 'amber', 'red'] as const;
+/** Contract 2.0.0: scored fields are green/amber/red, indicative fields `indicative` (no colour). */
+export const AI_SIGNALS = ['green', 'amber', 'red', 'indicative'] as const;
 export type AiSignalValue = (typeof AI_SIGNALS)[number];
+const SCORED_SIGNALS: readonly string[] = ['green', 'amber', 'red'];
+
+/** `general.result_type` suggestions (contract 2.0.0, ResultCategory). */
+export const AI_RESULT_CATEGORIES = [
+  'Innovation',
+  'Knowledge Product',
+  'Capacity Sharing for Development',
+  'Routine Activity',
+  'Other',
+] as const;
+export type AiResultCategory = (typeof AI_RESULT_CATEGORIES)[number];
+
+/** UseNumberRow keys (contract 2.0.0): all present in the view, nullable ones as null. */
+export const AI_USE_NUMBER_KEYS = [
+  'user',
+  'user_type',
+  'user_subtype',
+  'quantity',
+  'women',
+  'youth_women',
+  'non_youth_women',
+  'men',
+  'youth_men',
+  'non_youth_men',
+  'geolocation',
+  'other_quantitative_measures',
+] as const;
+
+/** One user group of prompt 09 (UseNumberRow), as the view sends it. */
+export type AiUseNumberRow = Record<
+  (typeof AI_USE_NUMBER_KEYS)[number],
+  unknown
+> & {
+  user: string;
+  user_type: string;
+  quantity: number;
+};
+
+/**
+ * The view row: exactly the schema's 12 keys, a missing nullable one as null
+ * and an unknown one dropped (`additionalProperties: false`), so a row the
+ * worker stored without its null keys is still schema-valid.
+ */
+export const toUseNumberRow = (row: AiUseNumberRow): AiUseNumberRow =>
+  Object.fromEntries(
+    AI_USE_NUMBER_KEYS.map((key) => [key, row[key] ?? null]),
+  ) as AiUseNumberRow;
+
+export type AiSuggestedValue = number | AiResultCategory | AiUseNumberRow[];
 
 /** `ai-suggestion-view.schema.json`, field for field (no other key). */
 export type AiSuggestionView =
@@ -62,13 +116,17 @@ export type AiSuggestionView =
       fieldKey: string;
       suggestionId: string;
       signal: AiSignalValue;
-      suggestedValue: number;
+      valueKind: AiValueKind;
+      suggestedValue: AiSuggestedValue;
       explanation: string;
-      evidenceQuote: string;
+      /** Scored fields only; indicative fields have none (null). */
+      evidenceQuote: string | null;
       quoteVerified: boolean;
       evidenceSource: string | null;
       promptVersion: string;
       modelId: string;
+      /** Set when one suggestion covers several catalog fields (innovation use numbers). */
+      coversFieldKeys?: string[];
       copiedByReviewer?: boolean | null;
       editedByReviewer?: boolean | null;
     }
@@ -86,14 +144,59 @@ export interface AiUsageMark {
   edited: boolean | null;
 }
 
-/** An `available` item whose value the view cannot show: the defect is shown as `invalid_output`. */
-const isUsable = (item: AiSuggestionItem): boolean =>
-  typeof item.suggestedValue === 'number' &&
-  Number.isInteger(item.suggestedValue) &&
-  item.suggestedValue >= 0 &&
-  item.suggestedValue <= 9 &&
-  (AI_SIGNALS as readonly string[]).includes(item.signal ?? '') &&
-  typeof item.explanation === 'string';
+const isUseNumberRow = (row: unknown): row is AiUseNumberRow =>
+  typeof row === 'object' &&
+  row !== null &&
+  typeof (row as { user?: unknown }).user === 'string' &&
+  typeof (row as { user_type?: unknown }).user_type === 'string' &&
+  typeof (row as { quantity?: unknown }).quantity === 'number';
+
+/**
+ * The value kind of an item: the stored one, else production's (items written
+ * before contract 2.0.0 carry none; they are all levels).
+ */
+const valueKindOf = (item: AiSuggestionItem): AiValueKind | undefined =>
+  (item.valueKind as AiValueKind | undefined) ??
+  productionFieldOf(item.fieldKey)?.valueKind;
+
+/**
+ * An `available` item whose value the view cannot show: the defect is shown as
+ * `invalid_output`. The value must match its kind and the kind must be the
+ * one production names for the field (contract 2.0.0): a level is an integer
+ * on the field's scale with a colour; a category one of the five, `indicative`;
+ * use numbers a list of user groups (empty = none reported), `indicative`.
+ */
+const isUsable = (item: AiSuggestionItem): boolean => {
+  const production = productionFieldOf(item.fieldKey);
+  const kind = valueKindOf(item);
+  if (production === undefined || kind !== production.valueKind) return false;
+  if (typeof item.explanation !== 'string') return false;
+  const value: unknown = item.suggestedValue;
+  switch (kind) {
+    case 'level': {
+      const min = production.scale?.min ?? 0;
+      const max = production.scale?.max ?? 9;
+      return (
+        typeof value === 'number' &&
+        Number.isInteger(value) &&
+        value >= min &&
+        value <= max &&
+        SCORED_SIGNALS.includes(item.signal ?? '')
+      );
+    }
+    case 'category':
+      return (
+        (AI_RESULT_CATEGORIES as readonly unknown[]).includes(value) &&
+        item.signal === 'indicative'
+      );
+    case 'use_numbers':
+      return (
+        Array.isArray(value) &&
+        value.every(isUseNumberRow) &&
+        item.signal === 'indicative'
+      );
+  }
+};
 
 /**
  * FR-4: one view per eligible field, in that order. A stored `available` item
@@ -123,27 +226,39 @@ export function toSuggestionViews(
           unavailableReason: 'invalid_output',
         };
       }
+      const kind = valueKindOf(item)!;
       if (
-        typeof item.evidenceQuote !== 'string' ||
+        (kind === 'level' && typeof item.evidenceQuote !== 'string') ||
         typeof item.modelId !== 'string' ||
         typeof item.quoteVerified !== 'boolean'
       ) {
         defects.push(item.suggestionId);
       }
+      const covers = Array.isArray(item.coversFieldKeys)
+        ? (item.coversFieldKeys as unknown[]).filter(
+            (key): key is string => typeof key === 'string',
+          )
+        : [];
       const mark = marks?.get(item.suggestionId);
       return {
         status: 'available',
         fieldKey,
         suggestionId: item.suggestionId,
         signal: item.signal as AiSignalValue,
-        suggestedValue: item.suggestedValue!,
+        valueKind: kind,
+        suggestedValue:
+          kind === 'use_numbers'
+            ? (item.suggestedValue as AiUseNumberRow[]).map(toUseNumberRow)
+            : (item.suggestedValue as AiSuggestedValue),
         explanation: item.explanation!,
-        evidenceQuote: item.evidenceQuote ?? '',
+        evidenceQuote:
+          typeof item.evidenceQuote === 'string' ? item.evidenceQuote : null,
         // A quote nobody verified is never shown as "Evidence explicitly supports".
         quoteVerified: item.quoteVerified === true,
         evidenceSource: item.evidenceSource ?? null,
         promptVersion: item.promptVersion,
         modelId: item.modelId ?? '',
+        ...(covers.length > 0 ? { coversFieldKeys: covers } : {}),
         ...(marks === undefined
           ? {}
           : {

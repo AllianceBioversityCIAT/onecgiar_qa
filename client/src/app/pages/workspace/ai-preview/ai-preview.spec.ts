@@ -65,6 +65,7 @@ describe('AI preview (plan B, P2-3918)', () => {
               of([
                 {
                   status: 'available',
+                  valueKind: 'level',
                   fieldKey: 'general.gender_tag',
                   suggestionId: 's',
                   signal: 'red',

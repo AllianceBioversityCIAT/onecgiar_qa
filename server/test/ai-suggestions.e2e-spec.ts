@@ -41,7 +41,7 @@ describe('AI suggestions (e2e)', () => {
   let snapKey: string;
 
   async function putItem(item: Record<string, unknown>) {
-    const full = {
+    const full: Record<string, unknown> = {
       __edb_e__: 'aiSuggestion',
       __edb_v__: '1',
       resultCode: code,
@@ -176,6 +176,7 @@ describe('AI suggestions (e2e)', () => {
           fieldKey: GENDER,
           suggestionId: id(1),
           signal: 'red',
+          valueKind: 'level',
           suggestedValue: 0,
           explanation: 'The evidence does not mention gender.',
           evidenceQuote: 'trained farmers',
@@ -524,6 +525,106 @@ describe('AI suggestions (e2e)', () => {
     it('an ADMIN reads but records nothing: 403 ASSESSMENT_READ_ONLY', async () => {
       const res = await post(id(1), { action: 'copied' }, bearer('sub-admin'));
       expectError(res, 403, 'ASSESSMENT_READ_ONLY');
+      expect(a.aiUsage.rows).toEqual([]);
+    });
+  });
+
+  describe('indicative fields (contract 2.0.0)', () => {
+    const CATEGORY = 'general.result_type';
+    const resultType = (visibility: 'assessed' | 'view_only') => ({
+      resultTypeKey: 'policy_change',
+      fieldKey: CATEGORY,
+      visibility,
+      isCore: false,
+      isAiInput: false,
+    });
+    const category = (n: number, over: Record<string, unknown> = {}) =>
+      putItem({
+        fieldKey: CATEGORY,
+        suggestionId: id(n),
+        promptVersion: 'v1-1.0.0',
+        status: 'available',
+        signal: 'indicative',
+        valueKind: 'category',
+        suggestedValue: 'Knowledge Product',
+        reportedValue: 'policy_change',
+        explanation: 'The evidence describes a published report.',
+        evidenceQuote: null,
+        evidenceSource: 'https://example.org/e.pdf',
+        quoteVerified: false,
+        modelId: 'anthropic.claude-haiku-5-5',
+        ...over,
+      });
+
+    it('answers the suggested category with no colour and no quote, on its own prompt version', async () => {
+      configure([GENDER], [resultType('assessed')]);
+      await available(GENDER, 1);
+      await category(2);
+      const res = await getViews();
+      expect(res.status).toBe(200);
+      expect(res.body.data).toEqual([
+        expect.objectContaining({ fieldKey: GENDER, valueKind: 'level' }),
+        {
+          status: 'available',
+          fieldKey: CATEGORY,
+          suggestionId: id(2),
+          signal: 'indicative',
+          valueKind: 'category',
+          suggestedValue: 'Knowledge Product',
+          explanation: 'The evidence describes a published report.',
+          evidenceQuote: null,
+          quoteVerified: false,
+          evidenceSource: 'https://example.org/e.pdf',
+          promptVersion: 'v1-1.0.0',
+          modelId: 'anthropic.claude-haiku-5-5',
+        },
+      ]);
+    });
+
+    it('ignores a category stored on the scored version (v2): production says v1 for it', async () => {
+      configure([], [resultType('assessed')]);
+      await category(3, { promptVersion: 'v2-1.0.0' });
+      const res = await getViews();
+      expect(res.body.data).toEqual([
+        { status: 'pending', fieldKey: CATEGORY },
+      ]);
+    });
+
+    it('shows nothing for result type when it is View only', async () => {
+      configure([], [resultType('view_only')]);
+      await category(4);
+      const res = await getViews();
+      expect(res.body.data).toEqual([]);
+    });
+
+    it('records shown with the indicative signal and no levels; copied the same way', async () => {
+      configure([], [resultType('assessed')]);
+      await category(5);
+      expect((await post(id(5), { action: 'shown' })).status).toBe(204);
+      expect((await post(id(5), { action: 'copied' })).status).toBe(204);
+      expect(a.aiUsage.rows).toEqual([
+        expect.objectContaining({
+          action: 'shown',
+          fieldKey: CATEGORY,
+          promptVersion: 'v1-1.0.0',
+          signal: 'indicative',
+          aiLevel: null,
+          reportedLevel: null,
+        }),
+        expect.objectContaining({ action: 'copied', signal: 'indicative' }),
+      ]);
+    });
+
+    it('refuses validated_above_ai on an indicative field (IRL/IUL only)', async () => {
+      configure([], [resultType('assessed')]);
+      await category(6);
+      const res = await post(id(6), {
+        action: 'validated_above_ai',
+        aiLevel: 1,
+        validatedLevel: 3,
+        reason: 'One line.',
+      });
+      expectError(res, 400, 'AI_EVENT_INVALID');
       expect(a.aiUsage.rows).toEqual([]);
     });
   });

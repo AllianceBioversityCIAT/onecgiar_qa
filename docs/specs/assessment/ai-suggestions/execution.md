@@ -37,6 +37,14 @@
 
 qatest gave no suggestions: the Fields screen has had no AI column since 11-nov, so no field could be marked `isAiInput`. New FR-1 rule: in `production.json` AND Assessed in the configuration (`ai-config.ts`). Falsifier: the old rule → "ignores the AI input flag" and "drops a View only field" red (2 failed).
 
+## Contract 2.0.0 (17-nov): indicative result category and innovation use numbers
+
+Synced from the worker's `b3d4bbf`. `production.json` is now per field (`promptVersion`, `valueKind`, `signal`, `scale`, `coversFieldKeys`) and `production.ts` is generated from it by `scripts/sync-ai-contract.sh`. The read keeps, per field, only production's prompt version; the job carries the field's version. The view adds `valueKind` and `coversFieldKeys`, `evidenceQuote` is null when absent, and use-number rows are normalized to the schema's 12 keys. ElectroDB `suggestedValue` / `reportedValue` are `any` (level, category, rows; reported use numbers are a map). Migration `0012_ai_usage_indicative` widens `ai_signal` with `indicative` (`shown` stores no levels for indicative fields).
+
+**Known defect in the worker contract:** `examples/ai-suggestion-item.use-numbers.json` fails the worker's own item schema (its `UseNumberRow` rows omit the nullable keys the Pydantic model requires). The contract test lists it in `KNOWN_DEFECTS` (it must stay invalid, so the entry goes stale when the worker fixes it) and checks that our view still turns it into a schema-valid view.
+
+Checks: server lint 0, build ok, unit 3812, e2e 1184; client 504 (also with the environment files overwritten as CI does), builds production and test ok, ng lint 0 errors. Falsifiers: one fixed prompt version in the read → 4 indicative e2e red; indicative chip given the "Review" label and the red badge → 3 client specs red.
+
 ## Related fix (not part of this spec)
 
 The assessment field-description change (`2cc8384`) put Reporting's help text, which contains example e-mail addresses, into the view, and the FR-11 no-`@` e2e check failed on `dev` (the pipeline did not deploy). Fixed by leaving `description` out of that check: `cb6cf4d` merged into `dev` (`cbe6453`) and cherry-picked into `staging-center` (`98825ce`).

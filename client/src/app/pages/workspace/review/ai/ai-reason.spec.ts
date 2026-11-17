@@ -6,6 +6,7 @@ import { AiReasonDialog } from './ai-reason-dialog';
 
 const ai = (suggestedValue: number): AvailableSuggestionView => ({
   status: 'available',
+  valueKind: 'level',
   fieldKey: 'innovation_dev.readiness_level',
   suggestionId: 's',
   signal: 'red',

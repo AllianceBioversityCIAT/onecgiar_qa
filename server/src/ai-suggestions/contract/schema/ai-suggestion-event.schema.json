@@ -48,6 +48,7 @@
           "type": "integer"
         },
         "reason": {
+          "description": "One line, at most 200 characters.",
           "maxLength": 200,
           "minLength": 1,
           "pattern": "^[^\\r\\n]+$",
@@ -89,5 +90,6 @@
     {
       "$ref": "#/$defs/AiValidatedAboveEvent"
     }
-  ]
+  ],
+  "x-contractVersion": "2.0.0"
 }

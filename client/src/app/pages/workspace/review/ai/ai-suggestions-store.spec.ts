@@ -8,6 +8,7 @@ import { AiSuggestionsStore } from './ai-suggestions-store';
 const views: AiSuggestionView[] = [
   {
     status: 'available',
+    valueKind: 'level',
     fieldKey: 'general.gender_tag',
     suggestionId: 's-g',
     signal: 'amber',
@@ -21,6 +22,7 @@ const views: AiSuggestionView[] = [
   },
   {
     status: 'available',
+    valueKind: 'level',
     fieldKey: 'innovation_dev.readiness_level',
     suggestionId: 's-irl',
     signal: 'red',

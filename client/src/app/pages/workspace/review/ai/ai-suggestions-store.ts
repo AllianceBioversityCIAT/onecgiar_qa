@@ -6,7 +6,14 @@ import {
   AiSuggestionView,
   AvailableSuggestionView,
 } from '../../../../core/api/ai-suggestions.models';
-import { AI_NOT_AVAILABLE, AI_READ_FAILED_REASON, AiChipVm, toAiChipVm } from './ai-chip.vm';
+import {
+  AI_NOT_AVAILABLE,
+  AI_READ_FAILED_REASON,
+  AiChipVm,
+  AiReported,
+  copyTextOf,
+  toAiChipVm,
+} from './ai-chip.vm';
 
 export type AiLoadState = 'idle' | 'loading' | 'ready' | 'failed';
 
@@ -55,9 +62,15 @@ export class AiSuggestionsStore {
 
   /**
    * The chip of a field. When the read failed, an AI-input field the caller knows of shows
-   * "Suggestion not available" (AC8); pass `aiInput: true` for those fields.
+   * "Suggestion not available" (AC8); pass `aiInput: true` for those fields. For an indicative field the
+   * page passes what was reported (`reported`: the category label, or `reportedUseRows(...)`), shown beside
+   * the suggestion.
    */
-  chipFor(fieldKey: string, aiInput = false): AiChipVm | null {
+  chipFor(fieldKey: string, aiInput = false, reported: AiReported = null): AiChipVm | null {
+    if (reported !== null) {
+      const view = this.views().find((v) => v.fieldKey === fieldKey);
+      if (view) return toAiChipVm(view, reported);
+    }
     const vm = this.byField().get(fieldKey);
     if (vm) return vm;
     if (aiInput && this.failed()) {
@@ -85,7 +98,10 @@ export class AiSuggestionsStore {
     this.send(id, { action: 'shown' });
   }
 
-  /** "Copy to comment": posts `copied` once and returns the explanation for the comment box (null if none). */
+  /**
+   * "Copy to comment": posts `copied` once and returns the text for the comment box (null if none): the
+   * explanation, plus the suggested numbers for use numbers (`copyTextOf`).
+   */
   copied(fieldKey: string): string | null {
     const view = this.availableView(fieldKey);
     if (view === null) return null;
@@ -93,7 +109,7 @@ export class AiSuggestionsStore {
       this.copiedFields.add(fieldKey);
       this.send(view.suggestionId, { action: 'copied' });
     }
-    return view.explanation;
+    return copyTextOf(view);
   }
 
   /** After a comment on the field was saved: `comment_saved` only when its text came from a copy. The server decides "edited". */
@@ -111,7 +127,8 @@ export class AiSuggestionsStore {
   async validatedAbove(fieldKey: string, validatedLevel: number, reason: string): Promise<void> {
     const view = this.availableView(fieldKey);
     const key = this.key();
-    if (view === null || key === null) return;
+    // Levels only (IRL / IUL): an indicative suggestion has no level to compare.
+    if (view === null || key === null || view.valueKind !== 'level') return;
     try {
       await firstValueFrom(
         this.api.sendEvent(key.timelineId, key.resultCode, view.suggestionId, {
