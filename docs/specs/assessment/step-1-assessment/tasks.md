@@ -405,7 +405,7 @@ Gate edges from **T-1** are listed on the last line of the graph. Nothing else w
 - **Skills:** none
 
 ## T-17: Client — API transport, models, `WorkspaceLayout`
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** S
 - **Depends on:** T-16
 - **Requirements:** FR-8 (AC2: one control collapses the menu and the navigator), FR-25 (the client mirrors the contract)

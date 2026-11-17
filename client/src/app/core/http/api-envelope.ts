@@ -45,7 +45,11 @@ export interface ApiErrorBody {
   readonly code: string;
   /** Catalog text written for users: safe to show as is. */
   readonly message: string;
-  readonly fields?: readonly ApiFieldError[];
+  /**
+   * Usually `ApiFieldError[]`. One code sends the bare field KEYS instead: `ASSESSMENT_CORE_UNCOMMENTED`
+   * (`string[]`, step-1 assessment front contract § 6.5). `ApiError` splits the two.
+   */
+  readonly fields?: readonly (ApiFieldError | string)[];
   /** Seconds to wait, only on 429. */
   readonly retryAfter?: number;
 }
@@ -68,6 +72,8 @@ export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
   readonly fields: readonly ApiFieldError[];
+  /** Field keys sent as bare strings (`ASSESSMENT_CORE_UNCOMMENTED`); empty otherwise. */
+  readonly fieldKeys: readonly string[];
   readonly retryAfter: number | null;
   readonly requestId: string | null;
 
@@ -76,7 +82,9 @@ export class ApiError extends Error {
     this.name = 'ApiError';
     this.status = body.status;
     this.code = body.code;
-    this.fields = body.fields ?? [];
+    const fields = body.fields ?? [];
+    this.fields = fields.filter((f): f is ApiFieldError => typeof f === 'object' && f !== null);
+    this.fieldKeys = fields.filter((f): f is string => typeof f === 'string');
     this.retryAfter = body.retryAfter ?? null;
     this.requestId = requestId;
   }
@@ -166,6 +174,29 @@ export function unwrapPage<T>() {
           throw new ApiError(body.error, body.meta?.requestId ?? null);
         }
         return { items: body.data ?? [], nextCursor: body.meta.page?.nextCursor ?? null };
+      }),
+      catchError((error: unknown) => throwError(() => toApiError(error))),
+    );
+}
+
+/** An object `data` plus `meta.page.nextCursor` (a paginated answer whose data is not a bare array). */
+export interface ApiCursorData<T> {
+  readonly data: T;
+  readonly nextCursor: string | null;
+}
+
+/** Like `unwrapPage()` when `data` is an object (e.g. rows with counters): keeps the cursor next to it. */
+export function unwrapWithCursor<T>() {
+  return (source: Observable<ApiEnvelope<T> | null>): Observable<ApiCursorData<T>> =>
+    source.pipe(
+      map((body) => {
+        if (!isEnvelope(body)) {
+          throw new ApiError({ status: 200, code: CLIENT_ERROR.UNEXPECTED_RESPONSE, message: UNEXPECTED_MESSAGE });
+        }
+        if (!body.success) {
+          throw new ApiError(body.error, body.meta?.requestId ?? null);
+        }
+        return { data: body.data, nextCursor: body.meta.page?.nextCursor ?? null };
       }),
       catchError((error: unknown) => throwError(() => toApiError(error))),
     );

@@ -1008,7 +1008,52 @@ Within the re-estimated budget.
 
 **Attempt 1 — FAIL (checklist)**
 
-- **Reviewer: FAIL** (verbatim, abridged): 1. `front-contract.md:73` "only `ASSESSOR` can use [quick comments] today" — the code admits any live grant of ASSESSOR, LEAD_ASSESSOR, TPB or PPU (`quick-comments.service.ts:24-26,129-138`). 2. `assessment/AGENTS.md:33` quoted the clock literal, so the NFR-4 grep (`tasks.md:257`) hit the guide itself. 3. `assessment/AGENTS.md:14` "one statement per read" — the code runs 2 (timelines) and 4 (page). 4. No pending items for root `AGENTS.md`, `docs/ux-ui/design.md` § 7 and TRD § 5.1 / § 7.3 (FR-25, `requirements.md:411`); not editing shared files is correct (`akili-archive.md:139-141`), but `execution.md` had no `## Constitution Impact` block to carry them.
+- **Reviewer: FAIL** (verbatim, abridged): 1. `front-contract.md:73` "only `ASSESSOR` can use [quick comments] today" — the code admits any live grant of ASSESSOR, LEAD_ASSESSOR, TPB or PPU (`quick-comments.service.ts:24-26,129-138`). 2. `assessment/AGENTS.md:33` quoted the clock literal, so the NFR-4 grep (`tasks.md:257`) hit the guide itself. 3. `assessment/AGENTS.md:14` "one statement per read" — the code runs 2 (timelines) and 4 (page). 4. No pending items for root `AGENTS.md`, `docs/ux-ui/design.md` § 7 and TRD § 5.1 / § 7.3 (FR-25, `requirements.md:411`); not editing shared files is correct (`akili-archive.md:139-141`), but `execution.md` had no `### Budget re-estimate before the client tasks — 2026-11-17
+
+Due before T-17 (T-15 running totals). The back lead confirms or adjusts it.
+
+| Measure | Spent at T-16 | T-17 to T-20 estimate | Re-estimated total | Basis |
+|---|---|---|---|---|
+| Production LOC | ≈ 8,245 TS + 141 SQL | T-17 ≈ 500 · T-18 ≈ 700 · T-19 ≈ 900 · T-20 ≈ 600 → ≈ 2,700 | ≈ 11,100 (was 11,000) | Mapper, store and skeleton per screen, as in `assessors.*`; T-17 measured at 497 |
+| Review rounds | 30 | 1 per task, plus 1 rework round on T-18 to T-20 (full review) → ≈ 6 | ≈ 36 (was 34) | 1.5 rounds per task so far |
+
+**No scope was cut.** The new tripwire is 90 % of the re-estimate: about 10,000 LOC or 33 rounds. T-21 (UI HITL) adds no code and no review round.
+
+### T-17: Client — API transport, models, `WorkspaceLayout` — PASS
+
+| | |
+|---|---|
+| Date | 2026-11-17 |
+| Final status | PASS (attempt 1) |
+| Requirements covered | FR-8 AC2 (one control collapses the menu and the navigator), FR-25 (the client mirrors the contract) |
+| Skills | angular-developer |
+| Effort | default |
+| Review mode | checklist |
+| Leader / Implementer / Reviewer | Claude Code `opus` (Leader and Implementer in one session, as delegated by the user) / general-purpose agent on `sonnet` (author ≠ auditor) |
+
+- **Files** (under `client/src/app/`): new `core/api/assessment.models.ts` (contract §§ 3–9: 8 statuses with FR-5 labels, read-only reasons, worklist, view, writes, quick comments, error codes), `core/api/assessment-api.ts` (every route of §§ 4–7; reads and writes silent, writes `NO_QUEUE`; the comment carries a caller-chosen `Idempotency-Key`), `core/api/assessment-api.spec.ts` (16), `shell/workspace-layout.ts` (`menuCollapsed` with the per-URL default, `navigatorCollapsed`, `focus`, `setFocus`), `shell/workspace-layout.spec.ts` (3); edited `core/http/api-envelope.ts` (`ApiErrorBody.fields` accepts `ApiFieldError | string`; `ApiError.fieldKeys`; `unwrapWithCursor`), `shell/qa-shell.ts` (`collapsed` is `WorkspaceLayout.menuCollapsed`).
+- **Observed red** (spec written before the shell change, shell still on its local `linkedSignal` = the falsifier): `Tests 2 failed | 1 passed (3)` — `setFocus(true) collapses the shell sidebar and the navigator…` → `AssertionError: expected 'true' to be 'false'`; `the shell toggle writes the shared state…` → `AssertionError: expected false to be true`. The first run failed on setup (`Cannot set and add/remove DecoratorFactory at the same time`), fixed in the spec before this red.
+- **Disqualifier check:** the layout spec renders the shell's real template and reads its sidebar toggle (`aria-expanded`, `aria-label`, `qa-shell.html:45-47`); the service is a secondary assertion only.
+- **Verification:** `npx ng build` OK (pre-existing budget warning); `npx ng test --watch=false` → `Test Files 52 passed (52)`, `Tests 457 passed (457)` (baseline 50 / 437); `npx ng lint` → 0 errors, 4 pre-existing warnings.
+- **Reviewer: PASS.** Advisories: keep the Yeck approval gate on `qa-shell.ts` in the PR; the shell and the layout each subscribe to router events for the URL (harmless; the shell's copy can go later with Yeck's approval).
+
+**Decisions made:**
+
+- `ApiError.fields` stays `ApiFieldError[]` and a new `fieldKeys: string[]` holds the bare keys of `ASSESSMENT_CORE_UNCOMMENTED` (contract § 6.5). The body type accepts both; no existing consumer changes.
+- The worklist page answers `data` as an object, so `unwrapPage` does not fit; `unwrapWithCursor` keeps `meta.page.nextCursor` beside it.
+- Assessment writes never go to the Unsent list (`NO_QUEUE`): a write replayed later could land on an assessment another assessor already ended (FR-17). The review store shows the error toast itself (T-20).
+
+**Needs approval before merge:** `client/src/app/shell/qa-shell.ts` is Yeck's file (team `CLAUDE.md` § 2). The change is three lines; the default is unchanged.
+
+**Running totals:**
+
+| Measure | Actual | Re-estimated budget |
+|---|---|---|
+| Tasks | 17 of 21 | 21 |
+| Production LOC | ≈ 8,742 TS + 141 SQL | 11,100 |
+| Review rounds | 31 | 36 |
+
+## Constitution Impact` block to carry them.
 
 **Attempt 2 — PASS**
 
