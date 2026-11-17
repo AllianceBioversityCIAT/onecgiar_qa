@@ -1,7 +1,7 @@
 // Pure helpers and view models of the Cycle view (ported from the mockup's cyPhaseState,
 // cardVM and officialRelative).
 import { StepAudience } from '../../../core/api/cycles.models';
-import { DEFAULT_CLOSES_TIME, DEFAULT_OPENS_TIME, nowInRome, todayInRome, zoneAt } from '../../../core/domain/rome-date';
+import { DEFAULT_CLOSES_TIME, DEFAULT_OPENS_TIME, calendarDate, nowInRome, todayInRome, zoneAt } from '../../../core/domain/rome-date';
 import {
   CORRECTION_AUDIENCE,
   CycleStep,
@@ -15,12 +15,12 @@ import {
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const DAY = 864e5;
 
-/** Parses "06 Jul 2026". Returns null when the text is not a valid date. */
+/** Parses "06 Jul 2026". Returns null when the text is not a real date ("31 Feb 2026" too). */
 export function parseDate(text: string | null | undefined): Date | null {
   const m = /^\s*(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\s*$/.exec(text ?? '');
   if (!m) return null;
   const mi = MONTHS.findIndex((x) => x.toLowerCase() === m[2].toLowerCase());
-  return mi < 0 ? null : new Date(+m[3], mi, +m[1]);
+  return mi < 0 ? null : calendarDate(+m[3], mi, +m[1]);
 }
 
 export function formatDate(d: Date): string {
@@ -212,7 +212,7 @@ export function timelineStart(t: Timeline): number {
 // ---------------------------------------------------------------------------------------------
 // View models for the presentational components.
 
-export type MenuAction = 'add-results' | 'edit' | 'export' | 'clear-test' | 'close';
+export type MenuAction = 'add-results' | 'edit' | 'people' | 'export' | 'clear-test' | 'close';
 
 export interface StepCardVM {
   n: number;
@@ -242,6 +242,8 @@ export interface StepCardVM {
    * "Waiting for results", never "Opens today at 00:00" (timeline-edit front contract § 3).
    */
   waiting: boolean;
+  /** "No assessors assigned" on the step in force when nobody holds its role in this timeline; '' otherwise. */
+  nobody: string;
 }
 
 export interface TimelineVM {
@@ -269,7 +271,23 @@ export interface TimelineVM {
   progressWidth: string | null;
   /** `soon`: shown greyed out with "Coming soon" (no API yet). */
   menu: { action: MenuAction; label: string; danger: boolean; soon: boolean }[];
+  /** The step in force has nobody assigned to its role (People). */
+  needsPeople: boolean;
+  /** On hold (waiting for results) and able to take a sync now: the card shows its own load button. */
+  waitingLoad: boolean;
+  /** "Load results into QA round 2" while the timeline can take a sync; '' otherwise. */
+  loadLabel: string;
+  /** People can be assigned here (live timelines; a mock one has no People). */
+  canAssign: boolean;
 }
+
+/** Timeline role behind each step audience, and how a warning names it. Programs are not assigned to timelines. */
+const AUDIENCE_ROLE: Partial<Record<NonNullable<CycleStep['audienceKey']>, { role: 'ASSESSOR' | 'LEAD_ASSESSOR' | 'TPB' | 'PPU'; plural: string }>> = {
+  assessors: { role: 'ASSESSOR', plural: 'assessors' },
+  lead_assessors: { role: 'LEAD_ASSESSOR', plural: 'lead assessors' },
+  tpb: { role: 'TPB', plural: 'third-party brokers' },
+  ppu: { role: 'PPU', plural: 'PPU people' },
+};
 
 const STATUS_CLASS: Record<string, string> = {
   Live: 'bg-(--st-indigo-bg) text-(--st-indigo-fg)',
@@ -317,8 +335,13 @@ export function timelineVM(t: Timeline, loadable = false): TimelineVM {
       dayWord: st.kind === 'future' && st.days === 1 ? 'day' : 'days',
       hasProgress: st.kind === 'active' && st.of > 0,
       waiting: held && (i === 0 || (opens != null && opens <= now)),
+      nobody: '',
     };
   });
+  // Who should be working now: the step in progress, else (on hold) the first step whose day came.
+  const inForce = closed ? -1 : steps.findIndex((s) => s.state === 'active') >= 0 ? steps.findIndex((s) => s.state === 'active') : steps.findIndex((s) => s.waiting);
+  const need = inForce >= 0 ? AUDIENCE_ROLE[t.steps[inForce].audienceKey ?? 'programs'] : undefined;
+  if (need && t.assigned && t.assigned[need.role] === 0) steps[inForce].nobody = `No ${need.plural} assigned`;
   const rail = states.map((s) => (closed ? 'done' : s.kind));
   const ai = rail.indexOf('active');
   const pct = ai >= 0 && states[ai].kind === 'active' ? (states[ai] as { pct: number }).pct : 0;
@@ -338,12 +361,16 @@ export function timelineVM(t: Timeline, loadable = false): TimelineVM {
   });
 
   const menu: TimelineVM['menu'] = [];
-  if (loadable) {
-    const round = stepRound(t, stepInForce(t, nowInRome()));
-    menu.push({ action: 'add-results', label: `Load results into QA round ${round}`, danger: false, soon: false });
-  }
+  const loadLabel = loadable ? `Load results into QA round ${stepRound(t, stepInForce(t, nowInRome()))}` : '';
+  // On hold, the card shows the load as its own button with this same name; then it leaves the "…" menu.
+  if (loadable && !held) menu.push({ action: 'add-results', label: loadLabel, danger: false, soon: false });
   else if (!soon && t.status === 'Live') menu.push({ action: 'add-results', label: 'Add results to this timeline', danger: false, soon: false });
-  menu.push({ action: 'edit', label: 'Edit timeline', danger: false, soon: false }, { action: 'export', label: 'Export comments', danger: false, soon });
+  menu.push(
+    { action: 'edit', label: 'Edit timeline', danger: false, soon: false },
+    // People live on the server only: a mock timeline shows it greyed out.
+    { action: 'people', label: 'People', danger: false, soon: !soon },
+    { action: 'export', label: 'Export comments', danger: false, soon },
+  );
   if (t.test) menu.push({ action: 'clear-test', label: 'Clear test results', danger: true, soon });
   if (t.kind !== 'Official timeline' && t.kind !== 'Official' && !closed) menu.push({ action: 'close', label: 'Close timeline', danger: true, soon });
 
@@ -371,5 +398,42 @@ export function timelineVM(t: Timeline, loadable = false): TimelineVM {
     rounds,
     progressWidth,
     menu,
+    needsPeople: steps.some((p) => !!p.nobody),
+    waitingLoad: loadable && held,
+    loadLabel,
+    canAssign: menu.some((m) => m.action === 'people' && !m.soon),
   };
+}
+
+/** What a collapsed complementary batch says about itself: the step that matters now and its state. */
+export interface TimelineNow {
+  /** "Step 2 of 5 · QA open for Science Programs", or "All 5 steps completed". */
+  step: string;
+  /** Same words as the step card: "In progress", "Waiting for results", "Opens in 3 days", "Completed". */
+  state: string;
+  tone: 'active' | 'waiting' | 'future' | 'done';
+  /** "closes 20 Nov, 23:59 CET" while a step runs; '' otherwise. */
+  when: string;
+}
+
+/**
+ * One line for a collapsed timeline card, read from its view model so it never disagrees with the steps below:
+ * the step in progress, else the step on hold (waiting for results), else the next step to open, else "completed".
+ */
+export function timelineNow(vm: TimelineVM): TimelineNow {
+  const n = vm.steps.length;
+  const label = (s: StepCardVM) => `Step ${s.n} of ${n} · ${s.name}`;
+  const active = vm.steps.find((s) => s.state === 'active');
+  if (active) return { step: label(active), state: 'In progress', tone: 'active', when: active.to ? `closes ${active.to}` : '' };
+  const held = vm.steps.find((s) => s.waiting);
+  if (held) return { step: label(held), state: 'Waiting for results', tone: 'waiting', when: '' };
+  const next = vm.steps.find((s) => s.state === 'future');
+  if (next) {
+    const state = next.days === 0 ? `Opens today at ${next.opensTime}` : `Opens in ${next.days} ${next.dayWord}`;
+    return { step: label(next), state, tone: 'future', when: '' };
+  }
+  // Closed early ("Close timeline"): the steps that never opened say "Not opened" (`stepState`), so count what ran.
+  const ran = vm.steps.filter((s) => s.doneText !== 'Not opened').length;
+  if (n && ran < n) return { step: `${ran} of ${n} steps ran`, state: 'Closed early', tone: 'done', when: '' };
+  return { step: n ? `All ${n} steps completed` : 'No steps yet', state: 'Completed', tone: 'done', when: '' };
 }

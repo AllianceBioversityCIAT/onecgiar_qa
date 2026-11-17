@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { CycleStep, Timeline } from './cycle.mock';
-import { isStepInForce, loadTargets, officialRelative, stepInForce, stepRound, timelineVM } from './cycle.logic';
+import { isStepInForce, loadTargets, officialRelative, parseDate, stepInForce, stepRound, timelineNow, timelineVM } from './cycle.logic';
 import { TimelineSteps } from './timeline-steps';
 
 // 3 Nov 2026, 10:00 in Rome (CET, UTC+1).
@@ -88,6 +88,10 @@ describe('cycle.logic', () => {
 
     it('starts today when step 1 has no day yet and opens later today', () => {
       expect(officialRelative('', official('14:00'))[0].start).toBe('03 Nov 2026');
+    });
+
+    it('a day that does not exist (31 Feb) never rolls into March', () => {
+      expect(officialRelative('31 Feb 2026', official('14:00'))[0].start).toBe('03 Nov 2026');
     });
 
     it('starts on the day the admin typed in step 1', () => {
@@ -179,6 +183,108 @@ describe('cycle.logic', () => {
         { ...step('Re-assess', '01 Nov 2026', '05 Nov 2026'), batch: true, round: 2, state: 'in_progress' },
       ]);
       expect(timelineVM(t, true).menu.find((m) => m.action === 'add-results')?.label).toBe('Load results into QA round 2');
+    });
+
+    it('on hold, the load leaves the menu and goes to the card button, with the same name', () => {
+      const t = timeline('Waiting for results', [step('Assess', '10 Nov 2026', '12 Nov 2026')]);
+      const vm = timelineVM(t, true);
+      expect(vm.waitingLoad).toBe(true);
+      expect(vm.loadLabel).toBe('Load results into QA round 1');
+      expect(vm.menu.some((m) => m.action === 'add-results')).toBe(false);
+    });
+  });
+
+  describe('timelineNow — one line for a collapsed complementary batch', () => {
+    it('names the step in progress and when it closes', () => {
+      const t = timeline('Live', [
+        { ...step('Assess', '20 Oct 2026', '25 Oct 2026'), state: 'closed' },
+        { ...step('Programs respond', '01 Nov 2026', '05 Nov 2026'), state: 'in_progress' },
+        step('Lead', '06 Nov 2026', '08 Nov 2026'),
+      ]);
+      expect(timelineNow(timelineVM(t))).toEqual({ step: 'Step 2 of 3 · Programs respond', state: 'In progress', tone: 'active', when: 'closes 05 Nov, 23:59 CET' });
+    });
+
+    it('says "Waiting for results" on a timeline on hold, at step 1', () => {
+      expect(timelineNow(timelineVM(HELD))).toMatchObject({ step: 'Step 1 of 5 · Assess', state: 'Waiting for results', tone: 'waiting', when: '' });
+    });
+
+    it('counts the days to the first step when nothing opened yet', () => {
+      const t = timeline('Scheduled', [step('Assess', '10 Nov 2026', '12 Nov 2026'), step('Programs respond', '13 Nov 2026', '14 Nov 2026')]);
+      expect(timelineNow(timelineVM(t))).toMatchObject({ step: 'Step 1 of 2 · Assess', state: 'Opens in 7 days', tone: 'future' });
+    });
+
+    it('says "Opens today at" when the first step opens later today', () => {
+      const t = timeline('Scheduled', [step('Assess', '03 Nov 2026', '05 Nov 2026', '15:00')]);
+      expect(timelineNow(timelineVM(t)).state).toBe('Opens today at 15:00');
+    });
+
+    it('says every step is completed on a closed timeline whose steps all ran', () => {
+      const t = timeline('Closed', [
+        { ...step('Assess', '01 Oct 2026', '05 Oct 2026'), state: 'closed' },
+        { ...step('Lead', '06 Oct 2026', '08 Oct 2026'), state: 'closed' },
+      ]);
+      expect(timelineNow(timelineVM(t))).toEqual({ step: 'All 2 steps completed', state: 'Completed', tone: 'done', when: '' });
+    });
+
+    it('closed early ("Close timeline"): counts the steps that ran, never "All completed" over steps that say "Not opened"', () => {
+      const t = timeline('Closed', [
+        { ...step('Assess', '20 Oct 2026', '25 Oct 2026'), state: 'closed' },
+        { ...step('Programs respond', '26 Oct 2026', '02 Nov 2026'), state: 'closed' },
+        step('Lead', '10 Nov 2026', '12 Nov 2026'),
+      ]);
+      const vm = timelineVM(t);
+      expect(vm.steps.map((s) => s.doneText)).toEqual(['', '', 'Not opened']);
+      expect(timelineNow(vm)).toEqual({ step: '2 of 3 steps ran', state: 'Closed early', tone: 'done', when: '' });
+    });
+  });
+
+  describe('timelineVM — what needs the admin (nobody assigned, results to load)', () => {
+    const live = (assigned: Timeline['assigned'], audienceKey: CycleStep['audienceKey'] = 'assessors') =>
+      ({
+        ...timeline('Live', [
+          { ...step('Assess', '01 Nov 2026', '05 Nov 2026'), audienceKey, state: 'in_progress' },
+          { ...step('Programs respond', '06 Nov 2026', '08 Nov 2026'), audienceKey: 'programs' },
+        ]),
+        assigned,
+      }) as Timeline;
+    const none = { ASSESSOR: 0, LEAD_ASSESSOR: 0, TPB: 0, PPU: 0 };
+
+    it('the step in progress says nobody is assigned to its role; the timeline flags it', () => {
+      const vm = timelineVM(live(none));
+      expect(vm.steps.map((s) => s.nobody)).toEqual(['No assessors assigned', '']);
+      expect(vm.needsPeople).toBe(true);
+    });
+
+    it('no warning once someone holds the role, on a future step, or on mock data without counts', () => {
+      expect(timelineVM(live({ ...none, ASSESSOR: 2 })).needsPeople).toBe(false);
+      expect(timelineVM(live(undefined)).needsPeople).toBe(false);
+      const future = { ...timeline('Scheduled', [step('Assess', '10 Nov 2026', '12 Nov 2026')]), assigned: none } as Timeline;
+      expect(timelineVM(future).steps[0].nobody).toBe('');
+    });
+
+    it('a step for programs never warns (programs are not assigned to timelines)', () => {
+      expect(timelineVM(live(none, 'programs')).needsPeople).toBe(false);
+    });
+
+    it('a timeline on hold warns on the step whose day came (its people are needed as soon as results land)', () => {
+      const held = { ...HELD, steps: HELD.steps.map((p) => ({ ...p, audienceKey: 'assessors' as const })), assigned: none } as Timeline;
+      expect(timelineVM(held).steps[0].nobody).toBe('No assessors assigned');
+    });
+
+    it('waitingLoad: a timeline on hold that can take a sync shows its own load button', () => {
+      expect(timelineVM(HELD, true).waitingLoad).toBe(true);
+      expect(timelineVM(HELD, false).waitingLoad).toBe(false);
+      expect(timelineVM(live(none), true).waitingLoad).toBe(false);
+    });
+  });
+
+  describe('parseDate — only real calendar days', () => {
+    it('31 Feb and 31 Nov are not dates; 29 Feb only in a leap year', () => {
+      expect(parseDate('31 Feb 2026')).toBeNull();
+      expect(parseDate('31 Nov 2026')).toBeNull();
+      expect(parseDate('29 Feb 2026')).toBeNull();
+      expect(parseDate('29 Feb 2028')?.getDate()).toBe(29);
+      expect(parseDate('06 Jul 2026')?.getMonth()).toBe(6);
     });
   });
 });

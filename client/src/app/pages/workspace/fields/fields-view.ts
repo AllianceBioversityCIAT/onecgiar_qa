@@ -1,4 +1,5 @@
 import { Component, DestroyRef, ElementRef, afterNextRender, computed, effect, inject, linkedSignal, signal, viewChild } from '@angular/core';
+import { cycleShortName } from '../../../core/domain/cycle-label';
 import { FieldConfigField, FieldConfigResultType, PublishTimelines } from '../../../core/api/field-config.models';
 import { QaButtonImports, QaSelect, QaSelectOption, QaSkeleton } from '../../../ui';
 import {
@@ -98,10 +99,11 @@ export class FieldsView {
   protected readonly cycleOptions = computed<readonly QaSelectOption[]>(() =>
     this.store.cycles().map((c) => ({
       value: String(c.id),
-      label: c.name,
+      label: cycleShortName(c.name),
       description: c.status === 'active' ? 'Active cycle' : 'Draft cycle',
     })),
   );
+  protected readonly cycleShortName = cycleShortName;
   protected readonly cycleValue = computed(() => (this.store.cycle() ? String(this.store.cycle()!.id) : null));
 
   protected readonly typeOptions = computed<readonly QaSelectOption[]>(() =>
@@ -109,7 +111,7 @@ export class FieldsView {
       const assessed = countFields(fieldsOf(t).map((f) => this.configOf(t.key, f))).assessed;
       const pending = this.changesOf(t).length;
       const unpublished = pending ? ` · ${pending} unpublished` : '';
-      return { value: t.key, label: t.label, description: `${assessed} fields assessed${unpublished}` };
+      return { value: t.key, label: t.label, description: `${assessed} ${assessed === 1 ? 'field' : 'fields'} assessed${unpublished}` };
     }),
   );
 
@@ -272,10 +274,6 @@ export class FieldsView {
     this.patch(e.id, { core: e.value });
   }
 
-  protected setAi(e: FieldRowEvent<boolean>): void {
-    this.patch(e.id, { ai: e.value });
-  }
-
   protected async openConfirm(): Promise<void> {
     if (this.openingReview()) return;
     this.openingReview.set(true);
@@ -334,6 +332,9 @@ export class FieldsView {
     this.lastAction.set(null);
     if (this.filtering()) this.kept.update((ids) => new Set(ids).add(id));
     // From what applies: a Core left on while the field was not assessed never comes back by itself.
-    this.store.edit(type.key, id, { ...effective(this.configOf(type.key, field)), ...patch });
+    // The AI flag has no control any more (Juanda, 11-nov-2026): it keeps its published value, so an
+    // edit never changes it behind the admin's back nor shows a change they cannot see or undo.
+    const ai = fromOptions(field.published).ai;
+    this.store.edit(type.key, id, { ...effective(this.configOf(type.key, field)), ai, ...patch });
   }
 }

@@ -55,6 +55,8 @@ export interface Timeline {
   /** Id and edit version on the server (absent on mock data). */
   apiId?: number;
   version?: number;
+  /** People assigned per role (`assignedCount` of the API; absent on mock data). */
+  assigned?: Readonly<Record<'ASSESSOR' | 'LEAD_ASSESSOR' | 'TPB' | 'PPU', number>>;
 }
 
 export interface ProgramProgress {

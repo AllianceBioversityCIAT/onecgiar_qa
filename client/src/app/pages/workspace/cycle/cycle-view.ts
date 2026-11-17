@@ -1,4 +1,4 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, OnInit, afterNextRender, computed, inject, signal } from '@angular/core';
 import { Toasts } from '../../../core/http/toasts';
 import { QaButtonImports, QaReveal, QaTabsImports } from '../../../ui';
 import { CycleSkeleton } from './cycle-skeleton';
@@ -6,16 +6,24 @@ import { CycleStore, TimelineSaveOutcome } from './cycle-store';
 import { CycleLoads } from './cycle-loads';
 import { Timeline } from './cycle.mock';
 import { MenuAction, formatNumber, isStepInForce, loadTargets, stepRow, stepState, timelineStart, timelineVM } from './cycle.logic';
+import { RomeClock } from '../../../core/domain/rome-clock';
 import { nowInRome } from '../../../core/domain/rome-date';
 import { LoadDrawer, LoadDrawerNames, RunRequest } from './load-drawer';
 import { LoadSummaryDrawer } from './load-summary-drawer';
+import { PeopleDrawer } from './people-drawer';
 import { ProgressDrawer, StepProgress } from './progress-drawer';
 import { StepDrawer, StepRequest, StepSaveEvent } from './step-drawer';
+import { TimelineActions } from './timeline-actions';
 import { TimelineCard } from './timeline-card';
 import { TimelineDrawer, TimelineRequest, TimelineSaveEvent, TimelineSaveFeedback } from './timeline-drawer';
 import { TimelineSteps } from './timeline-steps';
 
 const byStartDesc = (a: Timeline, b: Timeline) => timelineStart(b) - timelineStart(a);
+
+/** Browser storage key of the complementary batches the admin left open (only a viewing preference). */
+const OPEN_BATCHES_KEY = 'qa.cycle.openBatches';
+/** Enough for a cycle's batches; older ids fall off so the list never grows without end. */
+const OPEN_BATCHES_MAX = 50;
 
 /** Placeholder for the step drawer before a step is picked. */
 const EMPTY_TIMELINE: Timeline = { id: '', name: '', kind: 'Sub-timeline', status: 'Scheduled', results: 0, programs: [], types: [], steps: [] };
@@ -28,7 +36,7 @@ const EMPTY_TIMELINE: Timeline = { id: '', name: '', kind: 'Sub-timeline', statu
  */
 @Component({
   selector: 'qa-cycle-view',
-  imports: [QaButtonImports, QaTabsImports, QaReveal, CycleSkeleton, TimelineSteps, TimelineCard, TimelineDrawer, StepDrawer, ProgressDrawer, LoadDrawer, LoadSummaryDrawer],
+  imports: [QaButtonImports, QaTabsImports, QaReveal, CycleSkeleton, TimelineSteps, TimelineActions, TimelineCard, TimelineDrawer, StepDrawer, ProgressDrawer, LoadDrawer, LoadSummaryDrawer, PeopleDrawer],
   providers: [CycleStore, CycleLoads],
   templateUrl: './cycle-view.html',
 })
@@ -37,6 +45,8 @@ export class CycleView implements OnInit {
   protected readonly store = inject(CycleStore);
   protected readonly loads = inject(CycleLoads);
   private readonly toasts = inject(Toasts);
+  /** Minute in Rome: the cards, menus and load offers below run again when it moves (N-3). */
+  private readonly clock = inject(RomeClock);
 
   // ---- Data ----
   protected readonly official = this.store.official;
@@ -45,29 +55,35 @@ export class CycleView implements OnInit {
   // ---- Page state ----
   protected readonly tab = signal<string>('live');
   protected readonly closeConfirmId = signal<string | null>(null);
+  /** Complementary batches the admin opened: closed by default to one line each; the main batch always shows its steps. */
+  protected readonly openBatches = signal<ReadonlySet<string>>(new Set());
 
   protected readonly officialVM = computed(() => {
     const t = this.official();
+    this.clock.minute(); // timelineVM reads the clock inside (step states, "Opens today", round in force)
     return t ? timelineVM(t, this.loadable().has(t.id)) : null;
   });
   /** The Sub-timelines section lists sub-timelines only; the official timeline has its own card. */
   private readonly subs = computed(() => this.timelines().filter((t) => t.kind === 'Sub-timeline'));
   private readonly liveList = computed(() => this.subs().filter((t) => t.status !== 'Closed').sort(byStartDesc));
   private readonly closedList = computed(() => this.subs().filter((t) => t.status === 'Closed').sort(byStartDesc));
-  protected readonly liveVMs = computed(() => this.liveList().map((t) => timelineVM(t, this.loadable().has(t.id))));
-  protected readonly closedVMs = computed(() => this.closedList().map((t) => timelineVM(t)));
+  protected readonly liveVMs = computed(() => (this.clock.minute(), this.liveList().map((t) => timelineVM(t, this.loadable().has(t.id)))));
+  protected readonly closedVMs = computed(() => (this.clock.minute(), this.closedList().map((t) => timelineVM(t))));
   /** Ids of the timelines that can take a sync now: until their last step closes (none while a load runs or the cycle is closed). */
   private readonly loadable = computed(
-    () => new Set(this.canLoad() ? loadTargets(this.store.timelines(), nowInRome()).map((t) => t.id) : []),
+    () => new Set(this.canLoad() ? loadTargets(this.store.timelines(), this.clock.minute()).map((t) => t.id) : []),
   );
   /** The step drawer offers "Load results into this step" on the step in force of a loadable timeline (where the sync goes). */
   protected readonly stepLoadable = computed(() => {
     const r = this.stepRequest();
-    return this.loadable().has(r.timeline.id) && isStepInForce(r.timeline, r.index, nowInRome());
+    return this.loadable().has(r.timeline.id) && isStepInForce(r.timeline, r.index, this.clock.minute());
   });
   protected readonly closedTotal = computed(() => this.closedList().length);
 
   // ---- Drawers ----
+  protected readonly peopleOpen = signal(false);
+  /** Timeline whose people the drawer shows (kept after closing so the drawer can animate out). */
+  protected readonly peopleTimeline = signal<Timeline | null>(null);
   protected readonly loadOpen = signal(false);
   protected readonly loadRequest = signal<RunRequest>({ timelineId: null, fromStep: false });
   protected readonly loadError = signal<string | null>(null);
@@ -91,6 +107,19 @@ export class CycleView implements OnInit {
   protected readonly stepFeedback = signal<TimelineSaveFeedback | null>(null);
   protected readonly progressOpen = signal(false);
   protected readonly progress = signal<StepProgress>({ title: '', subtitle: '', pct: 0, done: 0, of: 0 });
+
+  constructor() {
+    // Read after the first render, in the browser only: the server render and hydration both start closed.
+    afterNextRender(() => this.openBatches.set(readOpenBatches()));
+  }
+
+  protected setBatchOpen(id: string, open: boolean): void {
+    const next = new Set(this.openBatches());
+    if (open) next.add(id);
+    else next.delete(id);
+    this.openBatches.set(next);
+    writeOpenBatches(next);
+  }
 
   ngOnInit(): void {
     // Then follow a load of the cycle that is still running (opened in another tab, or before a reload).
@@ -233,6 +262,18 @@ export class CycleView implements OnInit {
     }
   }
 
+  protected openPeople(id: string): void {
+    const t = this.timelineById(id);
+    if (!t || t.apiId == null) return;
+    this.peopleTimeline.set(t);
+    this.peopleOpen.set(true);
+  }
+
+  /** Someone was added to or removed from a timeline: refresh the cards in place (assignment counts). */
+  protected refreshAfterPeople(): void {
+    void this.store.load(true);
+  }
+
   protected onMenu(id: string, action: MenuAction): void {
     const t = this.timelineById(id);
     if (!t) return;
@@ -243,6 +284,9 @@ export class CycleView implements OnInit {
       }
       case 'edit':
         this.editTimeline(id);
+        break;
+      case 'people':
+        this.openPeople(id);
         break;
       case 'export':
         // TODO(api): export the comments of this timeline (.xlsx).
@@ -259,5 +303,22 @@ export class CycleView implements OnInit {
   protected closeTimeline(_id: string): void {
     // No API yet (closing early is out of scope of the timelines spec): the menu item is greyed out.
     this.closeConfirmId.set(null);
+  }
+}
+
+function readOpenBatches(): ReadonlySet<string> {
+  try {
+    const ids: unknown = JSON.parse(localStorage.getItem(OPEN_BATCHES_KEY) ?? '[]');
+    return new Set(Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function writeOpenBatches(ids: ReadonlySet<string>): void {
+  try {
+    localStorage.setItem(OPEN_BATCHES_KEY, JSON.stringify([...ids].slice(-OPEN_BATCHES_MAX)));
+  } catch {
+    // storage blocked: the cards still open and close for this visit
   }
 }

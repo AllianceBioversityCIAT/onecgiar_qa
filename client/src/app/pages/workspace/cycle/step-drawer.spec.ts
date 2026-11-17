@@ -7,12 +7,14 @@ const SUB = TIMELINES.find((t) => t.id !== OFFICIAL_TIMELINE.id)!;
 
 @Component({
   imports: [StepDrawer],
-  template: `<qa-cycle-step-drawer [(open)]="open" [request]="request()" [live]="true" (saveStep)="sent.push($event)" />`,
+  template: `<qa-cycle-step-drawer [(open)]="open" [request]="request()" [live]="true" [loadable]="loadable()" (saveStep)="sent.push($event)" (loadIntoStep)="loads = loads + 1" />`,
 })
 class Host {
   readonly open = signal(true);
   readonly request = signal<StepRequest>({ timeline: SUB, isOfficial: false, index: 0 });
   readonly sent: StepSaveEvent[] = [];
+  readonly loadable = signal(false);
+  loads = 0;
 }
 
 const nameInput = () => document.querySelector<HTMLInputElement>('#cycle-step-name')!;
@@ -34,6 +36,25 @@ async function type(fixture: ComponentFixture<Host>, input: HTMLInputElement, va
 }
 
 describe('StepDrawer', () => {
+  it('"Load results into this step" waits while the step has unsaved edits, so nothing typed is lost (N-1)', async () => {
+    const fixture = TestBed.createComponent(Host);
+    fixture.componentInstance.loadable.set(true);
+    // A step with nothing loaded yet, so the footer offers the load.
+    fixture.componentInstance.request.set({ timeline: { ...SUB, steps: SUB.steps.map((p, i) => (i === 0 ? { ...p, ran: '' } : p)) }, isOfficial: false, index: 0 });
+    await settle(fixture);
+    const loadBtn = () => [...document.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.trim() === 'Load results into this step')!;
+    expect(loadBtn().disabled).toBe(false);
+
+    await type(fixture, nameInput(), 'Renamed step');
+
+    expect(loadBtn().disabled).toBe(true);
+    expect(document.body.textContent).toContain('Save or cancel your changes to load results.');
+    loadBtn().click();
+    await settle(fixture);
+    expect(fixture.componentInstance.loads).toBe(0);
+    expect(fixture.componentInstance.open()).toBe(true);
+  });
+
   it('opens another step without the name error left over from the previous one', async () => {
     const fixture = TestBed.createComponent(Host);
     await settle(fixture);

@@ -2,13 +2,14 @@ import { Component, computed, input, output } from '@angular/core';
 import { QaTooltipImports } from '../../../ui';
 import { ReviewAiNote } from './review-ai-note';
 import { ReviewCardActions } from './review-card-actions';
+import { ReviewInstructionNote } from './review-instruction-note';
 import { CardAction, FieldVm } from './review-model';
 import { ReviewStateChips } from './review-state-chips';
 
 /** One reviewable field: label, state, value (plain, Before/Now or 0–2 scale), AI note, actions. */
 @Component({
   selector: 'qa-review-field-card',
-  imports: [QaTooltipImports, ReviewAiNote, ReviewCardActions, ReviewStateChips],
+  imports: [QaTooltipImports, ReviewAiNote, ReviewCardActions, ReviewInstructionNote, ReviewStateChips],
   templateUrl: './review-field-card.html',
   host: {
     class:

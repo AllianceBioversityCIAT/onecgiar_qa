@@ -319,14 +319,23 @@ export class AssessorsStore {
 
   async activate(id: string): Promise<void> {
     const m = this.find(id);
-    if (!m) return;
+    // A second tap while the first runs does nothing (BUG-4: it used to add the person twice).
+    if (!m || this.isBusy(id)) return;
+    this.busyRows.update((set) => new Set(set).add(id));
     try {
       const detail = await firstValueFrom(this.users.activate(Number(id), m.nick || m.name));
       this.removedMembers.update((list) => list?.filter((p) => p.id !== id) ?? null);
-      this.members.update((team) => [...team, this.toMember(detail)]);
+      // One row per person, even if the team already shows them (a reload got there first).
+      this.members.update((team) => [...team.filter((p) => p.id !== id), this.toMember(detail)]);
       this.toasts.success(`${m.nick || m.name} is back on the team.`);
     } catch (error) {
       this.toasts.error(toApiError(error).message);
+    } finally {
+      this.busyRows.update((set) => {
+        const next = new Set(set);
+        next.delete(id);
+        return next;
+      });
     }
   }
 

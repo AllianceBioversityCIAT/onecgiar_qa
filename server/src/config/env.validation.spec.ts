@@ -145,3 +145,26 @@ describe('parseAllowedOrigins', () => {
     expect(() => parseAllowedOrigins(' , ')).toThrow(/ALLOWED_ORIGINS/);
   });
 });
+
+describe('notification settings (optional)', () => {
+  const base = () => ({ ...VALID });
+  it.each([
+    ['NOTIFICATION_API_URL', 'http://reports.prms.cgiar.org/api/email'],
+    ['NOTIFICATION_EMAIL_ENABLED', 'yes'],
+    ['APP_URL', 'https://qa.cgiar.org/login'],
+  ])('rejects an invalid %s', (key, value) => {
+    expect(() => validateEnv({ ...base(), [key]: value })).toThrow(key);
+  });
+
+  it('accepts them valid, or absent', () => {
+    expect(() => validateEnv(base())).not.toThrow();
+    expect(() =>
+      validateEnv({
+        ...base(),
+        NOTIFICATION_API_URL: 'https://reports.prms.cgiar.org/api/email',
+        NOTIFICATION_EMAIL_ENABLED: 'false',
+        APP_URL: 'https://qatest.ciat.cgiar.org',
+      }),
+    ).not.toThrow();
+  });
+});

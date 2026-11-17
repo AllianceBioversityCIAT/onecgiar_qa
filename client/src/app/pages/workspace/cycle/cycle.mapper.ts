@@ -98,6 +98,7 @@ export function toViewTimeline(t: ApiTimeline, cat: CycleCatalogs): Timeline {
     name: t.name,
     kind: official ? 'Official' : 'Sub-timeline',
     status: STATUS[t.status] ?? 'Scheduled',
+    assigned: t.assignedCount,
     // Loads are not built yet (P2-3905): no timeline holds results.
     results: 0,
     programs: t.allPrograms ? [] : codes,
@@ -158,7 +159,8 @@ export function toCreateBody(d: CreateDraft, cat: CycleCatalogs): TimelineCreate
       opensAt: toApiMoment(r.start, r.startTime),
       closesAt: toApiMoment(r.end, r.endTime),
       round: rounds[i],
-      requiresLoad: r.batch,
+      // Step 1 always loads results: the server refuses it otherwise (timeline-rules, step 1).
+      requiresLoad: i === 0 || r.batch,
     };
   });
   return {

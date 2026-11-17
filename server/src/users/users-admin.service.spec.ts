@@ -1224,8 +1224,13 @@ describe('UsersAdminService.replaceRoles (FR-3, FR-7)', () => {
     await w.service.replaceRoles(ctx, target.id, [{ role: 'TPB' }]);
 
     expect(w.cache.invalidate).toHaveBeenCalledExactlyOnceWith(target.id);
-    expect(w.calls.at(-2)).toBe('tx:commit');
-    expect(w.calls.at(-1)).toBe(`invalidate:${target.id}`);
+    const commit = w.calls.lastIndexOf('tx:commit');
+    expect(w.calls[commit + 1]).toBe(`invalidate:${target.id}`);
+    // Then, outside the transaction: the pool check and the access email.
+    expect(w.calls.slice(commit + 2)).toEqual([
+      'cognito:getUser',
+      'email:access',
+    ]);
   });
 });
 
@@ -1681,7 +1686,8 @@ describe('resendInvitation (FR-8)', () => {
     expect(w.cognito.resendInvitation).toHaveBeenCalledExactlyOnceWith(
       'inv@cgiar.org',
     );
-    expect(w.calls.slice(0, 3)).toEqual([
+    expect(w.calls.slice(0, 4)).toEqual([
+      'cognito:getUser',
       'cognito:resend',
       'tx:begin',
       'tx:commit',
@@ -1844,7 +1850,7 @@ describe('Cognito resent but QA could not record it', () => {
       .filter((line) => line.includes('cognito_sent_not_recorded'))
       .map((line) => JSON.parse(line));
 
-  it('logs outcome=error reason=cognito_sent_not_recorded when the in-transaction re-check refuses (the user signed in meanwhile)', async () => {
+  it('logs outcome=error reason=cognito_sent_not_recorded when the in-transaction re-check refuses (the user was deactivated meanwhile)', async () => {
     const { w, admin, ctx } = await setup();
     const target = await w.seedUser({
       email: 'inv@cgiar.org',
@@ -1852,7 +1858,7 @@ describe('Cognito resent but QA could not record it', () => {
       invitation: 'sent',
     });
     w.cognito.resendInvitation.mockImplementationOnce(async () => {
-      await w.users.update(target.id, { lastLoginAt: new Date() });
+      await w.users.update(target.id, { isActive: false });
       return 'resent';
     });
 

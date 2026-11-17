@@ -106,5 +106,36 @@ export function validateEnv(
       throw new Error(`Invalid ${key}: expected an https:// URL`);
     }
   }
+  // The notification service receives the CLARISA API key.
+  const notificationUrl = config.NOTIFICATION_API_URL;
+  if (
+    notificationUrl !== undefined &&
+    notificationUrl !== '' &&
+    !isHttpsUrl(notificationUrl as string)
+  ) {
+    throw new Error('Invalid NOTIFICATION_API_URL: expected an https:// URL');
+  }
+  const emailEnabled = config.NOTIFICATION_EMAIL_ENABLED;
+  if (
+    emailEnabled !== undefined &&
+    emailEnabled !== '' &&
+    emailEnabled !== 'true' &&
+    emailEnabled !== 'false'
+  ) {
+    throw new Error(
+      'Invalid NOTIFICATION_EMAIL_ENABLED: expected "true" or "false"',
+    );
+  }
+  // Linked from the emails: an exact origin, like ALLOWED_ORIGINS entries.
+  const appUrl = config.APP_URL;
+  if (
+    appUrl !== undefined &&
+    appUrl !== '' &&
+    !isAllowedOriginEntry(appUrl as string)
+  ) {
+    throw new Error(
+      'Invalid APP_URL: expected an exact https:// origin (or http://localhost:<port>)',
+    );
+  }
   return config;
 }

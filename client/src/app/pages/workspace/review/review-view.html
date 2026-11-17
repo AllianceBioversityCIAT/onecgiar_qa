@@ -41,6 +41,17 @@
         } @else {
           @let h = header();
           <!-- Title row -->
+          <!-- "Viewing as": the role sets the buttons of every card (design preview; the real role comes from the
+               signed-in user, see review-view.ts). Same inline menu as "Viewing" in Results and the Overview. -->
+          <qa-select
+            [value]="role()"
+            (valueChange)="setRole($event)"
+            [options]="roleOptions"
+            label="Viewing as"
+            appearance="inline"
+            panelWidth="240px"
+            class="mb-3 self-start"
+          />
           <div #titleRow class="mb-5 flex flex-wrap items-start gap-x-4 gap-y-3 max-sm:mb-4">
             <div class="flex min-w-[min(100%,320px)] flex-[1_1_320px] flex-col">
               <h1 class="m-0 text-(length:--fs-20) max-sm:text-(length:--fs-18) leading-[1.3] font-bold tracking-[-0.01em] text-pretty text-(--text)">{{ h.title }}</h1>
@@ -140,7 +151,7 @@
           [sectionNum]="idx() + 1"
           [sectionTotal]="sections().length"
           [openCount]="openCount()"
-          [canFinish]="!readOnly()"
+          [canFinish]="canFinish()"
           [warnCount]="warnCount()"
           [warnText]="warnText()"
           [resolvedCount]="resolvedCount()"
@@ -168,4 +179,5 @@
   [focusTick]="focusTick()"
   (add)="addComment()"
   (quickPick)="pickQuick($event)"
+  (withdraw)="withdrawComment($event)"
 />

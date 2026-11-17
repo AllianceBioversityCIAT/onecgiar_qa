@@ -27,6 +27,21 @@ export function parseDay(text: string | null | undefined): DayParts | null {
   return { year, month, day };
 }
 
+/**
+ * Local `Date` for a typed day, or null when that day does not exist: `new Date(2026, 1, 31)` would
+ * quietly roll into 3 Mar. `monthIndex` is 0-based, like `Date`.
+ */
+export function calendarDate(year: number, monthIndex: number, day: number): Date | null {
+  const d = new Date(year, monthIndex, day);
+  return d.getFullYear() === year && d.getMonth() === monthIndex && d.getDate() === day ? d : null;
+}
+
+/** Today in Rome as a local `Date` at midnight (where a calendar opens when the field is empty). */
+export function todayInRomeDate(now: Date = new Date()): Date {
+  const [y, m, d] = todayInRome(now).split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
 /** `YYYY-MM-DD` strings compare correctly as text. */
 export function compareDays(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
