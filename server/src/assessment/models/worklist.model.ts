@@ -130,8 +130,13 @@ export class WorklistRowModel {
   @ApiProperty({ type: Number, example: 2, description: 'Open comments' })
   comments!: number;
 
-  @ApiProperty({ type: Number, enum: [0], description: 'Always 0 for now' })
-  answeredBySp!: 0;
+  @ApiProperty({
+    type: Number,
+    example: 1,
+    description:
+      'Comments the Science Program answered: accepted, accepted with a comment, or disagreed (P2-3911)',
+  })
+  answeredBySp!: number;
 
   @ApiProperty({ type: WorklistAssessedByModel, nullable: true })
   assessedBy!: WorklistAssessedByModel | null;

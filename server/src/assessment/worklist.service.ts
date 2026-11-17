@@ -80,7 +80,8 @@ export interface WorklistRow {
   program: { id: number; code: string; name: string };
   resultType: { key: string; label: string };
   comments: number;
-  answeredBySp: 0;
+  /** P2-3911: non-withdrawn comments the Science Program accepted, accepted with a comment, or disagreed with. */
+  answeredBySp: number;
   assessedBy: { id: number; nickname: string | null } | null;
   status: QaStatus | null;
   canOpen: boolean;
@@ -441,7 +442,7 @@ export class WorklistService {
         label: types.get(record.resultTypeKey)?.name ?? record.resultTypeKey,
       },
       comments: record.comments,
-      answeredBySp: 0,
+      answeredBySp: record.answeredBySp,
       assessedBy:
         record.assessedById === null
           ? null

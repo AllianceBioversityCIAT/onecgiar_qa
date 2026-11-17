@@ -56,7 +56,12 @@ import {
 } from './in-memory-assessment.js';
 import { localJwksCache, newKeyPair, signJwt } from './jwt-test-keys.js';
 import { SP_ACCESS_STORE } from '../../src/assessment/sp-view/sp-access.store.js';
-import { InMemorySpAccessStore, InMemorySpViewStore } from './in-memory-sp.js';
+import {
+  InMemorySpAccessStore,
+  InMemorySpResponseUnitOfWork,
+  InMemorySpViewStore,
+} from './in-memory-sp.js';
+import { SP_RESPONSE_UNIT_OF_WORK } from '../../src/assessment/sp-view/sp-response.unit-of-work.js';
 import { SP_VIEW_STORE } from '../../src/assessment/sp-view/sp-view.store.js';
 import { spAccessConfig } from '../../src/config/sp-access.config.js';
 import { adminWorld, PROGRAMS, RESULT_TYPES } from './users-admin-world.js';
@@ -243,6 +248,8 @@ export async function buildAssessmentApp(
     .useValue(spAccess)
     .overrideProvider(SP_VIEW_STORE)
     .useValue(new InMemorySpViewStore(world))
+    .overrideProvider(SP_RESPONSE_UNIT_OF_WORK)
+    .useValue(new InMemorySpResponseUnitOfWork(world))
     .overrideProvider(TIMELINE_LOADS)
     .useValue(new InMemoryTimelineLoads(world))
     .overrideProvider(IDEMPOTENCY_STORE)

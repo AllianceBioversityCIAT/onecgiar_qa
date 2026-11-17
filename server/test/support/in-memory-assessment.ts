@@ -537,6 +537,16 @@ export class InMemoryWorklistStore implements WorklistStore {
                 (c) =>
                   c.assessmentId === assessment.id && c.state !== 'withdrawn',
               ).length,
+        answeredBySp:
+          assessment === undefined
+            ? 0
+            : this.world.comments.filter(
+                (c) =>
+                  c.assessmentId === assessment.id &&
+                  ['accepted', 'accepted_with_comment', 'disagreed'].includes(
+                    c.state,
+                  ),
+              ).length,
         assessedById: finisher?.id ?? null,
         assessedByNickname: finisher?.nickname ?? null,
         status,
@@ -561,7 +571,7 @@ export class InMemoryWorklistStore implements WorklistStore {
       case 'comments':
         return r.comments;
       case 'answered':
-        return 0;
+        return r.answeredBySp;
       case 'assessedBy':
         return r.assessedByNickname ?? '';
       case 'status':

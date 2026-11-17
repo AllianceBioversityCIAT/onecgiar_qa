@@ -109,7 +109,7 @@ export const DEADLOCK_ATTEMPTS = 3;
  * as the `cause` of a drizzle wrapper. A lock wait timeout (1205) and every
  * other error are not retried: only a deadlock leaves the work safe to repeat.
  */
-function isDeadlock(error: unknown): boolean {
+export function isDeadlock(error: unknown): boolean {
   for (
     let current: unknown = error, depth = 0;
     current instanceof Error && depth < 3;

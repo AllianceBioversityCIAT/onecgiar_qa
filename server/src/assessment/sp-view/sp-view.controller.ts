@@ -1,7 +1,16 @@
 // P2-3911: the Science Program view, under /sp. Every route is an SP session
 // route (`@SpSession()`): the Cognito guards skip it and SpSessionGuard
 // requires a live SP session. Scope and the 404 live in the services.
-import { Controller, Get, Inject, Param, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Inject,
+  Param,
+  Put,
+  Query,
+  Req,
+} from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ApiErrorResponses, ApiOkEnvelope } from '../../common/api-response.js';
 import {
@@ -11,7 +20,15 @@ import {
   SpTimelineParams,
 } from './dto/sp-view.query.js';
 import { SpMeModel } from './models/sp-access.model.js';
+import { CommentParams } from '../dto/assessment-params.js';
+import { SpRespondBody } from './dto/sp-response.body.js';
+import { requestIdOf, type RequestWithId } from '../../common/request-id.js';
 import {
+  SpResponseService,
+  type SpRespondAnswer,
+} from './sp-response.service.js';
+import {
+  SpRespondAnswerModel,
   SpResultModel,
   SpResultsModel,
   SpTimelinesModel,
@@ -33,6 +50,7 @@ export class SpViewController {
   constructor(
     @Inject(SpAccessService) private readonly access: SpAccessService,
     @Inject(SpViewService) private readonly view: SpViewService,
+    @Inject(SpResponseService) private readonly responses: SpResponseService,
   ) {}
 
   @ApiOperation({
@@ -116,6 +134,35 @@ export class SpViewController {
       params.timelineId,
       params.resultCode,
       query.programId,
+    );
+  }
+
+  @ApiOperation({
+    summary: 'Respond to a QA comment (or change the response)',
+    description:
+      '`accept` (no text), `accept_with_comment`, `disagree` or `request_clarification` (with a text of 1 to 2,000 characters). Only while the programs step is in progress; the latest response counts and the earlier ones stay in the history. A response never validates a field and never changes the QA status of the result. A comment that is not visible to the program, of another program, or missing is the same 404.',
+  })
+  @ApiOkEnvelope(SpRespondAnswerModel)
+  @ApiErrorResponses({
+    400: ['VALIDATION_FAILED', 'MALFORMED_JSON'],
+    401: ['SP_SESSION_INVALID'],
+    404: ['SP_NOT_FOUND'],
+    409: ['SP_STEP_CLOSED', 'SP_COMMENT_NOT_RESPONDABLE'],
+    413: ['PAYLOAD_TOO_LARGE'],
+    503: ['SERVICE_UNAVAILABLE'],
+  })
+  @Put('comments/:commentId/response')
+  respond(
+    @CurrentSpSession() session: SpSessionPrincipal,
+    @Param() params: CommentParams,
+    @Body() body: SpRespondBody,
+    @Req() request: RequestWithId,
+  ): Promise<SpRespondAnswer> {
+    return this.responses.respond(
+      session,
+      params.commentId,
+      { kind: body.kind, body: body.body },
+      requestIdOf(request),
     );
   }
 }

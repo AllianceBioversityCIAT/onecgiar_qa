@@ -331,3 +331,79 @@ export class SpResultModel {
   @ApiProperty({ type: SpCountsModel })
   counts!: SpCountsModel;
 }
+
+export class SpRespondAnswerModel {
+  @ApiProperty({ type: SpCommentModel })
+  comment!: SpCommentModel;
+
+  @ApiProperty({
+    type: SpCountsModel,
+    description: 'The counts of the result after the response',
+  })
+  counts!: SpCountsModel;
+}
+
+export class AssessorResponderModel {
+  @ApiProperty({ type: String })
+  name!: string;
+
+  @ApiProperty({ type: String, format: 'email' })
+  email!: string;
+}
+
+export class AssessorResponseModel {
+  @ApiProperty({ type: Number })
+  id!: number;
+
+  @ApiProperty({
+    type: String,
+    enum: [
+      'accept',
+      'accept_with_comment',
+      'disagree',
+      'request_clarification',
+    ],
+  })
+  kind!: string;
+
+  @ApiProperty({ type: String, nullable: true })
+  body!: string | null;
+
+  @ApiProperty({ type: AssessorResponderModel })
+  respondedBy!: AssessorResponderModel;
+
+  @ApiProperty({ type: String, format: 'date-time' })
+  respondedAt!: string;
+}
+
+export class AssessorThreadModel {
+  @ApiProperty({ type: Number })
+  commentId!: number;
+
+  @ApiProperty({ type: String })
+  fieldKey!: string;
+
+  @ApiProperty({ type: String })
+  state!: string;
+
+  @ApiProperty({
+    type: AssessorResponseModel,
+    nullable: true,
+    description: 'The latest response',
+  })
+  response!: AssessorResponseModel | null;
+
+  @ApiProperty({
+    type: [AssessorResponseModel],
+    description: 'Every response, oldest first',
+  })
+  history!: AssessorResponseModel[];
+
+  @ApiProperty({ type: [SpClarificationModel] })
+  clarifications!: SpClarificationModel[];
+}
+
+export class AssessorThreadsModel {
+  @ApiProperty({ type: [AssessorThreadModel] })
+  comments!: AssessorThreadModel[];
+}

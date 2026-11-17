@@ -75,6 +75,12 @@ import { SpApiKeyGuard } from './sp-view/sp-api-key.guard.js';
 import { SpSessionGuard } from './sp-view/sp-session.guard.js';
 import { SpViewController } from './sp-view/sp-view.controller.js';
 import { SpViewService } from './sp-view/sp-view.service.js';
+import { SpAssessorController } from './sp-view/sp-assessor.controller.js';
+import { SpResponseService } from './sp-view/sp-response.service.js';
+import {
+  DrizzleSpResponseUnitOfWork,
+  SP_RESPONSE_UNIT_OF_WORK,
+} from './sp-view/sp-response.unit-of-work.js';
 import { DrizzleSpViewStore, SP_VIEW_STORE } from './sp-view/sp-view.store.js';
 
 /**
@@ -97,6 +103,7 @@ import { DrizzleSpViewStore, SP_VIEW_STORE } from './sp-view/sp-view.store.js';
     // The Science Program view (P2-3911, sp-view/).
     SpAccessController,
     SpViewController,
+    SpAssessorController,
   ],
   imports: [
     DrizzleModule,
@@ -162,6 +169,12 @@ import { DrizzleSpViewStore, SP_VIEW_STORE } from './sp-view/sp-view.store.js';
     // The SP reads: their port and service (over the assessment stores and AssessmentService.viewInputsFor).
     { provide: SP_VIEW_STORE, useClass: DrizzleSpViewStore },
     SpViewService,
+    // The SP writes (a program response, an assessor's clarification answer): one transaction each, in the module's lock order.
+    {
+      provide: SP_RESPONSE_UNIT_OF_WORK,
+      useClass: DrizzleSpResponseUnitOfWork,
+    },
+    SpResponseService,
   ],
 })
 export class AssessmentModule {}

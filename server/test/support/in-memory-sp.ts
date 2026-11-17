@@ -17,10 +17,19 @@ import type {
   SpTimelineRecord,
   SpViewStore,
 } from '../../src/assessment/sp-view/sp-view.store.js';
-import type {
-  FakeComment,
-  InMemoryAssessmentWorld,
+import {
+  InMemoryAssessmentWriteStore,
+  type FakeComment,
+  type InMemoryAssessmentWorld,
 } from './in-memory-assessment.js';
+import type { CommentState } from '../../src/database/drizzle/schema/assessment-comments.js';
+import type {
+  NewClarificationAnswerRow,
+  NewSpResponseRow,
+  SpRepositories,
+  SpResponseUnitOfWork,
+  SpWriteStore,
+} from '../../src/assessment/sp-view/sp-response.unit-of-work.js';
 
 export interface FakeSpCodeRow extends NewSpCode {
   id: number;
@@ -281,5 +290,124 @@ export class InMemorySpViewStore implements SpViewStore {
       programId: membership.programId,
       round: membership.round ?? 1,
     });
+  }
+}
+
+// ---- SP writes over the assessment world (P2-3911) --------------------------
+
+/** `SpWriteStore` over the world, bound to one transaction's undo log. */
+export class InMemorySpWriteStore implements SpWriteStore {
+  constructor(
+    private readonly world: InMemoryAssessmentWorld,
+    private readonly undo: Array<() => void>,
+  ) {}
+
+  setCommentState(
+    commentId: number,
+    from: CommentState,
+    to: CommentState,
+  ): Promise<boolean> {
+    this.world.statements += 1;
+    this.world.writeLog.push('setCommentState');
+    const held = this.world.comments.find(
+      (c) => commentIdOf(this.world, c) === commentId,
+    );
+    // The conditional UPDATE: it matches only while the state is still `from`.
+    if (held === undefined || held.state !== from) {
+      return Promise.resolve(false);
+    }
+    held.state = to;
+    this.undo.push(() => {
+      held.state = from;
+    });
+    return Promise.resolve(true);
+  }
+
+  insertResponse(row: NewSpResponseRow): Promise<number> {
+    this.world.statements += 1;
+    this.world.writeLog.push('insertResponse');
+    // chk_sp_responses_body
+    if ((row.kind === 'accept') !== (row.body === null)) {
+      return Promise.reject(new Error('chk_sp_responses_body'));
+    }
+    const created: SpResponseRecord = {
+      id: this.world.nextSpResponseId++,
+      commentId: row.commentId,
+      kind: row.kind,
+      body: row.body,
+      responderName: row.responderName,
+      responderEmail: row.responderEmail,
+      programId: row.programId,
+      createdAt: row.at,
+    };
+    this.world.spResponses.push(created);
+    this.undo.push(() => {
+      this.world.spResponses = this.world.spResponses.filter(
+        (r) => r !== created,
+      );
+    });
+    return Promise.resolve(created.id);
+  }
+
+  findPendingClarificationRequest(commentId: number): Promise<number | null> {
+    this.world.statements += 1;
+    const latest = this.world.spResponses
+      .filter((r) => r.commentId === commentId)
+      .sort((x, y) => y.id - x.id)[0];
+    return Promise.resolve(
+      latest?.kind === 'request_clarification' ? latest.id : null,
+    );
+  }
+
+  insertClarificationAnswer(row: NewClarificationAnswerRow): Promise<number> {
+    this.world.statements += 1;
+    this.world.writeLog.push('insertClarificationAnswer');
+    // uq_clarification_answers_response
+    if (
+      this.world.clarificationAnswers.some(
+        (x) => x.responseId === row.responseId,
+      )
+    ) {
+      return Promise.reject(
+        Object.assign(new Error('Duplicate entry'), {
+          code: 'ER_DUP_ENTRY',
+          errno: 1062,
+        }),
+      );
+    }
+    const created = {
+      id: this.world.nextClarificationAnswerId++,
+      commentId: row.commentId,
+      responseId: row.responseId,
+      authorId: row.authorId,
+      body: row.body,
+      createdAt: row.at,
+    };
+    this.world.clarificationAnswers.push(created);
+    this.undo.push(() => {
+      this.world.clarificationAnswers = this.world.clarificationAnswers.filter(
+        (x) => x !== created,
+      );
+    });
+    return Promise.resolve(created.id);
+  }
+}
+
+/** The SP unit of work over the world: the assessment write port and the SP port share one undo log. */
+export class InMemorySpResponseUnitOfWork implements SpResponseUnitOfWork {
+  constructor(private readonly world: InMemoryAssessmentWorld) {}
+
+  async run<T>(work: (repositories: SpRepositories) => Promise<T>): Promise<T> {
+    this.world.transactions += 1;
+    const undo: Array<() => void> = [];
+    try {
+      return await work({
+        assessments: new InMemoryAssessmentWriteStore(this.world, undo),
+        sp: new InMemorySpWriteStore(this.world, undo),
+      });
+    } catch (error) {
+      for (const revert of undo.reverse()) revert();
+      throw error;
+    }
   }
 }
