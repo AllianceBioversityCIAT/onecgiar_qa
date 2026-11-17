@@ -1,4 +1,4 @@
-import { frameAncestorsSources, isSpPath, spFrameAncestorsPolicy, toFrameOrigin } from './sp-frame-ancestors';
+import { frameAncestorsSources, frameHeadersFor, isSpPath, spFrameAncestorsPolicy, toFrameOrigin } from './sp-frame-ancestors';
 
 describe('SP frame-ancestors (P2-3911)', () => {
   it('unset, empty or blank means nobody may frame /sp', () => {
@@ -47,5 +47,24 @@ describe('SP frame-ancestors (P2-3911)', () => {
     expect(isSpPath('/results')).toBe(false);
     expect(isSpPath('/spa')).toBe(false);
     expect(isSpPath('/sports/sp')).toBe(false);
+  });
+});
+
+describe('who may frame a page of the app', () => {
+  const SP_POLICY = 'frame-ancestors https://reporting.example.org';
+
+  it('every page outside /sp cannot be framed at all, static HTML included', () => {
+    for (const path of ['/', '/login', '/results', '/results/9792?timeline=34', '/auth/callback', '/index.csr.html', '/spa', '/sports/sp']) {
+      expect(frameHeadersFor(path, SP_POLICY), path).toEqual({
+        'Content-Security-Policy': "frame-ancestors 'none'",
+        'X-Frame-Options': 'DENY',
+      });
+    }
+  });
+
+  it('/sp pages carry the SP policy only: an X-Frame-Options there would lock Reporting out', () => {
+    for (const path of ['/sp', '/sp/', '/sp?code=abc', '/sp/timelines/1/results/2']) {
+      expect(frameHeadersFor(path, SP_POLICY), path).toEqual({ 'Content-Security-Policy': SP_POLICY });
+    }
   });
 });

@@ -6,12 +6,27 @@ import {
 } from '@angular/ssr/node';
 import express from 'express';
 import { join } from 'node:path';
-import { isSpPath, spFrameAncestorsPolicy } from './sp-frame-ancestors';
+import { frameHeadersFor, spFrameAncestorsPolicy } from './sp-frame-ancestors';
 
 const browserDistFolder = join(import.meta.dirname, '../browser');
 
 const app = express();
 const angularApp = new AngularNodeAppEngine();
+
+/**
+ * Who may frame a page. Runs before the static files so that every response carries it, static HTML included
+ * (`/index.csr.html` boots the whole app too).
+ * - The Science Program view (`/sp`, `/sp/*`, P2-3911) is framed by Reporting only:
+ *   `Content-Security-Policy: frame-ancestors <SP_FRAME_ANCESTORS>` (space-separated exact origins; invalid
+ *   entries are ignored; unset or empty = `'none'`).
+ * - Every other page cannot be framed at all: `frame-ancestors 'none'` and `X-Frame-Options: DENY`.
+ * If CloudFront serves HTML from its cache, the same headers must be set in its response-headers policy.
+ */
+const spFramePolicy = spFrameAncestorsPolicy(process.env['SP_FRAME_ANCESTORS']);
+app.use((req, res, next) => {
+  for (const [name, value] of Object.entries(frameHeadersFor(req.path, spFramePolicy))) res.setHeader(name, value);
+  next();
+});
 
 /**
  * Serve static files from /browser
@@ -23,18 +38,6 @@ app.use(
     redirect: false,
   }),
 );
-
-/**
- * P2-3911: the Science Program view (`/sp`, `/sp/*`) is framed by Reporting only. Its pages carry
- * `Content-Security-Policy: frame-ancestors <SP_FRAME_ANCESTORS>` (space-separated exact origins; invalid
- * entries are ignored; unset or empty = `'none'`). Other routes keep their headers. If CloudFront serves
- * `/sp` HTML from its cache, the same header must be set in its response-headers policy for `/sp*`.
- */
-const spFramePolicy = spFrameAncestorsPolicy(process.env['SP_FRAME_ANCESTORS']);
-app.use((req, res, next) => {
-  if (isSpPath(req.path)) res.setHeader('Content-Security-Policy', spFramePolicy);
-  next();
-});
 
 /**
  * Handle all other requests by rendering the Angular application.

@@ -28,6 +28,24 @@ describe('AuthSession', () => {
       expect(sessionStorage.length).toBe(0);
     });
 
+    it('a page that never uses this session starts signed out: no refresh call, nothing read or written in the browser', async () => {
+      auth.startAnonymous();
+      http.expectNone(`${API}/auth/session/refresh`);
+      await auth.ready();
+      expect(auth.status()).toBe('anonymous');
+      expect(auth.user()).toBeNull();
+      expect(localStorage.length).toBe(0);
+      expect(sessionStorage.length).toBe(0);
+    });
+
+    it('starting signed out does nothing once the session started the normal way', async () => {
+      const done = auth.bootstrap();
+      http.expectOne(`${API}/auth/session/refresh`).flush(ok(session('tok-start')));
+      await done;
+      auth.startAnonymous();
+      expect(auth.status()).toBe('authenticated');
+    });
+
     it('a 401 means anonymous, not an error banner', async () => {
       const done = auth.bootstrap();
       http
