@@ -1,7 +1,7 @@
 import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { AvailableSuggestionView } from '../../../../core/api/ai-suggestions.models';
-import { needsReason, reasonError, validateWithReason } from './ai-reason';
+import { levelOf, needsReason, reasonError, validateWithReason } from './ai-reason';
 import { AiReasonDialog } from './ai-reason-dialog';
 
 const ai = (suggestedValue: number): AvailableSuggestionView => ({
@@ -56,6 +56,7 @@ describe('validateWithReason', () => {
     const store = {
       validatedAbove: async (field: string, level: number, reason: string) => {
         order.push(`event ${field} ${level} ${reason}`);
+        return true;
       },
     };
     const result = await validateWithReason(
@@ -71,6 +72,32 @@ describe('validateWithReason', () => {
     expect(result).toBe('ok');
     expect(order).toEqual(['event innovation_dev.readiness_level 6 Annex', 'validate']);
   });
+
+  it('validates nothing when the reason was not stored', async () => {
+    let validated = false;
+    const result = await validateWithReason(
+      { validatedAbove: async () => false },
+      'innovation_dev.readiness_level',
+      6,
+      'Annex',
+      async () => {
+        validated = true;
+        return 'ok';
+      },
+    );
+    expect(result).toBeNull();
+    expect(validated).toBe(false);
+  });
+});
+
+describe('levelOf', () => {
+  it('reads a number or a numeric string, nothing else', () => {
+    expect(levelOf(6)).toBe(6);
+    expect(levelOf('4')).toBe(4);
+    expect(levelOf(4.5)).toBeNull();
+    expect(levelOf('Level 4')).toBeNull();
+    expect(levelOf(null)).toBeNull();
+  });
 });
 
 @Component({
@@ -79,12 +106,16 @@ describe('validateWithReason', () => {
     [(open)]="open"
     [aiLevel]="3"
     [reportedLevel]="6"
+    [busy]="busy()"
+    [failure]="failure()"
     (confirmed)="saved.push($event)"
     (cancelled)="cancels = cancels + 1"
   />`,
 })
 class Host {
   readonly open = signal(true);
+  readonly busy = signal(false);
+  readonly failure = signal('');
   saved: string[] = [];
   cancels = 0;
 }
@@ -100,7 +131,7 @@ describe('AiReasonDialog', () => {
     return { fixture, input, button };
   };
 
-  it('keeps Save disabled until there is a reason, then emits it trimmed and closes', async () => {
+  it('keeps Save disabled until there is a reason, then emits it trimmed; the page closes it', async () => {
     const { fixture, input, button } = setup();
     await fixture.whenStable();
     expect(button('Save and validate').disabled).toBe(true);
@@ -111,7 +142,43 @@ describe('AiReasonDialog', () => {
     button('Save and validate').click();
     fixture.detectChanges();
     expect(fixture.componentInstance.saved).toEqual(['Second pilot in the annex']);
-    expect(fixture.componentInstance.open()).toBe(false);
+    // Open until the page says the server stored it.
+    expect(fixture.componentInstance.open()).toBe(true);
+  });
+
+  it('while busy nothing can be pressed; a failure keeps the reason and says why', async () => {
+    const { fixture, input, button } = setup();
+    await fixture.whenStable();
+    input().value = 'Second pilot';
+    input().dispatchEvent(new Event('input'));
+    fixture.componentInstance.busy.set(true);
+    fixture.detectChanges();
+    expect(button('Save and validate').disabled).toBe(true);
+    expect(button('Cancel').disabled).toBe(true);
+    button('Save and validate').click();
+    expect(fixture.componentInstance.saved).toEqual([]);
+    fixture.componentInstance.busy.set(false);
+    fixture.componentInstance.failure.set('The reason could not be saved.');
+    fixture.detectChanges();
+    expect(input().value).toBe('Second pilot');
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain('could not be saved');
+  });
+
+  it('Esc or a click outside clears the reason: the next opening starts empty', async () => {
+    const { fixture, input } = setup();
+    await fixture.whenStable();
+    input().value = 'Half typed';
+    input().dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    // What Esc and the overlay do: the dialog sets open to false.
+    fixture.componentInstance.open.set(false);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.componentInstance.open.set(true);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(input().value).toBe('');
+    expect(fixture.componentInstance.saved).toEqual([]);
   });
 
   it('Cancel saves nothing', async () => {

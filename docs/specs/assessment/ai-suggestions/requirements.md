@@ -61,7 +61,7 @@
 
 **FR-11 Missing reasons (AC9 analysis).** `GET /api/v1/ai-suggestions/analysis/missing-reasons` (ADMIN) returns, per field key and prompt version, the count of IRL/IUL validations where the reported level is ≥ 2 above the AI level and no `validated_above_ai` event exists for that suggestion and assessment, plus the count that have one. Counts only: no assessment, membership or reviewer ids. The AI and reported levels come from the `shown` row (the server copies `suggestedValue` and `reportedValue` from the stored item, never from the client), so a suggestion never shown is not counted; the response says so (`basis: 'shown'`). If the count is high after the batch, the reason moves into `validate` (OQ-3).
 
-**FR-10 Reason before validating (client, M2).** When the reviewer validates IRL/IUL and the reported level is ≥ 2 above the AI's `available` level, a one-line reason (required, ≤ 200) is asked before the validate call; the event is posted first, then the validation. Cancel = nothing saved.
+**FR-10 Reason before validating (client, M2).** When the reviewer validates IRL/IUL and the reported level is ≥ 2 above the AI's `available` level, a one-line reason (required, ≤ 200) is asked before the validate call; the event is posted first, then Yeck's confirmation when the write ends the assessment, then the validation. Cancel = nothing saved. If the event POST fails, nothing is validated and the reason stays in the box for a retry (back lead, 17-nov: no validation without its reason). This is the one place an AI failure stops a write; NFR-1 holds everywhere else.
 
 ## 3. Non-functional
 

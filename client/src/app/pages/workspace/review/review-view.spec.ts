@@ -19,7 +19,7 @@ import { AuthSession } from '../../../core/auth/auth-session';
 import { ApiError } from '../../../core/http/api-envelope';
 import { Toasts } from '../../../core/http/toasts';
 import { WorkspaceLayout } from '../../../shell/workspace-layout';
-import { comment, viewFixture } from './review.api-fixture';
+import { comment, field, viewFixture } from './review.api-fixture';
 import { ReviewView } from './review-view';
 
 /** The signed-in assessor: the author of the fixture's comments. */
@@ -556,6 +556,126 @@ describe('ReviewView on the assessment API', () => {
         await settle();
         expect(api.addComment).toHaveBeenCalledTimes(1);
         expect(savedEvents()).toEqual([]);
+      });
+    });
+
+    describe('reason before an IRL / IUL validation 2+ above the AI (P2-3918 T-10)', () => {
+      const IRL = 'innovation_dev.readiness_level';
+      const irl = (aiLevel: number): AiSuggestionView => ({
+        status: 'available',
+        fieldKey: IRL,
+        suggestionId: 's-irl',
+        signal: 'red',
+        valueKind: 'level',
+        suggestedValue: aiLevel,
+        explanation: 'The evidence shows a pilot only.',
+        evidenceQuote: 'piloted in two villages',
+        quoteVerified: true,
+        evidenceSource: null,
+        promptVersion: 'v2-1.0.0',
+        modelId: 'anthropic.claude-haiku-5-5',
+      });
+      /** The readiness level, reported 6; core when it is the last grey core field (its write ends the assessment). */
+      const irlView = (core: boolean) =>
+        viewFixture({
+          sections: [
+            {
+              key: 'general_information',
+              label: 'General information',
+              fields: [
+                field({ key: 'general.title', label: 'Title of Result', core: true, validated: true }),
+                field({ key: IRL, label: 'Readiness level', type: 'number', core, value: 6 }),
+                // Another grey core field: the IRL write alone does not end the assessment.
+                ...(core ? [] : [field({ key: 'general.description', label: 'Description of Result', core: true })]),
+              ],
+            },
+          ],
+        });
+      const reasonEvents = () => ai.sendEvent.mock.calls.filter(([, , , e]) => e.action === 'validated_above_ai');
+      const reasonBox = () => document.querySelector<HTMLInputElement>('#ai-reason');
+      const writeReason = (value: string) => {
+        reasonBox()!.value = value;
+        reasonBox()!.dispatchEvent(new Event('input'));
+        harness.detectChanges();
+      };
+      const approveIrl = async (el: HTMLElement) => {
+        byName(el, 'Approve Readiness level')!.click();
+        await settle();
+      };
+
+      it('order: the reason, then validated_above_ai, then the confirmation that ends it, then the validation', async () => {
+        api.view.mockReturnValue(of(irlView(true)));
+        ai.list.mockReturnValue(of([irl(3)]));
+        const el = await open();
+        await approveIrl(el);
+        expect(document.body.textContent).toContain('Why does the reported level hold?');
+        expect(document.body.textContent).not.toContain('Finish as Quality Assessed?');
+        expect(reasonEvents()).toEqual([]);
+
+        writeReason('A second pilot is in the annex');
+        anywhere('Save and validate')!.click();
+        await settle();
+        expect(reasonEvents()).toEqual([
+          [29, 9890, 's-irl', { action: 'validated_above_ai', aiLevel: 3, validatedLevel: 6, reason: 'A second pilot is in the annex' }],
+        ]);
+        expect(reasonBox()).toBeNull();
+        expect(document.body.textContent).toContain('Finish as Quality Assessed?');
+        expect(api.setValidations).not.toHaveBeenCalled();
+
+        anywhere('Validate and finish')!.click();
+        await settle();
+        expect(api.setValidations).toHaveBeenCalledWith(29, 9890, { validated: true, fieldKeys: [IRL] });
+        const eventAt = ai.sendEvent.mock.invocationCallOrder[ai.sendEvent.mock.calls.findIndex(([, , , e]) => e.action === 'validated_above_ai')];
+        expect(eventAt).toBeLessThan(api.setValidations.mock.invocationCallOrder[0]);
+      });
+
+      it('while the reason is posted Save and the card are busy; a failed POST keeps the reason and validates nothing', async () => {
+        api.view.mockReturnValue(of(irlView(false)));
+        ai.list.mockReturnValue(of([irl(3)]));
+        const slow = new Subject<void>();
+        ai.sendEvent.mockImplementation((_t, _c, _id, e) => (e.action === 'validated_above_ai' ? slow : of(undefined)));
+        const el = await open();
+        await approveIrl(el);
+        writeReason('Field visit report');
+        anywhere('Save and validate')!.click();
+        harness.detectChanges();
+        expect(anywhere('Save and validate')!.getAttribute('aria-busy')).toBe('true');
+        expect(byName(el, 'Approve Readiness level')!.getAttribute('aria-busy')).toBe('true');
+
+        slow.error(new ApiError({ status: 503, code: 'UNAVAILABLE', message: 'Down' }));
+        await settle();
+        expect(api.setValidations).not.toHaveBeenCalled();
+        expect(reasonBox()!.value).toBe('Field visit report');
+        expect(document.body.textContent).toContain('The reason could not be saved, so nothing was validated.');
+
+        // The retry goes through: a field that does not end the assessment is validated right away.
+        ai.sendEvent.mockImplementation(() => of(undefined));
+        anywhere('Save and validate')!.click();
+        await settle();
+        expect(reasonEvents()).toHaveLength(2);
+        expect(api.setValidations).toHaveBeenCalledWith(29, 9890, { validated: true, fieldKeys: [IRL] });
+      });
+
+      it('no reason when the reported level is less than 2 above the AI, or there is no AI level', async () => {
+        api.view.mockReturnValue(of(irlView(false)));
+        ai.list.mockReturnValue(of([irl(5)]));
+        const el = await open();
+        await approveIrl(el);
+        expect(reasonBox()).toBeNull();
+        expect(api.setValidations).toHaveBeenCalledWith(29, 9890, { validated: true, fieldKeys: [IRL] });
+        expect(reasonEvents()).toEqual([]);
+      });
+
+      it('Cancel validates nothing and posts nothing', async () => {
+        api.view.mockReturnValue(of(irlView(false)));
+        ai.list.mockReturnValue(of([irl(3)]));
+        const el = await open();
+        await approveIrl(el);
+        writeReason('Half a thought');
+        anywhere('Cancel')!.click();
+        await settle();
+        expect(api.setValidations).not.toHaveBeenCalled();
+        expect(reasonEvents()).toEqual([]);
       });
     });
 
