@@ -1,4 +1,13 @@
-import { Component, computed, input, model, output, signal } from '@angular/core';
+import {
+  Component,
+  computed,
+  effect,
+  input,
+  model,
+  output,
+  signal,
+  untracked,
+} from '@angular/core';
 import { HlmInput } from '@spartan/input';
 import { QaButtonImports, QaDialogImports } from '../../../../ui';
 import { AI_REASON_MAX, reasonError } from './ai-reason';
@@ -74,6 +83,13 @@ export class AiReasonDialog {
     () =>
       `The reported level ${this.reportedLevel()} is 2 or more above the level the AI found in the evidence (${this.aiLevel()}).`,
   );
+
+  constructor() {
+    // However it closes (Save, Cancel, Esc, a click outside, the X), the next opening starts empty.
+    effect(() => {
+      if (!this.open()) untracked(() => this.reason.set(''));
+    });
+  }
 
   protected save(): void {
     if (this.error() !== null) return;
