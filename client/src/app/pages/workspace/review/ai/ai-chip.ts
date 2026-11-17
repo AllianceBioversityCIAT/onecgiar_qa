@@ -187,8 +187,9 @@ const SIGNAL_BADGE: Readonly<Record<'green' | 'amber' | 'red', QaBadgeStatus>> =
           </blockquote>
         }
         @if (!collapsible() || expanded()) {
+          <!-- pre-line: the worker writes its bullets on separate lines. -->
           <p
-            class="m-0 text-(length:--fs-13) leading-[1.55] font-normal text-pretty text-(--text-2)"
+            class="m-0 text-(length:--fs-13) leading-[1.55] font-normal whitespace-pre-line text-pretty text-(--text-2)"
             data-testid="ai-explanation"
           >
             {{ explanation() }}

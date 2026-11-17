@@ -73,6 +73,16 @@ describe('AiChip', () => {
     expect(el.textContent).not.toMatch(/incorrect/i);
   });
 
+  it('keeps the line breaks of the explanation (bullets one per line)', () => {
+    const { el } = render({
+      ...red,
+      explanation: '- Novelty: a new process.\n- Positive change: farmers adopt it.',
+    } as typeof red);
+    const p = el.querySelector<HTMLElement>('[data-testid="ai-explanation"]')!;
+    expect(p.classList).toContain('whitespace-pre-line');
+    expect(p.textContent?.trim()).toBe('- Novelty: a new process.\n- Positive change: farmers adopt it.');
+  });
+
   it('copies to the comment through the page, never by itself', () => {
     const { fixture, el } = render(red);
     const button = [...el.querySelectorAll('button')].find((b) =>
