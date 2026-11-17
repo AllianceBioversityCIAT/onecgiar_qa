@@ -163,8 +163,16 @@ describe('SP responses and clarification answers (e2e)', () => {
       expect(
         res.body.data.comment.history.map((h: { kind: string }) => h.kind),
       ).toEqual(['accept', 'disagree']);
-      // The same answer again is a change too (a new row), not an error.
+      // A new text with the same kind is a change too (a new row), not an error.
       await respond(w.open, { kind: 'disagree', body: 'Still no' }).expect(200);
+      // The very same answer again (a retry after a timeout) writes nothing.
+      const rows = a.world.spResponses.length;
+      const retry = await respond(w.open, {
+        kind: 'disagree',
+        body: 'Still no',
+      }).expect(200);
+      expect(retry.body.data.comment.response.body).toBe('Still no');
+      expect(a.world.spResponses).toHaveLength(rows);
       expect(a.world.commentEvents.map((e) => e.toState)).toEqual([
         'accepted',
         'disagreed',
