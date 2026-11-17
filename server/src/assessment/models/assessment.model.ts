@@ -294,6 +294,7 @@ export class AssessmentViewModel {
       'step_closed',
       'no_step',
       'finished',
+      'auto_validated',
     ],
     description: 'Why the caller cannot write; null when they can',
   })

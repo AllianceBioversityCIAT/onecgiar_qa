@@ -224,7 +224,11 @@ export function listedFor(
 }
 
 export type ReadOnlyReason =
-  'admin_read_only' | 'step_upcoming' | 'step_closed' | 'no_step';
+  | 'admin_read_only'
+  | 'step_upcoming'
+  | 'step_closed'
+  | 'no_step'
+  | 'auto_validated';
 
 export type WriteDecision =
   | { writable: true; row: ReviewerRow; stepPosition: number }
@@ -247,6 +251,11 @@ export function writeDecision(
   const rows = coveringRows(access, facts);
   if (rows.length === 0) {
     return { writable: false, reason: 'admin_read_only' };
+  }
+  // An auto-validated result is not assessed (DD-P4): it is shown for context
+  // only, so no reviewer writes on it, whatever the state of their step.
+  if (facts.status === 'auto_validated') {
+    return { writable: false, reason: 'auto_validated' };
   }
   // One enabled row per role, and ASSESSOR is the only enabled writer today;
   // a later story with several covering rows picks the one whose step is open.
