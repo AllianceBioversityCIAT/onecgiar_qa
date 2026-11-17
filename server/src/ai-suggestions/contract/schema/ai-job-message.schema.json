@@ -38,5 +38,6 @@
     "promptVersion"
   ],
   "title": "AiJobMessage",
-  "type": "object"
+  "type": "object",
+  "x-contractVersion": "2.0.0"
 }

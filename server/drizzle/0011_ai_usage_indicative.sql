@@ -1,0 +1,1 @@
+ALTER TABLE `ai_suggestion_usage` MODIFY COLUMN `ai_signal` enum('green','amber','red','indicative') NOT NULL;

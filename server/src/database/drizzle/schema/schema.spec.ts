@@ -306,8 +306,8 @@ describe('committed migrations', () => {
     .filter((f) => f.endsWith('.sql'))
     .sort();
 
-  it('are exactly eleven SQL files', () => {
-    expect(files).toHaveLength(11);
+  it('are exactly twelve SQL files', () => {
+    expect(files).toHaveLength(12);
   });
 
   const sql = readFileSync(`${migrationsDir}${files[0]}`, 'utf8');
@@ -2556,6 +2556,39 @@ describe('committed migration 0010 (ai_suggestion_usage)', () => {
     expect(down).toMatch(/__drizzle_migrations/);
     expect(down.replace(/^--.*$/gm, '').trim()).toBe(
       'DROP TABLE `ai_suggestion_usage`;',
+    );
+  });
+});
+
+describe('committed migration 0011 (ai_usage_indicative)', () => {
+  const files = readdirSync(migrationsDir)
+    .filter((f) => f.endsWith('.sql'))
+    .sort();
+  const read = (path: string) => readFileSync(path, 'utf8');
+  const up = files[11] ? read(`${migrationsDir}${files[11]}`) : '';
+  const downPath = `${migrationsDir}rollback/0011_ai_usage_indicative.down.sql`;
+
+  it('is named 0011_ai_usage_indicative and is the twelfth journal entry', () => {
+    expect(files[11]).toBe('0011_ai_usage_indicative.sql');
+    const journal = JSON.parse(read(`${migrationsDir}meta/_journal.json`)) as {
+      entries: { idx: number; tag: string }[];
+    };
+    expect(journal.entries[11]).toMatchObject({
+      idx: 11,
+      tag: '0011_ai_usage_indicative',
+    });
+  });
+
+  it('only widens ai_signal with indicative (contract 2.0.0), nothing else', () => {
+    expect(up.trim()).toBe(
+      "ALTER TABLE `ai_suggestion_usage` MODIFY COLUMN `ai_signal` enum('green','amber','red','indicative') NOT NULL;",
+    );
+  });
+
+  it('has a manual down script that narrows it back', () => {
+    expect(existsSync(downPath)).toBe(true);
+    expect(read(downPath)).toContain(
+      "MODIFY COLUMN `ai_signal` enum('green','amber','red') NOT NULL;",
     );
   });
 });

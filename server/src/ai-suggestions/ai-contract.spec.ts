@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import {
   AI_CONTRACT_DIR,
   aiExamples,
+  aiSchema,
   assertAiSchema,
   toAttributeMap,
 } from '../../test/support/ai-contract.js';
@@ -14,7 +15,13 @@ import { createFakeDynamoClient } from '../../test/support/fake-dynamodb-client.
 import { createAiRunEntity } from '../database/dynamodb/entities/ai-run.entity.js';
 import { DynamoAiRunStore } from './ai-run.store.js';
 import { DynamoAiSuggestionStore } from './ai-suggestion.store.js';
+import { toSuggestionViews } from '../assessment/ai-suggestions-rules.js';
+import { AI_LEVEL_FIELDS, productionFieldOf } from './ai-config.js';
+import type { AiSuggestionItem } from './ai-suggestion.store.js';
 import { AI_PRODUCTION } from './production.js';
+
+const productionVersion = (fieldKey: string) =>
+  productionFieldOf(fieldKey)?.promptVersion;
 
 const TABLE = 'cgiar-qa-test';
 
@@ -44,10 +51,83 @@ describe('AI worker contract copy (T-2, NFR-4)', () => {
     expect(AI_PRODUCTION).toEqual(json);
   });
 
-  it('every example is a valid item of the worker schema', () => {
-    const examples = Object.values(aiExamples());
-    expect(examples.length).toBeGreaterThanOrEqual(2);
-    for (const item of examples) assertAiSchema('ai-suggestion-item', item);
+  it('every schema carries the contract version production.json names', () => {
+    for (const file of Object.keys(manifest.files).filter((f) =>
+      f.startsWith('schema/'),
+    )) {
+      const schema = JSON.parse(
+        readFileSync(join(AI_CONTRACT_DIR, file), 'utf8'),
+      ) as { 'x-contractVersion'?: string };
+      expect({ file, v: schema['x-contractVersion'] }).toEqual({
+        file,
+        v: AI_PRODUCTION.contractVersion,
+      });
+    }
+  });
+
+  it('IRL and IUL are scored level fields; the indicative ones are the two confirmed keys', () => {
+    for (const key of AI_LEVEL_FIELDS) {
+      expect(productionFieldOf(key)).toMatchObject({
+        valueKind: 'level',
+        signal: 'scored',
+      });
+    }
+    expect(productionFieldOf('general.result_type')).toMatchObject({
+      valueKind: 'category',
+      signal: 'indicative',
+    });
+    expect(
+      productionFieldOf('innovation_use.current_use.actors'),
+    ).toMatchObject({
+      valueKind: 'use_numbers',
+      signal: 'indicative',
+      coversFieldKeys: [
+        'innovation_use.current_use.organizations',
+        'innovation_use.current_use.measures',
+      ],
+    });
+  });
+
+  it("every example is on its field's production prompt version", () => {
+    for (const item of Object.values(aiExamples())) {
+      expect({ f: item.fieldKey, v: item.promptVersion }).toEqual({
+        f: item.fieldKey,
+        v: productionVersion(item.fieldKey as string),
+      });
+    }
+  });
+
+  /**
+   * Examples the worker published that fail its own item schema. Each must
+   * stay invalid (so this list goes stale loudly once the worker fixes it)
+   * and our view must still turn it into a schema-valid view.
+   */
+  const KNOWN_DEFECTS: Record<string, string> = {
+    'ai-suggestion-item.use-numbers.json':
+      'worker b3d4bbf: UseNumberRow rows omit the nullable keys its Pydantic model requires',
+  };
+
+  it('every example is a valid item of the worker schema (known defects excepted)', () => {
+    const examples = aiExamples();
+    expect(Object.keys(examples).length).toBeGreaterThanOrEqual(4);
+    for (const [file, item] of Object.entries(examples)) {
+      if (file in KNOWN_DEFECTS) {
+        expect(aiSchema('ai-suggestion-item')(item), file).toBe(false);
+        continue;
+      }
+      assertAiSchema('ai-suggestion-item', item);
+    }
+  });
+
+  it('every available example becomes a schema-valid view', () => {
+    for (const item of Object.values(aiExamples())) {
+      const [view] = toSuggestionViews(
+        [item.fieldKey as string],
+        [item as unknown as AiSuggestionItem],
+      );
+      assertAiSchema('ai-suggestion-view', view);
+      expect(view.status).toBe(item.status);
+    }
   });
 });
 
@@ -68,7 +148,7 @@ describe('ElectroDB reads the worker items (T-2)', () => {
       const found = await store.listForSnapshot(
         item.resultCode as number,
         item.snapKey as string,
-        item.promptVersion as string,
+        productionVersion,
       );
       const match = found.find((f) => f.suggestionId === item.suggestionId);
       expect(match).toBeDefined();
@@ -112,7 +192,7 @@ describe('ElectroDB reads the worker items (T-2)', () => {
     ).listForSnapshot(
       item.resultCode as number,
       item.snapKey as string,
-      item.promptVersion as string,
+      productionVersion,
     );
     expect(found.map((f) => f.suggestionId)).toEqual([item.suggestionId]);
   });

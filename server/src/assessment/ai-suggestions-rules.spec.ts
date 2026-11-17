@@ -165,7 +165,8 @@ describe('toSuggestionViews (FR-4)', () => {
       defects,
     );
     expect(view).toMatchObject({
-      evidenceQuote: '',
+      // Contract 2.0.0: a missing quote is null (indicative fields have none).
+      evidenceQuote: null,
       evidenceSource: null,
       quoteVerified: false,
       modelId: '',
