@@ -57,7 +57,11 @@ import {
   SpStepClosedError,
 } from './sp-view.errors.js';
 import { SpViewService } from './sp-view.service.js';
-import { SP_VIEW_STORE, type SpViewStore } from './sp-view.store.js';
+import {
+  SP_VIEW_STORE,
+  type SpResponseRecord,
+  type SpViewStore,
+} from './sp-view.store.js';
 
 /** The comment state each response kind sets. */
 export const STATE_OF_KIND: Readonly<Record<SpResponseKind, CommentState>> = {
@@ -175,6 +179,25 @@ export class SpResponseService {
     );
     const body = input.kind === 'accept' ? null : (input.body ?? null);
 
+    // A retry of the same answer (same kind and text as the latest response,
+    // comment already in its state) writes nothing: the SP page sends no
+    // Idempotency-Key, so a timeout and a second try must not grow the history.
+    if (scope.state === to) {
+      const latest = (await this.store.findResponses([commentId])).reduce<
+        SpResponseRecord | undefined
+      >(
+        (last, r) => (last === undefined || r.id > last.id ? r : last),
+        undefined,
+      );
+      if (
+        latest !== undefined &&
+        latest.kind === input.kind &&
+        latest.body === body
+      ) {
+        return this.answerFor(scope.assessmentId, commentId);
+      }
+    }
+
     await this.unitOfWork.run(async ({ assessments, sp }) => {
       const steps = await assessments.lockTimelineShared(scope.timelineId);
       if (steps === null) throw new SpNotFoundError();
@@ -211,7 +234,15 @@ export class SpResponseService {
       });
     });
 
-    const comments = await this.store.findVisibleComments(scope.assessmentId);
+    return this.answerFor(scope.assessmentId, commentId);
+  }
+
+  /** The answered comment with its thread, and the counts of the result. */
+  private async answerFor(
+    assessmentId: number,
+    commentId: number,
+  ): Promise<SpRespondAnswer> {
+    const comments = await this.store.findVisibleComments(assessmentId);
     const ids = comments.map((x) => x.id);
     const [responses, answers] = await Promise.all([
       this.store.findResponses(ids),
