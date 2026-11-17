@@ -117,6 +117,22 @@ describe('AiSuggestionsStore', () => {
     expect(store.copied('general.climate_tag')).toBeNull();
   });
 
+  it('a copy marks only the next comment of that field, on that result (no comment_saved for result B)', async () => {
+    await store.load(3, 5001);
+    store.copied('general.gender_tag');
+    store.commentSaved('general.gender_tag', 11);
+    // A second comment, typed by hand, is not the AI's.
+    store.commentSaved('general.gender_tag', 12);
+    store.copied('general.gender_tag');
+    // Another result with the same field key: the copy on result A does not travel.
+    await store.load(3, 5002);
+    store.commentSaved('general.gender_tag', 13);
+    expect(api.events).toEqual([
+      { id: 's-g', event: { action: 'copied' } },
+      { id: 's-g', event: { action: 'comment_saved', commentId: '11' } },
+    ]);
+  });
+
   it('a failing event never throws', async () => {
     await store.load(3, 5001);
     api.failEvents = true;

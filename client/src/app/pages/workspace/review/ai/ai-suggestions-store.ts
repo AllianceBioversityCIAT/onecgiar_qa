@@ -34,6 +34,8 @@ export class AiSuggestionsStore {
   private readonly loadState = signal<AiLoadState>('idle');
   /** Suggestions already reported as shown / copied by this page (one event each per suggestion). */
   private readonly shown = new Set<string>();
+  private readonly copiedSent = new Set<string>();
+  /** Fields whose comment box holds a copied suggestion not saved yet (this result only). */
   private readonly copiedFields = new Set<string>();
 
   readonly state = this.loadState.asReadonly();
@@ -45,6 +47,8 @@ export class AiSuggestionsStore {
   );
 
   async load(timelineId: number, resultCode: number): Promise<void> {
+    // A copy belongs to the result it was made on: the same field key on the next result starts clean.
+    this.copiedFields.clear();
     this.key.set({ timelineId, resultCode });
     this.loadState.set('loading');
     try {
@@ -105,8 +109,9 @@ export class AiSuggestionsStore {
   copied(fieldKey: string): string | null {
     const view = this.availableView(fieldKey);
     if (view === null) return null;
-    if (!this.copiedFields.has(fieldKey)) {
-      this.copiedFields.add(fieldKey);
+    this.copiedFields.add(fieldKey);
+    if (!this.copiedSent.has(view.suggestionId)) {
+      this.copiedSent.add(view.suggestionId);
       this.send(view.suggestionId, { action: 'copied' });
     }
     return copyTextOf(view);
@@ -115,6 +120,8 @@ export class AiSuggestionsStore {
   /** After a comment on the field was saved: `comment_saved` only when its text came from a copy. The server decides "edited". */
   commentSaved(fieldKey: string, commentId: string | number): void {
     if (!this.copiedFields.has(fieldKey)) return;
+    // One comment per copy: a later comment on the field, typed by hand, is not the AI's.
+    this.copiedFields.delete(fieldKey);
     const id = this.suggestionIdOf(fieldKey);
     if (id === null) return;
     this.send(id, { action: 'comment_saved', commentId: String(commentId) });
