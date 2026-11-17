@@ -1034,6 +1034,44 @@ Within the re-estimated budget.
 
 Within the re-estimated budget. Remaining: T-16 (API HITL, back lead), client T-17 to T-20 and UI HITL T-21 (≈ 3,000 LOC estimated, 4 review rounds left in the budget for 5 tasks — a re-estimate is due before T-17).
 
+### T-16: API HITL on qatest — PARTIAL (awaiting the back lead's verdict)
+
+| | |
+|---|---|
+| Date | 2026-11-12 |
+| Environment | qatest API (`dev` at `fe5ffa1`), migration `0009_assessment` applied by the back lead |
+| Callers | admin user id 5; test assessor user id 1053 |
+| Final status | PARTIAL — two checks deviate from the task text, see *Deviations* |
+
+**Setup (writes on qatest).** The test assessor had no timeline. Assigned as `ASSESSOR` to timeline 29 (cycle 34, step 1 `in_progress` until 2026-11-20): `POST /timelines/29/users` → 201, assignment 23. The assessor then saw timeline 29 only, `writable: true`, counters 3 pending / 0 finished / 3 total.
+
+**Check 1 — 5 parallel finishes on one result (NFR-3, FR-17).** Result 9890, timeline 29, 5 concurrent `POST …/assessment/finish` as the assessor:
+
+| Call | HTTP | Answer | requestId |
+|---|---|---|---|
+| 4 | 200 | `quality_assessed`, assessedBy 1053, finishedAt 2026-11-12T20:12:29Z | `04e70743-a6d4-47c9-adea-14f44aba93af` |
+| 1, 2, 3, 5 | 409 | `ASSESSMENT_FINISHED` | `493cb264…`, `9e120098…`, `54fbef44…`, `c7cd84eb…` |
+
+Exactly one end. Worklist after: 2 pending / 1 finished / 3 total; 9890 `quality_assessed`, assessed by 1053.
+
+**Check 2 — one finish → release and Reporting's answer (FR-18).** Release outbox: 0 rows before. Polled `GET /assessment-releases` (pending) and `?status=refused` every 5 s from 20:12:34Z: never listed, so the row was acknowledged within 5 s of the end. `POST /assessment-releases/retry` → `{attempted: 0, sent: 0, refused: 0, stillPending: 0}`: no second send. Read on the qatest MySQL (2026-11-17, read-only): `assessment_releases` id 1 — assessment 1, membership 38, result id 12358 (code 9890), phase year 2026, outcome `qaed`, status `sent`, attempts 1, reason `null`, created 20:12:29Z, sent 20:12:30Z. A `sent` row with a `null` reason is Reporting's `released` answer (`release.service.ts` `decide()`; `not_in_qa` would store the reason). Membership 38 ended at 20:12:30Z with end reason `released_qaed`. It is the only row in the table.
+
+**Check 3 — worklist page timing (NFR-1).** Largest timeline on qatest: 27, 24 memberships (admin). Below the 100-membership floor, so this proves nothing about NFR-1; spread only. 20 sequential `GET /timelines/27/worklist?limit=25` as admin: min 116 ms, p50 126 ms, p95 143 ms, max 1,116 ms (one cold outlier; the first call of the session was 1,235 ms).
+
+**Check 4 — front contract handed to Yeck.** Not done yet.
+
+**Deviations (back lead to rule on):**
+- Tokens reached the session through the chat, which the task lists as a disqualifier. The back lead chose to go on with them; they were short-lived (1 h) access tokens.
+- The release was `qaed`, not `not_qaed`. No result of timeline 29 has an Assessed core field (9890 and 10068 none Assessed; 8793 only `general.title`, not core), so a finish can only end `quality_assessed`. Timeline 29 is pinned to field-config version 1 and would keep it on a new publication, and the cycle-34 draft holds 2 unpublished changes by someone else, so the config was not touched. The `returned` → `not_qaed` path waits for a short HITL once a timeline has a core field.
+
+**Earlier-task checks on the qatest MySQL (2026-11-17, read-only):**
+- T-2: the 7 `0009` tables exist, and `information_schema.TABLE_CONSTRAINTS` holds the 3 CHECKs the migration declares — `result_assessments.chk_result_assessments_finished`, `assessment_comments.chk_comment_withdrawn`, `assessment_comments.chk_value_copy_size`. MySQL 8 accepted them. `result_assessments` id 1 (membership 38, step 1, ASSESSOR, `quality_assessed`, field-config version 1, finished by 1053) passed `chk_result_assessments_finished`.
+- T-13: `timeline_results` 36 rows, 0 with a null title. Consistent with the backfill having run; its `affectedRows` path was not observed directly (no server log access).
+
+**Still open:** the 2 DynamoDB Local cases (T-4); the `returned` → `not_qaed` path (see *Deviations*); the front contract handed to Yeck (check 4).
+
+**Seen on the way (outside the spec):** program labels come back as the bare id (`{id: 51, code: "51", name: "51"}`) in the worklist and the view, so labels from Reporting are not resolved on qatest. Timelines 30 and 31 show step 1 `upcoming` although 31 closed on 2026-11-06 and 30 is open today.
+
 ## Constitution Impact
 
 FR-25 pending items. This branch is a spec branch, so no shared file is edited here (`.claude/commands/akili-archive.md:139-141`, `.claude/skills/kaizen/SKILL.md:111`). `/akili-archive` collects these; each is applied on the apply-capable branch or by its owner. The `ingestion/AGENTS.md` `changed_fields` rule was a module-guide deliverable of this spec and is already applied (T-15).
