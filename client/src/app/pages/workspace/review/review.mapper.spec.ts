@@ -73,6 +73,26 @@ describe('review.mapper (API assessment view → Review view models)', () => {
       expect([description.approve, description.undo, description.secondaryLabel]).toEqual([false, null, 'View comments']);
     });
 
+    it('writes off: a writable view offers no Approve, Undo, Add comment or Finish, and still shows the comments', () => {
+      const vm = toReviewVm(viewFixture(), false);
+      const fields = vm.sections[0].fields;
+      expect(byLabel(fields, 'Title of Result').actions).toBeNull();
+      const description = byLabel(fields, 'Description of Result').actions!;
+      expect([description.approve, description.undo, description.secondaryLabel]).toEqual([false, null, 'View comments']);
+      expect(vm.canFinish).toBe(false);
+      expect(vm.header.locked).toBe(false);
+      // What the API said stays: the caller may write, so there is no read-only banner.
+      expect(vm.writable).toBe(true);
+      expect(vm.banner).toBeNull();
+    });
+
+    it('the tooltip is the catalog help text; none when the API sends no description', () => {
+      const view = viewFixture();
+      const [title, description] = view.sections[0].fields;
+      expect(toFieldVm({ ...title, description: 'A short, clear title.' }, true).tip).toBe('A short, clear title.');
+      expect(toFieldVm(description, true).tip).toBe('');
+    });
+
     it('AI is not connected: every card has ai null', () => {
       const vm = toReviewVm(viewFixture());
       const cards = vm.sections.flatMap((s) => [...s.fields, ...(s.toc?.groups.flatMap((g) => g.items) ?? [])]);
@@ -108,6 +128,13 @@ describe('review.mapper (API assessment view → Review view models)', () => {
       // A null label shows the id (FR-20).
       expect(second.links.find((l) => l.label === 'Output/Outcome')?.value).toBe('802');
       expect(second.links.find((l) => l.label === 'High Level Output Statement')?.value).toBe('More seed sold');
+    });
+
+    it('counts the Assessed ToC fields (0 = the section is shown for context only)', () => {
+      expect(toc().assessed).toBe(1);
+      const view = viewFixture();
+      const contextOnly = { ...view, sections: view.sections.map((s) => ({ ...s, fields: s.fields.map((f) => ({ ...f, mode: 'view' as const })) })) };
+      expect(toReviewVm(contextOnly).sections[1].toc!.assessed).toBe(0);
     });
 
     it('the field mark and buttons sit on the first card of the field only', () => {

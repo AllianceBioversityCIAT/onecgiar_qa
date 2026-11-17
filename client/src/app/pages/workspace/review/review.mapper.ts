@@ -4,7 +4,7 @@ import {
   AssessmentField,
   AssessmentView,
   FieldLabels,
-  ReadOnlyReason,
+  AssessmentReadOnlyReason,
   TOC_SECTION_KEY,
 } from '../../../core/api/assessment.models';
 import { formatDay } from '../../../core/domain/rome-date';
@@ -45,6 +45,8 @@ export interface TocVm {
   readonly programs: number;
   /** Assessed ToC fields that are green. */
   readonly reviewed: number;
+  /** ToC fields the configuration marks as Assessed (0 = the whole section is shown for context only). */
+  readonly assessed: number;
 }
 
 export interface ReviewSectionVm {
@@ -76,6 +78,8 @@ export interface ReviewVm {
 const ASSESSOR_INSTRUCTIONS =
   'Review each field against the assessor guidance. Mark it as validated, or leave a comment explaining what needs to change.';
 const READ_ONLY_INSTRUCTIONS = 'This assessment is read only for you. You can read every field and its comments.';
+/** The caller may write, but the page offers no write yet (`writes` off in `toReviewVm`). */
+const READING_INSTRUCTIONS = 'Read each field against the assessor guidance. You can open the comments of a field.';
 
 /** Subfield keys of the ToC lists and their catalog labels (`reporting-qa-catalog-2026.json`). */
 const SUBFIELD_LABELS: Readonly<Record<string, string>> = {
@@ -207,7 +211,8 @@ export function toFieldVm(f: AssessmentField, writable: boolean): FieldVm {
   return {
     ...cardStatus(f, writable),
     label: f.label,
-    tip: '',
+    // Reporting's help text of the field (catalog `description`); absent = no tooltip.
+    tip: f.description ?? '',
     isCore: isAssessed(f) && f.core,
     isHidden: false,
     isView: !isAssessed(f),
@@ -304,13 +309,14 @@ export function toTocVm(fields: readonly AssessmentField[], writable: boolean): 
     count,
     programs: Math.max(programGroups.length, count > 0 ? 1 : 0),
     reviewed: fields.filter((f) => isAssessed(f) && f.validated).length,
+    assessed: fields.filter(isAssessed).length,
   };
 }
 
 // ---------- Page ----------
 
 /** The read-only banner (FR-23). `stepName` is the role's step of the timeline. */
-export function readOnlyBanner(reason: ReadOnlyReason | null, view: Pick<AssessmentView, 'assessment' | 'header'>): string | null {
+export function readOnlyBanner(reason: AssessmentReadOnlyReason | null, view: Pick<AssessmentView, 'assessment' | 'header'>): string | null {
   const step = view.header.step ? `Step ${view.header.step.position} · ${view.header.step.name}` : 'Your step';
   switch (reason) {
     case null:
@@ -333,7 +339,7 @@ export function readOnlyBanner(reason: ReadOnlyReason | null, view: Pick<Assessm
   }
 }
 
-export function toHeaderVm(view: AssessmentView): ResultHeaderVm {
+export function toHeaderVm(view: AssessmentView, canAct: boolean = view.writable): ResultHeaderVm {
   const h = view.header;
   const pill = qaStatusPill(h.status);
   const a = view.assessment;
@@ -348,9 +354,9 @@ export function toHeaderVm(view: AssessmentView): ResultHeaderVm {
     isAuto: h.status === 'auto_validated',
     assessor,
     showAssessedBy: ended,
-    instructions: view.writable ? ASSESSOR_INSTRUCTIONS : READ_ONLY_INSTRUCTIONS,
+    instructions: canAct ? ASSESSOR_INSTRUCTIONS : view.writable ? READING_INSTRUCTIONS : READ_ONLY_INSTRUCTIONS,
     // Comments become visible to the program only when the assessment ends (FR-14, FR-15).
-    locked: view.writable && !ended,
+    locked: canAct && !ended,
     details: [
       { label: 'Science program', value: `${h.program.code} ${h.program.name}`.trim() },
       { label: 'Timeline', value: h.timeline.name },
@@ -360,16 +366,21 @@ export function toHeaderVm(view: AssessmentView): ResultHeaderVm {
   };
 }
 
-export function toReviewVm(view: AssessmentView): ReviewVm {
+/**
+ * `writes` off = the page shows what the API says but offers no write button (validate, comment, finish), even to
+ * a caller who may write. The banner and `writable` still say what the API said.
+ */
+export function toReviewVm(view: AssessmentView, writes = true): ReviewVm {
   const writable = view.writable;
+  const canAct = writable && writes;
   const sections: ReviewSectionVm[] = view.sections.map((s) => {
     const isToc = s.key === TOC_SECTION_KEY;
     return {
       key: s.key,
       name: s.label,
       isToc,
-      fields: isToc ? [] : s.fields.map((f) => toFieldVm(f, writable)),
-      toc: isToc ? toTocVm(s.fields, writable) : null,
+      fields: isToc ? [] : s.fields.map((f) => toFieldVm(f, canAct)),
+      toc: isToc ? toTocVm(s.fields, canAct) : null,
       open: s.fields.filter((f) => isAssessed(f) && !isResolved(f)).length,
     };
   });
@@ -385,14 +396,14 @@ export function toReviewVm(view: AssessmentView): ReviewVm {
   }
   const assessed = view.sections.flatMap((s) => s.fields).filter(isAssessed);
   return {
-    header: toHeaderVm(view),
+    header: toHeaderVm(view, canAct),
     sections,
     writable,
     banner: readOnlyBanner(view.readOnlyReason, view),
     resolved: assessed.filter(isResolved).length,
     total: assessed.length,
     commented: assessed.filter((f) => openComments(f).length > 0).length,
-    canFinish: writable && (view.assessment?.status ?? 'pending') === 'pending',
+    canFinish: canAct && (view.assessment?.status ?? 'pending') === 'pending',
   };
 }
 

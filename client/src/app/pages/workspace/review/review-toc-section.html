@@ -1,10 +1,12 @@
 <div class="flex items-center gap-3">
-  <h2 id="review-section-title" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">Theory of change</h2>
-  <span class="ml-auto rounded-full bg-(--tint-2) px-2 py-0.5 text-(length:--fs-11) font-semibold whitespace-nowrap text-(--accent)">Required review</span>
+  <h2 id="review-section-title" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">{{ title() }}</h2>
+  @if (requiredReview()) {
+    <span class="ml-auto rounded-full bg-(--tint-2) px-2 py-0.5 text-(length:--fs-11) font-semibold whitespace-nowrap text-(--accent)">Required review</span>
+  }
 </div>
 <div class="mt-1 mb-4 flex flex-wrap items-center gap-2.5 text-(length:--fs-13) font-normal text-(--text-3)">
   @if (count() > 0) {
-    <span><span class="font-(family-name:--qa-mono) font-semibold text-(--text-2) tabular-nums">{{ count() }}</span> {{ count() === 1 ? 'contribution' : 'contributions' }} across <span class="font-(family-name:--qa-mono) font-semibold text-(--text-2) tabular-nums">{{ programs() }}</span> {{ programs() === 1 ? 'science program' : 'science programs' }} · <span class="font-(family-name:--qa-mono) font-semibold text-(--text-2) tabular-nums">{{ reviewed() }}</span> reviewed</span>
+    <span><span class="font-(family-name:--qa-mono) font-semibold text-(--text-2) tabular-nums">{{ count() }}</span> {{ count() === 1 ? 'contribution' : 'contributions' }} across <span class="font-(family-name:--qa-mono) font-semibold text-(--text-2) tabular-nums">{{ programs() }}</span> {{ programs() === 1 ? 'science program' : 'science programs' }}@if (requiredReview()) { · <span class="font-(family-name:--qa-mono) font-semibold text-(--text-2) tabular-nums">{{ reviewed() }}</span> reviewed}</span>
   } @else {
     <span>This result does not contribute to the theory of change.</span>
   }

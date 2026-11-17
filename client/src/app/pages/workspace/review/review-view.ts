@@ -16,7 +16,6 @@ import { ReviewSkeleton } from './review-skeleton';
 import { ReviewStore } from './review-store';
 import { ReviewTocSection, TocCardAction } from './review-toc-section';
 import { findField, toDrawerVm } from './review.mapper';
-import { CYCLE } from './review.mock';
 
 /** The review area stacks its navigator on top below this width (container). */
 const NARROW_PX = 900;
@@ -45,6 +44,8 @@ const COMPACT_QUERY = '(max-width: 767.98px)';
     ReviewTocSection,
   ],
   providers: [ReviewStore],
+  // A block, so the host has the width of the area (it is what the layout measures).
+  host: { class: 'block' },
 })
 export class ReviewView {
   protected readonly store = inject(ReviewStore);
@@ -61,7 +62,6 @@ export class ReviewView {
   protected readonly vm = this.store.vm;
   /** Not connected in step 1: no field is flagged by AI (DD-13). */
   protected readonly aiCount = 0;
-  protected readonly cycle = CYCLE;
 
   /** Container narrower than 900px: the navigator stacks on top. */
   protected readonly narrow = signal(false);
@@ -121,8 +121,9 @@ export class ReviewView {
       });
     });
     afterNextRender(() => {
-      const el = this.host.nativeElement.firstElementChild as HTMLElement | null;
-      if (el && typeof ResizeObserver !== 'undefined') {
+      // The host itself: its first child is the skeleton on the first render, and that one leaves the page.
+      const el = this.host.nativeElement;
+      if (typeof ResizeObserver !== 'undefined') {
         const ro = new ResizeObserver(([entry]) => this.narrow.set(entry.contentRect.width < NARROW_PX));
         ro.observe(el);
         this.destroyRef.onDestroy(() => ro.disconnect());

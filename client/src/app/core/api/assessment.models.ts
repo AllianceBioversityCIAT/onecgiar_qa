@@ -182,6 +182,9 @@ export interface AssessmentField {
   readonly description?: string;
 }
 
+/** Key of the Theory of Change section: always sent complete, whatever the field configuration (FR-9). */
+export const TOC_SECTION_KEY = 'theory_of_change';
+
 export interface AssessmentSection {
   /** `theory_of_change` for the ToC group. */
   readonly key: string;
@@ -260,6 +263,8 @@ export interface ReleaseRetryResult {
 // ── Error codes (§ 9.1) ─────────────────────────────────────────────────────
 
 export const ASSESSMENT_ERROR = {
+  /** The timeline does not exist or the caller is not on it (worklist and assessment routes). */
+  TIMELINES_NOT_FOUND: 'TIMELINES_NOT_FOUND',
   NOT_FOUND: 'ASSESSMENT_NOT_FOUND',
   READ_ONLY: 'ASSESSMENT_READ_ONLY',
   STEP_CLOSED: 'ASSESSMENT_STEP_CLOSED',

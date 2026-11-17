@@ -8,6 +8,12 @@ import { toReviewVm } from './review.mapper';
 
 export type ReviewLoadState = 'loading' | 'ready' | 'error';
 
+/**
+ * The write calls of the page (validate, comment, withdraw, finish) are wired with the review actions (T-20).
+ * Until then the page reads only: it shows no button that would do nothing, whatever `writable` says.
+ */
+export const REVIEW_WRITES_WIRED = false;
+
 export interface ReviewError {
   readonly code: string;
   /** Catalog text, safe to show as is. */
@@ -39,7 +45,7 @@ export class ReviewStore {
   /** The page's view models, rebuilt from the API answer only (never by hand). */
   readonly vm = computed(() => {
     const view = this.view();
-    return view ? toReviewVm(view) : null;
+    return view ? toReviewVm(view, REVIEW_WRITES_WIRED) : null;
   });
 
   /** Only the newest load writes its answer (a quick switch of result never shows an older one). */

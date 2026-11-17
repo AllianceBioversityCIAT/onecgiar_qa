@@ -104,6 +104,19 @@ describe('ReviewView on the assessment API', () => {
       const el = await open();
       expect(el.querySelector('[data-testid="review-read-only"]')).toBeNull();
     });
+
+    it('no button that would do nothing: a writable assessment offers no Approve, Undo, Add comment or Finish until the actions are wired', async () => {
+      const el = await open();
+      const names = buttons(el).map((b) => b.getAttribute('aria-label') ?? text(b));
+      expect(names.filter((n) => /^(Approve|Undo|Add comment)/.test(n))).toEqual([]);
+      expect(byName(el, 'Finish assessment')).toBeUndefined();
+      expect(text(el)).not.toContain('Your comments are not visible to the program yet.');
+    });
+
+    it('the guidance link of the mockup (a placeholder address) is gone', async () => {
+      const el = await open();
+      expect([...el.querySelectorAll('a')].map((a) => a.getAttribute('href')).filter((h) => h?.startsWith('http'))).toEqual([]);
+    });
   });
 
   describe('fields (FR-9, NFR-8)', () => {
@@ -128,6 +141,23 @@ describe('ReviewView on the assessment API', () => {
       expect(text(view)).toContain('9890');
       expect(text(view)).not.toMatch(/Validated|Not validated|Core/);
       expect(view.querySelectorAll('button')).toHaveLength(0);
+    });
+
+    it('the field tooltip is Reporting\'s help text, only on the fields that have one', async () => {
+      const view = viewFixture();
+      const general = view.sections[0];
+      api.view.mockReturnValue(
+        of({
+          ...view,
+          sections: [
+            { ...general, fields: general.fields.map((f) => (f.key === 'general.title' ? { ...f, description: 'A short, clear title.' } : f)) },
+            ...view.sections.slice(1),
+          ],
+        }),
+      );
+      const el = await open();
+      expect(card(el, 'Title of Result').querySelector('button[aria-label="Field guidance"]')).not.toBeNull();
+      expect(card(el, 'Description of Result').querySelector('button[aria-label="Field guidance"]')).toBeNull();
     });
 
     it('Core tag on the core Assessed field only', async () => {
@@ -159,19 +189,15 @@ describe('ReviewView on the assessment API', () => {
       const el = await open();
       const nav = el.querySelector('nav[aria-labelledby="review-sections-label"]')!;
       const items = [...nav.querySelectorAll('button')];
-      expect(items.map(text)).toEqual(['General information', 'Theory of Change , 1 pending', 'Geographic location , 2 pending', 'Other fields']);
+      expect(items.map(text)).toEqual(['General information', 'Theory of Change, 1 pending', 'Geographic location, 2 pending', 'Other fields']);
       expect(items[0].getAttribute('aria-current')).toBe('step');
     });
 
     it('a keyboard path: every field action is a focusable button, in reading order, and Next moves through the sections', async () => {
       const el = await open();
       const section = el.querySelector('section[aria-labelledby="review-section-title"]')!;
-      expect(buttons(section).map((b) => b.getAttribute('aria-label') ?? text(b))).toEqual([
-        'Undo approval of Title of Result',
-        'Add comment for Title of Result',
-        'Approve Description of Result',
-        'View comments1 for Description of Result',
-      ]);
+      // Reads only until the review actions are wired (REVIEW_WRITES_WIRED): the comments of a field stay reachable.
+      expect(buttons(section).map((b) => b.getAttribute('aria-label') ?? text(b))).toEqual(['View comments1 for Description of Result']);
       for (const b of buttons(section)) expect(b.tabIndex).toBeGreaterThanOrEqual(0);
 
       const next = byName(el, 'Next →')!;
@@ -182,24 +208,56 @@ describe('ReviewView on the assessment API', () => {
       byName(el, 'Next →')!.click();
       harness.detectChanges();
       expect(text(el.querySelector('#review-section-title')!)).toBe('Geographic location');
-      expect(buttons(el.querySelector('section')!).map((b) => b.getAttribute('aria-label') ?? text(b))).toEqual([
-        'Approve Countries',
-        'Add comment for Countries',
-        'Approve Regions',
-        'Add comment for Regions',
-      ]);
+      expect(buttons(el.querySelector('section')!)).toEqual([]);
     });
 
     it('the ToC section shows every contribution with the field mark on its first card', async () => {
       const el = await open();
-      byName(el, 'Theory of Change , 1 pending')!.click();
+      byName(el, 'Theory of Change, 1 pending')!.click();
       harness.detectChanges();
       const toc = el.querySelector('section')!;
       expect(text(toc)).toContain('3 contributions across 1 science program');
       expect(text(toc)).toContain('Contribution 1');
       expect(text(toc)).toContain('Seed policy adopted');
       expect(text(toc)).toContain('SP06 Climate Action');
+      expect(text(toc)).toContain('Required review');
+      expect(text(toc)).toContain('0 reviewed');
       expect(text(toc).match(/Not validated/g)).toHaveLength(1);
+    });
+
+    it('measures its own width: the element it watches is still on the page after the skeleton leaves (wide layout on a wide screen)', async () => {
+      const observed: Element[] = [];
+      vi.stubGlobal(
+        'ResizeObserver',
+        class {
+          observe(el: Element): void {
+            observed.push(el);
+          }
+          readonly disconnect = vi.fn();
+        },
+      );
+      try {
+        const el = await open();
+        expect(el.querySelector('qa-review-skeleton')).toBeNull();
+        expect(observed).toContain(el);
+        expect(observed.filter((o) => !o.isConnected)).toEqual([]);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
+    it('a ToC with no Assessed field is context only: no "Required review" tag and no reviewed count', async () => {
+      const view = viewFixture();
+      api.view.mockReturnValue(
+        of({ ...view, sections: view.sections.map((s) => ({ ...s, fields: s.fields.map((f) => ({ ...f, mode: 'view' as const })) })) }),
+      );
+      const el = await open();
+      byName(el, 'Theory of Change')!.click();
+      harness.detectChanges();
+      const toc = el.querySelector('section')!;
+      expect(text(toc)).toContain('3 contributions across 1 science program');
+      expect(text(toc)).not.toContain('Required review');
+      expect(text(toc)).not.toContain('reviewed');
     });
 
     it('the focus control collapses the main menu and the navigator together (FR-8 AC2)', async () => {
