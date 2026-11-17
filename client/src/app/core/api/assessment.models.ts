@@ -18,7 +18,8 @@ export const QA_STATUSES = [
 export type QaStatus = (typeof QA_STATUSES)[number];
 
 /** Why a row cannot be written now (§ 3.2). */
-export type WorklistReadOnlyReason = 'admin_read_only' | 'step_upcoming' | 'step_closed' | 'no_step';
+export type WorklistReadOnlyReason =
+  'admin_read_only' | 'step_upcoming' | 'step_closed' | 'no_step';
 /** The view adds `finished` (the assessment ended). */
 export type AssessmentReadOnlyReason = WorklistReadOnlyReason | 'finished';
 
@@ -81,7 +82,8 @@ export interface WorklistTimelines {
   readonly timeZone: 'Europe/Rome';
 }
 
-export type WorklistSort = 'code' | 'title' | 'program' | 'resultType' | 'comments' | 'answered' | 'assessedBy' | 'status';
+export type WorklistSort =
+  'code' | 'title' | 'program' | 'resultType' | 'comments' | 'answered' | 'assessedBy' | 'status';
 
 export interface WorklistQuery {
   readonly status?: readonly QaStatus[];
@@ -174,6 +176,8 @@ export interface AssessmentField {
   /** Any JSON value; `null` when `notApplicable`. */
   readonly value: unknown;
   readonly labels: FieldLabels | null;
+  /** Subfield key -> the list in `labels` its option ids belong to (e.g. `actor_type` -> `actor_types`). Absent when none. */
+  readonly subfieldLists?: Readonly<Record<string, string>>;
   /** Always `false` on a `view` field. */
   readonly validated: boolean;
   readonly comments: readonly AssessmentComment[];

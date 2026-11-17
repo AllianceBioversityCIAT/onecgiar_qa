@@ -161,6 +161,23 @@ describe('buildAssessmentView: order (FR-8)', () => {
   });
 });
 
+describe('buildAssessmentView: subfield lists', () => {
+  it('tells which labels list names each subfield id, and sends no subfieldLists key on a field without one', () => {
+    const view = build({
+      values: { 'general.title': 'T', 'unknown.key': 'x' },
+    });
+    const all = [...view.sections.flatMap((s) => s.fields), ...view.other];
+    const f = (key: string) => all.find((x) => x.key === key)!;
+    expect(f('partners.external_partners').subfieldLists).toEqual({
+      institution: 'institutions',
+      partner_type: 'institution_types',
+      partner_role: 'partner_delivery_types',
+    });
+    expect(Object.hasOwn(f('general.title'), 'subfieldLists')).toBe(false);
+    expect(Object.hasOwn(f('unknown.key'), 'subfieldLists')).toBe(false);
+  });
+});
+
 describe('buildAssessmentView: configuration (FR-9)', () => {
   it('drops a Hidden field and an unclassified one, and a section left with no field', () => {
     const view = build({
