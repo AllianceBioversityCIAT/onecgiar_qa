@@ -1,285 +1,88 @@
-import {
-  Component,
-  DestroyRef,
-  ElementRef,
-  afterNextRender,
-  computed,
-  inject,
-  linkedSignal,
-  signal,
-  viewChild,
-} from '@angular/core';
+// @akili-spec assessment/step-1-assessment
+import { Component, DestroyRef, ElementRef, afterNextRender, computed, effect, inject, linkedSignal, signal, untracked, viewChild } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { form, requiredError, submit, validate } from '@angular/forms/signals';
-import { ActivatedRoute, Router } from '@angular/router';
+import { form, requiredError, validate } from '@angular/forms/signals';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
-import { QaButtonImports, QaSelectImports, QaSelectOption, QaTooltipImports } from '../../../ui';
-import { RESULTS as QA_RESULTS, RESULT_STAGE_CLASSES, RESULT_STAGE_LABELS, resultStage } from '../results/results.mock';
+import { WorkspaceLayout } from '../../../shell/workspace-layout';
+import { QaButtonImports, QaDrawerImports, QaReveal } from '../../../ui';
 import { ReviewAside } from './review-aside';
 import { ReviewCodeInfo } from './review-code-info';
 import { CommentsDrawerMode, CommentsDrawerVm, ReviewCommentsDrawer } from './review-comments-drawer';
 import { ReviewFieldCard } from './review-field-card';
 import { FooterMode, ReviewFooter } from './review-footer';
-import {
-  CardAction,
-  FieldVm,
-  ResultHeaderVm,
-  SectionNavVm,
-  aiVm,
-  buildFieldVm,
-  buildTocCardVm,
-  fmtDate,
-  groupToc,
-  isAssessable,
-  isResolved,
-  roleScope,
-} from './review-model';
+import { CardAction, SectionNavVm } from './review-model';
+import { ReviewSkeleton } from './review-skeleton';
+import { ReviewStore } from './review-store';
 import { ReviewTocSection, TocCardAction } from './review-toc-section';
-import {
-  AI_MATCHES,
-  CYCLE,
-  FIELD_DEFS,
-  FieldComment,
-  FieldDef,
-  FieldState,
-  IA_TIP,
-  INSTRUCTIONS,
-  PROGRAMS,
-  PUBLISHED_PROGRAMS,
-  RESULTS,
-  REVIEW_ROLES,
-  ReviewRole,
-  ResultStatus,
-  ReviewResult,
-  ReviewState,
-  STATUS_CLASSES,
-  SECTIONS,
-  SectionId,
-  allDefsFor,
-  buildReview,
-  fieldValue,
-  isInAssessorQueue,
-  sectionsFor,
-  tocDefsFor,
-} from './review.mock';
+import { findField, toDrawerVm } from './review.mapper';
+import { CYCLE } from './review.mock';
 
-interface BulkState {
-  readonly sec: SectionId;
-  readonly phase: 'confirm' | 'done';
-  readonly ids: readonly string[];
-}
-
-interface ClosingState {
-  readonly code: string;
-  readonly next: string | null;
-  readonly left: number;
-  readonly prevStatus: ResultStatus | undefined;
-}
-
+/** The review area stacks its navigator on top below this width (container). */
 const NARROW_PX = 900;
+/** Below this viewport width the navigator is a drawer (FR-23). */
+const COMPACT_QUERY = '(max-width: 767.98px)';
 
 /**
- * "Result review" (/results/:code): the assessor goes through each section, approves or comments fields.
- * The lead assessor, the TPB and the PPU use the same page with their own buttons ("Viewing as", ?as=lead|tpb|ppu).
+ * "Result review" (/results/:code?timeline=:id): the assessor goes through each section of one result and marks
+ * every Assessed field green or comments on it. Data from the assessment API (`ReviewStore`); the AI notes of the
+ * mockup are not connected in step 1 (DD-13).
  */
 @Component({
   selector: 'qa-review-view',
   templateUrl: './review-view.html',
   imports: [
     QaButtonImports,
-    QaSelectImports,
-    QaTooltipImports,
+    QaDrawerImports,
+    QaReveal,
+    RouterLink,
     ReviewAside,
     ReviewCodeInfo,
     ReviewCommentsDrawer,
     ReviewFieldCard,
     ReviewFooter,
+    ReviewSkeleton,
     ReviewTocSection,
   ],
+  providers: [ReviewStore],
 })
 export class ReviewView {
-  private readonly router = inject(Router);
+  protected readonly store = inject(ReviewStore);
+  protected readonly layout = inject(WorkspaceLayout);
   private readonly destroyRef = inject(DestroyRef);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly scroller = viewChild<ElementRef<HTMLElement>>('scroller');
   private readonly titleRow = viewChild<ElementRef<HTMLElement>>('titleRow');
 
   private readonly route = inject(ActivatedRoute);
-  private readonly routeCode = toSignal(this.route.paramMap.pipe(map((p) => p.get('code'))), {
-    initialValue: null,
-  });
-  private readonly routeRole = toSignal(this.route.queryParamMap.pipe(map((p) => p.get('as'))), { initialValue: null });
+  private readonly routeCode = toSignal(this.route.paramMap.pipe(map((p) => p.get('code'))), { initialValue: null });
+  private readonly routeTimeline = toSignal(this.route.queryParamMap.pipe(map((p) => p.get('timeline'))), { initialValue: null });
 
-  /**
-   * Who is reviewing. Design preview: picked with "Viewing as" and kept in the URL (?as=lead).
-   * TODO(api): take it from the signed-in user's assignments (core/auth RoleName); keep the menu only for
-   * people who hold more than one reviewing role.
-   */
-  protected readonly role = computed<ReviewRole>(
-    () => REVIEW_ROLES.find((r) => r.value === this.routeRole())?.value ?? 'assessor',
-  );
-  protected readonly roleOptions: readonly QaSelectOption[] = REVIEW_ROLES;
-  private readonly isAssessor = computed(() => this.role() === 'assessor');
+  protected readonly vm = this.store.vm;
+  /** Not connected in step 1: no field is flagged by AI (DD-13). */
+  protected readonly aiCount = 0;
+  protected readonly cycle = CYCLE;
 
-  // ---- Local state (TODO(api): persist approvals/comments/status through the review endpoint) ----
-  private readonly reviews = signal<Readonly<Record<string, ReviewState>>>({});
-  private readonly statusOverride = signal<Readonly<Record<string, ResultStatus>>>({});
-  private readonly closedQueue = signal<Readonly<Record<string, true>>>({});
-  private readonly aiHidden = signal<Readonly<Record<string, 'hidden' | 'dismissed'>>>({});
-  private readonly aiOpen = signal<Readonly<Record<string, boolean>>>({});
-
-  protected readonly showAll = signal(false);
-  protected readonly rail = signal(false);
+  /** Container narrower than 900px: the navigator stacks on top. */
   protected readonly narrow = signal(false);
+  /** Viewport under 768px: the navigator opens as a drawer. */
+  protected readonly compact = signal(false);
+  protected readonly navOpen = signal(false);
 
-  /** The result in the URL (fallback: first one). */
-  private readonly base = computed<ReviewResult>(() => RESULTS.find((r) => r.code === this.routeCode()) ?? RESULTS[0]);
-  private readonly code = computed(() => this.base().code);
+  protected readonly sectionIdx = linkedSignal<string | null, number>({ source: this.routeCode, computation: () => 0 });
+  protected readonly finishStep = linkedSignal<string | null, 'none' | 'warn' | 'confirm'>({ source: this.routeCode, computation: () => 'none' });
+  private readonly skipped = linkedSignal<string | null, number>({ source: this.routeCode, computation: () => 0 });
 
-  protected readonly sectionIdx = linkedSignal<string, number>({ source: this.code, computation: () => 0 });
-  protected readonly finishStep = linkedSignal<string, 'none' | 'warn' | 'confirm'>({
-    source: this.code,
-    computation: () => 'none',
-  });
-  private readonly skipped = linkedSignal<string, number>({ source: this.code, computation: () => 0 });
-  protected readonly bulk = linkedSignal<string, BulkState | null>({ source: this.code, computation: () => null });
-  protected readonly closing = linkedSignal<string, ClosingState | null>({ source: this.code, computation: () => null });
-
-  private readonly status = computed<ResultStatus>(() => this.statusOverride()[this.code()] ?? this.base().status);
-  /** Knowledge products approved by the auto-check: nothing to review. */
-  protected readonly readOnly = computed(() => this.base().status === 'Automatic');
-  private readonly state = computed<ReviewState>(() => this.reviews()[this.code()] ?? buildReview(this.base()));
-
-  protected readonly sections = computed(() => sectionsFor(this.base()));
-  protected readonly idx = computed(() => Math.min(this.sectionIdx(), this.sections().length - 1));
-  protected readonly current = computed(() => this.sections()[this.idx()]);
-  protected readonly isToc = computed(() => this.current().id === 'toc');
-
-  private readonly tocDefs = computed(() => tocDefsFor(this.base()));
-  private readonly aiData = computed(() => AI_MATCHES[this.code()] ?? {});
-
-  private defsIn(id: SectionId): readonly FieldDef[] {
-    return id === 'toc' ? this.tocDefs() : FIELD_DEFS.filter((d) => d.sec === id);
-  }
-
-  private fs(id: string): FieldState {
-    return this.state()[id] ?? { approved: false, highlighted: false, comments: [] };
-  }
-
-  /** AI notes help the assessor write comments; the other roles do not see them. */
-  private aiShown(fid: string): boolean {
-    return this.isAssessor() && !!this.aiData()[fid] && !this.aiHidden()[this.code() + ':' + fid];
-  }
-
-  private aiFor(fid: string) {
-    return this.aiShown(fid) ? aiVm(this.aiData()[fid], !!this.aiOpen()[this.code() + ':' + fid]) : null;
-  }
-
-  private actionable(d: FieldDef): boolean {
-    return !this.readOnly() && isAssessable(d) && roleScope(this.role(), d, this.fs(d.id)).mine;
-  }
-
-  /** The field still needs the current role. */
-  private pending(d: FieldDef): boolean {
-    return roleScope(this.role(), d, this.fs(d.id)).open;
-  }
-
-  private readonly allDefs = computed(() => this.sections().flatMap((s) => this.defsIn(s.id)));
-  private readonly actDefs = computed(() => this.allDefs().filter((d) => this.actionable(d)));
-  protected readonly resolvedCount = computed(() => this.actDefs().filter((d) => !this.pending(d)).length);
-  protected readonly totalCount = computed(() => this.actDefs().length);
-  protected readonly openCount = computed(() => this.totalCount() - this.resolvedCount());
+  protected readonly sections = computed(() => this.vm()?.sections ?? []);
+  protected readonly idx = computed(() => Math.max(0, Math.min(this.sectionIdx(), this.sections().length - 1)));
+  protected readonly current = computed(() => this.sections()[this.idx()] ?? null);
 
   protected readonly sectionNav = computed<SectionNavVm[]>(() =>
-    this.sections().map((s, i) => ({
-      name: s.name,
-      n: i + 1,
-      active: i === this.idx(),
-      open: this.defsIn(s.id).filter((d) => this.actionable(d) && this.pending(d)).length,
-    })),
+    this.sections().map((s, i) => ({ name: s.name, n: i + 1, active: i === this.idx(), open: s.open })),
   );
-
-  protected readonly header = computed<ResultHeaderVm>(() => {
-    const r = this.base();
-    const status = this.status();
-    const assessed = status !== 'Pending' && !!r.assessor;
-    // Same QA stage as Results and the Overview (the review mock has no round; it comes from the Results row).
-    const qa = QA_RESULTS.find((x) => x.code === r.code);
-    const stage = qa ? resultStage({ ...qa, status }) : null;
-    return {
-      code: r.code,
-      title: fieldValue(FIELD_DEFS.find((d) => d.id === 'title')!, r),
-      type: r.type,
-      status: stage ? RESULT_STAGE_LABELS[stage] : status,
-      statusClass: stage ? RESULT_STAGE_CLASSES[stage] : STATUS_CLASSES[status],
-      isAuto: status === 'Automatic',
-      assessor: r.assessor ?? '—',
-      showAssessedBy: assessed,
-      instructions: this.readOnly() ? INSTRUCTIONS.readOnly : INSTRUCTIONS[this.role()],
-      locked: !this.readOnly() && !PUBLISHED_PROGRAMS.includes(r.program),
-      details: [
-        { label: 'Science program', value: r.program + ' ' + PROGRAMS[r.program] },
-        { label: 'Timeline', value: CYCLE.batch },
-        { label: 'Step', value: CYCLE.phase },
-        { label: 'Assessed by', value: assessed ? (r.assessor ?? '—') : '—' },
-        { label: 'Submitted', value: CYCLE.submitted },
-      ],
-    };
-  });
-
-  /** Field cards of the current (non-ToC) section; hidden "context" fields only with Show all fields. */
-  protected readonly fields = computed<FieldVm[]>(() => {
-    if (this.isToc()) return [];
-    return this.defsIn(this.current().id)
-      .filter((d) => d.mode !== 'hidden' || this.showAll())
-      .map((d) => buildFieldVm(d, this.fs(d.id), this.base(), this.readOnly(), this.aiFor(d.id), this.role()));
-  });
-
-  protected readonly tocGroups = computed(() =>
-    this.isToc()
-      ? groupToc(this.tocDefs().map((def) => ({ def, vm: buildTocCardVm(def, this.fs(def.id), this.readOnly(), this.aiFor(def.id), this.role()) })))
-      : [],
-  );
-  private readonly tocReal = computed(() => this.tocDefs().filter((d) => !d.mapping));
-  protected readonly tocCount = computed(() => this.tocReal().length);
-  protected readonly tocPrograms = computed(() => new Set(this.tocReal().map((d) => d.prog)).size);
-  protected readonly tocReviewed = computed(() => this.tocReal().filter((d) => isResolved(d, this.fs(d.id))).length);
-  private readonly tocOpen = computed(() => this.tocDefs().filter((d) => this.actionable(d) && this.pending(d)).length);
-
-  protected readonly cycle = CYCLE;
-  protected readonly iaTip = IA_TIP;
-  protected readonly iaAbove = FIELD_DEFS.filter((d) => d.ia && (d.score ?? 0) > 0).length;
-  protected readonly iaTotal = FIELD_DEFS.filter((d) => d.ia).length;
-  protected readonly iaPrincipal = FIELD_DEFS.filter((d) => d.ia && d.score === 2).length;
-
-  /** Mismatches still shown, and the first section that has one. */
-  private readonly aiFlagged = computed(() =>
-    Object.keys(this.aiData()).filter((fid) => this.aiData()[fid].verdict === 'mm' && this.aiShown(fid)),
-  );
-  protected readonly aiCount = computed(() => this.aiFlagged().length);
-
-  // ---- Approve remaining ----
-  private readonly bulkEligible = computed(() => {
-    if (this.readOnly() || this.isToc() || !this.isAssessor()) return [];
-    return this.defsIn(this.current().id).filter((d) => this.bulkCandidate(d) && !this.mismatchShown(d.id));
-  });
-  protected readonly bulkCount = computed(() => this.bulkEligible().length);
-  protected readonly bulkFlagged = computed(() =>
-    this.isToc() ? 0 : this.defsIn(this.current().id).filter((d) => this.bulkCandidate(d) && this.mismatchShown(d.id)).length,
-  );
-  protected readonly bulkHere = computed(() => {
-    const b = this.bulk();
-    return b && b.sec === this.current().id ? b : null;
-  });
-
-  private bulkCandidate(d: FieldDef): boolean {
-    const fs = this.fs(d.id);
-    return isAssessable(d) && !fs.approved && fs.comments.length === 0;
-  }
-
-  private mismatchShown(fid: string): boolean {
-    return this.aiData()[fid]?.verdict === 'mm' && this.aiShown(fid);
-  }
+  protected readonly resolvedCount = computed(() => this.vm()?.resolved ?? 0);
+  protected readonly totalCount = computed(() => this.vm()?.total ?? 0);
+  protected readonly openCount = computed(() => this.totalCount() - this.resolvedCount());
 
   // ---- Footer ----
   protected readonly footerMode = computed<FooterMode>(() => {
@@ -288,100 +91,67 @@ export class ReviewView {
     if (step === 'warn' && this.openCount() > 0) return 'warn';
     return 'normal';
   });
-  protected readonly warnCount = computed(() => (this.tocOpen() > 0 ? this.tocOpen() : this.openCount()));
-  protected readonly warnText = computed(() => {
-    const t = this.tocOpen();
-    if (t > 0) return t === 1 ? 'theory of change contribution still needs your review.' : 'theory of change contributions still need your review.';
-    return this.openCount() === 1 ? 'field still needs your review.' : 'fields still need your review.';
-  });
-  protected readonly commentedCount = computed(
-    () => this.allDefs().filter((d) => this.fs(d.id).comments.some((c) => c.role === 'Assessor')).length,
-  );
+  protected readonly warnText = computed(() => (this.openCount() === 1 ? 'field still needs your review.' : 'fields still need your review.'));
   protected readonly skippedCount = this.skipped.asReadonly();
 
-  /** Only the assessor finishes an assessment; the other roles work field by field. */
-  protected readonly canFinish = computed(() => !this.readOnly() && this.isAssessor());
-
-  // ---- Comments drawer + form (Signal Forms) ----
+  // ---- Comments drawer ----
   protected readonly drawerOpen = signal(false);
-  private readonly drawerFid = signal<string | null>(null);
-  private readonly drawerMode = signal<CommentsDrawerMode>('comment');
+  private readonly drawerKey = signal<string | null>(null);
   protected readonly commentModel = signal({ text: '' });
   protected readonly commentForm = form(this.commentModel, (f) => {
     validate(f.text, ({ value }) => (value().trim() ? null : requiredError({ message: 'Write a comment before adding it.' })));
   });
-  private readonly draftError = signal(false);
-  /** Red border after a failed Add; disappears as soon as the text is valid. */
-  protected readonly showDraftError = computed(() => this.draftError() && this.commentForm.text().invalid());
   protected readonly focusTick = signal(0);
-
+  private readonly drawerMode = computed<CommentsDrawerMode>(() => 'read');
   protected readonly drawerField = computed<CommentsDrawerVm | null>(() => {
-    const fid = this.drawerFid();
-    const d = fid ? allDefsFor(this.base()).find((x) => x.id === fid) : undefined;
-    if (!d) return null;
-    const fs = this.fs(d.id);
-    const last = fs.comments.length - 1;
-    return {
-      label: d.label,
-      section: SECTIONS.find((s) => s.id === d.sec)?.name ?? '',
-      value: fieldValue(d, this.base()),
-      highlighted: fs.highlighted,
-      comments: fs.comments,
-      mode: this.drawerMode(),
-      instruction: fs.highlighted ? (fs.instruction ?? '') : '',
-      ppuNote: fs.highlighted && fs.decision === 'changes' ? (fs.ppuNote ?? '') : '',
-      // Only the last entry, and only while nobody answered it.
-      withdrawIndex: this.isAssessor() && last >= 0 && fs.comments[last].role === 'Assessor' ? last : -1,
-    };
+    const view = this.store.view();
+    const key = this.drawerKey();
+    const found = view && key ? findField(view, key) : null;
+    return found ? toDrawerVm(found, this.drawerMode()) : null;
   });
 
-  private bulkTimer: ReturnType<typeof setTimeout> | undefined;
-  private closeTimer: ReturnType<typeof setTimeout> | undefined;
-
   constructor() {
-    this.destroyRef.onDestroy(() => {
-      clearTimeout(this.bulkTimer);
-      clearTimeout(this.closeTimer);
+    // Load on every route change (the router reuses this view for another result).
+    effect(() => {
+      const code = this.routeCode();
+      const timeline = this.routeTimeline();
+      untracked(() => {
+        this.drawerOpen.set(false);
+        void this.store.load(code, timeline);
+      });
     });
-    // The mockup measures the review area: under 900px the sections column stacks on top.
     afterNextRender(() => {
       const el = this.host.nativeElement.firstElementChild as HTMLElement | null;
-      if (!el || typeof ResizeObserver === 'undefined') return;
-      const ro = new ResizeObserver(([entry]) => this.narrow.set(entry.contentRect.width < NARROW_PX));
-      ro.observe(el);
-      this.destroyRef.onDestroy(() => ro.disconnect());
+      if (el && typeof ResizeObserver !== 'undefined') {
+        const ro = new ResizeObserver(([entry]) => this.narrow.set(entry.contentRect.width < NARROW_PX));
+        ro.observe(el);
+        this.destroyRef.onDestroy(() => ro.disconnect());
+      }
+      if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+        const mq = window.matchMedia(COMPACT_QUERY);
+        const apply = () => this.compact.set(mq.matches);
+        apply();
+        mq.addEventListener('change', apply);
+        this.destroyRef.onDestroy(() => mq.removeEventListener('change', apply));
+      }
     });
   }
 
-  // ---- Actions ----
-  /** Switches "Viewing as"; the assessor is the default, so it leaves no ?as= in the URL. */
-  protected setRole(value: string | null): void {
-    this.drawerOpen.set(false);
-    this.finishStep.set('none');
-    this.bulk.set(null);
-    void this.router.navigate([], {
-      relativeTo: this.route,
-      queryParams: { as: value && value !== 'assessor' ? value : null },
-      queryParamsHandling: 'merge',
-      replaceUrl: true,
-    });
+  protected retry(): void {
+    void this.store.retry(this.routeCode(), this.routeTimeline());
   }
 
-  private setField(fid: string, patch: Partial<FieldState>, extra?: FieldComment): void {
-    const code = this.code();
-    this.reviews.update((all) => {
-      const cur = all[code] ?? buildReview(this.base());
-      const f = cur[fid] ?? { approved: false, highlighted: false, comments: [] };
-      const comments = extra ? [...f.comments, extra] : f.comments;
-      return { ...all, [code]: { ...cur, [fid]: { ...f, ...patch, comments } } };
-    });
+  /** The navigator's collapse is the focus control: it collapses the main menu too (FR-8 AC2). */
+  protected setFocus(on: boolean): void {
+    this.layout.setFocus(on);
   }
 
   protected goSection(i: number): void {
+    if (i < 0 || i >= this.sections().length) return;
     this.sectionIdx.set(i);
     this.finishStep.set('none');
+    this.navOpen.set(false);
     if (this.narrow()) {
-      // Narrow: the page scrolls in the shell's <main>; bring the new section's title row into view if it is above.
       const row = this.titleRow()?.nativeElement;
       const viewTop = row?.closest('main')?.getBoundingClientRect().top ?? 0;
       if (row && row.getBoundingClientRect().top < viewTop) row.scrollIntoView({ block: 'start' });
@@ -391,72 +161,23 @@ export class ReviewView {
     if (el) el.scrollTop = 0;
   }
 
-  protected goFlagged(): void {
-    const all = allDefsFor(this.base());
-    const first = this.aiFlagged()
-      .map((fid) => this.sections().findIndex((s) => s.id === all.find((d) => d.id === fid)?.sec))
-      .filter((i) => i >= 0)
-      .sort((a, b) => a - b)[0];
-    if (first != null) this.goSection(first);
-  }
-
-  protected onCard(fid: string, action: CardAction): void {
-    const key = this.code() + ':' + fid;
-    switch (action) {
-      case 'approve':
-        return this.setField(fid, { approved: true });
-      case 'undo':
-        // TODO(api): each role's undo calls its own endpoint.
-        if (this.role() === 'tpb') return this.setField(fid, { decision: undefined, ppuNote: undefined });
-        if (this.role() === 'ppu') return this.setField(fid, { done: false });
-        return this.setField(fid, { approved: false });
-      case 'comment':
-        return this.openDrawer(fid, undefined, this.isAssessor() ? 'comment' : 'read');
-      case 'highlight':
-        return this.openDrawer(fid, this.fs(fid).instruction ?? '', 'instruction');
-      case 'unhighlight':
-        return this.setField(fid, { highlighted: false, instruction: undefined, decision: undefined, ppuNote: undefined, done: false });
-      case 'agree':
-        return this.setField(fid, { decision: 'agreed' });
-      case 'changes':
-      case 'edit-note':
-        // "Required changes" asks for the note for the PPU first (Santi via Yeck, 2026-11-12).
-        return this.openDrawer(fid, this.fs(fid).ppuNote ?? '', 'note');
-      case 'done':
-        return this.setField(fid, { done: true });
-      case 'ai-toggle':
-        return this.aiOpen.update((m) => ({ ...m, [key]: !m[key] }));
-      case 'ai-hide':
-        return this.aiHidden.update((m) => ({ ...m, [key]: 'hidden' }));
-      case 'ai-dismiss':
-        return this.aiHidden.update((m) => ({ ...m, [key]: 'dismissed' }));
-      case 'ai-use':
-        return this.openDrawer(fid, this.aiData()[fid]?.text);
-    }
+  protected onCard(id: string, action: CardAction): void {
+    const key = id.split('#')[0];
+    if (action === 'comment') this.openDrawer(key);
   }
 
   protected onTocCard(e: TocCardAction): void {
     this.onCard(e.id, e.action);
   }
 
-  protected askBulk(): void {
-    this.bulk.set({ sec: this.current().id, phase: 'confirm', ids: [] });
+  protected openDrawer(key: string): void {
+    if (this.drawerKey() !== key) this.commentModel.set({ text: '' });
+    this.drawerKey.set(key);
+    this.drawerOpen.set(true);
+    this.focusTick.update((n) => n + 1);
   }
 
-  protected confirmBulk(): void {
-    const ids = this.bulkEligible().map((d) => d.id);
-    clearTimeout(this.bulkTimer);
-    ids.forEach((id) => this.setField(id, { approved: true }));
-    this.bulk.set({ sec: this.current().id, phase: 'done', ids });
-    this.bulkTimer = setTimeout(() => this.bulk.set(null), 8000);
-  }
-
-  protected undoBulk(): void {
-    clearTimeout(this.bulkTimer);
-    this.bulkHere()?.ids.forEach((id) => this.setField(id, { approved: false }));
-    this.bulk.set(null);
-  }
-
+  // ---- Finish flow (local steps; the API call is wired with the review actions) ----
   protected finish(): void {
     if (this.openCount() > 0) this.finishStep.set('warn');
     else {
@@ -471,8 +192,7 @@ export class ReviewView {
   }
 
   protected reviewThem(): void {
-    const ti = this.sections().findIndex((s) => s.id === 'toc');
-    this.goSection(this.tocOpen() > 0 && ti >= 0 ? ti : Math.max(0, this.sectionNav().findIndex((s) => s.open > 0)));
+    this.goSection(Math.max(0, this.sectionNav().findIndex((s) => s.open > 0)));
   }
 
   protected keepWorking(): void {
@@ -480,107 +200,19 @@ export class ReviewView {
     this.finishStep.set('none');
   }
 
-  /** Moves the result to Awaiting response and opens the next one in the assessor's queue. */
   protected confirmFinish(): void {
-    // TODO(api): submit the assessment (approvals + comments) and move the result to Awaiting response.
-    const code = this.code();
-    const queue = RESULTS.filter(
-      (r) => isInAssessorQueue({ ...r, status: this.statusOverride()[r.code] ?? r.status }) && !this.closedQueue()[r.code],
-    ).map((r) => r.code);
-    const i = queue.indexOf(code);
-    const rest = queue.filter((c) => c !== code);
-    const next = i >= 0 ? (queue[i + 1] ?? null) : (rest[0] ?? null);
-    const prevStatus = this.statusOverride()[code];
-    this.statusOverride.update((m) => ({ ...m, [code]: 'Awaiting response' }));
-    this.closedQueue.update((m) => ({ ...m, [code]: true }));
     this.finishStep.set('none');
-    this.skipped.set(0);
-    this.closing.set({ code, next, left: rest.length, prevStatus });
-    clearTimeout(this.closeTimer);
-    if (next) this.closeTimer = setTimeout(() => void this.router.navigate(['/results', next]), 2000);
   }
 
-  protected undoClose(): void {
-    clearTimeout(this.closeTimer);
-    const c = this.closing();
-    if (!c) return;
-    this.statusOverride.update((m) => {
-      const { [c.code]: _, ...rest } = m;
-      return c.prevStatus ? { ...rest, [c.code]: c.prevStatus } : rest;
-    });
-    this.closedQueue.update((m) => {
-      const { [c.code]: _, ...rest } = m;
-      return rest;
-    });
-    this.closing.set(null);
-  }
-
-  protected backToResults(): void {
-    clearTimeout(this.closeTimer);
-    void this.router.navigate(['/results']);
-  }
-
-  // ---- Drawer ----
-  protected openDrawer(fid: string, preset?: string, mode: CommentsDrawerMode = 'comment'): void {
-    // Re-opening the same field keeps an unsent draft (closing with text asks before discarding it).
-    if (preset !== undefined || this.drawerFid() !== fid || this.drawerMode() !== mode) this.commentModel.set({ text: preset ?? '' });
-    this.drawerFid.set(fid);
-    this.drawerMode.set(mode);
-    this.draftError.set(false);
-    this.drawerOpen.set(true);
-    this.focusTick.update((n) => n + 1);
+  protected addComment(): void {
+    // Wired with the review actions.
   }
 
   protected pickQuick(text: string): void {
     this.commentModel.update(({ text: cur }) => ({ text: cur.trim() ? cur.replace(/\s+$/, '') + '\n' + text : text }));
-    this.draftError.set(false);
-    this.focusTick.update((n) => n + 1);
   }
 
-  protected async addComment(): Promise<void> {
-    const fid = this.drawerFid();
-    if (!fid) return;
-    const ok = await submit(this.commentForm, async () => {
-      if (this.drawerMode() === 'note') {
-        // TODO(api): save the TPB's "Required changes" decision with its note for the PPU.
-        this.setField(fid, { decision: 'changes', ppuNote: this.commentModel().text.trim() });
-        this.commentModel.set({ text: '' });
-        this.drawerOpen.set(false);
-        return undefined;
-      }
-      if (this.drawerMode() === 'instruction') {
-        // TODO(api): mark the field as highlight with the lead assessor's instruction for the TPB.
-        this.setField(fid, { highlighted: true, instruction: this.commentModel().text.trim() });
-        this.commentModel.set({ text: '' });
-        this.drawerOpen.set(false);
-        return undefined;
-      }
-      // TODO(api): post the comment to the field thread.
-      this.setField(
-        fid,
-        { approved: false },
-        { who: this.base().assessor ?? 'M. Chen', role: 'Assessor', date: fmtDate(new Date()), text: this.commentModel().text.trim() },
-      );
-      this.commentModel.set({ text: '' });
-      this.drawerOpen.set(false);
-      return undefined;
-    });
-    if (!ok) {
-      this.draftError.set(true);
-      this.focusTick.update((n) => n + 1);
-    }
-  }
-
-  /** The assessor takes back a comment the program has not answered yet. */
   protected withdrawComment(index: number): void {
-    const fid = this.drawerFid();
-    if (!fid) return;
-    // TODO(api): delete the comment from the field thread (only while the program has not answered it).
-    const code = this.code();
-    this.reviews.update((all) => {
-      const cur = all[code] ?? buildReview(this.base());
-      const f = cur[fid] ?? { approved: false, highlighted: false, comments: [] };
-      return { ...all, [code]: { ...cur, [fid]: { ...f, comments: f.comments.filter((_, i) => i !== index) } } };
-    });
+    void index;
   }
 }
