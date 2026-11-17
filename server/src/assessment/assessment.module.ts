@@ -63,6 +63,17 @@ import { QuickCommentsService } from './quick-comments.service.js';
 import { WorklistController } from './worklist.controller.js';
 import { WorklistService } from './worklist.service.js';
 import { DrizzleWorklistStore, WORKLIST_STORE } from './worklist.store.js';
+import { spAccessConfig } from '../config/sp-access.config.js';
+import { AuthThrottlerModule } from '../auth/auth-throttle.js';
+import { SpAccessController } from './sp-view/sp-access.controller.js';
+import { SpAccessService } from './sp-view/sp-access.service.js';
+import {
+  DrizzleSpAccessStore,
+  SP_ACCESS_STORE,
+} from './sp-view/sp-access.store.js';
+import { SpApiKeyGuard } from './sp-view/sp-api-key.guard.js';
+import { SpSessionGuard } from './sp-view/sp-session.guard.js';
+import { SpViewController } from './sp-view/sp-view.controller.js';
 
 /**
  * Step-1 assessment (spec assessment/step-1-assessment, DD-1). Imports
@@ -81,11 +92,17 @@ import { DrizzleWorklistStore, WORKLIST_STORE } from './worklist.store.js';
     ReleasesController,
     AiSuggestionsController,
     AiAnalysisController,
+    // The Science Program view (P2-3911, sp-view/).
+    SpAccessController,
+    SpViewController,
   ],
   imports: [
     DrizzleModule,
     DynamoDbModule,
     ConfigModule.forFeature(catalogsConfig),
+    ConfigModule.forFeature(spAccessConfig),
+    // The per-IP limit of the SP code exchange (P2-3911): the same global throttler AuthModule uses.
+    AuthThrottlerModule,
     UsersModule,
     FieldConfigModule,
   ],
@@ -135,6 +152,11 @@ import { DrizzleWorklistStore, WORKLIST_STORE } from './worklist.store.js';
     { provide: AI_SUGGESTION_STORE, useClass: DynamoAiSuggestionStore },
     { provide: AI_USAGE_STORE, useClass: DrizzleAiUsageStore },
     AiSuggestionsService,
+    // The Science Program view (P2-3911): link codes and SP sessions, the machine-key and session guards.
+    { provide: SP_ACCESS_STORE, useClass: DrizzleSpAccessStore },
+    SpAccessService,
+    SpApiKeyGuard,
+    SpSessionGuard,
   ],
 })
 export class AssessmentModule {}

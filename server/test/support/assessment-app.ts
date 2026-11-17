@@ -55,6 +55,9 @@ import {
   InMemoryWorklistStore,
 } from './in-memory-assessment.js';
 import { localJwksCache, newKeyPair, signJwt } from './jwt-test-keys.js';
+import { SP_ACCESS_STORE } from '../../src/assessment/sp-view/sp-access.store.js';
+import { InMemorySpAccessStore } from './in-memory-sp.js';
+import { spAccessConfig } from '../../src/config/sp-access.config.js';
 import { adminWorld, PROGRAMS, RESULT_TYPES } from './users-admin-world.js';
 
 // The real app over the in-memory assessment world (pattern of
@@ -110,6 +113,8 @@ export async function buildAssessmentApp(
     names?: Partial<
       Record<'policy' | 'policy2' | 'admin', { first: string; last: string }>
     >;
+    /** Replaces the `spAccess` config (P2-3911): unset fields are undefined. */
+    spAccess?: { apiKey?: string; reportingResultUrl?: string };
   } = {},
 ) {
   // The clock the services read; `setClock` moves it (FR-2 over HTTP).
@@ -148,6 +153,8 @@ export async function buildAssessmentApp(
         : aiStore.listForSnapshot(...args),
   };
   const aiUsage = new InMemoryAiUsageStore(world);
+  // The SP view (P2-3911): link codes and SP sessions.
+  const spAccess = new InMemorySpAccessStore();
   const actor = async (
     sub: string,
     roles: Array<[string, string?]>,
@@ -195,7 +202,7 @@ export async function buildAssessmentApp(
     ),
   };
 
-  const moduleRef = await withoutTitleBackfill(
+  const builder = withoutTitleBackfill(
     Test.createTestingModule({ imports: [AppModule] }),
   )
     .overrideProvider(USERS_STORE)
@@ -231,6 +238,8 @@ export async function buildAssessmentApp(
     .useValue(aiSuggestions)
     .overrideProvider(AI_USAGE_STORE)
     .useValue(aiUsage)
+    .overrideProvider(SP_ACCESS_STORE)
+    .useValue(spAccess)
     .overrideProvider(TIMELINE_LOADS)
     .useValue(new InMemoryTimelineLoads(world))
     .overrideProvider(IDEMPOTENCY_STORE)
@@ -244,8 +253,16 @@ export async function buildAssessmentApp(
     .overrideProvider(SCIENCE_PROGRAM_SOURCE)
     .useValue({ list: async () => PROGRAMS })
     .overrideProvider(JWKS_CACHE)
-    .useValue(localJwksCache(signer))
-    .compile();
+    .useValue(localJwksCache(signer));
+  // The SP view settings (P2-3911); the e2e env sets both by default.
+  if (options.spAccess !== undefined) {
+    builder.overrideProvider(spAccessConfig.KEY).useValue({
+      apiKey: undefined,
+      reportingResultUrl: undefined,
+      ...options.spAccess,
+    });
+  }
+  const moduleRef = await builder.compile();
   const app = moduleRef.createNestApplication<NestExpressApplication>();
   configureApp(app);
   await app.init();
@@ -272,6 +289,53 @@ export async function buildAssessmentApp(
     current = next;
   };
 
+  /** One request under `/api/v1` with an SP session token (or none). */
+  const spSend = (
+    method: 'get' | 'post' | 'put',
+    path: string,
+    token: string | null,
+    body?: object,
+  ) => {
+    const call = request(app.getHttpServer())[method](`/api/v1${path}`);
+    if (token !== null) call.set('Authorization', `Bearer ${token}`);
+    return body === undefined ? call : call.send(body);
+  };
+
+  /**
+   * The Reporting flow (P2-3911): issue a code with the e2e key, then trade it
+   * for an SP session. Returns the session token.
+   */
+  let spLogins = 0;
+  const spLogin = async (
+    identity: {
+      email?: string;
+      name?: string;
+      programCode?: string | null;
+      isReportingAdmin?: boolean;
+    } = {},
+  ): Promise<string> => {
+    const issued = await request(app.getHttpServer())
+      .post('/api/v1/sp-access/codes')
+      .set('x-api-key', process.env.SP_ACCESS_API_KEY!)
+      .send({
+        email: identity.email ?? 'sp-user@example.org',
+        name: identity.name ?? 'Sam Program',
+        programCode:
+          identity.programCode === undefined ? 'SP01' : identity.programCode,
+        isReportingAdmin: identity.isReportingAdmin ?? false,
+      })
+      .expect(201);
+    // A fresh client address per login, so the 10/min throttle of the
+    // exchange never trips a suite that logs in many times (trust proxy = 1).
+    spLogins++;
+    const session = await request(app.getHttpServer())
+      .post('/api/v1/sp-access/session')
+      .set('X-Forwarded-For', `198.51.100.${spLogins % 250}`)
+      .send({ code: (issued.body as { data: { code: string } }).data.code })
+      .expect(200);
+    return (session.body as { data: { accessToken: string } }).data.accessToken;
+  };
+
   return {
     app,
     world,
@@ -286,5 +350,8 @@ export async function buildAssessmentApp(
     aiDynamo,
     aiSource,
     aiUsage,
+    spAccess,
+    spSend,
+    spLogin,
   };
 }
