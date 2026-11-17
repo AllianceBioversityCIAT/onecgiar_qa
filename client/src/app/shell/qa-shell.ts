@@ -1,5 +1,5 @@
 import { Location, NgOptimizedImage, NgTemplateOutlet } from '@angular/common';
-import { Component, computed, effect, inject, linkedSignal, signal, untracked } from '@angular/core';
+import { Component, computed, effect, inject, signal, untracked } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { filter, map } from 'rxjs';
@@ -11,6 +11,7 @@ import { UnsentQueue } from '../core/http/unsent-queue';
 import { NotificationsBell } from '../pages/workspace/notifications/notifications-bell';
 import { QaTokensLoader, QaUnsentCenter } from '../ui';
 import { ActiveCycle } from './active-cycle';
+import { WorkspaceLayout } from './workspace-layout';
 
 interface NavItem {
   readonly label: string;
@@ -106,11 +107,13 @@ export class QaShell {
     { initialValue: this.router.url },
   );
 
+  private readonly layout = inject(WorkspaceLayout);
   /**
    * Desktop: sidebar shrinks to an icon rail. The review page starts collapsed (as in the mockup)
-   * to leave room for its own section list; the user can still toggle it.
+   * to leave room for its own section list; the user can still toggle it. Owned by `WorkspaceLayout`
+   * so the review page's "Focus" control can collapse it too (DD-14).
    */
-  protected readonly collapsed = linkedSignal(() => /^\/results\/[^/?#]+/.test(this.url()));
+  protected readonly collapsed = this.layout.menuCollapsed.asReadonly();
   /** Mobile/tablet: sidebar opens as a drawer over the content. */
   protected readonly mobileNavOpen = signal(false);
   protected readonly userMenuOpen = signal(false);
@@ -133,6 +136,10 @@ export class QaShell {
     });
   }
   private cardRequested = false;
+
+  protected toggleMenu(): void {
+    this.layout.toggleMenu();
+  }
 
   protected back(): void {
     this.location.back();

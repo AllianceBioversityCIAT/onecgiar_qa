@@ -291,3 +291,35 @@ describe('DrizzleWorklistStore SQL', () => {
     expect(text).not.toContain(' like ?');
   });
 });
+
+// P2-3911: the comments the Science Program answered.
+describe('DrizzleWorklistStore answeredBySp (P2-3911)', () => {
+  const ANSWERED =
+    '(select COUNT(*) from `assessment_comments` where (`assessment_comments`.`assessment_id` = `result_assessments`.`id` and `assessment_comments`.`state` in (?, ?, ?)))';
+
+  it('counts accepted, accepted-with-comment and disagreed comments of the row', () => {
+    const { sql: text, params } = pageSql(criteria());
+    expect(text).toContain(ANSWERED);
+    expect(params).toEqual(
+      expect.arrayContaining([
+        'accepted',
+        'accepted_with_comment',
+        'disagreed',
+      ]),
+    );
+  });
+
+  it('sorts by that count', () => {
+    const { sql: text } = pageSql(
+      criteria({
+        sort: {
+          key: 'answered',
+          dir: 'desc',
+          programOrder: [],
+          resultTypeOrder: [],
+        },
+      }),
+    );
+    expect(text).toContain(`order by (${ANSWERED}) desc`);
+  });
+});

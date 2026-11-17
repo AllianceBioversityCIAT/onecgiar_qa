@@ -13,6 +13,9 @@ const REQUIRED_ENV_VARS = [
   'CLARISA_API_KEY',
 ] as const;
 
+/** The shortest `SP_ACCESS_API_KEY` accepted (P2-3911 contract § 5). */
+export const SP_ACCESS_API_KEY_MIN_LENGTH = 32;
+
 /**
  * Parses the comma-separated `ALLOWED_ORIGINS` list. Every entry must be an
  * exact `https://` origin (no path, no trailing slash, no credentials), except
@@ -135,6 +138,29 @@ export function validateEnv(
   ) {
     throw new Error(
       'Invalid APP_URL: expected an exact https:// origin (or http://localhost:<port>)',
+    );
+  }
+  // SP view (P2-3911): the key is a shared secret of at least 32 characters;
+  // the link template must be https:// and carry the result code.
+  const spKey = config.SP_ACCESS_API_KEY;
+  if (
+    spKey !== undefined &&
+    spKey !== '' &&
+    (spKey as string).length < SP_ACCESS_API_KEY_MIN_LENGTH
+  ) {
+    throw new Error(
+      `Invalid SP_ACCESS_API_KEY: expected at least ${SP_ACCESS_API_KEY_MIN_LENGTH} characters`,
+    );
+  }
+  const spResultUrl = config.SP_REPORTING_RESULT_URL;
+  if (
+    spResultUrl !== undefined &&
+    spResultUrl !== '' &&
+    (!isHttpsUrl(spResultUrl as string) ||
+      !(spResultUrl as string).includes('{resultCode}'))
+  ) {
+    throw new Error(
+      'Invalid SP_REPORTING_RESULT_URL: expected an https:// URL containing {resultCode}',
     );
   }
   return config;

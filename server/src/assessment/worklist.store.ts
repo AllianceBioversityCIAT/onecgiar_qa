@@ -137,6 +137,8 @@ export interface WorklistRecord {
   endReason: TimelineResultEndReason | null;
   /** Non-withdrawn comments of the assessment. */
   comments: number;
+  /** P2-3911: non-withdrawn comments in `accepted`, `accepted_with_comment` or `disagreed`. */
+  answeredBySp: number;
   assessedById: number | null;
   assessedByNickname: string | null;
   status: QaStatus | null;
@@ -378,6 +380,23 @@ export class DrizzleWorklistStore implements WorklistStore {
       )})`;
   }
 
+  /** P2-3911: the comments the program answered (accepted, accepted with a comment, disagreed). */
+  private answeredCount(): SQL<number> {
+    return sql<number>`(${this.db
+      .select({ n: sql`COUNT(*)` })
+      .from(assessmentComments)
+      .where(
+        and(
+          eq(assessmentComments.assessmentId, a.id),
+          inArray(assessmentComments.state, [
+            'accepted',
+            'accepted_with_comment',
+            'disagreed',
+          ]),
+        ),
+      )})`;
+  }
+
   private sortExpression(sort: WorklistPageCriteria['sort']): SQL {
     switch (sort.key) {
       case 'code':
@@ -391,8 +410,8 @@ export class DrizzleWorklistStore implements WorklistStore {
       case 'comments':
         return this.commentCount();
       case 'answered':
-        // Comments answered by the Science Program: always 0 until P2-3911.
-        return sql`0`;
+        // Comments answered by the Science Program (P2-3911).
+        return this.answeredCount();
       case 'assessedBy':
         return sql`COALESCE(${users.nickname}, '')`;
       case 'status':
@@ -462,6 +481,7 @@ export class DrizzleWorklistStore implements WorklistStore {
         endedAt: t.endedAt,
         endReason: t.endReason,
         comments: this.commentCount(),
+        answeredBySp: this.answeredCount(),
         assessedById: users.id,
         assessedByNickname: users.nickname,
         status: sql<QaStatus | null>`${this.statusCase()}`,
@@ -522,6 +542,7 @@ export class DrizzleWorklistStore implements WorklistStore {
       ended: row.endedAt !== null,
       endReason: row.endReason,
       comments: Number(row.comments),
+      answeredBySp: Number(row.answeredBySp),
       assessedById: row.assessedById,
       assessedByNickname: row.assessedByNickname,
       status: row.status,

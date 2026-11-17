@@ -235,6 +235,19 @@ describe('FR-17: no QA-issued tokens, client secret from env only (static)', () 
       );
     });
 
+    it('reads SP_ACCESS_API_KEY only in config/sp-access.config.ts, on the line `apiKey: process.env.SP_ACCESS_API_KEY || undefined,` (no fallback literal)', () => {
+      const readers = sourceFiles()
+        .filter((path) =>
+          /process\.env\.SP_ACCESS_API_KEY\b/.test(codeOf(read(path))),
+        )
+        .map((path) => relative(SRC_ROOT, path))
+        .sort();
+      expect(readers).toEqual(['config/sp-access.config.ts']);
+      expect(read(join(SRC_ROOT, 'config/sp-access.config.ts'))).toMatch(
+        /^\s*apiKey: process\.env\.SP_ACCESS_API_KEY \|\| undefined,$/m,
+      );
+    });
+
     it('reads no environment variable dynamically (process.env[...]) in server/src', () => {
       const found = sourceFiles()
         .filter((path) => DYNAMIC_ENV.test(codeOf(read(path))))

@@ -1,7 +1,7 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "feacd25d-5108-4ec1-829a-a3a67e582a16",
+  "id": "f847aa7f-6a9b-484f-8c19-1315476ab233",
   "prevId": "cce0c274-f2a3-4688-9c70-f6c016a70443",
   "tables": {
     "users": {
@@ -3070,7 +3070,7 @@
           "name": "actor_id",
           "type": "int unsigned",
           "primaryKey": false,
-          "notNull": true,
+          "notNull": false,
           "autoincrement": false
         },
         "actor_role": {
@@ -3092,6 +3092,13 @@
           "type": "enum('open','withdrawn','clarification_requested','accepted','accepted_with_comment','disagreed','escalated','tpb_sided_program','tpb_sided_assessor','done')",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "sp_response_id": {
+          "name": "sp_response_id",
+          "type": "bigint unsigned",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "created_at": {
@@ -3130,6 +3137,19 @@
           ],
           "onDelete": "no action",
           "onUpdate": "no action"
+        },
+        "fk_comment_events_sp_response": {
+          "name": "fk_comment_events_sp_response",
+          "tableFrom": "comment_events",
+          "tableTo": "sp_comment_responses",
+          "columnsFrom": [
+            "sp_response_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {
@@ -3141,7 +3161,12 @@
         }
       },
       "uniqueConstraints": {},
-      "checkConstraint": {}
+      "checkConstraint": {
+        "chk_comment_events_actor": {
+          "name": "chk_comment_events_actor",
+          "value": "`actor_id` IS NOT NULL OR `sp_response_id` IS NOT NULL"
+        }
+      }
     },
     "quick_comments": {
       "name": "quick_comments",
@@ -3505,7 +3530,7 @@
         },
         "ai_signal": {
           "name": "ai_signal",
-          "type": "enum('green','amber','red','indicative')",
+          "type": "enum('green','amber','red')",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
@@ -3657,6 +3682,397 @@
           "value": "`action` <> 'validated_above_ai' OR (`reason` IS NOT NULL AND `validated_level` >= `ai_level` + 2)"
         }
       }
+    },
+    "sp_link_codes": {
+      "name": "sp_link_codes",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "code_hash": {
+          "name": "code_hash",
+          "type": "char(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "email": {
+          "name": "email",
+          "type": "varchar(320)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(200)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "program_id": {
+          "name": "program_id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "is_reporting_admin": {
+          "name": "is_reporting_admin",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "used_at": {
+          "name": "used_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {
+        "idx_sp_link_codes_expires": {
+          "name": "idx_sp_link_codes_expires",
+          "columns": [
+            "expires_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "sp_link_codes_id": {
+          "name": "sp_link_codes_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "uq_sp_link_codes_code_hash": {
+          "name": "uq_sp_link_codes_code_hash",
+          "columns": [
+            "code_hash"
+          ]
+        }
+      },
+      "checkConstraint": {}
+    },
+    "sp_sessions": {
+      "name": "sp_sessions",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "token_hash": {
+          "name": "token_hash",
+          "type": "char(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "email": {
+          "name": "email",
+          "type": "varchar(320)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(200)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "program_id": {
+          "name": "program_id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "is_reporting_admin": {
+          "name": "is_reporting_admin",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_sp_sessions_expires": {
+          "name": "idx_sp_sessions_expires",
+          "columns": [
+            "expires_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "sp_sessions_id": {
+          "name": "sp_sessions_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "uq_sp_sessions_token_hash": {
+          "name": "uq_sp_sessions_token_hash",
+          "columns": [
+            "token_hash"
+          ]
+        }
+      },
+      "checkConstraint": {}
+    },
+    "sp_comment_responses": {
+      "name": "sp_comment_responses",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "comment_id": {
+          "name": "comment_id",
+          "type": "bigint unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "enum('accept','accept_with_comment','disagree','request_clarification')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "body": {
+          "name": "body",
+          "type": "varchar(2000)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "responder_name": {
+          "name": "responder_name",
+          "type": "varchar(200)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "responder_email": {
+          "name": "responder_email",
+          "type": "varchar(320)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "program_id": {
+          "name": "program_id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_sp_comment_responses_comment": {
+          "name": "idx_sp_comment_responses_comment",
+          "columns": [
+            "comment_id",
+            "id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "fk_sp_responses_comment": {
+          "name": "fk_sp_responses_comment",
+          "tableFrom": "sp_comment_responses",
+          "tableTo": "assessment_comments",
+          "columnsFrom": [
+            "comment_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "sp_comment_responses_id": {
+          "name": "sp_comment_responses_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {
+        "chk_sp_responses_body": {
+          "name": "chk_sp_responses_body",
+          "value": "(`kind` = 'accept' AND `body` IS NULL) OR (`kind` <> 'accept' AND `body` IS NOT NULL)"
+        }
+      }
+    },
+    "comment_clarification_answers": {
+      "name": "comment_clarification_answers",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "comment_id": {
+          "name": "comment_id",
+          "type": "bigint unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "response_id": {
+          "name": "response_id",
+          "type": "bigint unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "author_id": {
+          "name": "author_id",
+          "type": "int unsigned",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "body": {
+          "name": "body",
+          "type": "varchar(2000)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "datetime",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "fk_clarification_answers_comment": {
+          "name": "fk_clarification_answers_comment",
+          "tableFrom": "comment_clarification_answers",
+          "tableTo": "assessment_comments",
+          "columnsFrom": [
+            "comment_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "fk_clarification_answers_response": {
+          "name": "fk_clarification_answers_response",
+          "tableFrom": "comment_clarification_answers",
+          "tableTo": "sp_comment_responses",
+          "columnsFrom": [
+            "response_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "fk_clarification_answers_author": {
+          "name": "fk_clarification_answers_author",
+          "tableFrom": "comment_clarification_answers",
+          "tableTo": "users",
+          "columnsFrom": [
+            "author_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "comment_clarification_answers_id": {
+          "name": "comment_clarification_answers_id",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {
+        "uq_clarification_answers_response": {
+          "name": "uq_clarification_answers_response",
+          "columns": [
+            "response_id"
+          ]
+        }
+      },
+      "checkConstraint": {}
     }
   },
   "views": {},
