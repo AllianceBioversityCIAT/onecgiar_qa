@@ -33,6 +33,10 @@
 - Plan B is a separate dev/test-only route (`/ai-preview/:timelineId/:resultCode`) instead of editing the mockup Review page, so T-19's files are untouched.
 - `ai_signal` instead of `signal` (MySQL reserved word).
 
+## Eligibility rule changed (17-nov, for T-7)
+
+qatest gave no suggestions: the Fields screen has had no AI column since 11-nov, so no field could be marked `isAiInput`. New FR-1 rule: in `production.json` AND Assessed in the configuration (`ai-config.ts`). Falsifier: the old rule → "ignores the AI input flag" and "drops a View only field" red (2 failed).
+
 ## Related fix (not part of this spec)
 
 The assessment field-description change (`2cc8384`) put Reporting's help text, which contains example e-mail addresses, into the view, and the FR-11 no-`@` e2e check failed on `dev` (the pipeline did not deploy). Fixed by leaving `description` out of that check: `cb6cf4d` merged into `dev` (`cbe6453`) and cherry-picked into `staging-center` (`98825ce`).
