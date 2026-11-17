@@ -1,0 +1,70 @@
+{
+  "$id": "ai-run-item.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Run counters. A run is complete only when produced + unavailable == expected and failed == 0.",
+  "properties": {
+    "__edb_e__": {
+      "const": "aiRun",
+      "title": "Edb E",
+      "type": "string"
+    },
+    "__edb_v__": {
+      "const": "1",
+      "title": "Edb V",
+      "type": "string"
+    },
+    "createdAt": {
+      "title": "Createdat",
+      "type": "string"
+    },
+    "expected": {
+      "minimum": 0,
+      "title": "Expected",
+      "type": "integer"
+    },
+    "failed": {
+      "minimum": 0,
+      "title": "Failed",
+      "type": "integer"
+    },
+    "pk": {
+      "pattern": "^AIRUN#.+$",
+      "title": "Pk",
+      "type": "string"
+    },
+    "produced": {
+      "minimum": 0,
+      "title": "Produced",
+      "type": "integer"
+    },
+    "runId": {
+      "title": "Runid",
+      "type": "string"
+    },
+    "sk": {
+      "const": "RUN",
+      "title": "Sk",
+      "type": "string"
+    },
+    "unavailable": {
+      "minimum": 0,
+      "title": "Unavailable",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "pk",
+    "sk",
+    "__edb_e__",
+    "__edb_v__",
+    "runId",
+    "expected",
+    "produced",
+    "unavailable",
+    "failed",
+    "createdAt"
+  ],
+  "title": "AiRunItem",
+  "type": "object"
+}

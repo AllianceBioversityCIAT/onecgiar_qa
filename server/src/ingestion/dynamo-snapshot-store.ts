@@ -2,6 +2,7 @@
 import { gunzipSync, gzipSync } from 'node:zlib';
 import { Inject, Injectable } from '@nestjs/common';
 import type { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import type { EntityItem } from 'electrodb';
 import {
   DYNAMODB_CLIENT,
   DYNAMODB_TABLE_NAME,
@@ -11,14 +12,65 @@ import {
   snapshotSortSuffix,
   type ResultSnapshotEntity,
 } from '../database/dynamodb/entities/result-snapshot.entity.js';
+import type { FeedLabels } from './results-feed.port.js';
 import {
   SnapshotConflictError,
   type ResultSnapshotRecord,
   type SnapshotStore,
 } from './snapshot-store.port.js';
 
-/** `values` above this many bytes of JSON is stored gzipped (DD-12, NFR-7). */
+/** `values` or `labels` above this many bytes of JSON is stored gzipped (DD-12, NFR-7, P-6). */
 export const GZIP_THRESHOLD_BYTES = 256 * 1024;
+
+/** One JSON attribute: plain below the threshold, gzipped above it. */
+function packJson<P extends string, G extends string>(
+  json: string,
+  plain: P,
+  gz: G,
+): { [K in P]: string } | { [K in G]: Buffer } {
+  return Buffer.byteLength(json) > GZIP_THRESHOLD_BYTES
+    ? ({ [gz]: gzipSync(json) } as { [K in G]: Buffer })
+    : ({ [plain]: json } as { [K in P]: string });
+}
+
+type StoredRow = EntityItem<ResultSnapshotEntity>;
+
+const unpackJson = (
+  plain: string | undefined,
+  gz: unknown,
+  fallback: string,
+): string =>
+  gz
+    ? gunzipSync(Buffer.from(gz as Uint8Array)).toString('utf8')
+    : (plain ?? fallback);
+
+function toRecord(r: StoredRow): ResultSnapshotRecord {
+  const hasLabels = Boolean(r.labelsGz) || r.labels !== undefined;
+  return {
+    resultCode: r.resultCode,
+    resultId: r.resultId,
+    phaseYear: r.phaseYear,
+    cycleId: r.cycleId,
+    timelineId: r.timelineId,
+    loadId: r.loadId,
+    resultTypeKey: r.resultTypeKey,
+    programClarisaId: r.programClarisaId,
+    catalogVersion: r.catalogVersion,
+    hash: r.hash,
+    loadedAt: r.loadedAt,
+    values: JSON.parse(unpackJson(r.values, r.valuesGz, 'null')) as Record<
+      string,
+      unknown
+    >,
+    ...(hasLabels
+      ? {
+          labels: JSON.parse(
+            unpackJson(r.labels, r.labelsGz, 'null'),
+          ) as FeedLabels,
+        }
+      : {}),
+  };
+}
 
 @Injectable()
 export class DynamoSnapshotStore implements SnapshotStore {
@@ -32,8 +84,6 @@ export class DynamoSnapshotStore implements SnapshotStore {
   }
 
   async put(s: ResultSnapshotRecord): Promise<void> {
-    const json = JSON.stringify(s.values);
-    const big = Buffer.byteLength(json) > GZIP_THRESHOLD_BYTES;
     const snapKey = snapshotSortSuffix(s);
     try {
       await this.entity
@@ -50,7 +100,10 @@ export class DynamoSnapshotStore implements SnapshotStore {
           catalogVersion: s.catalogVersion,
           hash: s.hash,
           loadedAt: s.loadedAt,
-          ...(big ? { valuesGz: gzipSync(json) } : { values: json }),
+          ...packJson(JSON.stringify(s.values), 'values', 'valuesGz'),
+          ...(s.labels
+            ? packJson(JSON.stringify(s.labels), 'labels', 'labelsGz')
+            : {}),
         })
         .where(({ resultCode }, { notExists }) => notExists(resultCode))
         .go();
@@ -68,27 +121,8 @@ export class DynamoSnapshotStore implements SnapshotStore {
     resultCode: number,
     sk: string,
   ): Promise<ResultSnapshotRecord | null> {
-    const { data: r } = await this.entity
-      .get({ resultCode, snapKey: sk })
-      .go();
-    if (!r) return null;
-    const json = r.valuesGz
-      ? gunzipSync(Buffer.from(r.valuesGz as Uint8Array)).toString('utf8')
-      : (r.values ?? 'null');
-    return {
-      resultCode: r.resultCode,
-      resultId: r.resultId,
-      phaseYear: r.phaseYear,
-      cycleId: r.cycleId,
-      timelineId: r.timelineId,
-      loadId: r.loadId,
-      resultTypeKey: r.resultTypeKey,
-      programClarisaId: r.programClarisaId,
-      catalogVersion: r.catalogVersion,
-      hash: r.hash,
-      loadedAt: r.loadedAt,
-      values: JSON.parse(json) as Record<string, unknown>,
-    };
+    const { data: r } = await this.entity.get({ resultCode, snapKey: sk }).go();
+    return r ? toRecord(r) : null;
   }
 
   async history(resultCode: number): Promise<ResultSnapshotRecord[]> {
@@ -98,25 +132,7 @@ export class DynamoSnapshotStore implements SnapshotStore {
       const page = await this.entity.query
         .snapshot({ resultCode })
         .go({ cursor, pages: 1 });
-      for (const r of page.data) {
-        const json = r.valuesGz
-          ? gunzipSync(Buffer.from(r.valuesGz as Uint8Array)).toString('utf8')
-          : (r.values ?? 'null');
-        rows.push({
-          resultCode: r.resultCode,
-          resultId: r.resultId,
-          phaseYear: r.phaseYear,
-          cycleId: r.cycleId,
-          timelineId: r.timelineId,
-          loadId: r.loadId,
-          resultTypeKey: r.resultTypeKey,
-          programClarisaId: r.programClarisaId,
-          catalogVersion: r.catalogVersion,
-          hash: r.hash,
-          loadedAt: r.loadedAt,
-          values: JSON.parse(json) as Record<string, unknown>,
-        });
-      }
+      for (const r of page.data) rows.push(toRecord(r));
       cursor = page.cursor;
     } while (cursor);
     return rows;

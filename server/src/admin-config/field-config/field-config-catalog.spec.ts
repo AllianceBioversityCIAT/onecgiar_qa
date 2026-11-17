@@ -119,6 +119,73 @@ describe('shapeCatalog over the TEST catalog 2026.30', () => {
     ]).toEqual([54, 47, 60]);
   });
 
+  it('carries the control lists a field names: its own, then those of its subfields at any depth, without repeats (FR-11, design 7.5)', () => {
+    const lists = (key: string) =>
+      catalog.fields.find((f) => f.key === key)!.controlLists;
+    expect(lists('general.primary_program')).toEqual(['initiatives']);
+    expect(lists('general.title')).toEqual([]);
+    expect(lists('contributors.centers')).toEqual(['centers']);
+    expect(lists('partners.external_partners')).toEqual([
+      'institutions',
+      'institution_types',
+      'partner_delivery_types',
+    ]);
+    // `toc_entries` nests inside `science_programs`: its lists count.
+    expect(lists('contributors.science_programs')).toEqual([
+      'initiatives',
+      'toc_levels',
+      'toc_results',
+      'toc_results_indicators',
+    ]);
+    // A list repeated by two subfields is named once.
+    expect(lists('ipsr_step_3.complementary_components')).toEqual([
+      'readiness_levels',
+      'use_levels',
+      'evidence_sources',
+    ]);
+  });
+
+  it('reads a null or absent control_list as no list, on a field and on a nested subfield, never a 503', () => {
+    const raw = clone();
+    const field = (key: string) =>
+      raw.fields.find((f) => f.key === key) as Record<string, unknown> & {
+        subfields: Record<string, unknown>[];
+      };
+    field('general.primary_program').control_list = null;
+    // `program` names initiatives; null leaves the nested `toc_levels` as the only list.
+    field('contributors.science_programs').subfields[0].control_list = null;
+    const shaped = shapeCatalog(raw);
+    const lists = (key: string) =>
+      shaped.fields.find((f) => f.key === key)!.controlLists;
+    expect(lists('general.primary_program')).toEqual([]);
+    expect(lists('contributors.science_programs')).toEqual([
+      'toc_levels',
+      'toc_results',
+      'toc_results_indicators',
+    ]);
+  });
+
+  it('keeps the 503 for a control_list that is neither text nor null, and for subfields that are not a list', () => {
+    const quiet = vi
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation(() => {});
+    try {
+      for (const bad of [7, '', {}, true]) {
+        const raw = clone();
+        raw.fields[0].control_list = bad;
+        expect(() => shapeCatalog(raw)).toThrow(UpstreamUnavailableError);
+      }
+      const nested = clone();
+      nested.fields[0].subfields = { key: 'x' };
+      expect(() => shapeCatalog(nested)).toThrow(UpstreamUnavailableError);
+      const deep = clone();
+      deep.fields[0].subfields = [{ key: 'x', control_list: 5 }];
+      expect(() => shapeCatalog(deep)).toThrow(UpstreamUnavailableError);
+    } finally {
+      quiet.mockRestore();
+    }
+  });
+
   it('isNew is false when no row carries a flag', () => {
     expect(catalog.fields.every((f) => f.isNew === false)).toBe(true);
   });

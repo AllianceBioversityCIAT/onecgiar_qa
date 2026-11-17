@@ -7,6 +7,7 @@ import { FIELD_CATALOG_SOURCE } from '../../src/admin-config/field-config/field-
 import type { RomeMinute } from '../../src/admin-config/rome-date.js';
 import { TIMELINES_STORE } from '../../src/admin-config/timelines/timelines.store.js';
 import { AppModule } from '../../src/app.module.js';
+import { withoutTitleBackfill } from './without-title-backfill.js';
 import { JWKS_CACHE } from '../../src/auth/token-verifier.service.js';
 import { configureApp } from '../../src/common/configure-app.js';
 import {
@@ -29,6 +30,14 @@ import { LOADS_TRANSACTIONS } from '../../src/ingestion/loads.unit-of-work.js';
 import { ROLE_ASSIGNMENTS_STORE } from '../../src/users/role-assignments.repository.js';
 import { USER_PROGRAMS_STORE } from '../../src/users/user-programs.repository.js';
 import { USERS_STORE } from '../../src/users/users.repository.js';
+import { FIELD_CONFIG_EFFECTIVE } from '../../src/admin-config/field-config/field-config.module.js';
+import { AI_JOBS_PUBLISHER } from '../../src/ai-suggestions/ai-jobs.port.js';
+import { AI_RUN_STORE } from '../../src/ai-suggestions/ai-run.store.js';
+import {
+  FakeAiJobsPublisher,
+  FakeAiRunStore,
+  FakeFieldConfigEffective,
+} from './fake-ai-jobs.js';
 import { FakeResultsFeed } from './fake-results-feed.js';
 import { FakeSnapshotStore } from './fake-snapshot-store.js';
 import { InMemoryAdminConfigDatabase } from './in-memory-admin-config.js';
@@ -285,6 +294,12 @@ export async function buildIngestionApp(
     },
   };
   const clock = new FakeClock(NOW);
+  // Spec assessment/ai-suggestions: the AI queue, run counter and field configuration.
+  const ai = {
+    publisher: new FakeAiJobsPublisher(),
+    runs: new FakeAiRunStore(),
+    fieldConfig: new FakeFieldConfigEffective(),
+  };
 
   const actor = async (
     sub: string,
@@ -317,7 +332,9 @@ export async function buildIngestionApp(
   await actor('sub-ppu', [['PPU']]);
   await actor('sub-guest', []);
 
-  let builder = Test.createTestingModule({ imports: [AppModule] })
+  let builder = withoutTitleBackfill(
+    Test.createTestingModule({ imports: [AppModule] }),
+  )
     .overrideProvider(USERS_STORE)
     .useValue(w.db.stores.users)
     .overrideProvider(ROLE_ASSIGNMENTS_STORE)
@@ -341,7 +358,13 @@ export async function buildIngestionApp(
     .overrideProvider(ADMIN_CONFIG_CLOCK)
     .useValue(clock.now)
     .overrideProvider(JWKS_CACHE)
-    .useValue(localJwksCache(signer));
+    .useValue(localJwksCache(signer))
+    .overrideProvider(AI_JOBS_PUBLISHER)
+    .useValue(ai.publisher)
+    .overrideProvider(AI_RUN_STORE)
+    .useValue(ai.runs)
+    .overrideProvider(FIELD_CONFIG_EFFECTIVE)
+    .useValue(ai.fieldConfig);
   if (options.feed !== 'real') {
     builder = builder.overrideProvider(RESULTS_FEED).useValue(feed);
   }
@@ -391,6 +414,7 @@ export async function buildIngestionApp(
     snapshots,
     catalogs,
     clock,
+    ai,
     send,
     settled,
   };

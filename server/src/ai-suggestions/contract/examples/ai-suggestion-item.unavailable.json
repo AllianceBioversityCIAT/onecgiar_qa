@@ -1,0 +1,15 @@
+{
+  "__edb_e__": "aiSuggestion",
+  "__edb_v__": "1",
+  "createdAt": "2026-11-20T12:00:00Z",
+  "fieldKey": "innovation_use.use_level.innovation_use_level",
+  "pk": "RESULT#1001",
+  "promptVersion": "v2-1.0.0",
+  "resultCode": 1001,
+  "runId": "run-example",
+  "sk": "AI#2025#000012#00000003#0000000042#innovation_use.use_level.innovation_use_level#v2-1.0.0",
+  "snapKey": "2025#000012#00000003#0000000042",
+  "status": "unavailable",
+  "suggestionId": "a1b2c3d4e5f60718293a4b5c6d7e8f90",
+  "unavailableReason": "private_link"
+}

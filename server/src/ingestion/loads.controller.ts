@@ -39,7 +39,13 @@ import { ACCESS_TOKEN_SCHEME } from '../common/openapi.js';
 import { requestIdOf, type RequestWithId } from '../common/request-id.js';
 import type { AuthenticatedUser } from '../users/current-user.cache.js';
 import { Permission } from '../users/permissions.js';
+import {
+  AiEnqueueService,
+  type AiRequeueResult,
+  type AiRunStatus,
+} from './ai-enqueue.service.js';
 import { LoadParams } from './dto/load-params.js';
+import { AiRequeueModel, AiRunStatusModel } from './models/ai-jobs.model.js';
 import { StartLoadDto } from './dto/start-load.dto.js';
 import {
   LoadDetailModel,
@@ -107,7 +113,10 @@ const ApiAcceptedEnvelope = (
 @RequirePermission(Permission.ADMIN_ACCESS)
 @Controller()
 export class LoadsController {
-  constructor(@Inject(LoadsService) private readonly loads: LoadsService) {}
+  constructor(
+    @Inject(LoadsService) private readonly loads: LoadsService,
+    @Inject(AiEnqueueService) private readonly ai: AiEnqueueService,
+  ) {}
 
   private context(
     actor: AuthenticatedUser,
@@ -217,5 +226,40 @@ export class LoadsController {
     @Param() { id, loadId }: LoadParams,
   ): Promise<LoadDetail> {
     return this.loads.get(this.context(actor, request), id, loadId);
+  }
+
+  @ApiOperation({
+    summary: 'Send the AI jobs of a load again',
+    description:
+      "Spec assessment/ai-suggestions FR-3. Recomputes the AI jobs of the load's memberships that are still active and pending (the production AI-input fields the timeline's configuration marks) and sends them to the AI queue again, then sets the run's expected count. Safe to repeat: the worker skips a suggestion it already stored and only replaces a failed one. Refused with 409 `AI_JOBS_DISABLED` when the API has no AI queue configured.",
+  })
+  @ApiOkEnvelope(AiRequeueModel)
+  @ApiErrorResponses({
+    ...ACCESS,
+    400: ['VALIDATION_FAILED'],
+    404: ['LOADS_NOT_FOUND'],
+    409: ['AI_JOBS_DISABLED'],
+  })
+  @HttpCode(200)
+  @Post('timelines/:id/loads/:loadId/ai-jobs')
+  requeueAiJobs(@Param() { id, loadId }: LoadParams): Promise<AiRequeueResult> {
+    return this.ai.requeue(id, loadId);
+  }
+
+  @ApiOperation({
+    summary: 'Read the AI run of a load',
+    description:
+      "Spec assessment/ai-suggestions FR-3. The counters of the load's AI run: `expected` (written by the sync or a re-enqueue) and `produced`, `unavailable`, `failed` (written by the AI worker). `complete` is true once every expected job is stored and none failed. A run nobody wrote reads zeros, not complete. Refused with 409 `AI_JOBS_DISABLED` when the API has no AI queue configured.",
+  })
+  @ApiOkEnvelope(AiRunStatusModel)
+  @ApiErrorResponses({
+    ...ACCESS,
+    400: ['VALIDATION_FAILED'],
+    404: ['LOADS_NOT_FOUND'],
+    409: ['AI_JOBS_DISABLED'],
+  })
+  @Get('timelines/:id/loads/:loadId/ai-jobs')
+  aiJobsStatus(@Param() { id, loadId }: LoadParams): Promise<AiRunStatus> {
+    return this.ai.status(id, loadId);
   }
 }

@@ -5,6 +5,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { AppModule } from '../src/app.module.js';
+import { withoutTitleBackfill } from './support/without-title-backfill.js';
 import { IS_PUBLIC_KEY } from '../src/auth/decorators/public.decorator.js';
 import { REQUIRE_PERMISSION_KEY } from '../src/auth/decorators/require-permission.decorator.js';
 import { GRANTABLE_ROLES } from '../src/users/permissions.js';
@@ -102,7 +103,9 @@ async function build(opts: { programsDown?: boolean } = {}) {
     GUEST: await actor('sub-guest', []),
   };
 
-  const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+  const moduleRef = await withoutTitleBackfill(
+    Test.createTestingModule({ imports: [AppModule] }),
+  )
     .overrideProvider(USERS_STORE)
     .useValue(w.db.stores.users)
     .overrideProvider(ROLE_ASSIGNMENTS_STORE)

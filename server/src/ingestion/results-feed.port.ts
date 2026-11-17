@@ -41,12 +41,20 @@ export interface FeedDetailsQuery {
   fieldKeys?: string[];
 }
 
+/**
+ * `{ control list: { option id: label | null } }` (FR-20). `null` is an id with
+ * no row. Display only: never part of the snapshot hash.
+ */
+export type FeedLabels = Record<string, Record<string, string | null>>;
+
 export interface FeedDetailsResult {
   resultId: number;
   resultCode: number;
   resultTypeKey: string;
   /** Keyed by catalog field key; the shape of each value follows the catalog `type`. */
   values: Record<string, unknown>;
+  /** Absent when Reporting sent none or a shape that is not the contract's (FR-20, DD-6). */
+  labels?: FeedLabels;
 }
 
 export interface FeedDetails {

@@ -60,8 +60,11 @@ export interface ApiErrorBody {
   status: number;
   code: ErrorCode;
   message: string;
-  /** Only for `VALIDATION_FAILED`. */
-  fields?: ApiFieldError[];
+  /**
+   * For `VALIDATION_FAILED`: the fields at fault. For
+   * `ASSESSMENT_CORE_UNCOMMENTED`: the keys of the core fields to comment on.
+   */
+  fields?: ApiFieldError[] | string[];
   /** Only for 429: seconds to wait before retrying. */
   retryAfter?: number;
 }
@@ -128,6 +131,7 @@ export class ApiFieldErrorModel implements ApiFieldError {
   message!: string;
 }
 
+@ApiExtraModels(ApiFieldErrorModel)
 export class ApiErrorBodyModel implements ApiErrorBody {
   @ApiProperty({ type: Number, example: 403 })
   status!: number;
@@ -148,10 +152,14 @@ export class ApiErrorBodyModel implements ApiErrorBody {
   message!: string;
 
   @ApiPropertyOptional({
-    type: [ApiFieldErrorModel],
-    description: 'Per-field problems, only for VALIDATION_FAILED',
+    description:
+      'For VALIDATION_FAILED: the per-field problems. For ASSESSMENT_CORE_UNCOMMENTED: the keys of the core fields to validate or comment on',
+    oneOf: [
+      { type: 'array', items: { $ref: getSchemaPath(ApiFieldErrorModel) } },
+      { type: 'array', items: { type: 'string' } },
+    ],
   })
-  fields?: ApiFieldError[];
+  fields?: ApiFieldError[] | string[];
 
   @ApiPropertyOptional({
     type: Number,

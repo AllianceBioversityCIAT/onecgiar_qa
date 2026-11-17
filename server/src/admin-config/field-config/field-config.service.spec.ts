@@ -823,6 +823,27 @@ describe('FieldConfigService.effectiveFor (FR-10)', () => {
     expect(await count(47)).toEqual({ statements: 5, catalogReads: 0 });
   });
 
+  it('versionItems reads the items of one named version for one type in ONE statement, whatever version the timeline resolves to', async () => {
+    const w = scenario();
+    w.db.statementLog.length = 0;
+
+    // Version id 1 is number 1: title assessed. Timeline B resolves to version 2 (view only).
+    const pinned = await w.service.versionItems(1, 'policy_change');
+    expect(w.db.statementLog.length).toBe(1);
+    expect(pinned).toHaveLength(50);
+    expect(pinned.find((i) => i.fieldKey === 'general.title')).toMatchObject({
+      visibility: 'assessed',
+    });
+    expect(pinned.every((i) => i.resultTypeKey === 'policy_change')).toBe(true);
+
+    const latest = await w.service.versionItems(2, 'policy_change');
+    expect(latest).toHaveLength(1);
+    expect(latest[0]).toMatchObject({
+      fieldKey: 'general.title',
+      visibility: 'view_only',
+    });
+  });
+
   it('answers on a closed cycle too', async () => {
     const w = world();
     addVersion(

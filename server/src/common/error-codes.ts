@@ -294,6 +294,11 @@ export const ERROR_CATALOG = {
     message:
       "Reporting has no QA catalog for this cycle's year, so there are no results to load.",
   },
+  // Spec assessment/ai-suggestions (FR-3): the admin AI routes say so instead of a silent no-op.
+  AI_JOBS_DISABLED: {
+    status: 409,
+    message: 'AI disabled: no queue configured.',
+  },
 
   // --- Field configuration -------------------------------------------------
   FIELD_CONFIG_CATALOG_MISSING: {
@@ -308,6 +313,58 @@ export const ERROR_CATALOG = {
   FIELD_CONFIG_NOTHING_TO_PUBLISH: {
     status: 409,
     message: 'There are no changes to publish.',
+  },
+
+  // --- Assessment (step 1) -------------------------------------------------
+  ASSESSMENT_NOT_FOUND: {
+    status: 404,
+    message: 'This result is not available to you in this timeline.',
+  },
+  ASSESSMENT_READ_ONLY: {
+    status: 403,
+    message: 'You can view this assessment but not change it.',
+  },
+  ASSESSMENT_STEP_CLOSED: {
+    status: 409,
+    message: 'This step is closed, so the assessment can no longer change.',
+  },
+  ASSESSMENT_FINISHED: {
+    status: 409,
+    message: 'This assessment is already finished and cannot change.',
+  },
+  ASSESSMENT_NO_FIELD_CONFIG: {
+    status: 409,
+    message:
+      'No field configuration applies to this result yet. Ask an admin to publish one.',
+  },
+  ASSESSMENT_CORE_UNCOMMENTED: {
+    status: 409,
+    message:
+      'Some core fields are not validated and have no comment. Validate them or comment on them before finishing.',
+  },
+  ASSESSMENT_NOT_COMMENT_AUTHOR: {
+    status: 403,
+    message: 'Only the author of a comment can withdraw it.',
+  },
+  ASSESSMENT_COMMENT_NOT_OPEN: {
+    status: 409,
+    message: 'This comment can no longer be withdrawn.',
+  },
+
+  // --- AI suggestions (ai-suggestions) -------------------------------------
+  AI_SUGGESTIONS_FORBIDDEN: {
+    status: 403,
+    message: 'AI suggestions are not available to your role.',
+  },
+  AI_SUGGESTION_NOT_FOUND: {
+    status: 404,
+    message:
+      'This AI suggestion is not available for this result. Reload the result and try again.',
+  },
+  AI_EVENT_INVALID: {
+    status: 400,
+    message:
+      'This use of the AI suggestion could not be recorded. Reload the result and try again.',
   },
 } as const satisfies Record<string, { status: number; message: string }>;
 
