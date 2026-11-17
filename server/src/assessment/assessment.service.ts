@@ -1045,6 +1045,8 @@ export class AssessmentService {
         throw new AssessmentNotFoundError();
       case 'admin_read_only':
         throw new AssessmentReadOnlyError();
+      case 'auto_validated':
+        throw new AssessmentFinishedError();
       default:
         throw new AssessmentStepClosedError();
     }

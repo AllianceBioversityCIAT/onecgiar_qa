@@ -558,6 +558,20 @@ describe('FR-1 Out-of-scope result by URL', () => {
 describe('FR-2 write decision by the clock', () => {
   const access = accessOf(assessorA, ['ASSESSOR']);
 
+  it('never lets a reviewer write on an auto-validated result, even with the step open (DD-P4)', () => {
+    expect(
+      writeDecision(
+        access,
+        membership({ status: 'auto_validated' }),
+        timing(STEP1_OPEN),
+      ),
+    ).toEqual({ writable: false, reason: 'auto_validated' });
+    // A pending one in the same open step stays writable.
+    expect(
+      writeDecision(access, membership(), timing(STEP1_OPEN)).writable,
+    ).toBe(true);
+  });
+
   it.each<[string, string, boolean]>([
     ['08:59 on the opening day', '2026-11-12T07:59:00Z', false],
     ['09:00:00 on the opening day', '2026-11-12T08:00:00Z', true],

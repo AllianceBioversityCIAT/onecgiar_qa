@@ -19,7 +19,7 @@ export type QaStatus = (typeof QA_STATUSES)[number];
 
 /** Why a row cannot be written now (§ 3.2). */
 export type WorklistReadOnlyReason =
-  'admin_read_only' | 'step_upcoming' | 'step_closed' | 'no_step';
+  'admin_read_only' | 'step_upcoming' | 'step_closed' | 'no_step' | 'auto_validated';
 /** The view adds `finished` (the assessment ended). */
 export type AssessmentReadOnlyReason = WorklistReadOnlyReason | 'finished';
 
