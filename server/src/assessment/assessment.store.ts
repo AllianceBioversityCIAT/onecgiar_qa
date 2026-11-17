@@ -229,10 +229,13 @@ export interface NewCommentRow {
 /** One append-only `comment_events` row (ADR-006): ids and states, never a body. */
 export interface CommentEventWrite {
   commentId: number;
-  actorId: number;
+  /** The QA user; `null` for a Science Program response (P2-3911), which sets `spResponseId`. */
+  actorId: number | null;
   actorRole: string;
   fromState: CommentState | null;
   toState: CommentState;
+  /** P2-3911: the `sp_comment_responses` row that made this move. */
+  spResponseId?: number | null;
   at: Date;
 }
 
@@ -722,6 +725,7 @@ export class DrizzleAssessmentWriteStore implements AssessmentWriteStore {
       actorRole: event.actorRole,
       fromState: event.fromState,
       toState: event.toState,
+      spResponseId: event.spResponseId ?? null,
       createdAt: event.at,
     });
   }

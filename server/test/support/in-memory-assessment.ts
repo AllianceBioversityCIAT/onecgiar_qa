@@ -75,6 +75,10 @@ import type {
   IdempotencyStore,
   Reservation,
 } from '../../src/common/idempotency/idempotency.store.js';
+import type {
+  ClarificationAnswerRecord,
+  SpResponseRecord,
+} from '../../src/assessment/sp-view/sp-view.store.js';
 
 // The worklist port over plain rows, with the semantics of the Drizzle adapter:
 // the scope is the T-3 predicate (`listedFor`), the status is `statusOf`, the
@@ -92,6 +96,9 @@ export interface FakeTimeline {
   name: string;
   kind: TimelineKind;
   steps: WorklistStep[];
+  /** P2-3911: `timelines.all_programs` (default true) and the `timeline_programs` rows when false. */
+  allPrograms?: boolean;
+  programIds?: number[];
 }
 
 export interface FakeTimelineUser {
@@ -289,6 +296,14 @@ export class InMemoryAssessmentWorld {
   /** The write-port calls of the transactions, in the order they ran: the lock order of design 5. */
   writeLog: string[] = [];
   users: FakeUser[] = [];
+  /** P2-3911: `sp_comment_responses` rows (append-only). */
+  spResponses: SpResponseRecord[] = [];
+  /** P2-3911: `comment_clarification_answers` rows. */
+  clarificationAnswers: Array<
+    ClarificationAnswerRecord & { authorId: number }
+  > = [];
+  nextSpResponseId = 3000;
+  nextClarificationAnswerId = 4000;
   /** The effective items of `FakeFieldConfigEffective`, by result type. A type with none reads every field Hidden. */
   fieldConfigItems: Record<string, EffectiveFieldConfig['items']> = {};
   /** The items of a PINNED version, by version id then result type: what `versionItems` reads. Nothing falls back to `fieldConfigItems`. */
@@ -522,6 +537,16 @@ export class InMemoryWorklistStore implements WorklistStore {
                 (c) =>
                   c.assessmentId === assessment.id && c.state !== 'withdrawn',
               ).length,
+        answeredBySp:
+          assessment === undefined
+            ? 0
+            : this.world.comments.filter(
+                (c) =>
+                  c.assessmentId === assessment.id &&
+                  ['accepted', 'accepted_with_comment', 'disagreed'].includes(
+                    c.state,
+                  ),
+              ).length,
         assessedById: finisher?.id ?? null,
         assessedByNickname: finisher?.nickname ?? null,
         status,
@@ -546,7 +571,7 @@ export class InMemoryWorklistStore implements WorklistStore {
       case 'comments':
         return r.comments;
       case 'answered':
-        return 0;
+        return r.answeredBySp;
       case 'assessedBy':
         return r.assessedByNickname ?? '';
       case 'status':

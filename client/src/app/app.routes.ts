@@ -109,5 +109,12 @@ export const routes: Routes = [
       ),
     ],
   },
+  // P2-3911: the Science Program view inside Reporting's iframe. No authGuard and no shell: it has its
+  // own SP session (traded from a one-time code), never the Cognito one. Client-rendered (`**` in
+  // app.routes.server.ts), so the code is only traded in the browser.
+  {
+    path: 'sp',
+    loadChildren: () => import('./pages/sp/sp.routes').then((m) => m.SP_ROUTES),
+  },
   { path: '**', redirectTo: '' },
 ];

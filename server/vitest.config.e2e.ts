@@ -28,6 +28,10 @@ export default defineConfig({
       // Dummy values (both or neither): lets the OpenAPI test prove no key value leaks.
       COGNITO_ADMIN_ACCESS_KEY_ID: 'AKIATESTADMINKEY0000',
       COGNITO_ADMIN_SECRET_ACCESS_KEY: 'test-admin-secret-access-key',
+      // SP view (P2-3911): a dummy key (>= 32 characters) and link template.
+      SP_ACCESS_API_KEY: 'test-sp-access-key-0000000000000000',
+      SP_REPORTING_RESULT_URL:
+        'https://reporting.test.invalid/result/{resultCode}/general-information',
     },
   },
 });
