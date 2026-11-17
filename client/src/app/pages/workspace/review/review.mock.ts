@@ -68,6 +68,8 @@ export interface FieldComment {
   readonly system?: boolean;
   /** Program answers only: the program accepts the comment (and corrects the field) or rejects it. */
   readonly reply?: 'accepted' | 'rejected';
+  /** The caller wrote it and can still take it back (FR-13). */
+  readonly canWithdraw?: boolean;
 }
 
 export interface FieldState {

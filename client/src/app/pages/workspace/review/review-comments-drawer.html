@@ -34,9 +34,9 @@
               </div>
               <div class="text-(length:--fs-14) leading-[1.55] font-normal text-pretty text-(--text-2)">{{ c.text }}</div>
               <!-- The assessor can take a comment back while the program has not answered it (Yeck, 2026-11-11). -->
-              @if ($index === f.withdrawIndex) {
+              @if (c.canWithdraw || $index === f.withdrawIndex) {
                 <div class="flex">
-                  <button hlmBtn qaBtn tone="link" size="sm" flush="start" type="button" (click)="withdraw.emit($index)">Withdraw comment</button>
+                  <button hlmBtn qaBtn tone="link" size="sm" flush="start" type="button" [loading]="withdrawingIndex() === $index" (click)="withdraw.emit($index)">Withdraw comment</button>
                 </div>
               }
             </li>
@@ -57,6 +57,7 @@
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2zM8 8h8M8 12h5" /></svg>
           Quick comment
         </button>
+        <button hlmBtn qaBtn tone="link" size="sm" type="button" class="ml-auto" [disabled]="!hasDraft()" [loading]="savingQuick()" (click)="saveQuick.emit()">Save as quick comment</button>
       </div>
 
       <label for="review-comment-draft" class="sr-only">Write a comment</label>
@@ -66,11 +67,14 @@
         id="review-comment-draft"
         [formField]="text()"
         [placeholder]="f.mode === 'instruction' ? 'What should the third-party broker check?' : f.mode === 'note' ? 'What should the PPU change in the Reporting Tool?' : 'Write a comment'"
-        [attr.aria-invalid]="showError()"
-        [attr.aria-describedby]="showError() ? 'review-comment-error' : null"
+        [attr.aria-invalid]="showError() || !!serverError()"
+        [attr.aria-describedby]="showError() ? 'review-comment-error' : serverError() ? 'review-comment-server-error' : null"
         class="box-border min-h-24 w-full resize-y rounded-[8px] border bg-(--field-bg) px-3 py-2.5 text-(length:--fs-14) leading-[1.55] text-(--text) outline-none placeholder:text-(--text-muted) focus:border-(--primary)"
-        [class]="showError() ? 'border-(--danger)' : 'border-(--border)'"
+        [class]="showError() || serverError() ? 'border-(--danger)' : 'border-(--border)'"
       ></textarea>
+      @if (serverError()) {
+        <span id="review-comment-server-error" class="-mt-2 text-(length:--fs-12) leading-[1.45] text-(--danger)" role="alert">{{ serverError() }}</span>
+      }
       @if (showError()) {
         <span id="review-comment-error" class="sr-only" role="alert">{{ f.mode === 'instruction' ? 'Write the instruction before marking the field.' : f.mode === 'note' ? 'Write the note for the PPU first.' : 'Write a comment before adding it.' }}</span>
       }
@@ -97,7 +101,7 @@
           <button hlmBtn qaBtn tone="secondary" type="button" (click)="open.set(false)">Close</button>
         }
         @default {
-          <button hlmBtn qaBtn tone="primary" type="submit" form="review-comment-form">Add comment</button>
+          <button hlmBtn qaBtn tone="primary" type="submit" form="review-comment-form" [loading]="adding()">Add comment</button>
         }
       }
     }
@@ -117,15 +121,12 @@
       (keydown)="onSearchKeydown($event)"
     />
     <div class="mt-2 flex max-h-[280px] min-h-0 flex-col gap-0.5 overflow-y-auto">
-      @for (g of groups(); track g.cat) {
-        <div qaMenuLabel>{{ g.cat }}</div>
-        @for (q of g.items; track q.id) {
-          <button qaMenuItem class="h-auto py-2" (triggered)="quickPick.emit(q.text)">
-            <span class="line-clamp-2 text-(length:--fs-13) leading-[1.5] font-normal text-(--text-2)">{{ q.text }}</span>
-          </button>
-        }
+      @for (q of matches(); track q.id) {
+        <button qaMenuItem class="h-auto py-2" (triggered)="quickPick.emit(q.text)">
+          <span class="line-clamp-2 text-(length:--fs-13) leading-[1.5] font-normal text-(--text-2)">{{ q.text }}</span>
+        </button>
       } @empty {
-        <div class="p-2 text-(length:--fs-13) text-(--text-3)">Nothing matches that search.</div>
+        <div class="p-2 text-(length:--fs-13) text-(--text-3)">{{ quickComments().length ? 'Nothing matches that search.' : 'No quick comments saved yet. Write one and choose "Save as quick comment".' }}</div>
       }
     </div>
   </qa-menu-panel>
