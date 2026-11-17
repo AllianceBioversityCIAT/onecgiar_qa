@@ -15,6 +15,11 @@ export const SP_ROUTES: Routes = [
         title: 'Quality Assurance · Science Program',
         loadComponent: () => import('./sp-results-page').then((m) => m.SpResultsPage),
       },
+      {
+        path: 'timelines/:timelineId/results/:resultCode',
+        title: 'Result · Quality Assurance',
+        loadComponent: () => import('./sp-result-page').then((m) => m.SpResultPage),
+      },
       // Anything else under /sp stays in the SP view (never the Cognito login).
       { path: '**', redirectTo: '' },
     ],
