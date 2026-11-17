@@ -62,6 +62,13 @@ Rule: this spec does not edit `review-store.ts`, `review.mapper.ts` or `review-c
 - **Falsifier:** return stored items without the eligible filter → the "field not in production" test red
 
 ## T-6: Chip on Review — 18–20-nov
+- **Status:** [~] built (`ee22a19`, plan B `c448ae4`); wiring waits for assessment T-19 on `dev`
+- **Wiring when T-19 lands** (one small PR on top of T-19, no other change to its files):
+  1. `review-view.ts`: add `AiSuggestionsStore` to `providers` and call `store.load(timelineId, resultCode)` where the assessment is loaded.
+  2. `review-model.ts`: replace `AiVm` with `AiChipVm` (`ai/ai-chip.vm.ts`) in the field VM (DD-7); `review.mapper.ts` takes `chipFor(fieldKey, isAiInput)` instead of `ai: null`.
+  3. `review-field-card.html`: render `<qa-ai-chip [vm] [readOnly]="!writable" (shown)="store.markShown($event)" (copyToComment)="…">` in place of `qa-review-ai-note`; delete `review-ai-note.ts` and the `ai-toggle/hide/dismiss/use` actions.
+  4. PPU: no chip (the GET answers 403; the store keeps the map empty and `chipFor` returns null).
+  5. Delete plan B: `pages/workspace/ai-preview/**`, its route in `app.routes.ts` and `aiPreview` in the environment files and model.
 - **Size:** M · **Depends on:** T-5 (fixtures earlier), assessment T-17/T-19 · **Req:** FR-6, NFR-1
 - **Scope:** `ai-suggestions-api.ts`, `ai-suggestions-store.ts`, `ai-chip.ts`, `AiVm` widened (DD-7), one input in `review.mapper.ts` / `review-view`. Plan B: flag off by default, dev/test environments only, PROD build fails when on (spec test on the environment files + a build check); deleted with Plan A
 - **Tests:** chip spec per view (green, amber, red label "Review", IRL/IUL with quote, unavailable reasons incl. `no_supporting_quote`, pending, request error); PPU renders nothing
@@ -79,10 +86,21 @@ Rule: this spec does not edit `review-store.ts`, `review.mapper.ts` or `review-c
 - **Falsifier:** accept diff ≥ 1 → red; store the comment text → privacy test red
 
 ## T-9: Copy to comment + usage events (client) — 24/25-nov
+- **Status:** [~] built in the store and chip (`ee22a19`); wiring waits for assessment T-20 on `dev`
+- **Wiring when T-20 lands:**
+  1. `(copyToComment)` → `const text = store.copied(fieldKey)`; open the field's comment box (`review-comments-drawer`) with `text` as an editable draft. Nothing is saved.
+  2. After the comment save succeeds: `store.commentSaved(fieldKey, comment.id)` (the store posts only when the text came from a copy).
+  3. Leave `(shown)` as wired in T-6. Never await an event in the save path.
 - **Size:** S · **Depends on:** T-6, T-8, assessment T-20 · **Req:** FR-7, FR-8
 - **Tests:** copy fills the box, nothing saved; `shown` once; `comment_saved` only after a copied save; event failure never blocks
 
 ## T-10: Reason before validating IRL/IUL (client) — 25/26-nov
+- **Status:** [~] built (`3168433`: `needsReason`, `reasonError`, `validateWithReason`, `AiReasonDialog`); wiring waits for assessment T-20
+- **Wiring when T-20 lands:**
+  1. In the validate action of `review-store.ts`: if `needsReason(fieldKey, reportedLevel, store.availableView(fieldKey))`, open `<qa-ai-reason-dialog [aiLevel] [reportedLevel]>` instead of validating.
+  2. `(confirmed)="validateWithReason(aiStore, fieldKey, reportedLevel, $event, () => validate(fieldKey))"` — event first, then the validation.
+  3. `(cancelled)`: nothing is saved; the field stays grey.
+  4. `reportedLevel` is the snapshot's level for the field (the same value the server checks against `reportedValue`).
 - **Size:** S · **Depends on:** T-8, assessment T-20 · **Req:** FR-10
 - **Tests:** diff ≥ 2 opens the dialog, empty reason disables save, cancel saves nothing, event then validate order; diff 1 → no dialog
 - **Falsifier:** validate before the event → order spec red

@@ -90,3 +90,19 @@ Keyed on the **membership and step** (`timeline_result_id`, `step_position`), no
 - Wiring: `review-view` passes `aiByField()` to the mapper in place of `null`; `review-ai-note` renders `AiVm`.
 - Events: `shown` when the chip enters the viewport once; `copied` on "Copy to comment"; `comment_saved` after the comment save succeeds and the box came from a copy; `validated_above_ai` from the reason dialog (spartan dialog) before validate.
 - Every AI request failure degrades to "Suggestion not available"; events are fire-and-forget (never block the reviewer).
+
+### 6.1 Built (17-nov) — files
+
+| File | What |
+|---|---|
+| `core/api/ai-suggestions.models.ts` | View and event types mirroring the worker schemas; `AI_LEVEL_FIELDS` |
+| `core/api/ai-suggestions-api.ts` | `list`, `sendEvent` (silent errors; events `NO_QUEUE`, never in Unsent) |
+| `pages/workspace/review/ai/ai-chip.vm.ts` | Pure view → `AiChipVm`: green "Looks consistent", amber "Check", red "Review" (never "Incorrect"); IRL/IUL headline + verified quote; reason text per unavailable code; TPB mark |
+| `pages/workspace/review/ai/ai-suggestions-store.ts` | Per-result store (`load`, `byField`, `chipFor`, `markShown`, `copied`, `commentSaved`, `validatedAbove`); fire-and-forget events; a failed read → "Suggestion not available" |
+| `pages/workspace/review/ai/ai-chip.ts` | The chip; `shown` once visible (IntersectionObserver, emitted at once where unavailable); "Copy to comment" hidden when read-only |
+| `pages/workspace/review/ai/ai-reason.ts`, `ai-reason-dialog.ts` | `needsReason`, `reasonError`, `validateWithReason` (event, then validate) and the one-line dialog |
+| `pages/workspace/ai-preview/**` | Plan B (below) |
+
+### 6.2 Plan B variant
+
+Instead of feeding the mockup Review page (T-19's files, `review-view.ts`), plan B is a **separate read-only page** `ai-preview/:timelineId/:resultCode` that lists a result's chips from the real GET. It sends no usage events. Its route is guarded by `aiPreviewMatch` (before `permissionMatch`), which matches only when `environment.aiPreview` is true: `true` in `environment.development.ts` and `environment.qatest.ts`, absent in production. The production file is typed `ProductionEnvironment` (`aiPreview?: false`), so turning it on there is a compile error and the production build fails (`TS2322: Type 'true' is not assignable to type 'false'`). Deleted with plan A (tasks T-6, step 5).
