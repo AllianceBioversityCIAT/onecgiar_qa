@@ -15,7 +15,7 @@ const meta = (nextCursor?: string | null) => ({
   ...(nextCursor === undefined ? {} : { page: { nextCursor } }),
 });
 const worklistData = {
-  rows: [{ membershipId: 1, resultCode: '9890', status: 'pending' }],
+  rows: [{ membershipId: 1, resultCode: 9890, status: 'pending' }],
   counters: { pending: 1, finished: 0, total: 1 },
   writable: true,
   noActiveRole: false,
@@ -66,7 +66,7 @@ describe('AssessmentApi', () => {
     expect(result.nextCursor).toBe('c2');
     expect(result.counters.total).toBe(1);
     expect(result.noActiveRole).toBe(false);
-    expect(result.rows.map((r) => r.resultCode)).toEqual(['9890']);
+    expect(result.rows.map((r) => r.resultCode)).toEqual([9890]);
   });
 
   it('the last worklist page has a null cursor', async () => {
@@ -86,21 +86,21 @@ describe('AssessmentApi', () => {
     await expect(page).rejects.toMatchObject({ status: 404, code: 'TIMELINES_NOT_FOUND' });
   });
 
-  it('view encodes the result code and sends round only when asked', () => {
-    api.view(29, 'A/1').subscribe();
-    const plain = http.expectOne((r) => r.url === `${API}/timelines/29/results/A%2F1/assessment`);
+  it('view reads one result of one timeline and sends round only when asked', () => {
+    api.view(29, 8793).subscribe();
+    const plain = http.expectOne((r) => r.url === `${API}/timelines/29/results/8793/assessment`);
     expect(plain.request.params.has('round')).toBe(false);
     plain.flush({ success: true, data: {}, meta: meta() });
 
-    api.view(29, '9890', 2).subscribe();
+    api.view(29, 9890, 2).subscribe();
     const admin = http.expectOne((r) => r.url === `${API}/timelines/29/results/9890/assessment`);
     expect(admin.request.params.get('round')).toBe('2');
     admin.flush({ success: true, data: {}, meta: meta() });
   });
 
   it('validations, comments and quick comments are silent, labelled and may be replayed', () => {
-    api.setValidations(29, '9890', { validated: true, all: true }).subscribe();
-    api.addComment(29, '9890', 'general.title', 'Too long').subscribe();
+    api.setValidations(29, 9890, { validated: true, all: true }).subscribe();
+    api.addComment(29, 9890, 'general.title', 'Too long').subscribe();
     api.saveQuickComment('ASSESSOR', 'Check the source').subscribe();
 
     const validations = http.expectOne(`${API}/timelines/29/results/9890/assessment/validations`);
@@ -120,7 +120,7 @@ describe('AssessmentApi', () => {
   });
 
   it('finish, withdraw and the release retry never go to the unsent queue', () => {
-    api.finish(29, '9890').subscribe();
+    api.finish(29, 9890).subscribe();
     api.withdrawComment(5).subscribe();
     api.retryReleases().subscribe();
     for (const url of [
@@ -136,7 +136,7 @@ describe('AssessmentApi', () => {
   });
 
   it('a finish refused with core fields left exposes their keys on fieldKeys, not on fields', async () => {
-    const finish = firstValueFrom(api.finish(29, '9890'));
+    const finish = firstValueFrom(api.finish(29, 9890));
     http.expectOne(`${API}/timelines/29/results/9890/assessment/finish`).flush(
       {
         success: false,

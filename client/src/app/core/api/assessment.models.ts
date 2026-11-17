@@ -99,7 +99,7 @@ export interface WorklistQuery {
 
 export interface WorklistRow {
   readonly membershipId: number;
-  readonly resultCode: string;
+  readonly resultCode: number;
   readonly title: string | null;
   /** A round-2 re-entry whose fields changed since the previous round. */
   readonly updated: boolean;
@@ -178,6 +178,8 @@ export interface AssessmentField {
   readonly validated: boolean;
   readonly comments: readonly AssessmentComment[];
   readonly notApplicable: boolean;
+  /** Reporting's help text for the field tooltip. Absent when the catalog has none, and always under `other`. */
+  readonly description?: string;
 }
 
 export interface AssessmentSection {
@@ -195,7 +197,7 @@ export interface AssessmentSummary {
 
 export interface AssessmentView {
   readonly header: {
-    readonly resultCode: string;
+    readonly resultCode: number;
     readonly title: string | null;
     readonly program: ProgramRef;
     readonly resultType: KeyLabel;
@@ -238,7 +240,7 @@ export interface QuickComment {
 export interface AssessmentRelease {
   readonly id: number;
   readonly timeline: { readonly id: number; readonly name: string };
-  readonly resultCode: string;
+  readonly resultCode: number;
   readonly outcome: 'qaed' | 'not_qaed';
   readonly status: 'pending' | 'sent' | 'refused';
   readonly attempts: number;
