@@ -140,6 +140,15 @@ export class AssessmentFieldModel {
 
   @ApiProperty({
     type: String,
+    required: false,
+    example: 'Provide a clear, informative name of the result.',
+    description:
+      "Reporting's help text for the field tooltip (catalog `description`); absent when the catalog row has none and on fields under `other`",
+  })
+  description?: string;
+
+  @ApiProperty({
+    type: String,
     example: 'text',
     description: 'The catalog type of the field; `unknown` under `other`',
   })

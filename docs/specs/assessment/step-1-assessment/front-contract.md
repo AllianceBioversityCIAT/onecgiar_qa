@@ -193,6 +193,7 @@ data: {
 | Property | Type and rule |
 |---|---|
 | `key`, `label`, `type` | Catalog key, label and type. `type` is `unknown` under `other` |
+| `description` | Optional. Reporting's help text for the field tooltip (catalog `description`). The key is absent when the catalog row has none, and always under `other` |
 | `mode` | `view` or `assessed`. A Hidden field is never returned, except the Theory of Change group, which is shown as `view` |
 | `core` | The "Core" tag; only meaningful on an `assessed` field |
 | `value` | Any JSON value, as the snapshot holds it. `null` when `notApplicable` |

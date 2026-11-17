@@ -148,6 +148,17 @@ describe('buildAssessmentView: order (FR-8)', () => {
     });
     expect(TOC_SECTION_LABEL).toBe('Theory of Change');
   });
+
+  it("carries Reporting's help text as description when the catalog row has one, and no description key when it has none", () => {
+    const view = build({ values: { 'unknown.key': 'x' } });
+    const all = [...view.sections.flatMap((s) => s.fields), ...view.other];
+    const f = (key: string) => all.find((x) => x.key === key)!;
+    expect(f('general.title').description).toMatch(
+      /^Provide a clear, informative name of the output, for a non-specialist reader and/,
+    );
+    expect(Object.hasOwn(f('general.result_level'), 'description')).toBe(false);
+    expect(Object.hasOwn(f('unknown.key'), 'description')).toBe(false);
+  });
 });
 
 describe('buildAssessmentView: configuration (FR-9)', () => {
