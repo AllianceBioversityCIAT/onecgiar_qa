@@ -41,3 +41,17 @@ export function isSpPath(path: string): boolean {
   const pathname = path.split(/[?#]/)[0];
   return pathname === '/sp' || pathname.startsWith('/sp/');
 }
+
+/** Every page that is not the Science Program view: nobody may frame it (the QA app is never embedded). */
+export const APP_FRAME_POLICY = "frame-ancestors 'none'";
+
+/**
+ * The framing headers of one response. `/sp` pages carry `spPolicy` (Reporting's origins) and NO
+ * `X-Frame-Options`, which has no way to name an allowed origin and would lock Reporting out. Every other
+ * path gets `frame-ancestors 'none'` plus `X-Frame-Options: DENY` for browsers that predate the former.
+ */
+export function frameHeadersFor(path: string, spPolicy: string): Readonly<Record<string, string>> {
+  return isSpPath(path)
+    ? { 'Content-Security-Policy': spPolicy }
+    : { 'Content-Security-Policy': APP_FRAME_POLICY, 'X-Frame-Options': 'DENY' };
+}
