@@ -19,6 +19,8 @@ import { ReviewStateChips } from './review-state-chips';
 })
 export class ReviewFieldCard {
   readonly field = input.required<FieldVm>();
+  /** The green/grey write of this field is on its way. */
+  readonly busy = input(false);
   readonly act = output<CardAction>();
 
   protected readonly toneClass = computed(() => {

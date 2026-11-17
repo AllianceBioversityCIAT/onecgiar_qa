@@ -156,7 +156,7 @@ describe('ReviewStore actions (T-20)', () => {
   describe('comments (FR-11, FR-13)', () => {
     it('adds a trimmed comment and shows it on its field', async () => {
       const outcome = await store.addComment('geo.regions', '  Add the regions.  ');
-      expect(outcome).toEqual({ ok: true });
+      expect(outcome).toMatchObject({ ok: true, comment: { id: 50, fieldKey: 'geo.regions' } });
       expect(api.addComment).toHaveBeenCalledWith(29, 9890, 'geo.regions', 'Add the regions.');
       expect(field('geo.regions').comments.map((c) => c.body)).toEqual(['Add the regions.']);
       expect(store.commenting()).toBe(false);

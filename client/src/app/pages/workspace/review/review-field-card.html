@@ -74,6 +74,7 @@
   <qa-review-card-actions
     [actions]="actions"
     [label]="f.label"
+    [busy]="busy()"
     (act)="act.emit($event)"
   />
 }

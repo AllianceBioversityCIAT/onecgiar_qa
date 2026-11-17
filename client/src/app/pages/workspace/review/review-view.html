@@ -58,6 +58,12 @@
                     <qa-review-code-info [details]="h.details" />
                   </div>
                 </div>
+                @if (page.canFinish && page.total > 0) {
+                  <!-- Every Assessed field of the result in one request (FR-10). -->
+                  <div class="flex flex-none items-center gap-2">
+                    <button hlmBtn qaBtn tone="secondary" size="sm" type="button" [loading]="validating().has(allKey)" [disabled]="validating().size > 0" (click)="toggleAll()">{{ allGreen() ? 'Uncheck all' : 'Check all' }}</button>
+                  </div>
+                }
                 @if (compact()) {
                   <div class="flex flex-none flex-wrap items-center gap-2">
                     <button hlmBtn qaBtn tone="secondary" type="button" aria-haspopup="dialog" (click)="navOpen.set(true)">
@@ -78,6 +84,7 @@
                       [reviewed]="toc.reviewed"
                       [title]="sec.name"
                       [requiredReview]="toc.assessed > 0"
+                      [busyKeys]="validating()"
                       (act)="onTocCard($event)"
                     />
                   } @else {
@@ -85,7 +92,7 @@
                       <h2 id="review-section-title" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">{{ sec.name }}</h2>
                     </div>
                     @for (f of sec.fields; track f.id) {
-                      <qa-review-field-card [field]="f" [qaReveal]="$index" (act)="onCard(f.id, $event)" />
+                      <qa-review-field-card [field]="f" [qaReveal]="$index" [busy]="validating().has(f.id) || validating().has(allKey)" (act)="onCard(f.id, $event)" />
                     } @empty {
                       <p class="m-0 text-(length:--fs-13) text-(--text-4)">No fields in this section.</p>
                     }
@@ -115,6 +122,9 @@
               [resolvedCount]="resolvedCount()"
               [commentedCount]="page.commented"
               [skipped]="skippedCount()"
+              [finishTo]="page.finishTo"
+              [finishing]="store.finishing()"
+              [finishError]="finishError()"
               (back)="goSection(idx() - 1)"
               (next)="goSection(idx() + 1)"
               (finish)="finish()"
@@ -155,9 +165,24 @@
   [(open)]="drawerOpen"
   [field]="drawerField()"
   [text]="commentForm.text"
-  [showError]="false"
+  [showError]="showCommentError()"
+  [serverError]="commentError()"
   [focusTick]="focusTick()"
+  [quickComments]="quickComments()"
+  [adding]="store.commenting()"
+  [withdrawingIndex]="withdrawingIndex()"
+  [savingQuick]="store.savingQuick()"
   (add)="addComment()"
   (quickPick)="pickQuick($event)"
+  (saveQuick)="saveQuick()"
   (withdraw)="withdrawComment($event)"
 />
+
+<!-- ===== A green write that ends the assessment (FR-14): confirmed first, it cannot be undone ===== -->
+<qa-dialog [(open)]="confirmEndOpen" title="Finish as Quality Assessed?" width="440px">
+  <p class="m-0 text-(length:--fs-14) leading-[1.55] text-pretty text-(--text-2)">Every core field will be validated, so this assessment finishes as Quality Assessed and becomes read only. This cannot be undone.</p>
+  <div qaDialogFooter class="contents">
+    <button hlmBtn qaBtn tone="secondary" type="button" (click)="confirmEndOpen.set(false)">Cancel</button>
+    <button hlmBtn qaBtn tone="primary" type="button" (click)="confirmEnd()">Validate and finish</button>
+  </div>
+</qa-dialog>

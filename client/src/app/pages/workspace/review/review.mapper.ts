@@ -88,6 +88,8 @@ export interface ReviewVm {
   readonly total: number;
   /** Assessed fields with at least one open comment. */
   readonly commented: number;
+  /** Assessed fields that are green. */
+  readonly validated: number;
   /** Finish is offered: writable and the assessment still pending (FR-15). */
   readonly canFinish: boolean;
   /** Status the result takes if it is finished now: returned while a core field is grey, Quality Assessed otherwise. */
@@ -97,7 +99,7 @@ export interface ReviewVm {
 const ASSESSOR_INSTRUCTIONS =
   'Review each field against the assessor guidance. Mark it as validated, or leave a comment explaining what needs to change.';
 const READ_ONLY_INSTRUCTIONS = 'This assessment is read only for you. You can read every field and its comments.';
-/** The caller may write, but the page offers no write yet (`writes` off in `toReviewVm`). */
+/** The caller may write, but the page offers no write (`writes` off in `toReviewVm`). */
 const READING_INSTRUCTIONS = 'Read each field against the assessor guidance. You can open the comments of a field.';
 
 /** Subfield keys of the ToC lists and their catalog labels (`reporting-qa-catalog-2026.json`). */
@@ -443,6 +445,7 @@ export function toReviewVm(view: AssessmentView, writes = true): ReviewVm {
     resolved: assessed.filter(isResolved).length,
     total: assessed.length,
     commented: assessed.filter((f) => openComments(f).length > 0).length,
+    validated: assessed.filter((f) => f.validated).length,
     canFinish: canAct && (view.assessment?.status ?? 'pending') === 'pending',
     finishTo: assessed.some((f) => f.core && !f.validated) ? STATUS_LABELS.returned_to_program : STATUS_LABELS.quality_assessed,
   };

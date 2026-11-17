@@ -19,20 +19,14 @@ import { toReviewVm } from './review.mapper';
 
 export type ReviewLoadState = 'loading' | 'ready' | 'error';
 
-/**
- * The write calls of the page (validate, comment, withdraw, finish) are wired with the review actions (T-20).
- * Until then the page reads only: it shows no button that would do nothing, whatever `writable` says.
- */
-export const REVIEW_WRITES_WIRED = false;
-
 export interface ReviewError {
   readonly code: string;
   /** Catalog text, safe to show as is. */
   readonly message: string;
 }
 
-/** A write that stays in its form when refused: the message goes next to what the reviewer typed. */
-export type WriteOutcome = { readonly ok: true } | { readonly ok: false; readonly message: string };
+/** A comment that stays in its form when refused: the message goes next to what the reviewer typed. */
+export type CommentOutcome = { readonly ok: true; readonly comment: AssessmentComment } | { readonly ok: false; readonly message: string };
 
 /** `coreKeys`: the core fields still neither green nor commented (409 `ASSESSMENT_CORE_UNCOMMENTED`). */
 export type FinishOutcome = { readonly ok: true } | { readonly ok: false; readonly message: string; readonly coreKeys?: readonly string[] };
@@ -92,7 +86,7 @@ export class ReviewStore {
   /** The page's view models, rebuilt from the API answer only (never by hand). */
   readonly vm = computed(() => {
     const view = this.view();
-    return view ? toReviewVm(view, REVIEW_WRITES_WIRED) : null;
+    return view ? toReviewVm(view) : null;
   });
 
   /** Field keys with a green/grey write on its way (`ALL_FIELDS` for Check all / Uncheck all). */
@@ -197,7 +191,7 @@ export class ReviewStore {
   // ---------- Comments (FR-11, FR-13) ----------
 
   /** A refused text keeps its form: the caller shows `message` next to it. */
-  async addComment(fieldKey: string, body: string): Promise<WriteOutcome> {
+  async addComment(fieldKey: string, body: string): Promise<CommentOutcome> {
     const at = this.target();
     const text = body.trim();
     if (!at || !text || this.commenting()) return { ok: false, message: '' };
@@ -206,7 +200,7 @@ export class ReviewStore {
       const saved = await firstValueFrom(this.api.addComment(at.timelineId, at.resultCode, fieldKey, text));
       // A retry answered with the first comment again (same id) is still one comment.
       if (this.still(at)) this.patchComments(fieldKey, (list) => [...list.filter((c) => c.id !== saved.id), saved]);
-      return { ok: true };
+      return { ok: true, comment: saved };
     } catch (error) {
       const e = toApiError(error);
       if (!this.still(at)) return { ok: false, message: e.message };

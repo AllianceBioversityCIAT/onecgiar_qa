@@ -70,6 +70,8 @@ export interface FieldComment {
   readonly reply?: 'accepted' | 'rejected';
   /** The caller wrote it and can still take it back (FR-13). */
   readonly canWithdraw?: boolean;
+  /** Id of the comment in the API (the mockup's comments had none). */
+  readonly id?: number;
 }
 
 export interface FieldState {
