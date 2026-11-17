@@ -74,6 +74,8 @@ import {
 import { SpApiKeyGuard } from './sp-view/sp-api-key.guard.js';
 import { SpSessionGuard } from './sp-view/sp-session.guard.js';
 import { SpViewController } from './sp-view/sp-view.controller.js';
+import { SpViewService } from './sp-view/sp-view.service.js';
+import { DrizzleSpViewStore, SP_VIEW_STORE } from './sp-view/sp-view.store.js';
 
 /**
  * Step-1 assessment (spec assessment/step-1-assessment, DD-1). Imports
@@ -157,6 +159,9 @@ import { SpViewController } from './sp-view/sp-view.controller.js';
     SpAccessService,
     SpApiKeyGuard,
     SpSessionGuard,
+    // The SP reads: their port and service (over the assessment stores and AssessmentService.viewInputsFor).
+    { provide: SP_VIEW_STORE, useClass: DrizzleSpViewStore },
+    SpViewService,
   ],
 })
 export class AssessmentModule {}

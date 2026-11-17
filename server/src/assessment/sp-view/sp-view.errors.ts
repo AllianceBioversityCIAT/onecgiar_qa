@@ -8,7 +8,7 @@ import {
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { errorBody } from '../../common/error-codes.js';
+import { errorBody, FIELD_ERRORS } from '../../common/error-codes.js';
 
 /** No `SP_ACCESS_API_KEY` is configured in this environment. */
 export class SpAccessDisabledError extends ServiceUnavailableException {
@@ -70,5 +70,21 @@ export class SpCommentNotRespondableError extends ConflictException {
 export class ClarificationNotPendingError extends ConflictException {
   constructor() {
     super(errorBody('CLARIFICATION_NOT_PENDING'));
+  }
+}
+
+/** An admin SP session must name the program it reads (`programId`). */
+export class SpProgramRequiredError extends BadRequestException {
+  constructor() {
+    super({
+      ...errorBody('VALIDATION_FAILED'),
+      fields: [
+        {
+          field: 'programId',
+          code: 'REQUIRED',
+          message: FIELD_ERRORS.REQUIRED(),
+        },
+      ],
+    });
   }
 }
