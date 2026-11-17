@@ -338,14 +338,14 @@ describe('OpenAPI document (e2e)', () => {
   it('assessment FR-25 (T-14): documents each of its 12 routes with its success statuses and the error codes it can answer', () => {
     const codesOf = (key: string, status: string): string[] => {
       const response = operationOf(doc, key).responses[status] as
-        | { description?: string }
-        | undefined;
+        { description?: string } | undefined;
       return [...String(response?.description).matchAll(/`([A-Z_]+)`/g)]
         .map((match) => match[1])
         .sort();
     };
     const auth = ['AUTH_TOKEN_INVALID', 'AUTH_USER_NOT_ADMITTED'];
-    const assessment = '/api/v1/timelines/:timelineId/results/:resultCode/assessment';
+    const assessment =
+      '/api/v1/timelines/:timelineId/results/:resultCode/assessment';
     const routes: Array<{
       key: string;
       ok: string[];
@@ -496,8 +496,78 @@ describe('OpenAPI document (e2e)', () => {
     }
     // The comment create is keyed (P-17): the replay is declared on its 201.
     expect(
-      JSON.stringify(operationOf(doc, `POST ${assessment}/comments`).responses['201']),
+      JSON.stringify(
+        operationOf(doc, `POST ${assessment}/comments`).responses['201'],
+      ),
     ).toContain('Idempotency-Replayed');
+  });
+
+  it('ai-suggestions FR-4, FR-8, FR-11: documents its three routes with their success statuses and error codes', () => {
+    const codesOf = (key: string, status: string): string[] => {
+      const response = operationOf(doc, key).responses[status] as
+        { description?: string } | undefined;
+      return [...String(response?.description).matchAll(/`([A-Z_]+)`/g)]
+        .map((match) => match[1])
+        .sort();
+    };
+    const auth = ['AUTH_TOKEN_INVALID', 'AUTH_USER_NOT_ADMITTED'];
+    const ai =
+      '/api/v1/timelines/:timelineId/results/:resultCode/ai-suggestions';
+    const routes: Array<{
+      key: string;
+      ok: string;
+      errors: Record<string, string[]>;
+    }> = [
+      {
+        key: `GET ${ai}`,
+        ok: '200',
+        errors: {
+          '400': ['VALIDATION_FAILED'],
+          '401': auth,
+          '403': ['AI_SUGGESTIONS_FORBIDDEN'],
+          '404': ['ASSESSMENT_NOT_FOUND'],
+          '409': ['ASSESSMENT_NO_FIELD_CONFIG'],
+          '503': ['SERVICE_UNAVAILABLE'],
+        },
+      },
+      {
+        key: `POST ${ai}/:suggestionId/events`,
+        ok: '204',
+        errors: {
+          '400': ['AI_EVENT_INVALID', 'MALFORMED_JSON', 'VALIDATION_FAILED'],
+          '401': auth,
+          '403': ['AI_SUGGESTIONS_FORBIDDEN', 'ASSESSMENT_READ_ONLY'],
+          '404': ['AI_SUGGESTION_NOT_FOUND', 'ASSESSMENT_NOT_FOUND'],
+          '409': ['ASSESSMENT_NO_FIELD_CONFIG'],
+          '503': ['SERVICE_UNAVAILABLE'],
+        },
+      },
+      {
+        key: 'GET /api/v1/ai-suggestions/analysis/missing-reasons',
+        ok: '200',
+        errors: {
+          '401': auth,
+          '403': ['AUTH_PERMISSION_DENIED'],
+          '503': ['SERVICE_UNAVAILABLE'],
+        },
+      },
+    ];
+    const documented = documentedRoutes(doc);
+    for (const { key, ok, errors } of routes) {
+      expect(documented, key).toContain(key);
+      const operation = operationOf(doc, key);
+      expect(operation.summary, `${key}: summary`).toBeTruthy();
+      expect(Object.keys(operation.responses), `${key}: ${ok}`).toContain(ok);
+      for (const [status, codes] of Object.entries(errors)) {
+        expect(codesOf(key, status), `${key} ${status}`).toEqual(codes);
+        for (const code of codes) {
+          expect(
+            ERROR_CATALOG[code as keyof typeof ERROR_CATALOG]?.status,
+            `${key} ${status}: ${code}`,
+          ).toBe(Number(status));
+        }
+      }
+    }
   });
 
   it('timeline-step-times FR-1, FR-9, FR-10: documents the step moments, the deprecated day keys and the time zone, and how to send a boundary', () => {

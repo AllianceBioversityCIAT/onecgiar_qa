@@ -23,6 +23,14 @@ import { RESULTS_FEED } from '../../src/ingestion/results-feed.port.js';
 import { RELEASE_PAUSE } from '../../src/assessment/release.service.js';
 import { RELEASE_STORE } from '../../src/assessment/release.store.js';
 import { FakeResultsFeed } from './fake-results-feed.js';
+import {
+  AI_SUGGESTION_STORE,
+  DynamoAiSuggestionStore,
+  type AiSuggestionStore,
+} from '../../src/ai-suggestions/ai-suggestion.store.js';
+import { AI_USAGE_STORE } from '../../src/assessment/ai-usage.store.js';
+import { createFakeDynamoClient } from './fake-dynamodb-client.js';
+import { InMemoryAiUsageStore } from './in-memory-ai-usage.js';
 import { FakeSnapshotStore } from './fake-snapshot-store.js';
 import {
   FakeClock,
@@ -128,6 +136,18 @@ export async function buildAssessmentApp(
     ),
   );
   const catalogSource = { down: false };
+  // AI suggestions (ai-suggestions T-5): the worker's items in a fake DynamoDB
+  // table read by the real ElectroDB store; `down` makes every read fail.
+  const aiDynamo = createFakeDynamoClient();
+  const aiStore = new DynamoAiSuggestionStore(aiDynamo.client, 'cgiar-qa-test');
+  const aiSource = { down: false };
+  const aiSuggestions: AiSuggestionStore = {
+    listForSnapshot: (...args) =>
+      aiSource.down
+        ? Promise.reject(new Error('dynamodb down'))
+        : aiStore.listForSnapshot(...args),
+  };
+  const aiUsage = new InMemoryAiUsageStore(world);
   const actor = async (
     sub: string,
     roles: Array<[string, string?]>,
@@ -152,12 +172,7 @@ export async function buildAssessmentApp(
     return user;
   };
   const users = {
-    admin: await actor(
-      'sub-admin',
-      [['ADMIN']],
-      'Ada',
-      options.names?.admin,
-    ),
+    admin: await actor('sub-admin', [['ADMIN']], 'Ada', options.names?.admin),
     assessor: await actor('sub-assessor', [['ASSESSOR', 'KP']], 'Ana'),
     // Granted like the assessor, but assigned to no timeline.
     other: await actor('sub-other', [['ASSESSOR', 'KP']], 'Otto'),
@@ -212,6 +227,10 @@ export async function buildAssessmentApp(
           ? Promise.reject(new UpstreamUnavailableError())
           : Promise.resolve(fieldCatalog),
     })
+    .overrideProvider(AI_SUGGESTION_STORE)
+    .useValue(aiSuggestions)
+    .overrideProvider(AI_USAGE_STORE)
+    .useValue(aiUsage)
     .overrideProvider(TIMELINE_LOADS)
     .useValue(new InMemoryTimelineLoads(world))
     .overrideProvider(IDEMPOTENCY_STORE)
@@ -264,5 +283,8 @@ export async function buildAssessmentApp(
     feed,
     catalogSource,
     idempotency,
+    aiDynamo,
+    aiSource,
+    aiUsage,
   };
 }

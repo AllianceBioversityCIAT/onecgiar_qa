@@ -22,6 +22,14 @@ An assessor (or an ADMIN, read only) lists the memberships of a timeline (`GET /
 | `assessment-log.ts` | The one decision log line of a write (*Logging*) |
 | `assessment.errors.ts`, `dto/`, `models/` | The 8 typed refusals (`ASSESSMENT_*`, all in the front contract), pipe shapes, OpenAPI models |
 
+## AI suggestions (spec `assessment/ai-suggestions`)
+
+- `ai-suggestions.controller.ts`, `ai-suggestions.service.ts`: `GET …/ai-suggestions`, `POST …/ai-suggestions/:suggestionId/events`, `GET /ai-suggestions/analysis/missing-reasons` (ADMIN). Scope and 404 come from `AssessmentService.resolveForAi` (the same resolver as `open`); the service never writes an assessment: the AI never validates or comments.
+- `ai-suggestions-rules.ts` (pure): `aiAudienceOf` (ASSESSOR/LEAD → reviewer; TPB → read-only with the copied/edited mark; ADMIN → read-only **without** the mark; PPU → 403), `toSuggestionViews` (exactly the worker's `ai-suggestion-view.schema.json`), `checkAboveAi`, `isEdited`.
+- Items are read from DynamoDB (`AI_SUGGESTION_STORE`, one Query, production prompt version only); a read failure is 503.
+- `ai-usage.store.ts` → `ai_suggestion_usage` (migration 0010), keyed on membership + step. **It measures the AI, not the reviewers:** no user column, no comment text, no route returns usage per reviewer. Do not add one.
+- New codes: `AI_SUGGESTIONS_FORBIDDEN`, `AI_SUGGESTION_NOT_FOUND`, `AI_EVENT_INVALID` (in `ai-suggestions.errors.ts`, kept out of `assessment.errors.ts` so the `ASSESSMENT_*` contract check is unchanged).
+
 ## Bindings (read before changing credentials, tables or the clock)
 
 DD-1. `AssessmentModule` imports `UsersModule` and `FieldConfigModule` **only among the feature modules**; "only" does not cover the infrastructure modules it also imports (`DrizzleModule`, `DynamoDbModule`, `ConfigModule.forFeature(catalogsConfig)`). It does not import `IngestionModule` (it exports nothing) or `TimelinesModule`. It binds its **own** copies, the way `IngestionModule` does:

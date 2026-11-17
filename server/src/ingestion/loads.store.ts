@@ -111,6 +111,14 @@ export interface CycleMembershipRow extends CycleMembership {
   snapshotHash: string;
 }
 
+/** What an AI job needs of a membership (spec assessment/ai-suggestions, FR-3). */
+export interface AiJobMembership {
+  resultCode: number;
+  resultTypeKey: string;
+  /** With the `SNAP#` prefix, as the runner wrote it. */
+  snapshotSk: string;
+}
+
 /** A load and who started it (the list and the detail of FR-10). The status is as stored: the lease is applied by the reader. */
 export interface LoadRow {
   load: TimelineLoad;
@@ -214,6 +222,12 @@ export interface LoadsStore {
   ): Promise<CycleMembershipRow[]>;
   /** The loads of a timeline, newest first, with who started each (FR-10). One statement. */
   listByTimeline(timelineId: number): Promise<LoadRow[]>;
+  /**
+   * The memberships a load wrote that are still active and `pending`, by result
+   * code: what the AI re-enqueue sends again (spec assessment/ai-suggestions,
+   * FR-3). One statement.
+   */
+  listAiJobMemberships(loadId: number): Promise<AiJobMembership[]>;
   /** One load of that timeline; `undefined` when it does not exist or belongs to another timeline. */
   findLoad(timelineId: number, loadId: number): Promise<LoadRow | undefined>;
 
@@ -569,6 +583,24 @@ export class DrizzleLoadsStore implements LoadsStore {
       .limit(1)
       .for('update');
     return row;
+  }
+
+  async listAiJobMemberships(loadId: number): Promise<AiJobMembership[]> {
+    return await this.db
+      .select({
+        resultCode: timelineResults.resultCode,
+        resultTypeKey: timelineResults.resultTypeKey,
+        snapshotSk: timelineResults.snapshotSk,
+      })
+      .from(timelineResults)
+      .where(
+        and(
+          eq(timelineResults.loadId, loadId),
+          eq(timelineResults.status, 'pending'),
+          isNull(timelineResults.endedAt),
+        ),
+      )
+      .orderBy(asc(timelineResults.resultCode));
   }
 
   async findLoadById(loadId: number): Promise<TimelineLoad | undefined> {

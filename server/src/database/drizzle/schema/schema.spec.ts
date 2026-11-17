@@ -3,7 +3,13 @@ import { fileURLToPath } from 'node:url';
 import { MySqlDialect, getTableConfig } from 'drizzle-orm/mysql-core';
 import type { SQL } from 'drizzle-orm';
 import * as schema from './index.js';
-import { idempotencyKeys, roleAssignments, roles, users } from './index.js';
+import {
+  aiSuggestionUsage,
+  idempotencyKeys,
+  roleAssignments,
+  roles,
+  users,
+} from './index.js';
 
 // Schema metadata and the committed migration are checked against the
 // requirements (FR-1), not against each other: removing a rule from the
@@ -300,8 +306,8 @@ describe('committed migrations', () => {
     .filter((f) => f.endsWith('.sql'))
     .sort();
 
-  it('are exactly ten SQL files', () => {
-    expect(files).toHaveLength(10);
+  it('are exactly eleven SQL files', () => {
+    expect(files).toHaveLength(11);
   });
 
   const sql = readFileSync(`${migrationsDir}${files[0]}`, 'utf8');
@@ -2471,5 +2477,85 @@ describe('committed migration 0009 (assessment)', () => {
       expect(down).toMatch(/LOSSY/);
       expect(down).toMatch(/__drizzle_migrations/);
     });
+  });
+});
+
+// @akili-spec assessment/ai-suggestions
+describe('committed migration 0010 (ai_suggestion_usage)', () => {
+  const files = readdirSync(migrationsDir)
+    .filter((f) => f.endsWith('.sql'))
+    .sort();
+  const read = (path: string) => readFileSync(path, 'utf8');
+  const up = files[10] ? read(`${migrationsDir}${files[10]}`) : '';
+  const downPath = `${migrationsDir}rollback/0010_ai_suggestion_usage.down.sql`;
+  const down = existsSync(downPath) ? read(downPath) : '';
+  const columns = Object.values(getTableConfig(aiSuggestionUsage).columns).map(
+    (c) => c.name,
+  );
+
+  it('is named 0010_ai_suggestion_usage and is the eleventh journal entry', () => {
+    expect(files[10]).toBe('0010_ai_suggestion_usage.sql');
+    const journal = JSON.parse(read(`${migrationsDir}meta/_journal.json`)) as {
+      entries: { idx: number; tag: string }[];
+    };
+    expect(journal.entries[10]).toMatchObject({
+      idx: 10,
+      tag: '0010_ai_suggestion_usage',
+    });
+  });
+
+  it('creates only ai_suggestion_usage and alters no other table', () => {
+    expect([...up.matchAll(/CREATE TABLE `(\w+)`/g)].map((m) => m[1])).toEqual([
+      'ai_suggestion_usage',
+    ]);
+    expect(up).not.toMatch(/ALTER TABLE `(?!ai_suggestion_usage)/);
+    expect(up).not.toMatch(/DROP /);
+  });
+
+  it('has no user column: it measures the AI, never the reviewers (NFR-3)', () => {
+    for (const name of columns) {
+      expect(name, name).not.toMatch(
+        /user|author|actor|_by$|created_by|email|nickname/,
+      );
+    }
+    expect(columns).not.toContain('body');
+    expect(columns).not.toContain('comment_text');
+  });
+
+  it('dedupes shown, copied and validated_above_ai per suggestion, membership and step, and comment_saved per comment', () => {
+    expect(up).toContain(
+      "`dedupe_action` varchar(32) GENERATED ALWAYS AS (IF(`action` = 'comment_saved', NULL, `action`)) STORED",
+    );
+    expect(up).toContain(
+      'CONSTRAINT `uq_ai_usage_once` UNIQUE(`suggestion_id`,`timeline_result_id`,`step_position`,`dedupe_action`)',
+    );
+    expect(up).toContain(
+      'CONSTRAINT `uq_ai_usage_comment` UNIQUE(`comment_id`)',
+    );
+  });
+
+  it('refuses a validated_above_ai row without a reason or with a difference under 2', () => {
+    expect(up).toContain(
+      "CHECK(`action` <> 'validated_above_ai' OR (`reason` IS NOT NULL AND `validated_level` >= `ai_level` + 2))",
+    );
+  });
+
+  it('makes every foreign key ON DELETE no action', () => {
+    const fks = [...up.matchAll(/ADD CONSTRAINT `(\w+)` FOREIGN KEY[^;]*;/g)];
+    expect(fks.map((m) => m[1]).sort()).toEqual([
+      'fk_ai_usage_comment',
+      'fk_ai_usage_membership',
+    ]);
+    for (const m of fks) {
+      expect(m[0]).toContain('ON DELETE no action ON UPDATE no action');
+    }
+  });
+
+  it('has a lossy manual down script that drops the one table', () => {
+    expect(down).toMatch(/LOSSY/);
+    expect(down).toMatch(/__drizzle_migrations/);
+    expect(down.replace(/^--.*$/gm, '').trim()).toBe(
+      'DROP TABLE `ai_suggestion_usage`;',
+    );
   });
 });

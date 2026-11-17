@@ -294,6 +294,11 @@ export const ERROR_CATALOG = {
     message:
       "Reporting has no QA catalog for this cycle's year, so there are no results to load.",
   },
+  // Spec assessment/ai-suggestions (FR-3): the admin AI routes say so instead of a silent no-op.
+  AI_JOBS_DISABLED: {
+    status: 409,
+    message: 'AI disabled: no queue configured.',
+  },
 
   // --- Field configuration -------------------------------------------------
   FIELD_CONFIG_CATALOG_MISSING: {
@@ -344,6 +349,22 @@ export const ERROR_CATALOG = {
   ASSESSMENT_COMMENT_NOT_OPEN: {
     status: 409,
     message: 'This comment can no longer be withdrawn.',
+  },
+
+  // --- AI suggestions (ai-suggestions) -------------------------------------
+  AI_SUGGESTIONS_FORBIDDEN: {
+    status: 403,
+    message: 'AI suggestions are not available to your role.',
+  },
+  AI_SUGGESTION_NOT_FOUND: {
+    status: 404,
+    message:
+      'This AI suggestion is not available for this result. Reload the result and try again.',
+  },
+  AI_EVENT_INVALID: {
+    status: 400,
+    message:
+      'This use of the AI suggestion could not be recorded. Reload the result and try again.',
   },
 } as const satisfies Record<string, { status: number; message: string }>;
 

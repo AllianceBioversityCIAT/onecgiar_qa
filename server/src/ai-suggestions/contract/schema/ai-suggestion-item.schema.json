@@ -1,0 +1,241 @@
+{
+  "$id": "ai-suggestion-item.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "One stored suggestion (status available or unavailable). 'pending' is never stored.",
+  "properties": {
+    "__edb_e__": {
+      "const": "aiSuggestion",
+      "title": "Edb E",
+      "type": "string"
+    },
+    "__edb_v__": {
+      "const": "1",
+      "title": "Edb V",
+      "type": "string"
+    },
+    "createdAt": {
+      "title": "Createdat",
+      "type": "string"
+    },
+    "evidenceHash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Evidencehash"
+    },
+    "evidenceQuote": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Evidencequote"
+    },
+    "evidenceSource": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Evidencesource"
+    },
+    "evidenceSourceIndex": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Evidencesourceindex"
+    },
+    "explanation": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Explanation"
+    },
+    "fieldKey": {
+      "pattern": "^[^#]+$",
+      "title": "Fieldkey",
+      "type": "string"
+    },
+    "modelId": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Modelid"
+    },
+    "partialEvidence": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Partialevidence"
+    },
+    "pk": {
+      "pattern": "^RESULT#\\d+$",
+      "title": "Pk",
+      "type": "string"
+    },
+    "promptVersion": {
+      "pattern": "^[^#]+$",
+      "title": "Promptversion",
+      "type": "string"
+    },
+    "quoteVerified": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Quoteverified"
+    },
+    "reportedValue": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reportedvalue"
+    },
+    "resultCode": {
+      "title": "Resultcode",
+      "type": "integer"
+    },
+    "runId": {
+      "title": "Runid",
+      "type": "string"
+    },
+    "signal": {
+      "anyOf": [
+        {
+          "enum": [
+            "green",
+            "amber",
+            "red"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Signal"
+    },
+    "sk": {
+      "pattern": "^AI#.+#[^#]+#[^#]+$",
+      "title": "Sk",
+      "type": "string"
+    },
+    "snapKey": {
+      "title": "Snapkey",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "available",
+        "unavailable"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "suggestedValue": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Suggestedvalue"
+    },
+    "suggestionId": {
+      "title": "Suggestionid",
+      "type": "string"
+    },
+    "unavailableReason": {
+      "anyOf": [
+        {
+          "enum": [
+            "no_readable_evidence",
+            "private_link",
+            "model_declined",
+            "invalid_output",
+            "no_criteria_for_field",
+            "no_supporting_quote",
+            "out_of_scope_funding",
+            "failed"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Unavailablereason"
+    }
+  },
+  "required": [
+    "pk",
+    "sk",
+    "__edb_e__",
+    "__edb_v__",
+    "resultCode",
+    "snapKey",
+    "fieldKey",
+    "promptVersion",
+    "suggestionId",
+    "runId",
+    "status",
+    "createdAt"
+  ],
+  "title": "AiSuggestionItem",
+  "type": "object"
+}

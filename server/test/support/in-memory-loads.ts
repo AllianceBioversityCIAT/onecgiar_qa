@@ -259,6 +259,19 @@ export class InMemoryLoadsStore implements LoadsStore {
     return row && structuredClone(row);
   }
 
+  async listAiJobMemberships(loadId: number) {
+    return this.t.results
+      .filter(
+        (r) => r.loadId === loadId && r.status === 'pending' && !r.endedAt,
+      )
+      .sort((a, b) => a.resultCode - b.resultCode)
+      .map((r) => ({
+        resultCode: r.resultCode,
+        resultTypeKey: r.resultTypeKey,
+        snapshotSk: r.snapshotSk,
+      }));
+  }
+
   /** Autocommit: nothing to hold. */
   async lockTimelineShared(timelineId: number): Promise<void> {
     void timelineId;

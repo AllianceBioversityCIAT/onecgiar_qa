@@ -20,6 +20,11 @@ import type {
 } from '../database/drizzle/schema/timeline-loads.js';
 import { UpstreamStatusError } from '../users/catalogs/catalog-http.js';
 import { UpstreamUnavailableError } from '../users/catalogs/catalogs.errors.js';
+import {
+  AI_ENQUEUE,
+  AiTally,
+  type AiEnqueuePort,
+} from './ai-enqueue.service.js';
 import { listEveryPage } from './feed-paging.js';
 import {
   KP_RULES,
@@ -112,6 +117,8 @@ interface Run {
   catalogRefreshed: boolean;
   /** The KPs a completed load would release, collected only while the release is on. */
   releasable: Array<{ resultId: number; outcome: ReleaseOutcome }>;
+  /** The AI jobs counted so far (spec assessment/ai-suggestions, FR-2). */
+  ai: AiTally;
 }
 
 /** A take of the verdict: what the lot does with a result that was not skipped. */
@@ -163,6 +170,10 @@ export class LoadRunner implements LoadRunnerPort {
     @Optional()
     @Inject(KP_RELEASE_SETTING)
     releaseKp?: boolean,
+    // Spec assessment/ai-suggestions FR-2: absent in the specs that build the runner by hand.
+    @Optional()
+    @Inject(AI_ENQUEUE)
+    private readonly ai?: AiEnqueuePort,
   ) {
     this.releaseKp = releaseKp ?? KP_RELEASE_ENABLED;
   }
@@ -197,6 +208,7 @@ export class LoadRunner implements LoadRunnerPort {
         catalogVersion: '',
         catalogRefreshed: false,
         releasable: [],
+        ai: new AiTally(),
       };
       run = started;
       // The heartbeat is renewed apart from the lots (FR-9): the listing and
@@ -461,6 +473,19 @@ export class LoadRunner implements LoadRunnerPort {
       });
     });
     if (recorded.kind !== 'recorded') return this.lose(run);
+
+    // Spec assessment/ai-suggestions FR-2, DD-2: the AI jobs of the memberships
+    // this lot inserted, once they exist. Never throws (NFR-1).
+    if (this.ai !== undefined) {
+      const inserted = new Set(recorded.insertedCodes);
+      await this.ai.enqueueLot(
+        load,
+        planned
+          .map(({ membership }) => membership)
+          .filter((membership) => inserted.has(membership.resultCode)),
+        run.ai,
+      );
+    }
 
     if (this.releaseKp) {
       const inserted = new Set(recorded.insertedCodes);
