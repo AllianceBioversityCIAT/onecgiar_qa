@@ -72,9 +72,9 @@ Rule: this spec does not edit `review-store.ts`, `review.mapper.ts` or `review-c
   2. `review-model.ts`: replace `AiVm` with `AiChipVm` (`ai/ai-chip.vm.ts`) in the field VM (DD-7); `review.mapper.ts` takes `chipFor(fieldKey, isAiInput)` instead of `ai: null`.
   3. `review-field-card.html`: render `<qa-ai-chip [vm] [readOnly]="!writable" (shown)="store.markShown($event)" (copyToComment)="…">` in place of `qa-review-ai-note`; delete `review-ai-note.ts` and the `ai-toggle/hide/dismiss/use` actions.
   4. PPU: no chip (the GET answers 403; the store keeps the map empty and `chipFor` returns null).
-  5. Delete plan B: `pages/workspace/ai-preview/**`, its route in `app.routes.ts` and `aiPreview` in the environment files and model.
+  5. Delete plan B: `pages/workspace/ai-preview/**`, its route in `app.routes.ts` and the two `fileReplacements` entries for `ai-preview.flag.ts` in `angular.json`.
 - **Size:** M · **Depends on:** T-5 (fixtures earlier), assessment T-17/T-19 · **Req:** FR-6, NFR-1
-- **Scope:** `ai-suggestions-api.ts`, `ai-suggestions-store.ts`, `ai-chip.ts`, `AiVm` widened (DD-7), one input in `review.mapper.ts` / `review-view`. Plan B: flag off by default, dev/test environments only, PROD build fails when on (spec test on the environment files + a build check); deleted with Plan A
+- **Scope:** `ai-suggestions-api.ts`, `ai-suggestions-store.ts`, `ai-chip.ts`, `AiVm` widened (DD-7), one input in `review.mapper.ts` / `review-view`. Plan B: build flag `ai-preview.flag.ts` off by default, swapped on only for the `development`/`test` builds in `angular.json`, PROD build fails when on (literal `false` type); deleted with Plan A
 - **Tests:** chip spec per view (green, amber, red label "Review", IRL/IUL with quote, unavailable reasons incl. `no_supporting_quote`, pending, request error); PPU renders nothing
 - **Falsifier:** label red as "Incorrect" → spec red
 

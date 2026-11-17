@@ -24,7 +24,7 @@
 | T-5 GET, T-8 events + 0010, FR-11 | `03cae5a` | rules 33, usage store 3, `ai-suggestions.e2e-spec.ts` 29, schema +7, OpenAPI +1 | diff ≥ 1 accepted → "refuses a difference of exactly 1" red; eligible filter removed → "AI input but not in production" red; ADMIN given the mark → "ADMIN … without the copied mark" red |
 | T-6, T-9 client chip, store, copy, events | `ee22a19` | 49 across the AI specs | red mapped to "Incorrect" → 3 red |
 | T-10 reason | `3168433` | in `ai-reason.spec.ts` | — |
-| Plan B page | `c448ae4` | `ai-preview.spec.ts` | `aiPreview: true` in `environment.ts` → PROD build `TS2322: Type 'true' is not assignable to type 'false'` |
+| Plan B page | `c448ae4`, flag reworked in the next commit | `ai-preview.spec.ts` | `AI_PREVIEW = true` in `ai-preview.flag.ts` → PROD build `TS2322: Type 'true' is not assignable to type 'false'` |
 
 ## Decisions made during execution
 
@@ -33,9 +33,17 @@
 - Plan B is a separate dev/test-only route (`/ai-preview/:timelineId/:resultCode`) instead of editing the mockup Review page, so T-19's files are untouched.
 - `ai_signal` instead of `signal` (MySQL reserved word).
 
+## Eligibility rule changed (17-nov, for T-7)
+
+qatest gave no suggestions: the Fields screen has had no AI column since 11-nov, so no field could be marked `isAiInput`. New FR-1 rule: in `production.json` AND Assessed in the configuration (`ai-config.ts`). Falsifier: the old rule → "ignores the AI input flag" and "drops a View only field" red (2 failed).
+
 ## Related fix (not part of this spec)
 
 The assessment field-description change (`2cc8384`) put Reporting's help text, which contains example e-mail addresses, into the view, and the FR-11 no-`@` e2e check failed on `dev` (the pipeline did not deploy). Fixed by leaving `description` out of that check: `cb6cf4d` merged into `dev` (`cbe6453`) and cherry-picked into `staging-center` (`98825ce`).
+
+## Plan B flag reworked (17-nov)
+
+The first version put `aiPreview` in the environment files. The dev pipeline (`36f4754`) failed: CI and the deploy overwrite `environment.ts`, `environment.qatest.ts` and `environment.development.ts` from Secrets Manager, so the field was gone in tests and would be off in TEST, and the production guarantee depended on the secret's content. Now it is a build flag, `ai-preview/ai-preview.flag.ts` (`AI_PREVIEW: false = false`, the production value), swapped for `ai-preview.flag.on.ts` by `angular.json` in the `development` and `test` configurations only; the guard also refuses an environment named `production`. Checked: client tests green with the three environment files overwritten by one config (as CI does); `ng build` production, development and test green; `AI_PREVIEW = true` in the production file → TS2322.
 
 ## Infra checks (read-only, 2026-11-17)
 
@@ -45,8 +53,10 @@ The assessment field-description change (`2cc8384`) put Reporting's help text, w
 | `qa-ai-suggestions-test` / DLQ | exist, 0 messages, redrive `maxReceiveCount` 3 |
 | `cgiar-qa-test` | ACTIVE |
 | QA API TEST → `cgiar-qa-test` | not visible from this account (the API is neither a Lambda nor an ECS task here); confirm on the host |
-| `sqs:SendMessage` + `AI_JOBS_QUEUE_URL` for the TEST API | requested from Cris; until then the sync logs `ai_enqueue outcome: disabled` and the admin routes answer 409 `AI_JOBS_DISABLED` |
-| PROD: `qa-ai-worker-prod`, `cgiar-qa-prod`, `qa-ai-suggestions-prod` | **none found** in the account checked; T-11 blocked until the worker's PROD stack and table exist (or the right account is named) |
+| `sqs:SendMessage` for the TEST API | Cris granted it (17-nov) to IAM user `qa-ai-deployer`, the worker's deployer (key last used on Lambda; no DynamoDB write). The TEST API runs as IAM user `cgiar-qa-dynamodb-dev` (key used on DynamoDB right after the 17-nov deploy; PutItem/UpdateItem allowed on `cgiar-qa-test`), which still has `sqs:SendMessage` **implicitDeny** on `qa-ai-suggestions-test` (IAM policy simulation). The grant must move to that user |
+| SQS client principal | fixed 17-nov: the publisher reuses the DynamoDB keys when they are set (`sqsClientConfig`); before, it used the default chain and would not have used that IAM user |
+| `AI_JOBS_QUEUE_URL` in the TEST deploy env | to set (devops); until then the sync logs `ai_enqueue outcome: disabled` and the admin routes answer 409 `AI_JOBS_DISABLED` |
+| PROD: `qa-ai-worker-prod`, `cgiar-qa-prod`, `qa-ai-suggestions-prod` | **none found** in the account checked; Cris (17-nov): the PROD IAM user is not created yet. T-11 blocked |
 
 ## Still open
 

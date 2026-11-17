@@ -16,7 +16,7 @@ const item = (
 });
 
 describe('eligibleFields (FR-1)', () => {
-  it('keeps the production fields the admin marked, in production order', () => {
+  it('keeps the Assessed production fields, in production order', () => {
     expect(
       eligibleFields([
         item('innovation_dev.readiness_level'),
@@ -30,22 +30,28 @@ describe('eligibleFields (FR-1)', () => {
     ]);
   });
 
-  it('drops a field not marked as AI input', () => {
+  it('ignores the AI input flag: an Assessed field counts, marked or not', () => {
     expect(
       eligibleFields([
         item('general.gender_tag', { isAiInput: false }),
         item('general.poverty_tag'),
       ]),
-    ).toEqual(['general.poverty_tag']);
+    ).toEqual(['general.gender_tag', 'general.poverty_tag']);
   });
 
-  it('drops a Hidden field even when marked', () => {
+  it('drops a View only field', () => {
+    expect(
+      eligibleFields([item('general.gender_tag', { visibility: 'view_only' })]),
+    ).toEqual([]);
+  });
+
+  it('drops a Hidden field', () => {
     expect(
       eligibleFields([item('general.gender_tag', { visibility: 'hidden' })]),
     ).toEqual([]);
   });
 
-  it('drops a marked field that is not in production (no job, no pending)', () => {
+  it('drops an Assessed field that is not in production (no job, no pending)', () => {
     expect(eligibleFields([item('general.title')])).toEqual([]);
   });
 

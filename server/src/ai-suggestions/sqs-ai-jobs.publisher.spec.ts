@@ -3,7 +3,10 @@ import { Logger } from '@nestjs/common';
 import type { SQSClient } from '@aws-sdk/client-sqs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AiJobMessage } from './ai-jobs.port.js';
-import { SqsAiJobsPublisher } from './sqs-ai-jobs.publisher.js';
+import {
+  SqsAiJobsPublisher,
+  sqsClientConfig,
+} from './sqs-ai-jobs.publisher.js';
 
 const job = (n: number): AiJobMessage => ({
   runId: 'load-1',
@@ -46,6 +49,7 @@ const build = (client: SQSClient | undefined, queueUrl?: string | null) => {
       queueUrl: queueUrl === null ? undefined : (queueUrl ?? QUEUE),
       region: 'us-east-1',
     },
+    { credentials: undefined } as never,
     async (ms) => {
       waits.push(ms);
     },
@@ -55,6 +59,22 @@ const build = (client: SQSClient | undefined, queueUrl?: string | null) => {
 };
 
 afterEach(() => vi.restoreAllMocks());
+
+describe('sqsClientConfig (same principal as DynamoDB)', () => {
+  it('uses the DynamoDB keys when the host runs with an IAM user', () => {
+    const credentials = { accessKeyId: 'id', secretAccessKey: 'secret' };
+    expect(sqsClientConfig({ region: 'us-east-1' }, { credentials })).toEqual({
+      region: 'us-east-1',
+      credentials,
+    });
+  });
+
+  it('leaves the default chain (the host role) when there are no keys', () => {
+    expect(
+      sqsClientConfig({ region: 'us-east-1' }, { credentials: undefined }),
+    ).toEqual({ region: 'us-east-1' });
+  });
+});
 
 describe('SqsAiJobsPublisher (FR-2, NFR-1)', () => {
   it('sends in batches of 10 with the job as the body', async () => {

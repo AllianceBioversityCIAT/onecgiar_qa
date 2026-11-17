@@ -13,7 +13,7 @@ Environment validation and typed configuration. This is the **only** place in th
 | `catalogs.config.ts` | `catalogsConfig`: `REPORTING_API_URL`, `CLARISA_API_URL` and the shared `CLARISA_API_KEY` (base URLs and key of the catalog sources) |
 | `notifications.config.ts` | `notificationsConfig`: Notification Microservice base URL (`NOTIFICATION_API_URL`, default production), `enabled` (`NOTIFICATION_EMAIL_ENABLED`), `appUrl` (`APP_URL`, else the first `https://` of `ALLOWED_ORIGINS`). The service is authenticated with `CLARISA_API_KEY`, still read only in `catalogs.config.ts` |
 | `cognito-admin.config.ts` | `cognitoAdminConfig`: region, pool id and `credentials` only when both `COGNITO_ADMIN_*` keys are set (else the SDK default chain, i.e. the host's IAM role) |
-| `ai-jobs.config.ts` | `aiJobsConfig`: optional `AI_JOBS_QUEUE_URL` and `AWS_REGION` for the AI job queue (spec assessment/ai-suggestions); credentials from the default chain |
+| `ai-jobs.config.ts` | `aiJobsConfig`: optional `AI_JOBS_QUEUE_URL` and `AWS_REGION` for the AI job queue (spec assessment/ai-suggestions); the SQS client uses the DynamoDB keys when set (`sqsClientConfig`), else the default chain |
 | `sp-access.config.ts` | `spAccessConfig`: optional `SP_ACCESS_API_KEY` (secret; the `x-api-key` of `POST /sp-access/codes`) and `SP_REPORTING_RESULT_URL` (the "Open in Reporting" template) of the Science Program view (P2-3911) |
 | `dynamodb.config.ts` | `dynamoDbConfig`: `AWS_REGION`, `DYNAMODB_TABLE_NAME`, optional `DYNAMODB_ENDPOINT`, and `credentials` only when both `DYNAMODB_*` keys are set (else the SDK default chain) |
 
@@ -25,7 +25,7 @@ Environment validation and typed configuration. This is the **only** place in th
 | `DATABASE_POOL_SIZE` | no | default 10 |
 | `AWS_REGION`, `DYNAMODB_TABLE_NAME` | yes | e.g. `us-east-1`, `cgiar-qa-test` (TRD § 5.2: one table `cgiar-qa-{env}`, keys `pk`/`sk`) |
 | `DYNAMODB_ENDPOINT` | no | only for DynamoDB Local (`http://localhost:8000`) |
-| `AI_JOBS_QUEUE_URL` | no | the AI suggestion queue (`qa-ai-suggestions-{env}`); unset = AI jobs off, one `ai_jobs_disabled` warning at startup, AI admin routes 409 `AI_JOBS_DISABLED`. The host's role needs `sqs:SendMessage` on it |
+| `AI_JOBS_QUEUE_URL` | no | the AI suggestion queue (`qa-ai-suggestions-{env}`); unset = AI jobs off, one `ai_jobs_disabled` warning at startup, AI admin routes 409 `AI_JOBS_DISABLED`. The principal that reaches DynamoDB (the `DYNAMODB_ACCESS_KEY_ID` user where set, else the host role) needs `sqs:SendMessage` on it |
 | `DYNAMODB_ACCESS_KEY_ID`, `DYNAMODB_SECRET_ACCESS_KEY` | no — both or neither | **secret**: local development only (IAM user scoped to the QA table). Absent in TEST/PROD, where the host's IAM role is used. With DynamoDB Local, any value |
 | `COGNITO_REGION`, `COGNITO_USER_POOL_ID`, `COGNITO_CLIENT_ID` | yes | the pool and QA's app client |
 | `COGNITO_CLIENT_SECRET` | yes | **secret**: local `.env` or the secret store only; never a value in `.env.example` |
