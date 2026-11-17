@@ -37,7 +37,7 @@ const views: AiSuggestionView[] = [
 
 class FakeApi {
   list$: Observable<readonly AiSuggestionView[]> = of(views);
-  events: Array<{ id: string; event: AiSuggestionEvent }> = [];
+  events: { id: string; event: AiSuggestionEvent }[] = [];
   failEvents = false;
   list(): Observable<readonly AiSuggestionView[]> {
     return this.list$;
