@@ -114,6 +114,23 @@ describe('AiReasonDialog', () => {
     expect(fixture.componentInstance.open()).toBe(false);
   });
 
+  it('Esc or a click outside clears the reason: the next opening starts empty', async () => {
+    const { fixture, input } = setup();
+    await fixture.whenStable();
+    input().value = 'Half typed';
+    input().dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    // What Esc and the overlay do: the dialog sets open to false.
+    fixture.componentInstance.open.set(false);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.componentInstance.open.set(true);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    expect(input().value).toBe('');
+    expect(fixture.componentInstance.saved).toEqual([]);
+  });
+
   it('Cancel saves nothing', async () => {
     const { fixture, input, button } = setup();
     await fixture.whenStable();
