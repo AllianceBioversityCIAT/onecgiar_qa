@@ -1,0 +1,183 @@
+{
+  "$defs": {
+    "AvailableSuggestionView": {
+      "additionalProperties": false,
+      "properties": {
+        "copiedByReviewer": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Copiedbyreviewer"
+        },
+        "editedByReviewer": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Editedbyreviewer"
+        },
+        "evidenceQuote": {
+          "title": "Evidencequote",
+          "type": "string"
+        },
+        "evidenceSource": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Evidencesource"
+        },
+        "explanation": {
+          "title": "Explanation",
+          "type": "string"
+        },
+        "fieldKey": {
+          "title": "Fieldkey",
+          "type": "string"
+        },
+        "modelId": {
+          "title": "Modelid",
+          "type": "string"
+        },
+        "promptVersion": {
+          "title": "Promptversion",
+          "type": "string"
+        },
+        "quoteVerified": {
+          "title": "Quoteverified",
+          "type": "boolean"
+        },
+        "signal": {
+          "enum": [
+            "green",
+            "amber",
+            "red"
+          ],
+          "title": "Signal",
+          "type": "string"
+        },
+        "status": {
+          "const": "available",
+          "title": "Status",
+          "type": "string"
+        },
+        "suggestedValue": {
+          "maximum": 9,
+          "minimum": 0,
+          "title": "Suggestedvalue",
+          "type": "integer"
+        },
+        "suggestionId": {
+          "title": "Suggestionid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "fieldKey",
+        "suggestionId",
+        "signal",
+        "suggestedValue",
+        "explanation",
+        "evidenceQuote",
+        "quoteVerified",
+        "evidenceSource",
+        "promptVersion",
+        "modelId"
+      ],
+      "title": "AvailableSuggestionView",
+      "type": "object"
+    },
+    "PendingSuggestionView": {
+      "additionalProperties": false,
+      "properties": {
+        "fieldKey": {
+          "title": "Fieldkey",
+          "type": "string"
+        },
+        "status": {
+          "const": "pending",
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "fieldKey"
+      ],
+      "title": "PendingSuggestionView",
+      "type": "object"
+    },
+    "UnavailableSuggestionView": {
+      "additionalProperties": false,
+      "properties": {
+        "fieldKey": {
+          "title": "Fieldkey",
+          "type": "string"
+        },
+        "status": {
+          "const": "unavailable",
+          "title": "Status",
+          "type": "string"
+        },
+        "unavailableReason": {
+          "enum": [
+            "no_readable_evidence",
+            "private_link",
+            "model_declined",
+            "invalid_output",
+            "no_criteria_for_field",
+            "no_supporting_quote",
+            "out_of_scope_funding",
+            "failed"
+          ],
+          "title": "Unavailablereason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "fieldKey",
+        "unavailableReason"
+      ],
+      "title": "UnavailableSuggestionView",
+      "type": "object"
+    }
+  },
+  "$id": "ai-suggestion-view.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "discriminator": {
+    "mapping": {
+      "available": "#/$defs/AvailableSuggestionView",
+      "pending": "#/$defs/PendingSuggestionView",
+      "unavailable": "#/$defs/UnavailableSuggestionView"
+    },
+    "propertyName": "status"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/AvailableSuggestionView"
+    },
+    {
+      "$ref": "#/$defs/UnavailableSuggestionView"
+    },
+    {
+      "$ref": "#/$defs/PendingSuggestionView"
+    }
+  ]
+}

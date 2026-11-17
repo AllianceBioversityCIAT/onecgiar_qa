@@ -1,0 +1,42 @@
+{
+  "$id": "ai-job-message.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "SQS message: one job per (snapshot, AI-input field). Produced by the QA API sync hook.",
+  "properties": {
+    "fieldKey": {
+      "minLength": 1,
+      "title": "Fieldkey",
+      "type": "string"
+    },
+    "promptVersion": {
+      "minLength": 1,
+      "title": "Promptversion",
+      "type": "string"
+    },
+    "resultCode": {
+      "minLength": 1,
+      "title": "Resultcode",
+      "type": "string"
+    },
+    "runId": {
+      "minLength": 1,
+      "title": "Runid",
+      "type": "string"
+    },
+    "snapKey": {
+      "minLength": 1,
+      "title": "Snapkey",
+      "type": "string"
+    }
+  },
+  "required": [
+    "runId",
+    "resultCode",
+    "snapKey",
+    "fieldKey",
+    "promptVersion"
+  ],
+  "title": "AiJobMessage",
+  "type": "object"
+}

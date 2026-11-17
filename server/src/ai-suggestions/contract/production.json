@@ -1,0 +1,42 @@
+{
+  "promptVersion": "v2-1.0.0",
+  "fieldKeys": [
+    "general.gender_tag",
+    "general.climate_tag",
+    "general.nutrition_tag",
+    "general.environment_tag",
+    "general.poverty_tag",
+    "innovation_dev.readiness_level",
+    "innovation_use.use_level.innovation_use_level"
+  ],
+  "fieldScales": {
+    "general.gender_tag": {
+      "min": 0,
+      "max": 2
+    },
+    "general.climate_tag": {
+      "min": 0,
+      "max": 2
+    },
+    "general.nutrition_tag": {
+      "min": 0,
+      "max": 2
+    },
+    "general.environment_tag": {
+      "min": 0,
+      "max": 2
+    },
+    "general.poverty_tag": {
+      "min": 0,
+      "max": 2
+    },
+    "innovation_dev.readiness_level": {
+      "min": 0,
+      "max": 9
+    },
+    "innovation_use.use_level.innovation_use_level": {
+      "min": 0,
+      "max": 9
+    }
+  }
+}

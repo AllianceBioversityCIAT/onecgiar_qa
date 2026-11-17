@@ -1,0 +1,15 @@
+{
+  "source": "ai-services/ai-qa-helper",
+  "branch": "dev-ai-qa-helper",
+  "commit": "1233a1a",
+  "files": {
+    "production.json": "b8f9688b9fae185ccbd72b919d054a294636c616866350eab253e560246dc393",
+    "schema/ai-job-message.schema.json": "2462a4cab578683b908dfdafaa336c94566726396cfe3596520ad3fb479f401a",
+    "schema/ai-run-item.schema.json": "501ceffaeffae2cc3f596598bc28c7bf2fe2a333b80e562ceb2b705aee890e6c",
+    "schema/ai-suggestion-event.schema.json": "8b5f4ad8cf305d41f7a64ac033170258b19d8d550129f2aba8773356c9c53b1a",
+    "schema/ai-suggestion-item.schema.json": "5915957f502060b1c6c091cfbef1fd51fd9afba3f2c92ee65e96bee3c8674412",
+    "schema/ai-suggestion-view.schema.json": "432c58b8fa608acf7a4ca3aefa58d950c5fbfdf4119b46f09f2605cf10b15d1e",
+    "examples/ai-suggestion-item.available.json": "8bcfa850d2f1ab8155aa5aeac839cedfe37afebea6d080de53a429cbe9431978",
+    "examples/ai-suggestion-item.unavailable.json": "21738010ecae609e3772c6cdbd350c1ca7cb40a2f1e833b8ba84f8e64374080a"
+  }
+}
