@@ -30,6 +30,16 @@ import {
   TITLE_BACKFILL_STORE,
   TitleBackfill,
 } from './title-backfill.js';
+import {
+  AI_SUGGESTION_STORE,
+  DynamoAiSuggestionStore,
+} from '../ai-suggestions/ai-suggestion.store.js';
+import {
+  AiAnalysisController,
+  AiSuggestionsController,
+} from './ai-suggestions.controller.js';
+import { AiSuggestionsService } from './ai-suggestions.service.js';
+import { AI_USAGE_STORE, DrizzleAiUsageStore } from './ai-usage.store.js';
 import { AssessmentController } from './assessment.controller.js';
 import { AssessmentService } from './assessment.service.js';
 import {
@@ -69,6 +79,8 @@ import { DrizzleWorklistStore, WORKLIST_STORE } from './worklist.store.js';
     AssessmentController,
     QuickCommentsController,
     ReleasesController,
+    AiSuggestionsController,
+    AiAnalysisController,
   ],
   imports: [
     DrizzleModule,
@@ -119,6 +131,10 @@ import { DrizzleWorklistStore, WORKLIST_STORE } from './worklist.store.js';
     // The title backfill (T-13, FR-24): a bootstrap hook that is not awaited.
     { provide: TITLE_BACKFILL_STORE, useClass: DrizzleTitleBackfillStore },
     TitleBackfill,
+    // AI suggestions (ai-suggestions T-5, T-8): the worker's items in DynamoDB, the usage rows in MySQL.
+    { provide: AI_SUGGESTION_STORE, useClass: DynamoAiSuggestionStore },
+    { provide: AI_USAGE_STORE, useClass: DrizzleAiUsageStore },
+    AiSuggestionsService,
   ],
 })
 export class AssessmentModule {}

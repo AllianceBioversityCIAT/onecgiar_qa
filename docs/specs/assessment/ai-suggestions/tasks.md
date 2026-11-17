@@ -50,7 +50,7 @@ Rule: this spec does not edit `review-store.ts`, `review.mapper.ts` or `review-c
 
 ## T-4: Enqueue from the sync + re-enqueue route — 18/19-nov
 - **Size:** M · **Depends on:** T-2, T-3 · **Req:** FR-2, FR-3, NFR-1, NFR-2, NFR-5
-- **Scope:** FR-3b (startup warning, `GET /loads/:loadId/ai-jobs` status, 409 `AI_JOBS_DISABLED`); `@aws-sdk/client-sqs`; env `AI_JOBS_QUEUE_URL` (optional, DD-4) in `env.validation.ts`; `ai-jobs.port.ts`, `sqs-ai-jobs.ts`, `ai-enqueue.service.ts`; one call in `load-runner.ts` after `recordLot`; `POST /loads/:loadId/ai-jobs` (ADMIN); `aiRun.expected` UpdateItem
+- **Scope:** FR-3b (startup warning, `GET /timelines/:timelineId/loads/:loadId/ai-jobs` status, 409 `AI_JOBS_DISABLED`); `@aws-sdk/client-sqs`; env `AI_JOBS_QUEUE_URL` (optional, DD-4) in `env.validation.ts`; `ai-jobs.port.ts`, `sqs-ai-jobs.ts`, `ai-enqueue.service.ts`; one call in `load-runner.ts` after `recordLot`; `POST /timelines/:timelineId/loads/:loadId/ai-jobs` (ADMIN); `aiRun.expected` UpdateItem
 - **Tests:** runner spec with a fake publisher (jobs per lot, retry of a lot → same bodies, `expected` set not added); publisher failure → load `completed`, one log line; re-enqueue e2e (ADMIN only); bodies validated against `ai-job-message.schema.json`
 - **Falsifier:** let the publisher error propagate → the "load completes" test red; `ADD expected` → the lot-retry test red
 - **Consumers:** `load-runner.ts` constructor (all runner specs get the no-op adapter)

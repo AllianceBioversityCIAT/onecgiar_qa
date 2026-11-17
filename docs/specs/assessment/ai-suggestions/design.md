@@ -29,25 +29,42 @@ server/drizzle/0010_ai_suggestion_usage.sql (+ rollback)
 
 ## 3. Migration 0010 `ai_suggestion_usage`
 
+Keyed on the **membership and step** (`timeline_result_id`, `step_position`), not on `result_assessments`: a suggestion is shown before the reviewer writes anything, and a read never creates the assessment (step-1-assessment DD-3). FR-11 reaches the assessment through the same pair.
+
 | Column | Type | Note |
 |---|---|---|
 | id | bigint pk | |
 | suggestion_id | char(32) | worker's id |
-| assessment_id | bigint FK `result_assessments` | the step-1 assessment, not a person |
+| timeline_result_id | bigint FK `timeline_results` | the membership, not a person |
+| step_position | tinyint | the reviewer's step |
 | role_code | varchar(32) | ASSESSOR / LEAD_ASSESSOR |
-| field_key | varchar(128) | |
+| field_key | varchar(200) | |
 | prompt_version | varchar(32) | |
-| signal | enum green/amber/red | copied from the suggestion |
+| ai_signal | enum green/amber/red | copied from the suggestion (`signal` is a MySQL reserved word) |
 | action | enum shown/copied/comment_saved/validated_above_ai | |
-| comment_id | bigint null | `comment_saved` |
-| edited | boolean null | `comment_saved` |
+| dedupe_action | varchar(32) generated stored | `IF(action = 'comment_saved', NULL, action)` |
+| comment_id | bigint null, FK `assessment_comments`, unique | `comment_saved` |
+| edited | boolean null | `comment_saved` (never the text) |
 | ai_level | tinyint null | `shown` (from the item's `suggestedValue`) and `validated_above_ai` |
 | reported_level | tinyint null | `shown` (from the item's `reportedValue`) |
 | validated_level | tinyint null | `validated_above_ai` |
 | reason | varchar(200) null | `validated_above_ai` |
 | created_at | datetime(3) | |
 
-Unique `(suggestion_id, assessment_id, action)` for `shown`, `copied`, `validated_above_ai` (generated column `dedupe_key`, null for `comment_saved`). **No user id column** (NFR-3).
+- Unique `uq_ai_usage_once (suggestion_id, timeline_result_id, step_position, dedupe_action)`: `shown`, `copied`, `validated_above_ai` once each; `comment_saved` once per comment (`uq_ai_usage_comment`). A repeat is a 204 no-op.
+- CHECK `chk_ai_usage_above`: a `validated_above_ai` row has a reason and `validated_level >= ai_level + 2`.
+- **No user column** (NFR-3); the schema test fails if one appears.
+- Manual down script: `drizzle/rollback/0010_ai_suggestion_usage.down.sql`.
+
+## 3b. Routes (as built)
+
+| Route | Who | Answer |
+|---|---|---|
+| `GET /timelines/:timelineId/results/:resultCode/ai-suggestions` | `@ReadAccess`; audience by `aiAudienceOf` | `AiSuggestionView[]` (worker's view schema); 403 `AI_SUGGESTIONS_FORBIDDEN` (PPU); 404 as the assessment view; 503 on a DynamoDB failure |
+| `POST …/ai-suggestions/:suggestionId/events` | ASSESSOR / LEAD_ASSESSOR | 204; 400 `AI_EVENT_INVALID`; 403 `ASSESSMENT_READ_ONLY` (TPB, ADMIN) or `AI_SUGGESTIONS_FORBIDDEN` (PPU); 404 `AI_SUGGESTION_NOT_FOUND` (unknown, unavailable or not eligible) |
+| `GET /ai-suggestions/analysis/missing-reasons` | ADMIN | `{ basis: 'shown', fields: [{ fieldKey, promptVersion, withReason, withoutReason }] }` |
+
+**Role rows today.** Only the ASSESSOR row of the role-step table is enabled, so a TPB, LEAD_ASSESSOR or PPU gets the assessment 404 before the audience is decided. Their branches (TPB read-only with the mark, LEAD as reviewer, PPU 403) are unit-tested and take effect when their rows are enabled.
 
 ## 4. Decisions
 

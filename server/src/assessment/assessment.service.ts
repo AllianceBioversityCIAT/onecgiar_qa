@@ -1070,23 +1070,8 @@ export class AssessmentService {
     resultCode: number,
     round?: number,
   ): Promise<AssessmentViewResponse> {
-    const [timeline] = await this.worklist.findTimelines(user.id, timelineId);
-    if (timeline === undefined) throw new AssessmentNotFoundError();
-    const admin = this.authorization.can(user, Permission.ADMIN_ACCESS);
-    const access = resolveAccess(user, timeline.roleCodes, admin);
-    if (!admin && access.reviewerRows.length === 0) {
-      throw new AssessmentNotFoundError();
-    }
-    const stepPosition = this.assessmentStep(timeline, access);
-
-    const membership = await this.store.findMembership({
-      timelineId: timeline.id,
-      resultCode,
-      access,
-      round: round ?? null,
-      assessmentStepPosition: stepPosition,
-    });
-    if (membership === null) throw new AssessmentNotFoundError();
+    const { timeline, access, stepPosition, membership } =
+      await this.resolveMembership(user, timelineId, resultCode, round ?? null);
 
     const timing: StepTiming = {
       steps: timeline.steps,
@@ -1200,6 +1185,65 @@ export class AssessmentService {
                   : assessment.finishedAt.toISOString(),
             },
     };
+  }
+
+  /**
+   * The read side of `open` up to the membership (FR-1): the caller's timeline
+   * and rows, the step whose assessment is read, and the membership in scope.
+   * An out-of-scope result, a missing one and a timeline that is not the
+   * caller's are the same 404. Three statements; nothing is written.
+   */
+  private async resolveMembership(
+    user: AuthenticatedUser,
+    timelineId: number,
+    resultCode: number,
+    round: number | null,
+  ): Promise<{
+    timeline: WorklistTimeline;
+    access: WorklistAccess;
+    stepPosition: number | null;
+    membership: MembershipRecord;
+  }> {
+    const [timeline] = await this.worklist.findTimelines(user.id, timelineId);
+    if (timeline === undefined) throw new AssessmentNotFoundError();
+    const admin = this.authorization.can(user, Permission.ADMIN_ACCESS);
+    const access = resolveAccess(user, timeline.roleCodes, admin);
+    if (!admin && access.reviewerRows.length === 0) {
+      throw new AssessmentNotFoundError();
+    }
+    const stepPosition = this.assessmentStep(timeline, access);
+    const membership = await this.store.findMembership({
+      timelineId: timeline.id,
+      resultCode,
+      access,
+      round,
+      assessmentStepPosition: stepPosition,
+    });
+    if (membership === null) throw new AssessmentNotFoundError();
+    return { timeline, access, stepPosition, membership };
+  }
+
+  /**
+   * What the AI suggestion routes read (ai-suggestions FR-4, FR-8): the same
+   * scope and 404 as `open`, the membership of the latest round, and the field
+   * configuration it is judged by (the pinned version once an assessment
+   * exists, else the timeline's). The caller decides what its role may see.
+   * A read never creates the assessment (DD-3).
+   */
+  async resolveForAi(
+    user: AuthenticatedUser,
+    timelineId: number,
+    resultCode: number,
+  ): Promise<{
+    access: WorklistAccess;
+    stepPosition: number | null;
+    membership: MembershipRecord;
+    config: readonly ConfigItem[];
+  }> {
+    const { timeline, access, stepPosition, membership } =
+      await this.resolveMembership(user, timelineId, resultCode, null);
+    const config = await this.configOf(timeline, membership);
+    return { access, stepPosition, membership, config };
   }
 
   /**

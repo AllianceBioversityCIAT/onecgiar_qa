@@ -350,6 +350,22 @@ export const ERROR_CATALOG = {
     status: 409,
     message: 'This comment can no longer be withdrawn.',
   },
+
+  // --- AI suggestions (ai-suggestions) -------------------------------------
+  AI_SUGGESTIONS_FORBIDDEN: {
+    status: 403,
+    message: 'AI suggestions are not available to your role.',
+  },
+  AI_SUGGESTION_NOT_FOUND: {
+    status: 404,
+    message:
+      'This AI suggestion is not available for this result. Reload the result and try again.',
+  },
+  AI_EVENT_INVALID: {
+    status: 400,
+    message:
+      'This use of the AI suggestion could not be recorded. Reload the result and try again.',
+  },
 } as const satisfies Record<string, { status: number; message: string }>;
 
 export type ErrorCode = keyof typeof ERROR_CATALOG;

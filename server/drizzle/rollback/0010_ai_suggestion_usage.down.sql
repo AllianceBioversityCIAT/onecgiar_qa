@@ -1,0 +1,12 @@
+-- Manual down script for 0010_ai_suggestion_usage (ai-suggestions design 3).
+-- Applied by a human, never by drizzle-kit or by an agent. Run it only on a
+-- database where 0010 was applied, take a backup first, and run it WITHOUT
+-- `--force` so the first failing statement stops the script.
+--
+-- LOSSY: it drops `ai_suggestion_usage` and every usage row (shown, copied,
+-- comment_saved, validated_above_ai and their reasons). The AI suggestions
+-- themselves live in DynamoDB and are not touched.
+--
+-- AFTER a rollback, delete the `0010` row from drizzle's `__drizzle_migrations`
+-- table, or drizzle will not re-apply `0010`.
+DROP TABLE `ai_suggestion_usage`;

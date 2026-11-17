@@ -25,9 +25,9 @@
 - *Idempotent:* a retried lot or a re-enqueue sends the same keys; the worker skips a stored item (C-6), and only `failed` items are replaced.
 - BUT an SQS or DynamoDB failure never fails the lot or the load: it is retried (3 tries, 1 s / 4 s) and then logged once per lot as `event:'ai_enqueue'` with `loadId`, counts and `outcome: failed`; the load completes.
 
-**FR-3 Re-enqueue.** `POST /api/v1/loads/:loadId/ai-jobs` (ADMIN) recomputes the jobs of the load's current `pending` memberships (FR-1) and sends them again. Returns `{expected, sent, failed}`. Safe to repeat.
+**FR-3 Re-enqueue.** `POST /api/v1/timelines/:timelineId/loads/:loadId/ai-jobs` (ADMIN) recomputes the jobs of the load's current `pending` memberships (FR-1) and sends them again. Returns `{expected, sent, failed}`. Safe to repeat.
 
-**FR-3b No silent disable.** With `AI_JOBS_QUEUE_URL` unset the API logs one warning at startup (`ai_jobs_disabled`), the sync logs `outcome: disabled` per load, and both admin routes (`POST` re-enqueue, `GET /api/v1/loads/:loadId/ai-jobs` run status `{runId, expected, produced, unavailable, failed, complete}`) answer 409 `AI_JOBS_DISABLED` "AI disabled: no queue configured." (back lead, 17-nov).
+**FR-3b No silent disable.** With `AI_JOBS_QUEUE_URL` unset the API logs one warning at startup (`ai_jobs_disabled`), the sync logs `outcome: disabled` per load, and both admin routes (`POST` re-enqueue, `GET /api/v1/timelines/:timelineId/loads/:loadId/ai-jobs` run status `{runId, expected, produced, unavailable, failed, complete}`) answer 409 `AI_JOBS_DISABLED` "AI disabled: no queue configured." (back lead, 17-nov).
 
 **FR-4 Read.** `GET /api/v1/timelines/:timelineId/results/:resultCode/ai-suggestions` returns one view per eligible field of the membership's snapshot, validated against `ai-suggestion-view.schema.json`:
 - stored `available` → `available` view (signal, suggestedValue, explanation, evidenceQuote, quoteVerified, evidenceSource, promptVersion, modelId, suggestionId);
@@ -36,7 +36,7 @@
 - One DynamoDB Query: `pk = RESULT#<code>`, `sk begins_with AI#<snapKey>#`, filtered to the production `promptVersion`.
 - Scope and 404 follow the assessment view (`timelines/:timelineId/results/:resultCode/assessment`): out of scope or not in the timeline → the same 404 body.
 
-**FR-5 Roles.** ASSESSOR and LEAD_ASSESSOR: every view, `copiedByReviewer`/`editedByReviewer` omitted. TPB: same views, read-only, with `copiedByReviewer` and `editedByReviewer` (null until M2). ADMIN: same views, read-only, **without** the copied/edited mark (OQ-2: the mark says what a reviewer did; only TPB sees it, as the story asks). PPU: 403 `FORBIDDEN`.
+**FR-5 Roles.** ASSESSOR and LEAD_ASSESSOR: every view, `copiedByReviewer`/`editedByReviewer` omitted. TPB: same views, read-only, with `copiedByReviewer` and `editedByReviewer` (null until M2). ADMIN: same views, read-only, **without** the copied/edited mark (OQ-2: the mark says what a reviewer did; only TPB sees it, as the story asks). PPU: 403 `AI_SUGGESTIONS_FORBIDDEN`. Only the ASSESSOR role-step row is enabled today: TPB, LEAD_ASSESSOR and PPU get the assessment 404 until their rows are enabled (design § 3b).
 
 **FR-5b Role dependency.** The audience rule is a pure function over every role (unit-tested now). Through HTTP it takes effect only for roles whose role-step row is enabled: today only ASSESSOR (and ADMIN read-only). TPB, Lead Assessor and PPU reach it when their stories enable their rows in `assessment/role-steps.ts`; until then they get the assessment scope's 404. **Dependency:** AC1 (Lead), AC2 (TPB) and AC3 (PPU) are verified end-to-end only after those stories (back lead, 17-nov).
 
