@@ -104,7 +104,8 @@ describe('SpResultPage', () => {
       expect(textarea()!.getAttribute('aria-invalid')).toBe('true');
     }
     await type('  Please say which part.  ');
-    expect(el().textContent).toContain('26 / 2000');
+    // Counted as validated and sent: trimmed.
+    expect(el().textContent).toContain('22 / 2000');
     submit().click();
     await settle();
     const req = http.expectOne(`${SP_API}/sp/comments/501/response`);
@@ -192,6 +193,142 @@ describe('SpResultPage', () => {
     expect(el().querySelector('qa-sp-response-form')).toBeNull();
     expect(el().querySelector('input[type=radio]')).toBeNull();
     expect(el().querySelector('[data-testid=sp-read-only]')?.textContent).toContain('Responses open on 21 Nov 2026, 09:00 (Rome time).');
+  });
+
+  it('Save without a choice announces the error and moves focus to the options', async () => {
+    await open(spResult());
+    submit().click();
+    await settle();
+    http.expectNone(`${SP_API}/sp/comments/501/response`);
+    const describedBy = el().querySelector('fieldset')?.getAttribute('aria-describedby');
+    const alert = el().querySelector(`[id="${describedBy}"]`);
+    expect(alert?.textContent).toContain('Choose a response.');
+    expect(alert?.getAttribute('aria-live')).toBe('assertive');
+    expect(document.activeElement).toBe(radio('accept'));
+  });
+
+  it('the character counter counts the trimmed text, like the validation', async () => {
+    await open(spResult());
+    radio('disagree').click();
+    await settle();
+    await type('   ');
+    expect(el().textContent).toContain('0 / 2000');
+    await type(`  ${'x'.repeat(2000)}  `);
+    expect(el().textContent).toContain('2000 / 2000');
+    expect(el().textContent).not.toContain('Keep it to 2000 characters or fewer.');
+  });
+
+  it('comment dates show on the Rome clock', async () => {
+    await open(spResult());
+    // 09:00 UTC on 10 Nov 2026 is 10:00 in Rome (CET).
+    expect(el().querySelector('qa-sp-comment-thread')?.textContent).toContain('10 Nov 2026, 10:00');
+  });
+
+  describe('two comments', () => {
+    const answered = {
+      id: 30,
+      kind: 'disagree' as const,
+      body: 'It is right.',
+      respondedBy: { name: 'Sam Program' },
+      respondedAt: '2026-11-12T08:00:00.000Z',
+    };
+    const twoComments = () =>
+      spResult({}, [spComment(), spComment({ id: 502, body: 'Second remark.' }), spComment({ id: 503, body: 'Third remark.', state: 'disagreed', response: answered, history: [answered] })]);
+    const thread = (i: number) => el().querySelectorAll<HTMLElement>('qa-sp-comment-thread')[i];
+    const radioIn = (i: number, kind: string) => thread(i).querySelector<HTMLInputElement>(`input[type=radio][value=${kind}]`)!;
+    const boxIn = (i: number) => thread(i).querySelector<HTMLTextAreaElement>('textarea');
+    const button = (i: number, text: string) => [...thread(i).querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.includes(text))!;
+
+    it("a 404 on one comment reloads the result but keeps the other forms' unsaved drafts", async () => {
+      await open(twoComments());
+      // Draft on the second comment.
+      radioIn(1, 'disagree').click();
+      await settle();
+      boxIn(1)!.value = 'Half-written reason';
+      boxIn(1)!.dispatchEvent(new Event('input'));
+      // "Change response" open on the third, with a new draft.
+      button(2, 'Change response').click();
+      await settle();
+      radioIn(2, 'accept_with_comment').click();
+      await settle();
+      boxIn(2)!.value = 'Changed my mind';
+      boxIn(2)!.dispatchEvent(new Event('input'));
+      // The first comment's save fails with 404.
+      radioIn(0, 'accept').click();
+      await settle();
+      button(0, 'Save response').click();
+      await settle();
+      http.expectOne(`${SP_API}/sp/comments/501/response`).flush(spErr(404, 'SP_NOT_FOUND'), { status: 404, statusText: 'x' });
+      await settle();
+      (await until(() => http.expectOne((r) => r.url === RESULT_URL))).flush(spOk(twoComments()));
+      await settle();
+
+      expect(el().textContent).toContain('This comment is no longer available.');
+      // The failed comment follows the server: nothing chosen.
+      expect(radioIn(0, 'accept').checked).toBe(false);
+      // The others keep what was typed.
+      expect(radioIn(1, 'disagree').checked).toBe(true);
+      expect(boxIn(1)?.value).toBe('Half-written reason');
+      expect(radioIn(2, 'accept_with_comment').checked).toBe(true);
+      expect(boxIn(2)?.value).toBe('Changed my mind');
+    });
+
+    it('a draft is replaced when that comment changed on the server', async () => {
+      await open(twoComments());
+      radioIn(1, 'disagree').click();
+      await settle();
+      boxIn(1)!.value = 'Half-written reason';
+      boxIn(1)!.dispatchEvent(new Event('input'));
+      radioIn(0, 'accept').click();
+      await settle();
+      button(0, 'Save response').click();
+      await settle();
+      http.expectOne(`${SP_API}/sp/comments/501/response`).flush(spErr(404, 'SP_NOT_FOUND'), { status: 404, statusText: 'x' });
+      await settle();
+      const other = { ...answered, id: 31, kind: 'accept' as const, body: null };
+      (await until(() => http.expectOne((r) => r.url === RESULT_URL))).flush(
+        spOk(spResult({}, [spComment(), spComment({ id: 502, body: 'Second remark.', state: 'accepted', response: other, history: [other] })])),
+      );
+      await settle();
+      // Someone else answered the second comment: it now shows that answer behind "Change response".
+      expect(boxIn(1)).toBeNull();
+      expect(button(1, 'Change response')).toBeDefined();
+    });
+  });
+
+  describe('"Only fields with comments"', () => {
+    const toggle = async () => {
+      el().querySelector<HTMLInputElement>('input[type=checkbox]')!.click();
+      await settle();
+    };
+    const navLabels = () => [...el().querySelectorAll('[data-testid=sp-section-nav] button')].map((b) => b.textContent?.replace(/\s+/g, ' ').trim());
+
+    it('hides sections with no commented field from the navigation too', async () => {
+      const result = spResult();
+      await open({
+        ...result,
+        sections: [
+          ...result.sections,
+          { key: 'impact', label: 'Impact', fields: [{ ...result.sections[0].fields[1], key: 'impact_area', label: 'Impact area' }] },
+        ],
+      });
+      expect(navLabels().length).toBe(2);
+      await toggle();
+      expect(navLabels().length).toBe(1);
+      expect(navLabels()[0]).toContain('General information');
+      expect(el().querySelector('#sp-section-impact')).toBeNull();
+      expect(el().textContent).not.toContain('Description');
+    });
+
+    it('shows an empty state when the result has no comments', async () => {
+      await open(spResult({}, []));
+      expect(el().querySelector('[data-testid=sp-empty]')).toBeNull();
+      await toggle();
+      expect(el().querySelector('[data-testid=sp-empty]')?.textContent).toContain('No comments on this result yet.');
+      expect(navLabels().length).toBe(0);
+      // The filter stays reachable to undo it.
+      expect(el().querySelector('input[type=checkbox]')).not.toBeNull();
+    });
   });
 
   it('404 shows the not-found state', async () => {

@@ -1,13 +1,10 @@
-import { DatePipe } from '@angular/common';
 import { Component, ElementRef, Injector, afterNextRender, computed, inject, input, linkedSignal, output, signal, viewChild } from '@angular/core';
-import { SP_RESPONDABLE_STATES, SpComment, SpRespondAnswer } from '../../core/api/sp.models';
+import { SP_RESPONDABLE_STATES, SpComment, SpRespondAnswer, SpResponse } from '../../core/api/sp.models';
 import { ApiError } from '../../core/http/api-envelope';
 import { QaBadge, QaBadgeStatus, QaButtonImports } from '../../ui';
 import { SpFieldValue } from './sp-field-value';
-import { responseKindLabel, sameValue } from './sp-format';
+import { responseKindLabel, romeMoment, sameValue } from './sp-format';
 import { SpResponseForm } from './sp-response-form';
-
-const DATE_TIME = 'd MMM y, HH:mm';
 
 /**
  * One QA comment as the program sees it (P2-3911 AC6–AC11): the text and its date (never who wrote
@@ -16,13 +13,13 @@ const DATE_TIME = 'd MMM y, HH:mm';
  */
 @Component({
   selector: 'qa-sp-comment-thread',
-  imports: [DatePipe, QaBadge, QaButtonImports, SpFieldValue, SpResponseForm],
+  imports: [QaBadge, QaButtonImports, SpFieldValue, SpResponseForm],
   host: { class: 'flex flex-col gap-3 rounded-[10px] border border-(--border) bg-(--surface) px-4 py-3.5' },
   template: `
     @let c = comment();
     <div class="flex flex-wrap items-center gap-2">
       <span class="text-(length:--fs-12) font-semibold tracking-[0.04em] text-(--text-3) uppercase">QA comment</span>
-      <span class="text-(length:--fs-12) text-(--text-4)">{{ c.createdAt | date: dateTime }}</span>
+      <span class="text-(length:--fs-12) text-(--text-4)">{{ at(c.createdAt) }}</span>
       <qa-badge class="ml-auto" size="sm" [status]="stateTone()">{{ stateLabel() }}</qa-badge>
     </div>
     <p class="m-0 text-(length:--fs-14) leading-[1.5] whitespace-pre-line text-(--text)">{{ c.body }}</p>
@@ -45,7 +42,7 @@ const DATE_TIME = 'd MMM y, HH:mm';
         @if (r.body) {
           <p class="m-0 text-(length:--fs-13) leading-[1.5] whitespace-pre-line text-(--text-2)">{{ r.body }}</p>
         }
-        <span class="text-(length:--fs-12) text-(--text-4)">by {{ r.respondedBy.name }} · {{ r.respondedAt | date: dateTime }}</span>
+        <span class="text-(length:--fs-12) text-(--text-4)">by {{ r.respondedBy.name }} · {{ at(r.respondedAt) }}</span>
       } @else {
         <span class="text-(length:--fs-13) text-(--text-3)">No response yet.</span>
       }
@@ -61,10 +58,10 @@ const DATE_TIME = 'd MMM y, HH:mm';
         <ul class="m-0 flex list-none flex-col gap-2 p-0">
           @for (q of c.clarifications; track q.requestId) {
             <li class="flex flex-col gap-1 rounded-lg border border-(--border-soft) px-3 py-2">
-              <span class="text-(length:--fs-12) text-(--text-4)">Your question · {{ q.requestedAt | date: dateTime }}</span>
+              <span class="text-(length:--fs-12) text-(--text-4)">Your question · {{ at(q.requestedAt) }}</span>
               <p class="m-0 text-(length:--fs-13) whitespace-pre-line text-(--text-2)">{{ q.question }}</p>
               @if (q.answer; as a) {
-                <span class="pt-1 text-(length:--fs-12) text-(--text-4)">Assessor's answer · {{ a.answeredAt | date: dateTime }}</span>
+                <span class="pt-1 text-(length:--fs-12) text-(--text-4)">Assessor's answer · {{ at(a.answeredAt) }}</span>
                 <p class="m-0 text-(length:--fs-13) whitespace-pre-line text-(--text-2)">{{ a.body }}</p>
               } @else {
                 <span class="text-(length:--fs-12) text-(--text-4) italic">Waiting for the assessor's answer.</span>
@@ -85,7 +82,7 @@ const DATE_TIME = 'd MMM y, HH:mm';
               @if (h.body) {
                 <p class="m-0 text-(length:--fs-13) whitespace-pre-line text-(--text-3)">{{ h.body }}</p>
               }
-              <span class="text-(length:--fs-12) text-(--text-4)">by {{ h.respondedBy.name }} · {{ h.respondedAt | date: dateTime }}</span>
+              <span class="text-(length:--fs-12) text-(--text-4)">by {{ h.respondedBy.name }} · {{ at(h.respondedAt) }}</span>
             </li>
           }
         </ol>
@@ -103,8 +100,8 @@ const DATE_TIME = 'd MMM y, HH:mm';
           [current]="c.response"
           [cancellable]="!!c.response"
           (saved)="onSaved($event)"
-          (stepClosed)="stepClosed.emit($event)"
-          (gone)="gone.emit($event)"
+          (stepClosed)="onFailed(); stepClosed.emit($event)"
+          (gone)="onFailed(); gone.emit($event)"
           (cancelled)="editing.set(false)"
         />
       } @else {
@@ -127,10 +124,15 @@ export class SpCommentThread {
 
   private readonly injector = inject(Injector);
   private readonly responseBox = viewChild<ElementRef<HTMLElement>>('responseBox');
-  protected readonly dateTime = DATE_TIME;
-
-  /** Unanswered comments show the form at once; answered ones behind "Change response". */
-  protected readonly editing = linkedSignal(() => this.comment().response === null);
+  /**
+   * Unanswered comments show the form at once; answered ones behind "Change response". A reload of the
+   * page (another comment's save got 404/409) keeps an open "Change response" while this comment's
+   * latest response is the same on the server.
+   */
+  protected readonly editing = linkedSignal<SpResponse | null, boolean>({
+    source: () => this.comment().response,
+    computation: (response, previous) => (previous && previous.source?.id === response?.id ? previous.value : response === null),
+  });
   protected readonly notice = signal('');
 
   protected readonly respondable = computed(() => SP_RESPONDABLE_STATES.includes(this.comment().state));
@@ -149,6 +151,15 @@ export class SpCommentThread {
     if (c.response) return 'answered';
     return c.state === 'open' ? 'pending' : 'neutral';
   });
+
+  protected at(moment: string): string {
+    return romeMoment(moment);
+  }
+
+  /** This comment's save got 404/409 and the page reloads: show what the server has. */
+  protected onFailed(): void {
+    this.editing.set(this.comment().response === null);
+  }
 
   protected kindLabel(kind: string): string {
     return responseKindLabel(kind);

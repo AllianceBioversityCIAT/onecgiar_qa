@@ -12,6 +12,10 @@ interface Draft {
   body: string;
 }
 
+function draftFrom(response: SpResponse | null): Draft {
+  return { kind: response?.kind ?? '', body: response?.body ?? '' };
+}
+
 const NEEDS_TEXT_MESSAGE: Readonly<Record<Exclude<SpResponseKind, 'accept'>, string>> = {
   accept_with_comment: 'Write your comment.',
   disagree: 'Explain why you disagree.',
@@ -29,7 +33,7 @@ const NEEDS_TEXT_MESSAGE: Readonly<Record<Exclude<SpResponseKind, 'accept'>, str
   host: { class: 'block' },
   template: `
     <form class="flex flex-col gap-3" (submit)="$event.preventDefault(); submit()" novalidate>
-      <fieldset class="m-0 flex flex-col gap-2 border-0 p-0" [attr.aria-describedby]="kindError() ? ids.kindError : null">
+      <fieldset #kindGroup class="m-0 flex flex-col gap-2 border-0 p-0" [attr.aria-describedby]="kindError() ? ids.kindError : null">
         <legend class="mb-1 p-0 text-(length:--fs-13) font-semibold text-(--text-2)">Your response</legend>
         <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
           @for (o of options; track o.kind) {
@@ -53,9 +57,8 @@ const NEEDS_TEXT_MESSAGE: Readonly<Record<Exclude<SpResponseKind, 'accept'>, str
             </label>
           }
         </div>
-        @if (kindError(); as message) {
-          <p [id]="ids.kindError" class="m-0 text-(length:--fs-12) text-(--danger)">{{ message }}</p>
-        }
+        <!-- Always in the DOM so the alert is announced when the message appears. -->
+        <p [id]="ids.kindError" aria-live="assertive" aria-atomic="true" class="m-0 text-(length:--fs-12) text-(--danger) empty:hidden">{{ kindError() ?? '' }}</p>
       </fieldset>
 
       @if (needsText()) {
@@ -126,11 +129,16 @@ export class SpResponseForm {
   protected readonly max = SP_TEXT_MAX;
 
   private readonly bodyBox = viewChild<ElementRef<HTMLTextAreaElement>>('bodyBox');
+  private readonly kindGroup = viewChild<ElementRef<HTMLFieldSetElement>>('kindGroup');
 
-  /** Starts from the latest answer, if any (changing a response keeps its text at hand). */
-  private readonly draft = linkedSignal<Draft>(() => {
-    const response = this.current();
-    return { kind: response?.kind ?? '', body: response?.body ?? '' };
+  /**
+   * Starts from the latest answer, if any (changing a response keeps its text at hand). When the page
+   * reloads because another comment's save got 404/409, this unsaved draft stays while this comment's
+   * latest response is the same on the server.
+   */
+  private readonly draft = linkedSignal<SpResponse | null, Draft>({
+    source: () => this.current(),
+    computation: (response, previous) => (previous && previous.source?.id === response?.id ? previous.value : draftFrom(response)),
   });
   protected readonly f = form(this.draft, (p) => {
     validate(p.kind, ({ value }) => (value() ? undefined : { kind: 'required', message: 'Choose a response.' }));
@@ -159,7 +167,8 @@ export class SpResponseForm {
     const kind = this.f.kind().value();
     return kind === 'request_clarification' ? 'Your question' : kind === 'disagree' ? 'Why you disagree' : 'Your comment';
   });
-  protected readonly length = computed(() => charCount(this.f.body().value()));
+  /** Counted as it is sent and validated: trimmed. */
+  protected readonly length = computed(() => charCount(this.f.body().value().trim()));
   protected readonly over = computed(() => this.length() > SP_TEXT_MAX);
 
   protected readonly kindError = computed(() => (this.tried() ? (this.f.kind().errors()[0]?.message ?? null) : null));
@@ -181,7 +190,10 @@ export class SpResponseForm {
     this.refusal.set(null);
     this.serverBodyError.set(null);
     if (this.f().invalid()) {
-      if (this.f.kind().invalid()) return;
+      if (this.f.kind().invalid()) {
+        this.focusKind();
+        return;
+      }
       this.bodyBox()?.nativeElement.focus();
       return;
     }
@@ -200,12 +212,27 @@ export class SpResponseForm {
     }
   }
 
+  /** This save failed and the page reloads: drop the draft, show what the server has. */
+  private followServer(): void {
+    this.draft.set(draftFrom(this.current()));
+    this.tried.set(false);
+  }
+
+  /** The radio group: the checked option, else the first one. */
+  private focusKind(): void {
+    const group = this.kindGroup()?.nativeElement;
+    const radio = group?.querySelector<HTMLInputElement>('input[type=radio]:checked') ?? group?.querySelector<HTMLInputElement>('input[type=radio]');
+    radio?.focus();
+  }
+
   private handle(error: ApiError): void {
     if (error.code === SP_ERROR.STEP_CLOSED) {
+      this.followServer();
       this.stepClosed.emit(error);
       return;
     }
     if (error.status === 404) {
+      this.followServer();
       this.gone.emit(error);
       return;
     }
