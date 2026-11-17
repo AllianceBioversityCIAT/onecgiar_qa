@@ -70,6 +70,11 @@ export interface ViewField {
   /** Reporting's help text for the field tooltip; absent when the catalog row has none. */
   description?: string;
   type: string;
+  /**
+   * Subfield key -> the control list in `labels` its ids belong to (e.g.
+   * `actor_type` -> `actor_types`); absent when no subfield names a list.
+   */
+  subfieldLists?: Record<string, string>;
   mode: FieldMode;
   /** `isCore` of an Assessed field; never set on a View only one. */
   core: boolean;
@@ -149,6 +154,7 @@ export function buildAssessmentView(
       description?: string;
       type: string;
       controlLists: readonly string[];
+      subfieldLists?: Readonly<Record<string, string>>;
     },
     mode: FieldMode,
     core: boolean,
@@ -165,6 +171,9 @@ export function buildAssessmentView(
       value: present ? values[field.key] : null,
       // No value, nothing to label: a field the snapshot lacks carries none.
       labels: present ? labelsOf(field.controlLists) : null,
+      ...(field.subfieldLists
+        ? { subfieldLists: { ...field.subfieldLists } }
+        : {}),
       validated: assessed && input.validated.get(field.key) === true,
       comments: assessed ? [...(commentsOf.get(field.key) ?? [])] : [],
       notApplicable: !present,

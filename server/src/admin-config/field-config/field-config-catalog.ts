@@ -37,6 +37,12 @@ export interface CatalogField {
    * them. Empty for a field that names none.
    */
   controlLists: string[];
+  /**
+   * Subfield key -> the control list its option ids belong to, at any depth,
+   * first occurrence wins. Absent when no subfield names a list. A list field's
+   * entries hold ids (e.g. `actor_type: 1`); this is what turns them into names.
+   */
+  subfieldLists?: Record<string, string>;
 }
 
 export interface FieldCatalog {
@@ -95,6 +101,37 @@ function controlListsOf(row: Json, at: string, into: string[] = []): string[] {
       if (!isObject(sub)) malformed(`${at}.subfields[${i}]`);
       controlListsOf(sub as Json, `${at}.subfields[${i}]`, into);
     });
+  }
+  return into;
+}
+
+const withSubfieldLists = (
+  lists: Record<string, string>,
+): { subfieldLists?: Record<string, string> } =>
+  Object.keys(lists).length === 0 ? {} : { subfieldLists: lists };
+
+/**
+ * Subfield key -> control list, depth first, first occurrence wins. Only reads
+ * rows `controlListsOf` already checked, so it never throws.
+ */
+function subfieldListsOf(
+  row: Json,
+  into: Record<string, string> = {},
+): Record<string, string> {
+  const subfields = row.subfields;
+  if (!Array.isArray(subfields)) return into;
+  for (const sub of subfields as Json[]) {
+    const key = sub.key;
+    const list = sub.control_list;
+    if (
+      typeof key === 'string' &&
+      typeof list === 'string' &&
+      list !== '' &&
+      !Object.hasOwn(into, key)
+    ) {
+      into[key] = list;
+    }
+    subfieldListsOf(sub, into);
   }
   return into;
 }
@@ -169,6 +206,7 @@ export function shapeCatalog(raw: unknown): FieldCatalog {
           : 'optional',
       isNew: r.is_new === true,
       controlLists: controlListsOf(r, at),
+      ...withSubfieldLists(subfieldListsOf(r)),
       ...(r.description === undefined ? {} : { description: r.description }),
     };
   });

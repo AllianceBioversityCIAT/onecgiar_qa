@@ -1,5 +1,9 @@
 // @akili-spec assessment/step-1-assessment
-import { ApiProperty, type ApiPropertyOptions } from '@nestjs/swagger';
+import {
+  ApiProperty,
+  ApiPropertyOptional,
+  type ApiPropertyOptions,
+} from '@nestjs/swagger';
 import { commentStates } from '../../database/drizzle/schema/assessment-comments.js';
 import { QA_STATUSES, type QaStatus } from '../qa-status.js';
 import {
@@ -153,6 +157,15 @@ export class AssessmentFieldModel {
     description: 'The catalog type of the field; `unknown` under `other`',
   })
   type!: string;
+
+  @ApiPropertyOptional({
+    type: 'object',
+    additionalProperties: { type: 'string' },
+    example: { actor_type: 'actor_types' },
+    description:
+      'Subfield key -> the control list in `labels` that names its option ids (e.g. `actor_type` -> `actor_types`); absent when no subfield names a list',
+  })
+  subfieldLists?: Record<string, string>;
 
   @ApiProperty({
     type: String,
