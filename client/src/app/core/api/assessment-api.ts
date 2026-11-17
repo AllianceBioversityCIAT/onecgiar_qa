@@ -65,7 +65,7 @@ export class AssessmentApi {
   // ── Assessment view and writes ──
 
   /** Never creates the assessment. `round` (1 or 2) is read by the server for an admin only. */
-  view(timelineId: number, resultCode: string, round?: 1 | 2): Observable<AssessmentView> {
+  view(timelineId: number, resultCode: number, round?: 1 | 2): Observable<AssessmentView> {
     const params = round ? new HttpParams().set('round', round) : undefined;
     return this.http
       .get<ApiEnvelope<AssessmentView>>(this.assessmentUrl(timelineId, resultCode), { params })
@@ -73,7 +73,7 @@ export class AssessmentApi {
   }
 
   /** Green (`true`) or grey (`false`) for some Assessed fields or all of them. Ends the assessment when every core field is green. */
-  setValidations(timelineId: number, resultCode: string, body: ValidationsBody): Observable<ValidationSummary> {
+  setValidations(timelineId: number, resultCode: number, body: ValidationsBody): Observable<ValidationSummary> {
     const label = `${body.validated ? 'Validate' : 'Unvalidate'} fields of ${resultCode}`;
     return this.http
       .put<ApiEnvelope<ValidationSummary>>(`${this.assessmentUrl(timelineId, resultCode)}/validations`, body, {
@@ -83,7 +83,7 @@ export class AssessmentApi {
   }
 
   /** 201 with the new comment. A replay with the same key answers the first comment again. */
-  addComment(timelineId: number, resultCode: string, fieldKey: string, body: string): Observable<AssessmentComment> {
+  addComment(timelineId: number, resultCode: number, fieldKey: string, body: string): Observable<AssessmentComment> {
     return this.http
       .post<ApiEnvelope<AssessmentComment>>(`${this.assessmentUrl(timelineId, resultCode)}/comments`, { fieldKey, body }, {
         context: this.silent(`Comment on ${resultCode}`),
@@ -101,7 +101,7 @@ export class AssessmentApi {
   }
 
   /** `quality_assessed`, `returned`, or 409 `ASSESSMENT_CORE_UNCOMMENTED` with `ApiError.fieldKeys`. */
-  finish(timelineId: number, resultCode: string): Observable<ValidationSummary> {
+  finish(timelineId: number, resultCode: number): Observable<ValidationSummary> {
     return this.http
       .post<ApiEnvelope<ValidationSummary>>(`${this.assessmentUrl(timelineId, resultCode)}/finish`, null, {
         context: this.silent(`Finish ${resultCode}`).set(NO_QUEUE, true),
@@ -147,8 +147,8 @@ export class AssessmentApi {
       .pipe(unwrap<ReleaseRetryResult>());
   }
 
-  private assessmentUrl(timelineId: number, resultCode: string): string {
-    return `${this.base}/timelines/${timelineId}/results/${encodeURIComponent(resultCode)}/assessment`;
+  private assessmentUrl(timelineId: number, resultCode: number): string {
+    return `${this.base}/timelines/${timelineId}/results/${resultCode}/assessment`;
   }
 
   private silent(label: string): HttpContext {

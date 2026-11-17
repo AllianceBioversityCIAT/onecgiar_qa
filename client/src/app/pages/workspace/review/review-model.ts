@@ -107,6 +107,11 @@ export interface TocCardVm extends CardStatusVm {
   readonly links: readonly TocLinkVm[];
   readonly contrib: number | null;
   readonly target: number | null;
+  /**
+   * Help text of the field the card stands for ('' = none). Left out on a contribution card, which carries the
+   * general note about contributions instead.
+   */
+  readonly tip?: string;
 }
 
 export interface TocGroupVm {

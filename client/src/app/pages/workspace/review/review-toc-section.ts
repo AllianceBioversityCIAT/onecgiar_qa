@@ -25,6 +25,10 @@ export class ReviewTocSection {
   readonly count = input(0);
   readonly programs = input(0);
   readonly reviewed = input(0);
+  /** Section name as the API sends it. */
+  readonly title = input('Theory of change');
+  /** At least one field of the section is Assessed (false = shown for context only: no "Required review"). */
+  readonly requiredReview = input(true);
   readonly act = output<TocCardAction>();
 
   protected readonly tip = TOC_TIP;

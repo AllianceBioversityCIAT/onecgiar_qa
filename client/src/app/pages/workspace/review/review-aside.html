@@ -1,7 +1,7 @@
 @let r = result();
 @if (railOn()) {
   <!-- Collapsed rail: numbered sections, resolved fraction, AI flags -->
-  <button type="button" title="Expand sections" aria-label="Expand sections" [attr.aria-expanded]="false" class="flex size-[26px] flex-none items-center justify-center rounded-[6px] p-0 text-(--text-muted) hover:bg-(--surface-3) hover:text-(--text-3) focus-visible:shadow-(--focus-ring) focus-visible:outline-none" (click)="rail.set(false)">
+  <button type="button" title="Exit focus: show the menu and sections" aria-label="Exit focus: show the menu and sections" [attr.aria-expanded]="false" class="flex size-[26px] flex-none items-center justify-center rounded-[6px] p-0 text-(--text-muted) hover:bg-(--surface-3) hover:text-(--text-3) focus-visible:shadow-(--focus-ring) focus-visible:outline-none" (click)="rail.set(false)">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="-scale-x-100" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3" /><path d="M9 3v18" /></svg>
   </button>
   <div class="my-2 h-px w-6 flex-none bg-(--surface-4)" aria-hidden="true"></div>
@@ -40,7 +40,7 @@
   }
 } @else {
   @if (!narrow()) {
-    <button type="button" title="Collapse sections" aria-label="Collapse sections" [attr.aria-expanded]="true" class="absolute top-4 right-3 z-[2] flex size-[26px] flex-none items-center justify-center rounded-[6px] p-0 text-(--text-muted) hover:bg-(--surface-3) hover:text-(--text-3) focus-visible:shadow-(--focus-ring) focus-visible:outline-none" (click)="rail.set(true)">
+    <button type="button" title="Focus: collapse the menu and sections" aria-label="Focus: collapse the menu and sections" [attr.aria-expanded]="true" class="absolute top-4 right-3 z-[2] flex size-[26px] flex-none items-center justify-center rounded-[6px] p-0 text-(--text-muted) hover:bg-(--surface-3) hover:text-(--text-3) focus-visible:shadow-(--focus-ring) focus-visible:outline-none" (click)="rail.set(true)">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3" /><path d="M9 3v18" /></svg>
     </button>
   }
@@ -59,7 +59,7 @@
           {{ r.status }}
         </span>
       </div>
-      <div class="text-(length:--fs-12) leading-[1.45] font-normal text-pretty text-(--text-4)">{{ cycle.phase }}@if (r.showAssessedBy) { · Assessed by {{ r.assessor }}}</div>
+      <div class="text-(length:--fs-12) leading-[1.45] font-normal text-pretty text-(--text-4)">{{ stepText() }}@if (r.showAssessedBy) { · Assessed by {{ r.assessor }}}</div>
     </div>
   } @else {
   <div class="flex flex-col gap-1.5 pr-8 pl-2.5">
@@ -75,7 +75,7 @@
       }
       {{ r.status }}
     </span>
-    <div [title]="cycle.phase" class="truncate text-(length:--fs-12) font-normal text-(--text-4)">{{ cycle.phase }}</div>
+    <div [title]="stepText()" class="truncate text-(length:--fs-12) font-normal text-(--text-4)">{{ stepText() }}</div>
     @if (r.showAssessedBy) {
       <div class="text-(length:--fs-12) font-normal text-(--text-4)">Assessed by {{ r.assessor }}</div>
     }
@@ -117,7 +117,11 @@
   </nav>
 
   <div class="flex gap-3" [class]="narrow() ? 'mt-3 flex-row flex-wrap items-center gap-x-4 gap-y-2' : 'mt-4 flex-col pt-4'">
-    <div class="text-(length:--fs-13) font-normal text-(--text-3)" aria-live="polite"><span class="font-(family-name:--qa-mono) font-semibold text-(--text-2) tabular-nums">{{ resolved() }}</span> of <span class="font-(family-name:--qa-mono) font-semibold text-(--text-2) tabular-nums">{{ total() }}</span> fields resolved</div>
+    @if (total() > 0) {
+      <div class="text-(length:--fs-13) font-normal text-(--text-3)" aria-live="polite"><span class="font-(family-name:--qa-mono) font-semibold text-(--text-2) tabular-nums">{{ resolved() }}</span> of <span class="font-(family-name:--qa-mono) font-semibold text-(--text-2) tabular-nums">{{ total() }}</span> fields resolved</div>
+    } @else {
+      <div class="text-(length:--fs-13) font-normal text-(--text-3)">No fields to assess in this result</div>
+    }
 
     @if (aiCount() > 0) {
       <button type="button" class="flex items-center gap-2 rounded-[8px] bg-(--ai-tint) px-2.5 py-2 text-left hover:bg-(--ai-tint-2) focus-visible:shadow-(--focus-ring) focus-visible:outline-none" [class.min-h-10]="narrow()" (click)="aiGo.emit()">
@@ -128,11 +132,13 @@
 
     @if (!narrow()) {
       <div class="rounded-[8px] bg-(--surface-3) px-[14px] py-3 text-(length:--fs-13) leading-[1.55] font-normal text-pretty text-(--text-2)">{{ r.instructions }}</div>
-      <a hlmBtn qaBtn tone="secondary" size="sm" [href]="cycle.guidanceUrl" target="_blank" rel="noopener">
-        <span>{{ cycle.guidanceLabel }}</span>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-4)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3" /></svg>
-        <span class="sr-only">(opens in a new tab)</span>
-      </a>
+      @if (guidance(); as g) {
+        <a hlmBtn qaBtn tone="secondary" size="sm" [href]="g.url" target="_blank" rel="noopener">
+          <span>{{ g.label }}</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-4)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3" /></svg>
+          <span class="sr-only">(opens in a new tab)</span>
+        </a>
+      }
     }
 
     @if (r.locked) {
