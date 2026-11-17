@@ -306,8 +306,8 @@ describe('committed migrations', () => {
     .filter((f) => f.endsWith('.sql'))
     .sort();
 
-  it('are exactly eleven SQL files', () => {
-    expect(files).toHaveLength(11);
+  it('are exactly twelve SQL files', () => {
+    expect(files).toHaveLength(12);
   });
 
   const sql = readFileSync(`${migrationsDir}${files[0]}`, 'utf8');
@@ -2557,5 +2557,146 @@ describe('committed migration 0010 (ai_suggestion_usage)', () => {
     expect(down.replace(/^--.*$/gm, '').trim()).toBe(
       'DROP TABLE `ai_suggestion_usage`;',
     );
+  });
+});
+
+// P2-3911 (SP view)
+describe('committed migration 0011 (sp_view)', () => {
+  const files = readdirSync(migrationsDir)
+    .filter((f) => f.endsWith('.sql'))
+    .sort();
+  const read = (path: string) => readFileSync(path, 'utf8');
+  const up = files[11] ? read(`${migrationsDir}${files[11]}`) : '';
+  const downPath = `${migrationsDir}rollback/0011_sp_view.down.sql`;
+  const down = existsSync(downPath) ? read(downPath) : '';
+  const statementsOf = (text: string) =>
+    text
+      .replace(/^--(?!>).*$/gm, '')
+      .split('--> statement-breakpoint')
+      .map((x) => x.trim())
+      .filter(Boolean);
+  const tableSql = (name: string) => {
+    const found = statementsOf(up).find((s) =>
+      s.startsWith(`CREATE TABLE \`${name}\` (`),
+    );
+    expect(found, `CREATE TABLE ${name}`).toBeDefined();
+    return found!;
+  };
+
+  it('is named 0011_sp_view and is the twelfth journal entry', () => {
+    expect(files[11]).toBe('0011_sp_view.sql');
+    const journal = JSON.parse(read(`${migrationsDir}meta/_journal.json`)) as {
+      entries: { idx: number; tag: string }[];
+    };
+    expect(journal.entries[11]).toMatchObject({
+      idx: 11,
+      tag: '0011_sp_view',
+    });
+  });
+
+  it('creates the four SP tables, alters only comment_events among the old tables, and drops nothing', () => {
+    expect(
+      [...up.matchAll(/CREATE TABLE `(\w+)`/g)].map((m) => m[1]).sort(),
+    ).toEqual(
+      [
+        'comment_clarification_answers',
+        'sp_comment_responses',
+        'sp_link_codes',
+        'sp_sessions',
+      ].sort(),
+    );
+    const altered = new Set(
+      [...up.matchAll(/ALTER TABLE `(\w+)`/g)].map((m) => m[1]),
+    );
+    expect([...altered].sort()).toEqual(
+      [
+        'comment_clarification_answers',
+        'comment_events',
+        'sp_comment_responses',
+      ].sort(),
+    );
+    expect(up).not.toMatch(/\bDROP\b/);
+  });
+
+  it('stores only the SHA-256 of a code or a token, unique', () => {
+    const codes = tableSql('sp_link_codes');
+    expect(codes).toContain('`code_hash` char(64) NOT NULL');
+    expect(codes).toContain(
+      'CONSTRAINT `uq_sp_link_codes_code_hash` UNIQUE(`code_hash`)',
+    );
+    expect(codes).toContain('`used_at` datetime,');
+    expect(codes).not.toMatch(/`code`\s/);
+    const sessions = tableSql('sp_sessions');
+    expect(sessions).toContain('`token_hash` char(64) NOT NULL');
+    expect(sessions).toContain(
+      'CONSTRAINT `uq_sp_sessions_token_hash` UNIQUE(`token_hash`)',
+    );
+    expect(sessions).not.toMatch(/`token`\s/);
+  });
+
+  it('keeps an accept without text and every other response kind with text (chk_sp_responses_body)', () => {
+    const t = tableSql('sp_comment_responses');
+    expect(t).toContain(
+      "`kind` enum('accept','accept_with_comment','disagree','request_clarification') NOT NULL",
+    );
+    expect(t).toContain(
+      "CONSTRAINT `chk_sp_responses_body` CHECK((`kind` = 'accept' AND `body` IS NULL) OR (`kind` <> 'accept' AND `body` IS NOT NULL))",
+    );
+    expect(up).toContain(
+      'CREATE INDEX `idx_sp_comment_responses_comment` ON `sp_comment_responses` (`comment_id`,`id`);',
+    );
+  });
+
+  it('answers one clarification request at most once', () => {
+    expect(tableSql('comment_clarification_answers')).toContain(
+      'CONSTRAINT `uq_clarification_answers_response` UNIQUE(`response_id`)',
+    );
+  });
+
+  it('lets a comment event come from an SP response instead of a QA user, never from neither', () => {
+    expect(up).toContain(
+      'ALTER TABLE `comment_events` MODIFY COLUMN `actor_id` int unsigned;',
+    );
+    expect(up).toContain(
+      'ALTER TABLE `comment_events` ADD `sp_response_id` bigint unsigned;',
+    );
+    expect(up).toContain(
+      'ALTER TABLE `comment_events` ADD CONSTRAINT `chk_comment_events_actor` CHECK (`actor_id` IS NOT NULL OR `sp_response_id` IS NOT NULL);',
+    );
+  });
+
+  it('makes every foreign key ON DELETE no action and keeps identifiers within 64 characters', () => {
+    const fks = [...up.matchAll(/ADD CONSTRAINT `(\w+)` FOREIGN KEY[^;]*;/g)];
+    expect(fks.map((m) => m[1]).sort()).toEqual(
+      [
+        'fk_clarification_answers_author',
+        'fk_clarification_answers_comment',
+        'fk_clarification_answers_response',
+        'fk_comment_events_sp_response',
+        'fk_sp_responses_comment',
+      ].sort(),
+    );
+    for (const m of fks) {
+      expect(m[0]).toContain('ON DELETE no action ON UPDATE no action');
+    }
+    for (const m of up.matchAll(/CONSTRAINT `(\w+)`/g)) {
+      expect(m[1].length, m[1]).toBeLessThanOrEqual(64);
+    }
+  });
+
+  it('has a lossy manual down script that restores comment_events and drops the four tables, child first', () => {
+    expect(down).toMatch(/LOSSY/);
+    expect(down).toMatch(/__drizzle_migrations/);
+    expect(statementsOf(down)).toEqual([
+      'ALTER TABLE `comment_events` DROP CONSTRAINT `chk_comment_events_actor`;',
+      'ALTER TABLE `comment_events` DROP FOREIGN KEY `fk_comment_events_sp_response`;',
+      'DELETE FROM `comment_events` WHERE `actor_id` IS NULL;',
+      'ALTER TABLE `comment_events` DROP COLUMN `sp_response_id`;',
+      'ALTER TABLE `comment_events` MODIFY COLUMN `actor_id` int unsigned NOT NULL;',
+      'DROP TABLE `comment_clarification_answers`;',
+      'DROP TABLE `sp_comment_responses`;',
+      'DROP TABLE `sp_sessions`;',
+      'DROP TABLE `sp_link_codes`;',
+    ]);
   });
 });

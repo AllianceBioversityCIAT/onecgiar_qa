@@ -25,6 +25,15 @@ const PUBLIC_ROUTES = [
   'POST /api/v1/auth/session/refresh',
   'POST /api/v1/auth/session/logout',
   'GET /api/v1/health',
+  // P2-3911: Reporting's machine call (sp-access-key) and the code exchange.
+  'POST /api/v1/sp-access/codes',
+  'POST /api/v1/sp-access/session',
+];
+/** P2-3911: the Science Program routes carry the sp-session scheme, never access-token. */
+const isSpRoute = (key: string) => key.split(' ')[1].startsWith('/api/v1/sp/');
+/** P2-3911: the one route that answers a file (text/csv) instead of the JSON envelope. */
+const CSV_ROUTES = [
+  'GET /api/v1/sp/timelines/:timelineId/results/:resultCode/comments.csv',
 ];
 const SESSION_ROUTES = [
   'POST /api/v1/auth/session/refresh',
@@ -122,6 +131,8 @@ describe('OpenAPI document (e2e)', () => {
       );
       if (PUBLIC_ROUTES.includes(key)) {
         expect(schemes, key).not.toContain('access-token');
+      } else if (isSpRoute(key)) {
+        expect(schemes, key).toEqual(['sp-session']);
       } else {
         expect(schemes, key).toContain('access-token');
       }
@@ -163,6 +174,20 @@ describe('OpenAPI document (e2e)', () => {
       'access-token': { type: 'http', scheme: 'bearer' },
       'session-cookie': { type: 'apiKey', in: 'cookie', name: 'qa_rt' },
     });
+  });
+
+  it('declares the SP schemes (P2-3911): the SP session bearer and the x-api-key of the code route', () => {
+    expect(doc.components?.securitySchemes).toMatchObject({
+      'sp-session': { type: 'http', scheme: 'bearer' },
+      'sp-access-key': { type: 'apiKey', in: 'header', name: 'x-api-key' },
+    });
+    const schemesOf = (key: string) =>
+      (operationOf(doc, key).security ?? []).flatMap(Object.keys);
+    expect(schemesOf('POST /api/v1/sp-access/codes')).toEqual([
+      'sp-access-key',
+    ]);
+    expect(schemesOf('POST /api/v1/sp-access/session')).toEqual([]);
+    expect(documentedRoutes(doc).filter(isSpRoute).length).toBeGreaterThan(0);
   });
 
   it('describes the request bodies with their validation bounds', () => {
@@ -216,6 +241,14 @@ describe('OpenAPI document (e2e)', () => {
       const operation = operationOf(doc, key);
       for (const [code, response] of Object.entries(operation.responses)) {
         if (!code.startsWith('2') || code === '204') continue;
+        // P2-3911: the CSV export is a file, not an envelope (its errors are).
+        if (CSV_ROUTES.includes(key)) {
+          expect(
+            (response as { content?: Record<string, unknown> }).content,
+            key,
+          ).toEqual({ 'text/csv': { schema: { type: 'string' } } });
+          continue;
+        }
         const schema = (
           response as { content?: Record<string, { schema?: any }> }
         ).content?.['application/json']?.schema;

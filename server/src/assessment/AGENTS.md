@@ -15,7 +15,7 @@ An assessor (or an ADMIN, read only) lists the memberships of a timeline (`GET /
 | `assessment.controller.ts`, `assessment.service.ts` | 5 routes (view, validations, comments `@Idempotent()`, finish, withdraw). The service owns scope, the 404 that tells nothing, and the removal of Hidden fields; nothing is filtered in the controller |
 | `assessment-view.ts`, `comment-value-copy.ts` | Pure: the view over catalog + snapshot + configuration; the 64 KiB value copy (labels dropped first, then the value cut) |
 | `assessment.store.ts`, `assessment.unit-of-work.ts` | Read and write ports with their Drizzle adapters; one READ COMMITTED transaction per write |
-| `assessment-rules.ts`, `comment-transitions.ts`, `role-steps.ts`, `scope.ts`, `qa-status.ts` | Pure: the end rule; the comment state table (only `open` and `withdrawn` are `reachable` now); the role-step table (ASSESSOR is the only enabled writer); scope and the write decision; the status table, read by `statusOf` (TS) and `statusSqlCase` (SQL) so the two cannot drift |
+| `assessment-rules.ts`, `comment-transitions.ts`, `role-steps.ts`, `scope.ts`, `qa-status.ts` | Pure: the end rule; the comment state table (`open`, `withdrawn`, the author's clarification answer and every program response are `reachable`, P2-3911); the role-step table (ASSESSOR is the only enabled writer); scope and the write decision; the status table, read by `statusOf` (TS) and `statusSqlCase` (SQL) so the two cannot drift |
 | `quick-comments.controller.ts`, `quick-comments.service.ts` | `GET` and `POST /quick-comments` |
 | `release.service.ts`, `release.store.ts`, `releases.controller.ts` | The release outbox and its two admin routes |
 | `title-backfill.ts` | Bootstrap hook (not awaited): fills `timeline_results.title` for memberships written before the column existed |
@@ -29,6 +29,29 @@ An assessor (or an ADMIN, read only) lists the memberships of a timeline (`GET /
 - Items are read from DynamoDB (`AI_SUGGESTION_STORE`, one Query, production prompt version only); a read failure is 503.
 - `ai-usage.store.ts` → `ai_suggestion_usage` (migration 0010), keyed on membership + step. **It measures the AI, not the reviewers:** no user column, no comment text, no route returns usage per reviewer. Do not add one.
 - New codes: `AI_SUGGESTIONS_FORBIDDEN`, `AI_SUGGESTION_NOT_FOUND`, `AI_EVENT_INVALID` (in `ai-suggestions.errors.ts`, kept out of `assessment.errors.ts` so the `ASSESSMENT_*` contract check is unchanged).
+
+## Science Program view (P2-3911, `sp-view/`)
+
+Science Program users (from Reporting, in an iframe) read the QA comments of their program's results and respond to them; the assessor answers a clarification. Contract with Reporting: `docs/sp-view/reporting-integration.md`. Migration `0011_sp_view` (down script in `drizzle/rollback/`).
+
+| Path | Role |
+|---|---|
+| `sp-access.controller.ts`, `sp-access.service.ts`, `sp-access.store.ts`, `sp-api-key.guard.ts`, `sp-tokens.ts` | `POST /sp-access/codes` (Reporting back only, `x-api-key` = `SP_ACCESS_API_KEY`; 201 `{ code, expiresAt }`, single use, 60 s) and `POST /sp-access/session` (`{ code }` → 200 `{ accessToken, expiresAt, user: { name }, program, isReportingAdmin }`, 8 h; 10/min per IP). Both `@Public()` (FR-10 list) |
+| `sp-session.decorator.ts`, `sp-session.guard.ts` | `@SpSession()` = `SP_SESSION_KEY` metadata (`auth/decorators/sp-session.metadata.ts`, so both global Cognito guards skip the route) + `SpSessionGuard` + the `sp-session` OpenAPI scheme. Never set the metadata alone: `auth-hardening.e2e-spec.ts` sweeps every SP route for the guard and a 401 |
+| `sp-view.controller.ts`, `sp-view.service.ts`, `sp-view.store.ts`, `sp-thread.ts` | `/sp/me`, `/sp/timelines`, `/sp/timelines/:id/results`, `/sp/timelines/:id/results/:code` (the assessment view via `AssessmentService.viewInputsFor`, comments in the SP shape), `PUT /sp/comments/:id/response` |
+| `sp-response.service.ts`, `sp-response.unit-of-work.ts` | The program response and the assessor's clarification answer (one transaction each), the assessor's `GET /timelines/:id/results/:code/sp-responses` |
+| `sp-assessor.controller.ts` | Cognito routes: `POST /assessment-comments/:id/clarification-answer`, `GET …/sp-responses` |
+| `sp-csv.ts` | `GET /sp/timelines/:id/results/:code/comments.csv`: `@Res()` so the file skips the envelope (errors keep it); cells quoted and formula starts neutralized |
+| `sp-log.ts`, `sp-view.errors.ts` | `event:'sp_access'` / `event:'sp_response'` lines; the `SP_*` and `CLARIFICATION_NOT_PENDING` codes |
+
+Rules:
+
+- **No assessor identity to the program.** No SP statement selects an author id, nickname, name or email; SP comments carry the responder's name only (the assessor side adds the email, AC12). `test/sp-view.e2e-spec.ts` plants nicknames and names and checks every `/sp` answer.
+- **Step-2 window.** A comment is visible to the program when `visible_to_program_at` is set, it is not withdrawn and the `programs` step has started (in progress or closed); before that, none. Responses and clarification answers only while that step is `in_progress` at the clock's Rome minute (re-judged under the timeline share lock).
+- **Scope = 404.** A non-admin session sees only its program; an admin session names `programId` (400 when missing). Another program, another timeline, a hidden or missing comment: the same 404 `SP_NOT_FOUND` body.
+- **A response changes the comment only**: state (conditional `UPDATE … WHERE state = ?`), an `sp_comment_responses` row, a `comment_events` row with `actor_id` NULL, role `PROGRAM` and `sp_response_id`. Never a validation, the assessment status, a release or the membership. Lock order as above.
+- **Secrets.** Codes and session tokens are 32 random bytes, stored only as SHA-256 hex; the API key is compared in constant time over SHA-256. QA signs nothing.
+- **Logs:** ids, fixed words and error codes only: never an email, a name, a code, a token, the key or a body.
 
 ## Bindings (read before changing credentials, tables or the clock)
 

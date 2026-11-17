@@ -1247,6 +1247,26 @@ export class AssessmentService {
   }
 
   /**
+   * What the Science Program view (P2-3911) builds the same view from, resolved
+   * exactly as `open` resolves it: the configuration (pinned version, else the
+   * timeline's), the catalog of the cycle's year and the snapshot. The caller
+   * has already decided the scope; the same 409 and 503 apply.
+   */
+  async viewInputsFor(
+    timeline: Pick<WorklistTimeline, 'id' | 'cycleId'>,
+    membership: MembershipRecord,
+  ): Promise<{
+    config: readonly ConfigItem[];
+    catalog: Awaited<ReturnType<FieldCatalogSource['forYear']>>;
+    snapshot: ResultSnapshotRecord;
+  }> {
+    const config = await this.configOf(timeline, membership);
+    const catalog = await this.catalogOf(membership.cycleYear);
+    const snapshot = await this.snapshotOf(membership);
+    return { config, catalog, snapshot };
+  }
+
+  /**
    * The items the view follows (design 7.4, DD-3, P-16). With an assessment
    * row, the items of the version it PINNED, in one statement (the membership
    * statement already returned the version's id). With none, `effectiveFor`
@@ -1255,7 +1275,7 @@ export class AssessmentService {
    * that vanished between two reads is the same 404 as any result not seen.
    */
   private async configOf(
-    timeline: WorklistTimeline,
+    timeline: Pick<WorklistTimeline, 'id' | 'cycleId'>,
     membership: MembershipRecord,
   ): Promise<readonly ConfigItem[]> {
     const pinned = membership.assessment;
@@ -1275,7 +1295,7 @@ export class AssessmentService {
 
   /** What the timeline resolves to now (five statements): no version, or a type it does not cover, is the 409; a vanished timeline the 404. */
   private async effectiveConfig(
-    timeline: WorklistTimeline,
+    timeline: Pick<WorklistTimeline, 'id' | 'cycleId'>,
     resultTypeKey: string,
   ): Promise<EffectiveFieldConfig> {
     try {

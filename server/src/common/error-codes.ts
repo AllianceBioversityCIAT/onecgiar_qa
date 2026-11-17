@@ -366,6 +366,49 @@ export const ERROR_CATALOG = {
     message:
       'This use of the AI suggestion could not be recorded. Reload the result and try again.',
   },
+
+  // --- Science Program view (P2-3911) --------------------------------------
+  SP_ACCESS_DISABLED: {
+    status: 503,
+    message: 'Quality Assurance is not available right now. Try again later.',
+  },
+  SP_ACCESS_KEY_INVALID: {
+    status: 401,
+    message: 'This request could not be authenticated.',
+  },
+  SP_PROGRAM_UNKNOWN: {
+    status: 400,
+    message: 'This program is not in Quality Assurance yet.',
+  },
+  SP_CODE_INVALID: {
+    status: 401,
+    message:
+      'This link has expired or was already used. Reload the page to get a new one.',
+  },
+  SP_SESSION_INVALID: {
+    status: 401,
+    message: 'Your session has expired. Reload the page to continue.',
+  },
+  SP_NOT_FOUND: {
+    status: 404,
+    message:
+      'We could not find this result. Go back to the list and try again.',
+  },
+  SP_STEP_CLOSED: {
+    status: 409,
+    message:
+      'The response period for programs is not open. You can still read the comments.',
+  },
+  SP_COMMENT_NOT_RESPONDABLE: {
+    status: 409,
+    message:
+      'This comment can no longer be answered. Reload the result to see its current state.',
+  },
+  CLARIFICATION_NOT_PENDING: {
+    status: 409,
+    message:
+      'There is no clarification waiting for an answer on this comment. Reload the result.',
+  },
 } as const satisfies Record<string, { status: number; message: string }>;
 
 export type ErrorCode = keyof typeof ERROR_CATALOG;

@@ -29,3 +29,6 @@ export * from './quick-comments.js';
 export * from './assessment-audit-events.js';
 export * from './assessment-releases.js';
 export * from './ai-suggestion-usage.js';
+export * from './sp-access.js';
+export * from './sp-comment-responses.js';
+export * from './comment-clarification-answers.js';
