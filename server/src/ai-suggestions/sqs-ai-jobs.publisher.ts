@@ -7,6 +7,7 @@ import {
   type SendMessageBatchRequestEntry,
 } from '@aws-sdk/client-sqs';
 import { aiJobsConfig } from '../config/ai-jobs.config.js';
+import { dynamoDbConfig } from '../config/dynamodb.config.js';
 import type {
   AiJobMessage,
   AiJobsPublisher,
@@ -30,6 +31,26 @@ export const AI_SQS_CLIENT = Symbol('AI_SQS_CLIENT');
  * retried twice; what is still unsent is counted as `failed`, never thrown
  * (NFR-1). Logs carry counts only (NFR-2).
  */
+/**
+ * The SQS client settings: the API's region and the SAME principal as DynamoDB.
+ * Where `DYNAMODB_ACCESS_KEY_ID` / `DYNAMODB_SECRET_ACCESS_KEY` are set (the
+ * TEST host runs with an IAM user, not a role), the queue is reached with those
+ * keys, so `sqs:SendMessage` is granted to that one user; otherwise the
+ * default chain (the host's IAM role), as for DynamoDB.
+ */
+export function sqsClientConfig(
+  ai: Pick<ConfigType<typeof aiJobsConfig>, 'region'>,
+  dynamo: Pick<ConfigType<typeof dynamoDbConfig>, 'credentials'>,
+): {
+  region: string;
+  credentials?: { accessKeyId: string; secretAccessKey: string };
+} {
+  return {
+    region: ai.region,
+    ...(dynamo.credentials ? { credentials: dynamo.credentials } : {}),
+  };
+}
+
 @Injectable()
 export class SqsAiJobsPublisher implements AiJobsPublisher {
   private readonly logger = new Logger(SqsAiJobsPublisher.name);
@@ -39,13 +60,14 @@ export class SqsAiJobsPublisher implements AiJobsPublisher {
 
   constructor(
     @Inject(aiJobsConfig.KEY) config: ConfigType<typeof aiJobsConfig>,
+    @Inject(dynamoDbConfig.KEY) dynamo: ConfigType<typeof dynamoDbConfig>,
     @Inject(AI_JOBS_PAUSE) private readonly pause: AiJobsPause,
     @Optional() @Inject(AI_SQS_CLIENT) client?: SQSClient,
   ) {
     this.queueUrl = config.queueUrl;
     this.enabled = this.queueUrl !== undefined;
     this.client = this.enabled
-      ? (client ?? new SQSClient({ region: config.region }))
+      ? (client ?? new SQSClient(sqsClientConfig(config, dynamo)))
       : null; // No silent disable: one fixed warning at startup, never the env value.
     if (!this.enabled) {
       this.logger.warn('ai_jobs_disabled: no queue configured');

@@ -49,8 +49,10 @@ The first version put `aiPreview` in the environment files. The dev pipeline (`3
 | `qa-ai-suggestions-test` / DLQ | exist, 0 messages, redrive `maxReceiveCount` 3 |
 | `cgiar-qa-test` | ACTIVE |
 | QA API TEST → `cgiar-qa-test` | not visible from this account (the API is neither a Lambda nor an ECS task here); confirm on the host |
-| `sqs:SendMessage` + `AI_JOBS_QUEUE_URL` for the TEST API | requested from Cris; until then the sync logs `ai_enqueue outcome: disabled` and the admin routes answer 409 `AI_JOBS_DISABLED` |
-| PROD: `qa-ai-worker-prod`, `cgiar-qa-prod`, `qa-ai-suggestions-prod` | **none found** in the account checked; T-11 blocked until the worker's PROD stack and table exist (or the right account is named) |
+| `sqs:SendMessage` for the TEST API | Cris granted it (17-nov) to IAM user `qa-ai-deployer`, the worker's deployer (key last used on Lambda; no DynamoDB write). The TEST API runs as IAM user `cgiar-qa-dynamodb-dev` (key used on DynamoDB right after the 17-nov deploy; PutItem/UpdateItem allowed on `cgiar-qa-test`), which still has `sqs:SendMessage` **implicitDeny** on `qa-ai-suggestions-test` (IAM policy simulation). The grant must move to that user |
+| SQS client principal | fixed 17-nov: the publisher reuses the DynamoDB keys when they are set (`sqsClientConfig`); before, it used the default chain and would not have used that IAM user |
+| `AI_JOBS_QUEUE_URL` in the TEST deploy env | to set (devops); until then the sync logs `ai_enqueue outcome: disabled` and the admin routes answer 409 `AI_JOBS_DISABLED` |
+| PROD: `qa-ai-worker-prod`, `cgiar-qa-prod`, `qa-ai-suggestions-prod` | **none found** in the account checked; Cris (17-nov): the PROD IAM user is not created yet. T-11 blocked |
 
 ## Still open
 
