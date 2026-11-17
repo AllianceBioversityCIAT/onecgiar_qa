@@ -1,6 +1,6 @@
 import type { QaBadgeStatus } from '../../ui';
 import type { QaStatus, StepState } from '../../core/api/assessment.models';
-import { formatMoment } from '../../core/domain/rome-date';
+import { formatMoment, nowInRome, splitMoment } from '../../core/domain/rome-date';
 import type { SpFieldLabels, SpResponseKind, SpStep } from '../../core/api/sp.models';
 
 /** QA status labels of the SP view (P2-3911 AC5). */
@@ -47,6 +47,17 @@ export function stepTone(state: StepState): QaBadgeStatus {
 /** `21 Nov 2026, 09:00 – 30 Nov 2026, 17:30 (Rome time)`. */
 export function stepWindow(step: SpStep): string {
   return `${formatMoment(step.opensAt)} – ${formatMoment(step.closesAt)} (Rome time)`;
+}
+
+/**
+ * A moment the API sends as an instant (`2026-11-10T09:00:00.000Z`) shown on the Rome clock, like the
+ * rest of the SP view: `10 Nov 2026, 10:00`. A Rome wall-clock moment (`2026-11-10T10:00`) is formatted
+ * as is; anything unreadable is returned as given.
+ */
+export function romeMoment(text: string): string {
+  if (splitMoment(text)) return formatMoment(text);
+  const at = new Date(text);
+  return Number.isNaN(at.getTime()) ? text : formatMoment(nowInRome(at));
 }
 
 /** Choices of the response form, in the order the form shows them. */
