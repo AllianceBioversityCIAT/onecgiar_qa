@@ -53,9 +53,13 @@ export class ReviewCommentsDrawer {
   readonly quickComments = input<readonly QuickCommentVm[]>([]);
   /** The comment is on its way: the button spins and a second tap does nothing. */
   readonly adding = input(false);
-  /** Index of the comment being withdrawn, or -1. */
-  readonly withdrawingIndex = input(-1);
+  /** Id of the comment being withdrawn. */
+  readonly withdrawingId = input<number | null>(null);
+  /** Why a withdraw did not go through, shown above the thread (a toast would sit behind this drawer). */
+  readonly threadError = input('');
   readonly savingQuick = input(false);
+  /** The text in the box is already a quick comment of the role. */
+  readonly quickSaved = input(false);
   /** What the server said about the text (too long…), shown under the box. */
   readonly serverError = input('');
 
@@ -63,8 +67,10 @@ export class ReviewCommentsDrawer {
   readonly quickPick = output<string>();
   /** Save the draft as a quick comment of the role. */
   readonly saveQuick = output();
-  /** Index of the comment the assessor withdraws. */
+  /** Index of the comment the assessor withdraws (the mockup's comments, which have no id). */
   readonly withdraw = output<number>();
+  /** Id of the comment the author withdraws. */
+  readonly withdrawId = output<number>();
 
   protected readonly query = signal('');
   /** "Discard what you wrote?" step, asked before Esc / overlay / X close a drawer with a draft. */

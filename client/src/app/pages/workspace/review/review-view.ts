@@ -4,6 +4,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { form, requiredError, validate } from '@angular/forms/signals';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
+import { Toasts } from '../../../core/http/toasts';
 import { WorkspaceLayout } from '../../../shell/workspace-layout';
 import { QaButtonImports, QaDialogImports, QaDrawerImports, QaReveal } from '../../../ui';
 import { ReviewAside } from './review-aside';
@@ -21,6 +22,8 @@ import { findField, toDrawerVm, withdrawOpen } from './review.mapper';
 const NARROW_PX = 900;
 /** Longest comment the API takes, counted by character (contract § 6.2). */
 const MAX_COMMENT = 2000;
+/** Toasts sit above the footer of this page (72px; two rows on a phone), where "Finish assessment" is. */
+const TOAST_ABOVE_FOOTER = { desktop: '96px', phone: '148px' } as const;
 /** Below this viewport width the navigator is a drawer (FR-23). */
 const COMPACT_QUERY = '(max-width: 767.98px)';
 
@@ -54,6 +57,7 @@ export class ReviewView {
   protected readonly store = inject(ReviewStore);
   protected readonly layout = inject(WorkspaceLayout);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly toasts = inject(Toasts);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly scroller = viewChild<ElementRef<HTMLElement>>('scroller');
   private readonly titleRow = viewChild<ElementRef<HTMLElement>>('titleRow');
@@ -114,7 +118,7 @@ export class ReviewView {
    * A green write that leaves every core field green ends the assessment as Quality Assessed, and that cannot be
    * undone (FR-14): the reviewer confirms it first. Holds the field key, or `ALL_FIELDS` for Check all.
    */
-  private readonly endingWrite = signal<string | null>(null);
+  private readonly endingWrite = signal<{ readonly key: string; readonly route: string } | null>(null);
   protected readonly confirmEndOpen = signal(false);
 
   // ---- Comments drawer ----
@@ -145,9 +149,13 @@ export class ReviewView {
     const refused = this.refusedText();
     return refused && refused.text === this.commentModel().text ? refused.message : '';
   });
-  protected readonly withdrawingIndex = computed(() => {
-    const id = this.store.withdrawing();
-    return id === null ? -1 : (this.drawerField()?.comments.findIndex((c) => c.id === id) ?? -1);
+  /** Why a withdraw did not go through (shown in the thread: a toast would sit behind the drawer). */
+  protected readonly threadError = signal('');
+  /** The last text this page saved as a quick comment. */
+  private readonly quickSavedText = signal<string | null>(null);
+  protected readonly quickSaved = computed(() => {
+    const text = this.commentModel().text.trim();
+    return !!text && (this.quickSavedText() === text || this.store.quickComments().some((q) => q.body === text));
   });
 
   constructor() {
@@ -156,10 +164,22 @@ export class ReviewView {
       const code = this.routeCode();
       const timeline = this.routeTimeline();
       untracked(() => {
+        // Nothing typed or asked on the result left behind travels to the next one (the same field keys repeat).
         this.drawerOpen.set(false);
+        this.drawerKey.set(null);
+        this.commentModel.set({ text: '' });
+        this.addTried.set(false);
+        this.refusedText.set(null);
+        this.threadError.set('');
+        this.quickSavedText.set(null);
+        this.confirmEndOpen.set(false);
+        this.endingWrite.set(null);
         void this.store.load(code, timeline);
       });
     });
+    // The footer with "Finish assessment" is at the bottom right, where the toasts land: lift them while here.
+    this.toasts.bottomOffset.set(TOAST_ABOVE_FOOTER);
+    this.destroyRef.onDestroy(() => this.toasts.bottomOffset.set(null));
     afterNextRender(() => {
       // The host itself: its first child is the skeleton on the first render, and that one leaves the page.
       const el = this.host.nativeElement;
@@ -217,7 +237,7 @@ export class ReviewView {
 
   private setGreen(key: string): void {
     if (this.wouldEnd(key)) {
-      this.endingWrite.set(key);
+      this.endingWrite.set({ key, route: this.routeKey() });
       this.confirmEndOpen.set(true);
       return;
     }
@@ -229,10 +249,11 @@ export class ReviewView {
   }
 
   protected confirmEnd(): void {
-    const key = this.endingWrite();
+    const asked = this.endingWrite();
     this.confirmEndOpen.set(false);
     this.endingWrite.set(null);
-    if (key !== null) void this.writeGreen(key);
+    // Only on the result it was asked for.
+    if (asked && asked.route === this.routeKey()) void this.writeGreen(asked.key);
   }
 
   /** Every core field would be green after this write (an assessment with no core field never ends this way). */
@@ -250,6 +271,7 @@ export class ReviewView {
       this.commentModel.set({ text: '' });
       this.addTried.set(false);
       this.refusedText.set(null);
+      this.threadError.set('');
     }
     this.drawerKey.set(key);
     this.drawerOpen.set(true);
@@ -326,16 +348,24 @@ export class ReviewView {
   }
 
   /** Saves what is in the box as a quick comment of the role (FR-12). */
-  protected saveQuick(): void {
-    void this.store.saveQuickComment(this.commentModel().text);
+  protected async saveQuick(): Promise<void> {
+    const text = this.commentModel().text.trim();
+    if (await this.store.saveQuickComment(text)) this.quickSavedText.set(text);
   }
 
   protected pickQuick(text: string): void {
     this.commentModel.update(({ text: cur }) => ({ text: cur.trim() ? cur.replace(/\s+$/, '') + '\n' + text : text }));
   }
 
+  protected async withdrawById(id: number): Promise<void> {
+    this.threadError.set('');
+    const outcome = await this.store.withdrawComment(id);
+    if (!outcome.ok && outcome.message) this.threadError.set(outcome.message);
+  }
+
+  /** By position: the mockup's comments, which carry no id. */
   protected withdrawComment(index: number): void {
     const id = this.drawerField()?.comments[index]?.id;
-    if (id !== undefined) void this.store.withdrawComment(id);
+    if (id !== undefined) void this.withdrawById(id);
   }
 }

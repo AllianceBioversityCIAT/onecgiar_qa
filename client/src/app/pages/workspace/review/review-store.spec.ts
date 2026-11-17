@@ -173,12 +173,14 @@ describe('ReviewStore actions (T-20)', () => {
       api.addComment.mockReturnValueOnce(refusal(409, 'ASSESSMENT_FINISHED', 'This assessment is already finished.'));
       api.view.mockReturnValueOnce(of(finishedView()));
       const outcome = await store.addComment('geo.regions', 'Late');
-      expect(outcome.ok).toBe(false);
+      // The message goes back to the form (a toast would sit behind the drawer) and in a toast, for when the form is gone.
+      expect(outcome).toEqual({ ok: false, message: 'This assessment is already finished.' });
+      expect(toasts.error).toHaveBeenCalledTimes(1);
       expect(store.view()!.readOnlyReason).toBe('finished');
     });
 
     it('withdraws an own open comment: it leaves the thread and the counts', async () => {
-      expect(await store.withdrawComment(1)).toBe(true);
+      expect(await store.withdrawComment(1)).toEqual({ ok: true });
       expect(api.withdrawComment).toHaveBeenCalledWith(1);
       expect(field('general.description').comments.find((c) => c.id === 1)!.state).toBe('withdrawn');
       expect(store.vm()!.commented).toBe(0);
@@ -187,9 +189,8 @@ describe('ReviewStore actions (T-20)', () => {
 
     it('409 ASSESSMENT_COMMENT_NOT_OPEN on a withdraw reloads the thread and says why', async () => {
       api.withdrawComment.mockReturnValueOnce(refusal(409, 'ASSESSMENT_COMMENT_NOT_OPEN', 'This comment is no longer open.'));
-      expect(await store.withdrawComment(1)).toBe(false);
+      expect(await store.withdrawComment(1)).toEqual({ ok: false, message: 'This comment is no longer open.' });
       expect(api.view).toHaveBeenCalledTimes(2);
-      expect(toasts.error).toHaveBeenCalledWith('This comment is no longer open.');
     });
   });
 
@@ -227,6 +228,60 @@ describe('ReviewStore actions (T-20)', () => {
     });
   });
 
+  describe('answers that got lost, and ends that could not be read again', () => {
+    it('a finish whose answer never arrived reads the page again: the server may have finished it', async () => {
+      api.finish.mockReturnValueOnce(refusal(0, 'CLIENT_NETWORK_ERROR', 'We could not reach the QA service.'));
+      api.view.mockReturnValueOnce(of(finishedView('returned')));
+      const outcome = await store.finish();
+      expect(outcome.ok).toBe(false);
+      expect(api.view).toHaveBeenCalledTimes(2);
+      expect(store.view()!.readOnlyReason).toBe('finished');
+    });
+
+    it('an ended assessment is read only at once, even when reading it again fails', async () => {
+      api.setValidations.mockReturnValueOnce(
+        of(summary({ status: 'quality_assessed', assessedBy: { id: ME, nickname: 'me' }, finishedAt: '2026-11-17T10:00:00.000Z' })),
+      );
+      api.view.mockReturnValueOnce(refusal(503, 'SERVICE_UNAVAILABLE', 'Try again in a moment.'));
+      await store.setValidated('general.title', true);
+      expect(store.view()!.writable).toBe(false);
+      expect(store.view()!.readOnlyReason).toBe('finished');
+      expect(store.vm()!.canFinish).toBe(false);
+    });
+
+    it('nothing is validated while a finish is on its way, and nothing is finished while a validation is', async () => {
+      const slowFinish = new Subject<ValidationSummary>();
+      api.finish.mockReturnValueOnce(slowFinish);
+      const finishing = store.finish();
+      expect(await store.setValidated('general.description', true)).toBe(false);
+      expect(api.setValidations).not.toHaveBeenCalled();
+      slowFinish.error(new ApiError({ status: 503, code: 'SERVICE_UNAVAILABLE', message: 'Try again in a moment.' }));
+      await finishing;
+
+      const slowWrite = new Subject<ValidationSummary>();
+      api.setValidations.mockReturnValueOnce(slowWrite);
+      const writing = store.setValidated('general.description', true);
+      expect((await store.finish()).ok).toBe(false);
+      expect(api.finish).toHaveBeenCalledTimes(1);
+      slowWrite.next(summary());
+      slowWrite.complete();
+      await writing;
+    });
+
+    it('opening another result drops the busy marks of the one left behind', async () => {
+      api.setValidations.mockReturnValueOnce(new Subject<ValidationSummary>());
+      void store.setValidated('general.description', true);
+      expect(store.validating().size).toBe(1);
+      await store.load('8793', '29');
+      expect(store.validating().size).toBe(0);
+    });
+
+    it('a withdraw that is refused gives its message back (the thread shows it: a toast would sit behind the drawer)', async () => {
+      api.withdrawComment.mockReturnValueOnce(refusal(503, 'SERVICE_UNAVAILABLE', 'Try again in a moment.'));
+      expect(await store.withdrawComment(1)).toEqual({ ok: false, message: 'Try again in a moment.' });
+    });
+  });
+
   describe('quick comments (FR-12)', () => {
     it('reads the list of the assessor role once', async () => {
       api.quickComments.mockReturnValue(of([{ id: 3, body: 'Add the evidence link.', createdAt: '2026-11-10T10:00:00.000Z' }]));
@@ -242,6 +297,17 @@ describe('ReviewStore actions (T-20)', () => {
       await store.loadQuickComments();
       expect(store.quickComments()).toEqual([]);
       expect(toasts.error).not.toHaveBeenCalled();
+    });
+
+    it('a text saved while the list was still loading is kept when the list lands', async () => {
+      const slow = new Subject<readonly QuickComment[]>();
+      api.quickComments.mockReturnValueOnce(slow);
+      const loading = store.loadQuickComments();
+      await store.saveQuickComment('Name the partner.');
+      slow.next([{ id: 3, body: 'Add the evidence link.', createdAt: '2026-11-10T10:00:00.000Z' }]);
+      slow.complete();
+      await loading;
+      expect(store.quickComments().map((q) => q.id)).toEqual([9, 3]);
     });
 
     it('saves a text on top of the list, once (the server answers the same entry for the same text)', async () => {

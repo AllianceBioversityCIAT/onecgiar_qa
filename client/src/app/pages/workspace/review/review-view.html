@@ -170,12 +170,15 @@
   [focusTick]="focusTick()"
   [quickComments]="quickComments()"
   [adding]="store.commenting()"
-  [withdrawingIndex]="withdrawingIndex()"
+  [withdrawingId]="store.withdrawing()"
+  [threadError]="threadError()"
   [savingQuick]="store.savingQuick()"
+  [quickSaved]="quickSaved()"
   (add)="addComment()"
   (quickPick)="pickQuick($event)"
   (saveQuick)="saveQuick()"
   (withdraw)="withdrawComment($event)"
+  (withdrawId)="withdrawById($event)"
 />
 
 <!-- ===== A green write that ends the assessment (FR-14): confirmed first, it cannot be undone ===== -->

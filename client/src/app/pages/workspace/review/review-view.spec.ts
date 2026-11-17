@@ -59,7 +59,7 @@ class FakeApi {
 describe('ReviewView on the assessment API', () => {
   let api: FakeApi;
   let harness: RouterTestingHarness;
-  let toasts: { error: ReturnType<typeof vi.fn>; success: ReturnType<typeof vi.fn>; info: ReturnType<typeof vi.fn> };
+  let toasts: { error: ReturnType<typeof vi.fn>; success: ReturnType<typeof vi.fn>; info: ReturnType<typeof vi.fn>; bottomOffset: ReturnType<typeof signal<{ readonly desktop: string; readonly phone: string } | null>> };
 
   const open = async (url = '/results/9890?timeline=29') => {
     harness = await RouterTestingHarness.create(url);
@@ -76,7 +76,7 @@ describe('ReviewView on the assessment API', () => {
 
   beforeEach(() => {
     api = new FakeApi();
-    toasts = { error: vi.fn(), success: vi.fn(), info: vi.fn() };
+    toasts = { error: vi.fn(), success: vi.fn(), info: vi.fn(), bottomOffset: signal<{ readonly desktop: string; readonly phone: string } | null>(null) };
     TestBed.configureTestingModule({
       providers: [
         provideRouter([
@@ -328,6 +328,40 @@ describe('ReviewView on the assessment API', () => {
       });
     });
 
+    it('lifts the toasts above its footer while it is open (they land on "Finish assessment" otherwise), and puts them back when it leaves', async () => {
+      await open();
+      expect(toasts.bottomOffset()).toEqual({ desktop: '96px', phone: '148px' });
+      await harness.navigateByUrl('/results');
+      expect(toasts.bottomOffset()).toBeNull();
+    });
+
+    describe('another result on the same page (the router reuses it)', () => {
+      it('the question of an ending write does not travel: confirming it later writes nothing on the other result', async () => {
+        const el = await open();
+        byName(el, 'Check all')!.click();
+        await settle();
+        expect(document.body.textContent).toContain('Finish as Quality Assessed?');
+        await harness.navigateByUrl('/results/8793?timeline=29');
+        await settle();
+        expect(document.body.textContent).not.toContain('Finish as Quality Assessed?');
+        (harness.routeDebugElement!.componentInstance as { confirmEnd(): void }).confirmEnd();
+        await settle();
+        expect(api.setValidations).not.toHaveBeenCalled();
+      });
+
+      it('a comment draft does not travel either: the same field of another result opens with an empty box', async () => {
+        const el = await open();
+        byName(el, 'Add comment for Title of Result')!.click();
+        await settle();
+        type('About result 9890 only');
+        await harness.navigateByUrl('/results/8793?timeline=29');
+        await settle();
+        byName(harness.routeNativeElement as HTMLElement, 'Add comment for Title of Result')!.click();
+        await settle();
+        expect(draftBox().value).toBe('');
+      });
+    });
+
     describe('comments (FR-11, FR-12, FR-13)', () => {
       const openThread = async (el: HTMLElement, button: string) => {
         byName(el, button)!.click();
@@ -419,10 +453,32 @@ describe('ReviewView on the assessment API', () => {
         await openThread(el, 'View comments2 for Description of Result');
         const items = [...document.querySelectorAll('ol[aria-label="Comments"] li')];
         expect(items.map((li) => !![...li.querySelectorAll('button')].find((b) => text(b) === 'Withdraw comment'))).toEqual([true, false]);
-        anywhere('Withdraw comment')!.click();
+        // Each one says which comment it takes back (they all read "Withdraw comment").
+        anywhere('Withdraw your comment of 12 Nov 2026')!.click();
         await settle();
         expect(api.withdrawComment).toHaveBeenCalledWith(1);
         expect(text(document.querySelector('ol[aria-label="Comments"]')!)).not.toContain('Add the evidence link.');
+      });
+
+      it('a withdraw that fails says why inside the thread (a toast would sit behind the drawer)', async () => {
+        api.withdrawComment.mockReturnValueOnce(refusal(503, 'SERVICE_UNAVAILABLE', 'Try again in a moment.'));
+        const el = await open();
+        await openThread(el, 'View comments1 for Description of Result');
+        anywhere('Withdraw your comment of 12 Nov 2026')!.click();
+        await settle();
+        expect(document.querySelector('#review-thread-error')?.textContent).toContain('Try again in a moment.');
+        expect(text(document.querySelector('ol[aria-label="Comments"]')!)).toContain('Add the evidence link.');
+      });
+
+      it('after saving a quick comment the link says so, until the text changes', async () => {
+        const el = await open();
+        await openThread(el, 'Add comment for Title of Result');
+        type('Name the partner.');
+        anywhere('Save as quick comment')!.click();
+        await settle();
+        expect(anywhere('Saved as quick comment')).toBeDefined();
+        type('Name the partner and the country.');
+        expect(anywhere('Save as quick comment')).toBeDefined();
       });
 
       it('a view-only field never gets the comment form', async () => {

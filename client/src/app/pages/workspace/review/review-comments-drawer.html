@@ -12,6 +12,9 @@
       <qa-review-instruction-note [text]="f.ppuNote" label="Note for the PPU" />
     }
 
+    @if (threadError()) {
+      <div id="review-thread-error" role="alert" class="text-(length:--fs-13) leading-[1.5] text-(--danger)">{{ threadError() }}</div>
+    }
     @if (f.comments.length) {
       <ol class="m-0 flex list-none flex-col gap-2.5 p-0" aria-label="Comments">
         @for (c of f.comments; track $index) {
@@ -36,7 +39,7 @@
               <!-- The assessor can take a comment back while the program has not answered it (Yeck, 2026-11-11). -->
               @if (c.canWithdraw || $index === f.withdrawIndex) {
                 <div class="flex">
-                  <button hlmBtn qaBtn tone="link" size="sm" flush="start" type="button" [loading]="withdrawingIndex() === $index" (click)="withdraw.emit($index)">Withdraw comment</button>
+                  <button hlmBtn qaBtn tone="link" size="sm" flush="start" type="button" [attr.aria-label]="'Withdraw your comment of ' + c.date" [loading]="c.id !== undefined && withdrawingId() === c.id" (click)="c.id !== undefined ? withdrawId.emit(c.id) : withdraw.emit($index)">Withdraw comment</button>
                 </div>
               }
             </li>
@@ -57,7 +60,7 @@
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2zM8 8h8M8 12h5" /></svg>
           Quick comment
         </button>
-        <button hlmBtn qaBtn tone="link" size="sm" type="button" class="ml-auto" [disabled]="!hasDraft()" [loading]="savingQuick()" (click)="saveQuick.emit()">Save as quick comment</button>
+        <button hlmBtn qaBtn tone="link" size="sm" type="button" class="ml-auto" [disabled]="!hasDraft() || quickSaved()" [loading]="savingQuick()" (click)="saveQuick.emit()">{{ quickSaved() ? 'Saved as quick comment' : 'Save as quick comment' }}</button>
       </div>
 
       <label for="review-comment-draft" class="sr-only">Write a comment</label>

@@ -25,10 +25,17 @@ export interface ReviewError {
   readonly message: string;
 }
 
-/** A comment that stays in its form when refused: the message goes next to what the reviewer typed. */
+/**
+ * The comment form and its thread live in a drawer, and a toast sits behind it: what the server said goes back to the
+ * caller, which shows it inside the drawer.
+ */
 export type CommentOutcome = { readonly ok: true; readonly comment: AssessmentComment } | { readonly ok: false; readonly message: string };
+export type WithdrawOutcome = { readonly ok: true } | { readonly ok: false; readonly message: string };
 
-/** `coreKeys`: the core fields still neither green nor commented (409 `ASSESSMENT_CORE_UNCOMMENTED`). */
+/**
+ * `coreKeys`: the core fields still neither green nor commented (409 `ASSESSMENT_CORE_UNCOMMENTED`).
+ * `message` is '' when the page was out of date: it was read again and the reason said in a toast.
+ */
 export type FinishOutcome = { readonly ok: true } | { readonly ok: false; readonly message: string; readonly coreKeys?: readonly string[] };
 
 const NOT_FOUND: ReviewError = {
@@ -120,6 +127,9 @@ export class ReviewStore {
   /** `code` and `timeline` as the URL carries them. */
   async load(code: string | null, timeline: string | null): Promise<void> {
     const seq = ++this.seq;
+    // The busy marks belong to the result left behind (its answers are dropped by `still`).
+    this.validating.set(new Set());
+    this.overlapped = false;
     this.state.set('loading');
     this.error.set(null);
     const resultCode = positiveInt(code);
@@ -163,7 +173,8 @@ export class ReviewStore {
   private async validate(busyKey: string, body: ValidationsBody): Promise<boolean> {
     const at = this.target();
     const busy = this.validating();
-    if (!at || busy.has(busyKey) || busy.has(ALL_FIELDS) || (busyKey === ALL_FIELDS && busy.size > 0)) return false;
+    // Not while a finish is on its way: its end and this answer could land in either order.
+    if (!at || this.finishing() || busy.has(busyKey) || busy.has(ALL_FIELDS) || (busyKey === ALL_FIELDS && busy.size > 0)) return false;
     if (busy.size > 0) this.overlapped = true;
     this.validating.update((set) => new Set(set).add(busyKey));
     try {
@@ -172,7 +183,11 @@ export class ReviewStore {
       await this.applySummary(summary);
       return true;
     } catch (error) {
-      if (this.still(at)) await this.refused(toApiError(error));
+      if (this.still(at)) {
+        const e = toApiError(error);
+        await this.resync(e);
+        this.toasts.error(e.message);
+      }
       return false;
     } finally {
       this.validating.update((set) => {
@@ -190,7 +205,7 @@ export class ReviewStore {
 
   // ---------- Comments (FR-11, FR-13) ----------
 
-  /** A refused text keeps its form: the caller shows `message` next to it. */
+  /** A refused text keeps its form: the caller shows `message` next to it, inside the drawer. */
   async addComment(fieldKey: string, body: string): Promise<CommentOutcome> {
     const at = this.target();
     const text = body.trim();
@@ -205,24 +220,27 @@ export class ReviewStore {
       const e = toApiError(error);
       if (!this.still(at)) return { ok: false, message: e.message };
       if (e.status === 400 || e.status === 413 || e.status === 422) return { ok: false, message: e.fields[0]?.message ?? e.message };
-      return { ok: false, message: await this.refused(e) };
+      // Out of date: the form is about to leave the drawer, so the reason also goes in a toast.
+      if (await this.resync(e)) this.toasts.error(e.message);
+      return { ok: false, message: e.message };
     } finally {
       this.commenting.set(false);
     }
   }
 
   /** The author takes back an own open comment: it leaves the counts and the program's view. */
-  async withdrawComment(commentId: number): Promise<boolean> {
+  async withdrawComment(commentId: number): Promise<WithdrawOutcome> {
     const at = this.target();
-    if (!at || this.withdrawing() !== null) return false;
+    if (!at || this.withdrawing() !== null) return { ok: false, message: '' };
     this.withdrawing.set(commentId);
     try {
       const saved = await firstValueFrom(this.api.withdrawComment(commentId));
       if (this.still(at)) this.patchComments(saved.fieldKey, (list) => list.map((c) => (c.id === saved.id ? saved : c)));
-      return true;
+      return { ok: true };
     } catch (error) {
-      if (this.still(at)) await this.refused(toApiError(error));
-      return false;
+      const e = toApiError(error);
+      if (this.still(at)) await this.resync(e);
+      return { ok: false, message: e.message };
     } finally {
       this.withdrawing.set(null);
     }
@@ -232,7 +250,8 @@ export class ReviewStore {
 
   async finish(): Promise<FinishOutcome> {
     const at = this.target();
-    if (!at || this.finishing()) return { ok: false, message: '' };
+    // Not while a green/grey write is on its way: its answer could repaint a pending state over the end.
+    if (!at || this.finishing() || this.validating().size > 0) return { ok: false, message: '' };
     this.finishing.set(true);
     try {
       const summary = await firstValueFrom(this.api.finish(at.timelineId, at.resultCode));
@@ -242,7 +261,11 @@ export class ReviewStore {
       const e = toApiError(error);
       if (!this.still(at)) return { ok: false, message: e.message };
       if (e.code === ASSESSMENT_ERROR.CORE_UNCOMMENTED) return { ok: false, message: e.message, coreKeys: e.fieldKeys };
-      return { ok: false, message: await this.refused(e) };
+      if (await this.resync(e)) {
+        this.toasts.error(e.message);
+        return { ok: false, message: '' };
+      }
+      return { ok: false, message: e.message };
     } finally {
       this.finishing.set(false);
     }
@@ -255,7 +278,9 @@ export class ReviewStore {
     if (this.quickLoaded) return;
     this.quickLoaded = true;
     try {
-      this.quickComments.set(await firstValueFrom(this.api.quickComments(WRITER_ROLE)));
+      const list = await firstValueFrom(this.api.quickComments(WRITER_ROLE));
+      // A text saved while the list was on its way stays on top.
+      this.quickComments.update((mine) => [...mine.filter((q) => !list.some((l) => l.id === q.id)), ...list]);
     } catch (error) {
       // 403 = no live grant of the role (an admin): nothing to show. Anything else may work on the next open.
       if (toApiError(error).status !== 403) this.quickLoaded = false;
@@ -309,10 +334,13 @@ export class ReviewStore {
             fields: s.fields.map((f) => (f.mode === 'assessed' ? { ...f, validated: green.get(f.key) ?? false } : f)),
           })),
           assessment: { status: summary.status, assessedBy: summary.assessedBy, finishedAt: summary.finishedAt },
+          // An ended assessment takes no more writes, whatever the read that follows manages to bring.
+          ...(summary.status === 'pending' ? {} : { writable: false, readOnlyReason: 'finished' as const }),
         },
     );
     if (summary.status === 'pending') return;
     await this.reload();
+    if (this.state() !== 'ready') return;
     this.toasts.success(
       summary.status === 'quality_assessed' ? 'Assessment finished: Quality Assessed.' : 'Assessment finished: returned to the program.',
     );
@@ -331,11 +359,14 @@ export class ReviewStore {
     );
   }
 
-  /** A refused write: the server's message, after reading the page again when the refusal means it is out of date. */
-  private async refused(e: ApiError): Promise<string> {
-    if (OUT_OF_DATE.has(e.code)) await this.reload();
-    this.toasts.error(e.message);
-    return e.message;
+  /**
+   * After a refused write, reads the assessment again when the refusal says the page is out of date, and also when the
+   * answer never arrived (status 0): the server may have done it. True = the page was out of date.
+   */
+  private async resync(e: ApiError): Promise<boolean> {
+    const outOfDate = OUT_OF_DATE.has(e.code);
+    if (outOfDate || e.status === 0) await this.reload();
+    return outOfDate;
   }
 
   /**
