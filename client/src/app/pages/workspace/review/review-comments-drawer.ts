@@ -3,7 +3,7 @@ import { FieldTree, FormField } from '@angular/forms/signals';
 import { UnsavedChanges } from '../../../core/forms/unsaved-changes';
 import { QaButtonImports, QaDrawerCloseGuard, QaDrawerImports, QaMenuImports } from '../../../ui';
 import { ReviewInstructionNote } from './review-instruction-note';
-import { FieldComment, QUICK_COMMENTS } from './review.mock';
+import { FieldComment } from './review.mock';
 
 /**
  * What the form at the bottom does: the assessor adds a comment, the lead assessor writes the instruction for the
@@ -27,6 +27,12 @@ export interface CommentsDrawerVm {
   readonly withdrawIndex: number;
 }
 
+/** A text saved for the whole role (FR-12). */
+export interface QuickCommentVm {
+  readonly id: number;
+  readonly text: string;
+}
+
 /** 480px drawer with the comment thread of one field, quick comments and the comment form. */
 @Component({
   selector: 'qa-review-comments-drawer',
@@ -43,11 +49,28 @@ export class ReviewCommentsDrawer {
   readonly showError = input(false);
   /** Bumped by the view to move focus back to the textarea (open, quick comment, failed submit). */
   readonly focusTick = input(0);
+  /** Texts the role saved, newest first. */
+  readonly quickComments = input<readonly QuickCommentVm[]>([]);
+  /** The comment is on its way: the button spins and a second tap does nothing. */
+  readonly adding = input(false);
+  /** Id of the comment being withdrawn. */
+  readonly withdrawingId = input<number | null>(null);
+  /** Why a withdraw did not go through, shown above the thread (a toast would sit behind this drawer). */
+  readonly threadError = input('');
+  readonly savingQuick = input(false);
+  /** The text in the box is already a quick comment of the role. */
+  readonly quickSaved = input(false);
+  /** What the server said about the text (too long…), shown under the box. */
+  readonly serverError = input('');
 
   readonly add = output();
   readonly quickPick = output<string>();
-  /** Index of the comment the assessor withdraws. */
+  /** Save the draft as a quick comment of the role. */
+  readonly saveQuick = output();
+  /** Index of the comment the assessor withdraws (the mockup's comments, which have no id). */
   readonly withdraw = output<number>();
+  /** Id of the comment the author withdraws. */
+  readonly withdrawId = output<number>();
 
   protected readonly query = signal('');
   /** "Discard what you wrote?" step, asked before Esc / overlay / X close a drawer with a draft. */
@@ -65,11 +88,11 @@ export class ReviewCommentsDrawer {
     this.confirmDiscard.set(true);
     return false;
   };
-  protected readonly groups = computed(() => {
+  protected readonly matches = computed(() => {
     const q = this.query().trim().toLowerCase();
-    const list = QUICK_COMMENTS.filter((c) => !q || c.text.toLowerCase().includes(q) || c.cat.toLowerCase().includes(q));
-    return [...new Set(list.map((c) => c.cat))].map((cat) => ({ cat, items: list.filter((c) => c.cat === cat) }));
+    return this.quickComments().filter((c) => !q || c.text.toLowerCase().includes(q));
   });
+  protected readonly hasDraft = computed(() => !!this.text()().value().trim());
 
   private readonly textarea = viewChild<ElementRef<HTMLTextAreaElement>>('draftBox');
   private readonly search = viewChild<ElementRef<HTMLInputElement>>('qcSearch');

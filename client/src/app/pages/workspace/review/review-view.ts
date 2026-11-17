@@ -4,8 +4,9 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { form, requiredError, validate } from '@angular/forms/signals';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
+import { Toasts } from '../../../core/http/toasts';
 import { WorkspaceLayout } from '../../../shell/workspace-layout';
-import { QaButtonImports, QaDrawerImports, QaReveal } from '../../../ui';
+import { QaButtonImports, QaDialogImports, QaDrawerImports, QaReveal } from '../../../ui';
 import { ReviewAside } from './review-aside';
 import { ReviewCodeInfo } from './review-code-info';
 import { CommentsDrawerMode, CommentsDrawerVm, ReviewCommentsDrawer } from './review-comments-drawer';
@@ -13,13 +14,17 @@ import { ReviewFieldCard } from './review-field-card';
 import { FooterMode, ReviewFooter } from './review-footer';
 import { CardAction, SectionNavVm } from './review-model';
 import { ReviewSkeleton } from './review-skeleton';
-import { ReviewStore } from './review-store';
+import { ALL_FIELDS, ReviewStore } from './review-store';
 import { REVIEW_AI_PROVIDERS, ReviewAiHook } from './ai/review-ai-hook';
 import { ReviewTocSection, TocCardAction } from './review-toc-section';
-import { findField, toDrawerVm } from './review.mapper';
+import { findField, toDrawerVm, withdrawOpen } from './review.mapper';
 
 /** The review area stacks its navigator on top below this width (container). */
 const NARROW_PX = 900;
+/** Longest comment the API takes, counted by character (contract § 6.2). */
+const MAX_COMMENT = 2000;
+/** Toasts sit above the footer of this page (72px; two rows on a phone), where "Finish assessment" is. */
+const TOAST_ABOVE_FOOTER = { desktop: '96px', phone: '148px' } as const;
 /** Below this viewport width the navigator is a drawer (FR-23). */
 const COMPACT_QUERY = '(max-width: 767.98px)';
 
@@ -33,6 +38,7 @@ const COMPACT_QUERY = '(max-width: 767.98px)';
   templateUrl: './review-view.html',
   imports: [
     QaButtonImports,
+    QaDialogImports,
     QaDrawerImports,
     QaReveal,
     RouterLink,
@@ -54,6 +60,7 @@ export class ReviewView {
   protected readonly ai = inject(ReviewAiHook);
   protected readonly layout = inject(WorkspaceLayout);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly toasts = inject(Toasts);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly scroller = viewChild<ElementRef<HTMLElement>>('scroller');
   private readonly titleRow = viewChild<ElementRef<HTMLElement>>('titleRow');
@@ -91,6 +98,8 @@ export class ReviewView {
 
   // ---- Footer ----
   protected readonly footerMode = computed<FooterMode>(() => {
+    // Finished meanwhile (by this page or by another assessor): there is nothing left to confirm.
+    if (!this.vm()?.canFinish) return 'normal';
     const step = this.finishStep();
     if (step === 'confirm') return 'confirm';
     if (step === 'warn' && this.openCount() > 0) return 'warn';
@@ -98,6 +107,22 @@ export class ReviewView {
   });
   protected readonly warnText = computed(() => (this.openCount() === 1 ? 'field still needs your review.' : 'fields still need your review.'));
   protected readonly skippedCount = this.skipped.asReadonly();
+  /** Why the server did not finish it (core fields still open…). */
+  protected readonly finishError = signal('');
+
+  // ---- Green / grey ----
+  protected readonly validating = this.store.validating;
+  protected readonly allKey = ALL_FIELDS;
+  protected readonly allGreen = computed(() => {
+    const page = this.vm();
+    return !!page && page.total > 0 && page.validated === page.total;
+  });
+  /**
+   * A green write that leaves every core field green ends the assessment as Quality Assessed, and that cannot be
+   * undone (FR-14): the reviewer confirms it first. Holds the field key, or `ALL_FIELDS` for Check all.
+   */
+  private readonly endingWrite = signal<{ readonly key: string; readonly route: string } | null>(null);
+  protected readonly confirmEndOpen = signal(false);
 
   // ---- Comments drawer ----
   protected readonly drawerOpen = signal(false);
@@ -107,12 +132,33 @@ export class ReviewView {
     validate(f.text, ({ value }) => (value().trim() ? null : requiredError({ message: 'Write a comment before adding it.' })));
   });
   protected readonly focusTick = signal(0);
-  private readonly drawerMode = computed<CommentsDrawerMode>(() => 'read');
+  /** The comment form shows while the caller writes on a pending assessment; otherwise the thread is read only. */
+  private readonly drawerMode = computed<CommentsDrawerMode>(() => (this.vm()?.canFinish ? 'comment' : 'read'));
   protected readonly drawerField = computed<CommentsDrawerVm | null>(() => {
     const view = this.store.view();
     const key = this.drawerKey();
     const found = view && key ? findField(view, key) : null;
-    return found ? toDrawerVm(found, this.drawerMode()) : null;
+    if (!view || !found) return null;
+    const mode = found.field.mode === 'assessed' ? this.drawerMode() : 'read';
+    return toDrawerVm(found, mode, { me: this.store.me(), canWithdraw: withdrawOpen(view) });
+  });
+  protected readonly quickComments = computed(() => this.store.quickComments().map((q) => ({ id: q.id, text: q.body })));
+  /** Add was tried with an empty box. */
+  private readonly addTried = signal(false);
+  protected readonly showCommentError = computed(() => this.addTried() && !this.commentModel().text.trim());
+  /** What the server (or the length rule) said about a text. It goes away as soon as the text changes. */
+  private readonly refusedText = signal<{ readonly text: string; readonly message: string } | null>(null);
+  protected readonly commentError = computed(() => {
+    const refused = this.refusedText();
+    return refused && refused.text === this.commentModel().text ? refused.message : '';
+  });
+  /** Why a withdraw did not go through (shown in the thread: a toast would sit behind the drawer). */
+  protected readonly threadError = signal('');
+  /** The last text this page saved as a quick comment. */
+  private readonly quickSavedText = signal<string | null>(null);
+  protected readonly quickSaved = computed(() => {
+    const text = this.commentModel().text.trim();
+    return !!text && (this.quickSavedText() === text || this.store.quickComments().some((q) => q.body === text));
   });
 
   constructor() {
@@ -121,10 +167,22 @@ export class ReviewView {
       const code = this.routeCode();
       const timeline = this.routeTimeline();
       untracked(() => {
+        // Nothing typed or asked on the result left behind travels to the next one (the same field keys repeat).
         this.drawerOpen.set(false);
+        this.drawerKey.set(null);
+        this.commentModel.set({ text: '' });
+        this.addTried.set(false);
+        this.refusedText.set(null);
+        this.threadError.set('');
+        this.quickSavedText.set(null);
+        this.confirmEndOpen.set(false);
+        this.endingWrite.set(null);
         void this.store.load(code, timeline);
       });
     });
+    // The footer with "Finish assessment" is at the bottom right, where the toasts land: lift them while here.
+    this.toasts.bottomOffset.set(TOAST_ABOVE_FOOTER);
+    this.destroyRef.onDestroy(() => this.toasts.bottomOffset.set(null));
     afterNextRender(() => {
       // The host itself: its first child is the skeleton on the first render, and that one leaves the page.
       const el = this.host.nativeElement;
@@ -170,6 +228,41 @@ export class ReviewView {
   protected onCard(id: string, action: CardAction): void {
     const key = id.split('#')[0];
     if (action === 'comment') this.openDrawer(key);
+    else if (action === 'approve') this.setGreen(key);
+    else if (action === 'undo') void this.store.setValidated(key, false);
+  }
+
+  /** Check all, or Uncheck all once every Assessed field is green. */
+  protected toggleAll(): void {
+    if (this.allGreen()) void this.store.setAllValidated(false);
+    else this.setGreen(ALL_FIELDS);
+  }
+
+  private setGreen(key: string): void {
+    if (this.wouldEnd(key)) {
+      this.endingWrite.set({ key, route: this.routeKey() });
+      this.confirmEndOpen.set(true);
+      return;
+    }
+    void this.writeGreen(key);
+  }
+
+  private writeGreen(key: string): Promise<boolean> {
+    return key === ALL_FIELDS ? this.store.setAllValidated(true) : this.store.setValidated(key, true);
+  }
+
+  protected confirmEnd(): void {
+    const asked = this.endingWrite();
+    this.confirmEndOpen.set(false);
+    this.endingWrite.set(null);
+    // Only on the result it was asked for.
+    if (asked && asked.route === this.routeKey()) void this.writeGreen(asked.key);
+  }
+
+  /** Every core field would be green after this write (an assessment with no core field never ends this way). */
+  private wouldEnd(key: string): boolean {
+    const cores = (this.store.view()?.sections ?? []).flatMap((s) => s.fields).filter((f) => f.mode === 'assessed' && f.core);
+    return cores.length > 0 && cores.every((f) => f.validated || key === ALL_FIELDS || f.key === key);
   }
 
   protected onTocCard(e: TocCardAction): void {
@@ -184,14 +277,21 @@ export class ReviewView {
   }
 
   protected openDrawer(key: string): void {
-    if (this.drawerKey() !== key) this.commentModel.set({ text: '' });
+    if (this.drawerKey() !== key) {
+      this.commentModel.set({ text: '' });
+      this.addTried.set(false);
+      this.refusedText.set(null);
+      this.threadError.set('');
+    }
     this.drawerKey.set(key);
     this.drawerOpen.set(true);
     this.focusTick.update((n) => n + 1);
+    if (this.drawerMode() === 'comment') void this.store.loadQuickComments();
   }
 
-  // ---- Finish flow (local steps; the API call is wired with the review actions) ----
+  // ---- Finish flow: warn about open fields, confirm, then the API decides (FR-15) ----
   protected finish(): void {
+    this.finishError.set('');
     if (this.openCount() > 0) this.finishStep.set('warn');
     else {
       this.skipped.set(0);
@@ -209,23 +309,75 @@ export class ReviewView {
   }
 
   protected keepWorking(): void {
+    this.finishError.set('');
     this.skipped.set(0);
     this.finishStep.set('none');
   }
 
-  protected confirmFinish(): void {
-    this.finishStep.set('none');
+  protected async confirmFinish(): Promise<void> {
+    this.finishError.set('');
+    const outcome = await this.store.finish();
+    if (outcome.ok) {
+      this.finishStep.set('none');
+      return;
+    }
+    if (outcome.coreKeys?.length) {
+      // 409 ASSESSMENT_CORE_UNCOMMENTED: say which core fields, by the name the reviewer sees.
+      const view = this.store.view();
+      const names = outcome.coreKeys.map((key) => (view ? findField(view, key)?.field.label : null) ?? key);
+      this.finishError.set(`Validate or comment ${names.length === 1 ? 'this core field' : 'these core fields'} first: ${names.join(', ')}.`);
+      return;
+    }
+    this.finishError.set(outcome.message);
   }
 
-  protected addComment(): void {
-    // Wired with the review actions.
+  protected async addComment(): Promise<void> {
+    const key = this.drawerKey();
+    const text = this.commentModel().text;
+    if (!key) return;
+    if (!text.trim()) {
+      this.addTried.set(true);
+      this.focusTick.update((n) => n + 1);
+      return;
+    }
+    const length = [...text.trim()].length;
+    if (length > MAX_COMMENT) {
+      this.refusedText.set({ text, message: `Keep the comment within 2,000 characters (it has ${length.toLocaleString('en-US')}).` });
+      return;
+    }
+    const outcome = await this.store.addComment(key, text);
+    if (outcome.ok) {
+      // P2-3918 T-9: the AI side reports it only when a suggestion was copied to this field's comment box.
+      this.ai.commentSaved(key, outcome.comment.id);
+      // Only clear what was sent: the reviewer may already be on another field or typing the next comment.
+      if (this.drawerKey() === key && this.commentModel().text === text) this.commentModel.set({ text: '' });
+      this.addTried.set(false);
+      this.refusedText.set(null);
+    } else if (outcome.message) {
+      this.refusedText.set({ text, message: outcome.message });
+      this.focusTick.update((n) => n + 1);
+    }
+  }
+
+  /** Saves what is in the box as a quick comment of the role (FR-12). */
+  protected async saveQuick(): Promise<void> {
+    const text = this.commentModel().text.trim();
+    if (await this.store.saveQuickComment(text)) this.quickSavedText.set(text);
   }
 
   protected pickQuick(text: string): void {
     this.commentModel.update(({ text: cur }) => ({ text: cur.trim() ? cur.replace(/\s+$/, '') + '\n' + text : text }));
   }
 
+  protected async withdrawById(id: number): Promise<void> {
+    this.threadError.set('');
+    const outcome = await this.store.withdrawComment(id);
+    if (!outcome.ok && outcome.message) this.threadError.set(outcome.message);
+  }
+
+  /** By position: the mockup's comments, which carry no id. */
   protected withdrawComment(index: number): void {
-    void index;
+    const id = this.drawerField()?.comments[index]?.id;
+    if (id !== undefined) void this.withdrawById(id);
   }
 }

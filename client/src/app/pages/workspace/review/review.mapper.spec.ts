@@ -1,7 +1,7 @@
 // @akili-spec assessment/step-1-assessment
 import { FieldVm } from './review-model';
 import { comment, field, viewFixture } from './review.api-fixture';
-import { formatValue, readOnlyBanner, toCommentVm, toFieldVm, toReviewVm } from './review.mapper';
+import { findField, formatValue, readOnlyBanner, toCommentVm, toDrawerVm, toFieldVm, toReviewVm, withdrawOpen } from './review.mapper';
 
 const byLabel = (fields: readonly FieldVm[], label: string): FieldVm =>
   fields.find((f) => f.label === label)!;
@@ -327,6 +327,68 @@ describe('review.mapper (API assessment view → Review view models)', () => {
     it('writable view: no banner', () => {
       expect(toReviewVm(viewFixture()).banner).toBeNull();
     });
+  });
+
+  describe('auto-validated result: not assessed, so every field is context (seen on TEST: 9039, 9816 in timeline 34)', () => {
+    // What the API sends for it: status `auto_validated`, no assessment row, its Assessed fields all grey.
+    const auto = (over: Parameters<typeof viewFixture>[0] = {}) =>
+      viewFixture({ ...over, header: { ...viewFixture().header, status: 'auto_validated' } });
+
+    it('counts nothing as pending: no "N pending" per section and no "0 of N fields resolved"', () => {
+      const vm = toReviewVm(auto());
+      expect(vm.sections.map((s) => s.open)).toEqual([0, 0, 0, 0]);
+      expect([vm.resolved, vm.total, vm.commented, vm.validated]).toEqual([0, 0, 0, 0]);
+    });
+
+    it('no field carries a "Not validated" mark, a Core tag or a button, even for a caller who may write', () => {
+      const vm = toReviewVm(auto({ writable: true, readOnlyReason: null }));
+      const fields = vm.sections.flatMap((s) => s.fields);
+      expect(fields.length).toBeGreaterThan(0);
+      expect(fields.flatMap(chipLabels)).toEqual([]);
+      expect(fields.every((f) => f.actions === null && !f.isCore)).toBe(true);
+      const toc = vm.sections.find((s) => s.isToc)!.toc!;
+      expect(toc.assessed).toBe(0);
+      expect(vm.canFinish).toBe(false);
+      expect(vm.header.locked).toBe(false);
+    });
+
+    it('says why there is nothing to do, whatever the read-only reason of the caller', () => {
+      const text = 'Auto-validated: this result is not assessed.';
+      expect(toReviewVm(auto({ writable: true, readOnlyReason: null })).banner).toBe(text);
+      expect(toReviewVm(auto({ writable: false, readOnlyReason: 'admin_read_only' })).banner).toBe(text);
+      expect(toReviewVm(auto()).header.instructions).toContain('auto-validated');
+    });
+
+    it('the values are still shown', () => {
+      const general = toReviewVm(auto()).sections[0].fields;
+      expect(byLabel(general, 'Title of Result').value).toBe('Seed systems for maize');
+    });
+  });
+
+  describe('thread of a field (FR-11, FR-13)', () => {
+    const thread = (me: number | null, canWithdraw: boolean) =>
+      toDrawerVm(findField(viewFixture(), 'general.description')!, 'comment', { me, canWithdraw }).comments;
+
+    it('only the author can take back an own open comment, and only while their step allows it', () => {
+      expect(thread(1053, true).map((c) => c.canWithdraw)).toEqual([true]);
+      expect(thread(7, true).map((c) => c.canWithdraw)).toEqual([false]); // someone else's
+      expect(thread(1053, false).map((c) => c.canWithdraw)).toEqual([false]); // step closed, admin…
+      expect(thread(null, true).map((c) => c.canWithdraw)).toEqual([false]); // no session yet
+    });
+
+    it('a comment can be taken back while writing and after the end, never for another read-only reason', () => {
+      expect(withdrawOpen({ writable: true, readOnlyReason: null })).toBe(true);
+      expect(withdrawOpen({ writable: false, readOnlyReason: 'finished' })).toBe(true);
+      expect(withdrawOpen({ writable: false, readOnlyReason: 'step_closed' })).toBe(false);
+      expect(withdrawOpen({ writable: false, readOnlyReason: 'admin_read_only' })).toBe(false);
+    });
+  });
+
+  it('finishing now: Returned to program while a core field is grey, Quality Assessed once every core is green', () => {
+    const view = viewFixture();
+    expect(toReviewVm(view).finishTo).toBe('Returned to program'); // toc.entries is core and grey
+    const allCoreGreen = { ...view, sections: view.sections.map((s) => ({ ...s, fields: s.fields.map((f) => (f.core ? { ...f, validated: true } : f)) })) };
+    expect(toReviewVm(allCoreGreen).finishTo).toBe('Quality Assessed');
   });
 
   it('dates are the day in Rome, not the UTC day (23:30 UTC is already the next day there)', () => {

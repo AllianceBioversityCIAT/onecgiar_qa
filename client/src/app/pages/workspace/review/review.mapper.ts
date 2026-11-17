@@ -8,7 +8,7 @@ import {
   TOC_SECTION_KEY,
 } from '../../../core/api/assessment.models';
 import { formatDay, todayInRome } from '../../../core/domain/rome-date';
-import { qaStatusPill } from '../results/qa-status';
+import { STATUS_LABELS, qaStatusPill } from '../results/qa-status';
 import type { CommentsDrawerMode, CommentsDrawerVm } from './review-comments-drawer';
 import {
   CardStatusVm,
@@ -36,6 +36,23 @@ export interface ReviewCommentVm extends FieldComment {
   readonly id: number;
   readonly authorId: number;
   readonly open: boolean;
+  readonly canWithdraw: boolean;
+}
+
+/** Who reads the thread: the caller's user id, and whether their step still lets them take a comment back. */
+export interface ThreadReader {
+  readonly me: number | null;
+  readonly canWithdraw: boolean;
+}
+
+const NO_READER: ThreadReader = { me: null, canWithdraw: false };
+
+/**
+ * A comment can be taken back while the caller writes on the assessment, and also after it ended (the server allows
+ * it while step 1 or 2 is open, FR-13). Any other read-only reason (admin, step closed, no step) offers nothing.
+ */
+export function withdrawOpen(view: Pick<AssessmentView, 'writable' | 'readOnlyReason'>): boolean {
+  return view.writable || view.readOnlyReason === 'finished';
 }
 
 export interface TocVm {
@@ -71,17 +88,26 @@ export interface ReviewVm {
   readonly total: number;
   /** Assessed fields with at least one open comment. */
   readonly commented: number;
+  /** Assessed fields that are green. */
+  readonly validated: number;
   /** Finish is offered: writable and the assessment still pending (FR-15). */
   readonly canFinish: boolean;
+  /** Status the result takes if it is finished now: returned while a core field is grey, Quality Assessed otherwise. */
+  readonly finishTo: string;
 }
 
 const ASSESSOR_INSTRUCTIONS =
   'Review each field against the assessor guidance. Mark it as validated, or leave a comment explaining what needs to change.';
 const READ_ONLY_INSTRUCTIONS =
   'This assessment is read only for you. You can read every field and its comments.';
-/** The caller may write, but the page offers no write yet (`writes` off in `toReviewVm`). */
+/** The caller may write, but the page offers no write (`writes` off in `toReviewVm`). */
 const READING_INSTRUCTIONS =
   'Read each field against the assessor guidance. You can open the comments of a field.';
+
+/** An auto-validated result is not assessed: Reporting released it as QAed at the load. */
+const AUTO_VALIDATED_BANNER = 'Auto-validated: this result is not assessed.';
+const AUTO_VALIDATED_INSTRUCTIONS =
+  'This result was auto-validated, so there is nothing to assess. You can read every field.';
 
 /** Subfield keys of the ToC lists and their catalog labels (`reporting-qa-catalog-2026.json`). */
 const SUBFIELD_LABELS: Readonly<Record<string, string>> = {
@@ -191,6 +217,14 @@ export function formatValue(
   if (isObject(value)) return entryText(value, labels, lists);
   return scalarText(value, labels, undefined, !!labels);
 }
+
+const isAutoValidated = (view: Pick<AssessmentView, 'header'>): boolean =>
+  view.header.status === 'auto_validated';
+/**
+ * A field of a result nobody assesses, as context: its value, with no mark, no Core tag, no count and no button.
+ * The API still sends it as Assessed and grey (seen on TEST, 17-nov: 9039 and 9816 read "7 pending").
+ */
+const asContext = (f: AssessmentField): AssessmentField => ({ ...f, mode: 'view', validated: false });
 
 const openComments = (f: AssessmentField): readonly AssessmentComment[] =>
   f.comments.filter((c) => c.state !== 'withdrawn');
@@ -437,11 +471,13 @@ export function toHeaderVm(view: AssessmentView, canAct: boolean = view.writable
     isAuto: h.status === 'auto_validated',
     assessor,
     showAssessedBy: ended,
-    instructions: canAct
-      ? ASSESSOR_INSTRUCTIONS
-      : view.writable
-        ? READING_INSTRUCTIONS
-        : READ_ONLY_INSTRUCTIONS,
+    instructions: isAutoValidated(view)
+      ? AUTO_VALIDATED_INSTRUCTIONS
+      : canAct
+        ? ASSESSOR_INSTRUCTIONS
+        : view.writable
+          ? READING_INSTRUCTIONS
+          : READ_ONLY_INSTRUCTIONS,
     // Comments become visible to the program only when the assessment ends (FR-14, FR-15).
     locked: canAct && !ended,
     details: [
@@ -459,16 +495,21 @@ export function toHeaderVm(view: AssessmentView, canAct: boolean = view.writable
  */
 export function toReviewVm(view: AssessmentView, writes = true): ReviewVm {
   const writable = view.writable;
-  const canAct = writable && writes;
+  // Nothing is assessed on an auto-validated result, whatever the caller may write elsewhere.
+  const auto = isAutoValidated(view);
+  const canAct = writable && writes && !auto;
+  const fieldsOf = (fields: readonly AssessmentField[]): readonly AssessmentField[] =>
+    auto ? fields.map(asContext) : fields;
   const sections: ReviewSectionVm[] = view.sections.map((s) => {
     const isToc = s.key === TOC_SECTION_KEY;
+    const fields = fieldsOf(s.fields);
     return {
       key: s.key,
       name: s.label,
       isToc,
-      fields: isToc ? [] : s.fields.map((f) => toFieldVm(f, canAct)),
-      toc: isToc ? toTocVm(s.fields, canAct) : null,
-      open: s.fields.filter((f) => isAssessed(f) && !isResolved(f)).length,
+      fields: isToc ? [] : fields.map((f) => toFieldVm(f, canAct)),
+      toc: isToc ? toTocVm(fields, canAct) : null,
+      open: fields.filter((f) => isAssessed(f) && !isResolved(f)).length,
     };
   });
   if (view.other.length) {
@@ -481,16 +522,18 @@ export function toReviewVm(view: AssessmentView, writes = true): ReviewVm {
       open: 0,
     });
   }
-  const assessed = view.sections.flatMap((s) => s.fields).filter(isAssessed);
+  const assessed = view.sections.flatMap((s) => fieldsOf(s.fields)).filter(isAssessed);
   return {
     header: toHeaderVm(view, canAct),
     sections,
     writable,
-    banner: readOnlyBanner(view.readOnlyReason, view),
+    banner: auto ? AUTO_VALIDATED_BANNER : readOnlyBanner(view.readOnlyReason, view),
     resolved: assessed.filter(isResolved).length,
     total: assessed.length,
     commented: assessed.filter((f) => openComments(f).length > 0).length,
+    validated: assessed.filter((f) => f.validated).length,
     canFinish: canAct && (view.assessment?.status ?? 'pending') === 'pending',
+    finishTo: assessed.some((f) => f.core && !f.validated) ? STATUS_LABELS.returned_to_program : STATUS_LABELS.quality_assessed,
   };
 }
 
@@ -506,11 +549,12 @@ export function findField(
   return null;
 }
 
-export function toCommentVm(c: AssessmentComment): ReviewCommentVm {
+export function toCommentVm(c: AssessmentComment, reader: ThreadReader = NO_READER): ReviewCommentVm {
   return {
     id: c.id,
     authorId: c.author.id,
     open: c.state === 'open',
+    canWithdraw: reader.canWithdraw && c.state === 'open' && reader.me !== null && c.author.id === reader.me,
     who: c.author.nickname ?? '—',
     role: 'Assessor',
     date: romeDay(c.createdAt),
@@ -522,8 +566,9 @@ export function toCommentVm(c: AssessmentComment): ReviewCommentVm {
 export function toDrawerVm(
   found: { readonly field: AssessmentField; readonly section: string },
   mode: CommentsDrawerMode,
+  reader: ThreadReader = NO_READER,
 ): CommentsDrawerVm {
-  const comments = openComments(found.field).map(toCommentVm);
+  const comments = openComments(found.field).map((c) => toCommentVm(c, reader));
   return {
     label: found.field.label,
     section: found.section,

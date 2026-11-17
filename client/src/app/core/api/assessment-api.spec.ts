@@ -98,6 +98,13 @@ describe('AssessmentApi', () => {
     admin.flush({ success: true, data: {}, meta: meta() });
   });
 
+  it('a comment is never queued: sent later by the queue, a second try of the reviewer would write it twice', () => {
+    api.addComment(29, 9890, 'general.title', 'Too long').subscribe();
+    const comment = http.expectOne(`${API}/timelines/29/results/9890/assessment/comments`);
+    expect(comment.request.context.get(NO_QUEUE)).toBe(true);
+    comment.flush({ success: true, data: {}, meta: meta() });
+  });
+
   it('validations, comments and quick comments are silent, labelled and may be replayed', () => {
     api.setValidations(29, 9890, { validated: true, all: true }).subscribe();
     api.addComment(29, 9890, 'general.title', 'Too long').subscribe();
@@ -114,9 +121,10 @@ describe('AssessmentApi', () => {
     for (const req of [validations, comment, quick]) {
       expect(req.request.context.get(SILENT_ERRORS)).toBe(true);
       expect(req.request.context.get(UNSENT_LABEL)).toBeTruthy();
-      expect(req.request.context.get(NO_QUEUE)).toBe(false);
       req.flush({ success: true, data: {}, meta: meta() });
     }
+    // The green/grey write and the quick comment can be sent again safely (same end state, one entry per text).
+    for (const req of [validations, quick]) expect(req.request.context.get(NO_QUEUE)).toBe(false);
   });
 
   it('finish, withdraw and the release retry never go to the unsent queue', () => {
@@ -162,6 +170,8 @@ describe('AssessmentApi', () => {
     api.quickComments('TPB').subscribe();
     const quick = http.expectOne((r) => r.url === `${API}/quick-comments`);
     expect(quick.request.params.get('role')).toBe('TPB');
+    // No toast of its own: a caller with no grant of the role (403) simply has no list.
+    expect(quick.request.context.get(SILENT_ERRORS)).toBe(true);
     quick.flush({ success: true, data: [], meta: meta() });
 
     api.releases().subscribe();

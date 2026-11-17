@@ -78,6 +78,7 @@
           <qa-review-card-actions
             [actions]="actions"
             [label]="card.eyebrow"
+            [busy]="busyKeys().has(card.id) || busyKeys().has('*')"
             (act)="act.emit({ id: card.id, action: $event })"
           />
         }

@@ -4,11 +4,14 @@
       @if (skipped() > 0) {
         <span class="text-(length:--fs-13) font-medium text-(--warning)"><span class="font-(family-name:--qa-mono) tabular-nums">{{ skipped() }}</span> {{ skipped() === 1 ? 'field was not reviewed.' : 'fields were not reviewed.' }}</span>
       }
-      <span id="review-finish-text" class="text-(length:--fs-13) leading-[1.5] font-normal text-pretty text-(--text-2)">Finish this assessment? <span class="font-(family-name:--qa-mono) font-semibold text-(--text)">{{ resolvedCount() }}</span> fields reviewed, <span class="font-(family-name:--qa-mono) font-semibold text-(--text)">{{ commentedCount() }}</span> with comments. The result moves to <span class="font-semibold text-(--text)">Awaiting response</span> and leaves your queue.</span>
+      <span id="review-finish-text" class="text-(length:--fs-13) leading-[1.5] font-normal text-pretty text-(--text-2)">Finish this assessment? <span class="font-(family-name:--qa-mono) font-semibold text-(--text)">{{ resolvedCount() }}</span> {{ resolvedCount() === 1 ? 'field' : 'fields' }} reviewed, <span class="font-(family-name:--qa-mono) font-semibold text-(--text)">{{ commentedCount() }}</span> with comments. The result becomes <span class="font-semibold text-(--text)">{{ finishTo() }}</span>. This cannot be undone.</span>
+      @if (finishError()) {
+        <span class="text-(length:--fs-13) leading-[1.5] font-medium text-pretty text-(--danger)" role="alert">{{ finishError() }}</span>
+      }
     </div>
     <div class="flex flex-none items-center gap-2.5">
-      <button hlmBtn qaBtn tone="secondary" type="button" class="flex-none" (click)="keepWorking.emit()">Keep working</button>
-      <button hlmBtn qaBtn tone="primary" type="button" class="flex-none" (click)="confirmFinish.emit()">
+      <button hlmBtn qaBtn tone="secondary" type="button" class="flex-none" [disabled]="finishing()" (click)="keepWorking.emit()">Keep working</button>
+      <button hlmBtn qaBtn tone="primary" type="button" class="flex-none" [loading]="finishing()" (click)="confirmFinish.emit()">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM8 12l3 3 5-6" /></svg>
         Finish assessment
       </button>
