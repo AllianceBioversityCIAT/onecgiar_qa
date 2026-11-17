@@ -31,6 +31,10 @@ const PUBLIC_ROUTES = [
 ];
 /** P2-3911: the Science Program routes carry the sp-session scheme, never access-token. */
 const isSpRoute = (key: string) => key.split(' ')[1].startsWith('/api/v1/sp/');
+/** P2-3911: the one route that answers a file (text/csv) instead of the JSON envelope. */
+const CSV_ROUTES = [
+  'GET /api/v1/sp/timelines/:timelineId/results/:resultCode/comments.csv',
+];
 const SESSION_ROUTES = [
   'POST /api/v1/auth/session/refresh',
   'POST /api/v1/auth/session/logout',
@@ -237,6 +241,14 @@ describe('OpenAPI document (e2e)', () => {
       const operation = operationOf(doc, key);
       for (const [code, response] of Object.entries(operation.responses)) {
         if (!code.startsWith('2') || code === '204') continue;
+        // P2-3911: the CSV export is a file, not an envelope (its errors are).
+        if (CSV_ROUTES.includes(key)) {
+          expect(
+            (response as { content?: Record<string, unknown> }).content,
+            key,
+          ).toEqual({ 'text/csv': { schema: { type: 'string' } } });
+          continue;
+        }
         const schema = (
           response as { content?: Record<string, { schema?: any }> }
         ).content?.['application/json']?.schema;

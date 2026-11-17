@@ -10,8 +10,16 @@ import {
   Put,
   Query,
   Req,
+  Res,
 } from '@nestjs/common';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import type { Response } from 'express';
+import {
+  ApiOkResponse,
+  ApiOperation,
+  ApiProduces,
+  ApiTags,
+} from '@nestjs/swagger';
+import { buildCommentsCsv, csvFileName } from './sp-csv.js';
 import { ApiErrorResponses, ApiOkEnvelope } from '../../common/api-response.js';
 import {
   SpProgramQuery,
@@ -164,5 +172,48 @@ export class SpViewController {
       { kind: body.kind, body: body.body },
       requestIdOf(request),
     );
+  }
+
+  @ApiOperation({
+    summary: "Download a result's QA comments as CSV",
+    description:
+      'One row per QA comment visible to the program, with its latest response: Section, Field, Comment, Comment date, Response, Response comment, Responded at. UTF-8 with a byte order mark. No assessor and no email in it. The same scope and 404 as the result view; errors keep the JSON envelope.',
+  })
+  @ApiProduces('text/csv')
+  @ApiOkResponse({
+    description: '`text/csv; charset=utf-8`, as an attachment',
+    content: { 'text/csv': { schema: { type: 'string' } } },
+  })
+  @ApiErrorResponses({
+    400: ['VALIDATION_FAILED'],
+    401: ['SP_SESSION_INVALID'],
+    404: ['SP_NOT_FOUND'],
+    409: ['ASSESSMENT_NO_FIELD_CONFIG'],
+    503: ['SERVICE_UNAVAILABLE'],
+  })
+  @Get('timelines/:timelineId/results/:resultCode/comments.csv')
+  async commentsCsv(
+    @CurrentSpSession() session: SpSessionPrincipal,
+    @Param() params: SpResultParams,
+    @Query() query: SpProgramQuery,
+    // The raw response: a file is not wrapped in the JSON envelope (the
+    // interceptor leaves an undefined result alone). Anything thrown before
+    // the send still goes through the exception filter's envelope.
+    @Res() response: Response,
+  ): Promise<void> {
+    const view = await this.view.result(
+      session,
+      params.timelineId,
+      params.resultCode,
+      query.programId,
+    );
+    response
+      .status(200)
+      .set({
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': `attachment; filename="${csvFileName(view.header.resultCode)}"`,
+        'Cache-Control': 'no-store',
+      })
+      .send(buildCommentsCsv(view));
   }
 }
