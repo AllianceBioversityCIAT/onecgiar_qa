@@ -66,7 +66,7 @@ Rule: this spec does not edit `review-store.ts`, `review.mapper.ts` or `review-c
 - **Falsifier:** return stored items without the eligible filter → the "field not in production" test red
 
 ## T-6: Chip on Review — 18–20-nov
-- **Status:** [~] built (`ee22a19`, plan B `c448ae4`); wiring waits for assessment T-19 on `dev`
+- **Status:** [x] plan A wired on the real Review page (branch `feat/P2-3918-ai-chip-review` from `dev`; `ai/review-ai-hook.ts` holds the logic; Review files touched: `review-view.ts`, `review-view.html`, `review-field-card.ts`, `review-field-card.html`). `comment_saved` waits for T-20's comment save (`ReviewAiHook.commentSaved`). To `staging-center` once T-18/T-19 are there
 - **Wiring when T-19 lands** (one small PR on top of T-19, no other change to its files):
   1. `review-view.ts`: add `AiSuggestionsStore` to `providers` and call `store.load(timelineId, resultCode)` where the assessment is loaded.
   2. `review-model.ts`: replace `AiVm` with `AiChipVm` (`ai/ai-chip.vm.ts`) in the field VM (DD-7); `review.mapper.ts` takes `chipFor(fieldKey, isAiInput)` instead of `ai: null`.
