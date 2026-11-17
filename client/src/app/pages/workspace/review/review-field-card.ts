@@ -21,6 +21,8 @@ import { ReviewStateChips } from './review-state-chips';
 })
 export class ReviewFieldCard {
   readonly field = input.required<FieldVm>();
+  /** The green/grey write of this field is on its way. */
+  readonly busy = input(false);
   readonly act = output<CardAction>();
   /** P2-3918: the AI suggestion of this field (null = none), read only for TPB / ADMIN. */
   readonly aiChip = input<AiChipVm | null>(null);

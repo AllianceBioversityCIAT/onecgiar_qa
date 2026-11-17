@@ -29,6 +29,8 @@ export class ReviewTocSection {
   readonly title = input('Theory of change');
   /** At least one field of the section is Assessed (false = shown for context only: no "Required review"). */
   readonly requiredReview = input(true);
+  /** Field keys with a green/grey write on its way (`*` = all of them). */
+  readonly busyKeys = input<ReadonlySet<string>>(new Set());
   readonly act = output<TocCardAction>();
 
   protected readonly tip = TOC_TIP;

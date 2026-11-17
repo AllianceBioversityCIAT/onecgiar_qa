@@ -1,7 +1,7 @@
 // @akili-spec assessment/step-1-assessment
 import { FieldVm } from './review-model';
 import { comment, field, viewFixture } from './review.api-fixture';
-import { formatValue, readOnlyBanner, toCommentVm, toFieldVm, toReviewVm } from './review.mapper';
+import { findField, formatValue, readOnlyBanner, toCommentVm, toDrawerVm, toFieldVm, toReviewVm, withdrawOpen } from './review.mapper';
 
 const byLabel = (fields: readonly FieldVm[], label: string): FieldVm =>
   fields.find((f) => f.label === label)!;
@@ -326,6 +326,32 @@ describe('review.mapper (API assessment view → Review view models)', () => {
     it('writable view: no banner', () => {
       expect(toReviewVm(viewFixture()).banner).toBeNull();
     });
+  });
+
+  describe('thread of a field (FR-11, FR-13)', () => {
+    const thread = (me: number | null, canWithdraw: boolean) =>
+      toDrawerVm(findField(viewFixture(), 'general.description')!, 'comment', { me, canWithdraw }).comments;
+
+    it('only the author can take back an own open comment, and only while their step allows it', () => {
+      expect(thread(1053, true).map((c) => c.canWithdraw)).toEqual([true]);
+      expect(thread(7, true).map((c) => c.canWithdraw)).toEqual([false]); // someone else's
+      expect(thread(1053, false).map((c) => c.canWithdraw)).toEqual([false]); // step closed, admin…
+      expect(thread(null, true).map((c) => c.canWithdraw)).toEqual([false]); // no session yet
+    });
+
+    it('a comment can be taken back while writing and after the end, never for another read-only reason', () => {
+      expect(withdrawOpen({ writable: true, readOnlyReason: null })).toBe(true);
+      expect(withdrawOpen({ writable: false, readOnlyReason: 'finished' })).toBe(true);
+      expect(withdrawOpen({ writable: false, readOnlyReason: 'step_closed' })).toBe(false);
+      expect(withdrawOpen({ writable: false, readOnlyReason: 'admin_read_only' })).toBe(false);
+    });
+  });
+
+  it('finishing now: Returned to program while a core field is grey, Quality Assessed once every core is green', () => {
+    const view = viewFixture();
+    expect(toReviewVm(view).finishTo).toBe('Returned to program'); // toc.entries is core and grey
+    const allCoreGreen = { ...view, sections: view.sections.map((s) => ({ ...s, fields: s.fields.map((f) => (f.core ? { ...f, validated: true } : f)) })) };
+    expect(toReviewVm(allCoreGreen).finishTo).toBe('Quality Assessed');
   });
 
   it('dates are the day in Rome, not the UTC day (23:30 UTC is already the next day there)', () => {

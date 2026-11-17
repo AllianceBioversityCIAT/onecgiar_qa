@@ -82,11 +82,14 @@ export class AssessmentApi {
       .pipe(unwrap<ValidationSummary>());
   }
 
-  /** 201 with the new comment. A replay with the same key answers the first comment again. */
+  /**
+   * 201 with the new comment. Never queued: the text stays in the reviewer's box when it cannot be sent, and a
+   * comment the queue sent later plus a second try of the reviewer would be two comments (the key is gone by then).
+   */
   addComment(timelineId: number, resultCode: number, fieldKey: string, body: string): Observable<AssessmentComment> {
     return this.http
       .post<ApiEnvelope<AssessmentComment>>(`${this.assessmentUrl(timelineId, resultCode)}/comments`, { fieldKey, body }, {
-        context: this.silent(`Comment on ${resultCode}`),
+        context: this.silent(`Comment on ${resultCode}`).set(NO_QUEUE, true),
       })
       .pipe(unwrap<AssessmentComment>());
   }
@@ -115,7 +118,7 @@ export class AssessmentApi {
   quickComments(role: QuickCommentRole): Observable<readonly QuickComment[]> {
     const params = new HttpParams().set('role', role);
     return this.http
-      .get<ApiEnvelope<readonly QuickComment[]>>(`${this.base}/quick-comments`, { params })
+      .get<ApiEnvelope<readonly QuickComment[]>>(`${this.base}/quick-comments`, { params, context: new HttpContext().set(SILENT_ERRORS, true) })
       .pipe(unwrap<readonly QuickComment[]>());
   }
 

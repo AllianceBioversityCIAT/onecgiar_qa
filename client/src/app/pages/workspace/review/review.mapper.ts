@@ -8,7 +8,7 @@ import {
   TOC_SECTION_KEY,
 } from '../../../core/api/assessment.models';
 import { formatDay, todayInRome } from '../../../core/domain/rome-date';
-import { qaStatusPill } from '../results/qa-status';
+import { STATUS_LABELS, qaStatusPill } from '../results/qa-status';
 import type { CommentsDrawerMode, CommentsDrawerVm } from './review-comments-drawer';
 import {
   CardStatusVm,
@@ -36,6 +36,23 @@ export interface ReviewCommentVm extends FieldComment {
   readonly id: number;
   readonly authorId: number;
   readonly open: boolean;
+  readonly canWithdraw: boolean;
+}
+
+/** Who reads the thread: the caller's user id, and whether their step still lets them take a comment back. */
+export interface ThreadReader {
+  readonly me: number | null;
+  readonly canWithdraw: boolean;
+}
+
+const NO_READER: ThreadReader = { me: null, canWithdraw: false };
+
+/**
+ * A comment can be taken back while the caller writes on the assessment, and also after it ended (the server allows
+ * it while step 1 or 2 is open, FR-13). Any other read-only reason (admin, step closed, no step) offers nothing.
+ */
+export function withdrawOpen(view: Pick<AssessmentView, 'writable' | 'readOnlyReason'>): boolean {
+  return view.writable || view.readOnlyReason === 'finished';
 }
 
 export interface TocVm {
@@ -71,15 +88,19 @@ export interface ReviewVm {
   readonly total: number;
   /** Assessed fields with at least one open comment. */
   readonly commented: number;
+  /** Assessed fields that are green. */
+  readonly validated: number;
   /** Finish is offered: writable and the assessment still pending (FR-15). */
   readonly canFinish: boolean;
+  /** Status the result takes if it is finished now: returned while a core field is grey, Quality Assessed otherwise. */
+  readonly finishTo: string;
 }
 
 const ASSESSOR_INSTRUCTIONS =
   'Review each field against the assessor guidance. Mark it as validated, or leave a comment explaining what needs to change.';
 const READ_ONLY_INSTRUCTIONS =
   'This assessment is read only for you. You can read every field and its comments.';
-/** The caller may write, but the page offers no write yet (`writes` off in `toReviewVm`). */
+/** The caller may write, but the page offers no write (`writes` off in `toReviewVm`). */
 const READING_INSTRUCTIONS =
   'Read each field against the assessor guidance. You can open the comments of a field.';
 
@@ -488,7 +509,9 @@ export function toReviewVm(view: AssessmentView, writes = true): ReviewVm {
     resolved: assessed.filter(isResolved).length,
     total: assessed.length,
     commented: assessed.filter((f) => openComments(f).length > 0).length,
+    validated: assessed.filter((f) => f.validated).length,
     canFinish: canAct && (view.assessment?.status ?? 'pending') === 'pending',
+    finishTo: assessed.some((f) => f.core && !f.validated) ? STATUS_LABELS.returned_to_program : STATUS_LABELS.quality_assessed,
   };
 }
 
@@ -504,11 +527,12 @@ export function findField(
   return null;
 }
 
-export function toCommentVm(c: AssessmentComment): ReviewCommentVm {
+export function toCommentVm(c: AssessmentComment, reader: ThreadReader = NO_READER): ReviewCommentVm {
   return {
     id: c.id,
     authorId: c.author.id,
     open: c.state === 'open',
+    canWithdraw: reader.canWithdraw && c.state === 'open' && reader.me !== null && c.author.id === reader.me,
     who: c.author.nickname ?? '—',
     role: 'Assessor',
     date: romeDay(c.createdAt),
@@ -520,8 +544,9 @@ export function toCommentVm(c: AssessmentComment): ReviewCommentVm {
 export function toDrawerVm(
   found: { readonly field: AssessmentField; readonly section: string },
   mode: CommentsDrawerMode,
+  reader: ThreadReader = NO_READER,
 ): CommentsDrawerVm {
-  const comments = openComments(found.field).map(toCommentVm);
+  const comments = openComments(found.field).map((c) => toCommentVm(c, reader));
   return {
     label: found.field.label,
     section: found.section,
