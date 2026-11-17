@@ -194,6 +194,7 @@ data: {
 |---|---|
 | `key`, `label`, `type` | Catalog key, label and type. `type` is `unknown` under `other` |
 | `description` | Optional. Reporting's help text for the field tooltip (catalog `description`). The key is absent when the catalog row has none, and always under `other` |
+| `subfieldLists` | Optional. Subfield key → the list in `labels` that names its option ids, e.g. `{ "actor_type": "actor_types" }`. Use it to show "Actor type: Farmers" instead of "Actor type: 1" in a list entry. The key is absent when no subfield names a list |
 | `mode` | `view` or `assessed`. A Hidden field is never returned, except the Theory of Change group, which is shown as `view` |
 | `core` | The "Core" tag; only meaningful on an `assessed` field |
 | `value` | Any JSON value, as the snapshot holds it. `null` when `notApplicable` |

@@ -145,6 +145,30 @@ describe('shapeCatalog over the TEST catalog 2026.30', () => {
     ]);
   });
 
+  it('maps each subfield to the control list of its ids, at any depth, and leaves the key out when no subfield names one', () => {
+    const subLists = (key: string) =>
+      catalog.fields.find((f) => f.key === key)!.subfieldLists;
+    expect(subLists('partners.external_partners')).toEqual({
+      institution: 'institutions',
+      partner_type: 'institution_types',
+      partner_role: 'partner_delivery_types',
+    });
+    expect(subLists('contributors.science_programs')).toEqual({
+      program: 'initiatives',
+      level: 'toc_levels',
+      toc_result: 'toc_results',
+      kpi: 'toc_results_indicators',
+    });
+    const fieldOf = (key: string) => catalog.fields.find((f) => f.key === key)!;
+    expect(Object.hasOwn(fieldOf('general.title'), 'subfieldLists')).toBe(
+      false,
+    );
+    // A field's own list is not a subfield's.
+    expect(
+      Object.hasOwn(fieldOf('general.primary_program'), 'subfieldLists'),
+    ).toBe(false);
+  });
+
   it('reads a null or absent control_list as no list, on a field and on a nested subfield, never a 503', () => {
     const raw = clone();
     const field = (key: string) =>
