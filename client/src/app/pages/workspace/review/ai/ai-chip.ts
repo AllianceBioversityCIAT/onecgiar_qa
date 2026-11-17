@@ -10,7 +10,7 @@ import {
   signal,
 } from '@angular/core';
 import { QaBadge, QaBadgeStatus, QaButtonImports } from '../../../../ui';
-import { AiChipVm } from './ai-chip.vm';
+import { AiChipVm, formatNumber, scoredSignal } from './ai-chip.vm';
 
 const SIGNAL_BADGE: Readonly<Record<'green' | 'amber' | 'red', QaBadgeStatus>> = {
   green: 'approved',
@@ -56,8 +56,10 @@ const SIGNAL_BADGE: Readonly<Record<'green' | 'amber' | 'red', QaBadgeStatus>> =
       @switch (vm().kind) {
         @case ('available') {
           <qa-badge size="sm" [status]="badge()" data-testid="ai-signal">
-            <span class="size-1.5 rounded-full bg-current" aria-hidden="true"></span
-            >{{ vm().label }}
+            @if (badge() !== 'neutral') {
+              <span class="size-1.5 rounded-full bg-current" aria-hidden="true"></span>
+            }
+            {{ vm().label }}
           </qa-badge>
         }
         @default {
@@ -99,6 +101,83 @@ const SIGNAL_BADGE: Readonly<Record<'green' | 'amber' | 'red', QaBadgeStatus>> =
       @case ('available') {
         @if (headline(); as h) {
           <p class="m-0 text-(length:--fs-13) font-semibold text-(--text)">{{ h }}</p>
+        }
+        @if (meta(); as m) {
+          <p class="m-0 text-(length:--fs-12) text-(--text-3)" data-testid="ai-meta">{{ m }}</p>
+        }
+        @if (indicative(); as ind) {
+          @switch (ind.kind) {
+            @case ('category') {
+              <dl
+                class="m-0 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-(length:--fs-13)"
+                data-testid="ai-category"
+              >
+                <dt class="text-(--text-3)">Suggested category</dt>
+                <dd class="m-0 font-semibold text-(--text)">{{ ind.suggested }}</dd>
+                @if (ind.reported; as r) {
+                  <dt class="text-(--text-3)">Reported</dt>
+                  <dd class="m-0 text-(--text-2)">{{ r }}</dd>
+                }
+              </dl>
+            }
+            @case ('use_numbers') {
+              <p class="m-0 text-(length:--fs-12) text-(--text-3)" data-testid="ai-covers">
+                {{ ind.covers }}
+              </p>
+              <div class="grid gap-3 sm:grid-cols-2" data-testid="ai-use-numbers">
+                <section class="flex min-w-0 flex-col gap-1" aria-label="Suggested by the AI">
+                  <h3
+                    class="m-0 text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-3) uppercase"
+                  >
+                    Suggested by the AI
+                  </h3>
+                  @if (ind.suggested.length === 0) {
+                    <p
+                      class="m-0 text-(length:--fs-13) text-(--text-2)"
+                      data-testid="ai-no-numbers"
+                    >
+                      The evidence reports no use numbers.
+                    </p>
+                  } @else {
+                    <ul class="m-0 flex list-none flex-col gap-1 p-0 text-(length:--fs-13)">
+                      @for (row of ind.suggested; track $index) {
+                        <li class="text-(--text-2)" data-testid="ai-suggested-row">
+                          <span class="font-semibold text-(--text)">{{ fmt(row.quantity) }}</span>
+                          {{ row.type }} <span class="text-(--text-3)">({{ row.group }})</span>
+                          @if (row.detail) {
+                            <span class="block text-(length:--fs-12) text-(--text-3)">{{
+                              row.detail
+                            }}</span>
+                          }
+                        </li>
+                      }
+                    </ul>
+                  }
+                </section>
+                <section class="flex min-w-0 flex-col gap-1" aria-label="Reported">
+                  <h3
+                    class="m-0 text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-3) uppercase"
+                  >
+                    Reported
+                  </h3>
+                  @if (ind.reported.length === 0) {
+                    <p class="m-0 text-(length:--fs-13) text-(--text-3)">Nothing reported.</p>
+                  } @else {
+                    <ul class="m-0 flex list-none flex-col gap-1 p-0 text-(length:--fs-13)">
+                      @for (row of ind.reported; track $index) {
+                        <li class="text-(--text-2)" data-testid="ai-reported-row">
+                          <span class="font-semibold text-(--text)">{{
+                            row.quantity === null ? '—' : fmt(row.quantity)
+                          }}</span>
+                          {{ row.type }} <span class="text-(--text-3)">({{ row.group }})</span>
+                        </li>
+                      }
+                    </ul>
+                  }
+                </section>
+              </div>
+            }
+          }
         }
         @if (quote(); as q) {
           <blockquote
@@ -152,7 +231,14 @@ export class AiChip {
     const vm = this.vm();
     return vm.kind === 'available' ? vm : null;
   });
-  protected readonly badge = computed(() => SIGNAL_BADGE[this.available()?.signal ?? 'green']);
+  /** Indicative suggestions are neutral: no green, amber or red (contract 2.0.0). */
+  protected readonly badge = computed<QaBadgeStatus>(() => {
+    const scored = scoredSignal(this.available()?.signal ?? 'indicative');
+    return scored === null ? 'neutral' : SIGNAL_BADGE[scored];
+  });
+  protected readonly indicative = computed(() => this.available()?.indicative ?? null);
+  protected readonly meta = computed(() => this.available()?.meta ?? null);
+  protected readonly fmt = formatNumber;
   protected readonly headline = computed(() => this.available()?.headline ?? null);
   protected readonly quote = computed(() => this.available()?.quote ?? null);
   protected readonly explanation = computed(() => this.available()?.explanation ?? '');

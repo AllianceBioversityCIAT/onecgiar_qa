@@ -5,20 +5,22 @@ import {
 } from '../../../../core/api/ai-suggestions.models';
 import { AI_NOT_AVAILABLE, AI_PENDING, AI_UNAVAILABLE_REASONS, toAiChipVm } from './ai-chip.vm';
 
-const available = (over: Partial<AvailableSuggestionView> = {}): AvailableSuggestionView => ({
-  status: 'available',
-  fieldKey: 'general.gender_tag',
-  suggestionId: 's1',
-  signal: 'green',
-  suggestedValue: 1,
-  explanation: 'Training targeted at women farmers.',
-  evidenceQuote: 'trained 1,200 women farmers',
-  quoteVerified: true,
-  evidenceSource: 'https://example.org/e.pdf',
-  promptVersion: 'v2-1.0.0',
-  modelId: 'm',
-  ...over,
-});
+const available = (over: Partial<AvailableSuggestionView> = {}): AvailableSuggestionView =>
+  ({
+    status: 'available',
+    valueKind: 'level',
+    fieldKey: 'general.gender_tag',
+    suggestionId: 's1',
+    signal: 'green',
+    suggestedValue: 1,
+    explanation: 'Training targeted at women farmers.',
+    evidenceQuote: 'trained 1,200 women farmers',
+    quoteVerified: true,
+    evidenceSource: 'https://example.org/e.pdf',
+    promptVersion: 'v2-1.0.0',
+    modelId: 'm',
+    ...over,
+  }) as AvailableSuggestionView;
 
 describe('toAiChipVm (FR-6)', () => {
   it.each([
