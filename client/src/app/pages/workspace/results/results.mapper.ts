@@ -1,4 +1,9 @@
-import { WorklistReadOnlyReason, WorklistRow, WorklistStep, WorklistTimeline } from '../../../core/api/assessment.models';
+import {
+  WorklistReadOnlyReason,
+  WorklistRow,
+  WorklistStep,
+  WorklistTimeline,
+} from '../../../core/api/assessment.models';
 import { QaSelectOption } from '../../../ui';
 import { STATUS_CLASSES, STATUS_LABELS } from './qa-status';
 import type { ResultRowVm } from './results-table';
@@ -47,7 +52,10 @@ export function timelineOptions(timelines: readonly WorklistTimeline[]): readonl
  * Why the worklist is read only, from what the timelines answer already says (the page answer only has
  * `writable`). Same words as the rows' `readOnlyReason` (§ 3.2). `null` = the caller can write.
  */
-export function readOnlyReasonOf(timeline: WorklistTimeline | null, writable: boolean): WorklistReadOnlyReason | null {
+export function readOnlyReasonOf(
+  timeline: WorklistTimeline | null,
+  writable: boolean,
+): WorklistReadOnlyReason | null {
   if (writable || !timeline) return null;
   if (!timeline.roles.some((r) => r !== 'ADMIN')) return 'admin_read_only';
   if (!timeline.step) return 'no_step';
@@ -69,5 +77,7 @@ export function readOnlyText(reason: WorklistReadOnlyReason | null): string | nu
       return 'Your assessment step has closed: results open read only.';
     case 'no_step':
       return 'This timeline has no step for your role: results open read only.';
+    case 'auto_validated':
+      return 'Auto-validated: this result is not assessed.';
   }
 }

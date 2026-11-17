@@ -290,6 +290,7 @@ describe('review.mapper (API assessment view → Review view models)', () => {
       ['step_upcoming', 'Step 1 · Assessment has not opened yet'],
       ['step_closed', 'Step 1 · Assessment is closed'],
       ['no_step', 'Your role has no step'],
+      ['auto_validated', 'Auto-validated: this result is not assessed'],
     ] as const)('%s → banner "%s…"', (reason, text) => {
       expect(readOnlyBanner(reason, viewFixture())).toContain(text);
     });

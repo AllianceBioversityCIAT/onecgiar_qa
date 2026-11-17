@@ -444,6 +444,8 @@ export function readOnlyBanner(
       return `${step} is closed. The assessment is read only.`;
     case 'no_step':
       return 'Your role has no step in this timeline. The assessment is read only.';
+    case 'auto_validated':
+      return 'Auto-validated: this result is not assessed.';
     case 'finished': {
       const a = view.assessment;
       const who = a?.assessedBy?.nickname ?? '—';
