@@ -7,15 +7,21 @@
 </div>
 
 <div class="flex flex-col items-stretch gap-5 px-4 pt-5 pb-8 sm:px-6 lg:px-8">
-  @if (store.state() === 'loading') {
-    <qa-results-skeleton />
-  } @else if (store.state() === 'error') {
+  <ng-template #loadError>
     <div class="flex max-w-[420px] flex-col items-start gap-2" role="alert">
       <p class="m-0 text-(length:--fs-14) text-(--text-2)">The results could not load. {{ store.error() }}</p>
       <button hlmBtn qaBtn tone="secondary" size="sm" type="button" (click)="store.load()">Try again</button>
     </div>
+  </ng-template>
+
+  @if (store.state() === 'loading') {
+    <qa-results-skeleton />
   } @else if (!store.timelines().length) {
-    <p class="m-0 text-(length:--fs-14) text-(--text-3)">You are not assigned to any QA timeline yet.</p>
+    @if (store.state() === 'error') {
+      <ng-container [ngTemplateOutlet]="loadError" />
+    } @else {
+      <p class="m-0 text-(length:--fs-14) text-(--text-3)">You are not assigned to any QA timeline yet.</p>
+    }
   } @else {
     <!-- Search + menus. Above them, the timeline as a line of text ("Viewing <timeline> ⌄"):
          it sets what the whole page shows, so it reads as context, not as one more filter. -->
@@ -32,7 +38,7 @@
         listMaxHeight="320px"
         class="self-start"
       />
-      @if (!store.noActiveRole()) {
+      @if (store.state() !== 'error' && !store.noActiveRole()) {
         <div class="flex flex-wrap items-center gap-2 lg:gap-3">
           <label class="box-border flex h-9 w-[320px] max-w-full flex-none cursor-text items-center gap-2 rounded-lg border border-(--border) bg-(--surface) px-3 focus-within:shadow-(--focus-ring) max-sm:h-10 max-sm:w-full">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="flex-none"><path d="M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.35-4.35" /></svg>
@@ -60,56 +66,62 @@
       }
     </div>
 
-    @if (readOnly(); as text) {
-      <p class="m-0 flex items-start gap-2 rounded-lg border border-(--border) bg-(--surface-2) px-3 py-2 text-(length:--fs-13) text-(--text-2)" role="status">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-0.5 flex-none text-(--text-muted)"><path d="M5 11h14v10H5zM8 11V7a4 4 0 0 1 8 0v4" /></svg>
-        <span>{{ text }}</span>
-      </p>
-    }
-
-    @if (store.noActiveRole()) {
-      <p class="m-0 text-(length:--fs-14) text-(--text-3)">You are on this timeline, but none of your roles has results to assess in it.</p>
-    } @else if (store.counters().total === 0 && !hasFilters()) {
-      <div class="flex flex-col items-start gap-2">
-        <p class="m-0 text-(length:--fs-14) text-(--text-3)">No results have entered QA in this timeline yet.</p>
-        @if (isAdmin()) {
-          <a hlmBtn qaBtn tone="link" size="sm" flush="start" routerLink="/cycle">Go to Cycle</a>
-        }
-      </div>
+    <!-- A timeline that failed to load keeps the picker above, so another one can be chosen. -->
+    @if (store.state() === 'error') {
+      <ng-container [ngTemplateOutlet]="loadError" />
     } @else {
-      <!-- Counters ignore the filters: they describe the whole timeline in the caller's scope. -->
-      <p class="m-0 text-(length:--fs-13) text-(--text-3) tabular-nums" aria-live="polite">
-        <span class="font-semibold text-(--text-2)">{{ store.counters().pending }}</span> pending ·
-        <span class="font-semibold text-(--text-2)">{{ store.counters().finished }}</span> finished ·
-        <span class="font-semibold text-(--text-2)">{{ store.counters().total }}</span> in this timeline
-      </p>
+      @if (readOnly(); as text) {
+        <p class="m-0 flex items-start gap-2 rounded-lg border border-(--border) bg-(--surface-2) px-3 py-2 text-(length:--fs-13) text-(--text-2)" role="status">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-0.5 flex-none text-(--text-muted)"><path d="M5 11h14v10H5zM8 11V7a4 4 0 0 1 8 0v4" /></svg>
+          <span>{{ text }}</span>
+        </p>
+      }
 
-      @if (rows().length) {
-        <!-- Results table: each row opens its review page (/results/:code). -->
-        <qa-results-table
-          [rows]="rows()"
-          [sortKey]="sortKey()"
-          [sortDir]="sortDir()"
-          [footer]="!!store.nextCursor() || !!store.moreError()"
-          [attr.aria-busy]="store.refreshing() || null"
-          [class.opacity-60]="store.refreshing()"
-          (sort)="sortBy($event)"
-          (sortSet)="setSort($event)"
-        >
-          <div qaTableFooter class="flex flex-wrap items-center gap-3">
-            <button hlmBtn qaBtn tone="secondary" size="sm" type="button" [loading]="store.loadingMore()" (click)="store.loadMore()">
-              {{ store.moreError() ? 'Try again' : 'Load more' }}
-            </button>
-            @if (store.moreError(); as message) {
-              <span class="text-(length:--fs-13) text-(--text-3)" role="alert">More results could not load. {{ message }}</span>
-            }
-          </div>
-        </qa-results-table>
-      } @else {
+      @if (store.noActiveRole()) {
+        <p class="m-0 text-(length:--fs-14) text-(--text-3)">You are on this timeline, but none of your roles has results to assess in it.</p>
+      } @else if (store.counters().total === 0 && !hasFilters()) {
         <div class="flex flex-col items-start gap-2">
-          <p class="m-0 text-(length:--fs-14) text-(--text-3)">No results match your filters.</p>
-          <button hlmBtn qaBtn tone="link" size="sm" flush="start" type="button" (click)="clearAll()">Clear all</button>
+          <p class="m-0 text-(length:--fs-14) text-(--text-3)">No results have entered QA in this timeline yet.</p>
+          @if (isAdmin()) {
+            <a hlmBtn qaBtn tone="link" size="sm" flush="start" routerLink="/cycle">Go to Cycle</a>
+          }
         </div>
+      } @else {
+        <!-- Counters ignore the filters: they describe the whole timeline in the caller's scope. -->
+        <p class="m-0 text-(length:--fs-13) text-(--text-3) tabular-nums" aria-live="polite">
+          <span class="font-semibold text-(--text-2)">{{ store.counters().pending }}</span> pending ·
+          <span class="font-semibold text-(--text-2)">{{ store.counters().finished }}</span> finished ·
+          <span class="font-semibold text-(--text-2)">{{ store.counters().total }}</span> in this timeline
+        </p>
+
+        @if (rows().length) {
+          <!-- Results table: each row opens its review page (/results/:code). -->
+          <qa-results-table
+            [rows]="rows()"
+            [sortKey]="sortKey()"
+            [sortDir]="sortDir()"
+            [timelineId]="store.timelineId()"
+            [footer]="!!store.nextCursor() || !!store.moreError()"
+            [attr.aria-busy]="store.refreshing() || null"
+            [class.opacity-60]="store.refreshing()"
+            (sort)="sortBy($event)"
+            (sortSet)="setSort($event)"
+          >
+            <div qaTableFooter class="flex flex-wrap items-center gap-3">
+              <button hlmBtn qaBtn tone="secondary" size="sm" type="button" [loading]="store.loadingMore()" (click)="store.loadMore()">
+                {{ store.moreError() ? 'Try again' : 'Load more' }}
+              </button>
+              @if (store.moreError(); as message) {
+                <span class="text-(length:--fs-13) text-(--text-3)" role="alert">More results could not load. {{ message }}</span>
+              }
+            </div>
+          </qa-results-table>
+        } @else {
+          <div class="flex flex-col items-start gap-2">
+            <p class="m-0 text-(length:--fs-14) text-(--text-3)">No results match your filters.</p>
+            <button hlmBtn qaBtn tone="link" size="sm" flush="start" type="button" (click)="clearAll()">Clear all</button>
+          </div>
+        }
       }
     }
   }

@@ -3,7 +3,7 @@ import { NO_NICKNAME, STATUS_CLASSES, STATUS_LABELS, readOnlyReasonOf, readOnlyT
 
 const row = (patch: Partial<WorklistRow> = {}): WorklistRow => ({
   membershipId: 1,
-  resultCode: '9890',
+  resultCode: 9890,
   title: 'Improved bean varieties',
   updated: false,
   program: { id: 7, code: 'SP02', name: 'Breeding for Tomorrow' },
@@ -49,6 +49,12 @@ describe('results.mapper', () => {
     expect(vm.updated).toBe(true);
     expect(vm.type).toBe('Innovation development');
     expect(vm.title).toBe('9890');
+  });
+
+  it('the code is text for the table and the link, the row id is the membership (one result can be listed twice)', () => {
+    const vm = toRowVm(row({ membershipId: 41 }));
+    expect(vm.code).toBe('9890');
+    expect(vm.id).toBe(41);
   });
 
   it('timeline picker: official first, step state as the tag, no "All timelines"', () => {

@@ -33,8 +33,9 @@ export const NO_NICKNAME = '—';
 export function toRowVm(row: WorklistRow): ResultRowVm {
   const assessor = row.assessedBy ? ` · ${row.assessedBy.nickname ?? NO_NICKNAME}` : '';
   return {
-    code: row.resultCode,
-    title: row.title ?? row.resultCode,
+    id: row.membershipId,
+    code: String(row.resultCode),
+    title: row.title ?? String(row.resultCode),
     meta: `${row.program.code}${assessor}`,
     type: row.resultType.label,
     comments: row.comments,

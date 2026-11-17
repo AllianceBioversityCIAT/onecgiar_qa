@@ -1,3 +1,4 @@
+import { NgTemplateOutlet } from '@angular/common';
 import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, NavigationEnd, PRIMARY_OUTLET, ParamMap, Router, RouterLink } from '@angular/router';
@@ -22,12 +23,16 @@ const FILTER_LABELS: Readonly<Record<FilterKey, string>> = {
   type: 'Result type',
 };
 
-/** Comma-separated list from a query param (?status=pending,quality_assessed). */
+/** Values the API takes per list filter (contract § 3.2). */
+const MAX_LIST_VALUES = 50;
+
+/** Comma-separated list from a query param (?status=pending,quality_assessed): each value once, at most 50. */
 function listParam(value: string | null): readonly string[] {
-  return (value ?? '')
+  const values = (value ?? '')
     .split(',')
     .map((v) => v.trim())
     .filter(Boolean);
+  return [...new Set(values)].slice(0, MAX_LIST_VALUES);
 }
 
 const isStatus = (v: string): v is QaStatus => (QA_STATUSES as readonly string[]).includes(v);
@@ -59,7 +64,7 @@ export function readFilters(params: ParamMap): ResultsFilters {
 @Component({
   selector: 'qa-results-view',
   templateUrl: './results-view.html',
-  imports: [QaButtonImports, HlmInput, RouterLink, QaMultiSelect, QaSelectImports, ResultsTable, ResultsSkeleton],
+  imports: [NgTemplateOutlet, QaButtonImports, HlmInput, RouterLink, QaMultiSelect, QaSelectImports, ResultsTable, ResultsSkeleton],
   providers: [ResultsStore],
 })
 export class ResultsView {
@@ -119,7 +124,21 @@ export class ResultsView {
 
   protected onTimeline(value: string | null): void {
     const id = value ? Number(value) : null;
-    if (id) void this.store.selectTimeline(id);
+    if (!id) return;
+    // A search still waiting for its pause travels with the switch (its timer would refresh the old timeline).
+    clearTimeout(this.searchTimer);
+    void this.store.selectTimeline(id, this.current()).then(() => this.dropUnoffered());
+  }
+
+  /** After a timeline switch: a program or a result type the new timeline does not offer leaves the menus and the query. */
+  private dropUnoffered(): void {
+    if (this.store.state() !== 'ready') return;
+    const programs = this.programs().filter((v) => this.programOptions().some((o) => o.value === v));
+    const types = this.types().filter((v) => this.typeOptions().some((o) => o.value === v));
+    if (programs.length === this.programs().length && types.length === this.types().length) return;
+    this.programs.set(programs);
+    this.types.set(types);
+    this.refetch();
   }
 
   // ---------- Menus (options from the server, limited to the caller's scope) ----------
@@ -223,12 +242,17 @@ export class ResultsView {
 
   private refetch(): void {
     clearTimeout(this.searchTimer);
-    void this.store.setFilters({
+    void this.store.setFilters(this.current());
+  }
+
+  /** What the menus and the search box say now. */
+  private current(): Omit<ResultsFilters, 'timelineId'> {
+    return {
       statuses: this.statuses().filter(isStatus),
       programIds: this.programs().map(Number).filter((n) => Number.isInteger(n) && n > 0),
       typeKeys: this.types(),
       q: this.search(),
-    });
+    };
   }
 }
 

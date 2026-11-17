@@ -9,6 +9,8 @@ export type SortKey = 'code' | 'title' | 'resultType' | 'comments' | 'status';
 export type { SortDir };
 
 export interface ResultRowVm {
+  /** The row's own id (the membership): one result can be listed more than once. */
+  readonly id: number;
   readonly code: string;
   readonly title: string;
   /** Second line under the title: "SP02 · mchen" (the nickname once someone assessed it). */
@@ -131,7 +133,7 @@ const CELL = {
         </tr>
       </thead>
       <tbody class="block">
-        @for (r of rows(); track r.code; let last = $last, i = $index) {
+        @for (r of rows(); track r.id; let last = $last, i = $index) {
           <tr
             [qaReveal]="i % revealPage"
             class="relative grid items-center border-b border-(--surface-4) bg-(--surface) px-4 py-3 hover:bg-(--surface-2) @min-[640px]:min-h-[72px] @min-[640px]:px-5 @min-[640px]:py-2"
@@ -140,6 +142,7 @@ const CELL = {
             <td class="flex items-center self-stretch" [class]="cell.code">
               <a
                 [routerLink]="['/results', r.code]"
+                [queryParams]="reviewParams()"
                 class="font-(family-name:--qa-mono) tabular-nums text-(length:--fs-13) font-semibold whitespace-nowrap text-(--accent) outline-none after:absolute after:inset-0 focus-visible:after:inset-ring-2 focus-visible:after:inset-ring-(--primary)"
                 [class]="last && !footer() ? 'after:rounded-b-[11px]' : ''"
               >{{ r.code }}</a>
@@ -187,6 +190,9 @@ export class ResultsTable {
   /** Card-mode picker: sets field and direction at once (null = default order). */
   readonly sortSet = output<{ key: SortKey; dir: SortDir } | null>();
 
+  /** The timeline the rows belong to: the review page reads the assessment of a result ON a timeline. */
+  readonly timelineId = input<number | null>(null);
+
   /** Something is projected with `qaTableFooter` (squares the last row, it is no longer the card's bottom). */
   readonly footer = input(false);
 
@@ -196,6 +202,10 @@ export class ResultsTable {
   protected readonly grid = GRID;
   protected readonly cell = CELL;
   protected readonly sortOptions = SORT_OPTIONS;
+  protected readonly reviewParams = computed(() => {
+    const timeline = this.timelineId();
+    return timeline === null ? null : { timeline };
+  });
   protected readonly sortValue = computed(() => {
     const key = this.sortKey();
     return key ? `${key}:${this.sortDir()}` : '';

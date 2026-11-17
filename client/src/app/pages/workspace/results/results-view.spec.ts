@@ -9,7 +9,7 @@ import { ResultsView } from './results-view';
 
 const row = (code: string, patch: Partial<WorklistRow> = {}): WorklistRow => ({
   membershipId: Number(code),
-  resultCode: code,
+  resultCode: Number(code),
   title: `Result ${code}`,
   updated: false,
   program: { id: 7, code: 'SP02', name: 'Breeding' },
@@ -65,8 +65,10 @@ class FakeApi {
   timelines(): Observable<WorklistTimelines> {
     return this.timelinesAnswer();
   }
-  worklistOptions(): Observable<WorklistOptions> {
-    return of(OPTIONS);
+  optionsAnswer: (id: number) => Observable<WorklistOptions> = () => of(OPTIONS);
+
+  worklistOptions(id: number): Observable<WorklistOptions> {
+    return this.optionsAnswer(id);
   }
   worklist(id: number, query: WorklistQuery = {}): Observable<WorklistPage> {
     this.calls.push({ id, query });
@@ -252,6 +254,90 @@ describe('ResultsView on the worklist API', () => {
     [...harness.routeNativeElement!.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.includes('Try again'))!.click();
     await settle(harness);
     expect(codes(harness)).toEqual(['1']);
+  });
+
+  it('each row opens its review with the timeline in the URL (the assessment needs both)', async () => {
+    const harness = await open('/results?timeline=30');
+    const link = harness.routeNativeElement!.querySelector<HTMLAnchorElement>('tbody a')!;
+    expect(link.getAttribute('href')).toBe('/results/9890?timeline=30');
+  });
+
+  it('a filter change while a timeline switch is still loading keeps the new timeline', async () => {
+    const harness = await open('/results');
+    const comp = harness.routeDebugElement!.componentInstance as {
+      onTimeline(v: string | null): void;
+      setStatuses(v: readonly string[]): void;
+    };
+    const timelines = new Subject<WorklistTimelines>();
+    api.timelinesAnswer = () => timelines;
+    comp.onTimeline('30'); // waits for the timelines answer
+    comp.setStatuses(['pending']); // lands in the middle of that load
+    timelines.next(TIMELINES);
+    timelines.complete();
+    await settle(harness);
+    expect(api.last().id).toBe(30);
+    expect(api.last().query.status).toEqual(['pending']);
+  });
+
+  it('a search still waiting for its pause travels with a timeline switch instead of cancelling it', async () => {
+    const harness = await open('/results');
+    const comp = harness.routeDebugElement!.componentInstance as { onTimeline(v: string | null): void };
+    const input = harness.routeNativeElement!.querySelector<HTMLInputElement>('input[aria-label="Search by code or title"]')!;
+    const timelines = new Subject<WorklistTimelines>();
+    api.timelinesAnswer = () => timelines;
+    input.value = 'bean';
+    input.dispatchEvent(new Event('input'));
+    comp.onTimeline('30');
+    await new Promise((resolve) => setTimeout(resolve, 350)); // past the 300 ms pause of the search box
+    timelines.next(TIMELINES);
+    timelines.complete();
+    await settle(harness);
+    expect(api.last().id).toBe(30);
+    expect(api.last().query.q).toBe('bean');
+  });
+
+  it('a timeline that fails to load keeps the picker, so another one can be chosen', async () => {
+    api.pageAnswer = (id) =>
+      id === 30
+        ? throwError(() => new ApiError({ status: 503, code: 'SERVICE_UNAVAILABLE', message: 'Try again in a moment.' }))
+        : of(page([row('9890')]));
+    const harness = await open('/results');
+    const comp = harness.routeDebugElement!.componentInstance as { onTimeline(v: string | null): void };
+    comp.onTimeline('30');
+    await settle(harness);
+    expect(text(harness)).toContain('The results could not load. Try again in a moment.');
+    expect(harness.routeNativeElement!.querySelector('qa-select')).not.toBeNull();
+    comp.onTimeline('29');
+    await settle(harness);
+    expect(codes(harness)).toEqual(['9890']);
+  });
+
+  it('switching timeline drops the program and type filters the new timeline does not offer', async () => {
+    api.optionsAnswer = (id) =>
+      of(id === 30 ? { ...OPTIONS, programs: [{ id: 8, code: 'SP03', name: 'Sustainable Farming' }], resultTypes: [] } : OPTIONS);
+    const harness = await open('/results');
+    const comp = harness.routeDebugElement!.componentInstance as {
+      onTimeline(v: string | null): void;
+      setPrograms(v: readonly string[]): void;
+      setTypes(v: readonly string[]): void;
+      setStatuses(v: readonly string[]): void;
+    };
+    comp.setPrograms(['7']);
+    comp.setTypes(['innovation_development']);
+    comp.setStatuses(['pending']);
+    await settle(harness);
+    comp.onTimeline('30');
+    await settle(harness);
+    expect(api.last().id).toBe(30);
+    expect(api.last().query).toMatchObject({ programId: [], resultTypeKey: [], status: ['pending'] });
+    expect(harness.routeNativeElement!.querySelector('button[aria-label="Remove Science program filter"]')).toBeNull();
+    expect(harness.routeNativeElement!.querySelector('button[aria-label="Remove Status filter"]')).not.toBeNull();
+  });
+
+  it('repeated values in the URL are sent once', async () => {
+    await open('/results?status=pending,pending&program=7,7');
+    expect(api.last().query.status).toEqual(['pending']);
+    expect(api.last().query.programId).toEqual([7]);
   });
 
   it('re-reads the URL on navigation in the same component, and never writes the URL itself', async () => {

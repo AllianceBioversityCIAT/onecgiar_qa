@@ -61,6 +61,8 @@ export class ResultsStore {
   private filters: ResultsFilters = NO_FILTERS;
   private sort: { readonly key: WorklistSort; readonly dir: 'asc' | 'desc' } | null = null;
   private generation = 0;
+  /** A full load (timelines, options, first page) is running: a query change restarts it instead of refreshing the timeline still on screen. */
+  private fullLoad = false;
 
   readonly timeline = computed(() => this.timelines().find((t) => t.id === this.timelineId()) ?? null);
   readonly readOnlyReason = computed(() => readOnlyReasonOf(this.timeline(), this.writable()));
@@ -69,6 +71,7 @@ export class ResultsStore {
   async load(filters: ResultsFilters = this.filters): Promise<void> {
     this.filters = filters;
     const gen = ++this.generation;
+    this.fullLoad = true;
     this.state.set('loading');
     try {
       const answer = await firstValueFrom(this.api.timelines());
@@ -91,18 +94,21 @@ export class ResultsStore {
     } catch (error) {
       if (gen !== this.generation) return;
       this.fail(error);
+    } finally {
+      if (gen === this.generation) this.fullLoad = false;
     }
   }
 
-  /** Another timeline from the picker: its options change too. The other filters stay. */
-  async selectTimeline(id: number): Promise<void> {
-    if (id === this.timelineId()) return;
-    await this.load({ ...this.filters, timelineId: id });
+  /** Another timeline from the picker: its options change too. The other filters travel with it. */
+  async selectTimeline(id: number, filters: Omit<ResultsFilters, 'timelineId'> = this.filters): Promise<void> {
+    if (id === this.timelineId() && !this.fullLoad) return;
+    await this.load({ ...filters, timelineId: id });
   }
 
   /** A menu, the search box or a chip changed: same timeline, first page again. */
   async setFilters(filters: Omit<ResultsFilters, 'timelineId'>): Promise<void> {
-    this.filters = { ...filters, timelineId: this.timelineId() };
+    // The timeline asked for last (a switch still loading included), not the one still on screen.
+    this.filters = { ...filters, timelineId: this.filters.timelineId ?? this.timelineId() };
     await this.refresh();
   }
 
@@ -134,6 +140,8 @@ export class ResultsStore {
   }
 
   private async refresh(): Promise<void> {
+    // No page to refresh yet (a full load is running or it failed): run the full load with the new query.
+    if (this.fullLoad || this.state() === 'error') return this.load();
     if (this.timelineId() === null) return;
     const gen = ++this.generation;
     this.refreshing.set(true);
@@ -181,10 +189,13 @@ export class ResultsStore {
     this.writable.set(false);
     this.noActiveRole.set(false);
     this.nextCursor.set(null);
+    this.loadingMore.set(false);
+    this.moreError.set('');
   }
 
   private fail(error: unknown): void {
     this.error.set(toApiError(error).message);
+    this.loadingMore.set(false);
     this.state.set('error');
   }
 }
