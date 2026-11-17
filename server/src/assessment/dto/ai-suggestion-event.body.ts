@@ -113,9 +113,14 @@ export class AiSuggestionEventBody {
   reason?: string;
 }
 
-/** `…/ai-suggestions/:suggestionId/…`: the worker's id, 32 lowercase hex characters. */
+/**
+ * `…/ai-suggestions/:suggestionId/…`: the worker's id, 32 lowercase hex
+ * characters; the dashed UUID form of the same id is accepted too (older items).
+ */
 export class AiSuggestionParams extends AssessmentParams {
   @ApiProperty({ type: String, example: '0f1e2d3c4b5a69788796a5b4c3d2e1f0' })
-  @Matches(/^[0-9a-f]{32}$/)
+  @Matches(
+    /^(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/,
+  )
   suggestionId!: string;
 }

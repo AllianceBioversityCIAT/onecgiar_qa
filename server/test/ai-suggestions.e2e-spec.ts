@@ -40,7 +40,7 @@ describe('AI suggestions (e2e)', () => {
   let code: number;
   let snapKey: string;
 
-  async function putItem(item: Record<string, unknown>) {
+  async function putItem(item: Record<string, unknown>, checkSchema = true) {
     const full: Record<string, unknown> = {
       __edb_e__: 'aiSuggestion',
       __edb_v__: '1',
@@ -53,7 +53,7 @@ describe('AI suggestions (e2e)', () => {
     };
     full.pk = `RESULT#${code}`;
     full.sk = `AI#${String(full.snapKey)}#${String(full.fieldKey)}#${String(full.promptVersion)}`;
-    assertAiSchema('ai-suggestion-item', full);
+    if (checkSchema) assertAiSchema('ai-suggestion-item', full);
     await a.aiDynamo.client.send(
       new PutItemCommand({
         TableName: 'cgiar-qa-test',
@@ -512,6 +512,50 @@ describe('AI suggestions (e2e)', () => {
         404,
         'AI_SUGGESTION_NOT_FOUND',
       );
+    });
+
+    it('reads a dashed UUID id (worker builds before 17-nov) as the 32-hex one, and records it either way', async () => {
+      const dashed = '04cb6e23-f605-52c9-a32e-ef6b538ecec8';
+      const hex = '04cb6e23f60552c9a32eef6b538ecec8';
+      // Stored as the old worker wrote it, so outside the item schema on purpose.
+      await putItem(
+        {
+          fieldKey: CLIMATE,
+          suggestionId: dashed,
+          status: 'available',
+          signal: 'red',
+          suggestedValue: 0,
+          reportedValue: 2,
+          explanation: 'The evidence does not mention climate.',
+          evidenceQuote: 'trained farmers',
+          evidenceSource: 'https://example.org/e.pdf',
+          evidenceSourceIndex: 0,
+          evidenceHash: 'h',
+          quoteVerified: true,
+          partialEvidence: false,
+          modelId: 'anthropic.claude-haiku-5-5',
+          unavailableReason: null,
+        },
+        false,
+      );
+      configure([GENDER, CLIMATE, POVERTY, IRL]);
+      const views = await getViews();
+      expect(
+        views.body.data.find(
+          (v: { fieldKey: string }) => v.fieldKey === CLIMATE,
+        ).suggestionId,
+      ).toBe(hex);
+
+      expect((await post(dashed, { action: 'shown' })).status).toBe(204);
+      expect((await post(hex, { action: 'copied' })).status).toBe(204);
+      expect(
+        a.aiUsage.rows
+          .filter((r) => r.fieldKey === CLIMATE)
+          .map((r) => [r.suggestionId, r.action]),
+      ).toEqual([
+        [hex, 'shown'],
+        [hex, 'copied'],
+      ]);
     });
 
     it('a malformed suggestion id is 400 VALIDATION_FAILED', async () => {
