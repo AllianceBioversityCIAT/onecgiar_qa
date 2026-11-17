@@ -69,9 +69,11 @@ export class ReviewView {
   protected readonly compact = signal(false);
   protected readonly navOpen = signal(false);
 
-  protected readonly sectionIdx = linkedSignal<string | null, number>({ source: this.routeCode, computation: () => 0 });
-  protected readonly finishStep = linkedSignal<string | null, 'none' | 'warn' | 'confirm'>({ source: this.routeCode, computation: () => 'none' });
-  private readonly skipped = linkedSignal<string | null, number>({ source: this.routeCode, computation: () => 0 });
+  /** Another result, or the same result on another timeline: the page starts again from its first section. */
+  private readonly routeKey = computed(() => `${this.routeCode()}|${this.routeTimeline()}`);
+  protected readonly sectionIdx = linkedSignal<string, number>({ source: this.routeKey, computation: () => 0 });
+  protected readonly finishStep = linkedSignal<string, 'none' | 'warn' | 'confirm'>({ source: this.routeKey, computation: () => 'none' });
+  private readonly skipped = linkedSignal<string, number>({ source: this.routeKey, computation: () => 0 });
 
   protected readonly sections = computed(() => this.vm()?.sections ?? []);
   protected readonly idx = computed(() => Math.max(0, Math.min(this.sectionIdx(), this.sections().length - 1)));

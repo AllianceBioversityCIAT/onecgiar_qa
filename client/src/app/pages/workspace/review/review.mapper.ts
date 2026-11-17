@@ -7,7 +7,7 @@ import {
   AssessmentReadOnlyReason,
   TOC_SECTION_KEY,
 } from '../../../core/api/assessment.models';
-import { formatDay } from '../../../core/domain/rome-date';
+import { formatDay, todayInRome } from '../../../core/domain/rome-date';
 import { qaStatusPill } from '../results/qa-status';
 import type { CommentsDrawerMode, CommentsDrawerVm } from './review-comments-drawer';
 import {
@@ -107,8 +107,20 @@ const SUBFIELD_LISTS: Readonly<Record<string, string>> = {
 
 type Json = unknown;
 
+/** "12 Nov 2026" of an instant, as the calendar day in Rome (the QA clock), never the UTC day. */
+const romeDay = (iso: string): string => {
+  const at = new Date(iso);
+  return isNaN(at.getTime()) ? formatDay(iso.slice(0, 10)) : formatDay(todayInRome(at));
+};
+
 const isObject = (v: Json): v is Readonly<Record<string, Json>> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isEmpty = (v: Json): boolean => v === null || v === undefined || v === '' || (Array.isArray(v) && v.length === 0);
+/**
+ * A list entry with nothing in it. Reporting keeps one entry with every subfield null when the result is not mapped
+ * to the ToC (seen on TEST, 17-nov): it is no contribution, and it must not paint an empty card.
+ */
+const isBlankEntry = (v: Json): boolean =>
+  isObject(v) && Object.values(v).every((x) => isEmpty(x) || (Array.isArray(x) && x.every(isBlankEntry)));
 const humanize = (key: string): string => SUBFIELD_LABELS[key] ?? key.charAt(0).toUpperCase() + key.slice(1).replaceAll('_', ' ');
 
 /** The label of an option id: from one list, or from any list the field carries; the id when there is none. */
@@ -146,9 +158,11 @@ export function formatValue(field: Pick<AssessmentField, 'value' | 'labels' | 'n
   const { value, labels } = field;
   if (isEmpty(value)) return '—';
   if (Array.isArray(value)) {
-    return value.every((v) => !isObject(v))
-      ? value.map((v) => scalarText(v, labels, undefined, !!labels)).join(', ')
-      : value.map((v) => entryText(v, labels)).join('\n');
+    const items = value.filter((v) => !isBlankEntry(v));
+    if (!items.length) return '—';
+    return items.every((v) => !isObject(v))
+      ? items.map((v) => scalarText(v, labels, undefined, !!labels)).join(', ')
+      : items.map((v) => entryText(v, labels)).join('\n');
   }
   if (isObject(value)) return entryText(value, labels);
   return scalarText(value, labels, undefined, !!labels);
@@ -257,7 +271,13 @@ function contributionCard(entry: Readonly<Record<string, Json>>, n: number, labe
 
 /** A ToC field shown as one card (a yes/no answer, a narrative, an empty list). */
 function answerCard(f: AssessmentField, status: CardStatusVm): TocCardVm {
-  return { ...blankCard(status), eyebrow: f.label, levelChip: f.core && isAssessed(f) ? 'Core' : '', links: [{ label: 'Answer', code: '', value: formatValue(f) }] };
+  return {
+    ...blankCard(status),
+    eyebrow: f.label,
+    levelChip: f.core && isAssessed(f) ? 'Core' : '',
+    links: [{ label: 'Answer', code: '', value: formatValue(f) }],
+    tip: f.description ?? '',
+  };
 }
 
 /**
@@ -271,15 +291,16 @@ export function toTocVm(fields: readonly AssessmentField[], writable: boolean): 
   let count = 0;
   for (const f of fields) {
     const status = (i: number) => (i === 0 ? cardStatus(f, writable) : { ...cardStatus(f, false, `${f.key}#${i}`), states: [], actions: null });
-    const entries = !f.notApplicable && Array.isArray(f.value) && f.value.length && f.value.every(isObject) ? (f.value as readonly Readonly<Record<string, Json>>[]) : null;
-    if (!entries) {
+    const listed = !f.notApplicable && Array.isArray(f.value) && f.value.every(isObject) ? (f.value as readonly Readonly<Record<string, Json>>[]) : [];
+    const entries = listed.filter((e) => !isBlankEntry(e));
+    if (!entries.length) {
       main.push(answerCard(f, status(0)));
       continue;
     }
     if (f.key === 'contributors.science_programs') {
       let card = 0;
       entries.forEach((entry, p) => {
-        const nested = Array.isArray(entry['toc_entries']) ? (entry['toc_entries'] as readonly Json[]).filter(isObject) : [];
+        const nested = Array.isArray(entry['toc_entries']) ? (entry['toc_entries'] as readonly Json[]).filter(isObject).filter((e) => !isBlankEntry(e)) : [];
         const { toc_entries: _, ...rest } = entry;
         const items = nested.length
           ? nested.map((e, i) => contributionCard(e, i + 1, f.labels, status(card++)))
@@ -332,7 +353,7 @@ export function readOnlyBanner(reason: AssessmentReadOnlyReason | null, view: Pi
     case 'finished': {
       const a = view.assessment;
       const who = a?.assessedBy?.nickname ?? '—';
-      return `Finished by ${who}${a?.finishedAt ? ' on ' + formatDay(a.finishedAt.slice(0, 10)) : ''}.`;
+      return `Finished by ${who}${a?.finishedAt ? ' on ' + romeDay(a.finishedAt) : ''}.`;
     }
     default:
       return 'The assessment is read only.';
@@ -423,7 +444,7 @@ export function toCommentVm(c: AssessmentComment): ReviewCommentVm {
     open: c.state === 'open',
     who: c.author.nickname ?? '—',
     role: 'Assessor',
-    date: formatDay(c.createdAt.slice(0, 10)),
+    date: romeDay(c.createdAt),
     text: c.body,
   };
 }

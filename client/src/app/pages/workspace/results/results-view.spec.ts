@@ -340,6 +340,55 @@ describe('ResultsView on the worklist API', () => {
     expect(api.last().query.programId).toEqual([7]);
   });
 
+  it('a refresh overtaken by a timeline switch does not leave the table dimmed', async () => {
+    const harness = await open('/results');
+    const comp = harness.routeDebugElement!.componentInstance as {
+      onTimeline(v: string | null): void;
+      setStatuses(v: readonly string[]): void;
+    };
+    const slow = new Subject<WorklistPage>();
+    api.pageAnswer = (_id, q) => (q.status?.length ? slow : of(page([row('9890')])));
+    comp.setStatuses(['pending']); // a refresh that does not answer yet
+    await settle(harness);
+    api.pageAnswer = () => of(page([row('9890')]));
+    comp.onTimeline('30'); // a full load overtakes it
+    await settle(harness);
+    slow.next(page([row('1')]));
+    slow.complete();
+    await settle(harness);
+    const table = harness.routeNativeElement!.querySelector('qa-results-table')!;
+    expect(table.getAttribute('aria-busy')).toBeNull();
+    expect(table.classList.contains('opacity-60')).toBe(false);
+  });
+
+  it('picking the timeline already on screen keeps a search that is still waiting for its pause', async () => {
+    const harness = await open('/results');
+    const comp = harness.routeDebugElement!.componentInstance as { onTimeline(v: string | null): void };
+    const input = harness.routeNativeElement!.querySelector<HTMLInputElement>('input[aria-label="Search by code or title"]')!;
+    input.value = 'bean';
+    input.dispatchEvent(new Event('input'));
+    comp.onTimeline('29');
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    await settle(harness);
+    expect(api.last().query.q).toBe('bean');
+  });
+
+  it('a refresh that fails offers to clear the filters that may be causing it', async () => {
+    const harness = await open('/results');
+    const comp = harness.routeDebugElement!.componentInstance as { setStatuses(v: readonly string[]): void };
+    api.pageAnswer = (_id, q) =>
+      q.status?.length
+        ? throwError(() => new ApiError({ status: 400, code: 'VALIDATION_FAILED', message: 'One of the filters is not valid.' }))
+        : of(page([row('9890')]));
+    comp.setStatuses(['pending']);
+    await settle(harness);
+    expect(text(harness)).toContain('The results could not load. One of the filters is not valid.');
+    [...harness.routeNativeElement!.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.includes('Clear filters'))!.click();
+    await settle(harness);
+    expect(codes(harness)).toEqual(['9890']);
+    expect(api.last().query.status).toEqual([]);
+  });
+
   it('re-reads the URL on navigation in the same component, and never writes the URL itself', async () => {
     const harness = await open('/results?status=pending');
     const before = harness.routeDebugElement?.componentInstance;

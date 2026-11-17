@@ -72,6 +72,8 @@ export class ResultsStore {
     this.filters = filters;
     const gen = ++this.generation;
     this.fullLoad = true;
+    // A refresh this load overtakes never clears its own flag (its answer is dropped).
+    this.refreshing.set(false);
     this.state.set('loading');
     try {
       const answer = await firstValueFrom(this.api.timelines());

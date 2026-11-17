@@ -10,7 +10,12 @@
   <ng-template #loadError>
     <div class="flex max-w-[420px] flex-col items-start gap-2" role="alert">
       <p class="m-0 text-(length:--fs-14) text-(--text-2)">The results could not load. {{ store.error() }}</p>
-      <button hlmBtn qaBtn tone="secondary" size="sm" type="button" (click)="store.load()">Try again</button>
+      <div class="flex flex-wrap items-center gap-3">
+        <button hlmBtn qaBtn tone="secondary" size="sm" type="button" (click)="store.load()">Try again</button>
+        @if (hasFilters()) {
+          <button hlmBtn qaBtn tone="link" size="sm" type="button" (click)="clearAll()">Clear filters</button>
+        }
+      </div>
     </div>
   </ng-template>
 

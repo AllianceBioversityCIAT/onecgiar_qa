@@ -124,7 +124,7 @@ export class ResultsView {
 
   protected onTimeline(value: string | null): void {
     const id = value ? Number(value) : null;
-    if (!id) return;
+    if (!id || id === this.store.timelineId()) return;
     // A search still waiting for its pause travels with the switch (its timer would refresh the old timeline).
     clearTimeout(this.searchTimer);
     void this.store.selectTimeline(id, this.current()).then(() => this.dropUnoffered());

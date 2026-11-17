@@ -260,6 +260,59 @@ describe('ReviewView on the assessment API', () => {
       expect(text(toc)).not.toContain('reviewed');
     });
 
+    it('a slower answer for a result left behind never replaces the one on screen', async () => {
+      const first = new Subject<AssessmentView>();
+      api.view.mockReturnValueOnce(first);
+      const el = await open('/results/9890?timeline=29');
+      const other = viewFixture();
+      api.view.mockReturnValueOnce(of({ ...other, header: { ...other.header, resultCode: 8793, title: 'Dairy value chain' } }));
+      await harness.navigateByUrl('/results/8793?timeline=29');
+      await harness.fixture.whenStable();
+      first.next(viewFixture());
+      first.complete();
+      await harness.fixture.whenStable();
+      harness.detectChanges();
+      expect(el.querySelector('h1')?.textContent).toContain('Dairy value chain');
+    });
+
+    it('nothing to assess: the navigator says so instead of "0 of 0 fields resolved"', async () => {
+      const view = viewFixture();
+      api.view.mockReturnValue(
+        of({ ...view, sections: view.sections.map((s) => ({ ...s, fields: s.fields.map((f) => ({ ...f, mode: 'view' as const })) })) }),
+      );
+      const el = await open();
+      const aside = el.querySelector('qa-review-aside')!;
+      expect(text(aside)).toContain('No fields to assess in this result');
+      expect(text(aside)).not.toContain('0 of 0');
+    });
+
+    it('a value keeps its line breaks (one line per entry of a list, the paragraphs of a narrative)', async () => {
+      const el = await open();
+      const value = [...card(el, 'Description of Result').querySelectorAll('div')].find((d) => text(d) === 'A long description')!;
+      expect(value.classList.contains('whitespace-pre-line')).toBe(true);
+    });
+
+    it('ToC cards: a yes/no answer carries the help of its field, a contribution the note about contributions', async () => {
+      const view = viewFixture();
+      api.view.mockReturnValue(
+        of({
+          ...view,
+          sections: view.sections.map((s) => ({
+            ...s,
+            fields: s.fields.map((f) => (f.key === 'toc.planned_result' ? { ...f, description: 'Say whether the result maps to a KPI.' } : f)),
+          })),
+        }),
+      );
+      const el = await open();
+      byName(el, 'Theory of Change, 1 pending')!.click();
+      harness.detectChanges();
+      const toc = el.querySelector('section')!;
+      expect(toc.querySelectorAll('button[aria-label="Field guidance"]')).toHaveLength(1);
+      // 3 contributions in the fixture (2 of toc.entries, 1 of the contributing program).
+      expect(toc.querySelectorAll('button[aria-label="About theory of change contributions"]')).toHaveLength(3);
+      expect(text(toc)).not.toContain('2026');
+    });
+
     it('the focus control collapses the main menu and the navigator together (FR-8 AC2)', async () => {
       const el = await open();
       const layout = TestBed.inject(WorkspaceLayout);

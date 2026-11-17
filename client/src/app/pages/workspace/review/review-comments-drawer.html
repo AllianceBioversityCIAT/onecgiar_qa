@@ -3,7 +3,7 @@
     <span qaDrawerHeader="end" class="mt-0.5 rounded-full bg-(--st-rejected-bg) px-2 py-0.5 text-(length:--fs-11) font-semibold whitespace-nowrap text-(--st-rejected-fg)">Highlighted</span>
   }
   @if (open() && field(); as f) {
-    <div class="rounded-[8px] bg-(--surface-3) px-3 py-2.5 text-(length:--fs-14) leading-[1.55] wrap-anywhere text-(--text)">{{ f.value }}</div>
+    <div class="rounded-[8px] bg-(--surface-3) px-3 py-2.5 text-(length:--fs-14) leading-[1.55] wrap-anywhere whitespace-pre-line text-(--text)">{{ f.value }}</div>
 
     @if (f.mode !== 'instruction' && f.instruction) {
       <qa-review-instruction-note [text]="f.instruction" />

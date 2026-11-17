@@ -137,6 +137,25 @@ describe('review.mapper (API assessment view → Review view models)', () => {
       expect(toReviewVm(contextOnly).sections[1].toc!.assessed).toBe(0);
     });
 
+    it('an entry with every value empty is no contribution (what the API sends when the result is not mapped to the ToC)', () => {
+      const blank = { level: null, toc_result: null, hlo_statement: null, kpi: null, indicator_typology: null, unit_of_measurement: null, target: null, contribution_to_target: null };
+      const view = viewFixture();
+      const withBlank = {
+        ...view,
+        sections: view.sections.map((s) => ({
+          ...s,
+          fields: s.fields.map((f) => (f.key === 'toc.entries' ? { ...f, value: [blank], labels: null } : f.key === 'contributors.science_programs' ? { ...f, value: [] } : f)),
+        })),
+      };
+      const vm = toReviewVm(withBlank).sections[1].toc!;
+      const cards = vm.groups.flatMap((g) => g.items);
+      expect(vm.count).toBe(0);
+      expect(cards.map((c) => c.eyebrow)).not.toContain('Contribution 1');
+      const entries = cards.find((c) => c.eyebrow === 'ToC contributions')!;
+      expect(entries.links).toEqual([{ label: 'Answer', code: '', value: '—' }]);
+      expect(formatValue({ value: [blank], labels: null, notApplicable: false })).toBe('—');
+    });
+
     it('the field mark and buttons sit on the first card of the field only', () => {
       const [answer, first, second] = toc().groups[0].items;
       expect(answer.id).toBe('toc.planned_result');
@@ -219,6 +238,10 @@ describe('review.mapper (API assessment view → Review view models)', () => {
     it('writable view: no banner', () => {
       expect(toReviewVm(viewFixture()).banner).toBeNull();
     });
+  });
+
+  it('dates are the day in Rome, not the UTC day (23:30 UTC is already the next day there)', () => {
+    expect(toCommentVm(comment({ createdAt: '2026-11-12T23:30:00.000Z' })).date).toBe(toCommentVm(comment({ createdAt: '2026-11-13T09:00:00.000Z' })).date);
   });
 
   it('a comment is shown by nickname only (or "—") with its date', () => {
