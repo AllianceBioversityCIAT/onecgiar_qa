@@ -119,6 +119,7 @@ export class AiSuggestionsService {
     if (stepPosition === null) throw new AssessmentNotFoundError();
 
     const items = await this.itemsOf(context.membership);
+    suggestionId = canonicalSuggestionId(suggestionId);
     const item = items.find((i) => i.suggestionId === suggestionId);
     if (
       item === undefined ||
@@ -210,11 +211,17 @@ export class AiSuggestionsService {
     membershipId: number;
   }): Promise<AiSuggestionItem[]> {
     try {
-      return await this.suggestions.listForSnapshot(
+      const items = await this.suggestions.listForSnapshot(
         membership.resultCode,
         snapshotKeyOf(membership.snapshotSk),
         (fieldKey) => productionFieldOf(fieldKey)?.promptVersion,
       );
+      // The contract's id is 32 lowercase hex; worker builds before 2026-11-17
+      // stored the dashed UUID form. One form everywhere (route, usage table).
+      return items.map((item) => ({
+        ...item,
+        suggestionId: canonicalSuggestionId(item.suggestionId),
+      }));
     } catch (error) {
       this.logger.error(
         `ai_suggestions_read_failed membership=${membership.membershipId} name=${(error as Error).name}`,
@@ -223,6 +230,10 @@ export class AiSuggestionsService {
     }
   }
 }
+
+/** The contract's 32-hex form of a suggestion id: dashes dropped, lower case. */
+export const canonicalSuggestionId = (id: string): string =>
+  id.replaceAll('-', '').toLowerCase();
 
 /** An integer level (0–9) or null: indicative values are not levels. */
 function levelOrNull(value: unknown): number | null {
