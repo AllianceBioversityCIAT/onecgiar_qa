@@ -347,6 +347,8 @@ export class ReviewView {
     }
     const outcome = await this.store.addComment(key, text);
     if (outcome.ok) {
+      // P2-3918 T-9: the AI side reports it only when a suggestion was copied to this field's comment box.
+      this.ai.commentSaved(key, outcome.comment.id);
       // Only clear what was sent: the reviewer may already be on another field or typing the next comment.
       if (this.drawerKey() === key && this.commentModel().text === text) this.commentModel.set({ text: '' });
       this.addTried.set(false);

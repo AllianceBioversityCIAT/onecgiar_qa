@@ -4,6 +4,8 @@ import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { Observable, Subject, of, throwError } from 'rxjs';
+import { AiSuggestionsApi } from '../../../core/api/ai-suggestions-api';
+import { AiSuggestionEvent, AiSuggestionView } from '../../../core/api/ai-suggestions.models';
 import { AssessmentApi } from '../../../core/api/assessment-api';
 import {
   AssessmentComment,
@@ -56,8 +58,15 @@ class FakeApi {
   );
 }
 
+/** The AI side of the page (P2-3918): no suggestion unless a test gives one, and its events never reach the network. */
+class FakeAiApi {
+  list = vi.fn<(timelineId: number, code: number) => Observable<readonly AiSuggestionView[]>>(() => of([]));
+  sendEvent = vi.fn<(timelineId: number, code: number, suggestionId: string, event: AiSuggestionEvent) => Observable<void>>(() => of(undefined));
+}
+
 describe('ReviewView on the assessment API', () => {
   let api: FakeApi;
+  let ai: FakeAiApi;
   let harness: RouterTestingHarness;
   let toasts: { error: ReturnType<typeof vi.fn>; success: ReturnType<typeof vi.fn>; info: ReturnType<typeof vi.fn>; bottomOffset: ReturnType<typeof signal<{ readonly desktop: string; readonly phone: string } | null>> };
 
@@ -76,6 +85,7 @@ describe('ReviewView on the assessment API', () => {
 
   beforeEach(() => {
     api = new FakeApi();
+    ai = new FakeAiApi();
     toasts = { error: vi.fn(), success: vi.fn(), info: vi.fn(), bottomOffset: signal<{ readonly desktop: string; readonly phone: string } | null>(null) };
     TestBed.configureTestingModule({
       providers: [
@@ -84,6 +94,7 @@ describe('ReviewView on the assessment API', () => {
           { path: 'results/:code', component: ReviewView },
         ]),
         { provide: AssessmentApi, useValue: api },
+        { provide: AiSuggestionsApi, useValue: ai },
         { provide: AuthSession, useValue: { user: signal({ id: ME }) } },
         { provide: Toasts, useValue: toasts },
       ],
@@ -484,6 +495,67 @@ describe('ReviewView on the assessment API', () => {
       it('a view-only field never gets the comment form', async () => {
         const el = await open();
         expect(byName(el, 'Add comment for Result code')).toBeUndefined();
+      });
+    });
+
+    describe('AI suggestion on a field (P2-3918 T-9)', () => {
+      const EXPLANATION = 'The description names an activity, not a change.';
+      const suggestion: AiSuggestionView = {
+        status: 'available',
+        fieldKey: 'general.description',
+        suggestionId: 's1',
+        signal: 'red',
+        valueKind: 'level',
+        suggestedValue: 0,
+        explanation: EXPLANATION,
+        evidenceQuote: 'trained farmers',
+        quoteVerified: true,
+        evidenceSource: null,
+        promptVersion: 'v2-1.0.0',
+        modelId: 'anthropic.claude-haiku-5-5',
+      };
+      const savedEvents = () => ai.sendEvent.mock.calls.filter(([, , , e]) => e.action === 'comment_saved');
+      const copy = async (el: HTMLElement) => {
+        byName(card(el, 'Description of Result'), 'Copy to comment')!.click();
+        await settle();
+      };
+      beforeEach(() => ai.list.mockReturnValue(of([suggestion])));
+
+      it('"Copy to comment" leaves the AI text in the comment box of that field and saves nothing', async () => {
+        const el = await open();
+        await copy(el);
+        expect(draftBox().value).toBe(EXPLANATION);
+        expect(api.addComment).not.toHaveBeenCalled();
+        expect(savedEvents()).toEqual([]);
+      });
+
+      it('saving that comment tells the AI side which comment it became (the id the server gave)', async () => {
+        const el = await open();
+        await copy(el);
+        anywhere('Add comment')!.click();
+        await settle();
+        expect(api.addComment).toHaveBeenCalledWith(29, 9890, 'general.description', EXPLANATION);
+        expect(savedEvents()).toEqual([[29, 9890, 's1', { action: 'comment_saved', commentId: '50' }]]);
+      });
+
+      it('a comment the server refuses is not reported as saved', async () => {
+        api.addComment.mockReturnValueOnce(refusal(409, 'ASSESSMENT_STEP_CLOSED', 'This step is closed.'));
+        const el = await open();
+        await copy(el);
+        anywhere('Add comment')!.click();
+        await settle();
+        expect(savedEvents()).toEqual([]);
+      });
+
+      it('a comment on a field no suggestion was copied to reports nothing', async () => {
+        const el = await open();
+        byName(el, 'Add comment for Title of Result')!.click();
+        await settle();
+        type('The title is too long.');
+        anywhere('Add comment')!.click();
+        await settle();
+        expect(api.addComment).toHaveBeenCalledTimes(1);
+        expect(savedEvents()).toEqual([]);
       });
     });
 
