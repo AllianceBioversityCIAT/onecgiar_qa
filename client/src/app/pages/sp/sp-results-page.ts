@@ -18,6 +18,11 @@ import { SpCsvDownload } from './sp-csv-download';
 import { STEP_STATE_LABEL, statusLabel, statusTone, stepTone, stepWindow } from './sp-format';
 import { SpResultsRowsSkeleton, SpResultsSkeleton } from './sp-results-skeleton';
 
+interface LoadedResults {
+  readonly timelineId: number | null;
+  readonly data: SpResults;
+}
+
 /**
  * The program's results in a QA timeline (P2-3911 AC2–AC5, AC13): timeline picker with the step-2
  * window, server-side filters (QA status, result type), and per row the comments, how many the program
@@ -43,7 +48,7 @@ import { SpResultsRowsSkeleton, SpResultsSkeleton } from './sp-results-skeleton'
       } @else if (timelinesError(); as error) {
         <div class="flex flex-col items-start gap-2" role="alert">
           <p class="m-0 text-(length:--fs-14) text-(--text-2)">{{ error }}</p>
-          <button hlmBtn qaBtn tone="secondary" size="sm" type="button" (click)="timelines.reload()">Try again</button>
+          <button hlmBtn qaBtn tone="secondary" size="sm" type="button" [loading]="timelines.isLoading()" (click)="timelines.reload()">Try again</button>
         </div>
       } @else if (timelineOptions().length === 0) {
         <p class="m-0 text-(length:--fs-14) text-(--text-3)">There is no QA timeline for this program in the current cycle.</p>
@@ -61,39 +66,50 @@ import { SpResultsRowsSkeleton, SpResultsSkeleton } from './sp-results-skeleton'
                 class="min-w-[240px] max-sm:min-w-0 max-sm:flex-1"
               />
             </div>
-            @if (step(); as s) {
+            @if (timelineLoading()) {
+              <qa-loading label="Loading the timeline" class="flex items-center gap-2" data-testid="sp-step-loading">
+                <qa-skeleton class="h-5 w-64 max-w-full" />
+              </qa-loading>
+            } @else if (step(); as s) {
               <div class="flex flex-wrap items-center gap-2 text-(length:--fs-13) text-(--text-3)" data-testid="sp-step">
                 <span class="font-medium text-(--text-2)">{{ s.name }}</span>
                 <qa-badge [status]="stepTone(s.state)">{{ stepStateLabel[s.state] }}</qa-badge>
                 <span>{{ stepWindow(s) }}</span>
               </div>
-            } @else if (results.hasValue()) {
+            } @else if (current()) {
               <span class="text-(length:--fs-13) text-(--text-3)">This timeline has no response step for programs.</span>
             }
           </div>
-          <div class="flex flex-wrap items-center gap-2">
-            <qa-multi-select
-              [value]="ctx.statuses()"
-              (valueChange)="ctx.statuses.set($event)"
-              [options]="statusOptions()"
-              label="QA status"
-              [searchable]="false"
-              panelWidth="280px"
-              listMaxHeight="none"
-            />
-            <qa-multi-select
-              [value]="ctx.resultTypes()"
-              (valueChange)="ctx.resultTypes.set($event)"
-              [options]="typeOptions()"
-              label="Result type"
-              [searchable]="false"
-              panelWidth="320px"
-              listMaxHeight="none"
-            />
-            @if (ctx.statuses().length || ctx.resultTypes().length) {
-              <button hlmBtn qaBtn tone="link" size="sm" type="button" (click)="clearFilters()">Clear filters</button>
-            }
-          </div>
+          @if (timelineLoading()) {
+            <div class="flex flex-wrap gap-2" aria-hidden="true" data-testid="sp-filters-loading">
+              <qa-skeleton class="h-9 w-28 rounded-lg" />
+              <qa-skeleton class="h-9 w-28 rounded-lg" />
+            </div>
+          } @else {
+            <div class="flex flex-wrap items-center gap-2">
+              <qa-multi-select
+                [value]="ctx.statuses()"
+                (valueChange)="ctx.statuses.set($event)"
+                [options]="statusOptions()"
+                label="QA status"
+                [searchable]="false"
+                panelWidth="280px"
+                listMaxHeight="none"
+              />
+              <qa-multi-select
+                [value]="ctx.resultTypes()"
+                (valueChange)="ctx.resultTypes.set($event)"
+                [options]="typeOptions()"
+                label="Result type"
+                [searchable]="false"
+                panelWidth="320px"
+                listMaxHeight="none"
+              />
+              @if (ctx.statuses().length || ctx.resultTypes().length) {
+                <button hlmBtn qaBtn tone="link" size="sm" type="button" (click)="clearFilters()">Clear filters</button>
+              }
+            </div>
+          }
         </div>
 
         <p class="sr-only" aria-live="polite">{{ exportNotice() }}</p>
@@ -108,7 +124,7 @@ import { SpResultsRowsSkeleton, SpResultsSkeleton } from './sp-results-skeleton'
         } @else if (resultsError(); as error) {
           <div class="flex flex-col items-start gap-2" role="alert">
             <p class="m-0 text-(length:--fs-14) text-(--text-2)">{{ error }}</p>
-            <button hlmBtn qaBtn tone="secondary" size="sm" type="button" (click)="results.reload()">Try again</button>
+            <button hlmBtn qaBtn tone="secondary" size="sm" type="button" [loading]="results.isLoading()" (click)="results.reload()">Try again</button>
           </div>
         } @else if (rows().length === 0) {
           @if (ctx.statuses().length || ctx.resultTypes().length) {
@@ -121,12 +137,12 @@ import { SpResultsRowsSkeleton, SpResultsSkeleton } from './sp-results-skeleton'
           }
         } @else {
           <div class="overflow-x-auto rounded-xl border border-(--border) bg-(--surface)" [attr.aria-busy]="results.isLoading() || null">
-            <table class="w-full min-w-[820px] border-collapse text-left">
+            <table class="w-full border-collapse text-left md:min-w-[820px]">
               <caption class="sr-only">Results of {{ ctx.program()?.code }} in this timeline</caption>
               <thead class="bg-(--surface-3)">
                 <tr class="border-b border-(--border)">
                   @for (h of headers; track h) {
-                    <th scope="col" class="h-10 px-4 text-(length:--fs-11) font-semibold tracking-[0.06em] whitespace-nowrap text-(--text-muted) uppercase first:pl-5 last:pr-5">
+                    <th scope="col" class="h-10 px-4 text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) md:whitespace-nowrap uppercase first:pl-5 last:pr-5">
                       {{ h }}
                     </th>
                   }
@@ -143,7 +159,7 @@ import { SpResultsRowsSkeleton, SpResultsSkeleton } from './sp-results-skeleton'
                         class="font-(family-name:--qa-mono) text-(length:--fs-13) font-semibold whitespace-nowrap text-(--accent) tabular-nums outline-none after:absolute after:inset-0 focus-visible:after:inset-ring-2 focus-visible:after:inset-ring-(--primary)"
                       >{{ r.resultCode }}</a>
                     </td>
-                    <td class="max-w-[420px] px-4 py-3 align-middle">
+                    <td class="min-w-[160px] max-w-[420px] px-4 py-3 align-middle">
                       <span class="flex min-w-0 items-center gap-2">
                         <span class="min-w-0 text-(length:--fs-14) text-pretty text-(--text)">{{ r.title || 'Untitled result' }}</span>
                         @if (r.updated) {
@@ -168,7 +184,7 @@ import { SpResultsRowsSkeleton, SpResultsSkeleton } from './sp-results-skeleton'
                         flush="end"
                         type="button"
                         [loading]="exporting() === r.resultCode"
-                        [disabled]="r.comments === 0"
+                        [disabled]="r.comments === 0 || (exporting() !== null && exporting() !== r.resultCode)"
                         [attr.aria-label]="'Export comments of result ' + r.resultCode"
                         (click)="exportComments(r)"
                       >Export comments</button>
@@ -233,26 +249,38 @@ export class SpResultsPage {
       this.api.results(params.timelineId, { programId: params.programId, status: params.status, resultTypeKey: params.resultTypeKey }),
   });
 
-  /** The last answer, kept while a new filter loads so the toolbar does not jump. */
-  private readonly lastResults = linkedSignal<SpResults | null, SpResults | null>({
-    source: () => (this.results.hasValue() ? this.results.value() : null),
+  /**
+   * The last answer and the timeline it belongs to, kept while a new filter loads so the toolbar does
+   * not jump. The timeline is read with the value: a value only lands for the timeline being asked.
+   */
+  private readonly lastResults = linkedSignal<LoadedResults | null, LoadedResults | null>({
+    source: () => (this.results.hasValue() ? { timelineId: this.activeTimelineId(), data: this.results.value() } : null),
     computation: (next, previous) => next ?? previous?.value ?? null,
   });
+
+  /** The last answer of the timeline on screen; null while another timeline's answer is all we have. */
+  protected readonly current = computed<SpResults | null>(() => {
+    const last = this.lastResults();
+    return last && last.timelineId === this.activeTimelineId() ? last.data : null;
+  });
+
+  /** A timeline (first or newly picked) is loading: its step and filters are not known yet. */
+  protected readonly timelineLoading = computed(() => this.current() === null && this.results.isLoading());
 
   protected readonly rows = computed<readonly SpResultRow[]>(() => (this.results.hasValue() ? this.results.value().rows : []));
 
   protected readonly step = computed(() => {
-    const fromResults = this.lastResults()?.step;
+    const fromResults = this.current()?.step;
     if (fromResults !== undefined && fromResults !== null) return fromResults;
     const id = this.activeTimelineId();
     return this.timelines.hasValue() ? (this.timelines.value().timelines.find((t) => t.id === id)?.step ?? null) : null;
   });
 
   protected readonly statusOptions = computed<readonly QaMultiSelectOption[]>(() =>
-    (this.lastResults()?.options.statuses ?? []).map((o) => ({ value: o.key, label: o.label })),
+    (this.current()?.options.statuses ?? []).map((o) => ({ value: o.key, label: o.label })),
   );
   protected readonly typeOptions = computed<readonly QaMultiSelectOption[]>(() =>
-    (this.lastResults()?.options.resultTypes ?? []).map((o) => ({ value: o.key, label: o.label })),
+    (this.current()?.options.resultTypes ?? []).map((o) => ({ value: o.key, label: o.label })),
   );
 
   protected readonly linkParams = computed(() => {

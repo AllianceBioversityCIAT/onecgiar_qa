@@ -63,7 +63,7 @@ export function withComment(view: SpResult, comment: SpComment, counts: SpResult
       } @else if (loadError(); as error) {
         <div class="flex flex-col items-start gap-2" role="alert">
           <p class="m-0 text-(length:--fs-14) text-(--text-2)">{{ error }}</p>
-          <button hlmBtn qaBtn tone="secondary" size="sm" type="button" (click)="result.reload()">Try again</button>
+          <button hlmBtn qaBtn tone="secondary" size="sm" type="button" [loading]="result.isLoading()" (click)="result.reload()">Try again</button>
         </div>
       } @else if (view(); as v) {
         <section aria-labelledby="sp-result-title" class="flex flex-col gap-3 rounded-xl border border-(--border) bg-(--surface) px-5 py-4">
@@ -106,8 +106,8 @@ export function withComment(view: SpResult, comment: SpComment, counts: SpResult
 
         <div class="grid gap-6 lg:grid-cols-[220px_minmax(0,1fr)]">
           <nav aria-label="Sections" class="lg:sticky lg:top-4 lg:self-start">
-            <ul class="m-0 flex list-none flex-wrap gap-1 p-0 lg:flex-col">
-              @for (s of sections(); track s.key) {
+            <ul class="m-0 flex list-none flex-wrap gap-1 p-0 lg:flex-col" data-testid="sp-section-nav">
+              @for (s of visibleSections(); track s.key) {
                 <li>
                   <button
                     type="button"
@@ -131,31 +131,32 @@ export function withComment(view: SpResult, comment: SpComment, counts: SpResult
           </nav>
 
           <div class="flex min-w-0 flex-col gap-8">
-            @for (s of sections(); track s.key) {
-              @let fields = visibleFields(s);
-              @if (fields.length) {
-                <section [attr.aria-labelledby]="s.anchor" class="flex flex-col gap-3">
-                  <h2 [id]="s.anchor" tabindex="-1" class="m-0 text-(length:--fs-16) font-bold text-(--text) outline-none">{{ s.label }}</h2>
-                  @for (f of fields; track f.key) {
-                    <article [qaReveal]="$index" class="flex flex-col gap-3 rounded-[10px] border bg-(--surface) px-4 py-3.5" [class]="f.comments.length ? 'border-(--border-accent)' : 'border-(--border)'">
-                      <div class="flex flex-col gap-1">
-                        <h3 class="m-0 text-(length:--fs-13) font-semibold text-(--text-3)">{{ f.label }}</h3>
-                        <qa-sp-field-value [value]="f.value" [labels]="f.labels" [notApplicable]="f.notApplicable" />
-                      </div>
-                      @for (c of f.comments; track c.id) {
-                        <qa-sp-comment-thread
-                          [comment]="c"
-                          [fieldValue]="f.value"
-                          [writable]="v.writable"
-                          (saved)="onSaved($event)"
-                          (stepClosed)="onStepClosed($event)"
-                          (gone)="onGone()"
-                        />
-                      }
-                    </article>
-                  }
-                </section>
-              }
+            @for (s of visibleSections(); track s.key) {
+              <section [attr.aria-labelledby]="s.anchor" class="flex flex-col gap-3">
+                <h2 [id]="s.anchor" tabindex="-1" class="m-0 text-(length:--fs-16) font-bold text-(--text) outline-none">{{ s.label }}</h2>
+                @for (f of s.fields; track f.key) {
+                  <article [qaReveal]="$index" class="flex flex-col gap-3 rounded-[10px] border bg-(--surface) px-4 py-3.5" [class]="f.comments.length ? 'border-(--border-accent)' : 'border-(--border)'">
+                    <div class="flex flex-col gap-1">
+                      <h3 class="m-0 text-(length:--fs-13) font-semibold text-(--text-3)">{{ f.label }}</h3>
+                      <qa-sp-field-value [value]="f.value" [labels]="f.labels" [notApplicable]="f.notApplicable" />
+                    </div>
+                    @for (c of f.comments; track c.id) {
+                      <qa-sp-comment-thread
+                        [comment]="c"
+                        [fieldValue]="f.value"
+                        [writable]="v.writable"
+                        (saved)="onSaved($event)"
+                        (stepClosed)="onStepClosed($event)"
+                        (gone)="onGone()"
+                      />
+                    }
+                  </article>
+                }
+              </section>
+            } @empty {
+              <p class="m-0 rounded-[10px] border border-dashed border-(--border) bg-(--surface) px-4 py-6 text-center text-(length:--fs-14) text-(--text-3)" data-testid="sp-empty">
+                {{ emptyText() }}
+              </p>
             }
           </div>
         </div>
@@ -230,6 +231,18 @@ export class SpResultPage {
     }));
   });
 
+  /** Sections as shown: with "Only fields with comments", only commented fields and the sections that keep any. */
+  protected readonly visibleSections = computed<readonly SectionVm[]>(() => {
+    const only = this.onlyCommented();
+    return this.sections()
+      .map((s) => (only ? { ...s, fields: s.fields.filter((f) => f.comments.length > 0) } : s))
+      .filter((s) => s.fields.length > 0);
+  });
+
+  protected readonly emptyText = computed(() =>
+    this.onlyCommented() && (this.view()?.counts.comments ?? 0) === 0 ? 'No comments on this result yet.' : 'There are no fields to show for this result.',
+  );
+
   protected readonly readOnlyText = computed(() => {
     const v = this.view();
     if (!v || v.writable) return null;
@@ -239,10 +252,6 @@ export class SpResultPage {
     if (v.readOnlyReason === 'step_closed') return 'Step 2 is closed. Responses are read-only.';
     return 'Responses are read-only.';
   });
-
-  protected visibleFields(section: SectionVm): readonly SpField[] {
-    return this.onlyCommented() ? section.fields.filter((f) => f.comments.length > 0) : section.fields;
-  }
 
   protected goTo(anchor: string): void {
     const heading = this.document.getElementById(anchor);
