@@ -1,6 +1,6 @@
 # AI suggestions on AI-input fields — Tasks
 
-> Status: **approved 2026-11-17** (back lead). Back tasks first; T-6 waits for assessment T-19 on `dev`.
+> Status: **approved 2026-11-17** (back lead). Back done and on `dev`/TEST; client built, wiring waits for assessment T-19/T-20; T-7 and T-11 wait for infra.
 
 ## Dependency graph
 
@@ -36,6 +36,7 @@ Rule: this spec does not edit `review-store.ts`, `review.mapper.ts` or `review-c
 - **Done when:** the table has no "ask"
 
 ## T-2: Contract copy, ElectroDB entities, contract test — 18-nov
+- **Status:** [x] `88facb0`
 - **Size:** S · **Depends on:** T-1 · **Req:** NFR-4, FR-4
 - **Scope:** `server/src/ai-suggestions/contract/**` (+ `SOURCE.md`, hash manifest, sync script); `entities/ai-suggestion.entity.ts`, `ai-run.entity.ts`; `test/ai-contract.spec.ts`; dev dep `ajv` (+ `ajv-formats` if needed)
 - **Tests:** examples read back through the entity query; schema validation helpers; drift check
@@ -43,12 +44,14 @@ Rule: this spec does not edit `review-store.ts`, `review.mapper.ts` or `review-c
 - **Done when:** server command green, both falsifiers observed red
 
 ## T-3: Eligible fields — 18-nov
+- **Status:** [x] `88facb0`
 - **Size:** S · **Depends on:** T-1 · **Req:** FR-1
 - **Scope:** `ai-config.ts` (`production.json` loaded once; `eligibleFields(resultTypeKey, effectiveConfig)`)
 - **Tests:** table test over the 7 fields × result types × `isAiInput`; status filter (`pending` only)
 - **Falsifier:** drop the `isAiInput` check → the "not marked" case red
 
 ## T-4: Enqueue from the sync + re-enqueue route — 18/19-nov
+- **Status:** [x] `655f7cf` (routes under `timelines/:timelineId/loads/:loadId/ai-jobs`)
 - **Size:** M · **Depends on:** T-2, T-3 · **Req:** FR-2, FR-3, NFR-1, NFR-2, NFR-5
 - **Scope:** FR-3b (startup warning, `GET /timelines/:timelineId/loads/:loadId/ai-jobs` status, 409 `AI_JOBS_DISABLED`); `@aws-sdk/client-sqs`; env `AI_JOBS_QUEUE_URL` (optional, DD-4) in `env.validation.ts`; `ai-jobs.port.ts`, `sqs-ai-jobs.ts`, `ai-enqueue.service.ts`; one call in `load-runner.ts` after `recordLot`; `POST /timelines/:timelineId/loads/:loadId/ai-jobs` (ADMIN); `aiRun.expected` UpdateItem
 - **Tests:** runner spec with a fake publisher (jobs per lot, retry of a lot → same bodies, `expected` set not added); publisher failure → load `completed`, one log line; re-enqueue e2e (ADMIN only); bodies validated against `ai-job-message.schema.json`
@@ -56,41 +59,64 @@ Rule: this spec does not edit `review-store.ts`, `review.mapper.ts` or `review-c
 - **Consumers:** `load-runner.ts` constructor (all runner specs get the no-op adapter)
 
 ## T-5: GET ai-suggestions — 19-nov
+- **Status:** [x] `03cae5a`
 - **Size:** M · **Depends on:** T-2, T-3 · **Req:** FR-4, FR-5, FR-9 (null until T-8), NFR-1
 - **Scope:** controller + service; reuses the assessment scope/404 helper; one Query
 - **Tests:** e2e per role (ASSESSOR, LEAD, TPB with copied fields, PPU 403, ADMIN); `pending` for an eligible field not stored; out of scope = same 404 body as the assessment view; every response Ajv-valid; OpenAPI suite updated
 - **Falsifier:** return stored items without the eligible filter → the "field not in production" test red
 
 ## T-6: Chip on Review — 18–20-nov
+- **Status:** [~] built (`ee22a19`, plan B `c448ae4`); wiring waits for assessment T-19 on `dev`
+- **Wiring when T-19 lands** (one small PR on top of T-19, no other change to its files):
+  1. `review-view.ts`: add `AiSuggestionsStore` to `providers` and call `store.load(timelineId, resultCode)` where the assessment is loaded.
+  2. `review-model.ts`: replace `AiVm` with `AiChipVm` (`ai/ai-chip.vm.ts`) in the field VM (DD-7); `review.mapper.ts` takes `chipFor(fieldKey, isAiInput)` instead of `ai: null`.
+  3. `review-field-card.html`: render `<qa-ai-chip [vm] [readOnly]="!writable" (shown)="store.markShown($event)" (copyToComment)="…">` in place of `qa-review-ai-note`; delete `review-ai-note.ts` and the `ai-toggle/hide/dismiss/use` actions.
+  4. PPU: no chip (the GET answers 403; the store keeps the map empty and `chipFor` returns null).
+  5. Delete plan B: `pages/workspace/ai-preview/**`, its route in `app.routes.ts` and `aiPreview` in the environment files and model.
 - **Size:** M · **Depends on:** T-5 (fixtures earlier), assessment T-17/T-19 · **Req:** FR-6, NFR-1
 - **Scope:** `ai-suggestions-api.ts`, `ai-suggestions-store.ts`, `ai-chip.ts`, `AiVm` widened (DD-7), one input in `review.mapper.ts` / `review-view`. Plan B: flag off by default, dev/test environments only, PROD build fails when on (spec test on the environment files + a build check); deleted with Plan A
 - **Tests:** chip spec per view (green, amber, red label "Review", IRL/IUL with quote, unavailable reasons incl. `no_supporting_quote`, pending, request error); PPU renders nothing
 - **Falsifier:** label red as "Incorrect" → spec red
 
 ## T-7: API HITL in TEST — 20-nov (gate for M1)
+- **Status:** [~] deployed to TEST 17-nov (routes live, 0010 applied); the real sync → jobs → items run waits for `sqs:SendMessage` + `AI_JOBS_QUEUE_URL` (Cris) and an admin session (see `execution.md`)
 - **Size:** S · **Depends on:** T-4, T-5, `sqs:SendMessage` in TEST
 - **Scope:** confirm the QA API TEST env `DYNAMODB_TABLE_NAME = cgiar-qa-test`; one real sync of a small timeline → messages in `qa-ai-suggestions-test` → items + `aiRun` (`produced + unavailable = expected`, `failed = 0`) → GET as assessor and TPB; DLQ empty. Evidence (ids and counts only) in `execution.md`
 - **Done when:** the run is complete and M1 go/no-go (Plan A or B) recorded
 
 ## T-8: Migration 0010 + events — 24/25-nov
+- **Status:** [x] `03cae5a`; 0010 applied on the dev/TEST database by the 17-nov deploy
 - **Size:** M · **Depends on:** T-5 · **Req:** FR-8, FR-9, NFR-3
 - **Scope:** `0010_ai_suggestion_usage.sql` + rollback + Drizzle schema; `ai-usage.store.ts`; POST events; `copiedByReviewer`/`editedByReviewer` in GET (TPB only); `shown` stores `ai_level` + `reported_level` from the item; FR-11 route
 - **Tests:** e2e per action (dedupe 204, `comment_saved` of another field → 400, `validated_above_ai` diff 1 → 400, `aiLevel` ≠ stored → 400, reason with a newline / 201 chars → 400, unavailable → 404, TPB/PPU 403); schema test that the table has no user column
 - **Falsifier:** accept diff ≥ 1 → red; store the comment text → privacy test red
 
 ## T-9: Copy to comment + usage events (client) — 24/25-nov
+- **Status:** [~] built in the store and chip (`ee22a19`); wiring waits for assessment T-20 on `dev`
+- **Wiring when T-20 lands:**
+  1. `(copyToComment)` → `const text = store.copied(fieldKey)`; open the field's comment box (`review-comments-drawer`) with `text` as an editable draft. Nothing is saved.
+  2. After the comment save succeeds: `store.commentSaved(fieldKey, comment.id)` (the store posts only when the text came from a copy).
+  3. Leave `(shown)` as wired in T-6. Never await an event in the save path.
 - **Size:** S · **Depends on:** T-6, T-8, assessment T-20 · **Req:** FR-7, FR-8
 - **Tests:** copy fills the box, nothing saved; `shown` once; `comment_saved` only after a copied save; event failure never blocks
 
 ## T-10: Reason before validating IRL/IUL (client) — 25/26-nov
+- **Status:** [~] built (`3168433`: `needsReason`, `reasonError`, `validateWithReason`, `AiReasonDialog`); wiring waits for assessment T-20
+- **Wiring when T-20 lands:**
+  1. In the validate action of `review-store.ts`: if `needsReason(fieldKey, reportedLevel, store.availableView(fieldKey))`, open `<qa-ai-reason-dialog [aiLevel] [reportedLevel]>` instead of validating.
+  2. `(confirmed)="validateWithReason(aiStore, fieldKey, reportedLevel, $event, () => validate(fieldKey))"` — event first, then the validation.
+  3. `(cancelled)`: nothing is saved; the field stays grey.
+  4. `reportedLevel` is the snapshot's level for the field (the same value the server checks against `reportedValue`).
 - **Size:** S · **Depends on:** T-8, assessment T-20 · **Req:** FR-10
 - **Tests:** diff ≥ 2 opens the dialog, empty reason disables save, cancel saves nothing, event then validate order; diff 1 → no dialog
 - **Falsifier:** validate before the event → order spec red
 
 ## T-11: PROD readiness — 26/27-nov
+- **Status:** [ ] blocked: no `qa-ai-worker-prod`, no `cgiar-qa-prod` table and no `qa-ai-suggestions-prod` queue in the account checked on 17-nov (see `execution.md`)
 - **Size:** S · **Depends on:** T-7, T-8 · **Scope:** PROD queue URL + `sqs:SendMessage` (Cris), PROD `DYNAMODB_TABLE_NAME` = worker's `cgiar-qa-prod`, `production.json` copy = worker's PROD version, migration 0010 on staging, smoke sync on staging. Checklist in `execution.md`; no infra changed by us
 
 ## T-12: UI HITL — 26-nov
+- **Status:** [ ] after the T-19/T-20 wiring
 - **Size:** S · **Depends on:** T-6, T-9, T-10 · Chip, copy and reason at 360 / 768 / 1440 px, contrast of the three signals in light and dark, keyboard path; Juanpa and Yeck sign off DD-7
 
 ## Coverage
