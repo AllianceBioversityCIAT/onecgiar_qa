@@ -5,6 +5,4 @@ export const environment: Environment = {
   name: 'development',
   apiBaseUrl: 'http://localhost:3000/api/v1',
   ssoCallbackPath: '/auth/callback',
-  // Plan B of P2-3918: the AI preview page (dev/test only, never production).
-  aiPreview: true,
 };

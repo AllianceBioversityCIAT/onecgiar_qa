@@ -24,7 +24,7 @@
 | T-5 GET, T-8 events + 0010, FR-11 | `03cae5a` | rules 33, usage store 3, `ai-suggestions.e2e-spec.ts` 29, schema +7, OpenAPI +1 | diff ≥ 1 accepted → "refuses a difference of exactly 1" red; eligible filter removed → "AI input but not in production" red; ADMIN given the mark → "ADMIN … without the copied mark" red |
 | T-6, T-9 client chip, store, copy, events | `ee22a19` | 49 across the AI specs | red mapped to "Incorrect" → 3 red |
 | T-10 reason | `3168433` | in `ai-reason.spec.ts` | — |
-| Plan B page | `c448ae4` | `ai-preview.spec.ts` | `aiPreview: true` in `environment.ts` → PROD build `TS2322: Type 'true' is not assignable to type 'false'` |
+| Plan B page | `c448ae4`, flag reworked in the next commit | `ai-preview.spec.ts` | `AI_PREVIEW = true` in `ai-preview.flag.ts` → PROD build `TS2322: Type 'true' is not assignable to type 'false'` |
 
 ## Decisions made during execution
 
@@ -36,6 +36,10 @@
 ## Related fix (not part of this spec)
 
 The assessment field-description change (`2cc8384`) put Reporting's help text, which contains example e-mail addresses, into the view, and the FR-11 no-`@` e2e check failed on `dev` (the pipeline did not deploy). Fixed by leaving `description` out of that check: `cb6cf4d` merged into `dev` (`cbe6453`) and cherry-picked into `staging-center` (`98825ce`).
+
+## Plan B flag reworked (17-nov)
+
+The first version put `aiPreview` in the environment files. The dev pipeline (`36f4754`) failed: CI and the deploy overwrite `environment.ts`, `environment.qatest.ts` and `environment.development.ts` from Secrets Manager, so the field was gone in tests and would be off in TEST, and the production guarantee depended on the secret's content. Now it is a build flag, `ai-preview/ai-preview.flag.ts` (`AI_PREVIEW: false = false`, the production value), swapped for `ai-preview.flag.on.ts` by `angular.json` in the `development` and `test` configurations only; the guard also refuses an environment named `production`. Checked: client tests green with the three environment files overwritten by one config (as CI does); `ng build` production, development and test green; `AI_PREVIEW = true` in the production file → TS2322.
 
 ## Infra checks (read-only, 2026-11-17)
 
