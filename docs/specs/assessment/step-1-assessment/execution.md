@@ -1034,14 +1034,14 @@ Within the re-estimated budget.
 
 Within the re-estimated budget. Remaining: T-16 (API HITL, back lead), client T-17 to T-20 and UI HITL T-21 (≈ 3,000 LOC estimated, 4 review rounds left in the budget for 5 tasks — a re-estimate is due before T-17).
 
-### T-16: API HITL on qatest — PARTIAL (awaiting the back lead's verdict)
+### T-16: API HITL on qatest — PASS with deviations (back lead, 2026-11-17)
 
 | | |
 |---|---|
 | Date | 2026-11-12 |
 | Environment | qatest API (`dev` at `fe5ffa1`), migration `0009_assessment` applied by the back lead |
 | Callers | admin user id 5; test assessor user id 1053 |
-| Final status | PARTIAL — two checks deviate from the task text, see *Deviations* |
+| Final status | PASS with three accepted deviations (back lead, 2026-11-17), see *Verdict* |
 
 **Setup (writes on qatest).** The test assessor had no timeline. Assigned as `ASSESSOR` to timeline 29 (cycle 34, step 1 `in_progress` until 2026-11-20): `POST /timelines/29/users` → 201, assignment 23. The assessor then saw timeline 29 only, `writable: true`, counters 3 pending / 0 finished / 3 total.
 
@@ -1058,7 +1058,9 @@ Exactly one end. Worklist after: 2 pending / 1 finished / 3 total; 9890 `quality
 
 **Check 3 — worklist page timing (NFR-1).** Largest timeline on qatest: 27, 24 memberships (admin). Below the 100-membership floor, so this proves nothing about NFR-1; spread only. 20 sequential `GET /timelines/27/worklist?limit=25` as admin: min 116 ms, p50 126 ms, p95 143 ms, max 1,116 ms (one cold outlier; the first call of the session was 1,235 ms).
 
-**Check 4 — front contract handed to Yeck.** Not done yet.
+**Check 4 — front contract handed to Yeck.** Sent by Slack DM on 2026-11-17, with the link to `front-contract.md` on `feat/assessment-step-1` (`a8ebe88`) and the three **beyond § 6** items.
+
+**Check 5 — T-4 labels on the real DynamoDB (attempted 2026-11-17, read-only).** Table `cgiar-qa-test` (us-east-1): 36 snapshot items, none with `labels` or `labelsGz`. All come from loads before the `fe5ffa1` deploy (dev CD 2026-11-11 20:58–21:09Z); the latest, load 12 on timeline 29, started 19:10Z. So the bare program ids in the view are expected data, not a defect. `GET /timelines/:id/loads/preview` on timelines 27, 28, 29, 30, 31 and 32 gives 0 to load (Reporting holds no new or resubmitted 2026 result), so no load could write a labelled snapshot and the case could not be exercised.
 
 **Deviations (back lead to rule on):**
 - Tokens reached the session through the chat, which the task lists as a disqualifier. The back lead chose to go on with them; they were short-lived (1 h) access tokens.
@@ -1068,7 +1070,12 @@ Exactly one end. Worklist after: 2 pending / 1 finished / 3 total; 9890 `quality
 - T-2: the 7 `0009` tables exist, and `information_schema.TABLE_CONSTRAINTS` holds the 3 CHECKs the migration declares — `result_assessments.chk_result_assessments_finished`, `assessment_comments.chk_comment_withdrawn`, `assessment_comments.chk_value_copy_size`. MySQL 8 accepted them. `result_assessments` id 1 (membership 38, step 1, ASSESSOR, `quality_assessed`, field-config version 1, finished by 1053) passed `chk_result_assessments_finished`.
 - T-13: `timeline_results` 36 rows, 0 with a null title. Consistent with the backfill having run; its `affectedRows` path was not observed directly (no server log access).
 
-**Still open:** the 2 DynamoDB Local cases (T-4); the `returned` → `not_qaed` path (see *Deviations*); the front contract handed to Yeck (check 4).
+**Verdict (back lead, 2026-11-17): PASS.** Accepted deviations:
+1. Access tokens reached the session through the chat (twice). Short-lived (1 h).
+2. The release was `qaed`, not `not_qaed`; the `returned` → `not_qaed` path moves to the first HITL with an Assessed core field (P2-3911 or T-21).
+3. The 2 DynamoDB Local cases of T-4 were not run; T-4 stays covered by its unit tests (`dynamo-snapshot-store.spec.ts`, `load-runner.spec.ts`), and labels on real data move to the UI HITL (T-21): a load after `fe5ffa1` must show program and list names, not ids. Optional earlier check: a test result submitted in Reporting before timeline 29 closes (2026-11-20), then one load and a read.
+
+Also noted: the qatest database password was printed in this session's tool output while locating the database host (`server/.env`); it is not in the repo. Rotation recommended to the back lead.
 
 **Seen on the way (outside the spec):** program labels come back as the bare id (`{id: 51, code: "51", name: "51"}`) in the worklist and the view, so labels from Reporting are not resolved on qatest. Timelines 30 and 31 show step 1 `upcoming` although 31 closed on 2026-11-06 and 30 is open today.
 

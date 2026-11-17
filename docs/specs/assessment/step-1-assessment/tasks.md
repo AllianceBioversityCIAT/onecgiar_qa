@@ -384,7 +384,7 @@ Gate edges from **T-1** are listed on the last line of the graph. Nothing else w
 - **Skills:** cognitive-doc-design
 
 ## T-16: API HITL on dev (gate before the UI)
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** S
 - **Depends on:** T-15
 - **Requirements:** NFR-1, NFR-2 (latency on dev with real data), NFR-3 (a real-MySQL race), FR-18 (one live release on TEST data the back lead names)
