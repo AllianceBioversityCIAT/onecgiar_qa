@@ -825,6 +825,18 @@ describe('ReviewView on the assessment API', () => {
       expect(el.querySelector('h1')?.textContent).toContain('Dairy value chain');
     });
 
+    it('an auto-validated result is not assessed: no pending count, no "Not validated" mark and no write button, even when the caller may write', async () => {
+      api.view.mockReturnValue(of(viewFixture({ header: { ...viewFixture().header, status: 'auto_validated' } })));
+      const el = await open();
+      expect(text(el)).toContain('Auto-validated: this result is not assessed.');
+      expect(text(el)).toContain('No fields to assess in this result');
+      expect(text(el)).not.toMatch(/\d+ of \d+ fields resolved/);
+      expect(text(el)).not.toMatch(/\d+ pending/);
+      expect(text(el)).not.toContain('Not validated');
+      const names = buttons(el).map((b) => b.getAttribute('aria-label') ?? text(b));
+      expect(names.filter((n) => /^(Approve|Undo|Add comment|Check all|Uncheck all|Finish assessment)/.test(n))).toEqual([]);
+    });
+
     it('nothing to assess: the navigator says so instead of "0 of 0 fields resolved"', async () => {
       const view = viewFixture();
       api.view.mockReturnValue(

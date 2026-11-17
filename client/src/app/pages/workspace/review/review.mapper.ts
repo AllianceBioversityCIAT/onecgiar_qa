@@ -104,6 +104,11 @@ const READ_ONLY_INSTRUCTIONS =
 const READING_INSTRUCTIONS =
   'Read each field against the assessor guidance. You can open the comments of a field.';
 
+/** An auto-validated result is not assessed: Reporting released it as QAed at the load. */
+const AUTO_VALIDATED_BANNER = 'Auto-validated: this result is not assessed.';
+const AUTO_VALIDATED_INSTRUCTIONS =
+  'This result was auto-validated, so there is nothing to assess. You can read every field.';
+
 /** Subfield keys of the ToC lists and their catalog labels (`reporting-qa-catalog-2026.json`). */
 const SUBFIELD_LABELS: Readonly<Record<string, string>> = {
   level: 'Level',
@@ -212,6 +217,14 @@ export function formatValue(
   if (isObject(value)) return entryText(value, labels, lists);
   return scalarText(value, labels, undefined, !!labels);
 }
+
+const isAutoValidated = (view: Pick<AssessmentView, 'header'>): boolean =>
+  view.header.status === 'auto_validated';
+/**
+ * A field of a result nobody assesses, as context: its value, with no mark, no Core tag, no count and no button.
+ * The API still sends it as Assessed and grey (seen on TEST, 17-nov: 9039 and 9816 read "7 pending").
+ */
+const asContext = (f: AssessmentField): AssessmentField => ({ ...f, mode: 'view', validated: false });
 
 const openComments = (f: AssessmentField): readonly AssessmentComment[] =>
   f.comments.filter((c) => c.state !== 'withdrawn');
@@ -456,11 +469,13 @@ export function toHeaderVm(view: AssessmentView, canAct: boolean = view.writable
     isAuto: h.status === 'auto_validated',
     assessor,
     showAssessedBy: ended,
-    instructions: canAct
-      ? ASSESSOR_INSTRUCTIONS
-      : view.writable
-        ? READING_INSTRUCTIONS
-        : READ_ONLY_INSTRUCTIONS,
+    instructions: isAutoValidated(view)
+      ? AUTO_VALIDATED_INSTRUCTIONS
+      : canAct
+        ? ASSESSOR_INSTRUCTIONS
+        : view.writable
+          ? READING_INSTRUCTIONS
+          : READ_ONLY_INSTRUCTIONS,
     // Comments become visible to the program only when the assessment ends (FR-14, FR-15).
     locked: canAct && !ended,
     details: [
@@ -478,16 +493,21 @@ export function toHeaderVm(view: AssessmentView, canAct: boolean = view.writable
  */
 export function toReviewVm(view: AssessmentView, writes = true): ReviewVm {
   const writable = view.writable;
-  const canAct = writable && writes;
+  // Nothing is assessed on an auto-validated result, whatever the caller may write elsewhere.
+  const auto = isAutoValidated(view);
+  const canAct = writable && writes && !auto;
+  const fieldsOf = (fields: readonly AssessmentField[]): readonly AssessmentField[] =>
+    auto ? fields.map(asContext) : fields;
   const sections: ReviewSectionVm[] = view.sections.map((s) => {
     const isToc = s.key === TOC_SECTION_KEY;
+    const fields = fieldsOf(s.fields);
     return {
       key: s.key,
       name: s.label,
       isToc,
-      fields: isToc ? [] : s.fields.map((f) => toFieldVm(f, canAct)),
-      toc: isToc ? toTocVm(s.fields, canAct) : null,
-      open: s.fields.filter((f) => isAssessed(f) && !isResolved(f)).length,
+      fields: isToc ? [] : fields.map((f) => toFieldVm(f, canAct)),
+      toc: isToc ? toTocVm(fields, canAct) : null,
+      open: fields.filter((f) => isAssessed(f) && !isResolved(f)).length,
     };
   });
   if (view.other.length) {
@@ -500,12 +520,12 @@ export function toReviewVm(view: AssessmentView, writes = true): ReviewVm {
       open: 0,
     });
   }
-  const assessed = view.sections.flatMap((s) => s.fields).filter(isAssessed);
+  const assessed = view.sections.flatMap((s) => fieldsOf(s.fields)).filter(isAssessed);
   return {
     header: toHeaderVm(view, canAct),
     sections,
     writable,
-    banner: readOnlyBanner(view.readOnlyReason, view),
+    banner: auto ? AUTO_VALIDATED_BANNER : readOnlyBanner(view.readOnlyReason, view),
     resolved: assessed.filter(isResolved).length,
     total: assessed.length,
     commented: assessed.filter((f) => openComments(f).length > 0).length,
