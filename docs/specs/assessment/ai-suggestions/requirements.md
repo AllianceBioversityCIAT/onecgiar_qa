@@ -16,9 +16,9 @@
 
 ## 2. Functional requirements
 
-**FR-1 Eligible fields.** For a membership with status `pending` (not `auto_validated`, not `not_in_qa`), the eligible fields are the keys in `production.json.fieldKeys` that are also `isAiInput = true` in `effectiveFor(cycleId, timelineId, resultTypeKey)` and present in that result type's catalog.
-- *Scenario:* an innovation_dev result in a timeline where the admin marked the 5 tags and IRL as AI input → 6 jobs; IUL is not in its type → no job.
-- BUT a field marked AI input and not in `production.json` → no job and no `pending` (it shows nothing).
+**FR-1 Eligible fields.** For a membership with status `pending` (not `auto_validated`, not `not_in_qa`), the eligible fields are the keys in `production.json.fieldKeys` whose visibility is **`assessed`** in the configuration the membership is judged by (`effectiveFor(cycleId, timelineId, resultTypeKey)`, or the version its assessment pinned) and that exist in that result type's catalog. **The admin's `isAiInput` flag is not read** (changed 2026-11-17, back lead at Yeck's request): the Fields screen has had no AI column since 2026-11-11, so it cannot be set. The story's "field marked as AI input" (AC1) is therefore read as "Assessed field covered by the AI production contract".
+- *Scenario:* an innovation_dev result in a timeline whose published configuration has the 5 tags and IRL Assessed → 6 jobs; IUL is not in its type → no job.
+- BUT an Assessed field not in `production.json` → no job and no `pending` (it shows nothing); a production field that is View only or Hidden → nothing either.
 
 **FR-2 Enqueue.** After `recordLot` commits a lot, the runner sends one SQS message per (membership inserted or re-submitted in that lot, eligible field), body per `ai-job-message.schema.json`: `{runId: "load-<loadId>", resultCode, snapKey, fieldKey, promptVersion}`. Batches of 10 (`SendMessageBatch`).
 - AND IT MUST set the run counter `AIRUN#load-<loadId>` / `RUN`: `expected` = jobs sent so far in this load (`SET expected = :n`, `createdAt = if_not_exists`, `__edb_e__`/`__edb_v__` = if_not_exists), never `ADD` on `expected`, so a lot retry does not double it.

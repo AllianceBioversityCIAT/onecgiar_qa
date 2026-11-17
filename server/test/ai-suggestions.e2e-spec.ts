@@ -91,9 +91,12 @@ describe('AI suggestions (e2e)', () => {
       ...[GENDER, CLIMATE, POVERTY, IRL, 'general.title'].map((fieldKey) => ({
         resultTypeKey: 'policy_change',
         fieldKey,
-        visibility: 'assessed' as const,
+        // FR-1: eligible = in production AND Assessed; the AI input flag is not read.
+        visibility: aiFields.includes(fieldKey)
+          ? ('assessed' as const)
+          : ('view_only' as const),
         isCore: false,
-        isAiInput: aiFields.includes(fieldKey),
+        isAiInput: false,
       })),
       ...extra,
     ];
@@ -191,7 +194,7 @@ describe('AI suggestions (e2e)', () => {
       ]);
     });
 
-    it('shows nothing for a field that is AI input but not in production, nor for one not marked', async () => {
+    it('shows nothing for an Assessed field not in production, nor for a View only one', async () => {
       configure(
         [GENDER],
         [
