@@ -306,8 +306,8 @@ describe('committed migrations', () => {
     .filter((f) => f.endsWith('.sql'))
     .sort();
 
-  it('are exactly twelve SQL files', () => {
-    expect(files).toHaveLength(12);
+  it('are exactly thirteen SQL files', () => {
+    expect(files).toHaveLength(13);
   });
 
   const sql = readFileSync(`${migrationsDir}${files[0]}`, 'utf8');
@@ -2698,5 +2698,38 @@ describe('committed migration 0011 (sp_view)', () => {
       'DROP TABLE `sp_sessions`;',
       'DROP TABLE `sp_link_codes`;',
     ]);
+  });
+});
+
+describe('committed migration 0012 (ai_usage_indicative)', () => {
+  const files = readdirSync(migrationsDir)
+    .filter((f) => f.endsWith('.sql'))
+    .sort();
+  const read = (path: string) => readFileSync(path, 'utf8');
+  const up = files[12] ? read(`${migrationsDir}${files[12]}`) : '';
+  const downPath = `${migrationsDir}rollback/0012_ai_usage_indicative.down.sql`;
+
+  it('is named 0012_ai_usage_indicative and is the thirteenth journal entry', () => {
+    expect(files[12]).toBe('0012_ai_usage_indicative.sql');
+    const journal = JSON.parse(read(`${migrationsDir}meta/_journal.json`)) as {
+      entries: { idx: number; tag: string }[];
+    };
+    expect(journal.entries[12]).toMatchObject({
+      idx: 12,
+      tag: '0012_ai_usage_indicative',
+    });
+  });
+
+  it('only widens ai_signal with indicative (contract 2.0.0), nothing else', () => {
+    expect(up.trim()).toBe(
+      "ALTER TABLE `ai_suggestion_usage` MODIFY COLUMN `ai_signal` enum('green','amber','red','indicative') NOT NULL;",
+    );
+  });
+
+  it('has a manual down script that narrows it back', () => {
+    expect(existsSync(downPath)).toBe(true);
+    expect(read(downPath)).toContain(
+      "MODIFY COLUMN `ai_signal` enum('green','amber','red') NOT NULL;",
+    );
   });
 });

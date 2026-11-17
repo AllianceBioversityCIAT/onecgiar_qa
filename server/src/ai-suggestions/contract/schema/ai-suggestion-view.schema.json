@@ -2,6 +2,7 @@
   "$defs": {
     "AvailableSuggestionView": {
       "additionalProperties": false,
+      "description": "A suggestion the assessor can see.\n\nScored fields (Impact Areas, IRL, IUL): ``signal`` green/amber/red, ``valueKind`` \"level\",\n``suggestedValue`` the level, ``evidenceQuote`` the supporting passage.\n\nIndicative fields: ``signal`` \"indicative\" (no colour), no ``evidenceQuote`` (prompts 06 and 09 are\nused verbatim and ask the model not to quote), and ``suggestedValue`` always present:\n  - ``general.result_type``: ``valueKind`` \"category\", one of ResultCategory (\"Innovation\" or the\n    alternative category prompt 06 predicts);\n  - ``innovation_use.current_use.actors``: ``valueKind`` \"use_numbers\", the list of user groups of\n    prompt 09 (``user`` \"actors\" | \"organizations\" | \"other type\" -> the catalog lists actors,\n    organizations and measures; ``user_type``/``user_subtype`` the actor or institution type; the\n    quantity and sex/age disaggregation). An empty list means the evidence reports no use numbers.\n    ``coversFieldKeys`` lists organizations and measures: the chip says it covers actors,\n    organizations and measures.",
       "properties": {
         "copiedByReviewer": {
           "anyOf": [
@@ -14,6 +15,22 @@
           ],
           "default": null,
           "title": "Copiedbyreviewer"
+        },
+        "coversFieldKeys": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Set when one suggestion covers several catalog fields. Innovation use numbers is stored under\n``innovation_use.current_use.actors`` and covers actors, organizations and measures.",
+          "title": "Coversfieldkeys"
         },
         "editedByReviewer": {
           "anyOf": [
@@ -28,8 +45,17 @@
           "title": "Editedbyreviewer"
         },
         "evidenceQuote": {
-          "title": "Evidencequote",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "For IRL/IUL always non-empty and found verbatim in the evidence (else the field is unavailable).\nIndicative fields have none: their prompts (06, 09) ask the model not to quote.",
+          "title": "Evidencequote"
         },
         "evidenceSource": {
           "anyOf": [
@@ -63,10 +89,12 @@
           "type": "boolean"
         },
         "signal": {
+          "description": "``indicative`` exactly when the field is indicative (result category, innovation use numbers).",
           "enum": [
             "green",
             "amber",
-            "red"
+            "red",
+            "indicative"
           ],
           "title": "Signal",
           "type": "string"
@@ -77,13 +105,43 @@
           "type": "string"
         },
         "suggestedValue": {
-          "maximum": 9,
-          "minimum": 0,
-          "title": "Suggestedvalue",
-          "type": "integer"
+          "anyOf": [
+            {
+              "maximum": 9,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "enum": [
+                "Innovation",
+                "Knowledge Product",
+                "Capacity Sharing for Development",
+                "Routine Activity",
+                "Other"
+              ],
+              "type": "string"
+            },
+            {
+              "items": {
+                "$ref": "#/$defs/UseNumberRow"
+              },
+              "type": "array"
+            }
+          ],
+          "description": "level: on the field's scale, Impact Areas 0-2, IRL/IUL 0-9 (level number, not a catalog id).",
+          "title": "Suggestedvalue"
         },
         "suggestionId": {
           "title": "Suggestionid",
+          "type": "string"
+        },
+        "valueKind": {
+          "enum": [
+            "level",
+            "category",
+            "use_numbers"
+          ],
+          "title": "Valuekind",
           "type": "string"
         }
       },
@@ -92,9 +150,9 @@
         "fieldKey",
         "suggestionId",
         "signal",
+        "valueKind",
         "suggestedValue",
         "explanation",
-        "evidenceQuote",
         "quoteVerified",
         "evidenceSource",
         "promptVersion",
@@ -157,6 +215,164 @@
       ],
       "title": "UnavailableSuggestionView",
       "type": "object"
+    },
+    "UseNumberRow": {
+      "additionalProperties": false,
+      "description": "One user group of prompt 09 (Innovation Use Numbers v3), keys exactly as the prompt returns them.",
+      "properties": {
+        "geolocation": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Geolocation"
+        },
+        "men": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Men"
+        },
+        "non_youth_men": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Non Youth Men"
+        },
+        "non_youth_women": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Non Youth Women"
+        },
+        "other_quantitative_measures": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Other Quantitative Measures"
+        },
+        "quantity": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Quantity"
+        },
+        "user": {
+          "title": "User",
+          "type": "string"
+        },
+        "user_subtype": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "User Subtype"
+        },
+        "user_type": {
+          "title": "User Type",
+          "type": "string"
+        },
+        "women": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Women"
+        },
+        "youth_men": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Youth Men"
+        },
+        "youth_women": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Youth Women"
+        }
+      },
+      "required": [
+        "user",
+        "user_type",
+        "user_subtype",
+        "quantity",
+        "women",
+        "youth_women",
+        "non_youth_women",
+        "men",
+        "youth_men",
+        "non_youth_men",
+        "geolocation",
+        "other_quantitative_measures"
+      ],
+      "title": "UseNumberRow",
+      "type": "object"
     }
   },
   "$id": "ai-suggestion-view.schema.json",
@@ -179,5 +395,6 @@
     {
       "$ref": "#/$defs/PendingSuggestionView"
     }
-  ]
+  ],
+  "x-contractVersion": "2.0.0"
 }

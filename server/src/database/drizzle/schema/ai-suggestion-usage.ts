@@ -25,7 +25,8 @@ export const aiUsageActions = [
 ] as const;
 export type AiUsageAction = (typeof aiUsageActions)[number];
 
-export const aiSignals = ['green', 'amber', 'red'] as const;
+/** Contract 2.0.0 adds `indicative` (migration 0012; 0011 is sp_view). */
+export const aiSignals = ['green', 'amber', 'red', 'indicative'] as const;
 export type AiSignal = (typeof aiSignals)[number];
 
 const action = sql.identifier('action');

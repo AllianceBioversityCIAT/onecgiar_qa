@@ -1,4 +1,164 @@
 {
+  "$defs": {
+    "UseNumberRow": {
+      "additionalProperties": false,
+      "description": "One user group of prompt 09 (Innovation Use Numbers v3), keys exactly as the prompt returns them.",
+      "properties": {
+        "geolocation": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Geolocation"
+        },
+        "men": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Men"
+        },
+        "non_youth_men": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Non Youth Men"
+        },
+        "non_youth_women": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Non Youth Women"
+        },
+        "other_quantitative_measures": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Other Quantitative Measures"
+        },
+        "quantity": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Quantity"
+        },
+        "user": {
+          "title": "User",
+          "type": "string"
+        },
+        "user_subtype": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "User Subtype"
+        },
+        "user_type": {
+          "title": "User Type",
+          "type": "string"
+        },
+        "women": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Women"
+        },
+        "youth_men": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Youth Men"
+        },
+        "youth_women": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Youth Women"
+        }
+      },
+      "required": [
+        "user",
+        "user_type",
+        "user_subtype",
+        "quantity",
+        "women",
+        "youth_women",
+        "non_youth_women",
+        "men",
+        "youth_men",
+        "non_youth_men",
+        "geolocation",
+        "other_quantitative_measures"
+      ],
+      "title": "UseNumberRow",
+      "type": "object"
+    }
+  },
   "$id": "ai-suggestion-item.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
@@ -13,6 +173,21 @@
       "const": "1",
       "title": "Edb V",
       "type": "string"
+    },
+    "coversFieldKeys": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Coversfieldkeys"
     },
     "createdAt": {
       "title": "Createdat",
@@ -135,6 +310,13 @@
           "type": "integer"
         },
         {
+          "type": "string"
+        },
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
           "type": "null"
         }
       ],
@@ -155,7 +337,8 @@
           "enum": [
             "green",
             "amber",
-            "red"
+            "red",
+            "indicative"
           ],
           "type": "string"
         },
@@ -186,7 +369,25 @@
     "suggestedValue": {
       "anyOf": [
         {
+          "maximum": 9,
+          "minimum": 0,
           "type": "integer"
+        },
+        {
+          "enum": [
+            "Innovation",
+            "Knowledge Product",
+            "Capacity Sharing for Development",
+            "Routine Activity",
+            "Other"
+          ],
+          "type": "string"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/UseNumberRow"
+          },
+          "type": "array"
         },
         {
           "type": "null"
@@ -220,6 +421,23 @@
       ],
       "default": null,
       "title": "Unavailablereason"
+    },
+    "valueKind": {
+      "anyOf": [
+        {
+          "enum": [
+            "level",
+            "category",
+            "use_numbers"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Valuekind"
     }
   },
   "required": [
@@ -237,5 +455,6 @@
     "createdAt"
   ],
   "title": "AiSuggestionItem",
-  "type": "object"
+  "type": "object",
+  "x-contractVersion": "2.0.0"
 }

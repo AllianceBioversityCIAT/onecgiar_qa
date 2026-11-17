@@ -12,6 +12,7 @@ import {
   AI_ELIGIBLE_STATUS,
   aiRunIdOf,
   eligibleFields,
+  productionFieldOf,
 } from '../ai-suggestions/ai-config.js';
 import {
   AI_JOBS_PUBLISHER,
@@ -22,7 +23,6 @@ import {
   AI_RUN_STORE,
   type AiRunStore,
 } from '../ai-suggestions/ai-run.store.js';
-import { AI_PRODUCTION } from '../ai-suggestions/production.js';
 import { snapshotKeyOf } from './load-rules.js';
 import { AiJobsDisabledError } from '../ai-suggestions/ai-errors.js';
 import { LoadNotFoundError } from './loads.errors.js';
@@ -238,7 +238,8 @@ export class AiEnqueueService implements AiEnqueuePort {
           resultCode: String(membership.resultCode),
           snapKey,
           fieldKey,
-          promptVersion: AI_PRODUCTION.promptVersion,
+          // Contract 2.0.0: the version is per field (eligible ⇒ in production).
+          promptVersion: productionFieldOf(fieldKey)!.promptVersion,
         });
       }
     }

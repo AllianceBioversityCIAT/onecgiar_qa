@@ -14,6 +14,8 @@ const FIELD_NAMES: Readonly<Record<string, string>> = {
   'general.poverty_tag': 'Poverty reduction, livelihoods and jobs tag',
   'innovation_dev.readiness_level': 'Innovation Readiness Level',
   'innovation_use.use_level.innovation_use_level': 'Innovation Use Level',
+  'general.result_type': 'Result category',
+  'innovation_use.current_use.actors': 'Innovation use numbers',
 };
 
 /**

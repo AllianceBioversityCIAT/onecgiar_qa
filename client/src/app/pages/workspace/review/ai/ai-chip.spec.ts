@@ -5,6 +5,7 @@ import { AiChipVm, toAiChipVm } from './ai-chip.vm';
 
 const red = toAiChipVm({
   status: 'available',
+  valueKind: 'level',
   fieldKey: 'general.gender_tag',
   suggestionId: 's1',
   signal: 'red',
@@ -23,6 +24,7 @@ const green: AiChipVm = {
 };
 const irl = toAiChipVm({
   status: 'available',
+  valueKind: 'level',
   fieldKey: 'innovation_dev.readiness_level',
   suggestionId: 's2',
   signal: 'amber',

@@ -1,6 +1,16 @@
 // @akili-spec assessment/ai-suggestions
 import type { ConfigItem } from '../admin-config/field-config/field-config-diff.js';
-import { AI_PRODUCTION, type AiProductionContract } from './production.js';
+import type {
+  AiProductionContract,
+  AiProductionField,
+} from './production-contract.js';
+import { AI_PRODUCTION } from './production.js';
+
+/** IRL and IUL: the level fields of the pilot (FR-6, FR-8 `validated_above_ai`, FR-11). */
+export const AI_LEVEL_FIELDS: readonly string[] = [
+  'innovation_dev.readiness_level',
+  'innovation_use.use_level.innovation_use_level',
+];
 
 /** The membership statuses a reviewer assesses; `auto_validated` and `not_in_qa` get no job (FR-1). */
 export const AI_ELIGIBLE_STATUS = 'pending';
@@ -22,10 +32,20 @@ export function eligibleFields(
       .filter((item) => item.visibility === 'assessed')
       .map((item) => item.fieldKey),
   );
-  return production.fieldKeys.filter((key) => assessed.has(key));
+  return Object.keys(production.fields).filter((key) => assessed.has(key));
 }
 
 /** DD-1: one run per load, so a lot retry and a re-enqueue address the same counters. */
 export function aiRunIdOf(loadId: number): string {
   return `load-${loadId}`;
+}
+
+/** The production entry of a field, or undefined when the AI does not cover it. */
+export function productionFieldOf(
+  fieldKey: string,
+  production: AiProductionContract = AI_PRODUCTION,
+): AiProductionField | undefined {
+  return Object.hasOwn(production.fields, fieldKey)
+    ? production.fields[fieldKey]
+    : undefined;
 }

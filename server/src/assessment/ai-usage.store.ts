@@ -3,7 +3,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/mysql-core';
 import { isDuplicateKeyError } from '../common/idempotency/idempotency.errors.js';
-import { AI_LEVEL_FIELDS } from '../ai-suggestions/production.js';
+import { AI_LEVEL_FIELDS } from '../ai-suggestions/ai-config.js';
 import { DRIZZLE } from '../database/drizzle/drizzle.constants.js';
 import type { DrizzleDB } from '../database/drizzle/drizzle.module.js';
 import {
