@@ -177,8 +177,14 @@ describe('GET assessment view (e2e)', () => {
       expect(res.body.data.readOnlyReason).toBeNull();
       expect(res.body.data.assessment).toBeNull();
       expect(res.body.data.other).toEqual([]);
-      // FR-11: an author is shown by nickname only, no e-mail anywhere in the body.
-      expect(res.text).not.toContain('@');
+      // FR-11: an author is shown by nickname only, no e-mail anywhere in the
+      // body. A field `description` is Reporting's static help text, not
+      // person data: some carry example addresses ("j.smith@cgiar.org"), so it
+      // is left out of this check (it never holds a value of the result).
+      const withoutHelpText = JSON.stringify(res.body, (key, value: unknown) =>
+        key === 'description' ? undefined : value,
+      );
+      expect(withoutHelpText).not.toContain('@');
     });
 
     it('gives each field the labels Reporting keyed by control list, through the real runner and the real catalog', async () => {
