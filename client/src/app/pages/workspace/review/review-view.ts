@@ -15,6 +15,7 @@ import { FooterMode, ReviewFooter } from './review-footer';
 import { CardAction, SectionNavVm } from './review-model';
 import { ReviewSkeleton } from './review-skeleton';
 import { ALL_FIELDS, ReviewStore } from './review-store';
+import { REVIEW_AI_PROVIDERS, ReviewAiHook } from './ai/review-ai-hook';
 import { ReviewTocSection, TocCardAction } from './review-toc-section';
 import { findField, toDrawerVm, withdrawOpen } from './review.mapper';
 
@@ -49,12 +50,14 @@ const COMPACT_QUERY = '(max-width: 767.98px)';
     ReviewSkeleton,
     ReviewTocSection,
   ],
-  providers: [ReviewStore],
+  providers: [ReviewStore, ...REVIEW_AI_PROVIDERS],
   // A block, so the host has the width of the area (it is what the layout measures).
   host: { class: 'block' },
 })
 export class ReviewView {
   protected readonly store = inject(ReviewStore);
+  /** P2-3918: the AI chips (all logic in `ai/review-ai-hook.ts`). */
+  protected readonly ai = inject(ReviewAiHook);
   protected readonly layout = inject(WorkspaceLayout);
   private readonly destroyRef = inject(DestroyRef);
   private readonly toasts = inject(Toasts);
@@ -264,6 +267,13 @@ export class ReviewView {
 
   protected onTocCard(e: TocCardAction): void {
     this.onCard(e.id, e.action);
+  }
+
+  /** P2-3918 "Copy to comment": the comment box opens with the AI's text, editable; nothing is saved (AC6, AC7). */
+  protected onAiCopy(key: string): void {
+    const text = this.ai.copy(key);
+    this.openDrawer(key);
+    if (text !== null) this.commentModel.set({ text });
   }
 
   protected openDrawer(key: string): void {

@@ -98,9 +98,11 @@ export interface ReviewVm {
 
 const ASSESSOR_INSTRUCTIONS =
   'Review each field against the assessor guidance. Mark it as validated, or leave a comment explaining what needs to change.';
-const READ_ONLY_INSTRUCTIONS = 'This assessment is read only for you. You can read every field and its comments.';
+const READ_ONLY_INSTRUCTIONS =
+  'This assessment is read only for you. You can read every field and its comments.';
 /** The caller may write, but the page offers no write (`writes` off in `toReviewVm`). */
-const READING_INSTRUCTIONS = 'Read each field against the assessor guidance. You can open the comments of a field.';
+const READING_INSTRUCTIONS =
+  'Read each field against the assessor guidance. You can open the comments of a field.';
 
 /** Subfield keys of the ToC lists and their catalog labels (`reporting-qa-catalog-2026.json`). */
 const SUBFIELD_LABELS: Readonly<Record<string, string>> = {
@@ -134,15 +136,19 @@ const romeDay = (iso: string): string => {
   return isNaN(at.getTime()) ? formatDay(iso.slice(0, 10)) : formatDay(todayInRome(at));
 };
 
-const isObject = (v: Json): v is Readonly<Record<string, Json>> => typeof v === 'object' && v !== null && !Array.isArray(v);
-const isEmpty = (v: Json): boolean => v === null || v === undefined || v === '' || (Array.isArray(v) && v.length === 0);
+const isObject = (v: Json): v is Readonly<Record<string, Json>> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v);
+const isEmpty = (v: Json): boolean =>
+  v === null || v === undefined || v === '' || (Array.isArray(v) && v.length === 0);
 /**
  * A list entry with nothing in it. Reporting keeps one entry with every subfield null when the result is not mapped
  * to the ToC (seen on TEST, 17-nov): it is no contribution, and it must not paint an empty card.
  */
 const isBlankEntry = (v: Json): boolean =>
-  isObject(v) && Object.values(v).every((x) => isEmpty(x) || (Array.isArray(x) && x.every(isBlankEntry)));
-const humanize = (key: string): string => SUBFIELD_LABELS[key] ?? key.charAt(0).toUpperCase() + key.slice(1).replaceAll('_', ' ');
+  isObject(v) &&
+  Object.values(v).every((x) => isEmpty(x) || (Array.isArray(x) && x.every(isBlankEntry)));
+const humanize = (key: string): string =>
+  SUBFIELD_LABELS[key] ?? key.charAt(0).toUpperCase() + key.slice(1).replaceAll('_', ' ');
 
 /** The label of an option id: from one list, or from any list the field carries; the id when there is none. */
 function labelOf(id: Json, labels: FieldLabels | null, list?: string): string {
@@ -155,41 +161,60 @@ function labelOf(id: Json, labels: FieldLabels | null, list?: string): string {
   return key;
 }
 
-function scalarText(v: Json, labels: FieldLabels | null, list: string | undefined, select: boolean): string {
+function scalarText(
+  v: Json,
+  labels: FieldLabels | null,
+  list: string | undefined,
+  select: boolean,
+): string {
   if (typeof v === 'boolean') return v ? 'Yes' : 'No';
   if (isEmpty(v)) return '—';
   if (select && (typeof v === 'number' || typeof v === 'string')) return labelOf(v, labels, list);
   return typeof v === 'object' ? JSON.stringify(v) : String(v);
 }
 
-/** One entry of a list field: "Level: Outcome · Target: 4". */
-function entryText(entry: Json, labels: FieldLabels | null): string {
+/**
+ * One entry of a list field: "Level: Outcome · Target: 4". A subfield is labelled when `lists` names its control
+ * list: the ToC ones always, the others from the field's `subfieldLists` (e.g. "Actor type: Farmers", not "1").
+ */
+function entryText(
+  entry: Json,
+  labels: FieldLabels | null,
+  lists: Readonly<Record<string, string>> = SUBFIELD_LISTS,
+): string {
   if (!isObject(entry)) return scalarText(entry, labels, undefined, !!labels);
   return Object.entries(entry)
     .filter(([, v]) => !isEmpty(v))
-    .map(([k, v]) =>
-      `${humanize(k)}: ${Array.isArray(v) ? v.map((x) => entryText(x, labels)).join('; ') : scalarText(v, labels, SUBFIELD_LISTS[k], k in SUBFIELD_LISTS)}`,
+    .map(
+      ([k, v]) =>
+        `${humanize(k)}: ${Array.isArray(v) ? v.map((x) => entryText(x, labels, lists)).join('; ') : scalarText(v, labels, lists[k], Object.hasOwn(lists, k))}`,
     )
     .join(' · ');
 }
 
 /** The text of a field value, with labels when the snapshot has them and the ids otherwise (FR-8, FR-20). */
-export function formatValue(field: Pick<AssessmentField, 'value' | 'labels' | 'notApplicable'>): string {
+export function formatValue(
+  field: Pick<AssessmentField, 'value' | 'labels' | 'notApplicable' | 'subfieldLists'>,
+): string {
   if (field.notApplicable) return 'Not applicable';
   const { value, labels } = field;
+  const lists = field.subfieldLists
+    ? { ...SUBFIELD_LISTS, ...field.subfieldLists }
+    : SUBFIELD_LISTS;
   if (isEmpty(value)) return '—';
   if (Array.isArray(value)) {
     const items = value.filter((v) => !isBlankEntry(v));
     if (!items.length) return '—';
     return items.every((v) => !isObject(v))
       ? items.map((v) => scalarText(v, labels, undefined, !!labels)).join(', ')
-      : items.map((v) => entryText(v, labels)).join('\n');
+      : items.map((v) => entryText(v, labels, lists)).join('\n');
   }
-  if (isObject(value)) return entryText(value, labels);
+  if (isObject(value)) return entryText(value, labels, lists);
   return scalarText(value, labels, undefined, !!labels);
 }
 
-const openComments = (f: AssessmentField): readonly AssessmentComment[] => f.comments.filter((c) => c.state !== 'withdrawn');
+const openComments = (f: AssessmentField): readonly AssessmentComment[] =>
+  f.comments.filter((c) => c.state !== 'withdrawn');
 const isAssessed = (f: AssessmentField): boolean => f.mode === 'assessed';
 /** Green, or carrying an open comment (the assessor has said something on it). */
 const isResolved = (f: AssessmentField): boolean => f.validated || openComments(f).length > 0;
@@ -197,7 +222,11 @@ const isResolved = (f: AssessmentField): boolean => f.validated || openComments(
 /** The green/grey mark (FR-9, FR-23: icon and accessible name, never color alone) and the comment count. */
 function chips(f: AssessmentField): StateChip[] {
   if (!isAssessed(f)) return [];
-  const states: StateChip[] = [f.validated ? { kind: 'ok', label: 'Validated', count: 0 } : { kind: 'not', label: 'Not validated', count: 0 }];
+  const states: StateChip[] = [
+    f.validated
+      ? { kind: 'ok', label: 'Validated', count: 0 }
+      : { kind: 'not', label: 'Not validated', count: 0 },
+  ];
   const open = openComments(f).length;
   if (open) states.push({ kind: 'com', label: 'Commented', count: open });
   return states;
@@ -269,21 +298,31 @@ const blankCard = (status: CardStatusVm): TocCardVm => ({
   target: null,
 });
 
-const asNumber = (v: Json): number | null => (typeof v === 'number' ? v : typeof v === 'string' && v.trim() && !isNaN(+v) ? +v : null);
+const asNumber = (v: Json): number | null =>
+  typeof v === 'number' ? v : typeof v === 'string' && v.trim() && !isNaN(+v) ? +v : null;
 
 /** One ToC contribution: level chip, the chain of links, contribution and target (every element shown, FR-9). */
-function contributionCard(entry: Readonly<Record<string, Json>>, n: number, labels: FieldLabels | null, status: CardStatusVm): TocCardVm {
+function contributionCard(
+  entry: Readonly<Record<string, Json>>,
+  n: number,
+  labels: FieldLabels | null,
+  status: CardStatusVm,
+): TocCardVm {
   const links: TocLinkVm[] = Object.entries(entry)
     .filter(([k, v]) => k !== 'target' && k !== 'contribution_to_target' && !isEmpty(v))
     .map(([k, v]) => ({
       label: humanize(k),
       code: '',
-      value: Array.isArray(v) ? v.map((x) => entryText(x, labels)).join('; ') : scalarText(v, labels, SUBFIELD_LISTS[k], k in SUBFIELD_LISTS),
+      value: Array.isArray(v)
+        ? v.map((x) => entryText(x, labels)).join('; ')
+        : scalarText(v, labels, SUBFIELD_LISTS[k], k in SUBFIELD_LISTS),
     }));
   return {
     ...blankCard(status),
     eyebrow: `Contribution ${n}`,
-    levelChip: isEmpty(entry['level']) ? '' : labelOf(entry['level'], labels, SUBFIELD_LISTS['level']),
+    levelChip: isEmpty(entry['level'])
+      ? ''
+      : labelOf(entry['level'], labels, SUBFIELD_LISTS['level']),
     links,
     contrib: asNumber(entry['contribution_to_target']),
     target: asNumber(entry['target']),
@@ -311,8 +350,14 @@ export function toTocVm(fields: readonly AssessmentField[], writable: boolean): 
   const programGroups: TocGroupVm[] = [];
   let count = 0;
   for (const f of fields) {
-    const status = (i: number) => (i === 0 ? cardStatus(f, writable) : { ...cardStatus(f, false, `${f.key}#${i}`), states: [], actions: null });
-    const listed = !f.notApplicable && Array.isArray(f.value) && f.value.every(isObject) ? (f.value as readonly Readonly<Record<string, Json>>[]) : [];
+    const status = (i: number) =>
+      i === 0
+        ? cardStatus(f, writable)
+        : { ...cardStatus(f, false, `${f.key}#${i}`), states: [], actions: null };
+    const listed =
+      !f.notApplicable && Array.isArray(f.value) && f.value.every(isObject)
+        ? (f.value as readonly Readonly<Record<string, Json>>[])
+        : [];
     const entries = listed.filter((e) => !isBlankEntry(e));
     if (!entries.length) {
       main.push(answerCard(f, status(0)));
@@ -321,14 +366,24 @@ export function toTocVm(fields: readonly AssessmentField[], writable: boolean): 
     if (f.key === 'contributors.science_programs') {
       let card = 0;
       entries.forEach((entry, p) => {
-        const nested = Array.isArray(entry['toc_entries']) ? (entry['toc_entries'] as readonly Json[]).filter(isObject).filter((e) => !isBlankEntry(e)) : [];
+        const nested = Array.isArray(entry['toc_entries'])
+          ? (entry['toc_entries'] as readonly Json[])
+              .filter(isObject)
+              .filter((e) => !isBlankEntry(e))
+          : [];
         const { toc_entries: _, ...rest } = entry;
         const items = nested.length
           ? nested.map((e, i) => contributionCard(e, i + 1, f.labels, status(card++)))
           : [{ ...contributionCard(rest, 1, f.labels, status(card++)), eyebrow: f.label }];
-        if (nested.length) items[0] = { ...items[0], links: [...contributionCard(rest, 0, f.labels, status(0)).links, ...items[0].links] };
+        if (nested.length)
+          items[0] = {
+            ...items[0],
+            links: [...contributionCard(rest, 0, f.labels, status(0)).links, ...items[0].links],
+          };
         count += nested.length;
-        const name = isEmpty(entry['program']) ? `Program ${p + 1}` : labelOf(entry['program'], f.labels, SUBFIELD_LISTS['program']);
+        const name = isEmpty(entry['program'])
+          ? `Program ${p + 1}`
+          : labelOf(entry['program'], f.labels, SUBFIELD_LISTS['program']);
         programGroups.push({
           code: `${p + 1}`,
           name,
@@ -358,8 +413,13 @@ export function toTocVm(fields: readonly AssessmentField[], writable: boolean): 
 // ---------- Page ----------
 
 /** The read-only banner (FR-23). `stepName` is the role's step of the timeline. */
-export function readOnlyBanner(reason: AssessmentReadOnlyReason | null, view: Pick<AssessmentView, 'assessment' | 'header'>): string | null {
-  const step = view.header.step ? `Step ${view.header.step.position} · ${view.header.step.name}` : 'Your step';
+export function readOnlyBanner(
+  reason: AssessmentReadOnlyReason | null,
+  view: Pick<AssessmentView, 'assessment' | 'header'>,
+): string | null {
+  const step = view.header.step
+    ? `Step ${view.header.step.position} · ${view.header.step.name}`
+    : 'Your step';
   switch (reason) {
     case null:
       return null;
@@ -396,7 +456,11 @@ export function toHeaderVm(view: AssessmentView, canAct: boolean = view.writable
     isAuto: h.status === 'auto_validated',
     assessor,
     showAssessedBy: ended,
-    instructions: canAct ? ASSESSOR_INSTRUCTIONS : view.writable ? READING_INSTRUCTIONS : READ_ONLY_INSTRUCTIONS,
+    instructions: canAct
+      ? ASSESSOR_INSTRUCTIONS
+      : view.writable
+        ? READING_INSTRUCTIONS
+        : READ_ONLY_INSTRUCTIONS,
     // Comments become visible to the program only when the assessment ends (FR-14, FR-15).
     locked: canAct && !ended,
     details: [
@@ -452,7 +516,10 @@ export function toReviewVm(view: AssessmentView, writes = true): ReviewVm {
 }
 
 /** A field by key, with the name of its section (the drawer's subtitle). */
-export function findField(view: AssessmentView, key: string): { readonly field: AssessmentField; readonly section: string } | null {
+export function findField(
+  view: AssessmentView,
+  key: string,
+): { readonly field: AssessmentField; readonly section: string } | null {
   for (const s of view.sections) {
     const field = s.fields.find((f) => f.key === key);
     if (field) return { field, section: s.label };

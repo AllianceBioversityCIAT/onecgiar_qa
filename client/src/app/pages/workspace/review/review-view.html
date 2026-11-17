@@ -92,7 +92,16 @@
                       <h2 id="review-section-title" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">{{ sec.name }}</h2>
                     </div>
                     @for (f of sec.fields; track f.id) {
-                      <qa-review-field-card [field]="f" [qaReveal]="$index" [busy]="validating().has(f.id) || validating().has(allKey)" (act)="onCard(f.id, $event)" />
+                      <qa-review-field-card
+                        [field]="f"
+                        [qaReveal]="$index"
+                        [busy]="validating().has(f.id) || validating().has(allKey)"
+                        [aiChip]="ai.chip(f.id)"
+                        [aiReadOnly]="ai.readOnly()"
+                        (act)="onCard(f.id, $event)"
+                        (aiShown)="ai.shown(f.id)"
+                        (aiCopy)="onAiCopy(f.id)"
+                      />
                     } @empty {
                       <p class="m-0 text-(length:--fs-13) text-(--text-4)">No fields in this section.</p>
                     }

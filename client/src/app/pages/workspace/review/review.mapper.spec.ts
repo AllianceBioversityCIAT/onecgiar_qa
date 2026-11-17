@@ -3,14 +3,20 @@ import { FieldVm } from './review-model';
 import { comment, field, viewFixture } from './review.api-fixture';
 import { findField, formatValue, readOnlyBanner, toCommentVm, toDrawerVm, toFieldVm, toReviewVm, withdrawOpen } from './review.mapper';
 
-const byLabel = (fields: readonly FieldVm[], label: string): FieldVm => fields.find((f) => f.label === label)!;
+const byLabel = (fields: readonly FieldVm[], label: string): FieldVm =>
+  fields.find((f) => f.label === label)!;
 const chipLabels = (f: FieldVm): string[] => f.states.map((s) => s.label);
 
 describe('review.mapper (API assessment view → Review view models)', () => {
   describe('sections (FR-8)', () => {
     it('keeps the API section order, the ToC group in place, and "Other fields" last, read only', () => {
       const vm = toReviewVm(viewFixture());
-      expect(vm.sections.map((s) => s.name)).toEqual(['General information', 'Theory of Change', 'Geographic location', 'Other fields']);
+      expect(vm.sections.map((s) => s.name)).toEqual([
+        'General information',
+        'Theory of Change',
+        'Geographic location',
+        'Other fields',
+      ]);
       expect(vm.sections.map((s) => s.isToc)).toEqual([false, true, false, false]);
       const other = vm.sections[3].fields[0];
       expect(other.isView).toBe(true);
@@ -51,7 +57,9 @@ describe('review.mapper (API assessment view → Review view models)', () => {
     });
 
     it('a core flag on a View only field never shows the Core tag', () => {
-      expect(toFieldVm(field({ key: 'k', label: 'K', mode: 'view', core: true }), true).isCore).toBe(false);
+      expect(
+        toFieldVm(field({ key: 'k', label: 'K', mode: 'view', core: true }), true).isCore,
+      ).toBe(false);
     });
 
     it('withdrawn comments leave the count', () => {
@@ -62,15 +70,28 @@ describe('review.mapper (API assessment view → Review view models)', () => {
     it('writable: Approve on a grey field, Undo on a green one, Add/View comments', () => {
       const title = byLabel(general(), 'Title of Result').actions!;
       const description = byLabel(general(), 'Description of Result').actions!;
-      expect([title.approve, title.undo, title.secondaryLabel]).toEqual([false, 'approval', 'Add comment']);
-      expect([description.approve, description.undo, description.secondaryLabel]).toEqual([true, null, 'View comments']);
+      expect([title.approve, title.undo, title.secondaryLabel]).toEqual([
+        false,
+        'approval',
+        'Add comment',
+      ]);
+      expect([description.approve, description.undo, description.secondaryLabel]).toEqual([
+        true,
+        null,
+        'View comments',
+      ]);
     });
 
     it('read only (FR-2): no Approve or Undo; "View comments" only where there are comments', () => {
-      const fields = toReviewVm(viewFixture({ writable: false, readOnlyReason: 'step_closed' })).sections[0].fields;
+      const fields = toReviewVm(viewFixture({ writable: false, readOnlyReason: 'step_closed' }))
+        .sections[0].fields;
       expect(byLabel(fields, 'Title of Result').actions).toBeNull();
       const description = byLabel(fields, 'Description of Result').actions!;
-      expect([description.approve, description.undo, description.secondaryLabel]).toEqual([false, null, 'View comments']);
+      expect([description.approve, description.undo, description.secondaryLabel]).toEqual([
+        false,
+        null,
+        'View comments',
+      ]);
     });
 
     it('writes off: a writable view offers no Approve, Undo, Add comment or Finish, and still shows the comments', () => {
@@ -78,7 +99,11 @@ describe('review.mapper (API assessment view → Review view models)', () => {
       const fields = vm.sections[0].fields;
       expect(byLabel(fields, 'Title of Result').actions).toBeNull();
       const description = byLabel(fields, 'Description of Result').actions!;
-      expect([description.approve, description.undo, description.secondaryLabel]).toEqual([false, null, 'View comments']);
+      expect([description.approve, description.undo, description.secondaryLabel]).toEqual([
+        false,
+        null,
+        'View comments',
+      ]);
       expect(vm.canFinish).toBe(false);
       expect(vm.header.locked).toBe(false);
       // What the API said stays: the caller may write, so there is no read-only banner.
@@ -89,13 +114,18 @@ describe('review.mapper (API assessment view → Review view models)', () => {
     it('the tooltip is the catalog help text; none when the API sends no description', () => {
       const view = viewFixture();
       const [title, description] = view.sections[0].fields;
-      expect(toFieldVm({ ...title, description: 'A short, clear title.' }, true).tip).toBe('A short, clear title.');
+      expect(toFieldVm({ ...title, description: 'A short, clear title.' }, true).tip).toBe(
+        'A short, clear title.',
+      );
       expect(toFieldVm(description, true).tip).toBe('');
     });
 
     it('AI is not connected: every card has ai null', () => {
       const vm = toReviewVm(viewFixture());
-      const cards = vm.sections.flatMap((s) => [...s.fields, ...(s.toc?.groups.flatMap((g) => g.items) ?? [])]);
+      const cards = vm.sections.flatMap((s) => [
+        ...s.fields,
+        ...(s.toc?.groups.flatMap((g) => g.items) ?? []),
+      ]);
       expect(cards.length).toBeGreaterThan(5);
       expect(cards.every((c) => c.ai === null)).toBe(true);
     });
@@ -127,24 +157,47 @@ describe('review.mapper (API assessment view → Review view models)', () => {
       expect([first.contrib, first.target]).toEqual([4, 10]);
       // A null label shows the id (FR-20).
       expect(second.links.find((l) => l.label === 'Output/Outcome')?.value).toBe('802');
-      expect(second.links.find((l) => l.label === 'High Level Output Statement')?.value).toBe('More seed sold');
+      expect(second.links.find((l) => l.label === 'High Level Output Statement')?.value).toBe(
+        'More seed sold',
+      );
     });
 
     it('counts the Assessed ToC fields (0 = the section is shown for context only)', () => {
       expect(toc().assessed).toBe(1);
       const view = viewFixture();
-      const contextOnly = { ...view, sections: view.sections.map((s) => ({ ...s, fields: s.fields.map((f) => ({ ...f, mode: 'view' as const })) })) };
+      const contextOnly = {
+        ...view,
+        sections: view.sections.map((s) => ({
+          ...s,
+          fields: s.fields.map((f) => ({ ...f, mode: 'view' as const })),
+        })),
+      };
       expect(toReviewVm(contextOnly).sections[1].toc!.assessed).toBe(0);
     });
 
     it('an entry with every value empty is no contribution (what the API sends when the result is not mapped to the ToC)', () => {
-      const blank = { level: null, toc_result: null, hlo_statement: null, kpi: null, indicator_typology: null, unit_of_measurement: null, target: null, contribution_to_target: null };
+      const blank = {
+        level: null,
+        toc_result: null,
+        hlo_statement: null,
+        kpi: null,
+        indicator_typology: null,
+        unit_of_measurement: null,
+        target: null,
+        contribution_to_target: null,
+      };
       const view = viewFixture();
       const withBlank = {
         ...view,
         sections: view.sections.map((s) => ({
           ...s,
-          fields: s.fields.map((f) => (f.key === 'toc.entries' ? { ...f, value: [blank], labels: null } : f.key === 'contributors.science_programs' ? { ...f, value: [] } : f)),
+          fields: s.fields.map((f) =>
+            f.key === 'toc.entries'
+              ? { ...f, value: [blank], labels: null }
+              : f.key === 'contributors.science_programs'
+                ? { ...f, value: [] }
+                : f,
+          ),
         })),
       };
       const vm = toReviewVm(withBlank).sections[1].toc!;
@@ -171,7 +224,13 @@ describe('review.mapper (API assessment view → Review view models)', () => {
 
     it('a program group lists the program answers, then its contributions', () => {
       const card = toc().groups[1].items[0];
-      expect(card.links.map((l) => l.label)).toEqual(['Science Program', 'Identified in the ToC', 'Can this result be mapped to a ToC KPI?', 'Level', 'Output/Outcome']);
+      expect(card.links.map((l) => l.label)).toEqual([
+        'Science Program',
+        'Identified in the ToC',
+        'Can this result be mapped to a ToC KPI?',
+        'Level',
+        'Output/Outcome',
+      ]);
       expect(card.links[0].value).toBe('SP06 Climate Action');
       expect([card.contrib, card.target]).toEqual([2, 3]);
     });
@@ -185,6 +244,22 @@ describe('review.mapper (API assessment view → Review view models)', () => {
       expect(byLabel(geo, 'Geographic scope').value).toBe('Not applicable');
     });
 
+    it('labels the ids of a list entry by the subfield lists of the field, and keeps the id without them', () => {
+      const value = [{ actor_type: 1, how_many: 1200 }];
+      const labels = { actor_types: { '1': 'Farmers' } };
+      expect(
+        formatValue({
+          value,
+          labels,
+          notApplicable: false,
+          subfieldLists: { actor_type: 'actor_types' },
+        }),
+      ).toBe('Actor type: Farmers · How many: 1200');
+      expect(formatValue({ value, labels, notApplicable: false })).toBe(
+        'Actor type: 1 · How many: 1200',
+      );
+    });
+
     it('booleans read Yes/No and empty values a dash', () => {
       expect(formatValue({ value: false, labels: null, notApplicable: false })).toBe('No');
       expect(formatValue({ value: null, labels: null, notApplicable: false })).toBe('—');
@@ -195,7 +270,12 @@ describe('review.mapper (API assessment view → Review view models)', () => {
   describe('header and read-only banner (FR-2, FR-23)', () => {
     it('header from the API: code, title, type, FR-5 status label, step and timeline in the details', () => {
       const h = toReviewVm(viewFixture()).header;
-      expect([h.code, h.title, h.type, h.status]).toEqual(['9890', 'Seed systems for maize', 'Policy change', 'Pending']);
+      expect([h.code, h.title, h.type, h.status]).toEqual([
+        '9890',
+        'Seed systems for maize',
+        'Policy change',
+        'Pending',
+      ]);
       expect(h.details).toEqual([
         { label: 'Science program', value: 'SP05 Better Diets and Nutrition' },
         { label: 'Timeline', value: 'Official timeline 2026' },
@@ -219,7 +299,11 @@ describe('review.mapper (API assessment view → Review view models)', () => {
         writable: false,
         readOnlyReason: 'finished',
         header: { ...viewFixture().header, status: 'quality_assessed' },
-        assessment: { status: 'quality_assessed', assessedBy: { id: 1053, nickname: 'mchen' }, finishedAt: '2026-11-12T20:12:29.000Z' },
+        assessment: {
+          status: 'quality_assessed',
+          assessedBy: { id: 1053, nickname: 'mchen' },
+          finishedAt: '2026-11-12T20:12:29.000Z',
+        },
       });
       const vm = toReviewVm(view);
       expect(vm.banner).toBe('Finished by mchen on 12 Nov 2026.');
@@ -230,7 +314,11 @@ describe('review.mapper (API assessment view → Review view models)', () => {
     });
 
     it('an assessor with no nickname reads "—", never a name', () => {
-      const view = viewFixture({ assessment: { status: 'returned', assessedBy: { id: 7, nickname: null }, finishedAt: null }, readOnlyReason: 'finished', writable: false });
+      const view = viewFixture({
+        assessment: { status: 'returned', assessedBy: { id: 7, nickname: null }, finishedAt: null },
+        readOnlyReason: 'finished',
+        writable: false,
+      });
       expect(toReviewVm(view).header.assessor).toBe('—');
       expect(readOnlyBanner('finished', view)).toBe('Finished by —.');
     });
@@ -267,11 +355,21 @@ describe('review.mapper (API assessment view → Review view models)', () => {
   });
 
   it('dates are the day in Rome, not the UTC day (23:30 UTC is already the next day there)', () => {
-    expect(toCommentVm(comment({ createdAt: '2026-11-12T23:30:00.000Z' })).date).toBe(toCommentVm(comment({ createdAt: '2026-11-13T09:00:00.000Z' })).date);
+    expect(toCommentVm(comment({ createdAt: '2026-11-12T23:30:00.000Z' })).date).toBe(
+      toCommentVm(comment({ createdAt: '2026-11-13T09:00:00.000Z' })).date,
+    );
   });
 
   it('a comment is shown by nickname only (or "—") with its date', () => {
-    expect(toCommentVm(comment())).toMatchObject({ id: 1, authorId: 1053, who: 'mchen', role: 'Assessor', date: '12 Nov 2026', text: 'Add the evidence link.', open: true });
+    expect(toCommentVm(comment())).toMatchObject({
+      id: 1,
+      authorId: 1053,
+      who: 'mchen',
+      role: 'Assessor',
+      date: '12 Nov 2026',
+      text: 'Add the evidence link.',
+      open: true,
+    });
     expect(toCommentVm(comment({ author: { id: 9, nickname: null } })).who).toBe('—');
   });
 });
