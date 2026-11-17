@@ -2,9 +2,11 @@ import { Component, computed, input, model, output } from '@angular/core';
 import { QaButtonImports } from '../../../ui';
 import { ReviewCodeInfo } from './review-code-info';
 import { ResultHeaderVm, SectionNavVm } from './review-model';
-import { CYCLE } from './review.mock';
 
-/** Left column: result code card, section navigation, progress, AI flags, guidance. Collapses to a rail. */
+/**
+ * Left column: result code card, section navigation, progress, AI flags, guidance. Collapses to a rail; on the
+ * review page that collapse is the focus control, which also collapses the main menu (`WorkspaceLayout`, FR-8 AC2).
+ */
 @Component({
   selector: 'qa-review-aside',
   imports: [QaButtonImports, ReviewCodeInfo],
@@ -28,11 +30,15 @@ export class ReviewAside {
   /** Collapsed to the 56px rail. */
   readonly rail = model(false);
 
+  /** Link to the written guidance of the cycle; none until a real one exists (the mockup's was a placeholder). */
+  readonly guidance = input<{ readonly url: string; readonly label: string } | null>(null);
+
   readonly go = output<number>();
   readonly aiGo = output();
 
-  protected readonly cycle = CYCLE;
   protected readonly railOn = computed(() => this.rail() && !this.narrow());
+  /** "Step 1 · Assessment" (the role's step of the timeline). */
+  protected readonly stepText = computed(() => this.result().details.find((d) => d.label === 'Step')?.value ?? '');
 
   protected readonly layoutClass = computed(() => {
     if (this.narrow()) return '@container w-auto items-stretch gap-0.5 border-b border-(--border) px-6 py-4 max-sm:px-4 overflow-y-visible';
