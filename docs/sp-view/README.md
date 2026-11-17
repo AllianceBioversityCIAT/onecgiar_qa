@@ -32,7 +32,7 @@ Science Program users (Lead, Co-Lead, Coordinator, Member, and Reporting admins)
 | `GET /sp/timelines` | The official timeline plus additional ones covering the program, with the step-2 window and state |
 | `GET /sp/timelines/:tid/results?status&resultTypeKey` | Rows: code, title, updated, type, comments, answered, QA status; plus filter options |
 | `GET /sp/timelines/:tid/results/:code` | Header with `reportingUrl`, sections and fields with SP-visible comments, `writable`, `readOnlyReason`, counts. No assessor identity |
-| `PUT /sp/comments/:id/response` | `{ kind, body? }`. Kinds: `accept`, `accept_with_comment`, `disagree`, `request_clarification`. Text is required except for `accept`. Never validates a field or ends an assessment |
+| `PUT /sp/comments/:id/response` | `{ kind, body? }`. Kinds: `accept`, `accept_with_comment`, `disagree`, `request_clarification`. Text is required except for `accept`. Never validates a field or ends an assessment. The same kind and text as the latest response writes nothing (safe retry) |
 | `GET /sp/timelines/:tid/results/:code/comments.csv` | CSV columns: Section, Field, Comment, Comment date, Response, Response comment, Responded at |
 
 **Assessor routes** (Cognito)
@@ -65,6 +65,7 @@ Science Program users (Lead, Co-Lead, Coordinator, Member, and Reporting admins)
 - Responses are accepted only while that step is in progress.
 - Nothing about the assessor is sent to the SP.
 - Nothing personal (email, name, code, token, key) is logged.
+- `POST /sp-access/codes` has no per-IP throttle on purpose: every call comes from the Reporting back (one IP), so a per-IP limit would block all SP users together. The key (at least 32 random characters) is the guard.
 
 ## Environment
 
