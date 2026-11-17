@@ -67,6 +67,8 @@ export function labelsForField(
 export interface ViewField {
   key: string;
   label: string;
+  /** Reporting's help text for the field tooltip; absent when the catalog row has none. */
+  description?: string;
   type: string;
   mode: FieldMode;
   /** `isCore` of an Assessed field; never set on a View only one. */
@@ -144,6 +146,7 @@ export function buildAssessmentView(
     field: {
       key: string;
       label: string;
+      description?: string;
       type: string;
       controlLists: readonly string[];
     },
@@ -155,6 +158,7 @@ export function buildAssessmentView(
     return {
       key: field.key,
       label: field.label,
+      ...(field.description ? { description: field.description } : {}),
       type: field.type,
       mode,
       core: assessed && core,
