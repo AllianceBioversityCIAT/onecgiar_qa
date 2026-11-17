@@ -4,12 +4,22 @@ import type { AssessmentField, AssessmentView } from '../../../../core/api/asses
 import { ReviewStore } from '../review-store';
 import type { AiChipVm, AiReported } from './ai-chip.vm';
 import { reportedUseRows } from './ai-chip.vm';
+import { levelOf, needsReason } from './ai-reason';
 import { AiSuggestionsStore } from './ai-suggestions-store';
 
 const RESULT_TYPE = 'general.result_type';
 const USE_ACTORS = 'innovation_use.current_use.actors';
 const USE_ORGANIZATIONS = 'innovation_use.current_use.organizations';
 const USE_MEASURES = 'innovation_use.current_use.measures';
+/** The Review store's key for Check all (`ALL_FIELDS`). */
+const ALL = '*';
+
+/** What the reason dialog needs before an IRL / IUL validation 2+ levels above the AI (FR-10). */
+export interface AiReasonAsk {
+  readonly fieldKey: string;
+  readonly aiLevel: number;
+  readonly reportedLevel: number;
+}
 
 /**
  * P2-3918 plan A: the AI side of the Review page, kept out of the Review files. The page provides
@@ -42,6 +52,9 @@ export class ReviewAiHook {
     return map;
   });
 
+  /** Fields whose reason the server already stored for this result: it is not asked twice. */
+  private readonly reasonGiven = new Set<string>();
+
   constructor() {
     // One load per result the Review page shows; a new result replaces the chips.
     effect(() => {
@@ -49,7 +62,10 @@ export class ReviewAiHook {
       const timelineId = this.review.timelineId();
       if (view === null || timelineId === null) return;
       const resultCode = view.header.resultCode;
-      untracked(() => void this.ai.load(timelineId, resultCode));
+      untracked(() => {
+        if (!this.ai.isLoaded(timelineId, resultCode)) this.reasonGiven.clear();
+        void this.ai.load(timelineId, resultCode);
+      });
     });
   }
 
@@ -70,6 +86,31 @@ export class ReviewAiHook {
   /** After a comment on the field was saved (wired with the comment save of T-20). */
   commentSaved(fieldKey: string, commentId: number): void {
     this.ai.commentSaved(fieldKey, commentId);
+  }
+
+  /**
+   * FR-10: the reason to ask before this green write (a field key, or `*` for Check all), or null. Only an
+   * Assessed IRL / IUL that is not green yet, reported 2+ levels above the AI's available level, and with no
+   * reason stored on this result. Check all asks for the first such field (a result has one level field).
+   */
+  reasonAsk(key: string): AiReasonAsk | null {
+    if (this.readOnly()) return null;
+    for (const field of this.fields().values()) {
+      if (key !== ALL && field.key !== key) continue;
+      if (field.mode !== 'assessed' || field.validated || this.reasonGiven.has(field.key)) continue;
+      const reportedLevel = levelOf(field.value);
+      const ai = this.ai.availableView(field.key);
+      if (!needsReason(field.key, reportedLevel, ai) || ai?.valueKind !== 'level') continue;
+      return { fieldKey: field.key, aiLevel: ai.suggestedValue, reportedLevel: reportedLevel! };
+    }
+    return null;
+  }
+
+  /** Posts `validated_above_ai`; `true` once stored (then the page may confirm and validate). */
+  async recordReason(ask: AiReasonAsk, reason: string): Promise<boolean> {
+    const stored = await this.ai.validatedAbove(ask.fieldKey, ask.reportedLevel, reason.trim());
+    if (stored) this.reasonGiven.add(ask.fieldKey);
+    return stored;
   }
 
   private reportedFor(fieldKey: string): AiReported {

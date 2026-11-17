@@ -47,8 +47,9 @@ export class AiSuggestionsStore {
   );
 
   async load(timelineId: number, resultCode: number): Promise<void> {
-    // A copy belongs to the result it was made on: the same field key on the next result starts clean.
-    this.copiedFields.clear();
+    // A copy belongs to the result it was made on: the same field key on the next result starts clean. The
+    // page reloads the same result after each write; that keeps the copies.
+    if (!this.isKey(timelineId, resultCode)) this.copiedFields.clear();
     this.key.set({ timelineId, resultCode });
     this.loadState.set('loading');
     try {
@@ -128,14 +129,15 @@ export class AiSuggestionsStore {
   }
 
   /**
-   * FR-10: records the reason before the validation. Resolves when the server answered (or failed), never
-   * rejects, so the caller validates right after, in that order.
+   * FR-10: records the reason before the validation. Resolves `true` once the server stored it and `false`
+   * when it did not (or there is no level to compare); it never rejects. The page validates only on `true`,
+   * so a failed POST never leaves a validation without its reason.
    */
-  async validatedAbove(fieldKey: string, validatedLevel: number, reason: string): Promise<void> {
+  async validatedAbove(fieldKey: string, validatedLevel: number, reason: string): Promise<boolean> {
     const view = this.availableView(fieldKey);
     const key = this.key();
     // Levels only (IRL / IUL): an indicative suggestion has no level to compare.
-    if (view === null || key === null || view.valueKind !== 'level') return;
+    if (view === null || key === null || view.valueKind !== 'level') return false;
     try {
       await firstValueFrom(
         this.api.sendEvent(key.timelineId, key.resultCode, view.suggestionId, {
@@ -145,8 +147,9 @@ export class AiSuggestionsStore {
           reason,
         }),
       );
+      return true;
     } catch {
-      // Measuring the AI never blocks a validation (NFR-1); the server-side count shows the gap (FR-11).
+      return false;
     }
   }
 
@@ -160,6 +163,11 @@ export class AiSuggestionsStore {
     this.api
       .sendEvent(key.timelineId, key.resultCode, suggestionId, event)
       .subscribe({ error: () => undefined });
+  }
+
+  /** True when the last `load` was for this result (the page reloads the same result after a write). */
+  isLoaded(timelineId: number, resultCode: number): boolean {
+    return this.isKey(timelineId, resultCode);
   }
 
   private isKey(timelineId: number, resultCode: number): boolean {

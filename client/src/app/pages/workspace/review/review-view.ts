@@ -15,7 +15,8 @@ import { FooterMode, ReviewFooter } from './review-footer';
 import { CardAction, SectionNavVm } from './review-model';
 import { ReviewSkeleton } from './review-skeleton';
 import { ALL_FIELDS, ReviewStore } from './review-store';
-import { REVIEW_AI_PROVIDERS, ReviewAiHook } from './ai/review-ai-hook';
+import { AiReasonDialog } from './ai/ai-reason-dialog';
+import { AiReasonAsk, REVIEW_AI_PROVIDERS, ReviewAiHook } from './ai/review-ai-hook';
 import { ReviewTocSection, TocCardAction } from './review-toc-section';
 import { findField, toDrawerVm, withdrawOpen } from './review.mapper';
 
@@ -49,6 +50,7 @@ const COMPACT_QUERY = '(max-width: 767.98px)';
     ReviewFooter,
     ReviewSkeleton,
     ReviewTocSection,
+    AiReasonDialog,
   ],
   providers: [ReviewStore, ...REVIEW_AI_PROVIDERS],
   // A block, so the host has the width of the area (it is what the layout measures).
@@ -123,6 +125,14 @@ export class ReviewView {
    */
   private readonly endingWrite = signal<{ readonly key: string; readonly route: string } | null>(null);
   protected readonly confirmEndOpen = signal(false);
+  /**
+   * P2-3918 T-10 (FR-10): an IRL / IUL green write 2+ levels above the AI asks a one-line reason first. Order:
+   * reason → `validated_above_ai` → the confirmation above when the write ends the assessment → the validation.
+   */
+  protected readonly reasonAsk = signal<(AiReasonAsk & { readonly key: string; readonly route: string }) | null>(null);
+  protected readonly reasonOpen = signal(false);
+  protected readonly reasonBusy = signal(false);
+  protected readonly reasonFailure = signal('');
 
   // ---- Comments drawer ----
   protected readonly drawerOpen = signal(false);
@@ -177,6 +187,8 @@ export class ReviewView {
         this.quickSavedText.set(null);
         this.confirmEndOpen.set(false);
         this.endingWrite.set(null);
+        this.reasonOpen.set(false);
+        this.reasonAsk.set(null);
         void this.store.load(code, timeline);
       });
     });
@@ -239,6 +251,37 @@ export class ReviewView {
   }
 
   private setGreen(key: string): void {
+    const ask = this.ai.reasonAsk(key);
+    if (ask) {
+      this.reasonFailure.set('');
+      this.reasonAsk.set({ ...ask, key, route: this.routeKey() });
+      this.reasonOpen.set(true);
+      return;
+    }
+    this.greenOrConfirm(key);
+  }
+
+  /** P2-3918 T-10: post the reason; only once the server stored it, go on to the confirmation and the validation. */
+  protected async saveReason(reason: string): Promise<void> {
+    const asked = this.reasonAsk();
+    if (!asked || this.reasonBusy()) return;
+    this.reasonBusy.set(true);
+    this.reasonFailure.set('');
+    const stored = await this.ai.recordReason(asked, reason);
+    this.reasonBusy.set(false);
+    if (!stored) {
+      // Nothing validated; the reason stays in the box for another try.
+      if (this.reasonAsk() === asked) this.reasonFailure.set('The reason could not be saved, so nothing was validated. Try again.');
+      return;
+    }
+    // Dismissed meanwhile, or another result: the reason is kept, nothing is validated.
+    const go = this.reasonAsk() === asked && this.reasonOpen() && asked.route === this.routeKey();
+    this.reasonOpen.set(false);
+    this.reasonAsk.set(null);
+    if (go) this.greenOrConfirm(asked.key);
+  }
+
+  private greenOrConfirm(key: string): void {
     if (this.wouldEnd(key)) {
       this.endingWrite.set({ key, route: this.routeKey() });
       this.confirmEndOpen.set(true);

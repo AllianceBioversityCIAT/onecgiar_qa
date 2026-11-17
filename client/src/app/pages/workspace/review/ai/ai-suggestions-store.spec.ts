@@ -123,13 +123,18 @@ describe('AiSuggestionsStore', () => {
     store.commentSaved('general.gender_tag', 11);
     // A second comment, typed by hand, is not the AI's.
     store.commentSaved('general.gender_tag', 12);
+    // A new copy, then the page reloads the same result after a write: the copy stays for the next comment.
     store.copied('general.gender_tag');
-    // Another result with the same field key: the copy on result A does not travel.
-    await store.load(3, 5002);
+    await store.load(3, 5001);
     store.commentSaved('general.gender_tag', 13);
+    // Another result with the same field key: a copy on result A does not travel.
+    store.copied('general.gender_tag');
+    await store.load(3, 5002);
+    store.commentSaved('general.gender_tag', 14);
     expect(api.events).toEqual([
       { id: 's-g', event: { action: 'copied' } },
       { id: 's-g', event: { action: 'comment_saved', commentId: '11' } },
+      { id: 's-g', event: { action: 'comment_saved', commentId: '13' } },
     ]);
   });
 
@@ -139,16 +144,18 @@ describe('AiSuggestionsStore', () => {
     expect(() => store.markShown('general.gender_tag')).not.toThrow();
     await expect(
       store.validatedAbove('innovation_dev.readiness_level', 6, 'Field visit'),
-    ).resolves.toBeUndefined();
+    ).resolves.toBe(false);
   });
 
   it('posts validated_above_ai with the stored AI level', async () => {
     await store.load(3, 5001);
-    await store.validatedAbove(
-      'innovation_dev.readiness_level',
-      6,
-      'Second pilot reported in the annex',
-    );
+    await expect(
+      store.validatedAbove(
+        'innovation_dev.readiness_level',
+        6,
+        'Second pilot reported in the annex',
+      ),
+    ).resolves.toBe(true);
     expect(api.events).toEqual([
       {
         id: 's-irl',

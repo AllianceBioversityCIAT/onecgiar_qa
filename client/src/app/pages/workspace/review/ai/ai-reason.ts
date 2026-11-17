@@ -29,9 +29,16 @@ export function reasonError(reason: string): string | null {
   return null;
 }
 
+/** A level as Reporting sends it (a number, or a numeric string); null for anything else. */
+export function levelOf(value: unknown): number | null {
+  if (typeof value === 'number') return Number.isInteger(value) ? value : null;
+  if (typeof value === 'string' && /^\s*\d+\s*$/.test(value)) return Number(value);
+  return null;
+}
+
 /**
- * Event first, then the validation (FR-10 order). The event never blocks: `validatedAbove` resolves even when
- * the server is down, and the validation runs regardless. Returns what `validate` returns.
+ * Event first, then the validation (FR-10 order). The validation runs only when the server stored the reason:
+ * a failed POST validates nothing and returns null, so the caller keeps the reason and lets the reviewer retry.
  */
 export async function validateWithReason<T>(
   store: Pick<AiSuggestionsStore, 'validatedAbove'>,
@@ -39,7 +46,7 @@ export async function validateWithReason<T>(
   validatedLevel: number,
   reason: string,
   validate: () => Promise<T>,
-): Promise<T> {
-  await store.validatedAbove(fieldKey, validatedLevel, reason.trim());
+): Promise<T | null> {
+  if (!(await store.validatedAbove(fieldKey, validatedLevel, reason.trim()))) return null;
   return validate();
 }
