@@ -5,4 +5,6 @@ export const environment: Environment = {
   name: 'test',
   apiBaseUrl: 'https://qatest-serv.ciat.cgiar.org/api/v1',
   ssoCallbackPath: '/auth/callback',
+  // Plan B of P2-3918: the AI preview page (dev/test only, never production).
+  aiPreview: true,
 };
