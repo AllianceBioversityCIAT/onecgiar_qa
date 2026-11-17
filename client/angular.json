@@ -59,6 +59,10 @@
                 {
                   "replace": "src/environments/environment.ts",
                   "with": "src/environments/environment.development.ts"
+                },
+                {
+                  "replace": "src/app/pages/workspace/ai-preview/ai-preview.flag.ts",
+                  "with": "src/app/pages/workspace/ai-preview/ai-preview.flag.on.ts"
                 }
               ]
             },
@@ -67,6 +71,10 @@
                 {
                   "replace": "src/environments/environment.ts",
                   "with": "src/environments/environment.qatest.ts"
+                },
+                {
+                  "replace": "src/app/pages/workspace/ai-preview/ai-preview.flag.ts",
+                  "with": "src/app/pages/workspace/ai-preview/ai-preview.flag.on.ts"
                 }
               ],
               "outputHashing": "all"
