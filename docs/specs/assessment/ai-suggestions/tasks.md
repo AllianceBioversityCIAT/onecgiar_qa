@@ -66,7 +66,7 @@ Rule: this spec does not edit `review-store.ts`, `review.mapper.ts` or `review-c
 - **Falsifier:** return stored items without the eligible filter → the "field not in production" test red
 
 ## T-6: Chip on Review — 18–20-nov
-- **Status:** [~] built (`ee22a19`, plan B `c448ae4`); wiring waits for assessment T-19 on `dev`
+- **Status:** [x] plan A wired on the real Review page (branch `feat/P2-3918-ai-chip-review` from `dev`; `ai/review-ai-hook.ts` holds the logic; Review files touched: `review-view.ts`, `review-view.html`, `review-field-card.ts`, `review-field-card.html`). `comment_saved` waits for T-20's comment save (`ReviewAiHook.commentSaved`). To `staging-center` once T-18/T-19 are there
 - **Wiring when T-19 lands** (one small PR on top of T-19, no other change to its files):
   1. `review-view.ts`: add `AiSuggestionsStore` to `providers` and call `store.load(timelineId, resultCode)` where the assessment is loaded.
   2. `review-model.ts`: replace `AiVm` with `AiChipVm` (`ai/ai-chip.vm.ts`) in the field VM (DD-7); `review.mapper.ts` takes `chipFor(fieldKey, isAiInput)` instead of `ai: null`.
@@ -93,6 +93,7 @@ Rule: this spec does not edit `review-store.ts`, `review.mapper.ts` or `review-c
 
 ## T-9: Copy to comment + usage events (client) — 24/25-nov
 - **Status:** [~] built in the store and chip (`ee22a19`); wiring waits for assessment T-20 on `dev`
+- **Wiring agreed with Yeck (17-nov, T-20 on `feat/assessment-review-actions` @ `af6602c`):** `store.addComment` returns `{ ok: true, comment }`; after it, call `ai.commentSaved(fieldKey, comment.id)`. The comments panel already opens in comment mode, so "Copy to comment" leaves the text in the box (`onAiCopy`). Done on a branch from `dev` once T-20 is merged there; Yeck merges first and resolves on top.
 - **Wiring when T-20 lands:**
   1. `(copyToComment)` → `const text = store.copied(fieldKey)`; open the field's comment box (`review-comments-drawer`) with `text` as an editable draft. Nothing is saved.
   2. After the comment save succeeds: `store.commentSaved(fieldKey, comment.id)` (the store posts only when the text came from a copy).
@@ -102,6 +103,7 @@ Rule: this spec does not edit `review-store.ts`, `review.mapper.ts` or `review-c
 
 ## T-10: Reason before validating IRL/IUL (client) — 25/26-nov
 - **Status:** [~] built (`3168433`: `needsReason`, `reasonError`, `validateWithReason`, `AiReasonDialog`); wiring waits for assessment T-20
+- **Order agreed with Yeck (17-nov):** an approval that turns every core field green shows Yeck's confirmation (it closes the assessment). For IRL/IUL 2+ above the AI, the one-line reason comes FIRST (dialog → `validated_above_ai`), THEN that confirmation, THEN the validation. Built on a branch from `dev` after T-20 lands there.
 - **Wiring when T-20 lands:**
   1. In the validate action of `review-store.ts`: if `needsReason(fieldKey, reportedLevel, store.availableView(fieldKey))`, open `<qa-ai-reason-dialog [aiLevel] [reportedLevel]>` instead of validating.
   2. `(confirmed)="validateWithReason(aiStore, fieldKey, reportedLevel, $event, () => validate(fieldKey))"` — event first, then the validation.
