@@ -47,8 +47,9 @@ export class AiSuggestionsStore {
   );
 
   async load(timelineId: number, resultCode: number): Promise<void> {
-    // A copy belongs to the result it was made on: the same field key on the next result starts clean.
-    this.copiedFields.clear();
+    // A copy belongs to the result it was made on: the same field key on the next result starts clean. The
+    // page reloads the same result after each write; that keeps the copies.
+    if (!this.isKey(timelineId, resultCode)) this.copiedFields.clear();
     this.key.set({ timelineId, resultCode });
     this.loadState.set('loading');
     try {
