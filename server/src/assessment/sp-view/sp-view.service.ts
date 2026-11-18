@@ -3,6 +3,7 @@
 // outside the scope is the same 404 `SP_NOT_FOUND` as anything missing. Comments
 // are visible to the program only once the programs step has started, never
 // withdrawn ones, and never with the assessor's identity.
+import { pickDefaultTimeline } from '../default-timeline.js';
 import { Inject, Injectable } from '@nestjs/common';
 import type { ConfigType } from '@nestjs/config';
 import {
@@ -192,10 +193,9 @@ export class SpViewService {
       kind: timeline.kind,
       step: this.judge(timeline, now, withLoad.has(timeline.id)).step,
     }));
-    const official = timelines.find((x) => x.kind === 'official');
     return {
       timelines,
-      defaultTimelineId: official?.id ?? timelines[0]?.id ?? null,
+      defaultTimelineId: pickDefaultTimeline(timelines),
     };
   }
 

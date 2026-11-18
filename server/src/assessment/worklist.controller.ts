@@ -53,7 +53,7 @@ export class WorklistController {
   @ApiOperation({
     summary: 'List the timelines the caller can open a worklist on',
     description:
-      'The timelines of the active cycle the caller is assigned to with an enabled reviewer role, or all of them for an ADMIN, each with the caller roles on it (an ADMIN also carries `ADMIN`) and the step of their role. `defaultTimelineId` is the official timeline when offered, else the earliest step-1 opening. Never a 404: a caller with none gets an empty list.',
+      'The timelines of the active cycle the caller is assigned to with an enabled reviewer role, or all of them for an ADMIN, each with the caller roles on it (an ADMIN also carries `ADMIN`) and the step of their role. `defaultTimelineId` is a timeline whose caller step is in progress (the official one first), else the one whose step opens soonest, else the official one, else the first. Never a 404: a caller with none gets an empty list.',
   })
   @ApiOkEnvelope(WorklistTimelinesModel)
   @ApiErrorResponses(UNAUTHENTICATED)
