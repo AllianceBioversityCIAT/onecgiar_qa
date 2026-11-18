@@ -1,10 +1,8 @@
-import type { TimelineStepState } from '../admin-config/timelines/timeline-view.js';
-
 export interface DefaultTimelineCandidate {
   id: number;
   kind: string;
-  /** The caller's step on the timeline; `null` when it has none. */
-  step: { state: TimelineStepState; opensAt: string } | null;
+  /** The caller's step on the timeline (`state`: in_progress, upcoming, closed…); `null` when it has none. */
+  step: { state: string; opensAt: string } | null;
 }
 
 /**
