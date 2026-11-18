@@ -51,6 +51,9 @@ import {
 } from './loads.unit-of-work.js';
 import { RESULTS_FEED } from './results-feed.port.js';
 import { ReportingResultsFeedClient } from './reporting-results-feed.client.js';
+import { CatalogProgramResultsFeed } from './catalog-program-feed.js';
+import { SCIENCE_PROGRAM_SOURCE } from '../users/catalogs/catalogs.ports.js';
+import { ClarisaScienceProgramsClient } from '../users/catalogs/clarisa-science-programs.client.js';
 import { SNAPSHOT_STORE } from './snapshot-store.port.js';
 
 /**
@@ -88,7 +91,10 @@ import { SNAPSHOT_STORE } from './snapshot-store.port.js';
     LoadsService,
     LoadRunner,
     { provide: LOAD_RUNNER, useExisting: LoadRunner },
-    { provide: RESULTS_FEED, useClass: ReportingResultsFeedClient },
+    // Reporting's program ids are not QA's: the decorator maps them by code.
+    ReportingResultsFeedClient,
+    { provide: SCIENCE_PROGRAM_SOURCE, useClass: ClarisaScienceProgramsClient },
+    { provide: RESULTS_FEED, useClass: CatalogProgramResultsFeed },
     { provide: SNAPSHOT_STORE, useClass: DynamoSnapshotStore },
     { provide: KP_RULES, useValue: DEFAULT_KP_RULES },
     // FR-14: the release of KPs is off (a code constant); a test turns it on here.

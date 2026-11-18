@@ -16,6 +16,7 @@ import {
 } from '../../src/common/idempotency/idempotency.store.js';
 import type { Cycle } from '../../src/database/drizzle/schema/cycles.js';
 import { RESULTS_FEED } from '../../src/ingestion/results-feed.port.js';
+import { SCIENCE_PROGRAM_SOURCE } from '../../src/users/catalogs/catalogs.ports.js';
 import type {
   FeedDetailsQuery,
   FeedIntakeQuery,
@@ -367,6 +368,16 @@ export async function buildIngestionApp(
     .useValue(ai.fieldConfig);
   if (options.feed !== 'real') {
     builder = builder.overrideProvider(RESULTS_FEED).useValue(feed);
+  } else {
+    // The real feed maps Reporting's program ids to QA's by code: a fixed
+    // catalog keeps CLARISA out of the stubbed `fetch` (same id as the stub).
+    builder = builder.overrideProvider(SCIENCE_PROGRAM_SOURCE).useValue({
+      list: () =>
+        Promise.resolve([
+          { id: 2, code: 'SP02', name: 'Sustainable Farming' },
+          { id: 3, code: 'SP03', name: 'Sustainable Animal and Aquatic Foods' },
+        ]),
+    });
   }
   const moduleRef = await builder.compile();
   const app = moduleRef.createNestApplication<NestExpressApplication>();

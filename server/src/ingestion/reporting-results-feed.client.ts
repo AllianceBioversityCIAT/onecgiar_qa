@@ -61,6 +61,8 @@ export class ReportingResultsFeedClient implements ResultsFeed {
     const params = new URLSearchParams({ phase_year: String(query.phaseYear) });
     if (query.programIds?.length)
       params.set('program_ids', query.programIds.join(','));
+    if (query.programCodes?.length)
+      params.set('program_codes', query.programCodes.join(','));
     if (query.resultTypeKeys?.length)
       params.set('result_type_keys', query.resultTypeKeys.join(','));
     if (query.page !== undefined) params.set('page', String(query.page));

@@ -8,7 +8,10 @@ export const RESULTS_FEED = Symbol('RESULTS_FEED');
 
 export interface FeedListQuery {
   phaseYear: number;
+  /** QA catalog (CLARISA `cgiar-entities`) ids; `CatalogProgramResultsFeed` turns them into `programCodes`. */
   programIds?: number[];
+  /** Official program codes (e.g. `SP01`), sent as `program_codes`. */
+  programCodes?: string[];
   resultTypeKeys?: string[];
   page?: number;
   pageSize?: number;
