@@ -4,6 +4,7 @@ import {
   WorklistStep,
   WorklistTimeline,
 } from '../../../core/api/assessment.models';
+import { formatDay, parseDay, splitMoment, zoneAt } from '../../../core/domain/rome-date';
 import { QaSelectOption } from '../../../ui';
 import { STATUS_CLASSES, STATUS_LABELS } from './qa-status';
 import type { ResultRowVm } from './results-table';
@@ -36,7 +37,28 @@ const STEP_STATE: Readonly<Record<WorklistStep['state'], string>> = {
   closed: 'Closed',
 };
 
-/** Timeline picker: the official one first ("Main batch"), then the additional ones; the tag is the caller's step state. */
+/** `05 Nov 2026, 23:59 CET (Rome)` for a step moment; null when it is not a real `YYYY-MM-DDTHH:mm`. */
+function stepMoment(text: string): string | null {
+  const m = splitMoment(text);
+  return m && parseDay(m.day) ? `${formatDay(m.day)}, ${m.time} ${zoneAt(m.day, m.time)} (Rome)` : null;
+}
+
+/**
+ * Second line of a timeline option: where the caller's step stands and when, on the Rome clock (as wherever a
+ * step moment shows). Without a readable moment it is the state alone; no date is invented.
+ */
+function stepNote(step: WorklistStep): string {
+  const at = stepMoment(step.state === 'upcoming' ? step.opensAt : step.closesAt);
+  if (!at) return STEP_STATE[step.state];
+  if (step.state === 'upcoming') return `Opens ${at}`;
+  return step.state === 'closed' ? `Closed ${at}` : `Open · closes ${at}`;
+}
+
+/**
+ * Timeline picker: the official one first ("Main batch"), then the additional ones. The tag (next to the chosen
+ * timeline) is the caller's step state; the second line of every option adds when that step closes or opens, so
+ * a finished timeline is told apart before it is opened.
+ */
 export function timelineOptions(timelines: readonly WorklistTimeline[]): readonly QaSelectOption[] {
   return [...timelines]
     .sort((a, b) => Number(a.kind !== 'official') - Number(b.kind !== 'official'))
@@ -44,6 +66,7 @@ export function timelineOptions(timelines: readonly WorklistTimeline[]): readonl
       value: String(t.id),
       label: t.name,
       group: t.kind === 'official' ? 'Main batch' : 'Complementary batches',
+      description: t.step ? stepNote(t.step) : undefined,
       tag: t.step ? STEP_STATE[t.step.state] : undefined,
     }));
 }
