@@ -67,6 +67,38 @@ describe('results.mapper', () => {
     expect(options[1]).toMatchObject({ group: 'Complementary batches', tag: undefined });
   });
 
+  describe('timeline picker: every option says where the caller\'s step stands and when (Rome clock)', () => {
+    const step = timeline().step!;
+    const noteOf = (patch: Partial<WorklistTimeline>): string | undefined => timelineOptions([timeline(patch)])[0].description;
+
+    it('open: when it closes', () => {
+      expect(noteOf({})).toBe('Open · closes 30 Nov 2026, 18:00 CET (Rome)');
+    });
+
+    it('closed: when it closed', () => {
+      expect(noteOf({ step: { ...step, state: 'closed', closesAt: '2026-11-05T23:59' } })).toBe('Closed 05 Nov 2026, 23:59 CET (Rome)');
+    });
+
+    it('upcoming: when it opens (CEST in summer)', () => {
+      expect(noteOf({ step: { ...step, state: 'upcoming', opensAt: '2026-12-01T00:00' } })).toBe('Opens 01 Dec 2026, 00:00 CET (Rome)');
+      expect(noteOf({ step: { ...step, state: 'upcoming', opensAt: '2027-07-06T14:00' } })).toBe('Opens 06 Jul 2027, 14:00 CEST (Rome)');
+    });
+
+    it('no step for the caller\'s role: no second line', () => {
+      expect(noteOf({ step: null })).toBeUndefined();
+    });
+
+    it('a moment that is not `YYYY-MM-DDTHH:mm` invents no date: the state alone', () => {
+      expect(noteOf({ step: { ...step, closesAt: '' } })).toBe('Open');
+      expect(noteOf({ step: { ...step, state: 'closed', closesAt: 'soon' } })).toBe('Closed');
+      expect(noteOf({ step: { ...step, state: 'upcoming', opensAt: '2026-02-30T10:00' } })).toBe('Upcoming');
+    });
+
+    it('the tag next to the chosen timeline stays the short state', () => {
+      expect(timelineOptions([timeline()])[0].tag).toBe('Open');
+    });
+  });
+
   it('read-only reason from the timeline: admin only, no step, upcoming, closed; none when writable', () => {
     expect(readOnlyReasonOf(timeline(), true)).toBeNull();
     expect(readOnlyReasonOf(timeline({ roles: ['ADMIN'] }), false)).toBe('admin_read_only');
