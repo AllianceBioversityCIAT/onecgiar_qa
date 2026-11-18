@@ -75,6 +75,9 @@ Science Program users (Lead, Co-Lead, Coordinator, Member, and Reporting admins)
 | `SP_REPORTING_RESULT_URL` | QA server | Optional; `https://` with `{resultCode}` |
 | `SP_FRAME_ANCESTORS` | QA web SSR | Space-separated exact Reporting origins. Unset means `'none'` |
 
+- `SP_ACCESS_API_KEY` is a plain environment variable in both QA and Reporting (no Secrets Manager). TEST has it in both services. PROD does not yet: set the same value in QA and Reporting on the release day, then redeploy QA, then Reporting.
+- The `/sp-access/session` throttle keys on the client IP through `trust proxy = 1` (one Apache reverse proxy in TEST and PROD, verified 2026-11-18). Its store is in memory per process, so N processes give N × 10 per minute.
+
 ## Not in this story
 
 - "Updated" fields in step 3 and "only resubmitted results go to step 3": P2-3906.
