@@ -87,3 +87,29 @@ describe('endOnFinish (FR-15)', () => {
     });
   });
 });
+
+describe('round 1: any comment sends the result back (OQ-2, 2026-11-18)', () => {
+  it('no core field but a comment: returned, not quality_assessed', () => {
+    expect(endOnFinish([], true)).toBe('returned');
+  });
+
+  it('every core field green but a comment elsewhere: returned', () => {
+    expect(endOnFinish([green('a'), green('b')], true)).toBe('returned');
+  });
+
+  it('no comment at all and every core green: quality_assessed', () => {
+    expect(endOnFinish([green('a')], false)).toBe('quality_assessed');
+  });
+
+  it('a grey core field with no comment still refuses first', () => {
+    expect(endOnFinish([grey('a')], true)).toEqual({
+      error: 'core_uncommented',
+      fieldKeys: ['a'],
+    });
+  });
+
+  it('the last core going green never ends a commented result by itself', () => {
+    expect(endAfterValidation([green('a')], true)).toBe('none');
+    expect(endAfterValidation([green('a')], false)).toBe('quality_assessed');
+  });
+});

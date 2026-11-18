@@ -302,9 +302,16 @@ export class ReviewView {
     if (asked && asked.route === this.routeKey()) void this.writeGreen(asked.key);
   }
 
-  /** Every core field would be green after this write (an assessment with no core field never ends this way). */
+  /**
+   * Every core field would be green after this write (an assessment with no core field never ends this way).
+   * In step 1 (round 1) a result with any open comment never ends by itself: Finish returns it (OQ-2, 2026-11-18).
+   */
   private wouldEnd(key: string): boolean {
-    const cores = (this.store.view()?.sections ?? []).flatMap((s) => s.fields).filter((f) => f.mode === 'assessed' && f.core);
+    const view = this.store.view();
+    const fields = (view?.sections ?? []).flatMap((s) => s.fields);
+    const commented = fields.some((f) => f.comments.some((c) => c.state !== 'withdrawn'));
+    if (view?.header.step?.position === 1 && commented) return false;
+    const cores = fields.filter((f) => f.mode === 'assessed' && f.core);
     return cores.length > 0 && cores.every((f) => f.validated || key === ALL_FIELDS || f.key === key);
   }
 
