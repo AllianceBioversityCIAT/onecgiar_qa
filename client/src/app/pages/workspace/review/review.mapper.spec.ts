@@ -1,7 +1,8 @@
 // @akili-spec assessment/step-1-assessment
+import { AssessmentField, AssessmentView } from '../../../core/api/assessment.models';
 import { FieldVm } from './review-model';
 import { comment, field, viewFixture } from './review.api-fixture';
-import { findField, formatValue, readOnlyBanner, toCommentVm, toDrawerVm, toFieldVm, toReviewVm, withdrawOpen } from './review.mapper';
+import { findField, formatValue, readOnlyBanner, returnsOnAnyComment, toCommentVm, toDrawerVm, toFieldVm, toReviewVm, withdrawOpen } from './review.mapper';
 
 const byLabel = (fields: readonly FieldVm[], label: string): FieldVm =>
   fields.find((f) => f.label === label)!;
@@ -384,11 +385,47 @@ describe('review.mapper (API assessment view → Review view models)', () => {
     });
   });
 
-  it('finishing now: Returned to program while a core field is grey, Quality Assessed once every core is green', () => {
-    const view = viewFixture();
-    expect(toReviewVm(view).finishTo).toBe('Returned to program'); // toc.entries is core and grey
-    const allCoreGreen = { ...view, sections: view.sections.map((s) => ({ ...s, fields: s.fields.map((f) => (f.core ? { ...f, validated: true } : f)) })) };
-    expect(toReviewVm(allCoreGreen).finishTo).toBe('Quality Assessed');
+  describe('finishing now: the status the footer announces before Finish (FR-15)', () => {
+    const everyField = (v: AssessmentView, change: (f: AssessmentField) => AssessmentField): AssessmentView => ({
+      ...v,
+      sections: v.sections.map((s) => ({ ...s, fields: s.fields.map(change) })),
+    });
+    const coreGreen = (v: AssessmentView): AssessmentView => everyField(v, (f) => (f.core ? { ...f, validated: true } : f));
+    const atStep = (v: AssessmentView, position: number): AssessmentView => ({ ...v, header: { ...v.header, step: { position, name: 'Step' } } });
+
+    it('Returned to program while a core field is grey', () => {
+      expect(toReviewVm(viewFixture()).finishTo).toBe('Returned to program'); // toc.entries is core and grey
+    });
+
+    it('step 1: a comment that still stands, on a field that is not core, returns it even with every core green', () => {
+      // The fixture: step 1, one open comment on general.description (not core).
+      expect(toReviewVm(coreGreen(viewFixture())).finishTo).toBe('Returned to program');
+    });
+
+    it('step 1: a comment on a key outside the catalog ("Other fields") counts too', () => {
+      const clean = everyField(coreGreen(viewFixture()), (f) => ({ ...f, comments: [] }));
+      const view = { ...clean, other: [field({ key: 'legacy.note', label: 'legacy.note', mode: 'view', comments: [comment()] })] };
+      expect(toReviewVm(view).finishTo).toBe('Returned to program');
+    });
+
+    it('step 1: with no comment left (none, or only withdrawn ones) every core green is Quality Assessed', () => {
+      const none = everyField(coreGreen(viewFixture()), (f) => ({ ...f, comments: [] }));
+      expect(toReviewVm(none).finishTo).toBe('Quality Assessed');
+      const withdrawnOnly = everyField(coreGreen(viewFixture()), (f) => ({ ...f, comments: f.comments.filter((c) => c.state === 'withdrawn') }));
+      expect(toReviewVm(withdrawnOnly).finishTo).toBe('Quality Assessed');
+    });
+
+    it('a later step counts the core fields only: every core green is Quality Assessed, comments or not', () => {
+      expect(toReviewVm(atStep(coreGreen(viewFixture()), 3)).finishTo).toBe('Quality Assessed');
+      expect(toReviewVm(atStep(viewFixture(), 3)).finishTo).toBe('Returned to program'); // toc.entries still grey
+    });
+
+    it('returnsOnAnyComment: only step 1, only a comment that still stands', () => {
+      expect(returnsOnAnyComment(viewFixture())).toBe(true);
+      expect(returnsOnAnyComment(atStep(viewFixture(), 3))).toBe(false);
+      expect(returnsOnAnyComment({ ...viewFixture(), header: { ...viewFixture().header, step: null } })).toBe(false);
+      expect(returnsOnAnyComment(everyField(viewFixture(), (f) => ({ ...f, comments: f.comments.filter((c) => c.state === 'withdrawn') })))).toBe(false);
+    });
   });
 
   it('dates are the day in Rome, not the UTC day (23:30 UTC is already the next day there)', () => {

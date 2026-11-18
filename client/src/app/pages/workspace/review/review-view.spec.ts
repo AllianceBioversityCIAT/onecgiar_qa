@@ -720,6 +720,15 @@ describe('ReviewView on the assessment API', () => {
         expect(toasts.success).toHaveBeenCalledWith('Assessment finished: returned to the program.');
       });
 
+      it('step 1, every core green and a comment on another field: the footer announces Returned to program (OQ-2)', async () => {
+        const base = viewFixture(); // step 1, one open comment on general.description (not core)
+        const coreGreen = { ...base, sections: base.sections.map((sec) => ({ ...sec, fields: sec.fields.map((f) => (f.core ? { ...f, validated: true } : f)) })) };
+        api.view.mockImplementation(() => of(coreGreen));
+        const el = await open();
+        await toConfirm(el);
+        expect(text(el.querySelector('[role="alertdialog"]')!)).toContain('The result becomes Returned to program. This cannot be undone.');
+      });
+
       it('409 ASSESSMENT_CORE_UNCOMMENTED: names the core fields still open, by their label, and stays on the page', async () => {
         api.finish.mockReturnValueOnce(refusal(409, 'ASSESSMENT_CORE_UNCOMMENTED', 'Core fields are still open.', ['toc.entries']));
         const el = await open();
