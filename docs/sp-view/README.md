@@ -76,7 +76,7 @@ Science Program users (Lead, Co-Lead, Coordinator, Member, and Reporting admins)
 | `SP_FRAME_ANCESTORS` | QA web SSR | Space-separated exact Reporting origins. Unset means `'none'` |
 
 - `SP_ACCESS_API_KEY` is a plain environment variable in both QA and Reporting (no Secrets Manager). TEST has it in both services. PROD does not yet: set the same value in QA and Reporting on the release day, then redeploy QA, then Reporting.
-- The `/sp-access/session` throttle keys on the client IP through `trust proxy = 1` (one Apache reverse proxy in TEST and PROD, verified 2026-11-18). Its store is in memory per process, so N processes give N × 10 per minute.
+- The `/sp-access/session` throttle keys on the client IP through `trust proxy = 1` (one Apache reverse proxy in TEST and PROD, which also load-balances, verified 2026-11-18). PM2 runs one process per server, not in cluster mode, and the store is in memory per process, so N servers behind the balancer give up to N × 10 per minute per IP. Codes and sessions live in MySQL, so they work on any server.
 
 ## Not in this story
 
