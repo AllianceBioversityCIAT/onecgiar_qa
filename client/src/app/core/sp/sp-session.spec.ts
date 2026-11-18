@@ -1,8 +1,10 @@
-import { PLATFORM_ID } from '@angular/core';
-import { HttpTestingController } from '@angular/common/http/testing';
+import { DOCUMENT, PLATFORM_ID } from '@angular/core';
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
-import { Router } from '@angular/router';
-import { SP_RELOAD_MESSAGE_TYPE, SpSession } from './sp-session';
+import { Router, provideRouter } from '@angular/router';
+import { APP_CONFIG } from '../config/app-config';
+import { SP_PARENT_FRAME, SP_RELOAD_MESSAGE_TYPE, SpSession } from './sp-session';
 import { FakeParent, SP_API, fakeParent, sessionData, setupSpTesting, spErr, spOk, startSpSession, until } from './sp-testing';
 
 describe('SpSession', () => {
@@ -120,5 +122,72 @@ describe('SpSession', () => {
     const session = TestBed.inject(SpSession);
     await session.begin(null);
     expect(session.status()).toBe('expired');
+  });
+});
+
+/**
+ * The parent window as the browser hands it to a page framed by ANOTHER origin (Reporting frames QA):
+ * `postMessage` may be read, every other property throws a SecurityError.
+ */
+function crossOriginParent(received: unknown[]): Window {
+  return new Proxy({} as Window, {
+    get(_target, key) {
+      if (key === 'postMessage') return (message: unknown, targetOrigin: string) => void received.push({ message, targetOrigin });
+      throw new DOMException(`Blocked a frame from accessing a cross-origin frame (read of "${String(key)}")`, 'SecurityError');
+    },
+  });
+}
+
+/** The real document, except that its window sits inside `parent` (`self` = not framed). */
+function documentFramedBy(parent: Window | 'self'): Document {
+  const view = {} as { parent: unknown };
+  view.parent = parent === 'self' ? view : parent;
+  return new Proxy(document, {
+    get(target, key) {
+      if (key === 'defaultView') return view;
+      const value: unknown = Reflect.get(target, key);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+}
+
+describe('SP_PARENT_FRAME (the page inside Reporting, another origin)', () => {
+  const framed = (parent: Window | 'self') =>
+    TestBed.configureTestingModule({
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter([]),
+        { provide: APP_CONFIG, useValue: { name: 'test', apiBaseUrl: SP_API, ssoCallbackPath: '/auth/callback' } },
+        { provide: DOCUMENT, useValue: documentFramedBy(parent) },
+      ],
+    });
+
+  it('gives a sender to the parent and never hands the cross-origin window to the injector', () => {
+    const received: unknown[] = [];
+    framed(crossOriginParent(received));
+
+    // The injector reads `ngOnDestroy` on every value it provides: on a cross-origin window that throws.
+    const frame = TestBed.inject(SP_PARENT_FRAME);
+    frame?.postMessage({ type: 'x' }, '*');
+
+    expect(received).toEqual([{ message: { type: 'x' }, targetOrigin: '*' }]);
+  });
+
+  it('the session starts inside the cross-origin frame and tells Reporting that the link expired', async () => {
+    const received: unknown[] = [];
+    framed(crossOriginParent(received));
+
+    const session = TestBed.inject(SpSession);
+    await session.begin(null);
+
+    expect(session.status()).toBe('expired');
+    expect(received).toEqual([{ message: { type: SP_RELOAD_MESSAGE_TYPE, reason: 'code_invalid' }, targetOrigin: '*' }]);
+    TestBed.inject(HttpTestingController).verify();
+  });
+
+  it('is null when the page is not framed', () => {
+    framed('self');
+    expect(TestBed.inject(SP_PARENT_FRAME)).toBeNull();
   });
 });
