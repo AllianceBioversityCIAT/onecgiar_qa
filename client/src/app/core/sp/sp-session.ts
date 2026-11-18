@@ -15,12 +15,26 @@ export const SP_RELOAD_MESSAGE_TYPE = 'qa-sp:reload-required';
 
 const EXCHANGE_TIMEOUT_MS = 20_000;
 
-/** The window that frames this page (Reporting), or null when the page is not in a frame. */
-export const SP_PARENT_FRAME = new InjectionToken<Pick<Window, 'postMessage'> | null>('SP_PARENT_FRAME', {
+/** All this page may do with the window that frames it: send it a message. */
+export interface SpParentFrame {
+  postMessage(message: unknown, targetOrigin: string): void;
+}
+
+/**
+ * A sender to the window that frames this page (Reporting), or null when the page is not in a frame.
+ *
+ * Never the parent window itself. Reporting is another origin, and the browser throws a SecurityError
+ * on any read of a cross-origin window but a few (`postMessage` among them). The injector reads
+ * `ngOnDestroy` on every value it provides, so handing it the window stops `SpSession` from being
+ * created and leaves the iframe blank.
+ */
+export const SP_PARENT_FRAME = new InjectionToken<SpParentFrame | null>('SP_PARENT_FRAME', {
   providedIn: 'root',
   factory: () => {
     const win = inject(DOCUMENT).defaultView;
-    return win && win.parent && win.parent !== win ? win.parent : null;
+    if (!win || !win.parent || win.parent === win) return null;
+    const parent = win.parent;
+    return { postMessage: (message, targetOrigin) => parent.postMessage(message, targetOrigin) };
   },
 });
 
