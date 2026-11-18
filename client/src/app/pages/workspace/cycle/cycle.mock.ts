@@ -65,13 +65,6 @@ export interface ProgramProgress {
   of: number;
 }
 
-export interface ResultTypeRule {
-  /** Step (1-based) where results of this type join the timeline. */
-  phase: number;
-  /** Auto-approved on load (status "Automatic"). */
-  auto: boolean;
-}
-
 /** Fixed "today" of the mockup, used to compute step states ("Opens in 44 days"). */
 export const TODAY = new Date(2026, 6, 19);
 
@@ -87,24 +80,6 @@ export const RESULT_TYPES: readonly (readonly [string, number])[] = [
   ['Policy change', 89],
   ['Other outcome', 38],
 ];
-
-/** Order used for the "join here" lines. */
-export const RT_ORDER = [
-  'Knowledge product',
-  'Innovation development',
-  'Capacity sharing for development',
-  'Innovation use',
-  'Policy change',
-  'Other output',
-  'Other outcome',
-] as const;
-
-export const RT_SHORT: Readonly<Record<string, string>> = { 'Knowledge product': 'Knowledge products' };
-
-/** Settings > Result types defaults: knowledge products join at step 3 and are auto-approved. */
-export const RESULT_TYPE_RULES: Readonly<Record<string, ResultTypeRule>> = Object.fromEntries(
-  RT_ORDER.map((t) => [t, t === 'Knowledge product' ? { phase: 3, auto: true } : { phase: 1, auto: false }]),
-);
 
 export const CORRECTION_AUDIENCE = 'Nobody in QA';
 export const AUDIENCES = ['Assessors', CORRECTION_AUDIENCE, 'Lead assessor', 'Third-party broker', 'PPU'] as const;

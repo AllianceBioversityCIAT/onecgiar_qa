@@ -74,6 +74,31 @@ describe('cycle.logic', () => {
     });
   });
 
+  // P2-4104: knowledge products are assessed in step 1 like every other result (P2-3905); no result type "joins" at a later step.
+  describe('timelineVM — a later step that loads results', () => {
+    const LOADS_AT_STEP_3 = timeline('Live', [
+      { ...step('Assess', '28 Oct 2026', '30 Oct 2026'), batch: true },
+      step('Programs respond', '31 Oct 2026', '02 Nov 2026'),
+      { ...step('Lead assessor', '03 Nov 2026', '05 Nov 2026'), batch: true },
+    ]);
+
+    it('says "Loads results" and names no result type as joining there', () => {
+      const fixture = TestBed.createComponent(TimelineSteps);
+      fixture.componentRef.setInput('timeline', timelineVM(LOADS_AT_STEP_3));
+      fixture.detectChanges();
+      const cards = [...(fixture.nativeElement as HTMLElement).querySelectorAll('li')].map((li) => li.textContent ?? '');
+
+      expect(cards[2]).toContain('Loads results');
+      expect(cards.join(' ')).not.toMatch(/join here/i);
+      expect(cards.join(' ')).not.toMatch(/knowledge product/i);
+    });
+
+    it('the same when the timeline is limited to knowledge products', () => {
+      const onlyKp: Timeline = { ...LOADS_AT_STEP_3, types: ['Knowledge product'] };
+      expect(JSON.stringify(timelineVM(onlyKp).steps)).not.toMatch(/join here/i);
+    });
+  });
+
   describe('officialRelative — "Reset to main batch"', () => {
     const official = (startTime: string) =>
       timeline('Live', [step('Assess', '01 Sep 2026', '05 Sep 2026', startTime), step('Programs respond', '07 Sep 2026', '11 Sep 2026')]);
