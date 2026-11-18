@@ -144,16 +144,18 @@ describe('AiSuggestionsStore', () => {
     expect(() => store.markShown('general.gender_tag')).not.toThrow();
     await expect(
       store.validatedAbove('innovation_dev.readiness_level', 6, 'Field visit'),
-    ).resolves.toBeUndefined();
+    ).resolves.toBe(false);
   });
 
   it('posts validated_above_ai with the stored AI level', async () => {
     await store.load(3, 5001);
-    await store.validatedAbove(
-      'innovation_dev.readiness_level',
-      6,
-      'Second pilot reported in the annex',
-    );
+    await expect(
+      store.validatedAbove(
+        'innovation_dev.readiness_level',
+        6,
+        'Second pilot reported in the annex',
+      ),
+    ).resolves.toBe(true);
     expect(api.events).toEqual([
       {
         id: 's-irl',

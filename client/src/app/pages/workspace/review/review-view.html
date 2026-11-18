@@ -95,7 +95,7 @@
                       <qa-review-field-card
                         [field]="f"
                         [qaReveal]="$index"
-                        [busy]="validating().has(f.id) || validating().has(allKey)"
+                        [busy]="validating().has(f.id) || validating().has(allKey) || (reasonBusy() && reasonAsk()?.fieldKey === f.id)"
                         [aiChip]="ai.chip(f.id)"
                         [aiReadOnly]="ai.readOnly()"
                         (act)="onCard(f.id, $event)"
@@ -198,3 +198,8 @@
     <button hlmBtn qaBtn tone="primary" type="button" (click)="confirmEnd()">Validate and finish</button>
   </div>
 </qa-dialog>
+
+<!-- ===== P2-3918 T-10: the reason before an IRL / IUL validation 2+ levels above the AI (FR-10) ===== -->
+@if (reasonAsk(); as ask) {
+  <qa-ai-reason-dialog [(open)]="reasonOpen" [aiLevel]="ask.aiLevel" [reportedLevel]="ask.reportedLevel" [busy]="reasonBusy()" [failure]="reasonFailure()" (confirmed)="saveReason($event)" />
+}
