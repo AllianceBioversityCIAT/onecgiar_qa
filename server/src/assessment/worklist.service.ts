@@ -1,4 +1,5 @@
 // @akili-spec assessment/step-1-assessment
+import { pickDefaultTimeline } from './default-timeline.js';
 import { Inject, Injectable } from '@nestjs/common';
 import {
   ADMIN_CONFIG_CLOCK,
@@ -193,10 +194,10 @@ export class WorklistService {
         (a.opensAt < b.opensAt ? -1 : a.opensAt > b.opensAt ? 1 : 0) ||
         a.option.id - b.option.id,
     );
-    const official = options.find(({ option }) => option.kind === 'official');
+    const timelines = options.map(({ option }) => option);
     return {
-      timelines: options.map(({ option }) => option),
-      defaultTimelineId: (official ?? options[0])?.option.id ?? null,
+      timelines,
+      defaultTimelineId: pickDefaultTimeline(timelines),
       timeZone: QA_TIME_ZONE,
     };
   }
