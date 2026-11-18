@@ -64,6 +64,12 @@ class FakeAiApi {
   sendEvent = vi.fn<(timelineId: number, code: number, suggestionId: string, event: AiSuggestionEvent) => Observable<void>>(() => of(undefined));
 }
 
+/** The fixture with no comment: in step 1 only an uncommented result can end by itself (OQ-2, 2026-11-18). */
+const uncommented = (v: AssessmentView): AssessmentView => ({
+  ...v,
+  sections: v.sections.map((sec) => ({ ...sec, fields: sec.fields.map((f) => ({ ...f, comments: [] })) })),
+});
+
 describe('ReviewView on the assessment API', () => {
   let api: FakeApi;
   let ai: FakeAiApi;
@@ -287,6 +293,7 @@ describe('ReviewView on the assessment API', () => {
       });
 
       it('the write that would leave every core field green asks first: it finishes the assessment and cannot be undone', async () => {
+        api.view.mockImplementation(() => of(uncommented(viewFixture())));
         const el = await open();
         byName(el, 'Theory of Change, 1 pending')!.click();
         harness.detectChanges();
@@ -307,7 +314,18 @@ describe('ReviewView on the assessment API', () => {
         expect(api.setValidations).toHaveBeenCalledWith(29, 9890, { validated: true, fieldKeys: ['toc.entries'] });
       });
 
+      it('in step 1 a commented result does not ask: the last core going green does not end it (Finish returns it)', async () => {
+        const el = await open();
+        byName(el, 'Theory of Change, 1 pending')!.click();
+        harness.detectChanges();
+        byName(el, 'Approve Contribution 1')!.click();
+        await settle();
+        expect(document.body.textContent).not.toContain('Finish as Quality Assessed?');
+        expect(api.setValidations).toHaveBeenCalledWith(29, 9890, { validated: true, fieldKeys: ['toc.entries'] });
+      });
+
       it('Check all is one request for every Assessed field (asked first, since it ends the assessment)', async () => {
+        api.view.mockImplementation(() => of(uncommented(viewFixture())));
         const el = await open();
         byName(el, 'Check all')!.click();
         await settle();
@@ -348,6 +366,7 @@ describe('ReviewView on the assessment API', () => {
 
     describe('another result on the same page (the router reuses it)', () => {
       it('the question of an ending write does not travel: confirming it later writes nothing on the other result', async () => {
+        api.view.mockImplementation(() => of(uncommented(viewFixture())));
         const el = await open();
         byName(el, 'Check all')!.click();
         await settle();

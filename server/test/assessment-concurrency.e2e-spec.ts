@@ -76,12 +76,13 @@ describe('FR-17: concurrent ends over HTTP (e2e)', () => {
     );
   });
 
-  it('a finish racing the validation that turns the last core field green: one end, the other 409, and the loser leaves nothing', async () => {
+  it('a finish racing the validation that turns the last commented core field green: round 1 ends it returned once, never quality_assessed', async () => {
     a = await buildAssessmentApp(IN_STEP_1);
     seedTimeline(a, [CORE]);
     addMembership(a);
     pendingRow();
-    // The core field is grey and commented: a finish would end it `returned`, the validation `quality_assessed`.
+    // The core field is grey and commented. In round 1 a commented result never
+    // ends by itself (OQ-2, 2026-11-18): only the finish ends it, `returned`.
     a.world.comments.push({
       id: 4001,
       assessmentId: 1,
@@ -100,28 +101,17 @@ describe('FR-17: concurrent ends over HTTP (e2e)', () => {
       a.send('post', resultPath('/finish'), { token: policy2() }),
     ]);
 
-    expect(endAttempts()).toBe(2);
+    expect(finished.status).toBe(200);
+    expect([200, 409]).toContain(validated.status);
+    if (validated.status === 409) {
+      expect(validated.body.error.code).toBe('ASSESSMENT_FINISHED');
+    }
     expect(a.world.endUpdatesMatched).toBe(1);
-    expect([validated.status, finished.status].sort((x, y) => x - y)).toEqual([200, 409]);
-    const loser = validated.status === 409 ? validated : finished;
-    expect(loser.body.error.code).toBe('ASSESSMENT_FINISHED');
+    expect(a.world.assessments[0]!.status).toBe('returned');
     expect(a.world.releases).toHaveLength(1);
+    expect(a.world.releases[0]!.outcome).toBe('not_qaed');
     expect(
       a.world.audits.filter((x) => x.action.startsWith('end_')),
     ).toHaveLength(1);
-    // One coherent end: the status, the release outcome and the audit action agree on the winner.
-    const status = a.world.assessments[0]!.status;
-    expect(status).toBe(
-      validated.status === 200 ? 'quality_assessed' : 'returned',
-    );
-    expect(a.world.releases[0]!.outcome).toBe(
-      validated.status === 200 ? 'qaed' : 'not_qaed',
-    );
-    // A losing validation was rolled back whole: no green core row and no `validate` audit row.
-    if (finished.status === 200) {
-      expect(
-        a.world.audits.filter((x) => x.action === 'validate'),
-      ).toHaveLength(0);
-    }
   });
 });

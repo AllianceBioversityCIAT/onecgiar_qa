@@ -299,23 +299,35 @@ The author SHALL be able to withdraw their own comment while it has no SP answer
 
 ### FR-14: Automatic Quality Assessed (3910 AC16, AC19)
 
-When a validation write leaves every core field of the assessment green, the assessment SHALL become `quality_assessed` in the same transaction, with "Assessed by" = the user whose write did it. Comments on non-core fields SHALL stay, and SHALL be marked visible to the program (AC18). An assessment whose configuration has no core field SHALL NOT end automatically: Finish ends it as `quality_assessed` **[OQ-2 default]**.
+When a validation write leaves every core field of the assessment green, **and the result carries no non-withdrawn comment on any field**, the assessment SHALL become `quality_assessed` in the same transaction, with "Assessed by" = the user whose write did it. In round 1, a result with any comment, on a core field or not, SHALL NOT end automatically: it goes back to the program on Finish (FR-15) so the program can adjust and resubmit **[OQ-2, decided by the back lead 2026-11-18]**. An assessment whose configuration has no core field SHALL NOT end automatically: Finish ends it (FR-15).
 
 #### Scenario: Last core goes green
-- GIVEN 3 core fields, 2 green, and a comment on a non-core field
+- GIVEN 3 core fields, 2 green, and no comment on any field
 - WHEN A sets the third core field green
 - THEN the response says the assessment ended `quality_assessed`, Assessed by A
 - AND the release `qaed` is queued (FR-18)
-- AND the non-core comment is visible to the program
+
+#### Scenario: A comment keeps it open (round 1)
+- GIVEN 3 core fields, 2 green, and a comment on a non-core field
+- WHEN A sets the third core field green
+- THEN the assessment stays `pending`
+- AND Finish ends it `returned`, with the release `not_qaed`
 
 ### FR-15: Finish assessment → Returned to program (3910 AC17–AC19)
 
 "Finish assessment" SHALL be offered while the assessment is `pending` and the caller has write rights.
 
-- If any core field is grey, every grey core field must carry a non-withdrawn comment **[OQ-9 default]**, else 409 `ASSESSMENT_CORE_UNCOMMENTED` with the field keys. With that met, the assessment SHALL become `returned`, with Assessed by = the caller.
-- If no core field is grey, FR-14 applies.
+- If any core field is grey, every grey core field must carry a non-withdrawn comment **[OQ-9 default]**, else 409 `ASSESSMENT_CORE_UNCOMMENTED` with the field keys.
+- Round 1 (assessors): with that met, a result with ANY non-withdrawn comment, on a core field or not, SHALL become `returned`; a result with no comment at all SHALL become `quality_assessed` (also when it has no core field) **[OQ-2, back lead 2026-11-18]**.
+- Later rounds (round 2, Lead Assessor, P2-3912): only the core fields count. A grey (disputed) core field makes it `returned`; no grey core field, or none at all, makes it `quality_assessed`.
+- Either way Assessed by = the caller.
 
 On finish, every non-withdrawn comment SHALL become visible to the program from step 2.
+
+#### Scenario: Return on a non-core comment (round 1)
+- GIVEN every core field is green (or there is none) and a non-core field carries a comment
+- WHEN A finishes
+- THEN status `returned_to_program` and the release `not_qaed` is queued
 
 #### Scenario: Return
 - GIVEN core field `general.title` is grey and commented
