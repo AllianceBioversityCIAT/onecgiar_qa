@@ -27,27 +27,36 @@ export type EndOutcome =
  * After a validation write (FR-14): with at least one core field and every core
  * field green the assessment becomes `quality_assessed`. With no core field it
  * never ends by itself ([OQ-2 default]: Finish ends it), and with a grey core
- * field it stays open.
+ * field it stays open. In round 1 a result carrying any non-withdrawn comment
+ * never ends by itself either: it must go back to the program (OQ-2, back lead
+ * 2026-11-18), so only Finish ends it, as `returned`.
  */
 export function endAfterValidation(
   core: readonly CoreFieldState[],
+  hasCommentsInRoundOne = false,
 ): 'quality_assessed' | 'none' {
+  if (hasCommentsInRoundOne) return 'none';
   return core.length > 0 && core.every((field) => field.validated)
     ? 'quality_assessed'
     : 'none';
 }
 
 /**
- * On Finish (FR-15, FR-14): no core field, or no grey core field, ends as
- * `quality_assessed`. Any grey core field without a non-withdrawn comment
- * refuses, naming each such field in the order given ([OQ-9 default]);
- * otherwise the assessment is `returned`.
+ * On Finish (FR-15, FR-14). Any grey core field without a non-withdrawn
+ * comment refuses, naming each such field in the order given ([OQ-9 default]).
+ * Otherwise:
+ * - round 1 (assessors): a result with ANY non-withdrawn comment, on a core
+ *   field or not, is `returned`, so the program sees the comments and can
+ *   adjust and resubmit (OQ-2, back lead 2026-11-18); with no comment at all
+ *   it is `quality_assessed`;
+ * - later rounds: only the core fields count. No grey core field (or none at
+ *   all) is `quality_assessed`, else `returned`.
  */
 export function endOnFinish(
   core: readonly CoreFieldState[],
+  hasCommentsInRoundOne = false,
 ): 'quality_assessed' | 'returned' | CoreUncommented {
   const grey = core.filter((field) => !field.validated);
-  if (grey.length === 0) return 'quality_assessed';
   const uncommented = grey.filter((field) => !field.commented);
   if (uncommented.length > 0) {
     return {
@@ -55,5 +64,6 @@ export function endOnFinish(
       fieldKeys: uncommented.map((field) => field.key),
     };
   }
-  return 'returned';
+  if (hasCommentsInRoundOne) return 'returned';
+  return grey.length === 0 ? 'quality_assessed' : 'returned';
 }

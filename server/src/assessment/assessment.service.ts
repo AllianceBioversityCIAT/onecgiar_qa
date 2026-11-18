@@ -374,7 +374,9 @@ export class AssessmentService {
         assessedBy: null,
         finishedAt: null,
       };
-      if (
+      // OQ-2: in round 1 a result with any comment never ends by itself; the
+      // comments are read only when the core alone would end it.
+      const coreEnds =
         changed.length > 0 &&
         input.validated &&
         endAfterValidation(
@@ -383,7 +385,13 @@ export class AssessmentService {
             validated: state.get(key) ?? false,
             commented: false,
           })),
-        ) === 'quality_assessed'
+        ) === 'quality_assessed';
+      if (
+        coreEnds &&
+        !(
+          membership.round === 1 &&
+          (await assessments.findCommentedFieldKeys(locked.id)).length > 0
+        )
       ) {
         end = await this.applyEnd(
           assessments,
@@ -498,7 +506,11 @@ export class AssessmentService {
         validated: state.get(key) ?? false,
         commented: commented.has(key),
       }));
-      const outcome = endOnFinish(coreStates);
+      // OQ-2: in round 1 any comment, core or not, sends the result back.
+      const outcome = endOnFinish(
+        coreStates,
+        membership.round === 1 && commented.size > 0,
+      );
       if (typeof outcome === 'object') {
         // Rolls the transaction back: a row created for this request goes with it.
         throw new AssessmentCoreUncommentedError([...outcome.fieldKeys]);

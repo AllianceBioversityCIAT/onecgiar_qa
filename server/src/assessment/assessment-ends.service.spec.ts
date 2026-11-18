@@ -146,9 +146,9 @@ function setup(
   now: Date = OPEN,
   core: readonly string[] = CORE,
   clockCalls: { count: number } = { count: 0 },
-  unitOfWorkOver: (
-    world: InMemoryAssessmentWorld,
-  ) => AssessmentUnitOfWork = (world) => new InMemoryAssessmentUnitOfWork(world),
+  unitOfWorkOver: (world: InMemoryAssessmentWorld) => AssessmentUnitOfWork = (
+    world,
+  ) => new InMemoryAssessmentUnitOfWork(world),
   dispatcher: ReleaseDispatcher = noReleaseDispatch,
 ) {
   const world = new InMemoryAssessmentWorld();
@@ -267,13 +267,30 @@ const endAudits = (world: InMemoryAssessmentWorld) =>
   world.audits.filter((a) => END_ACTIONS.includes(a.action));
 
 describe('FR-14: automatic Quality Assessed (OQ-2)', () => {
-  it('Last core goes green: ends quality_assessed with Assessed by = the user, queues the qaed release, shows the non-core comment to the program', async () => {
+  it('round 1: the last core going green does not end a result that carries a non-core comment (it goes back on Finish)', async () => {
     const { world, service, add, seed } = setup();
-    const membership = add(5001, { resultId: 777, phaseYear: 2026 });
-    seed(membership, {
+    seed(add(5001), {
       green: [CORE[0], CORE[1]],
       comments: [{ fieldKey: NON_CORE, body: 'A non-core remark' }],
     });
+    const summary = await service.validate(
+      assessorA(),
+      1,
+      5001,
+      check([CORE[2]]),
+      RID,
+    );
+    expect(summary.status).toBe('pending');
+    expect(world.releases).toEqual([]);
+    expect(endAudits(world)).toEqual([]);
+    const finished = await service.finish(assessorA(), 1, 5001, RID);
+    expect(finished.status).toBe('returned');
+  });
+
+  it('Last core goes green: ends quality_assessed with Assessed by = the user and queues the qaed release', async () => {
+    const { world, service, add, seed } = setup();
+    const membership = add(5001, { resultId: 777, phaseYear: 2026 });
+    seed(membership, { green: [CORE[0], CORE[1]] });
 
     const summary = await service.validate(
       assessorA(),
@@ -304,7 +321,6 @@ describe('FR-14: automatic Quality Assessed (OQ-2)', () => {
         status: 'pending',
       },
     ]);
-    expect(world.comments[0]!.visibleToProgramAt).toEqual(OPEN);
     expect(world.audits.map((a) => a.action)).toEqual([
       'validate',
       'end_quality_assessed',
@@ -393,12 +409,12 @@ describe('FR-14: automatic Quality Assessed (OQ-2)', () => {
     expect(world.writeLog).not.toContain('endAssessment');
   });
 
-  it('runs 14 statements for an ending validation (4 reads, 10 in the transaction)', async () => {
+  it('runs 15 statements for an ending validation (4 reads, 11 in the transaction: the round-1 comment check)', async () => {
     const { world, service, add, seed } = setup();
     seed(add(5001), { green: [CORE[0], CORE[1]] });
     world.resetStatements();
     await service.validate(assessorA(), 1, 5001, check([CORE[2]]), RID);
-    expect(world.statements).toBe(14);
+    expect(world.statements).toBe(15);
   });
 
   it('writes the end in the lock order: the timeline, the assessment row, then the rows under it', async () => {
@@ -411,6 +427,7 @@ describe('FR-14: automatic Quality Assessed (OQ-2)', () => {
       'findValidations',
       'upsertValidations',
       'insertAudit',
+      'findCommentedFieldKeys',
       'endAssessment',
       'insertRelease',
       'markCommentsVisible',
@@ -555,9 +572,7 @@ describe('FR-15: Finish assessment, Returned to program (OQ-9)', () => {
     const error = await failure(service.finish(assessorA(), 1, 5001, RID));
 
     expect(error).toBeInstanceOf(AssessmentCoreUncommentedError);
-    expect((error as AssessmentCoreUncommentedError).fields).toEqual([
-      CORE[1],
-    ]);
+    expect((error as AssessmentCoreUncommentedError).fields).toEqual([CORE[1]]);
     expect(
       (error as AssessmentCoreUncommentedError).getResponse(),
     ).toMatchObject({ code: 'ASSESSMENT_CORE_UNCOMMENTED' });
@@ -575,9 +590,7 @@ describe('FR-15: Finish assessment, Returned to program (OQ-9)', () => {
       comments: [{ fieldKey: CORE[0], state: 'withdrawn' }],
     });
     const error = await failure(service.finish(assessorA(), 1, 5001, RID));
-    expect((error as AssessmentCoreUncommentedError).fields).toEqual([
-      CORE[0],
-    ]);
+    expect((error as AssessmentCoreUncommentedError).fields).toEqual([CORE[0]]);
   });
 
   it('names every uncommented grey core field, in the order of the configuration', async () => {
@@ -652,9 +665,9 @@ describe('FR-16: locked after the end, and who may finish', () => {
   it('409 ASSESSMENT_FINISHED on a finish of a membership that already ended', async () => {
     const { service, add, seed } = setup(OPEN, []);
     seed(add(5001, { ended: true, endReason: 'released_qaed' }));
-    expect(await refusal(service.finish(assessorA(), 1, 5001, RID))).toMatchObject(
-      { status: 409, body: { code: 'ASSESSMENT_FINISHED' } },
-    );
+    expect(
+      await refusal(service.finish(assessorA(), 1, 5001, RID)),
+    ).toMatchObject({ status: 409, body: { code: 'ASSESSMENT_FINISHED' } });
   });
 
   it('409 ASSESSMENT_FINISHED when the membership ended after the first read but before the lock', async () => {
@@ -664,9 +677,9 @@ describe('FR-16: locked after the end, and who may finish', () => {
     world.beforeLockAssessment = () => {
       membership.ended = true;
     };
-    expect(await refusal(service.finish(assessorA(), 1, 5001, RID))).toMatchObject(
-      { status: 409, body: { code: 'ASSESSMENT_FINISHED' } },
-    );
+    expect(
+      await refusal(service.finish(assessorA(), 1, 5001, RID)),
+    ).toMatchObject({ status: 409, body: { code: 'ASSESSMENT_FINISHED' } });
     expect(world.assessments[0]!.status).toBe('pending');
     expect(world.releases).toEqual([]);
   });
@@ -674,9 +687,9 @@ describe('FR-16: locked after the end, and who may finish', () => {
   it('409 ASSESSMENT_STEP_CLOSED when the step is not open, whatever the state', async () => {
     const { world, service, add } = setup(new Date('2026-11-21T10:00:00Z'), []);
     add(5001);
-    expect(await refusal(service.finish(assessorA(), 1, 5001, RID))).toMatchObject(
-      { status: 409, body: { code: 'ASSESSMENT_STEP_CLOSED' } },
-    );
+    expect(
+      await refusal(service.finish(assessorA(), 1, 5001, RID)),
+    ).toMatchObject({ status: 409, body: { code: 'ASSESSMENT_STEP_CLOSED' } });
     expect(world.assessments).toEqual([]);
   });
 
@@ -712,9 +725,9 @@ describe('FR-16: locked after the end, and who may finish', () => {
         STEPS[2]!,
       ];
     };
-    expect(await refusal(service.finish(assessorA(), 1, 5001, RID))).toMatchObject(
-      { status: 409, body: { code: 'ASSESSMENT_STEP_CLOSED' } },
-    );
+    expect(
+      await refusal(service.finish(assessorA(), 1, 5001, RID)),
+    ).toMatchObject({ status: 409, body: { code: 'ASSESSMENT_STEP_CLOSED' } });
     expect(world.assessments).toEqual([]);
     expect(world.releases).toEqual([]);
   });
@@ -741,7 +754,9 @@ describe('FR-17: several assessors, one end', () => {
     );
 
     // The finishes really interleaved: all five locks were taken before the first end.
-    expect(world.writeLog.filter((w) => w === 'lockAssessment')).toHaveLength(5);
+    expect(world.writeLog.filter((w) => w === 'lockAssessment')).toHaveLength(
+      5,
+    );
     expect(world.writeLog.indexOf('endAssessment')).toBeGreaterThan(
       world.writeLog.lastIndexOf('lockAssessment'),
     );
@@ -909,7 +924,10 @@ describe('the pinned version under the lock (T-10 pointer 3)', () => {
     const { world, service } = raceSetup();
     await service.validate(assessorA(), 1, 5001, check([ASSESSED[5]!]), RID);
     expect(world.assessments).toHaveLength(1);
-    expect(world.assessments[0]).toMatchObject({ id: 500, fieldConfigVersion: 1 });
+    expect(world.assessments[0]).toMatchObject({
+      id: 500,
+      fieldConfigVersion: 1,
+    });
     expect(world.validations).toEqual([
       { assessmentId: 500, fieldKey: ASSESSED[5], validated: true },
     ]);
@@ -931,7 +949,9 @@ describe('the pinned version under the lock (T-10 pointer 3)', () => {
       ),
     ).toMatchObject({ status: 503, body: { code: 'SERVICE_UNAVAILABLE' } });
     // One retry, no more: the lock was reached twice.
-    expect(world.writeLog.filter((w) => w === 'lockAssessment')).toHaveLength(2);
+    expect(world.writeLog.filter((w) => w === 'lockAssessment')).toHaveLength(
+      2,
+    );
     expect(world.validations).toEqual([]);
     expect(world.audits).toEqual([]);
   });
@@ -1113,8 +1133,16 @@ describe('a deadlock in the middle of a real validation (T-11, design 5)', () =>
     ]);
     expect(world.assessments).toHaveLength(1);
     expect(world.validations).toEqual([
-      { assessmentId: world.assessments[0]!.id, fieldKey: CORE[0], validated: true },
-      { assessmentId: world.assessments[0]!.id, fieldKey: NON_CORE, validated: true },
+      {
+        assessmentId: world.assessments[0]!.id,
+        fieldKey: CORE[0],
+        validated: true,
+      },
+      {
+        assessmentId: world.assessments[0]!.id,
+        fieldKey: NON_CORE,
+        validated: true,
+      },
     ]);
   });
 });
