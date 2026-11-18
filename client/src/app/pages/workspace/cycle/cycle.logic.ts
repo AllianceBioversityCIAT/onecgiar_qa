@@ -2,15 +2,7 @@
 // cardVM and officialRelative).
 import { StepAudience } from '../../../core/api/cycles.models';
 import { DEFAULT_CLOSES_TIME, DEFAULT_OPENS_TIME, calendarDate, nowInRome, todayInRome, zoneAt } from '../../../core/domain/rome-date';
-import {
-  CORRECTION_AUDIENCE,
-  CycleStep,
-  RESULT_TYPE_RULES,
-  RT_ORDER,
-  RT_SHORT,
-  TODAY,
-  Timeline,
-} from './cycle.mock';
+import { CORRECTION_AUDIENCE, CycleStep, TODAY, Timeline } from './cycle.mock';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const DAY = 864e5;
@@ -224,8 +216,6 @@ export interface StepCardVM {
   /** Opening minute, for "Opens today at 09:00". */
   opensTime: string;
   hasBatch: boolean;
-  joinText: string;
-  joinTitle: string;
   syncText: string;
   state: StepState['kind'];
   doneText: string;
@@ -310,11 +300,6 @@ export function timelineVM(t: Timeline, loadable = false): TimelineVM {
   const steps: StepCardVM[] = t.steps.map((p, i) => {
     const st = states[i];
     const opens = opensMoment(p);
-    const joinTypes =
-      i > 0 && p.batch
-        ? RT_ORDER.filter((rt) => RESULT_TYPE_RULES[rt]?.phase === i + 1 && (!t.types.length || t.types.includes(rt)))
-        : [];
-    const firstJoin = joinTypes[0] ? (RT_SHORT[joinTypes[0]] ?? joinTypes[0]) : '';
     const corr = p.audience === CORRECTION_AUDIENCE;
     const sync = corr && (st.kind === 'active' || (st.kind === 'done' && st.text !== 'Not opened'));
     return {
@@ -323,8 +308,6 @@ export function timelineVM(t: Timeline, loadable = false): TimelineVM {
       ...cardLines(p),
       opensTime: opensTimeOf(p),
       hasBatch: p.batch,
-      joinText: joinTypes.length ? `${firstJoin}${joinTypes.length > 1 ? ` +${joinTypes.length - 1}` : ''} join here` : '',
-      joinTitle: joinTypes.join(', '),
       syncText: !sync ? '' : st.kind === 'active' ? 'Last synced 2 hours ago' : `Synced until ${shortDate(p.end || p.start)}`,
       state: st.kind,
       doneText: st.kind === 'done' ? st.text : '',
