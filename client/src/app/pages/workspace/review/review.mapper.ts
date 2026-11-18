@@ -92,7 +92,10 @@ export interface ReviewVm {
   readonly validated: number;
   /** Finish is offered: writable and the assessment still pending (FR-15). */
   readonly canFinish: boolean;
-  /** Status the result takes if it is finished now: returned while a core field is grey, Quality Assessed otherwise. */
+  /**
+   * Status the result takes if it is finished now: returned while a core field is grey, and in step 1 also
+   * while any comment still stands (`returnsOnAnyComment`); Quality Assessed otherwise.
+   */
   readonly finishTo: string;
 }
 
@@ -228,6 +231,15 @@ const asContext = (f: AssessmentField): AssessmentField => ({ ...f, mode: 'view'
 
 const openComments = (f: AssessmentField): readonly AssessmentComment[] =>
   f.comments.filter((c) => c.state !== 'withdrawn');
+/**
+ * Step 1 with a comment that still stands, on any field (core or not, "Other fields" too): the result never
+ * ends by itself and Finish returns it to the program (FR-14, FR-15; OQ-2, 2026-11-18). The server decides
+ * (`endAfterValidation` / `endOnFinish` with `hasCommentsInRoundOne`); this is what the page announces before.
+ */
+export function returnsOnAnyComment(view: AssessmentView): boolean {
+  if (view.header.step?.position !== 1) return false;
+  return [...view.sections.flatMap((s) => s.fields), ...view.other].some((f) => openComments(f).length > 0);
+}
 const isAssessed = (f: AssessmentField): boolean => f.mode === 'assessed';
 /** Green, or carrying an open comment (the assessor has said something on it). */
 const isResolved = (f: AssessmentField): boolean => f.validated || openComments(f).length > 0;
@@ -533,7 +545,10 @@ export function toReviewVm(view: AssessmentView, writes = true): ReviewVm {
     commented: assessed.filter((f) => openComments(f).length > 0).length,
     validated: assessed.filter((f) => f.validated).length,
     canFinish: canAct && (view.assessment?.status ?? 'pending') === 'pending',
-    finishTo: assessed.some((f) => f.core && !f.validated) ? STATUS_LABELS.returned_to_program : STATUS_LABELS.quality_assessed,
+    finishTo:
+      assessed.some((f) => f.core && !f.validated) || returnsOnAnyComment(view)
+        ? STATUS_LABELS.returned_to_program
+        : STATUS_LABELS.quality_assessed,
   };
 }
 

@@ -18,7 +18,7 @@ import { ALL_FIELDS, ReviewStore } from './review-store';
 import { AiReasonDialog } from './ai/ai-reason-dialog';
 import { AiReasonAsk, REVIEW_AI_PROVIDERS, ReviewAiHook } from './ai/review-ai-hook';
 import { ReviewTocSection, TocCardAction } from './review-toc-section';
-import { findField, toDrawerVm, withdrawOpen } from './review.mapper';
+import { findField, returnsOnAnyComment, toDrawerVm, withdrawOpen } from './review.mapper';
 
 /** The review area stacks its navigator on top below this width (container). */
 const NARROW_PX = 900;
@@ -308,10 +308,8 @@ export class ReviewView {
    */
   private wouldEnd(key: string): boolean {
     const view = this.store.view();
-    const fields = (view?.sections ?? []).flatMap((s) => s.fields);
-    const commented = fields.some((f) => f.comments.some((c) => c.state !== 'withdrawn'));
-    if (view?.header.step?.position === 1 && commented) return false;
-    const cores = fields.filter((f) => f.mode === 'assessed' && f.core);
+    if (view && returnsOnAnyComment(view)) return false;
+    const cores = (view?.sections ?? []).flatMap((s) => s.fields).filter((f) => f.mode === 'assessed' && f.core);
     return cores.length > 0 && cores.every((f) => f.validated || key === ALL_FIELDS || f.key === key);
   }
 
