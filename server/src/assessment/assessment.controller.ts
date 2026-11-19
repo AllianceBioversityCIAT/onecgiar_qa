@@ -93,7 +93,7 @@ export class AssessmentController {
   @ApiOperation({
     summary: 'Set Assessed fields green or grey, or check all',
     description:
-      'Send `validated` and exactly one of `fieldKeys` (1 to 200 Assessed fields of the pinned configuration) and `all: true` (every Assessed field). Setting a field to the state it already has succeeds and changes nothing. Only the fields that change are written, with one audit row. A View only, Hidden or unknown key is a 400 naming it. The assessment row is created at the first write. A write that leaves every core field green ends the assessment as `quality_assessed` in the same transaction, with the caller as "Assessed by" (an assessment with no core field never ends this way). Refused with 409 once the step is not open or the assessment ended. In round 2 only Assessed core fields take a write: a non-core key is 409 `ASSESSMENT_FIELD_NOT_CORE` (nothing written) and `all: true` acts on the core fields only.',
+      'Send `validated` and exactly one of `fieldKeys` (1 to 200 Assessed fields of the pinned configuration) and `all: true` (every Assessed field). Setting a field to the state it already has succeeds and changes nothing. Only the fields that change are written, with one audit row. A View only, Hidden or unknown key is a 400 naming it. The assessment row is created at the first write. A write that leaves every core field green ends the assessment as `quality_assessed` in the same transaction, with the caller as "Assessed by" (an assessment with no core field never ends this way). Refused with 409 once the step is not open or the assessment ended. In round 2 only Assessed core fields take a write: a non-core key is 409 `ASSESSMENT_FIELD_NOT_CORE` (nothing written) and `all: true` acts on the core fields only; the answer also carries `effectiveValidated` for every core field (carried greens included).',
   })
   @ApiOkEnvelope(ValidationSummaryModel)
   @ApiErrorResponses({
@@ -251,7 +251,7 @@ export class AssessmentController {
   @ApiOperation({
     summary: 'Finish the assessment',
     description:
-      'Ends a pending assessment with the caller as "Assessed by". With no grey core field (or no core field at all) it becomes `quality_assessed`; if every grey core field carries a non-withdrawn comment it becomes `returned`; otherwise it is a 409 `ASSESSMENT_CORE_UNCOMMENTED` whose `error.fields` are the core field keys still to validate or comment on. The end queues one release to Reporting and makes every non-withdrawn comment visible to the program. Of several concurrent finishes exactly one succeeds and the others get 409 `ASSESSMENT_FINISHED`. One audit row.',
+      'Ends a pending assessment with the caller as "Assessed by". With no grey core field (or no core field at all) it becomes `quality_assessed`; if every grey core field carries a non-withdrawn comment it becomes `returned`; otherwise it is a 409 `ASSESSMENT_CORE_UNCOMMENTED` whose `error.fields` are the core field keys still to validate or comment on. The end queues one release to Reporting and makes every non-withdrawn comment visible to the program. Round 2 (Lead Assessor) never returns: an effectively grey core field needs a live `escalate` decision, else 409 `ASSESSMENT_CORE_UNDECIDED` whose `error.fields` name the undecided core fields (nothing is written); with at least one grey core field the assessment ends `escalated` (Pending for TPB review), applies the Lead decisions to the comment states, queues no release and makes nothing visible to the program; with none it ends `quality_assessed` as in round 1. Of several concurrent finishes exactly one succeeds and the others get 409 `ASSESSMENT_FINISHED`. One audit row.',
   })
   @ApiOkEnvelope(ValidationSummaryModel)
   @ApiErrorResponses({
@@ -261,6 +261,7 @@ export class AssessmentController {
     404: ['ASSESSMENT_NOT_FOUND'],
     409: [
       'ASSESSMENT_CORE_UNCOMMENTED',
+      'ASSESSMENT_CORE_UNDECIDED',
       'ASSESSMENT_FINISHED',
       'ASSESSMENT_STEP_CLOSED',
       'ASSESSMENT_NO_FIELD_CONFIG',
@@ -285,7 +286,7 @@ export class AssessmentController {
   @ApiOperation({
     summary: 'Withdraw your own comment',
     description:
-      'The author withdraws a comment while it is still open (the program has not answered) and step 1 or step 2 of the timeline is open. A withdrawn comment leaves the counts and the program view and stays in the audit and the comment events. Allowed after the assessment ended. A comment of someone else is a 403; a comment that does not exist or is outside the caller scope is the same 404.',
+      'The author withdraws a comment while it is still open (the program has not answered) and step 1 or step 2 of the timeline is open. A withdrawn comment leaves the counts and the program view and stays in the audit and the comment events. Allowed after a round-1 assessment ended; a round-2 comment is frozen by the end (409 `ASSESSMENT_FINISHED`). A comment of someone else is a 403; a comment that does not exist or is outside the caller scope is the same 404.',
   })
   @ApiOkEnvelope(AssessmentCommentModel)
   @ApiErrorResponses({
@@ -293,7 +294,11 @@ export class AssessmentController {
     401: ['AUTH_TOKEN_INVALID', 'AUTH_USER_NOT_ADMITTED'],
     403: ['ASSESSMENT_NOT_COMMENT_AUTHOR'],
     404: ['ASSESSMENT_NOT_FOUND'],
-    409: ['ASSESSMENT_COMMENT_NOT_OPEN', 'ASSESSMENT_STEP_CLOSED'],
+    409: [
+      'ASSESSMENT_COMMENT_NOT_OPEN',
+      'ASSESSMENT_STEP_CLOSED',
+      'ASSESSMENT_FINISHED',
+    ],
     503: ['SERVICE_UNAVAILABLE'],
   })
   @HttpCode(200)

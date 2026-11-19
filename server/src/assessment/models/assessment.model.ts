@@ -347,9 +347,11 @@ export class AssessmentSectionModel {
 export class AssessmentSummaryModel {
   @ApiProperty({
     type: String,
-    enum: ['pending', 'quality_assessed', 'returned'],
+    enum: ['pending', 'quality_assessed', 'returned', 'escalated'],
+    description:
+      '`escalated`: a round-2 review that ended with at least one grey core field escalated (Pending for TPB review). Round 2 never ends `returned`; round 1 never ends `escalated`',
   })
-  status!: 'pending' | 'quality_assessed' | 'returned';
+  status!: 'pending' | 'quality_assessed' | 'returned' | 'escalated';
 
   @ApiProperty({ type: WorklistAssessedByModel, nullable: true })
   assessedBy!: WorklistAssessedByModel | null;
@@ -377,6 +379,13 @@ export class ValidationSummaryModel extends AssessmentSummaryModel {
       'Every validation row of the assessment after the request, by field key. Empty when the assessment does not exist yet',
   })
   validations!: AssessmentValidationModel[];
+
+  @ApiPropertyOptional({
+    type: [AssessmentValidationModel],
+    description:
+      'Round 2 only: the effective state of every core field after the request, by field key (the stored mark, else the green carried from round 1). Absent in round 1',
+  })
+  effectiveValidated?: AssessmentValidationModel[];
 }
 
 /** The answer of `PUT` and `DELETE …/assessment/decisions/:commentId` (round-2 design 6). */

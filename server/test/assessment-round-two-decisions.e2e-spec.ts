@@ -240,40 +240,77 @@ describe('Round-2 decisions of the Lead (e2e)', () => {
     });
   });
 
-  describe('NFR-3 a decision racing a finish', () => {
-    it('is serialized: one end, one release row, the comment closed once', async () => {
-      // The row exists, so a rolled-back loser cannot undo a row it created.
-      a.world.assessments.push({
-        id: 1000,
-        membershipId: roundTwoId,
-        stepPosition: 3,
-        status: 'pending',
-        fieldConfigVersion: 1,
-      });
+  describe('NFR-3 a decision racing a finish: both orders (T-9)', () => {
+    // The fake does not model the row lock: the loser reads the row under the
+    // lock only after the winner committed (`beforeLockAssessment`), which is the
+    // order a real row lock gives. State: CORE[2] (FIRST) escalated and CORE[1]
+    // (SECOND) agreed, so a finish ends `escalated`; changing FIRST to agree
+    // would end Quality Assessed.
+    const finish = () =>
+      a.send('post', resultPath('/finish', code), { token: lead() });
+    const states = () =>
+      a.world.comments
+        .filter((c) => c.assessmentId === roundOneId)
+        .map((c) => [c.id, c.state]);
+    const arrange = async () => {
+      await decide(7001, 'escalate');
       await decide(7002, 'agree_program');
-      a.world.holdLockUntil = 2;
+    };
 
-      const [decided, finished] = await Promise.all([
-        decide(7001, 'agree_program'),
-        a.send('post', resultPath('/finish', code), { token: lead() }),
-      ]);
+    it('finish wins: the review ends escalated, the late decision is 409 ASSESSMENT_FINISHED and nothing of it is stored', async () => {
+      await arrange();
+      let finished: Awaited<ReturnType<typeof finish>> | undefined;
+      a.world.beforeLockAssessment = async () => {
+        a.world.beforeLockAssessment = null;
+        finished = await finish();
+      };
 
-      // Both requests reached the assessment lock together.
+      const decided = await decide(7001, 'agree_program');
+
+      expect(finished?.status).toBe(200);
+      expect(finished?.body.data.status).toBe('escalated');
+      expect(decided.status).toBe(409);
+      expect(decided.body.error.code).toBe('ASSESSMENT_FINISHED');
+      expect(roundTwoAssessment()!.status).toBe('escalated');
+      expect(a.world.releases).toEqual([]);
       expect(
-        a.world.writeLog.filter((entry) => entry === 'lockAssessment'),
-      ).toHaveLength(3);
-      expect([decided.status, finished.status].sort((x, y) => x - y)).toEqual([
-        200, 409,
+        a.world.commentDecisions.map((d) => [d.commentId, d.decision]),
+      ).toEqual([
+        [7001, 'escalate'],
+        [7002, 'agree_program'],
+      ]);
+      expect(states()).toEqual([
+        [7001, 'escalated'],
+        [7002, 'lead_sided_program'],
       ]);
       expect(a.world.endUpdatesMatched).toBe(1);
-      expect(a.world.releases).toHaveLength(1);
+    });
+
+    it('decide wins: the last agree ends Quality Assessed with one qaed release, and the late finish is 409 ASSESSMENT_FINISHED', async () => {
+      await arrange();
+      let decided: Awaited<ReturnType<typeof decide>> | undefined;
+      a.world.beforeLockAssessment = async () => {
+        a.world.beforeLockAssessment = null;
+        decided = await decide(7001, 'agree_program');
+      };
+
+      const finished = await finish();
+
+      expect(decided?.status).toBe(200);
+      expect(decided?.body.data.status).toBe('quality_assessed');
+      expect(finished.status).toBe(409);
+      expect(finished.body.error.code).toBe('ASSESSMENT_FINISHED');
       expect(roundTwoAssessment()!.status).toBe('quality_assessed');
-      const closed = a.world.commentEvents.filter(
-        (e) => e.toState === 'lead_sided_program',
-      );
-      expect(closed.map((e) => e.commentId).sort((x, y) => x - y)).toEqual([
-        7001, 7002,
+      expect(a.world.releases).toHaveLength(1);
+      expect(a.world.releases[0]).toMatchObject({
+        timelineResultId: roundTwoId,
+        outcome: 'qaed',
+      });
+      expect(states()).toEqual([
+        [7001, 'lead_sided_program'],
+        [7002, 'lead_sided_program'],
       ]);
+      expect(a.world.endUpdatesMatched).toBe(1);
     });
   });
 });

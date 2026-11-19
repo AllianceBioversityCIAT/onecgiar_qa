@@ -41,6 +41,7 @@ import {
   AssessmentCommentFieldInvalidError,
   AssessmentCommentNotOpenError,
   AssessmentCoreUncommentedError,
+  AssessmentCoreUndecidedError,
   AssessmentDecisionInvalidError,
   AssessmentFieldEscalatedError,
   AssessmentFieldKeysInvalidError,
@@ -52,6 +53,7 @@ import {
   AssessmentReadOnlyError,
   AssessmentStepClosedError,
 } from './assessment.errors.js';
+import type { CommentState } from '../database/drizzle/schema/assessment-comments.js';
 import { loggedWrite, type WriteLogTrace } from './assessment-log.js';
 import {
   ASSESSMENT_UNIT_OF_WORK,
@@ -95,6 +97,7 @@ import {
 import {
   effectiveGreen,
   endRoundTwoAfterWrite,
+  endRoundTwoOnFinish,
   isActionable,
   isDecidable,
 } from './round-two-rules.js';
@@ -148,6 +151,12 @@ export interface ValidateInput {
 /** The answer of a validation write: the assessment's end state and every validation row it holds (design 6). */
 export interface ValidationSummary extends AssessmentSummary {
   validations: Array<{ fieldKey: string; validated: boolean }>;
+  /**
+   * Round 2 only (design 6): the effective state of every core field after the
+   * request (stored mark, else the carried round-1 green), by field key. Absent
+   * in round 1, where `validations` already is the state.
+   */
+  effectiveValidated?: Array<{ fieldKey: string; validated: boolean }>;
 }
 
 /** The request of `PUT …/assessment/decisions/:commentId` (round-2 FR-8): the choice and its text, already trimmed and length-checked by the DTO. */
@@ -217,8 +226,34 @@ interface WriteContext {
   user: AuthenticatedUser;
 }
 
+/** The audit action of each end (`applyEnd`). */
+const END_AUDIT_ACTION = {
+  quality_assessed: 'end_quality_assessed',
+  returned: 'end_returned',
+  escalated: 'end_escalated',
+} as const satisfies Record<EndStatus, string>;
+
+/**
+ * A decision counts only while its comment is live: not withdrawn and not
+ * deleted (FR-10, FR-11). A deleted comment keeps its state, so both are read.
+ */
+function isLiveDecision(decision: DecisionRecord): boolean {
+  return decision.commentState !== 'withdrawn' && !decision.commentDeleted;
+}
+
+/** The core fields that carry a live `escalate` decision (FR-11). */
+function escalatedFieldKeys(
+  decisions: readonly DecisionRecord[],
+): ReadonlySet<string> {
+  return new Set(
+    decisions
+      .filter((d) => d.decision === 'escalate' && isLiveDecision(d))
+      .map((d) => d.fieldKey),
+  );
+}
+
 /** The end an in-transaction write applied. */
-type EndStatus = 'quality_assessed' | 'returned';
+type EndStatus = 'quality_assessed' | 'returned' | 'escalated';
 
 @Injectable()
 export class AssessmentService {
@@ -353,6 +388,12 @@ export class AssessmentService {
         assessedBy: null,
         finishedAt: null,
         validations: [],
+        // Nothing carried (`carriesGreens` is false) and nothing stored: every core field is grey.
+        ...(roundTwo
+          ? {
+              effectiveValidated: this.effectiveRows(core, () => false),
+            }
+          : {}),
       };
     }
 
@@ -386,11 +427,7 @@ export class AssessmentService {
       const current = await this.effectiveOf(assessments, membership);
       if (roundTwo && input.validated) {
         // FR-8 *Escalate*: a field carrying an `escalate` decision cannot be validated, so green + escalate stays unreachable.
-        const escalated = new Set(
-          decisions
-            .filter((d) => d.decision === 'escalate')
-            .map((d) => d.fieldKey),
-        );
+        const escalated = escalatedFieldKeys(decisions);
         if (target.some((key) => escalated.has(key))) {
           throw new AssessmentFieldEscalatedError();
         }
@@ -445,6 +482,7 @@ export class AssessmentService {
       // OQ-2: in round 1 a result with any comment never ends by itself; the
       // comments are read only when the core alone would end it. Round 2 judges
       // EFFECTIVE greens (stored ?? carried) and never reads comments (design 7).
+      const escalatedNow = escalatedFieldKeys(decisions);
       const coreEnds =
         changed.length > 0 &&
         input.validated &&
@@ -453,9 +491,7 @@ export class AssessmentService {
               core.map((key) => ({
                 key,
                 effectiveGreen: current(key, state.get(key)),
-                escalated: decisions.some(
-                  (d) => d.fieldKey === key && d.decision === 'escalate',
-                ),
+                escalated: escalatedNow.has(key),
               })),
             )
           : endAfterValidation(
@@ -481,7 +517,17 @@ export class AssessmentService {
           decisions,
         );
       }
-      return { ...end, validations: this.validationRows(state) };
+      return {
+        ...end,
+        validations: this.validationRows(state),
+        ...(roundTwo
+          ? {
+              effectiveValidated: this.effectiveRows(core, (key) =>
+                current(key, state.get(key)),
+              ),
+            }
+          : {}),
+      };
     });
   }
 
@@ -642,6 +688,33 @@ export class AssessmentService {
           row.validated,
         ]),
       );
+      if (membership.round !== 1) {
+        // Round 2 (FR-11, FR-12, FR-13, DD-5): effective greens (stored ?? carried)
+        // and the live `escalate` decisions; comments are never read. It never returns.
+        const decisions = await assessments.findDecisions(locked.id);
+        const current = await this.effectiveOf(assessments, membership);
+        const escalated = escalatedFieldKeys(decisions);
+        const roundTwo = endRoundTwoOnFinish(
+          core.map((key) => ({
+            key,
+            effectiveGreen: current(key, state.get(key)),
+            escalated: escalated.has(key),
+          })),
+        );
+        if (typeof roundTwo === 'object') {
+          // Rolls the transaction back: a row created for this request goes with it.
+          throw new AssessmentCoreUndecidedError([...roundTwo.fieldKeys]);
+        }
+        const end = await this.applyEnd(
+          assessments,
+          context,
+          locked,
+          roundTwo,
+          requestId,
+          decisions,
+        );
+        return { ...end, validations: this.validationRows(state) };
+      }
       const commented = new Set(
         await assessments.findCommentedFieldKeys(locked.id),
       );
@@ -651,10 +724,7 @@ export class AssessmentService {
         commented: commented.has(key),
       }));
       // OQ-2: in round 1 any comment, core or not, sends the result back.
-      const outcome = endOnFinish(
-        coreStates,
-        membership.round === 1 && commented.size > 0,
-      );
+      const outcome = endOnFinish(coreStates, commented.size > 0);
       if (typeof outcome === 'object') {
         // Rolls the transaction back: a row created for this request goes with it.
         throw new AssessmentCoreUncommentedError([...outcome.fieldKeys]);
@@ -668,6 +738,16 @@ export class AssessmentService {
       );
       return { ...end, validations: this.validationRows(state) };
     });
+  }
+
+  /** The effective state of each core field as the round-2 validations answer lists it, by field key. */
+  private effectiveRows(
+    core: readonly string[],
+    green: (key: string) => boolean,
+  ): Array<{ fieldKey: string; validated: boolean }> {
+    return core
+      .map((fieldKey) => ({ fieldKey, validated: green(fieldKey) }))
+      .sort((x, y) => (x.fieldKey < y.fieldKey ? -1 : 1));
   }
 
   /** Every validation row as the answer lists it, by field key. */
@@ -739,6 +819,9 @@ export class AssessmentService {
    * written), then the one release row, the comments becoming visible to the
    * program, and the end audit row. `quality_assessed` queues a `qaed`
    * release, `returned` a `not_qaed` one (FR-18). T-12 dispatches it.
+   * Round 2 (DD-7, DD-8): `escalated` queues NO release (the result stays in QA
+   * for TPB review); both round-2 ends apply the Lead's decisions as comment
+   * states and never make a comment visible to the program.
    */
   private async applyEnd(
     assessments: AssessmentWriteStore,
@@ -757,17 +840,19 @@ export class AssessmentService {
       at: finishedAt,
     });
     if (!ended) throw new AssessmentFinishedError();
-    await assessments.insertRelease({
-      assessmentId: locked.id,
-      timelineResultId: membership.membershipId,
-      resultId: membership.resultId,
-      phaseYear: membership.phaseYear,
-      outcome: status === 'quality_assessed' ? 'qaed' : 'not_qaed',
-      at: finishedAt,
-    });
+    if (status !== 'escalated') {
+      await assessments.insertRelease({
+        assessmentId: locked.id,
+        timelineResultId: membership.membershipId,
+        resultId: membership.resultId,
+        phaseYear: membership.phaseYear,
+        outcome: status === 'quality_assessed' ? 'qaed' : 'not_qaed',
+        at: finishedAt,
+      });
+    }
     if (membership.round === 1) {
       await assessments.markCommentsVisible(locked.id, finishedAt);
-    } else if (status === 'quality_assessed') {
+    } else {
       // DD-7: the Lead's decisions become comment states now; DD-8: round 2 never makes a comment visible to the program.
       await this.applyLeadDecisions(
         assessments,
@@ -778,8 +863,7 @@ export class AssessmentService {
     await assessments.insertAudit({
       assessmentId: locked.id,
       actorId: user.id,
-      action:
-        status === 'quality_assessed' ? 'end_quality_assessed' : 'end_returned',
+      action: END_AUDIT_ACTION[status],
       fieldKeys: null,
       commentId: null,
       requestId,
@@ -794,9 +878,10 @@ export class AssessmentService {
 
   /**
    * The end of a round-2 review writes the Lead's decisions as comment states
-   * (DD-7): `agree_program` closes the comment as `lead_sided_program`, with one
-   * `comment_events` row each. An `escalate` cannot exist on a green field, so a
-   * Quality Assessed end has none; the `escalated` end is T-9's.
+   * (DD-7): `agree_program` closes the comment as `lead_sided_program` and
+   * `escalate` moves it to `escalated`, with one `comment_events` row each. An
+   * `escalate` cannot exist on a green field, so a Quality Assessed end has
+   * none. A decision on a withdrawn or deleted comment moves nothing.
    */
   private async applyLeadDecisions(
     assessments: AssessmentWriteStore,
@@ -804,16 +889,16 @@ export class AssessmentService {
     decisions: readonly DecisionRecord[],
   ): Promise<void> {
     for (const d of decisions) {
-      if (d.decision !== 'agree_program') continue;
+      if (!isLiveDecision(d)) continue;
+      const to: CommentState =
+        d.decision === 'escalate' ? 'escalated' : 'lead_sided_program';
       // ADR-006: the move must be in the transition table. A comment that left a
       // decidable state since the decision (nothing does today) is not moved.
-      if (!isTransitionAllowed(d.commentState, 'lead_sided_program', 'lead')) {
-        continue;
-      }
+      if (!isTransitionAllowed(d.commentState, to, 'lead')) continue;
       const moved = await assessments.setCommentState(
         d.commentId,
         d.commentState,
-        'lead_sided_program',
+        to,
       );
       if (!moved) continue;
       await assessments.insertCommentEvent({
@@ -821,7 +906,7 @@ export class AssessmentService {
         actorId: context.user.id,
         actorRole: RoleCode.LEAD_ASSESSOR,
         fromState: d.commentState,
-        toState: 'lead_sided_program',
+        toState: to,
         at: context.at,
       });
     }
@@ -1346,6 +1431,7 @@ export class AssessmentService {
             body: input.body,
             decidedAt,
             commentState: target.state,
+            commentDeleted: target.deleted,
           },
         ];
         stored = {
@@ -1368,15 +1454,14 @@ export class AssessmentService {
           );
         }
         // FR-12: the agree that leaves every core field effectively green ends the review, in this transaction.
+        const escalatedNow = escalatedFieldKeys(decisions);
         if (
           input.decision === 'agree_program' &&
           endRoundTwoAfterWrite(
             core.map((key) => ({
               key,
               effectiveGreen: green(key),
-              escalated: decisions.some(
-                (d) => d.fieldKey === key && d.decision === 'escalate',
-              ),
+              escalated: escalatedNow.has(key),
             })),
           ) === 'quality_assessed'
         ) {
@@ -1401,8 +1486,9 @@ export class AssessmentService {
   /**
    * FR-13, FR-19, FR-21, OQ-8 (design 7.7): the author withdraws their own
    * comment while it is `open` (the program has not answered) and step 1 or
-   * step 2 of the timeline is open. A withdraw after the END is allowed: it
-   * never refuses an ended assessment and never changes its status.
+   * step 2 of the timeline is open. A round-1 withdraw after the END is allowed
+   * (OQ-8): it never refuses an ended assessment and never changes its status. A
+   * round-2 comment is frozen by the end (FR-11): 409 `ASSESSMENT_FINISHED`.
    *
    * Before the transaction: the comment with its assessment and membership,
    * the caller's scope on that membership (a comment that is missing and one
@@ -1496,14 +1582,20 @@ export class AssessmentService {
         context.stepPosition,
       );
       if (locked === undefined) throw new Error('assessment_row_missing');
-      // No `status` check on purpose (OQ-8): withdrawing after the end is allowed.
+      // Round 2 (FR-11): the end freezes the Lead's review, so a withdraw after it is refused.
+      if (
+        context.round !== 1 &&
+        (locked.membershipEnded || locked.status !== 'pending')
+      ) {
+        throw new AssessmentFinishedError();
+      }
+      // No `status` check for round 1 on purpose (OQ-8): withdrawing after the end is allowed.
       if (!(await assessments.withdrawComment(commentId, withdrawnAt))) {
         throw new AssessmentCommentNotOpenError();
       }
       // Round 2 (FR-9): a withdrawn comment takes its decision with it, so a finish never counts it.
       if (
         context.round !== 1 &&
-        locked.status === 'pending' &&
         (await assessments.deleteDecision(commentId, RoleCode.LEAD_ASSESSOR))
       ) {
         await assessments.insertAudit({

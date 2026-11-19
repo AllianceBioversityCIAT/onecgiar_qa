@@ -156,3 +156,18 @@
 - **Requirements covered:** FR-9.
 - **Running totals vs budget (~9,500):** tasks 8/14 · LOC ≈ 6,950 · review rounds 13/~22.
 - auto-approved (pre-approved mode)
+
+### T-9: Finish review and the round-2 end — PASS (2026-11-19)
+
+- **Attempts:** 1. Effort high. Skills: nestjs-expert, tdd. Review mode: parallel lens reviewers (release / data surface) — (A) end rule, release, state machine; (B) freeze, contract, consumers, round 1.
+- **Files changed:** `server/src/assessment/assessment.service.ts` (round-2 `finishAt` via `endRoundTwoOnFinish` over effective greens and live escalate decisions; `applyEnd` `escalated` branch — no release, decisions through the transition table with `comment_events`, no visibility, audit `end_escalated`; round-2 withdraw refused after the end, OQ-8 narrowed to round 1; `EndStatus` + `escalated`; validations PUT returns `effectiveValidated` in round 2; `isLiveDecision` / `escalatedFieldKeys` exclude withdrawn and deleted comments), `assessment.store.ts` + fake (`DecisionRecord.commentDeleted`), `comment-transitions.ts` + spec (3 `lead → escalated` rows reachable; 29 reachable), `models/assessment.model.ts` (`escalated` status; optional `effectiveValidated`), `assessment.controller.ts` (OpenAPI), `test/openapi.e2e-spec.ts`, new `assessment-round-two-end.service.spec.ts` (16), new `test/assessment-round-two-end.e2e-spec.ts` (4), decide-vs-finish race reworked into both orders in `test/assessment-round-two-decisions.e2e-spec.ts`.
+- **Red run (FR-13, against the T-8 service):** "expected { status: 200, body: { … "status": "returned" … } } to match object { status: 409, body: { … "ASSESSMENT_CORE_UNDECIDED" … } }"; 13/16 new service tests red before wiring (3 pin unchanged behaviour).
+- **Falsifiers:** keep `insertRelease` on `escalated` → "expected [ { assessmentId: 1000, … } ] to deeply equal []" (3 unit, 2 e2e); old `endOnFinish` path → 11/16 red incl. FR-13. Reverted.
+- **Implementer verification:** lint 0 · build · unit 4126 / 6 skipped · e2e 1308 (37 files) · client ok.
+- **Evidence re-run (Leader inline):** 5 unit specs 208/208; 3 e2e 37/37; build ok → **VERIFIED**.
+- **Reviewers:** (A) **PASS** — DD-5 mapping, no release on `escalated`, one winner, round 1 unchanged, own comment `open → escalated` through the table. (B) **PASS** — freeze complete for every existing write; `effectiveValidated` additive and round-2 only; OpenAPI and hand-typed copies updated.
+- **ADVISORY:** `decide`'s agree guard still counts dead escalate decisions — **switch to `escalatedFieldKeys` in T-10**; a skipped Lead move has no signal (log line); real row-lock races → T-14; withdraw of an escalated own comment after the end answers `ASSESSMENT_COMMENT_NOT_OPEN` before `ASSESSMENT_FINISHED` — **front contract (T-12)**; `effectiveValidated` needs one HTTP assertion — **T-12 flow**; **T-10 must carry "delete after the end → 409 `ASSESSMENT_FINISHED`"**; rename `roundTwo` outcome variable; all new codes into the front contract (T-12).
+- **Not Done / Assumptions (no owed item):** delete-after-end deferred to T-10 (route absent); `effectiveValidated` = sorted `{fieldKey, validated}` array over core fields, round 2 only; race tests model the lock via `beforeLockAssessment`.
+- **spawns:** implementer 56 calls, 246,125 tokens, ended complete; reviewer A 20 calls, 83,314 tokens; reviewer B not reported.
+- **Requirements covered:** FR-11, FR-12 (Finish), FR-13 (service), FR-15 (no visibility), NFR-3.
+- auto-approved (pre-approved mode)

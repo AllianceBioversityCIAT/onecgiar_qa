@@ -1246,6 +1246,7 @@ export class InMemoryAssessmentWriteStore implements AssessmentWriteStore {
         body: d.body,
         decidedAt: d.decidedAt ?? new Date(0),
         commentState: comment.state,
+        commentDeleted: (comment.deletedAt ?? null) !== null,
       });
     }
     return Promise.resolve(rows.sort((x, y) => x.commentId - y.commentId));

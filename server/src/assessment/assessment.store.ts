@@ -329,6 +329,8 @@ export interface DecisionRecord {
   decidedAt: Date;
   /** The comment's state now: the `from` of the move the end applies (DD-7). */
   commentState: CommentState;
+  /** `deleted_at` is set (FR-10): the decision no longer counts. */
+  commentDeleted: boolean;
 }
 
 /** A decision to store: one per (comment, role); a second write replaces the first (DD-2). */
@@ -1135,6 +1137,7 @@ export class DrizzleAssessmentWriteStore implements AssessmentWriteStore {
         body: commentDecisions.body,
         decidedAt: commentDecisions.decidedAt,
         commentState: assessmentComments.state,
+        commentDeletedAt: assessmentComments.deletedAt,
       })
       .from(commentDecisions)
       .innerJoin(
@@ -1146,7 +1149,11 @@ export class DrizzleAssessmentWriteStore implements AssessmentWriteStore {
   }
 
   async findDecisions(assessmentId: number): Promise<DecisionRecord[]> {
-    return await this.buildDecisions(assessmentId);
+    const rows = await this.buildDecisions(assessmentId);
+    return rows.map(({ commentDeletedAt, ...row }) => ({
+      ...row,
+      commentDeleted: commentDeletedAt !== null,
+    }));
   }
 
   buildUpsertDecision(write: DecisionWrite) {

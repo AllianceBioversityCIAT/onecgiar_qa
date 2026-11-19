@@ -73,12 +73,12 @@ export const COMMENT_TRANSITIONS: readonly CommentTransition[] = [
     by: 'lead',
     reachable: true,
   })),
-  // Declared for the `escalated` end (T-9 makes them reachable).
+  // Round 2, the `escalated` end (T-9): written when the Lead's review ends with an `escalate` decision on the comment.
   ...LEAD_FROM_STATES.map((from): CommentTransition => ({
     from,
     to: 'escalated',
     by: 'lead',
-    reachable: false,
+    reachable: true,
   })),
 ];
 

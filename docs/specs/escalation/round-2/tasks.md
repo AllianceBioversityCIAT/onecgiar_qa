@@ -250,7 +250,7 @@ All back tasks touch `server/src/assessment/` (one shared boundary), so they run
 
 ## T-9: Finish review and the round-2 end
 
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-7, T-8
 - **Requirements:**
