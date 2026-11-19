@@ -1,6 +1,17 @@
 // @akili-spec assessment/step-1-assessment
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, desc, eq, isNull, ne, sql, type SQL } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  isNull,
+  ne,
+  or,
+  sql,
+  type SQL,
+} from 'drizzle-orm';
+import { alias } from 'drizzle-orm/mysql-core';
 import { DRIZZLE } from '../database/drizzle/drizzle.constants.js';
 import type { DrizzleDB } from '../database/drizzle/drizzle.module.js';
 import {
@@ -9,6 +20,15 @@ import {
   type CommentValueCopy,
 } from '../database/drizzle/schema/assessment-comments.js';
 import { commentEvents } from '../database/drizzle/schema/comment-events.js';
+import { commentClarificationAnswers } from '../database/drizzle/schema/comment-clarification-answers.js';
+import {
+  commentDecisions,
+  type CommentDecisionKind,
+} from '../database/drizzle/schema/comment-decisions.js';
+import {
+  spCommentResponses,
+  type SpResponseKind,
+} from '../database/drizzle/schema/sp-comment-responses.js';
 import { assessmentFieldValidations } from '../database/drizzle/schema/assessment-field-validations.js';
 import { cycles } from '../database/drizzle/schema/cycles.js';
 import { fieldConfigVersions } from '../database/drizzle/schema/field-config-versions.js';
@@ -76,6 +96,12 @@ export interface MembershipRecord {
   snapshotSk: string;
   /** The year of the membership's cycle: the catalog year (P-14). */
   cycleYear: number;
+  /** The returned round-1 membership a round-2 one follows; `null` for a new one (round-2 FR-4). */
+  previousMembershipId: number | null;
+  /** Keys whose value changed since the previous membership; `null` = none (round-2 FR-5). */
+  changedFields: string[] | null;
+  /** The previous membership's step-1 assessment, joined in the membership statement (round-2 DD-4); `null` when there is none. */
+  previousAssessmentId: number | null;
   assessment: {
     id: number;
     status: ResultAssessmentStatus;
@@ -111,6 +137,35 @@ export interface CommentRecord {
   withdrawnAt: Date | null;
 }
 
+/**
+ * One line of the round-1 thread read (round-2 FR-4, design 7 *Thread read*):
+ * a comment joined to the program response it shows (the latest, and every
+ * clarification request), that request's answer and the Lead's decision. A
+ * comment with several lines to show repeats its own columns. No responder
+ * email is selected: the QA view carries the name only.
+ */
+export interface RoundOneThreadRow {
+  commentId: number;
+  fieldKey: string;
+  authorId: number;
+  authorNickname: string | null;
+  body: string;
+  state: CommentState;
+  valueCopy: CommentValueCopy;
+  valueTruncated: boolean;
+  createdAt: Date;
+  responseId: number | null;
+  responseKind: SpResponseKind | null;
+  responseBody: string | null;
+  responderName: string | null;
+  respondedAt: Date | null;
+  answerBody: string | null;
+  answeredAt: Date | null;
+  decision: CommentDecisionKind | null;
+  decisionBody: string | null;
+  decidedAt: Date | null;
+}
+
 /** A comment with where it lives: its assessment and membership (withdraw, and the replay reader). */
 export interface CommentContext extends CommentRecord {
   assessmentId: number;
@@ -141,6 +196,17 @@ export interface AssessmentStore {
   findCommentContext(commentId: number): Promise<CommentContext | null>;
   /** One statement: the quick comments of a role, newest first (FR-12). */
   listQuickComments(roleCode: string): Promise<QuickCommentRecord[]>;
+  /**
+   * ONE statement for the whole thread of a round-2 view, whatever the number
+   * of comments (round-2 NFR-1): the comments of the previous membership's
+   * step-1 assessment that are neither withdrawn nor deleted, with the latest
+   * program response of each, every clarification request and its answer, and
+   * the decision of `roleCode`. Ordered by field, comment, response.
+   */
+  findRoundOneThread(
+    assessmentId: number,
+    roleCode: string,
+  ): Promise<RoundOneThreadRow[]>;
 }
 
 /** A reusable comment text of a role (FR-12). */
@@ -318,6 +384,8 @@ type AssessmentDb = Pick<DrizzleDB, 'select'>;
 
 const t = timelineResults;
 const a = resultAssessments;
+/** The previous membership's step-1 assessment (round-2 DD-4): its row id and its validations feed the round-2 view. */
+const prevA = alias(resultAssessments, 'prev_assessment');
 const MEMBERSHIP_TABLE = sql.identifier('timeline_results');
 const ASSESSMENT_TABLE = sql.identifier('result_assessments');
 
@@ -348,6 +416,9 @@ export class DrizzleAssessmentStore implements AssessmentStore {
           endReason: t.endReason,
           snapshotSk: t.snapshotSk,
           cycleYear: cycles.year,
+          previousMembershipId: t.previousMembershipId,
+          changedFields: t.changedFields,
+          previousAssessmentId: prevA.id,
           assessmentId: a.id,
           assessmentStatus: a.status,
           assessmentStepPosition: a.stepPosition,
@@ -366,6 +437,11 @@ export class DrizzleAssessmentStore implements AssessmentStore {
             eq(a.stepPosition, currentStepSql(criteria)),
           ),
         )
+        // Round 2 only: the returned round-1 membership's assessment, in this same
+        // statement (DD-4). A round-1 membership holds the one assessment of the
+        // assessors step (a role writes only in its own round's step), so no step
+        // filter is needed and the statement binds nothing new.
+        .leftJoin(prevA, eq(prevA.timelineResultId, t.previousMembershipId))
         .leftJoin(users, eq(users.id, a.finishedBy))
         // The pinned NUMBER is the version of the membership's cycle: its row id, with no extra statement.
         .leftJoin(
@@ -409,6 +485,9 @@ export class DrizzleAssessmentStore implements AssessmentStore {
       endReason: row.endReason,
       snapshotSk: row.snapshotSk,
       cycleYear: row.cycleYear,
+      previousMembershipId: row.previousMembershipId,
+      changedFields: row.changedFields,
+      previousAssessmentId: row.previousAssessmentId,
       assessment:
         row.assessmentId === null ||
         row.assessmentStatus === null ||
@@ -472,6 +551,85 @@ export class DrizzleAssessmentStore implements AssessmentStore {
 
   async findComments(assessmentId: number): Promise<CommentRecord[]> {
     return await this.buildCommentsQuery(assessmentId);
+  }
+
+  /**
+   * The thread statement of a round-2 view; public so a spec can read its SQL.
+   * One SELECT: the program responses join as the latest per comment OR a
+   * clarification request, so a comment never costs a statement of its own.
+   * No `responder_email` column, no per-row subquery on the comment list.
+   */
+  buildRoundOneThreadQuery(assessmentId: number, roleCode: string) {
+    // The latest response of the comment, as a scalar inside this same statement.
+    // Written with qualified identifiers (as `currentStepSql` is) so the inner
+    // `id` can never be read as the outer join's.
+    const latest = sql.identifier('latest_response');
+    const latestId = sql`(SELECT MAX(${latest}.${sql.identifier('id')}) FROM ${sql.identifier('sp_comment_responses')} ${latest} WHERE ${latest}.${sql.identifier('comment_id')} = ${assessmentComments.id})`;
+    return this.db
+      .select({
+        commentId: assessmentComments.id,
+        fieldKey: assessmentComments.fieldKey,
+        authorId: assessmentComments.authorId,
+        authorNickname: users.nickname,
+        body: assessmentComments.body,
+        state: assessmentComments.state,
+        valueCopy: assessmentComments.valueCopy,
+        valueTruncated: assessmentComments.valueTruncated,
+        createdAt: assessmentComments.createdAt,
+        responseId: spCommentResponses.id,
+        responseKind: spCommentResponses.kind,
+        responseBody: spCommentResponses.body,
+        responderName: spCommentResponses.responderName,
+        respondedAt: spCommentResponses.createdAt,
+        answerBody: commentClarificationAnswers.body,
+        answeredAt: commentClarificationAnswers.createdAt,
+        decision: commentDecisions.decision,
+        decisionBody: commentDecisions.body,
+        decidedAt: commentDecisions.decidedAt,
+      })
+      .from(assessmentComments)
+      .innerJoin(users, eq(users.id, assessmentComments.authorId))
+      .leftJoin(
+        spCommentResponses,
+        and(
+          eq(spCommentResponses.commentId, assessmentComments.id),
+          or(
+            eq(spCommentResponses.kind, 'request_clarification'),
+            eq(spCommentResponses.id, latestId),
+          ),
+        ),
+      )
+      .leftJoin(
+        commentClarificationAnswers,
+        eq(commentClarificationAnswers.responseId, spCommentResponses.id),
+      )
+      .leftJoin(
+        commentDecisions,
+        and(
+          eq(commentDecisions.commentId, assessmentComments.id),
+          eq(commentDecisions.roleCode, roleCode),
+        ),
+      )
+      .where(
+        and(
+          eq(assessmentComments.assessmentId, assessmentId),
+          isNull(assessmentComments.withdrawnAt),
+          isNull(assessmentComments.deletedAt),
+        ),
+      )
+      .orderBy(
+        asc(assessmentComments.fieldKey),
+        asc(assessmentComments.createdAt),
+        asc(assessmentComments.id),
+        asc(spCommentResponses.id),
+      );
+  }
+
+  async findRoundOneThread(
+    assessmentId: number,
+    roleCode: string,
+  ): Promise<RoundOneThreadRow[]> {
+    return await this.buildRoundOneThreadQuery(assessmentId, roleCode);
   }
 
   /** The comment-context statement; public so a spec can read its SQL. */

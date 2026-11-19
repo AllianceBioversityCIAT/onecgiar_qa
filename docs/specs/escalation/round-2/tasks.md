@@ -167,7 +167,7 @@ All back tasks touch `server/src/assessment/` (one shared boundary), so they run
 
 ## T-6: Round-2 view: thread, `updated`, carried greens
 
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-5
 - **Requirements:**

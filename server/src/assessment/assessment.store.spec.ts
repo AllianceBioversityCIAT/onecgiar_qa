@@ -247,3 +247,88 @@ describe('the comment context statement (withdraw and the replay reader)', () =>
     expect(params).toEqual([700, 1]);
   });
 });
+
+describe('the round-2 additions to the membership statement (escalation/round-2 T-6)', () => {
+  it('reads the previous membership id, the changed fields and the previous assessment in the same SELECT, binding nothing new', () => {
+    const { sql: text, params } = membershipSql(criteria());
+    expect(text).toContain('`timeline_results`.`previous_membership_id`');
+    expect(text).toContain('`timeline_results`.`changed_fields`');
+    expect(text).toContain('`prev_assessment`.`id`');
+    expect(text).toContain(
+      ' left join `result_assessments` `prev_assessment` on `prev_assessment`.`timeline_result_id` = `timeline_results`.`previous_membership_id`',
+    );
+    // Same parameters as before the join: round-1 step, round-2 default, timeline, code.
+    expect(params.slice(0, 4)).toEqual([1, 0, 7, 5001]);
+    expect(text.startsWith('select ')).toBe(true);
+  });
+});
+
+describe('DrizzleAssessmentStore.buildRoundOneThreadQuery (round-2 NFR-1, design 7 Thread read)', () => {
+  const threadSql = (assessmentId = 70, role = 'LEAD_ASSESSOR') =>
+    store.buildRoundOneThreadQuery(assessmentId, role).toSQL();
+
+  it('is ONE SELECT for the whole thread: a single statement, the same text for any assessment, nothing per comment', () => {
+    const one = threadSql(70);
+    const other = threadSql(71);
+    expect(one.sql.startsWith('select ')).toBe(true);
+    expect(one.sql).not.toContain(';');
+    expect(one.sql).not.toMatch(/\b(insert|update|delete)\b/i);
+    // The statement does not depend on the data: only its parameters change.
+    expect(other.sql).toBe(one.sql);
+    expect(one.params).toContain(70);
+    expect(other.params).toContain(71);
+    // The one subquery is the latest-response lookup, a scalar inside the same statement.
+    expect(count(one.sql.toLowerCase(), 'select')).toBe(2);
+  });
+
+  it('keeps the comments of the previous assessment that are neither withdrawn nor deleted', () => {
+    const { sql: text } = threadSql();
+    const where = between(text, ' where ', ' order by ');
+    expect(where).toContain('`assessment_comments`.`assessment_id` = ?');
+    expect(where).toContain('`assessment_comments`.`withdrawn_at` is null');
+    expect(where).toContain('`assessment_comments`.`deleted_at` is null');
+  });
+
+  it('joins the latest program response per comment OR a clarification request, its answer, and the decision of the role asked for', () => {
+    const { sql: text, params } = threadSql(70, 'LEAD_ASSESSOR');
+    const responses = between(
+      text,
+      ' left join `sp_comment_responses`',
+      ' left join `comment_clarification_answers`',
+    );
+    expect(responses).toContain(
+      '`sp_comment_responses`.`comment_id` = `assessment_comments`.`id`',
+    );
+    expect(responses).toContain('`sp_comment_responses`.`kind` = ?');
+    expect(responses).toContain('MAX(`latest_response`.`id`)');
+    expect(text).toContain(
+      ' left join `comment_clarification_answers` on `comment_clarification_answers`.`response_id` = `sp_comment_responses`.`id`',
+    );
+    const decisions = between(
+      text,
+      ' left join `comment_decisions`',
+      ' where ',
+    );
+    expect(decisions).toContain(
+      '`comment_decisions`.`comment_id` = `assessment_comments`.`id`',
+    );
+    expect(decisions).toContain('`comment_decisions`.`role_code` = ?');
+    expect(params).toEqual(
+      expect.arrayContaining(['request_clarification', 'LEAD_ASSESSOR', 70]),
+    );
+  });
+
+  it('is ordered by field, comment, then response, so the service groups in memory', () => {
+    const { sql: text } = threadSql();
+    expect(text).toContain(
+      ' order by `assessment_comments`.`field_key` asc, `assessment_comments`.`created_at` asc, `assessment_comments`.`id` asc, `sp_comment_responses`.`id` asc',
+    );
+  });
+
+  it('never selects a responder email (the QA view names the responder only)', () => {
+    const { sql: text } = threadSql();
+    expect(text).toContain('`responder_name`');
+    expect(text).not.toContain('responder_email');
+    expect(text).not.toContain('`email`');
+  });
+});

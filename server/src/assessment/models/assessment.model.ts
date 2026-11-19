@@ -5,6 +5,10 @@ import {
   type ApiPropertyOptions,
 } from '@nestjs/swagger';
 import { commentStates } from '../../database/drizzle/schema/assessment-comments.js';
+import {
+  SpClarificationModel,
+  SpResponseModel,
+} from '../sp-view/models/sp-view.model.js';
 import { QA_STATUSES, type QaStatus } from '../qa-status.js';
 import {
   WorklistAssessedByModel,
@@ -135,6 +139,82 @@ export class AssessmentCommentModel {
   withdrawnAt!: string | null;
 }
 
+export class AssessmentThreadDecisionModel {
+  @ApiProperty({
+    type: String,
+    example: 'escalate',
+    description: "The Lead's current decision: `agree_program` or `escalate`",
+  })
+  decision!: string;
+
+  @ApiProperty({ type: String, nullable: true })
+  body!: string | null;
+
+  @ApiProperty({ type: String, format: 'date-time' })
+  decidedAt!: string;
+}
+
+/** A round-1 comment as the Lead reads it (round-2 FR-4). Never an email: the responder is named. */
+export class AssessmentThreadItemModel {
+  @ApiProperty({ type: Number, example: 12 })
+  commentId!: number;
+
+  @ApiProperty({ type: AssessmentCommentAuthorModel })
+  author!: AssessmentCommentAuthorModel;
+
+  @ApiProperty({ type: String, format: 'date-time' })
+  createdAt!: string;
+
+  @ApiProperty({ type: String })
+  body!: string;
+
+  @ApiProperty({
+    type: AssessmentCommentValueCopyModel,
+    description:
+      "The field value when the comment was written; the current value is the field's own `value`",
+  })
+  valueCopy!: AssessmentCommentValueCopyModel;
+
+  @ApiProperty({ type: Boolean })
+  valueTruncated!: boolean;
+
+  @ApiProperty({ type: String, enum: commentStates, example: 'disagreed' })
+  state!: string;
+
+  @ApiPropertyOptional({
+    type: SpResponseModel,
+    description:
+      "The program's latest response; absent when the program has not responded",
+  })
+  response?: SpResponseModel;
+
+  @ApiProperty({
+    type: [SpClarificationModel],
+    description: 'Every clarification request with its answer, oldest first',
+  })
+  clarifications!: SpClarificationModel[];
+
+  @ApiPropertyOptional({
+    type: AssessmentThreadDecisionModel,
+    description: "The Lead's current decision; absent when none is set",
+  })
+  decision?: AssessmentThreadDecisionModel;
+
+  @ApiProperty({
+    type: Boolean,
+    description: 'The caller may decide this comment (`choices` is not empty)',
+  })
+  decidable!: boolean;
+
+  @ApiProperty({
+    type: [String],
+    enum: ['agree_program', 'escalate'],
+    description:
+      'The decisions the caller may set; empty for ADMIN and for a comment that is not decidable',
+  })
+  choices!: string[];
+}
+
 export class AssessmentFieldModel {
   @ApiProperty({ type: String, example: 'general.title' })
   key!: string;
@@ -211,6 +291,41 @@ export class AssessmentFieldModel {
     description: 'The catalog has the field and the snapshot has no key for it',
   })
   notApplicable!: boolean;
+
+  @ApiProperty({
+    type: Boolean,
+    description:
+      "Round 2: the field's key is in the membership's `changed_fields`. Always false in round 1 and on a new round-2 membership",
+  })
+  updated!: boolean;
+
+  @ApiProperty({
+    type: Boolean,
+    description:
+      'The field takes a write. Round 1: an Assessed field. Round 2: an Assessed core field; every other field is read-only context',
+  })
+  actionable!: boolean;
+
+  @ApiProperty({
+    type: Boolean,
+    description:
+      'Round 2: the stored validation, else the carried green. Equals `validated` in round 1 and on a field that is not actionable',
+  })
+  effectiveValidated!: boolean;
+
+  @ApiProperty({
+    type: Boolean,
+    description:
+      'Round 2: the green is the round-1 one, carried because the Lead stored nothing. False in round 1',
+  })
+  carried!: boolean;
+
+  @ApiProperty({
+    type: [AssessmentThreadItemModel],
+    description:
+      'Round 2: the round-1 thread of a core field (comments neither withdrawn nor deleted). Always empty in round 1 and on a new round-2 membership',
+  })
+  thread!: AssessmentThreadItemModel[];
 }
 
 export class AssessmentSectionModel {
@@ -267,6 +382,14 @@ export class ValidationSummaryModel extends AssessmentSummaryModel {
 export class AssessmentViewModel {
   @ApiProperty({ type: AssessmentHeaderModel })
   header!: AssessmentHeaderModel;
+
+  @ApiProperty({
+    type: Number,
+    example: 2,
+    description:
+      "The membership's round: 1 for an assessor, 2 for a Lead Assessor; ADMIN reads the latest",
+  })
+  round!: number;
 
   @ApiProperty({
     type: [AssessmentSectionModel],

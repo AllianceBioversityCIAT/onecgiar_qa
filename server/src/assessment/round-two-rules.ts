@@ -4,6 +4,8 @@
 // over the round-1 end rule in `assessment-rules.ts`, which stays unchanged.
 // Pure; the inputs are core-field facts only, so a non-core comment can never
 // change the outcome.
+import type { CommentState } from '../database/drizzle/schema/assessment-comments.js';
+import { RoleCode } from '../users/permissions.js';
 import {
   endAfterValidation,
   endOnFinish,
@@ -66,4 +68,71 @@ export function endRoundTwoAfterWrite(
   core: readonly RoundTwoCoreFact[],
 ): RoundTwoWriteOutcome {
   return endAfterValidation(toCoreStates(core));
+}
+
+/** The round-1 facts about one core field that decide a carried green (FR-7, DD-4). */
+export interface RoundOneFacts {
+  /** The previous membership's step-1 validation of the field is green. */
+  green: boolean;
+  /** A round-1 comment (not withdrawn, not deleted) is on the field. */
+  commented: boolean;
+  /** The field's key is in the membership's `changed_fields`. */
+  changed: boolean;
+}
+
+/**
+ * FR-7, DD-4: the stored validation wins; with none, a field starts green when
+ * it was green in round 1, carries no round-1 comment and did not change.
+ * Computed on read, never copied (no write on read).
+ */
+export function effectiveGreen(
+  stored: boolean | undefined,
+  roundOne: RoundOneFacts,
+): boolean {
+  return stored ?? (roundOne.green && !roundOne.commented && !roundOne.changed);
+}
+
+/** The green was carried: nothing is stored and the round-1 facts made it green. */
+export function isCarriedGreen(
+  stored: boolean | undefined,
+  roundOne: RoundOneFacts,
+): boolean {
+  return stored === undefined && effectiveGreen(stored, roundOne);
+}
+
+export type DecisionChoice = 'agree_program' | 'escalate';
+
+/** The comment a Lead may decide on: a round-1 comment, or the Lead's own round-2 one. */
+export interface DecidableComment {
+  origin: 'round_one' | 'lead_round_two';
+  state: CommentState;
+  /** `deleted_at` is set (FR-10). */
+  deleted: boolean;
+}
+
+const ROUND_ONE_DECIDABLE_STATES: readonly CommentState[] = [
+  'disagreed',
+  'open',
+  'clarification_requested',
+];
+
+/**
+ * Design 7: what the caller may decide on a comment; empty = not decidable.
+ * Only a Lead decides. A round-1 comment in `disagreed`, `open` or
+ * `clarification_requested` takes both choices; the Lead's own round-2 comment
+ * takes `escalate` only; anything else, none. The field must be actionable.
+ */
+export function isDecidable(
+  comment: DecidableComment,
+  field: ConfiguredField,
+  role: string | null,
+): readonly DecisionChoice[] {
+  if (role !== RoleCode.LEAD_ASSESSOR) return [];
+  if (comment.deleted || !isActionable(field)) return [];
+  if (comment.origin === 'lead_round_two') {
+    return comment.state === 'withdrawn' ? [] : ['escalate'];
+  }
+  return ROUND_ONE_DECIDABLE_STATES.includes(comment.state)
+    ? ['agree_program', 'escalate']
+    : [];
 }

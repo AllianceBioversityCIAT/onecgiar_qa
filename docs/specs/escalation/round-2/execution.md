@@ -99,3 +99,21 @@
 
 - Actuals vs `3750182`: production 396 · unit specs 1,147 · e2e + support 436 · SQL 54 → ~2,030 of ~2,380; review rounds 9 of ~16. Projection ~5,500 / ~22.
 - Stopped before T-6 (tripwire class, never auto-approved). Back lead answered "Si" to raising the budget to ~5,500 LOC and ~22 review rounds; `design.md` § 13 amended.
+
+### T-6: Round-2 view: thread, `updated`, carried greens — PASS (2026-11-19)
+
+- **Attempts:** 1. Effort high. Skills: nestjs-expert, tdd.
+- **Files changed:** `server/src/assessment/round-two-rules.ts` (`effectiveGreen`, `isCarriedGreen`, `isDecidable`), `assessment-view.ts` (`annotateForRound`, `toThreadItems`; `buildAssessmentView` and the SP view untouched), `assessment.store.ts` (membership record + `previousMembershipId`, `changedFields`, `previousAssessmentId`; `findRoundOneThread` / `buildRoundOneThreadQuery`), `assessment.service.ts` (`open()` round-2 annotation; response `round`), `models/assessment.model.ts` (thread item and decision models; field members; `round`), `test/support/in-memory-assessment.ts`, specs `round-two-rules`, `assessment-view`, `assessment.store`, new `test/assessment-round-two-view.e2e-spec.ts` (20 tests).
+- **Red run (assertion-level):** rules 5 failed ("expected [] to deeply equal [ 'agree_program', 'escalate' ]"); view 10 failed (one was a fixture bug, fixed) ("expected [] to deeply equal [ { commentId: 11, … } ]"); e2e 16 failed ("expected undefined to be 2", "expected [] to deeply equal [ 'general.primary_program' ]"). FR-6 AI read was green before any change (pin: T-4 enabled the row). Store-spec and OpenAPI assertions written after the code.
+- **Falsifier:** per-comment re-read loop → "expected 40 to be 11"; reverted.
+- **Statement counts:** round-2 view 10 for N = 1 and N = 30 (thread 1 + round-1 validations 1); new round-2 membership 8; round 1 unchanged (8 / 6 pins).
+- **Implementer verification:** lint 0 · build ok · unit 4028 passed / 6 skipped · e2e 1289 passed (35 files) · client build ok.
+- **Evidence re-run (Leader inline):** 3 unit specs 102/102; round-two-view + assessment-view + openapi e2e 56/56; build ok → **VERIFIED**.
+- **Reviewer:** **PASS** — one SELECT thread with withdrawn/deleted filters and no responder email; latest response by `MAX(id)`; DD-4 exact; round-1 and SP views unchanged; TS and OpenAPI consistent.
+- **ADVISORY:** (1) DD-4 text said "one extra column" — impossible for an uncommented field; amended (below). (2) add `step_position = 1` to the previous-assessment join to make the invariant structural. (3) `decidable` ignores `writable`: the front must gate decision controls on `writable && decidable` — **forward pointer to T-12 (front contract)**. (4) ordering by response id stands in for time. (5) `responder_name` is NOT NULL in `schema/sp-comment-responses.ts` — confirmed, no action. (6) the in-memory fake filters withdrawn by state, the adapter by `withdrawn_at`.
+- **Not Done / Assumptions (no owed item):** no step filter on the previous-assessment join; 2 constant extra statements; "no round-1 comment" = no non-withdrawn, non-deleted thread row; threads/carried only on actionable fields, `updated` on any field; extra `valueTruncated` and decision `{ decision, body, decidedAt }`; `assessment.store.ts` pre-existing Prettier noise left as is.
+- **Decisions made / execute-time spec edits:** `design.md` DD-4 consequence amended (thread + round-1 validations = 2 statements, constant in N) — carried as a named check into T-7's Reviewer brief.
+- **spawns:** implementer 82 calls, 285,904 tokens, ended complete; reviewer not reported.
+- **Requirements covered:** FR-3 (`actionable`), FR-4, FR-5, FR-6, FR-7 (view), NFR-1.
+- **Running totals vs budget (raised):** tasks 6/14 · LOC ≈ 4,200 of ~5,500 · review rounds 10/~22.
+- auto-approved (pre-approved mode)

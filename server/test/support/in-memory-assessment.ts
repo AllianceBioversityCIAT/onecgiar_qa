@@ -2,6 +2,7 @@
 import type { TimelineLoads } from '../../src/admin-config/timelines/timeline-loads.js';
 import type { ResultAssessmentStatus } from '../../src/database/drizzle/schema/result-assessments.js';
 import type { CommentState } from '../../src/database/drizzle/schema/assessment-comments.js';
+import type { CommentDecisionKind } from '../../src/database/drizzle/schema/comment-decisions.js';
 import type {
   TimelineResultEndReason,
   TimelineResultStatus,
@@ -53,6 +54,7 @@ import type {
   NewQuickCommentRow,
   NewReleaseRow,
   QuickCommentRecord,
+  RoundOneThreadRow,
   SavedQuickComment,
   ValidationRecord,
   ValidationWrite,
@@ -124,6 +126,8 @@ export interface FakeMembership {
   ended?: boolean;
   endReason?: TimelineResultEndReason | null;
   changedFields?: string[] | null;
+  /** `timeline_results.previous_membership_id`: the returned round-1 membership a round-2 one follows. */
+  previousMembershipId?: number | null;
   /** `timeline_results.snapshot_sk`; default `SNAP#<code>` (a test of the real key passes the runner's own). */
   snapshotSk?: string;
   /** The phase's result id (default: the result code) and year (default: the cycle's year, 2026). */
@@ -163,8 +167,20 @@ export interface FakeComment {
   stepPosition?: number;
   round?: number;
   withdrawnAt?: Date | null;
+  /** Round 2 (FR-10): a Lead deleted the comment. A deleted comment keeps its state. */
+  deletedAt?: Date | null;
   /** Set by the write side when an end makes the comment visible to the program. */
   visibleToProgramAt?: Date | null;
+}
+
+/** One `comment_decisions` row (round-2 FR-8): one per comment and role. */
+export interface FakeCommentDecision {
+  commentId: number;
+  assessmentId?: number;
+  roleCode: string;
+  decision: CommentDecisionKind;
+  body: string | null;
+  decidedAt?: Date;
 }
 
 /** One `assessment_releases` row, as the write side queued it. */
@@ -258,6 +274,8 @@ export class InMemoryAssessmentWorld {
   memberships: FakeMembership[] = [];
   assessments: FakeAssessment[] = [];
   comments: FakeComment[] = [];
+  /** `comment_decisions` rows (round-2 FR-8). */
+  commentDecisions: FakeCommentDecision[] = [];
   validations: FakeValidation[] = [];
   /** The append-only audit rows (FR-21). */
   audits: FakeAuditEvent[] = [];
@@ -680,6 +698,14 @@ export class InMemoryAssessmentStore implements AssessmentStore {
       endReason: found.endReason ?? null,
       snapshotSk: found.snapshotSk ?? `SNAP#${found.resultCode}`,
       cycleYear: timeline?.cycleYear ?? 2026,
+      previousMembershipId: found.previousMembershipId ?? null,
+      changedFields: found.changedFields ?? null,
+      previousAssessmentId:
+        this.world.assessments.find(
+          (x) =>
+            found.previousMembershipId !== undefined &&
+            x.membershipId === found.previousMembershipId,
+        )?.id ?? null,
       assessment:
         assessment === undefined
           ? null
@@ -716,6 +742,74 @@ export class InMemoryAssessmentStore implements AssessmentStore {
         .filter(({ c }) => c.assessmentId === assessmentId)
         .map(({ c, index }) => commentRecordOf(this.world, c, index)),
     );
+  }
+
+  /** One counted statement, like the adapter's single SELECT (round-2 NFR-1). */
+  findRoundOneThread(
+    assessmentId: number,
+    roleCode: string,
+  ): Promise<RoundOneThreadRow[]> {
+    this.world.statements += 1;
+    const rows: RoundOneThreadRow[] = [];
+    this.world.comments.forEach((c, index) => {
+      if (c.assessmentId !== assessmentId) return;
+      if (c.state === 'withdrawn' || (c.deletedAt ?? null) !== null) return;
+      const record = commentRecordOf(this.world, c, index);
+      const own = this.world.spResponses
+        .filter((r) => r.commentId === record.id)
+        .sort((x, y) => x.id - y.id);
+      const latest = own.at(-1);
+      const shown = own.filter(
+        (r) => r.kind === 'request_clarification' || r.id === latest?.id,
+      );
+      const decision = this.world.commentDecisions.find(
+        (d) => d.commentId === record.id && d.roleCode === roleCode,
+      );
+      const base = {
+        commentId: record.id,
+        fieldKey: record.fieldKey,
+        authorId: record.authorId,
+        authorNickname: record.authorNickname,
+        body: record.body,
+        state: record.state,
+        valueCopy: record.valueCopy,
+        valueTruncated: record.valueTruncated,
+        createdAt: record.createdAt,
+        decision: decision?.decision ?? null,
+        decisionBody: decision?.body ?? null,
+        decidedAt:
+          decision === undefined
+            ? null
+            : (decision.decidedAt ?? record.createdAt),
+      };
+      const lines = shown.length === 0 ? [undefined] : shown;
+      for (const response of lines) {
+        const answer =
+          response === undefined
+            ? undefined
+            : this.world.clarificationAnswers.find(
+                (x) => x.responseId === response.id,
+              );
+        rows.push({
+          ...base,
+          responseId: response?.id ?? null,
+          responseKind: response?.kind ?? null,
+          responseBody: response?.body ?? null,
+          responderName: response?.responderName ?? null,
+          respondedAt: response?.createdAt ?? null,
+          answerBody: answer?.body ?? null,
+          answeredAt: answer?.createdAt ?? null,
+        });
+      }
+    });
+    rows.sort(
+      (x, y) =>
+        x.fieldKey.localeCompare(y.fieldKey) ||
+        x.createdAt.getTime() - y.createdAt.getTime() ||
+        x.commentId - y.commentId ||
+        (x.responseId ?? 0) - (y.responseId ?? 0),
+    );
+    return Promise.resolve(rows);
   }
 
   listQuickComments(roleCode: string): Promise<QuickCommentRecord[]> {

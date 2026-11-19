@@ -35,7 +35,7 @@ import {
 import { AuthorizationService } from '../users/authorization.service.js';
 import { CatalogService } from '../users/catalogs/catalog.service.js';
 import type { AuthenticatedUser } from '../users/current-user.cache.js';
-import { Permission } from '../users/permissions.js';
+import { Permission, RoleCode } from '../users/permissions.js';
 import {
   AssessmentBusyError,
   AssessmentCommentFieldInvalidError,
@@ -69,10 +69,11 @@ import {
   type CoreFieldState,
 } from './assessment-rules.js';
 import {
+  annotateForRound,
   buildAssessmentView,
+  type RoundViewField,
+  type RoundViewSection,
   type ViewComment,
-  type ViewSection,
-  type ViewField,
 } from './assessment-view.js';
 import type { QaStatus } from './qa-status.js';
 import { statusOf } from './qa-status.js';
@@ -143,8 +144,10 @@ export interface ValidationSummary extends AssessmentSummary {
 /** The answer of `GET …/results/:resultCode/assessment` (design 6). */
 export interface AssessmentViewResponse {
   header: AssessmentHeader;
-  sections: ViewSection[];
-  other: ViewField[];
+  /** The membership's round: 1 for the assessor, 2 for the Lead (round-2 design 6). */
+  round: number;
+  sections: RoundViewSection[];
+  other: RoundViewField[];
   writable: boolean;
   readOnlyReason: AssessmentReadOnlyReason | null;
   assessment: AssessmentSummary | null;
@@ -1090,6 +1093,11 @@ export class AssessmentService {
    * the validations and comments two more: six in all, whatever the size of the
    * result. One snapshot GetItem. A read never writes (DD-3).
    *
+   * Round 2 (escalation/round-2 T-6, NFR-1): two more statements when the
+   * membership has a previous assessment, the thread (ONE SELECT for any number
+   * of round-1 comments) and that assessment's validations; none for a new
+   * round-2 membership. The view never gets a per-comment read.
+   *
    * An out-of-scope result, a result that does not exist and a timeline that is
    * not the caller's are one and the same 404 (FR-1 *Out-of-scope result by
    * URL*): nothing tells them apart.
@@ -1122,6 +1130,18 @@ export class AssessmentService {
             this.store.findValidations(assessment.id),
             this.store.findComments(assessment.id),
           ]);
+    // Round 2 (design 7 *Thread read*, DD-4): the previous membership's step-1
+    // thread (ONE statement for any number of comments) and its validations.
+    // A new round-2 membership has no previous assessment: nothing is read.
+    const previous =
+      membership.round === 1 ? null : membership.previousAssessmentId;
+    const [roundOneThread, roundOneValidations] =
+      previous === null
+        ? [[], []]
+        : await Promise.all([
+            this.store.findRoundOneThread(previous, RoleCode.LEAD_ASSESSOR),
+            this.store.findValidations(previous),
+          ]);
     const [programs, resultTypes] = await Promise.all([
       this.catalog.listSciencePrograms(),
       this.catalog.listResultTypes(),
@@ -1135,6 +1155,20 @@ export class AssessmentService {
       labels: snapshot.labels,
       validated: new Map(validations.map((v) => [v.fieldKey, v.validated])),
       comments: comments.map(toViewComment),
+    });
+    // Additive members over the step-1 view (FR-3, FR-4, FR-5, FR-7). ADMIN has no
+    // reviewer row at this round: it reads the thread and decides nothing.
+    const rounded = annotateForRound(view, {
+      round: membership.round,
+      role:
+        access.reviewerRows.find((row) => row.round === membership.round)
+          ?.role ?? null,
+      changedFields: membership.changedFields,
+      stored: new Map(validations.map((v) => [v.fieldKey, v.validated])),
+      roundOneGreens: new Set(
+        roundOneValidations.filter((v) => v.validated).map((v) => v.fieldKey),
+      ),
+      thread: roundOneThread,
     });
 
     const decision = writeDecision(
@@ -1193,8 +1227,9 @@ export class AssessmentService {
           ),
         }),
       },
-      sections: view.sections,
-      other: view.other,
+      round: membership.round,
+      sections: rounded.sections,
+      other: rounded.other,
       writable: readOnlyReason === null,
       readOnlyReason,
       assessment:
