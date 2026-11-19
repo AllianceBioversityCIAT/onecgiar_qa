@@ -32,7 +32,11 @@ import { isDuplicateKeyError } from '../common/idempotency/idempotency.errors.js
 import { timelineSteps } from '../database/drizzle/schema/timeline-steps.js';
 import { timelines } from '../database/drizzle/schema/timelines.js';
 import type { WorklistAccess } from './scope.js';
-import { scopeCondition, type WorklistStep } from './worklist.store.js';
+import {
+  currentStepSql,
+  scopeCondition,
+  type WorklistStep,
+} from './worklist.store.js';
 
 // Port of the assessment reads (design 5, 6, 7.4; DD-3: a read never writes):
 // three methods, one statement each. The write side below (T-10) is a second
@@ -47,8 +51,10 @@ export interface MembershipCriteria {
   access: WorklistAccess;
   /** ADMIN only: the round asked for; `null` = the reviewer's own round, or the latest for an ADMIN. */
   round: number | null;
-  /** The step whose assessment is read; `null` when the timeline has none. */
+  /** The `assessors` step, where a round-1 membership's assessment lives; `null` when the timeline has none. */
   assessmentStepPosition: number | null;
+  /** The round-2 steps in order: a round-2 membership reads the latest assessment among them, else the first (DD-3). */
+  roundTwoStepPositions: readonly number[];
 }
 
 /** A membership in scope, with the assessment of the role's step when one exists. */
@@ -73,6 +79,8 @@ export interface MembershipRecord {
   assessment: {
     id: number;
     status: ResultAssessmentStatus;
+    /** The step the row belongs to: the membership's current step (DD-3). */
+    stepPosition: number;
     /** The version NUMBER the assessment pinned (DD-3). */
     fieldConfigVersion: number;
     /** The id of that version's row, joined by (cycle, number); null when no such row exists (a defect). */
@@ -342,6 +350,7 @@ export class DrizzleAssessmentStore implements AssessmentStore {
           cycleYear: cycles.year,
           assessmentId: a.id,
           assessmentStatus: a.status,
+          assessmentStepPosition: a.stepPosition,
           fieldConfigVersion: a.fieldConfigVersion,
           fieldConfigVersionId: fieldConfigVersions.id,
           finishedAt: a.finishedAt,
@@ -354,8 +363,7 @@ export class DrizzleAssessmentStore implements AssessmentStore {
           a,
           and(
             eq(a.timelineResultId, t.id),
-            // Position 0 never exists (positions are 1 to 5): no step, no assessment.
-            eq(a.stepPosition, criteria.assessmentStepPosition ?? 0),
+            eq(a.stepPosition, currentStepSql(criteria)),
           ),
         )
         .leftJoin(users, eq(users.id, a.finishedBy))
@@ -404,11 +412,13 @@ export class DrizzleAssessmentStore implements AssessmentStore {
       assessment:
         row.assessmentId === null ||
         row.assessmentStatus === null ||
+        row.assessmentStepPosition === null ||
         row.fieldConfigVersion === null
           ? null
           : {
               id: row.assessmentId,
               status: row.assessmentStatus,
+              stepPosition: row.assessmentStepPosition,
               fieldConfigVersion: row.fieldConfigVersion,
               fieldConfigVersionId: row.fieldConfigVersionId,
               finishedAt: row.finishedAt,

@@ -10,6 +10,10 @@ import type { CycleStatus } from '../../src/database/drizzle/schema/cycles.js';
 import type { TimelineKind } from '../../src/database/drizzle/schema/timelines.js';
 import { statusOf, type QaStatus } from '../../src/assessment/qa-status.js';
 import {
+  currentStepPosition,
+  type CurrentStepPositions,
+} from '../../src/assessment/role-steps.js';
+import {
   inScope,
   listedFor,
   type MembershipFacts,
@@ -226,6 +230,27 @@ export function defaultFakeSteps(): WorklistStep[] {
 }
 
 export class InMemoryAssessmentWorld {
+  /**
+   * The assessment a membership reads (DD-3): the row at its current step, by
+   * the same rule the SQL (`currentStepSql`) twins.
+   */
+  currentAssessment(
+    membership: FakeMembership,
+    steps: CurrentStepPositions,
+  ): FakeAssessment | undefined {
+    const mine = this.assessments.filter(
+      (a) => a.membershipId === membership.id,
+    );
+    const position = currentStepPosition(
+      steps,
+      membership.round ?? 1,
+      mine.map((a) => a.stepPosition),
+    );
+    return position === null
+      ? undefined
+      : mine.find((a) => a.stepPosition === position);
+  }
+
   /** Statements the services issued since the last `resetStatements()`. */
   statements = 0;
   timelines: FakeTimeline[] = [];
@@ -476,12 +501,7 @@ export class InMemoryWorklistStore implements WorklistStore {
     const out: Array<Omit<WorklistRecord, 'sortValue'>> = [];
     for (const m of this.world.memberships) {
       if (m.timelineId !== scope.timelineId) continue;
-      const assessment = this.world.assessments.find(
-        (a) =>
-          a.membershipId === m.id &&
-          scope.assessmentStepPosition !== null &&
-          a.stepPosition === scope.assessmentStepPosition,
-      );
+      const assessment = this.world.currentAssessment(m, scope);
       const anyAssessmentIds = this.world.assessments
         .filter((a) => a.membershipId === m.id)
         .map((a) => a.id);
@@ -641,12 +661,7 @@ export class InMemoryAssessmentStore implements AssessmentStore {
       })
       .sort((x, y) => (y.round ?? 1) - (x.round ?? 1))[0];
     if (found === undefined) return Promise.resolve(null);
-    const assessment = this.world.assessments.find(
-      (a) =>
-        a.membershipId === found.id &&
-        criteria.assessmentStepPosition !== null &&
-        a.stepPosition === criteria.assessmentStepPosition,
-    );
+    const assessment = this.world.currentAssessment(found, criteria);
     const finisher =
       assessment?.finishedBy === undefined || assessment.finishedBy === null
         ? undefined
@@ -671,6 +686,7 @@ export class InMemoryAssessmentStore implements AssessmentStore {
           : {
               id: assessment.id,
               status: assessment.status,
+              stepPosition: assessment.stepPosition,
               fieldConfigVersion: assessment.fieldConfigVersion ?? 1,
               fieldConfigVersionId:
                 assessment.fieldConfigVersionId === undefined

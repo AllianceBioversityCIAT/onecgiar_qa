@@ -107,7 +107,7 @@ All back tasks touch `server/src/assessment/` (one shared boundary), so they run
 
 ## T-4: Enable the Lead row, current step, status `pending_tpb_review`
 
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-3
 - **Requirements:**

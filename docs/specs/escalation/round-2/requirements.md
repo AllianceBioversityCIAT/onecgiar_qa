@@ -101,7 +101,7 @@ The system SHALL give a LEAD_ASSESSOR a worklist and write access to round-2 mem
 - WHEN they list T's worklist and open re-submitted result R (innovation development, their program)
 - THEN R is listed with status Pending and opens writable
 - BUT it must NOT list R's round-1 membership, a round-2 membership of another result type or program, or any membership of a timeline they are not assigned to (same 404 body as missing)
-- AND IT MUST answer `writable: false` with `readOnlyReason` = step closed when step 3 is upcoming or closed, and refuse every write with the existing step-closed error
+- AND IT MUST answer `writable: false` with the existing `readOnlyReason` (`step_upcoming` before step 3 opens, `step_closed` after it closes), and refuse every write with the existing step-closed error
 
 #### Scenario: Assessor does not reach round 2
 
@@ -308,13 +308,14 @@ The QA status of a round-2 membership SHALL come from its current step's assessm
 | Lead assessment ended `escalated` | Pending for TPB review |
 | Ended `quality_assessed` | Quality Assessed |
 
-The status SHALL be the same in the worklist (filters, counts, sort), in the view, and for ADMIN. Round-1 statuses do not change.
+The status SHALL be the same in the worklist (filters, counts, sort), in the view, and for ADMIN. Round-1 statuses do not change. In the worklist's pending / finished counters, Pending for TPB review counts as **finished**: the Lead's review has ended (back lead, 2026-11-19).
 
 #### Scenario: Admin worklist
 
 - GIVEN R's Lead assessment ended `escalated`
 - WHEN an ADMIN lists the timeline and filters `pending_tpb_review`
 - THEN R's round-2 membership is listed with that status, and the count includes it
+- AND it counts in `finished`, not in `pending`
 
 ### FR-15: Round-2 writing stays internal
 

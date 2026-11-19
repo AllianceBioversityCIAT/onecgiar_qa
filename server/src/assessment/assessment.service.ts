@@ -81,7 +81,8 @@ import {
 } from './release.service.js';
 import { buildValueCopy } from './comment-value-copy.js';
 import {
-  enabledReviewerRows,
+  currentStepPosition,
+  currentStepPositionsOf,
   isWithdrawWindowOpen,
   type StepTiming,
 } from './role-steps.js';
@@ -279,12 +280,12 @@ export class AssessmentService {
   ): Promise<ValidationSummary> {
     const now = nowInRome(at);
 
-    const { timeline, access, membership, facts, hasLoad, decision, readStep } =
+    const { timeline, access, membership, facts, hasLoad, decision } =
       await this.resolveWrite(user, timelineId, resultCode, now);
     trace.membershipId = membership.membershipId;
     const stepPosition = decision.stepPosition;
     const held =
-      membership.assessment !== null && readStep === stepPosition
+      membership.assessment?.stepPosition === stepPosition
         ? membership.assessment
         : null;
 
@@ -461,12 +462,12 @@ export class AssessmentService {
     trace: WriteLogTrace,
   ): Promise<ValidationSummary> {
     const now = nowInRome(at);
-    const { timeline, access, membership, facts, hasLoad, decision, readStep } =
+    const { timeline, access, membership, facts, hasLoad, decision } =
       await this.resolveWrite(user, timelineId, resultCode, now);
     trace.membershipId = membership.membershipId;
     const stepPosition = decision.stepPosition;
     const held =
-      membership.assessment !== null && readStep === stepPosition
+      membership.assessment?.stepPosition === stepPosition
         ? membership.assessment
         : null;
 
@@ -765,12 +766,12 @@ export class AssessmentService {
   ): Promise<ViewComment> {
     const now = nowInRome(at);
 
-    const { timeline, access, membership, facts, hasLoad, decision, readStep } =
+    const { timeline, access, membership, facts, hasLoad, decision } =
       await this.resolveWrite(user, timelineId, resultCode, now);
     trace.membershipId = membership.membershipId;
     const stepPosition = decision.stepPosition;
     const held =
-      membership.assessment !== null && readStep === stepPosition
+      membership.assessment?.stepPosition === stepPosition
         ? membership.assessment
         : null;
 
@@ -928,7 +929,7 @@ export class AssessmentService {
       resultCode: context.resultCode,
       access,
       round: context.round,
-      assessmentStepPosition: context.stepPosition,
+      ...currentStepPositionsOf(timeline.steps),
     });
     // The membership of THIS comment, inside the caller's scope: any other is "not found".
     if (
@@ -1023,13 +1024,12 @@ export class AssessmentService {
     if (!admin && access.reviewerRows.length === 0) {
       throw new AssessmentNotFoundError();
     }
-    const readStep = this.assessmentStep(timeline, access);
     const membership = await this.store.findMembership({
       timelineId: timeline.id,
       resultCode,
       access,
       round: null,
-      assessmentStepPosition: readStep,
+      ...currentStepPositionsOf(timeline.steps),
     });
     if (membership === null) throw new AssessmentNotFoundError();
     const hasLoad = (await this.loads.withLoad([timeline.id])).has(timeline.id);
@@ -1044,7 +1044,7 @@ export class AssessmentService {
     const decision = this.assertWritable(
       writeDecision(access, facts, { steps: timeline.steps, now, hasLoad }),
     );
-    return { timeline, access, membership, facts, hasLoad, decision, readStep };
+    return { timeline, access, membership, facts, hasLoad, decision };
   }
 
   /** The refusal of a write decision: 404 (not in scope), 403 (an ADMIN with no reviewer row), 409 (the step is not open). */
@@ -1225,15 +1225,19 @@ export class AssessmentService {
     if (!admin && access.reviewerRows.length === 0) {
       throw new AssessmentNotFoundError();
     }
-    const stepPosition = this.assessmentStep(timeline, access);
+    const steps = currentStepPositionsOf(timeline.steps);
     const membership = await this.store.findMembership({
       timelineId: timeline.id,
       resultCode,
       access,
       round,
-      assessmentStepPosition: stepPosition,
+      ...steps,
     });
     if (membership === null) throw new AssessmentNotFoundError();
+    // DD-3: the step of the membership's own round, whoever reads it (ADMIN included).
+    const stepPosition =
+      membership.assessment?.stepPosition ??
+      currentStepPosition(steps, membership.round, []);
     return { timeline, access, stepPosition, membership };
   }
 
@@ -1360,18 +1364,5 @@ export class AssessmentService {
       throw new Error('assessment_snapshot_missing');
     }
     return snapshot;
-  }
-
-  /** The step whose assessment is read: the first reviewer row's, else the enabled reviewer role's (an ADMIN reads the same step). */
-  private assessmentStep(
-    timeline: WorklistTimeline,
-    access: WorklistAccess,
-  ): number | null {
-    const audience =
-      access.reviewerRows[0]?.audience ?? enabledReviewerRows()[0]?.audience;
-    return (
-      timeline.steps.find((step) => step.audience === audience)?.position ??
-      null
-    );
   }
 }

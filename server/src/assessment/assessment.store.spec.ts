@@ -55,6 +55,7 @@ function criteria(
     access: reviewerAccess(),
     round: null,
     assessmentStepPosition: 1,
+    roundTwoStepPositions: [],
     ...overrides,
   };
 }
@@ -91,10 +92,10 @@ describe('DrizzleAssessmentStore.buildMembershipQuery', () => {
     // Dropping the timeline predicate leaks a result across timelines.
     expect(where).toContain(TIMELINE);
     expect(where).toContain(CODE);
-    // The step position of the join binds first, then the timeline and the code.
-    expect(params.slice(1, 3)).toEqual([7, 5001]);
-    expect(membershipSql(criteria({ timelineId: 8 })).params[1]).toBe(8);
-    expect(membershipSql(criteria({ resultCode: 5002 })).params[2]).toBe(5002);
+    // The join binds first (the round-1 step, then the round-2 default: 1 and 0 with no round-2 step), then the timeline and the code.
+    expect(params.slice(0, 4)).toEqual([1, 0, 7, 5001]);
+    expect(membershipSql(criteria({ timelineId: 8 })).params[2]).toBe(8);
+    expect(membershipSql(criteria({ resultCode: 5002 })).params[3]).toBe(5002);
   });
 
   it('scopes a reviewer by the worklist condition: the row round, the granted result type and the program scope', () => {
@@ -124,7 +125,7 @@ describe('DrizzleAssessmentStore.buildMembershipQuery', () => {
     );
     const where = whereOf(text);
     expect(where).toContain('`timeline_results`.`status` <> ?');
-    expect(params).toEqual([1, 7, 5001, 'not_in_qa', 1]);
+    expect(params).toEqual([1, 0, 7, 5001, 'not_in_qa', 1]);
     expect(where).not.toContain('`entry_round`');
     expect(where).not.toContain('result_type_key');
     expect(where).toContain(TIMELINE);
@@ -137,25 +138,34 @@ describe('DrizzleAssessmentStore.buildMembershipQuery', () => {
     );
     const where = whereOf(text);
     expect(count(where, ROUND)).toBe(1);
-    expect(params).toEqual([1, 7, 5001, 'not_in_qa', 2, 1]);
+    expect(params).toEqual([1, 0, 7, 5001, 'not_in_qa', 2, 1]);
   });
 
-  it('joins the assessment of the step on the membership and the step position, and reads zero when the timeline has no step', () => {
-    const withStep = membershipSql(criteria({ assessmentStepPosition: 2 }));
+  // DD-3: the join reads the membership's CURRENT step: round 1 the assessors step, round 2 the latest
+  // existing assessment among its round-2 steps, else the first.
+  it("joins the assessment of the membership's current step (DD-3), and reads zero when the timeline has no step", () => {
+    const withSteps = membershipSql(
+      criteria({ assessmentStepPosition: 2, roundTwoStepPositions: [3, 4, 5] }),
+    );
     const join = between(
-      withStep.sql,
+      withSteps.sql,
       ' left join `result_assessments`',
       ' left join `users`',
     );
     expect(join).toContain(
       '`result_assessments`.`timeline_result_id` = `timeline_results`.`id`',
     );
-    expect(join).toContain('`result_assessments`.`step_position` = ?');
-    expect(withStep.params[0]).toBe(2);
+    expect(join).toContain(
+      '`result_assessments`.`step_position` = CASE WHEN `timeline_results`.`entry_round` <= 1 THEN ? ELSE COALESCE((SELECT MAX(`cur`.`step_position`) FROM `result_assessments` `cur` WHERE `cur`.`timeline_result_id` = `timeline_results`.`id` AND `cur`.`step_position` IN (?, ?, ?)), ?) END',
+    );
+    // Round-1 step, the three round-2 steps, then the first of them as the default.
+    expect(withSteps.params.slice(0, 5)).toEqual([2, 3, 4, 5, 3]);
 
     // Position 0 never exists (positions are 1 to 5): no step, no assessment.
-    const noStep = membershipSql(criteria({ assessmentStepPosition: null }));
-    expect(noStep.params[0]).toBe(0);
+    const noStep = membershipSql(
+      criteria({ assessmentStepPosition: null, roundTwoStepPositions: [] }),
+    );
+    expect(noStep.params.slice(0, 2)).toEqual([0, 0]);
   });
 
   it('joins the cycle for the catalog year, who finished the assessment, and the row of the version the assessment pinned', () => {
@@ -219,7 +229,9 @@ describe('the comment context statement (withdraw and the replay reader)', () =>
   it('reads the comment, its author nickname, its assessment and membership in ONE statement, by the comment id', () => {
     const { sql: text, params } = store.buildCommentContextQuery(700).toSQL();
     expect(text).toContain('from `assessment_comments`');
-    expect(text).toContain('inner join `users` on `users`.`id` = `assessment_comments`.`author_id`');
+    expect(text).toContain(
+      'inner join `users` on `users`.`id` = `assessment_comments`.`author_id`',
+    );
     expect(text).toContain(
       'inner join `result_assessments` on `result_assessments`.`id` = `assessment_comments`.`assessment_id`',
     );

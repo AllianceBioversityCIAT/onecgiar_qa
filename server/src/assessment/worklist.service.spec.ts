@@ -223,15 +223,16 @@ describe('FR-1: scope by role row', () => {
     expect(codes(all)).not.toContain(3);
   });
 
-  it('A role with no active row (LEAD_ASSESSOR only): empty 200 that says so, never an error and never step-1 results', async () => {
+  // P2-3912 enabled the Lead row, so the disabled-role case is pinned on TPB (FR-16).
+  it('A role with no active row (TPB only): empty 200 that says so, never an error and never step-1 results', async () => {
     const { world, service } = setup();
     world.timelineUsers.push({
       timelineId: 1,
       userId: 11,
-      roleCode: 'LEAD_ASSESSOR',
+      roleCode: 'TPB',
     });
     world.memberships.push(membership({ resultCode: 1 }));
-    const lead = userOf(11, [assignment('LEAD_ASSESSOR', 'policy_change')]);
+    const lead = userOf(11, [assignment('TPB', null)]);
 
     const page = await service.list(lead, 1);
 
@@ -981,9 +982,9 @@ describe('options (FR-4: filter options inside the scope)', () => {
     world.timelineUsers.push({
       timelineId: 1,
       userId: 10,
-      roleCode: 'LEAD_ASSESSOR',
+      roleCode: 'TPB',
     });
-    const user = userOf(10, [assignment('LEAD_ASSESSOR', '*')]);
+    const user = userOf(10, [assignment('TPB', '*')]);
     expect(await service.options(user, 1)).toEqual({
       programs: [],
       resultTypes: [],
@@ -1030,5 +1031,120 @@ describe('options (FR-4: filter options inside the scope)', () => {
       'policy_change',
       'innovation_use',
     ]);
+  });
+});
+
+// FR-1, FR-14, FR-16 (P2-3912): the Lead row is enabled and the status reads the membership's current step (DD-3).
+describe('Round 2: the Lead worklist and the current step', () => {
+  const lead = () =>
+    userOf(11, [assignment('LEAD_ASSESSOR', 'innovation_development')], [1]);
+  const round2 = (
+    resultCode: number,
+    extra: Partial<FakeMembership> = {},
+  ): FakeMembership =>
+    membership({
+      resultCode,
+      round: 2,
+      resultTypeKey: 'innovation_development',
+      ...extra,
+    });
+
+  function leadWorld() {
+    const built = setup();
+    built.world.timelineUsers.push({
+      timelineId: 1,
+      userId: 11,
+      roleCode: 'LEAD_ASSESSOR',
+    });
+    return built;
+  }
+
+  it('lists the round-2 memberships of the Lead scope as Pending, and nothing else', async () => {
+    const { world, service } = leadWorld();
+    world.memberships.push(
+      round2(1),
+      round2(2, { round: 1 }),
+      round2(3, { resultTypeKey: 'policy_change' }),
+      round2(4, { programId: 2 }),
+    );
+    const page = await service.list(lead(), 1);
+    expect(codes(page)).toEqual([1]);
+    expect(page.rows[0]!.status).toBe('pending');
+    expect(page.noActiveRole).toBe(false);
+  });
+
+  it('a Lead of another timeline sees none of it (assignment gates the timeline)', async () => {
+    const { world, service } = setup();
+    world.memberships.push(round2(1));
+    await expect(service.list(lead(), 1)).rejects.toThrow(
+      TimelineNotFoundError,
+    );
+  });
+
+  it('an ASSESSOR of the same scope does not list a round-2 membership (FR-1)', async () => {
+    const { world, service } = setup();
+    world.timelineUsers.push({
+      timelineId: 1,
+      userId: 10,
+      roleCode: 'ASSESSOR',
+    });
+    world.memberships.push(round2(1));
+    const assessor = userOf(
+      10,
+      [assignment('ASSESSOR', 'innovation_development')],
+      [1],
+    );
+    expect(codes(await service.list(assessor, 1))).toEqual([]);
+  });
+
+  it('ADMIN filters pending_tpb_review on the step-3 assessment of a round-2 membership, and counts it', async () => {
+    const { world, service } = setup();
+    const escalated = round2(1);
+    const untouched = round2(2);
+    const roundOne = membership({
+      resultCode: 3,
+      resultTypeKey: 'innovation_development',
+    });
+    world.memberships.push(escalated, untouched, roundOne);
+    world.assessments.push(
+      {
+        id: 1,
+        membershipId: escalated.id,
+        stepPosition: 3,
+        status: 'escalated',
+      },
+      { id: 2, membershipId: roundOne.id, stepPosition: 1, status: 'returned' },
+    );
+    const filtered = await service.list(admin(), 1, {
+      statuses: ['pending_tpb_review'],
+    });
+    expect(codes(filtered)).toEqual([1]);
+    expect(filtered.rows[0]!.status).toBe('pending_tpb_review');
+    const all = await service.list(admin(), 1);
+    expect(
+      Object.fromEntries(all.rows.map((row) => [row.resultCode, row.status])),
+    ).toEqual({
+      1: 'pending_tpb_review',
+      2: 'pending',
+      3: 'returned_to_program',
+    });
+    expect(all.counters.total).toBe(3);
+    // FR-14: the Lead's review has ended, so the escalated row is finished, not pending.
+    // Rows: 1 escalated, 2 pending, 3 returned_to_program.
+    expect(all.counters).toEqual({ pending: 1, finished: 2, total: 3 });
+  });
+
+  it('the Lead sees the same status as ADMIN for an escalated membership (one status for every role)', async () => {
+    const { world, service } = leadWorld();
+    const escalated = round2(1);
+    world.memberships.push(escalated);
+    world.assessments.push({
+      id: 1,
+      membershipId: escalated.id,
+      stepPosition: 3,
+      status: 'escalated',
+    });
+    const page = await service.list(lead(), 1);
+    expect(page.rows.map((row) => row.status)).toEqual(['pending_tpb_review']);
   });
 });

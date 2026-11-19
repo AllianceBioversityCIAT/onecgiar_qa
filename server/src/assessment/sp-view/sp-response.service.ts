@@ -308,6 +308,8 @@ export class SpResponseService {
       resultCode: context.resultCode,
       access,
       round: context.round,
+      // Round 1 only: the program never reads a round-2 step (round-2 FR-15).
+      roundTwoStepPositions: [],
       assessmentStepPosition: context.stepPosition,
     });
     if (
