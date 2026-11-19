@@ -14,10 +14,12 @@ import {
   LEAD_TOP_FIELDS,
   ME_ASSESSOR,
   MY_COMMENT_OUTCOMES,
+  MY_TOP_FIELDS,
   OVERVIEW_ROLES,
   OverviewRole,
-  PPU_NEXT,
+  PPU_NEXT_SHOWN,
   PPU_QUEUE,
+  QueueItem,
   TPB_NEXT,
   TPB_QUEUE,
 } from './overview-roles.mock';
@@ -598,18 +600,27 @@ export class OverviewView {
           action: { label: 'Decide the next one', link: { path: ['/results', TPB_NEXT[0].code], query: { as: 'tpb' } } },
         };
       }
-      case 'ppu':
+      case 'ppu': {
+        const open = this.ppuOpen();
+        const done = PPU_QUEUE.length - open.length;
+        const updated = open.filter((i) => i.reporting === 'updated').length;
+        const next = open[0];
         return {
-          count: fmt(PPU_QUEUE.toApply),
-          noun: PPU_QUEUE.toApply === 1 ? 'change to apply in the Reporting Tool' : 'changes to apply in the Reporting Tool',
+          count: fmt(open.length),
+          noun: open.length === 1 ? 'change to apply in the Reporting Tool' : 'changes to apply in the Reporting Tool',
           ...this.roleStep(4),
-          progress: { done: PPU_QUEUE.done, of: PPU_QUEUE.done + PPU_QUEUE.toApply, label: 'applied' },
+          progress: { done, of: PPU_QUEUE.length, label: 'done' },
+          // QA tells whether the program already changed the field; only the PPU closes it (Ángel, 2026-11-17).
           rows: [
-            { label: 'To apply', count: fmt(PPU_QUEUE.toApply), link: null },
-            { label: 'Done', count: fmt(PPU_QUEUE.done), link: null },
+            { label: 'Updated in the Reporting Tool', count: fmt(updated), link: null },
+            { label: 'Not updated yet', count: fmt(open.length - updated), link: null },
+            { label: 'Done', count: fmt(done), link: null },
           ],
-          action: { label: 'Apply the next one', link: { path: ['/results', PPU_NEXT[0].code], query: { as: 'ppu' } } },
+          action: next
+            ? { label: 'Apply the next one', link: { path: ['/results', next.code], query: { as: 'ppu' } } }
+            : { label: 'Open the results', link: { path: ['/results'] } },
         };
+      }
       default:
         return null;
     }
@@ -639,6 +650,12 @@ export class OverviewView {
     ],
   };
 
+  protected readonly myFields: RankedVm = {
+    title: 'Most discussed fields',
+    subtitle: 'Fields where you left the most comments in this cycle.',
+    rows: MY_TOP_FIELDS.map((f) => ({ label: f.label, n: f.n })),
+  };
+
   protected readonly leadPrograms: RankedVm = {
     title: 'Rejections by program',
     subtitle: 'Comments each science program rejected. Start where there are more.',
@@ -665,13 +682,25 @@ export class OverviewView {
     items: TPB_NEXT,
     role: 'tpb',
   };
-  protected readonly ppuNext: NextItemsVm = {
+  /** PPU: changes closed with "Mark when done" in this preview. TODO(api): the PPU's "done" in the review data. */
+  private readonly ppuDone = signal<ReadonlySet<string>>(new Set());
+  private readonly ppuOpen = computed(() => PPU_QUEUE.filter((i) => !this.ppuDone().has(i.code + i.field)));
+  /** Screen readers hear each change closed from the list. */
+  protected readonly ppuAnnounce = signal('');
+
+  protected readonly ppuNext = computed<NextItemsVm>(() => ({
     title: 'Next changes to apply',
-    subtitle: 'Apply each change in the Reporting Tool, then mark it as done in its review.',
+    subtitle: 'The ones the program already updated in the Reporting Tool come first: check them and mark them as done.',
     noteLabel: 'Third-party broker’s note',
-    items: PPU_NEXT,
+    items: this.ppuOpen().slice(0, PPU_NEXT_SHOWN),
     role: 'ppu',
-  };
+  }));
+
+  /** PPU: close a change the program already updated, from the Overview list. */
+  protected markDone(item: QueueItem): void {
+    this.ppuDone.update((s) => new Set(s).add(item.code + item.field));
+    this.ppuAnnounce.set(`${item.code} ${item.field} marked as done.`);
+  }
 
   // ---------- Actions ----------
   /** A row in "Progress by timeline": open its stages pop-up. */
