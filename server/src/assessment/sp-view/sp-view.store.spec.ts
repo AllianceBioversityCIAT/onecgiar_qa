@@ -46,7 +46,18 @@ describe('DrizzleSpViewStore SQL (P2-3911)', () => {
     expect(sql).toContain(
       "`assessment_comments`.`assessment_id` = `result_assessments`.`id` AND `assessment_comments`.`visible_to_program_at` IS NOT NULL AND `assessment_comments`.`deleted_at` IS NULL AND `assessment_comments`.`state` <> 'withdrawn'",
     );
-    expect(sql).toContain('`assessment_comments`.`state` IN (?, ?, ?)');
+    // DD-11: an answered clarification request reads `open`, in the answered count and in the clarification probe.
+    const answeredProbe =
+      "WHEN ? THEN CASE WHEN EXISTS (SELECT 1 FROM `comment_clarification_answers` WHERE `comment_clarification_answers`.`response_id` = (SELECT `sp_comment_responses`.`id` FROM `sp_comment_responses` WHERE `sp_comment_responses`.`comment_id` = `assessment_comments`.`id` ORDER BY `sp_comment_responses`.`id` DESC LIMIT 1)) THEN 'open' ELSE ? END";
+    // Once in `hasClarificationThread` and once in the `answered` count.
+    expect(sql.split(answeredProbe)).toHaveLength(3);
+    // DD-11: the answered count reads the program-side state, not the stored review state.
+    expect(sql).toContain(
+      'ELSE `assessment_comments`.`state` END) IN (?, ?, ?)',
+    );
+    expect(sql).toContain(
+      'CASE WHEN `assessment_comments`.`state` IN (?, ?, ?, ?, ?) THEN COALESCE(CASE (SELECT `sp_comment_responses`.`kind`',
+    );
     expect(params).toEqual(
       expect.arrayContaining([
         'accepted',

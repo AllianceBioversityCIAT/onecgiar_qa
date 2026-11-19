@@ -17,6 +17,7 @@ import type {
   SpTimelineRecord,
   SpViewStore,
 } from '../../src/assessment/sp-view/sp-view.store.js';
+import { programSideState } from '../../src/assessment/sp-view/sp-state.js';
 import {
   InMemoryAssessmentWriteStore,
   type FakeComment,
@@ -174,6 +175,19 @@ export class InMemorySpViewStore implements SpViewStore {
         assessment === undefined
           ? []
           : this.world.comments.filter((c) => c.assessmentId === assessment.id);
+      // DD-11: the program reads the state its latest response implies for a review state.
+      const stateOf = (c: (typeof own)[number]) => {
+        const latest = this.world.spResponses
+          .filter((r) => r.commentId === commentIdOf(this.world, c))
+          .at(-1);
+        return programSideState(
+          c.state,
+          latest?.kind ?? null,
+          this.world.clarificationAnswers.some(
+            (x) => x.responseId === latest?.id,
+          ),
+        );
+      };
       const visible = own.filter(
         (c) =>
           (c.visibleToProgramAt ?? null) !== null &&
@@ -189,7 +203,7 @@ export class InMemorySpViewStore implements SpViewStore {
         endReason,
         assessmentStatus: assessment?.status ?? null,
         hasClarificationThread: own.some(
-          (c) => c.state === 'clarification_requested',
+          (c) => stateOf(c) === 'clarification_requested',
         ),
         updated: this.world.memberships.some(
           (r) =>
@@ -200,7 +214,7 @@ export class InMemorySpViewStore implements SpViewStore {
         ),
         comments: criteria.commentsVisible ? visible.length : 0,
         answered: criteria.commentsVisible
-          ? visible.filter((c) => ANSWERED.includes(c.state)).length
+          ? visible.filter((c) => ANSWERED.includes(stateOf(c))).length
           : 0,
       });
     }

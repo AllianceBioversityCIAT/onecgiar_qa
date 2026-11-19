@@ -307,7 +307,7 @@ All back tasks touch `server/src/assessment/` (one shared boundary), so they run
 
 ## T-11: SP view and logs stay clean
 
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** S
 - **Depends on:** T-4
 - **Requirements:** FR-15 (SP view after the Lead finishes), NFR-2.
