@@ -198,7 +198,7 @@ All back tasks touch `server/src/assessment/` (one shared boundary), so they run
 
 ## T-7: Decisions (`PUT` / `DELETE …/decisions/:commentId`)
 
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-6
 - **Requirements:**
@@ -264,6 +264,7 @@ All back tasks touch `server/src/assessment/` (one shared boundary), so they run
   - Wire `endRoundTwoOnFinish`.
   - The `applyEnd` round-2 branch: no release on `escalated`; decisions → comment states + `comment_events`; no `markCommentsVisible`; audit `end_escalated`.
   - Every write refused after the end.
+  - The validations PUT response carries `effectiveValidated` per field (design § 6 validations row; coverage gap found in T-7's review, assigned here 2026-11-19).
 - **Tests:**
   - Service specs.
   - e2e:

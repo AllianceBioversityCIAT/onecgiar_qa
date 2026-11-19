@@ -2,6 +2,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   Inject,
@@ -27,6 +28,7 @@ import type { AuthenticatedUser } from '../users/current-user.cache.js';
 import {
   AssessmentService,
   type AssessmentViewResponse,
+  type DecisionResult,
   type ValidationSummary,
 } from './assessment.service.js';
 import type { ViewComment } from './assessment-view.js';
@@ -34,12 +36,15 @@ import {
   AssessmentParams,
   AssessmentViewQuery,
   CommentParams,
+  DecisionParams,
 } from './dto/assessment-params.js';
 import { CreateCommentBody } from './dto/create-comment.body.js';
+import { DecideCommentBody } from './dto/decide-comment.body.js';
 import { ValidateAssessmentBody } from './dto/validate-assessment.body.js';
 import {
   AssessmentCommentModel,
   AssessmentViewModel,
+  DecisionResultModel,
   ValidationSummaryModel,
 } from './models/assessment.model.js';
 
@@ -165,6 +170,81 @@ export class AssessmentController {
       { fieldKey: body.fieldKey, body: body.body },
       requestIdOf(request),
       idempotencyHandleOf(request),
+    );
+  }
+
+  @ApiOperation({
+    summary: 'Decide a round-1 comment (Lead Assessor, round 2)',
+    description:
+      'Sets `agree_program` or `escalate` on a round-1 core comment of this result that is `disagreed`, `open` or `clarification_requested`, with a comment of 1 to 2,000 characters (trimmed). A second call replaces the decision. `agree_program` turns the field green in the same transaction; when that leaves every core field green the review ends `quality_assessed` with one `qaed` release. `escalate` keeps the field grey, and validating it is 409 `ASSESSMENT_FIELD_ESCALATED`; so is an agree on a field another comment of it escalated. A comment that cannot be decided is 409 `ASSESSMENT_DECISION_INVALID`; a comment of another result is the same 404 as a missing one. The comment states change when the review ends. Refused with 409 once the step is not open or the assessment ended. One audit row.',
+  })
+  @ApiOkEnvelope(DecisionResultModel)
+  @ApiErrorResponses({
+    400: ['VALIDATION_FAILED', 'MALFORMED_JSON'],
+    401: ['AUTH_TOKEN_INVALID', 'AUTH_USER_NOT_ADMITTED'],
+    403: ['ASSESSMENT_READ_ONLY'],
+    404: ['ASSESSMENT_NOT_FOUND'],
+    409: [
+      'ASSESSMENT_DECISION_INVALID',
+      'ASSESSMENT_FIELD_ESCALATED',
+      'ASSESSMENT_STEP_CLOSED',
+      'ASSESSMENT_FINISHED',
+      'ASSESSMENT_NO_FIELD_CONFIG',
+    ],
+    413: ['PAYLOAD_TOO_LARGE'],
+    503: ['SERVICE_UNAVAILABLE'],
+  })
+  @Put(
+    'timelines/:timelineId/results/:resultCode/assessment/decisions/:commentId',
+  )
+  decide(
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() request: RequestWithId,
+    @Param() params: DecisionParams,
+    @Body() body: DecideCommentBody,
+  ): Promise<DecisionResult> {
+    return this.assessments.decide(
+      user,
+      params.timelineId,
+      params.resultCode,
+      params.commentId,
+      { decision: body.decision, body: body.body },
+      requestIdOf(request),
+    );
+  }
+
+  @ApiOperation({
+    summary: 'Clear a decision (Lead Assessor, round 2)',
+    description:
+      'Removes the decision the Lead set on a round-1 comment, until the review ends. Clearing an `agree_program` turns its field back to grey. Clearing where there is no decision succeeds and changes nothing. A comment of another result is the same 404 as a missing one. Refused with 409 once the step is not open or the assessment ended. One audit row when a decision was removed.',
+  })
+  @ApiOkEnvelope(DecisionResultModel)
+  @ApiErrorResponses({
+    400: ['VALIDATION_FAILED'],
+    401: ['AUTH_TOKEN_INVALID', 'AUTH_USER_NOT_ADMITTED'],
+    403: ['ASSESSMENT_READ_ONLY'],
+    404: ['ASSESSMENT_NOT_FOUND'],
+    409: [
+      'ASSESSMENT_STEP_CLOSED',
+      'ASSESSMENT_FINISHED',
+      'ASSESSMENT_NO_FIELD_CONFIG',
+    ],
+    503: ['SERVICE_UNAVAILABLE'],
+  })
+  @Delete(
+    'timelines/:timelineId/results/:resultCode/assessment/decisions/:commentId',
+  )
+  clearDecision(
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() request: RequestWithId,
+    @Param() params: DecisionParams,
+  ): Promise<DecisionResult> {
+    return this.assessments.clearDecision(
+      user,
+      params.timelineId,
+      params.resultCode,
+      params.commentId,
+      requestIdOf(request),
     );
   }
 

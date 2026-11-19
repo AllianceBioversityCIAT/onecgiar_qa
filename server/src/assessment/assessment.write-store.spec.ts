@@ -193,3 +193,84 @@ describe('the comment writes (FR-11, FR-13, ADR-006)', () => {
     );
   });
 });
+
+describe('round-2 decisions (escalation/round-2 T-7)', () => {
+  it('locks the decided comment FOR UPDATE, one row, by id', () => {
+    const { sql: text, params } = store.buildDecisionTargetLock(7001).toSQL();
+    expect(text).toContain('from `assessment_comments`');
+    expect(text).toContain('where `assessment_comments`.`id` = ?');
+    expect(text).toMatch(/ limit \? for update$/);
+    expect(params).toEqual([7001, 1]);
+  });
+
+  it('upserts a decision on (comment, role): the second replaces the decision, the text, who and when, and sets updated_at itself', () => {
+    const { sql: text, params } = store
+      .buildUpsertDecision({
+        commentId: 7001,
+        assessmentId: 1000,
+        roleCode: 'LEAD_ASSESSOR',
+        decision: 'agree_program',
+        body: 'Matches the evidence',
+        actorId: 20,
+        at: AT,
+      })
+      .toSQL();
+    expect(text).toMatch(/^insert into `comment_decisions`/);
+    const update = text.slice(text.indexOf('on duplicate key update'));
+    expect(update).toContain('`decision` = values(`decision`)');
+    expect(update).toContain('`body` = values(`body`)');
+    expect(update).toContain('`decided_by` = values(`decided_by`)');
+    expect(update).toContain('`decided_at` = values(`decided_at`)');
+    // The column has no ON UPDATE (T-3): the upsert must write it.
+    expect(update).toContain('`updated_at` = values(`updated_at`)');
+    // A replace never moves the assessment, the comment or the role.
+    expect(update).not.toContain('assessment_id');
+    expect(update).not.toContain('comment_id');
+    expect(update).not.toContain('role_code');
+    expect(params).toEqual(
+      expect.arrayContaining([
+        7001,
+        1000,
+        'LEAD_ASSESSOR',
+        'agree_program',
+        'Matches the evidence',
+        20,
+      ]),
+    );
+  });
+
+  it('deletes the role decision of the comment, by both keys', () => {
+    const { sql: text, params } = store
+      .buildDeleteDecision(7001, 'LEAD_ASSESSOR')
+      .toSQL();
+    expect(text).toBe(
+      'delete from `comment_decisions` where (`comment_decisions`.`comment_id` = ? and `comment_decisions`.`role_code` = ?)',
+    );
+    expect(params).toEqual([7001, 'LEAD_ASSESSOR']);
+  });
+
+  it('moves a comment state only from the state the end read: a conditional UPDATE', () => {
+    const { sql: text, params } = store
+      .buildSetCommentState(7001, 'disagreed', 'lead_sided_program')
+      .toSQL();
+    expect(text).toMatch(/^update `assessment_comments` set `state` = \?/);
+    expect(text).toContain('`assessment_comments`.`id` = ?');
+    expect(text).toContain('`assessment_comments`.`state` = ?');
+    expect(params).toEqual(['lead_sided_program', 7001, 'disagreed']);
+  });
+
+  it('reads the decisions of an assessment with the field and state of each comment, by its assessment_id', () => {
+    const { sql: text, params } = store.buildDecisions(1000).toSQL();
+    expect(text).toContain(
+      'from `comment_decisions` inner join `assessment_comments`',
+    );
+    expect(text).toContain('where `comment_decisions`.`assessment_id` = ?');
+    expect(params).toEqual([1000]);
+  });
+
+  it('a deleted comment no longer counts as a comment of the field', () => {
+    const { sql: text } = store.buildLiveCommentedFieldKeys(1).toSQL();
+    expect(text).toContain('`assessment_comments`.`deleted_at` is null');
+    expect(text).toContain('`assessment_comments`.`state` <> ?');
+  });
+});

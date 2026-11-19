@@ -3,20 +3,22 @@ import { PutItemCommand } from '@aws-sdk/client-dynamodb';
 import type { OpenAPIObject } from '@nestjs/swagger';
 import { vi } from 'vitest';
 import { buildOpenApiDocument } from '../src/common/openapi.js';
-import { snapshotKeyOf } from '../src/ingestion/load-rules.js';
 import { assertAiSchema, toAttributeMap } from './support/ai-contract.js';
 import {
   bearer,
   buildAssessmentApp,
   type AssessmentApp,
 } from './support/assessment-app.js';
-import {
-  ASSESSED,
-  resultPath,
-  seedTimeline,
-} from './support/assessment-seed.js';
+import { ASSESSED, resultPath } from './support/assessment-seed.js';
 import { InMemoryAssessmentStore } from './support/in-memory-assessment.js';
 import { runRealLoad } from './support/real-load-writer.js';
+import {
+  addTwoRounds,
+  IN_LEAD_STEP,
+  plantProgramResponse,
+  plantRoundOneComment,
+  seedRoundTwoWorld,
+} from './support/round-two-fixture.js';
 
 // The round-2 view of the Lead over real HTTP (P2-3912 T-6): FR-3 `actionable`,
 // FR-4 the round-1 thread, FR-5 `updated`, FR-6 AI for the Lead, FR-7 carried
@@ -33,34 +35,8 @@ const CORE = [CARRIED, CHANGED, COMMENTED];
 // An AI-eligible field (production list), core as well, for FR-6.
 const AI_FIELD = 'general.gender_tag';
 
-const IN_LEAD_STEP = new Date('2026-11-25T10:00:00Z');
 const lead = () => bearer('sub-lead');
 const admin = () => bearer('sub-admin');
-
-const minute = (value: string) => value as never;
-const steps = () => [
-  {
-    position: 1,
-    name: 'Step 1',
-    audience: 'assessors' as const,
-    opensAt: minute('2026-11-12T09:00'),
-    closesAt: minute('2026-11-20T17:30'),
-  },
-  {
-    position: 2,
-    name: 'Step 2',
-    audience: 'programs' as const,
-    opensAt: minute('2026-11-21T09:00'),
-    closesAt: minute('2026-11-23T17:30'),
-  },
-  {
-    position: 3,
-    name: 'Step 3',
-    audience: 'lead_assessors' as const,
-    opensAt: minute('2026-11-24T09:00'),
-    closesAt: minute('2026-11-27T17:30'),
-  },
-];
 
 interface ThreadItem {
   commentId: number;
@@ -108,93 +84,17 @@ const fieldsOf = (body: {
 
 describe('Round-2 view of the Lead (e2e)', () => {
   let a: AssessmentApp;
-  let nextId = 1;
   let resultCode: number;
   let roundOneAssessmentId: number;
   let roundTwoSnapKey: string;
-
-  /** Result 1001 in two rounds, built by the real runner; returns the codes and ids. */
-  async function addTwoRounds(
-    options: { resultId: number; code?: never; previous: boolean },
-    changedFields: string[] | null,
-  ) {
-    const values = { 'general.title': 'First submission' };
-    const first = await runRealLoad([{ resultId: options.resultId, values }], {
-      loadId: nextId * 10 + 1,
-    });
-    const second = await runRealLoad(
-      [
-        {
-          resultId: options.resultId,
-          values: { 'general.title': 'Re-submitted' },
-        },
-      ],
-      { loadId: nextId * 10 + 2 },
-    );
-    for (const real of [first, second]) {
-      const written = real.memberships[0]!;
-      for (const snapshot of await real.snapshots.history(written.resultCode)) {
-        await a.snapshots.put(snapshot);
-      }
-    }
-    const one = first.memberships[0]!;
-    const two = second.memberships[0]!;
-    const base = {
-      timelineId: 1,
-      resultCode: one.resultCode,
-      programId: 1,
-      resultTypeKey: 'policy_change',
-    };
-    const roundOneId = nextId++;
-    const roundTwoId = nextId++;
-    a.world.memberships.push(
-      {
-        ...base,
-        id: roundOneId,
-        title: 'First submission',
-        round: 1,
-        ended: true,
-        endReason: 'returned',
-        snapshotSk: one.snapshotSk,
-      },
-      {
-        ...base,
-        id: roundTwoId,
-        title: 'Re-submitted',
-        round: 2,
-        changedFields,
-        previousMembershipId: options.previous ? roundOneId : null,
-        snapshotSk: two.snapshotSk,
-      },
-    );
-    a.world.assessments.push({
-      id: roundOneId,
-      membershipId: roundOneId,
-      stepPosition: 1,
-      status: 'returned',
-    });
-    return {
-      code: one.resultCode,
-      roundOneId,
-      roundTwoId,
-      snapKey: snapshotKeyOf(two.snapshotSk),
-    };
-  }
 
   /** A round-1 comment of the step-1 assessment with the given state. */
   const comment = (
     id: number,
     over: Partial<(typeof a.world.comments)[number]> = {},
   ) =>
-    a.world.comments.push({
-      id,
-      assessmentId: roundOneAssessmentId,
-      authorId: a.users.policy.id,
-      state: 'open',
+    plantRoundOneComment(a, roundOneAssessmentId, id, {
       fieldKey: COMMENTED,
-      body: `Round-1 comment ${id}`,
-      createdAt: new Date(`2026-11-1${id % 10}T09:00:00Z`),
-      valueCopy: { value: `Value when ${id} was written` },
       ...over,
     });
 
@@ -204,51 +104,22 @@ describe('Round-2 view of the Lead (e2e)', () => {
     kind: 'request_clarification' | 'disagree' | 'accept',
     body: string | null,
     day: number,
-  ) =>
-    a.world.spResponses.push({
-      id,
-      commentId,
-      kind,
-      body,
-      responderName: 'Pat Program',
-      responderEmail: 'pat.program@example.org',
-      programId: 1,
-      createdAt: new Date(`2026-11-${day}T09:00:00Z`),
-    });
+  ) => plantProgramResponse(a, id, commentId, kind, body, day);
 
   const open = (code = resultCode, token = lead()) =>
     a.send('get', resultPath('', code), { token });
 
   beforeEach(async () => {
     a = await buildAssessmentApp(IN_LEAD_STEP);
-    nextId = 1;
-    seedTimeline(a, [...CORE, AI_FIELD]);
-    a.world.timelines[0]!.steps = steps();
-    a.world.timelineUsers.push({
-      timelineId: 1,
-      userId: a.users.lead.id,
-      roleCode: 'LEAD_ASSESSOR',
+    // Round 1: CARRIED and CHANGED were green; COMMENTED was grey with a comment.
+    const built = await seedRoundTwoWorld(a, {
+      core: [...CORE, AI_FIELD],
+      changedFields: [CHANGED],
+      roundOneGreens: [CARRIED, CHANGED],
     });
-    await a.programScope(a.users.lead.id, [1]);
-    const built = await addTwoRounds({ resultId: 1001, previous: true }, [
-      CHANGED,
-    ]);
     resultCode = built.code;
     roundOneAssessmentId = built.roundOneId;
     roundTwoSnapKey = built.snapKey;
-    // Round 1: CARRIED and CHANGED were green; COMMENTED was grey with a comment.
-    a.world.validations.push(
-      {
-        assessmentId: roundOneAssessmentId,
-        fieldKey: CARRIED,
-        validated: true,
-      },
-      {
-        assessmentId: roundOneAssessmentId,
-        fieldKey: CHANGED,
-        validated: true,
-      },
-    );
   });
 
   afterEach(async () => {
@@ -437,6 +308,7 @@ describe('Round-2 view of the Lead (e2e)', () => {
 
     it('New round-2 result: a membership with no previous one has an empty thread on every core field', async () => {
       const fresh = await addTwoRounds(
+        a,
         { resultId: 2002, previous: false },
         null,
       );
@@ -460,6 +332,7 @@ describe('Round-2 view of the Lead (e2e)', () => {
 
     it('BUT on a new round-2 membership (changed_fields NULL) no field is updated', async () => {
       const fresh = await addTwoRounds(
+        a,
         { resultId: 2002, previous: false },
         null,
       );
@@ -503,6 +376,7 @@ describe('Round-2 view of the Lead (e2e)', () => {
 
     it('a new round-2 membership carries nothing', async () => {
       const fresh = await addTwoRounds(
+        a,
         { resultId: 2002, previous: false },
         null,
       );

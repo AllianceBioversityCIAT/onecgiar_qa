@@ -46,6 +46,9 @@ import type {
   CommentContext,
   CommentEventWrite,
   CommentRecord,
+  DecisionRecord,
+  DecisionTarget,
+  DecisionWrite,
   LockedAssessment,
   MembershipCriteria,
   MembershipRecord,
@@ -181,6 +184,9 @@ export interface FakeCommentDecision {
   decision: CommentDecisionKind;
   body: string | null;
   decidedAt?: Date;
+  /** Set by the write side: the author of the latest decision and the last write time (`updated_at`, set explicitly). */
+  decidedBy?: number;
+  updatedAt?: Date;
 }
 
 /** One `assessment_releases` row, as the write side queued it. */
@@ -1148,6 +1154,23 @@ export class InMemoryAssessmentWriteStore implements AssessmentWriteStore {
     ]);
   }
 
+  findLiveCommentedFieldKeys(assessmentId: number): Promise<string[]> {
+    this.world.statements += 1;
+    this.world.writeLog.push('findLiveCommentedFieldKeys');
+    return Promise.resolve([
+      ...new Set(
+        this.world.comments
+          .filter(
+            (c) =>
+              c.assessmentId === assessmentId &&
+              c.state !== 'withdrawn' &&
+              (c.deletedAt ?? null) === null,
+          )
+          .map((c) => c.fieldKey ?? 'general.title'),
+      ),
+    ]);
+  }
+
   markCommentsVisible(assessmentId: number, at: Date): Promise<void> {
     this.world.statements += 1;
     this.world.writeLog.push('markCommentsVisible');
@@ -1185,6 +1208,122 @@ export class InMemoryAssessmentWriteStore implements AssessmentWriteStore {
       this.world.releases = this.world.releases.filter((r) => r !== created);
     });
     return Promise.resolve();
+  }
+
+  lockDecisionTarget(commentId: number): Promise<DecisionTarget | undefined> {
+    this.world.statements += 1;
+    this.world.writeLog.push('lockDecisionTarget');
+    const index = this.world.comments.findIndex(
+      (c, i) => (c.id ?? i + 1) === commentId,
+    );
+    const comment = this.world.comments[index];
+    if (comment === undefined) return Promise.resolve(undefined);
+    return Promise.resolve({
+      id: commentId,
+      assessmentId: comment.assessmentId,
+      fieldKey: comment.fieldKey ?? 'general.title',
+      state: comment.state,
+      deleted: (comment.deletedAt ?? null) !== null,
+    });
+  }
+
+  findDecisions(assessmentId: number): Promise<DecisionRecord[]> {
+    this.world.statements += 1;
+    this.world.writeLog.push('findDecisions');
+    const rows: DecisionRecord[] = [];
+    for (const d of this.world.commentDecisions) {
+      if (d.assessmentId !== assessmentId) continue;
+      const index = this.world.comments.findIndex(
+        (c, i) => (c.id ?? i + 1) === d.commentId,
+      );
+      const comment = this.world.comments[index];
+      if (comment === undefined) continue;
+      rows.push({
+        commentId: d.commentId,
+        fieldKey: comment.fieldKey ?? 'general.title',
+        decision: d.decision,
+        body: d.body,
+        decidedAt: d.decidedAt ?? new Date(0),
+        commentState: comment.state,
+      });
+    }
+    return Promise.resolve(rows.sort((x, y) => x.commentId - y.commentId));
+  }
+
+  upsertDecision(write: DecisionWrite): Promise<void> {
+    this.world.statements += 1;
+    this.world.writeLog.push('upsertDecision');
+    const held = this.world.commentDecisions.find(
+      (d) => d.commentId === write.commentId && d.roleCode === write.roleCode,
+    );
+    if (held === undefined) {
+      const created: FakeCommentDecision = {
+        commentId: write.commentId,
+        assessmentId: write.assessmentId,
+        roleCode: write.roleCode,
+        decision: write.decision,
+        body: write.body,
+        decidedAt: write.at,
+        decidedBy: write.actorId,
+        updatedAt: write.at,
+      };
+      this.world.commentDecisions.push(created);
+      this.undo.push(() => {
+        this.world.commentDecisions = this.world.commentDecisions.filter(
+          (d) => d !== created,
+        );
+      });
+    } else {
+      const before = { ...held };
+      Object.assign(held, {
+        decision: write.decision,
+        body: write.body,
+        decidedAt: write.at,
+        decidedBy: write.actorId,
+        updatedAt: write.at,
+      });
+      this.undo.push(() => {
+        Object.assign(held, before);
+      });
+    }
+    return Promise.resolve();
+  }
+
+  deleteDecision(commentId: number, roleCode: string): Promise<boolean> {
+    this.world.statements += 1;
+    this.world.writeLog.push('deleteDecision');
+    const held = this.world.commentDecisions.find(
+      (d) => d.commentId === commentId && d.roleCode === roleCode,
+    );
+    if (held === undefined) return Promise.resolve(false);
+    this.world.commentDecisions = this.world.commentDecisions.filter(
+      (d) => d !== held,
+    );
+    this.undo.push(() => {
+      this.world.commentDecisions.push(held);
+    });
+    return Promise.resolve(true);
+  }
+
+  setCommentState(
+    commentId: number,
+    from: CommentState,
+    to: CommentState,
+  ): Promise<boolean> {
+    this.world.statements += 1;
+    this.world.writeLog.push('setCommentState');
+    const held = this.world.comments.find(
+      (c, i) => (c.id ?? i + 1) === commentId,
+    );
+    // The conditional UPDATE: it matches the row only while it is in `from`.
+    if (held === undefined || held.state !== from) {
+      return Promise.resolve(false);
+    }
+    held.state = to;
+    this.undo.push(() => {
+      held.state = from;
+    });
+    return Promise.resolve(true);
   }
 
   saveQuickComment(row: NewQuickCommentRow): Promise<SavedQuickComment> {

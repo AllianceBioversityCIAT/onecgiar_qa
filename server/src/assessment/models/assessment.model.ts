@@ -379,6 +379,17 @@ export class ValidationSummaryModel extends AssessmentSummaryModel {
   validations!: AssessmentValidationModel[];
 }
 
+/** The answer of `PUT` and `DELETE …/assessment/decisions/:commentId` (round-2 design 6). */
+export class DecisionResultModel extends ValidationSummaryModel {
+  @ApiProperty({
+    type: AssessmentThreadDecisionModel,
+    nullable: true,
+    description:
+      "The Lead's decision on the comment as stored; `null` after a clear",
+  })
+  decision!: AssessmentThreadDecisionModel | null;
+}
+
 export class AssessmentViewModel {
   @ApiProperty({ type: AssessmentHeaderModel })
   header!: AssessmentHeaderModel;
