@@ -387,6 +387,13 @@ export class AssessorThreadModel {
   state!: string;
 
   @ApiProperty({
+    type: Boolean,
+    description:
+      'The caller can answer the pending clarification now: they wrote the comment, they can write on the timeline, the comment is `clarification_requested` and the programs step is in progress (the checks of `POST /assessment-comments/:id/clarification-answer`)',
+  })
+  answerable!: boolean;
+
+  @ApiProperty({
     type: AssessorResponseModel,
     nullable: true,
     description: 'The latest response',

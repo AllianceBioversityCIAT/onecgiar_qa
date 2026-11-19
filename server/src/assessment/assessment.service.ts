@@ -1249,6 +1249,7 @@ export class AssessmentService {
     timelineId: number,
     resultCode: number,
   ): Promise<{
+    timeline: WorklistTimeline;
     access: WorklistAccess;
     stepPosition: number | null;
     membership: MembershipRecord;
@@ -1257,7 +1258,7 @@ export class AssessmentService {
     const { timeline, access, stepPosition, membership } =
       await this.resolveMembership(user, timelineId, resultCode, null);
     const config = await this.configOf(timeline, membership);
-    return { access, stepPosition, membership, config };
+    return { timeline, access, stepPosition, membership, config };
   }
 
   /**
