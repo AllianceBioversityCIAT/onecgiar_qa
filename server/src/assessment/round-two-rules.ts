@@ -10,6 +10,17 @@ import {
   type CoreFieldState,
 } from './assessment-rules.js';
 
+/** The two facts of a configured field that `isActionable` reads. */
+export interface ConfiguredField {
+  visibility: string;
+  isCore: boolean;
+}
+
+/** FR-3: only an Assessed core field of the pinned version accepts a round-2 write; every other field is context. */
+export function isActionable(field: ConfiguredField): boolean {
+  return field.visibility === 'assessed' && field.isCore;
+}
+
 /** One core field of a round-2 assessment, as the end rule sees it. */
 export interface RoundTwoCoreFact {
   key: string;
@@ -30,9 +41,7 @@ export type RoundTwoFinishOutcome =
 
 export type RoundTwoWriteOutcome = 'quality_assessed' | 'none';
 
-function toCoreStates(
-  core: readonly RoundTwoCoreFact[],
-): CoreFieldState[] {
+function toCoreStates(core: readonly RoundTwoCoreFact[]): CoreFieldState[] {
   return core.map((field) => ({
     key: field.key,
     validated: field.effectiveGreen,

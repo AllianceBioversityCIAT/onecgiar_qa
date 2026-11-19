@@ -1,6 +1,7 @@
 // @akili-spec escalation/round-2
 import { describe, expect, it } from 'vitest';
 import {
+  isActionable,
   endRoundTwoAfterWrite,
   endRoundTwoOnFinish,
   type RoundTwoCoreFact,
@@ -30,11 +31,7 @@ const greyUndecided = (key: string): RoundTwoCoreFact => ({
 
 describe('endRoundTwoOnFinish (FR-11, FR-12, FR-13)', () => {
   it.each<[string, RoundTwoCoreFact[], RoundTwoFinishOutcome]>([
-    [
-      'all core fields green',
-      [green('F1'), green('F2')],
-      'quality_assessed',
-    ],
+    ['all core fields green', [green('F1'), green('F2')], 'quality_assessed'],
     [
       'grey F2 with an escalate decision (FR-11 Escalated)',
       [green('F1'), greyEscalated('F2')],
@@ -69,7 +66,11 @@ describe('endRoundTwoOnFinish (FR-11, FR-12, FR-13)', () => {
 describe('endRoundTwoAfterWrite (FR-12)', () => {
   it.each<[string, RoundTwoCoreFact[], RoundTwoWriteOutcome]>([
     ['all core fields green', [green('F1'), green('F2')], 'quality_assessed'],
-    ['a grey core field stays open', [green('F1'), greyUndecided('F2')], 'none'],
+    [
+      'a grey core field stays open',
+      [green('F1'), greyUndecided('F2')],
+      'none',
+    ],
     [
       'a grey core field with an escalate decision stays open',
       [green('F1'), greyEscalated('F2')],
@@ -78,5 +79,17 @@ describe('endRoundTwoAfterWrite (FR-12)', () => {
     ['no core field never ends by itself', [], 'none'],
   ])('%s', (_name, core, expected) => {
     expect(endRoundTwoAfterWrite(core)).toBe(expected);
+  });
+});
+
+describe('isActionable (FR-3, design 7)', () => {
+  it.each([
+    ['assessed', true, true],
+    ['assessed', false, false],
+    ['view_only', true, false],
+    ['view_only', false, false],
+    ['hidden', true, false],
+  ])('%s with isCore=%s is actionable=%s', (visibility, isCore, expected) => {
+    expect(isActionable({ visibility, isCore })).toBe(expected);
   });
 });

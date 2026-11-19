@@ -143,7 +143,7 @@ All back tasks touch `server/src/assessment/` (one shared boundary), so they run
 
 ## T-5: Core-only writes in round 2 and the new error codes
 
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** S
 - **Depends on:** T-4
 - **Requirements:** FR-3 (Write on a non-core field; AND IT MUST `actionable`; BUT Check all), FR-17 (codes).

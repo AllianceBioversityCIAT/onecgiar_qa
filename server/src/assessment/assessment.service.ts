@@ -42,6 +42,7 @@ import {
   AssessmentCommentNotOpenError,
   AssessmentCoreUncommentedError,
   AssessmentFieldKeysInvalidError,
+  AssessmentFieldNotCoreError,
   AssessmentFinishedError,
   AssessmentNoFieldConfigError,
   AssessmentNotCommentAuthorError,
@@ -86,6 +87,7 @@ import {
   isWithdrawWindowOpen,
   type StepTiming,
 } from './role-steps.js';
+import { isActionable } from './round-two-rules.js';
 import {
   resolveAccess,
   writeDecision,
@@ -299,10 +301,20 @@ export class AssessmentService {
       membership,
       held,
     );
+    // Round 2 (FR-3): only core fields take a write, and Check all / Uncheck all
+    // act on them alone; round 1 keeps every Assessed field.
+    const roundTwo = membership.round !== 1;
     const target =
-      input.all === true ? assessed : [...new Set(input.fieldKeys ?? [])];
+      input.all === true
+        ? roundTwo
+          ? core
+          : assessed
+        : [...new Set(input.fieldKeys ?? [])];
     const wrong = target.filter((key) => !assessed.includes(key));
     if (wrong.length > 0) throw new AssessmentFieldKeysInvalidError(wrong);
+    if (roundTwo && target.some((key) => !core.includes(key))) {
+      throw new AssessmentFieldNotCoreError();
+    }
 
     // Nothing to write before the first write: no row, no transaction, no audit
     // (DD-3, "created lazily"). Greying fields has nothing to undo, and a check
@@ -700,7 +712,7 @@ export class AssessmentService {
       assessed: assessedItems.map((item) => item.fieldKey),
       // The core fields are Assessed fields flagged `isCore` (FR-14), in configuration order.
       core: assessedItems
-        .filter((item) => item.isCore)
+        .filter((item) => isActionable(item))
         .map((item) => item.fieldKey),
       version,
     };
@@ -780,13 +792,17 @@ export class AssessmentService {
       throw new AssessmentFinishedError();
     }
 
-    const { assessed, version } = await this.assessedOf(
+    const { assessed, core, version } = await this.assessedOf(
       timeline,
       membership,
       held,
     );
     if (!assessed.includes(input.fieldKey)) {
       throw new AssessmentCommentFieldInvalidError();
+    }
+    // Round 2 (FR-3): a non-core field is context only; refused before any write.
+    if (membership.round !== 1 && !core.includes(input.fieldKey)) {
+      throw new AssessmentFieldNotCoreError();
     }
 
     const catalog = await this.catalogOf(membership.cycleYear);

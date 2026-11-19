@@ -88,7 +88,7 @@ export class AssessmentController {
   @ApiOperation({
     summary: 'Set Assessed fields green or grey, or check all',
     description:
-      'Send `validated` and exactly one of `fieldKeys` (1 to 200 Assessed fields of the pinned configuration) and `all: true` (every Assessed field). Setting a field to the state it already has succeeds and changes nothing. Only the fields that change are written, with one audit row. A View only, Hidden or unknown key is a 400 naming it. The assessment row is created at the first write. A write that leaves every core field green ends the assessment as `quality_assessed` in the same transaction, with the caller as "Assessed by" (an assessment with no core field never ends this way). Refused with 409 once the step is not open or the assessment ended.',
+      'Send `validated` and exactly one of `fieldKeys` (1 to 200 Assessed fields of the pinned configuration) and `all: true` (every Assessed field). Setting a field to the state it already has succeeds and changes nothing. Only the fields that change are written, with one audit row. A View only, Hidden or unknown key is a 400 naming it. The assessment row is created at the first write. A write that leaves every core field green ends the assessment as `quality_assessed` in the same transaction, with the caller as "Assessed by" (an assessment with no core field never ends this way). Refused with 409 once the step is not open or the assessment ended. In round 2 only Assessed core fields take a write: a non-core key is 409 `ASSESSMENT_FIELD_NOT_CORE` (nothing written) and `all: true` acts on the core fields only.',
   })
   @ApiOkEnvelope(ValidationSummaryModel)
   @ApiErrorResponses({
@@ -100,6 +100,7 @@ export class AssessmentController {
       'ASSESSMENT_STEP_CLOSED',
       'ASSESSMENT_FINISHED',
       'ASSESSMENT_NO_FIELD_CONFIG',
+      'ASSESSMENT_FIELD_NOT_CORE',
     ],
     413: ['PAYLOAD_TOO_LARGE'],
     503: ['SERVICE_UNAVAILABLE'],
@@ -143,6 +144,7 @@ export class AssessmentController {
         'ASSESSMENT_STEP_CLOSED',
         'ASSESSMENT_FINISHED',
         'ASSESSMENT_NO_FIELD_CONFIG',
+        'ASSESSMENT_FIELD_NOT_CORE',
       ],
       413: ['PAYLOAD_TOO_LARGE'],
       503: ['SERVICE_UNAVAILABLE'],

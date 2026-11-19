@@ -62,7 +62,7 @@ export interface ApiErrorBody {
   message: string;
   /**
    * For `VALIDATION_FAILED`: the fields at fault. For
-   * `ASSESSMENT_CORE_UNCOMMENTED`: the keys of the core fields to comment on.
+   * `ASSESSMENT_CORE_UNCOMMENTED` and `ASSESSMENT_CORE_UNDECIDED`: the keys of the core fields to comment on or decide.
    */
   fields?: ApiFieldError[] | string[];
   /** Only for 429: seconds to wait before retrying. */
@@ -153,7 +153,7 @@ export class ApiErrorBodyModel implements ApiErrorBody {
 
   @ApiPropertyOptional({
     description:
-      'For VALIDATION_FAILED: the per-field problems. For ASSESSMENT_CORE_UNCOMMENTED: the keys of the core fields to validate or comment on',
+      'For VALIDATION_FAILED: the per-field problems. For ASSESSMENT_CORE_UNCOMMENTED and ASSESSMENT_CORE_UNDECIDED: the keys of the core fields to validate, comment on or decide',
     oneOf: [
       { type: 'array', items: { $ref: getSchemaPath(ApiFieldErrorModel) } },
       { type: 'array', items: { type: 'string' } },

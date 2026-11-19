@@ -351,6 +351,31 @@ export const ERROR_CATALOG = {
     message: 'This comment can no longer be withdrawn.',
   },
 
+  // --- Round 2: the Lead Assessor (escalation/round-2) ----------------------
+  ASSESSMENT_FIELD_NOT_CORE: {
+    status: 409,
+    message:
+      'In round 2 you can only validate or comment on core fields. This field is for context only.',
+  },
+  ASSESSMENT_FIELD_ESCALATED: {
+    status: 409,
+    message:
+      'This field is escalated and cannot be validated. Remove the escalation first.',
+  },
+  ASSESSMENT_DECISION_INVALID: {
+    status: 409,
+    message: 'This decision cannot be set on this comment.',
+  },
+  ASSESSMENT_CORE_UNDECIDED: {
+    status: 409,
+    message:
+      'Some core fields are neither validated nor escalated. Validate them or escalate them before finishing.',
+  },
+  ASSESSMENT_COMMENT_NOT_DELETABLE: {
+    status: 409,
+    message: 'This comment cannot be deleted.',
+  },
+
   // --- AI suggestions (ai-suggestions) -------------------------------------
   AI_SUGGESTIONS_FORBIDDEN: {
     status: 403,

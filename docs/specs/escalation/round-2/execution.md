@@ -77,3 +77,20 @@
 - **Requirements covered:** FR-1, FR-2, FR-14, FR-16.
 - **Running totals vs budget:** tasks 4/14 · LOC ~140 + ~420 + ~1,100 (T-4, tests ≈ 70 %) ≈ 1,660 of ~2,380 · review rounds 8/~16.
 - auto-approved (pre-approved mode)
+
+### T-5: Core-only writes in round 2 and the new error codes — PASS (2026-11-19)
+
+- **Attempts:** 1. Effort medium. Skills: nestjs-best-practices, error-handling-patterns.
+- **Files changed:** `server/src/common/error-codes.ts` (5 codes, 409), `common/http-exception.filter.ts` (forwards `fields` for `ASSESSMENT_CORE_UNDECIDED`), `common/api-response.ts` (doc), `assessment/assessment.errors.ts` (5 classes), `assessment/round-two-rules.ts` (`isActionable`), `assessment/assessment.service.ts` (round-2 guard in validate/comment; Check all on core in round 2; `assessedOf` core via `isActionable`), `assessment/assessment.controller.ts` (OpenAPI 409), tests: new `assessment-round-two-writes.service.spec.ts`, `assessment.errors.spec.ts`, `http-exception.filter.spec.ts`, `error-codes.spec.ts`, `round-two-rules.spec.ts`, `test/openapi.e2e-spec.ts`.
+- **Red run (assertion-level):** 4/11 failed — "Error: expected a refusal" (non-core validate, mixed, non-core comment returned 200); Check all wrote 12 Assessed fields instead of the 4 core.
+- **Falsifier:** `isActionable` without the core check → "Tests 4 failed | 7 passed"; reverted.
+- **Implementer verification:** lint 0/0 · build ok · unit 3976 passed / 6 skipped (116 files) · e2e 1269 passed · client build ok.
+- **Evidence re-run (Leader inline):** 5 touched specs 245/245 · build ok → **VERIFIED**.
+- **Reviewer:** **PASS** — FR-3 and the codes half of FR-17 met; round 1 unchanged; every refusal asserts no row of any kind.
+- **Open gap until T-12 (Reviewer-accepted deferral):** the `assessment/AGENTS.md` codes/contract grep differs by 5 codes (`ASSESSMENT_FIELD_NOT_CORE`, `ASSESSMENT_FIELD_ESCALATED`, `ASSESSMENT_DECISION_INVALID`, `ASSESSMENT_CORE_UNDECIDED`, `ASSESSMENT_COMMENT_NOT_DELETABLE`) from the step-1 `front-contract.md` § 9. **T-12 must not close without that grep passing over both contracts; no merge before T-12** (forward pointer to T-12).
+- **ADVISORY:** `assessment/AGENTS.md:23` "8 typed refusals" → 13 (T-12 guide update); message wording for `ASSESSMENT_FIELD_ESCALATED` ("change or clear the escalate decision first") and `ASSESSMENT_FIELD_NOT_CORE` (avoid "round 2"); nested ternary for the write target; no Hidden-key row in the round-2 400-before-409 test.
+- **Not Done / Assumptions (no owed item):** round 2 = `membership.round !== 1`; 400 `VALIDATION_FAILED` before 409 for non-Assessed keys; mixed request refused whole; Check all with no core returns the empty summary; message wording by the Implementer; an accidental Prettier run on 12 unrelated files was reverted (`git checkout` to HEAD; tree was clean at `36c6a00`).
+- **spawns:** implementer 31 calls, 145,702 tokens, ended complete; reviewer not reported.
+- **Requirements covered:** FR-3 (rule; the view's `actionable` flag is T-6), FR-17 (codes).
+- **Running totals vs budget:** tasks 5/14 · LOC ≈ 2,050 (T-5 ≈ 390 net) of ~2,380 · review rounds 9/~16.
+- auto-approved (pre-approved mode)

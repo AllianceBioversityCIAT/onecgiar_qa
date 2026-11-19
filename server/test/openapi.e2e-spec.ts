@@ -422,6 +422,7 @@ describe('OpenAPI document (e2e)', () => {
           '403': ['ASSESSMENT_READ_ONLY'],
           '404': ['ASSESSMENT_NOT_FOUND'],
           '409': [
+            'ASSESSMENT_FIELD_NOT_CORE',
             'ASSESSMENT_FINISHED',
             'ASSESSMENT_NO_FIELD_CONFIG',
             'ASSESSMENT_STEP_CLOSED',
