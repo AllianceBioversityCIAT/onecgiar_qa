@@ -388,7 +388,7 @@ export class SpResponseService {
     timelineId: number,
     resultCode: number,
   ): Promise<{ comments: AssessorThreadView[] }> {
-    const { membership } = await this.assessment.resolveForAi(
+    const { timeline, access, membership } = await this.assessment.resolveForAi(
       user,
       timelineId,
       resultCode,
@@ -397,7 +397,35 @@ export class SpResponseService {
     const comments = await this.store.findVisibleComments(
       membership.assessment.id,
     );
-    return { comments: await this.threadsOf(comments) };
+    // The same checks as `answerClarification`, so the form shows only when the POST would pass.
+    const hasLoad = (await this.loads.withLoad([timeline.id])).has(timeline.id);
+    const programsOpen =
+      audienceStepState('programs', {
+        steps: timeline.steps,
+        now: nowInRome(this.clock()),
+        hasLoad,
+      }) === 'in_progress';
+    const canWrite = access.reviewerRows.length > 0;
+    const pending = comments.filter(
+      (x) => x.state === 'clarification_requested',
+    );
+    const authorOf = new Map(
+      canWrite && programsOpen && pending.length > 0
+        ? (await this.store.findCommentAuthors(pending.map((x) => x.id))).map(
+            (x) => [x.id, x.authorId] as const,
+          )
+        : [],
+    );
+    return {
+      comments: await this.threadsOf(
+        comments,
+        (comment) =>
+          canWrite &&
+          programsOpen &&
+          comment.state === 'clarification_requested' &&
+          authorOf.get(comment.id) === user.id,
+      ),
+    };
   }
 
   private async threadsOf(
@@ -406,12 +434,13 @@ export class SpResponseService {
       fieldKey: string;
       state: CommentState;
     }>,
+    answerable?: (comment: { id: number; state: CommentState }) => boolean,
   ): Promise<AssessorThreadView[]> {
     const ids = comments.map((x) => x.id);
     const [responses, answers] = await Promise.all([
       this.store.findResponses(ids),
       this.store.findClarificationAnswers(ids),
     ]);
-    return toAssessorThreads(comments, responses, answers);
+    return toAssessorThreads(comments, responses, answers, answerable);
   }
 }

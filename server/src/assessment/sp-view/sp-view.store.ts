@@ -150,6 +150,10 @@ export interface SpViewStore {
   listResults(criteria: SpResultsCriteria): Promise<SpResultRecord[]>;
   /** One statement: the comments of an assessment the program may see (visible, not withdrawn), oldest first. */
   findVisibleComments(assessmentId: number): Promise<SpCommentRecord[]>;
+  /** One statement (none for no id): who wrote each comment. Assessor side only; never read for the program. */
+  findCommentAuthors(
+    commentIds: readonly number[],
+  ): Promise<Array<{ id: number; authorId: number }>>;
   /** One statement (none for no id): every response to these comments, oldest first. */
   findResponses(commentIds: readonly number[]): Promise<SpResponseRecord[]>;
   /** One statement (none for no id): every clarification answer to these comments. */
@@ -368,6 +372,20 @@ export class DrizzleSpViewStore implements SpViewStore {
 
   async findVisibleComments(assessmentId: number): Promise<SpCommentRecord[]> {
     return await this.buildVisibleCommentsQuery(assessmentId);
+  }
+
+  buildCommentAuthorsQuery(commentIds: readonly number[]) {
+    return this.db
+      .select({ id: c.id, authorId: c.authorId })
+      .from(c)
+      .where(inArray(c.id, [...commentIds]));
+  }
+
+  async findCommentAuthors(
+    commentIds: readonly number[],
+  ): Promise<Array<{ id: number; authorId: number }>> {
+    if (commentIds.length === 0) return [];
+    return await this.buildCommentAuthorsQuery(commentIds);
   }
 
   buildResponsesQuery(commentIds: readonly number[]) {

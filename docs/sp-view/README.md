@@ -40,7 +40,7 @@ Science Program users (Lead, Co-Lead, Coordinator, Member, and Reporting admins)
 | Method and path | Purpose |
 | --- | --- |
 | `POST /assessment-comments/:id/clarification-answer` | The author answers a clarification while step 2 is open |
-| `GET /timelines/:tid/results/:code/sp-responses` | The full SP threads, with responder names |
+| `GET /timelines/:tid/results/:code/sp-responses` | The full SP threads, with responder names. Each thread carries `answerable`: true when the caller wrote the comment, can write on the timeline, a clarification is pending and step 2 is in progress (the checks of the answer POST) |
 
 **Error codes:** `SP_ACCESS_DISABLED`, `SP_ACCESS_KEY_INVALID`, `SP_PROGRAM_UNKNOWN`, `SP_CODE_INVALID`, `SP_SESSION_INVALID`, `SP_NOT_FOUND`, `SP_STEP_CLOSED`, `SP_COMMENT_NOT_RESPONDABLE`, `CLARIFICATION_NOT_PENDING`.
 
