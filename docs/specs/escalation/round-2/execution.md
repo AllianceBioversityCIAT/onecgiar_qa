@@ -117,3 +117,8 @@
 - **Requirements covered:** FR-3 (`actionable`), FR-4, FR-5, FR-6, FR-7 (view), NFR-1.
 - **Running totals vs budget (raised):** tasks 6/14 · LOC ≈ 4,200 of ~5,500 · review rounds 10/~22.
 - auto-approved (pre-approved mode)
+
+### Budget checkpoint — after T-6 (2026-11-19)
+
+- Actuals vs `3750182`: ~4,070 LOC (production ~700, the rest tests); projection ~8,000 against the raised ~5,500. The Leader's earlier projection was wrong.
+- Options put to the back lead: (1) raise to ~8,000 / ~26 rounds; (2) keep ~5,500 and lean the remaining tests (one shared round-2 e2e fixture, HTTP path only; edges in unit specs). Leader recommended (2). Back lead answered "Si"; read as acceptance of the recommendation (2) and said so to the back lead. `design.md` § 13 records the test strategy.
