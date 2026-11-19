@@ -260,3 +260,5 @@ Blast-radius triggers:
 | Tasks | 14 (12 back, 1 front by Yeck, 1 HITL) |
 | LOC | ~2,300 back (≈ 900 src, 1,400 tests) + migration ~80. Front: Yeck's estimate |
 | Review rounds | ~16 (one per task, plus 2 for T-7 and T-9, the decision and end logic) |
+
+**Budget raised (back lead, 2026-11-19, "Si", at the T-5 gate):** LOC ~5,500 in total (~1,100 production, the rest tests and SQL); review rounds ~22. Cause: round-2 test scenarios build round 1 → returned → re-submitted with the real loader, and every state has its negative case; T-1 and T-4 took extra rounds. The tripwire now compares against these numbers.

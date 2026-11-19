@@ -94,3 +94,8 @@
 - **Requirements covered:** FR-3 (rule; the view's `actionable` flag is T-6), FR-17 (codes).
 - **Running totals vs budget:** tasks 5/14 · LOC ≈ 2,050 (T-5 ≈ 390 net) of ~2,380 · review rounds 9/~16.
 - auto-approved (pre-approved mode)
+
+### Budget checkpoint — after T-5 (2026-11-19)
+
+- Actuals vs `3750182`: production 396 · unit specs 1,147 · e2e + support 436 · SQL 54 → ~2,030 of ~2,380; review rounds 9 of ~16. Projection ~5,500 / ~22.
+- Stopped before T-6 (tripwire class, never auto-approved). Back lead answered "Si" to raising the budget to ~5,500 LOC and ~22 review rounds; `design.md` § 13 amended.
