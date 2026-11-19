@@ -312,7 +312,7 @@ All back tasks touch `server/src/assessment/` (one shared boundary), so they run
 - **Depends on:** T-4
 - **Requirements:** FR-15 (SP view after the Lead finishes), NFR-2.
 - **Design refs:** DD-8; § 7 Logging
-- **Scope:** extend `test/sp-view.e2e-spec.ts` and the log tests. No production change is expected.
+- **Scope:** extend `test/sp-view.e2e-spec.ts` and the log tests. **Amended 2026-11-19 (pivot, DD-11):** the SP read maps review states back to the program-side state (production change in `server/src/assessment/sp-view/`).
 - **Tests:**
   - A planted Lead comment and decision text never appear in any `/sp` answer.
   - The `assessment` log lines for `decide` / `delete` carry ids only.

@@ -183,3 +183,9 @@
 - **spawns:** implementer 62 + 8 calls, ~238,583 tokens, ended complete; reviewer 24 calls, 100,286 tokens + re-audit.
 - **Requirements covered:** FR-10, FR-11 BUT (delete after the end), FR-12 (delete path), FR-15 (SP never shows deleted).
 - auto-approved (pre-approved mode)
+
+## Pivot Record: T-11 (2026-11-19)
+
+- **Blocker:** T-11 attempt 1 (tests only, `server/test/sp-view.e2e-spec.ts`, +119) — Reviewer **FAIL**: FR-15 requires the program to see its round-1 comments "with their round-1 states", but DD-7 writes `escalated` / `lead_sided_program` on the comment at the end and the SP read passes `state` through (`sp-view.store.ts:329`, `sp-thread.ts:137/166`). Spec tension FR-15 vs DD-7. Attempt-1 evidence: falsifier 1 as specified stayed green (structural round-1-only SP read, also true in Drizzle: `sp-view.service.ts:304-328`, `sp-view.store.ts:287,294`); stronger variant red ("expected '{"success":true,…' not to contain 'Xq7Lead-Comment-Marker-91f3'"); falsifier 2 red. Verification green; re-run 13/13 VERIFIED.
+- **Alternatives put to the back lead:** (a) keep FR-15 — the SP read shows the program-side state; (b) amend FR-15 — the program may see the outcome state.
+- **Decision (back lead, 2026-11-19):** (a). `design.md` DD-11 added; `tasks.md` T-11 scope amended to allow the SP-read change. No TRD ADR affected. Budget raised to ~10,200 LOC (back lead, same answer set).

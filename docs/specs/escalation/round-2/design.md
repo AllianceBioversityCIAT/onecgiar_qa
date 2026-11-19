@@ -198,6 +198,7 @@ States: loading, error, empty thread (new result), read-only (step closed / fini
 | DD-6 | Add comment state `lead_sided_program` | Reuse `accepted` (it is a program state) or `done` (PPU) | Reports and the export (P2-3914) can tell who closed a comment | FR-8 |
 | DD-7 | Comment states are written **at the end**, not at decision time | Write states on each decision | The thread never shows half-applied states; a changed decision costs nothing | FR-8, FR-11 |
 | DD-8 | Round-2 ends never mark comments visible to the program | Reuse `markCommentsVisible` | The SP view stays round-1 only | FR-15 |
+| DD-11 | **The program sees the program-side state** (amended 2026-11-19, back lead, T-11 pivot): when a comment's stored state is a review state (`escalated`, `lead_sided_program`, and later `tpb_sided_program`, `tpb_sided_assessor`, `done`), the SP read (list counts, detail, CSV) shows the state implied by the program's latest response (`accept` → `accepted`, `accept_with_comment` → `accepted_with_comment`, `disagree` → `disagreed`, `request_clarification` → `clarification_requested`; no response → `open`). DD-7 still writes the review state on the comment | Show the review state to the program; store a second state column | The program never learns the Lead/TPB/PPU outcome from the SP view; one mapping in the SP read; no migration | FR-15 |
 | DD-9 | Soft delete with `deleted_at` / `deleted_by` | A `deleted` comment state | The state history stays intact; one CHECK | FR-10 |
 | DD-10 | Front work is Yeck's, from `front-contract.md` | The back agent edits `review-*` | Team rule (the brief). Back PR first | FR-17 |
 
@@ -264,5 +265,7 @@ Blast-radius triggers:
 **Budget raised (back lead, 2026-11-19, "Si", at the T-5 gate):** LOC ~5,500 in total (~1,100 production, the rest tests and SQL); review rounds ~22. Cause: round-2 test scenarios build round 1 → returned → re-submitted with the real loader, and every state has its negative case; T-1 and T-4 took extra rounds. The tripwire now compares against these numbers.
 
 **Test strategy for T-7 … T-12 (back lead, 2026-11-19, after T-6: actuals ~4,070 LOC, projection ~8,000):** the budget stays at ~5,500. Remaining e2e suites reuse one shared round-2 fixture (round 1 → returned → SP responses → re-submitted, built once with `runRealLoad`) and cover the HTTP path only; edge cases and negative branches go to unit specs over the in-memory stores. Every requirement scenario keeps a named test.
+
+**Budget raised a third time (back lead, 2026-11-19, at T-11): ~10,200 LOC.** 
 
 **Budget raised again (back lead, 2026-11-19, option 1 at the T-7 tripwire):** LOC ~9,500 in total (~2,800 production); review rounds ~22 unchanged. Actuals after T-7: production 1,925 · unit 2,785 · e2e 1,770 · SQL 54 (≈ 6,530). One back PR.
