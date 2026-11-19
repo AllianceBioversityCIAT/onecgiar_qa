@@ -3,8 +3,10 @@ import {
   AssessmentComment,
   AssessmentField,
   AssessmentView,
+  CommentThread,
   FieldLabels,
   AssessmentReadOnlyReason,
+  ProgramResponseKind,
   TOC_SECTION_KEY,
 } from '../../../core/api/assessment.models';
 import { formatDay, todayInRome } from '../../../core/domain/rome-date';
@@ -43,6 +45,8 @@ export interface ReviewCommentVm extends FieldComment {
 export interface ThreadReader {
   readonly me: number | null;
   readonly canWithdraw: boolean;
+  /** False once the server said the programs step is closed: the clarification form is not offered (P2-3911). */
+  readonly canClarify?: boolean;
 }
 
 const NO_READER: ThreadReader = { me: null, canWithdraw: false };
@@ -577,22 +581,81 @@ export function toCommentVm(c: AssessmentComment, reader: ThreadReader = NO_READ
   };
 }
 
-/** The comments drawer of one field. `me` is the caller's user id: they may withdraw their own open comments (T-20). */
+/** The program's threads of a result, by comment id (`GET …/sp-responses`). */
+export type CommentThreads = ReadonlyMap<number, CommentThread>;
+
+const NO_THREADS: CommentThreads = new Map();
+
+const REPLY_OF: Readonly<Record<ProgramResponseKind, NonNullable<FieldComment['reply']>>> = {
+  accept: 'accepted',
+  accept_with_comment: 'accepted_with_comment',
+  disagree: 'disagreed',
+  request_clarification: 'clarification',
+};
+
+/**
+ * What follows a comment in its thread (P2-3911): each response of the program, oldest first, and under a
+ * clarification request the author's answer to it. The program is named with its email (AC12).
+ */
+export function toThreadRows(c: AssessmentComment, thread: CommentThread | undefined): FieldComment[] {
+  if (!thread) return [];
+  return thread.history.flatMap((r): FieldComment[] => {
+    const row: FieldComment = {
+      who: r.respondedBy.name,
+      email: r.respondedBy.email,
+      role: 'Program',
+      date: romeDay(r.respondedAt),
+      text: r.body ?? '',
+      reply: REPLY_OF[r.kind],
+    };
+    const answer = r.kind === 'request_clarification' ? thread.clarifications.find((x) => x.requestId === r.id)?.answer : null;
+    return answer
+      ? [row, { who: c.author.nickname ?? '—', role: 'Assessor', date: romeDay(answer.answeredAt), text: answer.body, answer: true }]
+      : [row];
+  });
+}
+
+/**
+ * The clarification the caller has to answer on a field: a comment they wrote that the program left in
+ * `clarification_requested`, with its request still unanswered. The oldest first. The server allows it only while
+ * the programs step is open, and says so when it is not.
+ */
+export function pendingClarification(
+  f: AssessmentField,
+  me: number | null,
+  threads: CommentThreads,
+): { readonly commentId: number; readonly question: string } | null {
+  if (me === null) return null;
+  for (const c of openComments(f)) {
+    if (c.state !== 'clarification_requested' || c.author.id !== me) continue;
+    const pending = [...(threads.get(c.id)?.clarifications ?? [])].reverse().find((x) => x.answer === null);
+    if (pending) return { commentId: c.id, question: pending.question };
+  }
+  return null;
+}
+
+/**
+ * The comments drawer of one field. `me` is the caller's user id: they may withdraw their own open comments (T-20)
+ * and answer a clarification the program requested on one of them, whatever `mode` says (P2-3911).
+ */
 export function toDrawerVm(
   found: { readonly field: AssessmentField; readonly section: string },
   mode: CommentsDrawerMode,
   reader: ThreadReader = NO_READER,
+  threads: CommentThreads = NO_THREADS,
 ): CommentsDrawerVm {
-  const comments = openComments(found.field).map((c) => toCommentVm(c, reader));
+  const comments = openComments(found.field).flatMap((c) => [toCommentVm(c, reader), ...toThreadRows(c, threads.get(c.id))]);
+  const clarify = reader.canClarify === false ? null : pendingClarification(found.field, reader.me, threads);
   return {
     label: found.field.label,
     section: found.section,
     value: formatValue(found.field),
     highlighted: false,
     comments,
-    mode,
+    mode: clarify ? 'clarify' : mode,
     instruction: '',
     ppuNote: '',
     withdrawIndex: -1,
+    clarify,
   };
 }

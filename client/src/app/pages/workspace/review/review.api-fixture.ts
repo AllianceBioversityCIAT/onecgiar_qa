@@ -1,7 +1,7 @@
 // @akili-spec assessment/step-1-assessment
 // Test fixture: an assessment view exactly as `GET …/assessment` answers it (front-contract § 5.1). Used by the
 // review specs only; every view model under test is built from it through `review.mapper.ts`.
-import { AssessmentComment, AssessmentField, AssessmentView } from '../../../core/api/assessment.models';
+import { AssessmentComment, AssessmentField, AssessmentView, CommentThread, ProgramResponse } from '../../../core/api/assessment.models';
 
 export const comment = (over: Partial<AssessmentComment> = {}): AssessmentComment => ({
   id: 1,
@@ -17,6 +17,30 @@ export const comment = (over: Partial<AssessmentComment> = {}): AssessmentCommen
   withdrawnAt: null,
   ...over,
 });
+
+/** A response of the program to a comment, as `GET …/sp-responses` answers it (P2-3911). */
+export const programResponse = (over: Partial<ProgramResponse> = {}): ProgramResponse => ({
+  id: 70,
+  kind: 'request_clarification',
+  body: 'Which evidence link do you mean?',
+  respondedBy: { name: 'Pepa Program', email: 'pepa@program.org' },
+  respondedAt: '2026-11-18T14:00:00.000Z',
+  ...over,
+});
+
+/** The thread of comment 1 with one clarification the program requested and nobody answered yet. */
+export const clarificationThread = (over: Partial<CommentThread> = {}): CommentThread => {
+  const request = programResponse();
+  return {
+    commentId: 1,
+    fieldKey: 'general.description',
+    state: 'clarification_requested',
+    response: request,
+    history: [request],
+    clarifications: [{ requestId: request.id, question: request.body ?? '', requestedAt: request.respondedAt, answer: null }],
+    ...over,
+  };
+};
 
 export const field = (over: Partial<AssessmentField> & Pick<AssessmentField, 'key' | 'label'>): AssessmentField => ({
   type: 'text',
