@@ -164,7 +164,7 @@ describe('the comment writes (FR-11, FR-13, ADR-006)', () => {
     expect(text).toContain('`state` = ?');
     expect(text).toContain('`withdrawn_at` = ?');
     expect(text).toContain(
-      'where (`assessment_comments`.`id` = ? and `assessment_comments`.`state` = ?)',
+      'where (`assessment_comments`.`id` = ? and `assessment_comments`.`state` = ? and `assessment_comments`.`deleted_at` is null)',
     );
     expect(params).toEqual([
       'withdrawn',
@@ -172,6 +172,19 @@ describe('the comment writes (FR-11, FR-13, ADR-006)', () => {
       700,
       'open',
     ]);
+  });
+
+  it('deletes with ONE conditional UPDATE: only while not deleted and with no program response, so the database decides a race (FR-10)', () => {
+    const { sql: text, params } = store.buildDeleteComment(700, 20, AT).toSQL();
+    expect(text).toMatch(/^update `assessment_comments` set /);
+    expect(text).toContain('`deleted_at` = ?');
+    expect(text).toContain('`deleted_by` = ?');
+    expect(text).toContain('`assessment_comments`.`deleted_at` is null');
+    expect(text).toContain(
+      'NOT EXISTS (SELECT 1 FROM `sp_comment_responses` WHERE `sp_comment_responses`.`comment_id` = `assessment_comments`.`id`)',
+    );
+    expect(text).not.toContain('`state`');
+    expect(params).toEqual(['2026-11-13 10:00:00.000', 20, 700]);
   });
 
   it('appends a comment event with ids and states only: no body, no value', () => {

@@ -14,6 +14,7 @@ export type AssessmentWriteAction =
   | 'finish'
   | 'decide'
   | 'decision_clear'
+  | 'delete'
   | 'quick_comment_save';
 
 export interface WriteLogContext {

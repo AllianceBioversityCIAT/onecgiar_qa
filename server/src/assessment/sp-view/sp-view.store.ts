@@ -9,6 +9,7 @@ import {
   exists,
   inArray,
   isNotNull,
+  isNull,
   ne,
   or,
   sql,
@@ -127,6 +128,8 @@ export interface SpCommentScope {
   authorId: number;
   fieldKey: string;
   visible: boolean;
+  /** `deleted_at` is set (round-2 FR-10): the program cannot see or answer it. */
+  deleted: boolean;
   assessmentId: number;
   stepPosition: number;
   membershipId: number;
@@ -253,7 +256,7 @@ export class DrizzleSpViewStore implements SpViewStore {
             states.map((s) => sql`${s}`),
             sql.raw(', '),
           )})`;
-    return sql<number>`(SELECT COUNT(*) FROM ${id('assessment_comments')} WHERE ${id('assessment_comments')}.${id('assessment_id')} = ${id('result_assessments')}.${id('id')} AND ${id('assessment_comments')}.${id('visible_to_program_at')} IS NOT NULL AND ${id('assessment_comments')}.${id('state')} <> 'withdrawn'${stateFilter})`;
+    return sql<number>`(SELECT COUNT(*) FROM ${id('assessment_comments')} WHERE ${id('assessment_comments')}.${id('assessment_id')} = ${id('result_assessments')}.${id('id')} AND ${id('assessment_comments')}.${id('visible_to_program_at')} IS NOT NULL AND ${id('assessment_comments')}.${id('deleted_at')} IS NULL AND ${id('assessment_comments')}.${id('state')} <> 'withdrawn'${stateFilter})`;
   }
 
   buildResultsQuery(criteria: SpResultsCriteria) {
@@ -334,6 +337,8 @@ export class DrizzleSpViewStore implements SpViewStore {
           eq(c.assessmentId, assessmentId),
           isNotNull(c.visibleToProgramAt),
           ne(c.state, 'withdrawn'),
+          // Round-2 FR-10: a comment the Lead deleted is not shown to the program.
+          isNull(c.deletedAt),
         ),
       )
       .orderBy(asc(c.createdAt), asc(c.id));
@@ -398,6 +403,7 @@ export class DrizzleSpViewStore implements SpViewStore {
         authorId: c.authorId,
         fieldKey: c.fieldKey,
         visibleAt: c.visibleToProgramAt,
+        deletedAt: c.deletedAt,
         assessmentId: a.id,
         stepPosition: a.stepPosition,
         membershipId: t.id,
@@ -416,7 +422,11 @@ export class DrizzleSpViewStore implements SpViewStore {
   async findCommentScope(commentId: number): Promise<SpCommentScope | null> {
     const [row] = await this.buildCommentScopeQuery(commentId);
     if (row === undefined) return null;
-    const { visibleAt, ...rest } = row;
-    return { ...rest, visible: visibleAt !== null };
+    const { visibleAt, deletedAt, ...rest } = row;
+    return {
+      ...rest,
+      visible: visibleAt !== null,
+      deleted: deletedAt !== null,
+    };
   }
 }

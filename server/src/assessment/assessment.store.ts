@@ -388,6 +388,13 @@ export interface AssessmentWriteStore {
    * or the program answered): the database decides the race, not a prior read.
    */
   withdrawComment(commentId: number, at: Date): Promise<boolean>;
+  /**
+   * One conditional statement (round-2 FR-10): sets `deleted_at` and
+   * `deleted_by` where the comment is not deleted yet and no program response
+   * points at it. `false` when it matched nothing (another delete got there, or
+   * the program answered): the database decides the race, not a prior read.
+   */
+  deleteComment(commentId: number, actorId: number, at: Date): Promise<boolean>;
   /** One statement. */
   insertCommentEvent(event: CommentEventWrite): Promise<void>;
   /**
@@ -403,7 +410,7 @@ export interface AssessmentWriteStore {
    * withdrawn nor deleted (round-2 FR-7: such a field is not a carried green).
    */
   findLiveCommentedFieldKeys(assessmentId: number): Promise<string[]>;
-  /** One statement: every non-withdrawn comment not yet visible becomes visible to the program at `at`. */
+  /** One statement: every non-withdrawn, non-deleted comment not yet visible becomes visible to the program at `at`. */
   markCommentsVisible(assessmentId: number, at: Date): Promise<void>;
   /** One statement: the `pending` release of an end. Unique per assessment. */
   insertRelease(row: NewReleaseRow): Promise<void>;
@@ -600,7 +607,13 @@ export class DrizzleAssessmentStore implements AssessmentStore {
       })
       .from(assessmentComments)
       .innerJoin(users, eq(users.id, assessmentComments.authorId))
-      .where(eq(assessmentComments.assessmentId, assessmentId))
+      .where(
+        and(
+          eq(assessmentComments.assessmentId, assessmentId),
+          // FR-10: a deleted comment is in no list.
+          isNull(assessmentComments.deletedAt),
+        ),
+      )
       .orderBy(asc(assessmentComments.createdAt), asc(assessmentComments.id));
   }
 
@@ -934,12 +947,39 @@ export class DrizzleAssessmentWriteStore implements AssessmentWriteStore {
           // The guard: only an open comment is withdrawn, so a second request
           // or a program answer in between matches nothing.
           eq(assessmentComments.state, 'open'),
+          // A delete wins over a withdraw: a deleted comment is out of every list.
+          isNull(assessmentComments.deletedAt),
         ),
       );
   }
 
   async withdrawComment(commentId: number, at: Date): Promise<boolean> {
     const [header] = await this.buildWithdrawComment(commentId, at);
+    return header.affectedRows > 0;
+  }
+
+  buildDeleteComment(commentId: number, actorId: number, at: Date) {
+    const responses = sql.identifier('sp_comment_responses');
+    return this.db
+      .update(assessmentComments)
+      .set({ deletedAt: at, deletedBy: actorId })
+      .where(
+        and(
+          eq(assessmentComments.id, commentId),
+          // The guards: a second delete matches nothing, and a comment the
+          // program answered (any response row) is never deleted.
+          isNull(assessmentComments.deletedAt),
+          sql`NOT EXISTS (SELECT 1 FROM ${responses} WHERE ${responses}.${sql.identifier('comment_id')} = ${assessmentComments.id})`,
+        ),
+      );
+  }
+
+  async deleteComment(
+    commentId: number,
+    actorId: number,
+    at: Date,
+  ): Promise<boolean> {
+    const [header] = await this.buildDeleteComment(commentId, actorId, at);
     return header.affectedRows > 0;
   }
 
@@ -1024,6 +1064,7 @@ export class DrizzleAssessmentWriteStore implements AssessmentWriteStore {
         and(
           eq(assessmentComments.assessmentId, assessmentId),
           ne(assessmentComments.state, 'withdrawn'),
+          isNull(assessmentComments.deletedAt),
           isNull(assessmentComments.visibleToProgramAt),
         ),
       );

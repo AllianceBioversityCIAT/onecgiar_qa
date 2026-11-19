@@ -11,7 +11,7 @@ describe('DrizzleSpWriteStore SQL (P2-3911)', () => {
       .buildSetCommentState(5, 'open', 'accepted')
       .toSQL();
     expect(sql).toBe(
-      'update `assessment_comments` set `state` = ? where (`assessment_comments`.`id` = ? and `assessment_comments`.`state` = ?)',
+      'update `assessment_comments` set `state` = ? where (`assessment_comments`.`id` = ? and `assessment_comments`.`state` = ? and `assessment_comments`.`deleted_at` is null)',
     );
     expect(params).toEqual(['accepted', 5, 'open']);
   });

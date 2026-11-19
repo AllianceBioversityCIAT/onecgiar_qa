@@ -44,7 +44,7 @@ describe('DrizzleSpViewStore SQL (P2-3911)', () => {
     );
     // The correlated counts and the round-2 probe name every column with its table.
     expect(sql).toContain(
-      "`assessment_comments`.`assessment_id` = `result_assessments`.`id` AND `assessment_comments`.`visible_to_program_at` IS NOT NULL AND `assessment_comments`.`state` <> 'withdrawn'",
+      "`assessment_comments`.`assessment_id` = `result_assessments`.`id` AND `assessment_comments`.`visible_to_program_at` IS NOT NULL AND `assessment_comments`.`deleted_at` IS NULL AND `assessment_comments`.`state` <> 'withdrawn'",
     );
     expect(sql).toContain('`assessment_comments`.`state` IN (?, ?, ?)');
     expect(params).toEqual(

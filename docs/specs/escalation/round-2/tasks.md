@@ -284,7 +284,7 @@ All back tasks touch `server/src/assessment/` (one shared boundary), so they run
 
 ## T-10: Delete another reviewer's comment
 
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** S
 - **Depends on:** T-5
 - **Requirements:** FR-10 (Delete; BUT own / answered / out-of-scope).

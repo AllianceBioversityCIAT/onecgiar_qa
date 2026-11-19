@@ -39,6 +39,7 @@ import { Permission, RoleCode } from '../users/permissions.js';
 import {
   AssessmentBusyError,
   AssessmentCommentFieldInvalidError,
+  AssessmentCommentNotDeletableError,
   AssessmentCommentNotOpenError,
   AssessmentCoreUncommentedError,
   AssessmentCoreUndecidedError,
@@ -181,6 +182,12 @@ export interface AssessmentViewResponse {
   readOnlyReason: AssessmentReadOnlyReason | null;
   assessment: AssessmentSummary | null;
 }
+
+/** A comment as the delete route answers: the comment with who deleted it and when (round-2 FR-10). */
+export type DeletedViewComment = ViewComment & {
+  deletedAt: string;
+  deletedBy: number;
+};
 
 const toViewComment = (row: CommentRecord): ViewComment => ({
   id: row.id,
@@ -1408,7 +1415,7 @@ export class AssessmentService {
         // Green + escalate on one field stays unreachable: an agree cannot turn green a field another comment escalated.
         if (
           input.decision === 'agree_program' &&
-          others.some((d) => d.decision === 'escalate')
+          escalatedFieldKeys(others).has(target.fieldKey)
         ) {
           throw new AssessmentFieldEscalatedError();
         }
@@ -1628,6 +1635,220 @@ export class AssessmentService {
     });
 
     return toViewComment({ ...context, state: 'withdrawn', withdrawnAt });
+  }
+
+  /**
+   * Round-2 FR-10, FR-11, OQ-8 (design 5, 6, 7, DD-9): the Lead soft-deletes
+   * another reviewer's comment. The targets are the round-1 comments of the
+   * previous membership's step-1 assessment of THIS result and the round-2
+   * comments of other reviewers on this assessment (another Lead).
+   *
+   * Scope is the decision's: only a Lead, only the round-2 membership of its
+   * result types, so another result, another type, a non-Lead and a comment that
+   * is not there are one and the same 404; an ADMIN is 403; step 3 not open is
+   * 409 `ASSESSMENT_STEP_CLOSED`; an ended review is 409 `ASSESSMENT_FINISHED`
+   * (every delete after the end, FR-11). In the transaction, in the lock order
+   * of design 5: the timeline `FOR SHARE`, the round-2 assessment row `FOR
+   * UPDATE`, the comment row `FOR UPDATE`, then ONE conditional UPDATE
+   * (`deleted_at IS NULL` and no program response) so a second delete or a program
+   * answer that committed in between is decided by the database. Refused with
+   * 409 `ASSESSMENT_COMMENT_NOT_DELETABLE`: the Lead's own comment (it withdraws
+   * it), a comment already deleted or withdrawn, one the program answered. The
+   * comment keeps its state; the `comment_events` row repeats it (to = from) with
+   * the Lead and its role, and the `comment_delete` audit row says who and when. A
+   * decision on the comment is dropped in the same transaction (`decision_clear`):
+   * an `agree_program` green goes back to grey unless another agree holds its
+   * field. The clock is read once.
+   */
+  async deleteComment(
+    user: AuthenticatedUser,
+    commentId: number,
+    requestId: string,
+  ): Promise<DeletedViewComment> {
+    return await loggedWrite(
+      this.logger,
+      { action: 'delete', actorId: user.id, requestId },
+      (trace) => this.deleteAt(user, commentId, requestId, trace),
+    );
+  }
+
+  private async deleteAt(
+    user: AuthenticatedUser,
+    commentId: number,
+    requestId: string,
+    trace: WriteLogTrace,
+  ): Promise<DeletedViewComment> {
+    const at = this.clock();
+    const now = nowInRome(at);
+    const target = await this.store.findCommentContext(commentId);
+    if (target === null) throw new AssessmentNotFoundError();
+    // The Lead's membership of the comment's result: the scope, the step and the end are the decision's.
+    const { timeline, access, membership, facts, hasLoad, decision } =
+      await this.resolveWrite(user, target.timelineId, target.resultCode, now);
+    if (
+      membership.round === 1 ||
+      decision.row.role !== RoleCode.LEAD_ASSESSOR
+    ) {
+      throw new AssessmentNotFoundError();
+    }
+    trace.timelineId = timeline.id;
+    trace.membershipId = membership.membershipId;
+    const stepPosition = decision.stepPosition;
+    const held =
+      membership.assessment?.stepPosition === stepPosition
+        ? membership.assessment
+        : null;
+    if (membership.ended || (held !== null && held.status !== 'pending')) {
+      throw new AssessmentFinishedError();
+    }
+    // Only a round-1 comment of THIS result's previous assessment, or one on the Lead's own round-2 assessment.
+    if (
+      target.assessmentId !== membership.previousAssessmentId &&
+      target.assessmentId !== held?.id
+    ) {
+      throw new AssessmentNotFoundError();
+    }
+
+    const { core, version } = await this.assessedOf(timeline, membership, held);
+    const context: WriteContext = {
+      timeline,
+      access,
+      membership,
+      facts,
+      hasLoad,
+      now,
+      at,
+      stepPosition,
+      roleCode: decision.row.role,
+      held,
+      version,
+      user,
+    };
+    const deletedAt = wholeSecond(at);
+    const ended = await this.unitOfWork.run(async ({ assessments }) => {
+      const locked = await this.lockForWrite(assessments, context);
+      // Design 7 *Write path*: the comment row after the round-2 assessment lock.
+      const comment = await assessments.lockDecisionTarget(commentId);
+      if (comment === undefined) throw new AssessmentNotFoundError();
+      // The Lead withdraws its own comment; a deleted or withdrawn one is already out of every list.
+      if (
+        comment.authorId === user.id ||
+        comment.deleted ||
+        comment.state === 'withdrawn'
+      ) {
+        throw new AssessmentCommentNotDeletableError();
+      }
+      if (!(await assessments.deleteComment(commentId, user.id, deletedAt))) {
+        throw new AssessmentCommentNotDeletableError();
+      }
+      // FR-8: a decision on a deleted comment no longer counts, so it goes with it.
+      const decisions = await assessments.findDecisions(locked.id);
+      const dropped = decisions.find((d) => d.commentId === commentId);
+      if (
+        dropped !== undefined &&
+        (await assessments.deleteDecision(commentId, context.roleCode))
+      ) {
+        await assessments.insertAudit({
+          assessmentId: locked.id,
+          actorId: user.id,
+          action: 'decision_clear',
+          fieldKeys: [comment.fieldKey],
+          commentId,
+          requestId,
+          at,
+        });
+        const stillAgreed = decisions.some(
+          (d) =>
+            d !== dropped &&
+            d.fieldKey === comment.fieldKey &&
+            d.decision === 'agree_program' &&
+            isLiveDecision(d),
+        );
+        if (dropped.decision === 'agree_program' && !stillAgreed) {
+          const stored = new Map(
+            (await assessments.findValidations(locked.id)).map((row) => [
+              row.fieldKey,
+              row.validated,
+            ]),
+          );
+          const current = await this.effectiveOf(assessments, membership);
+          if (current(comment.fieldKey, stored.get(comment.fieldKey))) {
+            await assessments.upsertValidations(
+              locked.id,
+              [{ fieldKey: comment.fieldKey, validated: false }],
+              user.id,
+              at,
+            );
+          }
+        }
+      }
+      await assessments.insertCommentEvent({
+        commentId,
+        actorId: user.id,
+        actorRole: context.roleCode,
+        fromState: comment.state,
+        toState: comment.state,
+        at,
+      });
+      await assessments.insertAudit({
+        assessmentId: locked.id,
+        actorId: user.id,
+        action: 'comment_delete',
+        fieldKeys: [comment.fieldKey],
+        commentId,
+        requestId,
+        at,
+      });
+      // FR-12: a delete is a write. Taking the only live round-1 comment off a
+      // field the assessor greened (nothing stored for it) makes it a carried
+      // green; when that leaves every core field effectively green, the review
+      // ends Quality Assessed in this transaction, as after a decision.
+      const stored = new Map(
+        (await assessments.findValidations(locked.id)).map((row) => [
+          row.fieldKey,
+          row.validated,
+        ]),
+      );
+      const current = await this.effectiveOf(assessments, membership);
+      if (
+        comment.assessmentId === membership.previousAssessmentId &&
+        core.includes(comment.fieldKey) &&
+        !stored.has(comment.fieldKey) &&
+        current(comment.fieldKey, undefined)
+      ) {
+        const remaining = (await assessments.findDecisions(locked.id)).filter(
+          (d) => d.commentId !== commentId,
+        );
+        const escalated = escalatedFieldKeys(remaining);
+        if (
+          endRoundTwoAfterWrite(
+            core.map((key) => ({
+              key,
+              effectiveGreen: current(key, stored.get(key)),
+              escalated: escalated.has(key),
+            })),
+          ) === 'quality_assessed'
+        ) {
+          await this.applyEnd(
+            assessments,
+            context,
+            locked,
+            'quality_assessed',
+            requestId,
+            remaining,
+          );
+          return true;
+        }
+      }
+      return false;
+    });
+    // Only a delete that ended the review queued a release.
+    if (ended) this.dispatchRelease();
+    return {
+      ...toViewComment(target),
+      deletedAt: deletedAt.toISOString(),
+      deletedBy: user.id,
+    };
   }
 
   /**

@@ -327,7 +327,7 @@ describe('DrizzleWorklistStore current-step join (DD-3)', () => {
 // P2-3911: the comments the Science Program answered.
 describe('DrizzleWorklistStore answeredBySp (P2-3911)', () => {
   const ANSWERED =
-    '(select COUNT(*) from `assessment_comments` where (`assessment_comments`.`assessment_id` = `result_assessments`.`id` and `assessment_comments`.`state` in (?, ?, ?)))';
+    '(select COUNT(*) from `assessment_comments` where (`assessment_comments`.`assessment_id` = `result_assessments`.`id` and `assessment_comments`.`deleted_at` is null and `assessment_comments`.`state` in (?, ?, ?)))';
 
   it('counts accepted, accepted-with-comment and disagreed comments of the row', () => {
     const { sql: text, params } = pageSql(criteria());

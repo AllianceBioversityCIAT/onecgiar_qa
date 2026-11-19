@@ -172,6 +172,8 @@ export interface FakeComment {
   withdrawnAt?: Date | null;
   /** Round 2 (FR-10): a Lead deleted the comment. A deleted comment keeps its state. */
   deletedAt?: Date | null;
+  /** Round 2 (FR-10): the Lead who deleted it; set with `deletedAt`, never alone (the CHECK). */
+  deletedBy?: number | null;
   /** Set by the write side when an end makes the comment visible to the program. */
   visibleToProgramAt?: Date | null;
 }
@@ -579,7 +581,9 @@ export class InMemoryWorklistStore implements WorklistStore {
             ? 0
             : this.world.comments.filter(
                 (c) =>
-                  c.assessmentId === assessment.id && c.state !== 'withdrawn',
+                  c.assessmentId === assessment.id &&
+                  c.state !== 'withdrawn' &&
+                  (c.deletedAt ?? null) === null,
               ).length,
         answeredBySp:
           assessment === undefined
@@ -587,6 +591,7 @@ export class InMemoryWorklistStore implements WorklistStore {
             : this.world.comments.filter(
                 (c) =>
                   c.assessmentId === assessment.id &&
+                  (c.deletedAt ?? null) === null &&
                   ['accepted', 'accepted_with_comment', 'disagreed'].includes(
                     c.state,
                   ),
@@ -745,7 +750,10 @@ export class InMemoryAssessmentStore implements AssessmentStore {
     return Promise.resolve(
       this.world.comments
         .map((c, index) => ({ c, index }))
-        .filter(({ c }) => c.assessmentId === assessmentId)
+        .filter(
+          ({ c }) =>
+            c.assessmentId === assessmentId && (c.deletedAt ?? null) === null,
+        )
         .map(({ c, index }) => commentRecordOf(this.world, c, index)),
     );
   }
@@ -1095,7 +1103,12 @@ export class InMemoryAssessmentWriteStore implements AssessmentWriteStore {
       (c, i) => (c.id ?? i + 1) === commentId,
     );
     // The conditional UPDATE: it matches the row only while it is `open`.
-    if (held === undefined || held.state !== 'open') {
+    // ... and while it is not deleted (a delete wins over a withdraw).
+    if (
+      held === undefined ||
+      held.state !== 'open' ||
+      (held.deletedAt ?? null) !== null
+    ) {
       return Promise.resolve(false);
     }
     held.state = 'withdrawn';
@@ -1103,6 +1116,34 @@ export class InMemoryAssessmentWriteStore implements AssessmentWriteStore {
     this.undo.push(() => {
       held.state = 'open';
       held.withdrawnAt = null;
+    });
+    return Promise.resolve(true);
+  }
+
+  deleteComment(
+    commentId: number,
+    actorId: number,
+    at: Date,
+  ): Promise<boolean> {
+    this.world.statements += 1;
+    this.world.writeLog.push('deleteComment');
+    const held = this.world.comments.find(
+      (c, i) => (c.id ?? i + 1) === commentId,
+    );
+    // The conditional UPDATE: only a comment that is not deleted and that no
+    // program response points at.
+    if (
+      held === undefined ||
+      (held.deletedAt ?? null) !== null ||
+      this.world.spResponses.some((r) => r.commentId === commentId)
+    ) {
+      return Promise.resolve(false);
+    }
+    held.deletedAt = at;
+    held.deletedBy = actorId;
+    this.undo.push(() => {
+      held.deletedAt = null;
+      held.deletedBy = null;
     });
     return Promise.resolve(true);
   }
@@ -1178,6 +1219,7 @@ export class InMemoryAssessmentWriteStore implements AssessmentWriteStore {
       if (
         comment.assessmentId !== assessmentId ||
         comment.state === 'withdrawn' ||
+        (comment.deletedAt ?? null) !== null ||
         (comment.visibleToProgramAt ?? null) !== null
       ) {
         continue;

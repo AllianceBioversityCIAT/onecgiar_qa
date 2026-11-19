@@ -395,6 +395,7 @@ export class DrizzleWorklistStore implements WorklistStore {
         and(
           eq(assessmentComments.assessmentId, a.id),
           ne(assessmentComments.state, 'withdrawn'),
+          isNull(assessmentComments.deletedAt),
         ),
       )})`;
   }
@@ -407,6 +408,7 @@ export class DrizzleWorklistStore implements WorklistStore {
       .where(
         and(
           eq(assessmentComments.assessmentId, a.id),
+          isNull(assessmentComments.deletedAt),
           inArray(assessmentComments.state, [
             'accepted',
             'accepted_with_comment',

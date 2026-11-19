@@ -208,8 +208,9 @@ describe('DrizzleAssessmentStore.buildCommentsQuery', () => {
   it('reads the comments of one assessment with the nickname of the author only, oldest first', () => {
     const { sql: text, params } = store.buildCommentsQuery(70).toSQL();
     expect(params).toEqual([70]);
+    // FR-10: a deleted comment is in no list.
     expect(whereOf(text)).toBe(
-      ' where `assessment_comments`.`assessment_id` = ?',
+      ' where (`assessment_comments`.`assessment_id` = ? and `assessment_comments`.`deleted_at` is null)',
     );
     expect(text).toContain(
       ' inner join `users` on `users`.`id` = `assessment_comments`.`author_id`',

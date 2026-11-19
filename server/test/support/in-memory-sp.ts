@@ -176,7 +176,9 @@ export class InMemorySpViewStore implements SpViewStore {
           : this.world.comments.filter((c) => c.assessmentId === assessment.id);
       const visible = own.filter(
         (c) =>
-          (c.visibleToProgramAt ?? null) !== null && c.state !== 'withdrawn',
+          (c.visibleToProgramAt ?? null) !== null &&
+          c.state !== 'withdrawn' &&
+          (c.deletedAt ?? null) === null,
       );
       out.push({
         membershipId: m.id,
@@ -213,7 +215,8 @@ export class InMemorySpViewStore implements SpViewStore {
           (c) =>
             c.assessmentId === assessmentId &&
             (c.visibleToProgramAt ?? null) !== null &&
-            c.state !== 'withdrawn',
+            c.state !== 'withdrawn' &&
+            (c.deletedAt ?? null) === null,
         )
         .map((c) => ({
           id: commentIdOf(this.world, c),
@@ -282,6 +285,7 @@ export class InMemorySpViewStore implements SpViewStore {
       authorId: comment.authorId,
       fieldKey: comment.fieldKey ?? 'general.title',
       visible: (comment.visibleToProgramAt ?? null) !== null,
+      deleted: (comment.deletedAt ?? null) !== null,
       assessmentId: assessment.id,
       stepPosition: assessment.stepPosition,
       membershipId: membership.id,
@@ -313,7 +317,11 @@ export class InMemorySpWriteStore implements SpWriteStore {
       (c) => commentIdOf(this.world, c) === commentId,
     );
     // The conditional UPDATE: it matches only while the state is still `from`.
-    if (held === undefined || held.state !== from) {
+    if (
+      held === undefined ||
+      held.state !== from ||
+      (held.deletedAt ?? null) !== null
+    ) {
       return Promise.resolve(false);
     }
     held.state = to;

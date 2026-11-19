@@ -29,6 +29,7 @@ import {
   AssessmentService,
   type AssessmentViewResponse,
   type DecisionResult,
+  type DeletedViewComment,
   type ValidationSummary,
 } from './assessment.service.js';
 import type { ViewComment } from './assessment-view.js';
@@ -43,6 +44,7 @@ import { DecideCommentBody } from './dto/decide-comment.body.js';
 import { ValidateAssessmentBody } from './dto/validate-assessment.body.js';
 import {
   AssessmentCommentModel,
+  AssessmentDeletedCommentModel,
   AssessmentViewModel,
   DecisionResultModel,
   ValidationSummaryModel,
@@ -309,6 +311,38 @@ export class AssessmentController {
     @Param() params: CommentParams,
   ): Promise<ViewComment> {
     return this.assessments.withdraw(
+      user,
+      params.commentId,
+      requestIdOf(request),
+    );
+  }
+
+  @ApiOperation({
+    summary: "Delete another reviewer's comment (Lead Assessor)",
+    description:
+      "The Lead soft-deletes a comment of another reviewer while step 3 is in progress: a round-1 comment of this result, or another Lead's round-2 comment on this assessment. The row stays; the answer carries `deletedAt` and `deletedBy`, the comment history shows who and when, and a decision the Lead set on the comment is dropped with it. The comment leaves the thread, the counts, the end rules and the program view. Refused with 409 `ASSESSMENT_COMMENT_NOT_DELETABLE`: the Lead's own comment (it withdraws it), a comment already deleted or withdrawn, a comment the program already answered. 409 `ASSESSMENT_FINISHED` once the Lead review ended; 409 `ASSESSMENT_STEP_CLOSED` when step 3 is not open. A comment that does not exist, a result outside the Lead's result types and a caller who is not a Lead are the same 404.",
+  })
+  @ApiOkEnvelope(AssessmentDeletedCommentModel)
+  @ApiErrorResponses({
+    400: ['VALIDATION_FAILED'],
+    401: ['AUTH_TOKEN_INVALID', 'AUTH_USER_NOT_ADMITTED'],
+    403: ['ASSESSMENT_READ_ONLY'],
+    404: ['ASSESSMENT_NOT_FOUND'],
+    409: [
+      'ASSESSMENT_COMMENT_NOT_DELETABLE',
+      'ASSESSMENT_STEP_CLOSED',
+      'ASSESSMENT_FINISHED',
+    ],
+    503: ['SERVICE_UNAVAILABLE'],
+  })
+  @HttpCode(200)
+  @Post('assessment-comments/:commentId/delete')
+  deleteComment(
+    @CurrentUser() user: AuthenticatedUser,
+    @Req() request: RequestWithId,
+    @Param() params: CommentParams,
+  ): Promise<DeletedViewComment> {
+    return this.assessments.deleteComment(
       user,
       params.commentId,
       requestIdOf(request),

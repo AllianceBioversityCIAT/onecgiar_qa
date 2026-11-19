@@ -139,6 +139,15 @@ export class AssessmentCommentModel {
   withdrawnAt!: string | null;
 }
 
+/** The delete route's answer: the comment with who deleted it and when (round-2 FR-10). */
+export class AssessmentDeletedCommentModel extends AssessmentCommentModel {
+  @ApiProperty({ type: String, format: 'date-time' })
+  deletedAt!: string;
+
+  @ApiProperty({ type: Number, example: 20 })
+  deletedBy!: number;
+}
+
 export class AssessmentThreadDecisionModel {
   @ApiProperty({
     type: String,

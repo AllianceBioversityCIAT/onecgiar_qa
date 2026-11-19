@@ -14,8 +14,8 @@ import {
 // The end of the Lead's review over real HTTP (P2-3912 T-9; FR-11, FR-12, FR-13,
 // FR-15; NFR-3): the HTTP path only. Every branch of the end rules is a unit
 // spec over the in-memory stores (`assessment-round-two-end.service.spec.ts`).
-// Expected values are written out from the scenarios. There is no delete route
-// yet (T-10), so a delete after the end is covered when that route lands. The
+// Expected values are written out from the scenarios. A delete after
+// the end is in `assessment-round-two-delete.e2e-spec.ts`. The
 // decision-vs-finish race (both orders) is in `assessment-round-two-decisions.e2e-spec.ts`.
 
 const CARRIED = ASSESSED[1]!; // green in round 1, uncommented, unchanged

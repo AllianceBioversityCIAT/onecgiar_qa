@@ -140,6 +140,7 @@ export class SpResponseService {
     if (
       scope === null ||
       !scope.visible ||
+      scope.deleted ||
       scope.state === 'withdrawn' ||
       (!session.isReportingAdmin && scope.programId !== session.programId)
     ) {
