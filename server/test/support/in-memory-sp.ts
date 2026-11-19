@@ -231,6 +231,18 @@ export class InMemorySpViewStore implements SpViewStore {
     );
   }
 
+  findCommentAuthors(
+    commentIds: readonly number[],
+  ): Promise<Array<{ id: number; authorId: number }>> {
+    if (commentIds.length === 0) return Promise.resolve([]);
+    this.world.statements += 1;
+    return Promise.resolve(
+      this.world.comments
+        .filter((c) => commentIds.includes(commentIdOf(this.world, c)))
+        .map((c) => ({ id: commentIdOf(this.world, c), authorId: c.authorId })),
+    );
+  }
+
   findResponses(commentIds: readonly number[]): Promise<SpResponseRecord[]> {
     if (commentIds.length === 0) return Promise.resolve([]);
     this.world.statements += 1;

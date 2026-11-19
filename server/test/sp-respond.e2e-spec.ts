@@ -379,6 +379,38 @@ describe('SP responses and clarification answers (e2e)', () => {
       expect(commentState(w.open)).toBe('accepted');
     });
 
+    it('flags answerable only for the author, while the clarification is pending and the step is open', async () => {
+      const threads = async (sub: string) =>
+        (
+          await a.send('get', `/timelines/1/results/${w.codeA}/sp-responses`, {
+            token: bearer(sub),
+          })
+        ).body.data?.comments as Array<{
+          commentId: number;
+          answerable: boolean;
+        }>;
+      const flagOf = async (sub: string) =>
+        (await threads(sub)).find((t) => t.commentId === w.open)!.answerable;
+
+      expect(await flagOf('sub-policy')).toBe(false);
+      await respond(w.open, {
+        kind: 'request_clarification',
+        body: 'Which link?',
+      }).expect(200);
+      expect(await flagOf('sub-policy')).toBe(true);
+      expect(await flagOf('sub-policy2')).toBe(false);
+      // An admin with no reviewer row reads the timeline only: nothing is answerable.
+      expect(
+        ((await threads('sub-admin')) ?? []).some((t) => t.answerable),
+      ).toBe(false);
+      expect(
+        (await threads('sub-policy')).filter((t) => t.answerable),
+      ).toHaveLength(1);
+
+      await answer(w.open, { body: 'The DOI link' }).expect(200);
+      expect(await flagOf('sub-policy')).toBe(false);
+    });
+
     it('lets the assessor read every program thread of a result, with the responder email', async () => {
       await respond(w.open, { kind: 'disagree', body: 'No' }).expect(200);
       const res = await a.send(

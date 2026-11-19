@@ -56,6 +56,12 @@ export interface AssessorThreadView {
   commentId: number;
   fieldKey: string;
   state: CommentState;
+  /**
+   * The caller can answer this comment's clarification now: they wrote it, they
+   * can write on the timeline, a clarification is pending and the programs step
+   * is in progress. The same checks as `POST …/clarification-answer`.
+   */
+  answerable: boolean;
   response: AssessorResponseView | null;
   history: AssessorResponseView[];
   clarifications: ClarificationView[];
@@ -154,6 +160,8 @@ export function toAssessorThreads(
   }>,
   responses: readonly SpResponseRecord[],
   answers: readonly ClarificationAnswerRecord[],
+  answerable: (comment: { id: number; state: CommentState }) => boolean = () =>
+    false,
 ): AssessorThreadView[] {
   const responsesOf = byComment(responses);
   const answersOf = byComment(answers);
@@ -164,6 +172,7 @@ export function toAssessorThreads(
       commentId: comment.id,
       fieldKey: comment.fieldKey,
       state: comment.state,
+      answerable: answerable(comment),
       response: history.at(-1) ?? null,
       history,
       clarifications: clarificationsOf(own, answersOf.get(comment.id) ?? []),
