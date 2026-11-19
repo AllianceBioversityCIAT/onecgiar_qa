@@ -11,6 +11,8 @@ import { NotificationsStore } from './notifications-store';
  *   and takes the sidebar's selected look, light green with green text (Juanpa, 2026-10-29, as PRMS does in purple).
  * - As in PRMS (Juanpa, 2026-10-28): bell, "Notifications" and the unread count in a pill. Below `md` only the bell shows,
  *   with the pill on its corner. The accessible name says how many are unread. The store is the only source.
+ * - While the store holds the design prototype (`NotificationsStore.sample`), there is no count and no "unread" in the
+ *   name: an invented number in the top bar of every page reads as real work waiting (2026-11-19).
  */
 @Component({
   selector: 'qa-notifications-bell',
@@ -44,7 +46,8 @@ export class NotificationsBell {
   private readonly access = inject(AccessControl);
 
   protected readonly visible = computed(() => this.access.canAny(Permission.ADMIN_ACCESS));
-  protected readonly unread = this.store.unreadCount;
+  /** Nothing to count while the store holds the design prototype: an invented "2" in the top bar reads as real work. */
+  protected readonly unread = computed(() => (this.store.sample ? 0 : this.store.unreadCount()));
   /** The pill holds at most two digits. */
   protected readonly countText = computed(() => (this.unread() > 99 ? '99+' : String(this.unread())));
   protected readonly label = computed(() => (this.unread() > 0 ? `Notifications, ${this.unread()} unread` : 'Notifications'));
