@@ -312,6 +312,8 @@ export interface DecisionTarget {
   id: number;
   /** The assessment the comment belongs to: it must be the previous membership's step-1 one. */
   assessmentId: number;
+  /** The comment's author: the Lead's OWN round-2 comment is decidable (FR-9). */
+  authorId: number;
   fieldKey: string;
   state: CommentState;
   /** `deleted_at` is set (FR-10). */
@@ -1098,6 +1100,7 @@ export class DrizzleAssessmentWriteStore implements AssessmentWriteStore {
       .select({
         id: assessmentComments.id,
         assessmentId: assessmentComments.assessmentId,
+        authorId: assessmentComments.authorId,
         fieldKey: assessmentComments.fieldKey,
         state: assessmentComments.state,
         deletedAt: assessmentComments.deletedAt,
@@ -1116,6 +1119,7 @@ export class DrizzleAssessmentWriteStore implements AssessmentWriteStore {
     return {
       id: row.id,
       assessmentId: row.assessmentId,
+      authorId: row.authorId,
       fieldKey: row.fieldKey,
       state: row.state,
       deleted: row.deletedAt !== null,

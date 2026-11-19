@@ -931,3 +931,137 @@ describe('NFR-2 the log line of a decision carries ids and fixed words only', ()
     vi.restoreAllMocks();
   });
 });
+
+// Round-2 FR-9 (P2-3912 T-8): the Lead's OWN round-2 comment can be escalated,
+// never agreed; withdrawing it takes its escalate with it; the withdraw window
+// also opens while step 3 is in progress, for a round-2 comment only.
+describe('FR-9 the Lead own comment', () => {
+  // The comment route is covered by its own specs (it needs a snapshot); here
+  // the Lead's comment is written the way that route stores it: round 2, step 3.
+  const own = (
+    setupResult: ReturnType<typeof setup>,
+    fieldKey = CORE[0]!,
+    id = 8001,
+  ) => {
+    const { world } = setupResult;
+    if (roundTwoAssessment(world) === undefined) {
+      world.assessments.push({
+        id: 1000,
+        membershipId: 2,
+        stepPosition: 3,
+        status: 'pending',
+      });
+    }
+    world.comments.push(
+      comment(id, fieldKey, 'open', {
+        assessmentId: 1000,
+        authorId: 20,
+        round: 2,
+        stepPosition: 3,
+      }),
+    );
+    return id;
+  };
+  const withdraw = (
+    setupResult: ReturnType<typeof setup>,
+    id: number,
+    user = lead(),
+  ) => setupResult.service.withdraw(user, id, RID);
+
+  it('escalates the own comment: the decision is stored and the field stays grey', async () => {
+    const s = setup();
+    const id = own(s);
+
+    const result = await s.decide(id, 'escalate', 'Core field is wrong');
+
+    expect(result.status).toBe('pending');
+    expect(result.decision).toEqual({
+      decision: 'escalate',
+      body: 'Core field is wrong',
+      decidedAt: '2027-02-10T10:00:00.000Z',
+    });
+    expect(
+      s.world.commentDecisions.map((d) => [d.commentId, d.decision]),
+    ).toEqual([[id, 'escalate']]);
+    expect(auditActions(s.world)).toContain('decision_set');
+    expect(
+      s.world.validations.filter((v) => v.assessmentId === 1000 && v.validated),
+    ).toEqual([]);
+  });
+
+  it('refuses agree_program on the own comment with 409 ASSESSMENT_DECISION_INVALID and stores nothing', async () => {
+    const s = setup();
+    const id = own(s);
+
+    expect(await refusal(s.decide(id, 'agree_program'))).toMatchObject({
+      status: 409,
+      body: { code: 'ASSESSMENT_DECISION_INVALID' },
+    });
+    expect(s.world.commentDecisions).toEqual([]);
+  });
+
+  it('a withdrawn own comment is not decidable (409)', async () => {
+    const s = setup();
+    const id = own(s);
+    await withdraw(s, id);
+
+    expect(await refusal(s.decide(id, 'escalate'))).toMatchObject({
+      status: 409,
+      body: { code: 'ASSESSMENT_DECISION_INVALID' },
+    });
+  });
+
+  it('a comment of another author on the same assessment is the 404 that tells nothing', async () => {
+    const s = setup();
+    const id = own(s);
+    s.world.comments.find((c) => c.id === id)!.authorId = 21;
+
+    expect(await refusal(s.decide(id, 'escalate'))).toMatchObject({
+      status: 404,
+    });
+  });
+
+  it('escalate then withdraw leaves no live decision, with one decision_clear audit row', async () => {
+    const s = setup();
+    const id = own(s);
+    await s.decide(id, 'escalate');
+
+    await withdraw(s, id);
+
+    expect(s.world.commentDecisions).toEqual([]);
+    expect(auditActions(s.world).filter((a) => a === 'decision_clear')).toEqual(
+      ['decision_clear'],
+    );
+    expect(auditActions(s.world)).toContain('comment_withdraw');
+  });
+
+  it('withdraws an own round-2 comment while step 3 is in progress', async () => {
+    const s = setup();
+    const id = own(s);
+
+    const result = await withdraw(s, id);
+
+    expect(result.state).toBe('withdrawn');
+  });
+
+  it('refuses the withdraw of a round-2 comment once step 3 has closed (409 ASSESSMENT_STEP_CLOSED)', async () => {
+    const s = setup({ now: AFTER_STEP_THREE });
+    const id = own(s);
+
+    expect(await refusal(withdraw(s, id))).toMatchObject({
+      status: 409,
+      body: { code: 'ASSESSMENT_STEP_CLOSED' },
+    });
+  });
+
+  it('round 1 is unchanged: a round-1 comment cannot be withdrawn while only step 3 is open', async () => {
+    const s = setup({
+      comments: [comment(7001, CORE[0]!, 'open')],
+    });
+
+    expect(await refusal(withdraw(s, 7001, assessor()))).toMatchObject({
+      status: 409,
+      body: { code: 'ASSESSMENT_STEP_CLOSED' },
+    });
+  });
+});

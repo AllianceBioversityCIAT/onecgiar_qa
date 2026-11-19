@@ -200,6 +200,28 @@ describe('withdraw window (OQ-8, FR-13)', () => {
     );
   });
 
+  // Round 2 (FR-9): the lead_assessors step also opens the window, for a round-2 comment only.
+  it('opens during the lead_assessors step for a round-2 comment, never for round 1', () => {
+    const steps = [
+      ...timing('2026-12-10T10:00:00Z').steps,
+      {
+        position: 3,
+        name: 'Step 3',
+        audience: 'lead_assessors' as const,
+        opensAt: '2026-12-01T00:00' as never,
+        closesAt: '2026-12-31T23:59' as never,
+      },
+    ];
+    const at = {
+      steps,
+      now: nowInRome(new Date('2026-12-10T10:00:00Z')),
+      hasLoad: true,
+    };
+    expect(isWithdrawWindowOpen(at, 2)).toBe(true);
+    expect(isWithdrawWindowOpen(at, 1)).toBe(false);
+    expect(isWithdrawWindowOpen(at)).toBe(false);
+  });
+
   it('is closed when the timeline has neither step', () => {
     expect(
       isWithdrawWindowOpen({

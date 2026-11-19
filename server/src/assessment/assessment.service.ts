@@ -1188,9 +1188,10 @@ export class AssessmentService {
     if (membership.ended || (held !== null && held.status !== 'pending')) {
       throw new AssessmentFinishedError();
     }
-    // The decidable comments are the previous membership's step-1 ones: a new round-2 result has none.
+    // The decidable comments are the previous membership's step-1 ones and the Lead's own round-2 ones (FR-9).
+    // A new round-2 result has no previous one, and no own comment until an assessment row exists.
     const previous = membership.previousAssessmentId;
-    if (previous === null) throw new AssessmentNotFoundError();
+    if (previous === null && held === null) throw new AssessmentNotFoundError();
 
     if (held === null && input === null) {
       // Nothing was decided, so there is nothing to clear: no row, no transaction. The comment is still checked.
@@ -1231,7 +1232,15 @@ export class AssessmentService {
       const locked = await this.lockForWrite(assessments, context);
       // Design 7 *Write path*: the comment row after the round-2 assessment lock.
       const target = await assessments.lockDecisionTarget(commentId);
-      if (target === undefined || target.assessmentId !== previous) {
+      // The previous step-1 comment, or the Lead's OWN comment on this assessment; any other is the 404.
+      const ownComment =
+        target !== undefined &&
+        target.assessmentId === locked.id &&
+        target.authorId === user.id;
+      if (
+        target === undefined ||
+        (target.assessmentId !== previous && !ownComment)
+      ) {
         throw new AssessmentNotFoundError();
       }
       const state = new Map(
@@ -1294,7 +1303,11 @@ export class AssessmentService {
         }
       } else {
         const choices = isDecidable(
-          { origin: 'round_one', state: target.state, deleted: target.deleted },
+          {
+            origin: ownComment ? 'lead_round_two' : 'round_one',
+            state: target.state,
+            deleted: target.deleted,
+          },
           {
             visibility: assessed.includes(target.fieldKey)
               ? 'assessed'
@@ -1461,7 +1474,12 @@ export class AssessmentService {
     }
     if (context.state !== 'open') throw new AssessmentCommentNotOpenError();
     const hasLoad = (await this.loads.withLoad([timeline.id])).has(timeline.id);
-    if (!isWithdrawWindowOpen({ steps: timeline.steps, now, hasLoad })) {
+    if (
+      !isWithdrawWindowOpen(
+        { steps: timeline.steps, now, hasLoad },
+        context.round,
+      )
+    ) {
       throw new AssessmentStepClosedError();
     }
 
@@ -1470,7 +1488,7 @@ export class AssessmentService {
     await this.unitOfWork.run(async ({ assessments }) => {
       const steps = await assessments.lockTimelineShared(timeline.id);
       if (steps === null) throw new AssessmentNotFoundError();
-      if (!isWithdrawWindowOpen({ steps, now, hasLoad })) {
+      if (!isWithdrawWindowOpen({ steps, now, hasLoad }, context.round)) {
         throw new AssessmentStepClosedError();
       }
       const locked = await assessments.lockAssessment(
@@ -1481,6 +1499,22 @@ export class AssessmentService {
       // No `status` check on purpose (OQ-8): withdrawing after the end is allowed.
       if (!(await assessments.withdrawComment(commentId, withdrawnAt))) {
         throw new AssessmentCommentNotOpenError();
+      }
+      // Round 2 (FR-9): a withdrawn comment takes its decision with it, so a finish never counts it.
+      if (
+        context.round !== 1 &&
+        locked.status === 'pending' &&
+        (await assessments.deleteDecision(commentId, RoleCode.LEAD_ASSESSOR))
+      ) {
+        await assessments.insertAudit({
+          assessmentId: context.assessmentId,
+          actorId: user.id,
+          action: 'decision_clear',
+          fieldKeys: [context.fieldKey],
+          commentId,
+          requestId,
+          at,
+        });
       }
       await assessments.insertCommentEvent({
         commentId,

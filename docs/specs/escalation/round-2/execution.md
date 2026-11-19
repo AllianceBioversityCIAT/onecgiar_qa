@@ -140,3 +140,19 @@
 
 - Tripped: ≈ 6,530 LOC (production 1,925 · unit 2,785 · e2e 1,770 · SQL 54) against ~5,500; review rounds 12 / ~22. Cause: production also above the estimate (store, controller, DTOs, OpenAPI models, transition table, in-memory adapter); 43 unit cases in T-7.
 - Options: (1) raise to ~9,500; (2) split into two PRs; (3) stop. Back lead chose **1** ("1"). `design.md` § 13 amended. Not auto-approved.
+
+### T-8: Lead's own comment and its escalation; withdraw in step 3 — PASS (2026-11-19)
+
+- **Attempts:** 1. Effort medium. Skills: nestjs-best-practices, tdd.
+- **Files changed:** `server/src/assessment/assessment.service.ts` (`decideAt` accepts the Lead's own comment of this assessment; `withdrawAt` passes the round to the window checks and clears a Lead decision with a `decision_clear` audit inside the withdraw transaction), `role-steps.ts` (`isWithdrawWindowOpen(timing, round = 1)`: step 3 opens it for round 2), `assessment.store.ts` (`DecisionTarget.authorId`), `test/support/in-memory-assessment.ts`, specs `assessment-decisions.service.spec.ts` (FR-9, 8 tests), `role-steps.spec.ts`, e2e `test/assessment-round-two-decisions.e2e-spec.ts` (new round-2 result).
+- **Red run (assertion-level):** escalate own → `AssessmentNotFoundError`; agree own → "expected { status: 404 … } to match object { status: 409 … }"; withdraw in step 3 → `AssessmentStepClosedError` (5 failed | 3 passed). A setup failure (snapshot missing) was not counted. The e2e was written after the code.
+- **Falsifier:** own-comment branch of `isDecidable` returns both choices → unit refusal red; e2e "expected 200 to be 409"; reverted.
+- **Implementer verification:** lint · build · unit 4101 / 6 skipped · e2e 1303 · client ok.
+- **Evidence re-run (Leader inline):** decisions + role-steps specs 85/85; decisions e2e 14/14; build ok → **VERIFIED**.
+- **Reviewer:** **PASS** — own comment = same assessment and author; escalate only; withdraw transaction atomic; round-1 window unchanged; `isWithdrawWindowOpen` consumers all accounted for (`assessment.service.ts:1464`, `:1473` pass the round).
+- **ADVISORY:** the OQ-8 "withdraw after the end" rule now also covers round-2 comments — **forward pointer to T-9: refuse a round-2 withdraw on a non-pending assessment, with a test, and narrow the comment at `assessment.service.ts:1499` to round 1**; decision clear on withdraw keys on `LEAD_ASSESSOR` (revisit for TPB/PPU); comment the `held === null` early path; the front needs to see the Lead's decision on their own comment — **front contract (T-12)**.
+- **Not Done / Assumptions (no owed item):** decision cleared on withdraw only while pending; 404 with no previous assessment and no round-2 row; service spec writes the Lead comment into the fake world (route covered by e2e).
+- **spawns:** implementer 27 calls, 140,787 tokens, ended complete; reviewer not reported.
+- **Requirements covered:** FR-9.
+- **Running totals vs budget (~9,500):** tasks 8/14 · LOC ≈ 6,950 · review rounds 13/~22.
+- auto-approved (pre-approved mode)

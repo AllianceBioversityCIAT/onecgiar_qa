@@ -6,6 +6,7 @@ import {
 } from './support/assessment-app.js';
 import { ASSESSED, resultPath } from './support/assessment-seed.js';
 import {
+  addTwoRounds,
   IN_LEAD_STEP,
   plantRoundOneComment,
   seedRoundTwoWorld,
@@ -274,5 +275,79 @@ describe('Round-2 decisions of the Lead (e2e)', () => {
         7001, 7002,
       ]);
     });
+  });
+});
+
+// FR-9 (P2-3912 T-8): a result NEW to round 2 (a round-2 membership with no
+// previous membership and no round-1 one at all) is reviewed in full by the Lead.
+describe('The Lead own comment on a new round-2 result (e2e)', () => {
+  let a: AssessmentApp;
+  let code: number;
+  let roundTwoId: number;
+
+  beforeEach(async () => {
+    a = await buildAssessmentApp(IN_LEAD_STEP);
+    await seedRoundTwoWorld(a, {
+      core: CORE,
+      changedFields: null,
+      roundOneGreens: [],
+    });
+    const built = await addTwoRounds(
+      a,
+      { resultId: 1002, previous: false },
+      null,
+    );
+    // New to round 2: the round-1 membership the helper also writes is removed.
+    a.world.memberships = a.world.memberships.filter(
+      (m) => m.id !== built.roundOneId,
+    );
+    a.world.assessments = a.world.assessments.filter(
+      (x) => x.membershipId !== built.roundOneId,
+    );
+    code = built.code;
+    roundTwoId = built.roundTwoId;
+  });
+
+  afterEach(async () => {
+    await a.app.close();
+  });
+
+  it('comments a core field, escalates that comment (200), and refuses agree_program on it (409 ASSESSMENT_DECISION_INVALID)', async () => {
+    const membership = a.world.memberships.find((m) => m.id === roundTwoId)!;
+    expect(membership.previousMembershipId).toBeNull();
+    expect(
+      a.world.memberships.filter((m) => m.resultCode === code),
+    ).toHaveLength(1);
+
+    const created = await a.send('post', resultPath('/comments', code), {
+      token: lead(),
+      body: { fieldKey: FIRST, body: 'The core field is wrong' },
+      key: 'new-kp-comment-1',
+    });
+    expect(created.status).toBe(201);
+    const commentId = created.body.data.id as number;
+    expect(created.body.data).toMatchObject({ round: 2, state: 'open' });
+
+    const refused = await a.send('put', decisionPath(code, commentId), {
+      token: lead(),
+      body: { decision: 'agree_program', body: 'Agreeing with myself' },
+    });
+    expect(refused.status).toBe(409);
+    expect(refused.body.error.code).toBe('ASSESSMENT_DECISION_INVALID');
+    expect(a.world.commentDecisions).toEqual([]);
+
+    const escalated = await a.send('put', decisionPath(code, commentId), {
+      token: lead(),
+      body: { decision: 'escalate', body: 'Escalating my own finding' },
+    });
+    expect(escalated.status).toBe(200);
+    expect(escalated.body.data).toMatchObject({
+      status: 'pending',
+      validations: [],
+      decision: { decision: 'escalate', body: 'Escalating my own finding' },
+    });
+    expect(
+      a.world.commentDecisions.map((d) => [d.commentId, d.decision]),
+    ).toEqual([[commentId, 'escalate']]);
   });
 });

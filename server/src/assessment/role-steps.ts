@@ -146,12 +146,19 @@ export function audienceStepState(
  * OQ-8 (FR-13): the window in which an author may withdraw their own comment,
  * step 1 (`assessors`) or step 2 (`programs`) in progress. It is not the role's
  * write window: an ended assessment does not close it, and an assessor may
- * withdraw while the programs step is the open one.
+ * withdraw while the programs step is the open one. Round 2 (FR-9): a round-2
+ * comment (the Lead's own) can also be withdrawn while the `lead_assessors`
+ * step is in progress; round 1 keeps its two steps.
  */
-export function isWithdrawWindowOpen(timing: StepTiming): boolean {
+export function isWithdrawWindowOpen(
+  timing: StepTiming,
+  round: number = 1,
+): boolean {
   return (
     audienceStepState('assessors', timing) === 'in_progress' ||
-    audienceStepState('programs', timing) === 'in_progress'
+    audienceStepState('programs', timing) === 'in_progress' ||
+    (round !== 1 &&
+      audienceStepState('lead_assessors', timing) === 'in_progress')
   );
 }
 

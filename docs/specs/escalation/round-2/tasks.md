@@ -227,7 +227,7 @@ All back tasks touch `server/src/assessment/` (one shared boundary), so they run
 
 ## T-8: Lead's own comment and its escalation; withdraw in step 3
 
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** S
 - **Depends on:** T-7
 - **Requirements:** FR-9 (New KP scenario; BUT `agree_program` on own comment refused).

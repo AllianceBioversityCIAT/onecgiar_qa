@@ -1221,6 +1221,7 @@ export class InMemoryAssessmentWriteStore implements AssessmentWriteStore {
     return Promise.resolve({
       id: commentId,
       assessmentId: comment.assessmentId,
+      authorId: comment.authorId,
       fieldKey: comment.fieldKey ?? 'general.title',
       state: comment.state,
       deleted: (comment.deletedAt ?? null) !== null,
