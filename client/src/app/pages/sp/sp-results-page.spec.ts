@@ -100,12 +100,40 @@ describe('SpResultsPage', () => {
     expect(exportButton(125).disabled).toBe(false);
   });
 
-  it('the table fits narrow widths: no fixed minimum below the md breakpoint', async () => {
-    await open();
-    await flushResults(7);
-    const table = el().querySelector('table')!;
-    expect(table.className).not.toMatch(/(^|\s)min-w-\[820px\]/);
-    expect(table.className).toContain('md:min-w-[820px]');
-    expect(table.parentElement?.className).toContain('overflow-x-auto');
+  // Inside Reporting the frame is 870–1000 px wide on a 1024–1440 px screen: seven one-line columns need 1015 px, so
+  // "Export comments" was cut at the right edge (seen on prtest, 2026-11-19). Below `xl` the table is compact.
+  describe('the table fits the frame Reporting gives it', () => {
+    const table = (): HTMLTableElement => el().querySelector('table')!;
+    const header = (label: string): HTMLElement => [...table().querySelectorAll<HTMLElement>('thead th')].find((th) => th.textContent?.trim() === label)!;
+
+    beforeEach(async () => {
+      await open();
+      await flushResults(7);
+    });
+
+    it('no fixed minimum width at any breakpoint; the wrapper still scrolls when a phone is too narrow', () => {
+      expect(table().className).not.toMatch(/min-w-\[/);
+      expect(table().parentElement?.className).toContain('overflow-x-auto');
+    });
+
+    it('below xl the Type column leaves the table and the type goes under the title', () => {
+      expect(header('Type').className).toContain('max-xl:hidden');
+      const row = table().querySelector('tbody tr')!;
+      const cells = row.querySelectorAll('td');
+      expect(cells.length).toBe(7);
+      expect(cells[2].className).toContain('max-xl:hidden');
+      const under = cells[1].querySelector<HTMLElement>('[data-testid="sp-row-type"]')!;
+      expect(under.textContent?.trim()).toBe(cells[2].textContent?.trim());
+      expect(under.textContent?.trim()).not.toBe('');
+      expect(under.className).toContain('xl:hidden');
+    });
+
+    it('below xl the headers may take two lines; every other column stays', () => {
+      for (const label of ['Code', 'Title', 'Assessor comments', 'Answered by SP', 'QA status', 'Actions']) {
+        expect(header(label).className).toContain('xl:whitespace-nowrap');
+        expect(header(label).className).not.toContain('md:whitespace-nowrap');
+        expect(header(label).className).not.toContain('max-xl:hidden');
+      }
+    });
   });
 });
