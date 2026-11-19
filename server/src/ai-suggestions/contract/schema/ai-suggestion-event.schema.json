@@ -1,0 +1,95 @@
+{
+  "$defs": {
+    "AiUsageEvent": {
+      "additionalProperties": false,
+      "description": "Copy/comment usage. Whether the comment was edited is computed server-side.",
+      "properties": {
+        "action": {
+          "enum": [
+            "shown",
+            "copied",
+            "comment_saved"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "commentId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Commentid"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "title": "AiUsageEvent",
+      "type": "object"
+    },
+    "AiValidatedAboveEvent": {
+      "additionalProperties": false,
+      "description": "The assessor validated a level at least 2 above the AI's level (IRL/IUL).\n\nRequires ``validatedLevel - aiLevel >= 2`` (JSON Schema cannot express it: the API must check it,\nand that ``aiLevel`` equals the suggestion's stored ``suggestedValue``). Measures the AI only (AC9):\nnever aggregated per reviewer.",
+      "properties": {
+        "action": {
+          "const": "validated_above_ai",
+          "title": "Action",
+          "type": "string"
+        },
+        "aiLevel": {
+          "maximum": 9,
+          "minimum": 0,
+          "title": "Ailevel",
+          "type": "integer"
+        },
+        "reason": {
+          "description": "One line, at most 200 characters.",
+          "maxLength": 200,
+          "minLength": 1,
+          "pattern": "^[^\\r\\n]+$",
+          "title": "Reason",
+          "type": "string"
+        },
+        "validatedLevel": {
+          "maximum": 9,
+          "minimum": 0,
+          "title": "Validatedlevel",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "action",
+        "aiLevel",
+        "validatedLevel",
+        "reason"
+      ],
+      "title": "AiValidatedAboveEvent",
+      "type": "object"
+    }
+  },
+  "$id": "ai-suggestion-event.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "discriminator": {
+    "mapping": {
+      "comment_saved": "#/$defs/AiUsageEvent",
+      "copied": "#/$defs/AiUsageEvent",
+      "shown": "#/$defs/AiUsageEvent",
+      "validated_above_ai": "#/$defs/AiValidatedAboveEvent"
+    },
+    "propertyName": "action"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/AiUsageEvent"
+    },
+    {
+      "$ref": "#/$defs/AiValidatedAboveEvent"
+    }
+  ],
+  "x-contractVersion": "2.0.0"
+}

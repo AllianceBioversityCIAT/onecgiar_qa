@@ -40,6 +40,16 @@ import {
   TimelineVersionStaleError,
 } from '../admin-config/admin-config.errors.js';
 import {
+  AssessmentCommentNotOpenError,
+  AssessmentCoreUncommentedError,
+  AssessmentFinishedError,
+  AssessmentNoFieldConfigError,
+  AssessmentNotCommentAuthorError,
+  AssessmentNotFoundError,
+  AssessmentReadOnlyError,
+  AssessmentStepClosedError,
+} from '../assessment/assessment.errors.js';
+import {
   LoadAlreadyRunningError,
   LoadCatalogMissingError,
   LoadNotFoundError,
@@ -243,6 +253,57 @@ describe('step-1 load errors (step-1-loads FR-2, FR-10)', () => {
       'LOADS_CATALOG_MISSING',
       'LOADS_NOT_FOUND',
       'LOADS_WINDOW_CLOSED',
+    ]);
+  });
+});
+
+describe('assessment errors (step-1-assessment FR-25, design 6)', () => {
+  it.each([
+    [new AssessmentNotFoundError(), 404, 'ASSESSMENT_NOT_FOUND'],
+    [new AssessmentReadOnlyError(), 403, 'ASSESSMENT_READ_ONLY'],
+    [new AssessmentStepClosedError(), 409, 'ASSESSMENT_STEP_CLOSED'],
+    [new AssessmentFinishedError(), 409, 'ASSESSMENT_FINISHED'],
+    [new AssessmentNoFieldConfigError(), 409, 'ASSESSMENT_NO_FIELD_CONFIG'],
+    [
+      new AssessmentNotCommentAuthorError(),
+      403,
+      'ASSESSMENT_NOT_COMMENT_AUTHOR',
+    ],
+    [new AssessmentCommentNotOpenError(), 409, 'ASSESSMENT_COMMENT_NOT_OPEN'],
+  ])('%s answers %i %s with its catalog text', (error, status, code) => {
+    expect(error.getStatus()).toBe(status);
+    expect(error.getResponse()).toEqual({
+      code,
+      message: ERROR_CATALOG[code as keyof typeof ERROR_CATALOG].message,
+    });
+    expect(ERROR_CATALOG[code as keyof typeof ERROR_CATALOG].status).toBe(
+      status,
+    );
+  });
+
+  it('AssessmentCoreUncommentedError answers 409 ASSESSMENT_CORE_UNCOMMENTED with its catalog text and the field keys', () => {
+    const error = new AssessmentCoreUncommentedError(['general.title']);
+    expect(error.getStatus()).toBe(409);
+    expect(error.getResponse()).toEqual({
+      code: 'ASSESSMENT_CORE_UNCOMMENTED',
+      message: ERROR_CATALOG.ASSESSMENT_CORE_UNCOMMENTED.message,
+      fields: ['general.title'],
+    });
+    expect(ERROR_CATALOG.ASSESSMENT_CORE_UNCOMMENTED.status).toBe(409);
+  });
+
+  it('lists exactly the eight assessment codes in the catalog', () => {
+    expect(
+      ERROR_CODES.filter((code) => code.startsWith('ASSESSMENT_')).sort(),
+    ).toEqual([
+      'ASSESSMENT_COMMENT_NOT_OPEN',
+      'ASSESSMENT_CORE_UNCOMMENTED',
+      'ASSESSMENT_FINISHED',
+      'ASSESSMENT_NOT_COMMENT_AUTHOR',
+      'ASSESSMENT_NOT_FOUND',
+      'ASSESSMENT_NO_FIELD_CONFIG',
+      'ASSESSMENT_READ_ONLY',
+      'ASSESSMENT_STEP_CLOSED',
     ]);
   });
 });

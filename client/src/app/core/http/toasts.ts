@@ -1,5 +1,5 @@
 import { isPlatformBrowser } from '@angular/common';
-import { PLATFORM_ID, Service, inject } from '@angular/core';
+import { PLATFORM_ID, Service, inject, signal } from '@angular/core';
 import { toast } from '@spartan-ng/brain/sonner';
 
 /**
@@ -11,6 +11,13 @@ import { toast } from '@spartan-ng/brain/sonner';
 @Service()
 export class Toasts {
   private readonly isBrowser = isPlatformBrowser(inject(PLATFORM_ID));
+
+  /**
+   * Distance of the toasts from the bottom of the window, set by a page whose own bar sits there (the Review
+   * footer with "Finish assessment"), so a toast never covers its main action. `null` = the default.
+   * `phone` is the distance under 600px, where the toasts span the width (see `styles.css`).
+   */
+  readonly bottomOffset = signal<{ readonly desktop: string; readonly phone: string } | null>(null);
 
   error(message: string): void {
     if (this.isBrowser) toast.error(message);

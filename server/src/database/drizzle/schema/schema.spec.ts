@@ -3,7 +3,13 @@ import { fileURLToPath } from 'node:url';
 import { MySqlDialect, getTableConfig } from 'drizzle-orm/mysql-core';
 import type { SQL } from 'drizzle-orm';
 import * as schema from './index.js';
-import { idempotencyKeys, roleAssignments, roles, users } from './index.js';
+import {
+  aiSuggestionUsage,
+  idempotencyKeys,
+  roleAssignments,
+  roles,
+  users,
+} from './index.js';
 
 // Schema metadata and the committed migration are checked against the
 // requirements (FR-1), not against each other: removing a rule from the
@@ -300,8 +306,8 @@ describe('committed migrations', () => {
     .filter((f) => f.endsWith('.sql'))
     .sort();
 
-  it('are exactly nine SQL files', () => {
-    expect(files).toHaveLength(9);
+  it('are exactly thirteen SQL files', () => {
+    expect(files).toHaveLength(13);
   });
 
   const sql = readFileSync(`${migrationsDir}${files[0]}`, 'utf8');
@@ -1915,6 +1921,7 @@ describe('timeline_results schema (step-1-loads design 5.2, FR-4, FR-5, NFR-6)',
       entry_round: 'tinyint unsigned NOT NULL',
       previous_membership_id: 'bigint unsigned',
       changed_fields: 'json',
+      title: 'varchar(1000) COLLATE utf8mb4_0900_ai_ci',
     });
   });
 
@@ -2273,5 +2280,456 @@ describe('committed migration 0008 (timeline sync rounds)', () => {
         'ALTER TABLE `timeline_loads` DROP COLUMN `round`, DROP COLUMN `step_position`;',
       ]);
     });
+  });
+});
+
+// step-1-assessment (design 5): migration 0009. The expected SQL below is
+// written from the design and read from the GENERATED file, never from the TS
+// schema objects, so a schema that drizzle-kit renders differently fails here.
+// ---------------------------------------------------------------------------
+
+describe('committed migration 0009 (assessment)', () => {
+  const files = readdirSync(migrationsDir)
+    .filter((f) => f.endsWith('.sql'))
+    .sort();
+  const read = (path: string) => readFileSync(path, 'utf8');
+  const up = files[9] ? read(`${migrationsDir}${files[9]}`) : '';
+  const statementsOf = (text: string) =>
+    text
+      .replace(/^--(?!>).*$/gm, '')
+      .split('--> statement-breakpoint')
+      .map((x) => x.trim())
+      .filter(Boolean);
+  const downPath = `${migrationsDir}rollback/0009_assessment.down.sql`;
+  const down = existsSync(downPath) ? read(downPath) : '';
+  // The CREATE TABLE statement of one table.
+  const tableSql = (name: string) => {
+    const found = statementsOf(up).find((s) =>
+      s.startsWith(`CREATE TABLE \`${name}\` (`),
+    );
+    expect(found, `CREATE TABLE ${name}`).toBeDefined();
+    return found!;
+  };
+  const enumOf = (members: readonly string[]) =>
+    `enum(${members.map((m) => `'${m}'`).join(',')})`;
+  const COMMENT_STATES = [
+    'open',
+    'withdrawn',
+    'clarification_requested',
+    'accepted',
+    'accepted_with_comment',
+    'disagreed',
+    'escalated',
+    'tpb_sided_program',
+    'tpb_sided_assessor',
+    'done',
+  ];
+
+  it('is named 0009_assessment and is the tenth journal entry', () => {
+    expect(files[9]).toBe('0009_assessment.sql');
+    const journal = JSON.parse(read(`${migrationsDir}meta/_journal.json`)) as {
+      entries: { idx: number; tag: string }[];
+    };
+    expect(journal.entries.map((e) => e.tag)).toEqual(
+      files.map((f) => f.replace(/\.sql$/, '')),
+    );
+    expect(journal.entries[9]).toMatchObject({
+      idx: 9,
+      tag: '0009_assessment',
+    });
+  });
+
+  it('creates exactly the seven assessment tables and drops nothing', () => {
+    expect(
+      [...up.matchAll(/CREATE TABLE `(\w+)`/g)].map((m) => m[1]).sort(),
+    ).toEqual(
+      [
+        'assessment_audit_events',
+        'assessment_comments',
+        'assessment_field_validations',
+        'assessment_releases',
+        'comment_events',
+        'quick_comments',
+        'result_assessments',
+      ].sort(),
+    );
+    expect(up).not.toMatch(/\bDROP\b/);
+  });
+
+  it('allows one assessment per membership and step (FR-17)', () => {
+    expect(tableSql('result_assessments')).toMatch(
+      /CONSTRAINT `uq_result_assessments_membership_step` UNIQUE\(`timeline_result_id`,\s?`step_position`\)/,
+    );
+  });
+
+  it('keeps finished_at, finished_by and the status in step (chk_result_assessments_finished)', () => {
+    expect(tableSql('result_assessments')).toContain(
+      "CONSTRAINT `chk_result_assessments_finished` CHECK((`status` = 'pending' AND `finished_at` IS NULL AND `finished_by` IS NULL) OR (`status` <> 'pending' AND `finished_at` IS NOT NULL AND `finished_by` IS NOT NULL))",
+    );
+  });
+
+  it('types the assessment status exactly as design 5 (FR-19)', () => {
+    expect(tableSql('result_assessments')).toContain(
+      `\`status\` ${enumOf(['pending', 'quality_assessed', 'returned'])} NOT NULL DEFAULT 'pending'`,
+    );
+  });
+
+  it('keys the validations by assessment and field (FR-10)', () => {
+    expect(tableSql('assessment_field_validations')).toMatch(
+      /PRIMARY KEY\(`assessment_id`,\s?`field_key`\)/,
+    );
+  });
+
+  it('allows one release per end (FR-18, NFR-3)', () => {
+    expect(tableSql('assessment_releases')).toMatch(
+      /CONSTRAINT `uq_assessment_releases_assessment` UNIQUE\(`assessment_id`\)/,
+    );
+  });
+
+  it('allows one quick comment per role and body hash (FR-12)', () => {
+    expect(tableSql('quick_comments')).toMatch(
+      /CONSTRAINT `uq_quick_comments_role_hash` UNIQUE\(`role_code`,\s?`body_hash`\)/,
+    );
+  });
+
+  it('ties withdrawn_at to the withdrawn state (chk_comment_withdrawn)', () => {
+    expect(tableSql('assessment_comments')).toContain(
+      "CONSTRAINT `chk_comment_withdrawn` CHECK((`withdrawn_at` IS NULL AND `state` <> 'withdrawn') OR (`withdrawn_at` IS NOT NULL AND `state` = 'withdrawn'))",
+    );
+  });
+
+  it('caps the stored value copy at 64 KiB (NFR-7, chk_value_copy_size)', () => {
+    expect(tableSql('assessment_comments')).toContain(
+      'CONSTRAINT `chk_value_copy_size` CHECK(LENGTH(`value_copy`) <= 65536)',
+    );
+  });
+
+  it('declares every TRD 7.3 comment state, in comments and in their events (DD-10)', () => {
+    expect(tableSql('assessment_comments')).toContain(
+      `\`state\` ${enumOf(COMMENT_STATES)} NOT NULL DEFAULT 'open'`,
+    );
+    expect(tableSql('comment_events')).toContain(
+      `\`from_state\` ${enumOf(COMMENT_STATES)},`,
+    );
+    expect(tableSql('comment_events')).toContain(
+      `\`to_state\` ${enumOf(COMMENT_STATES)} NOT NULL`,
+    );
+  });
+
+  it('types the audit action exactly as design 5 (FR-21)', () => {
+    expect(tableSql('assessment_audit_events')).toContain(
+      `\`action\` ${enumOf([
+        'validate',
+        'unvalidate',
+        'check_all',
+        'uncheck_all',
+        'comment_add',
+        'comment_withdraw',
+        'quick_comment_save',
+        'end_quality_assessed',
+        'end_returned',
+        'release_sent',
+        'release_refused',
+      ])} NOT NULL`,
+    );
+  });
+
+  it('types the release outcome and status exactly as design 5 (FR-18)', () => {
+    const t = tableSql('assessment_releases');
+    expect(t).toContain(`\`outcome\` ${enumOf(['qaed', 'not_qaed'])} NOT NULL`);
+    expect(t).toContain(
+      `\`status\` ${enumOf(['pending', 'sent', 'refused'])} NOT NULL DEFAULT 'pending'`,
+    );
+  });
+
+  it('adds title varchar(1000) with an explicit _ci collation to timeline_results (FR-24)', () => {
+    expect(up).toContain(
+      'ALTER TABLE `timeline_results` ADD `title` varchar(1000) COLLATE utf8mb4_0900_ai_ci;',
+    );
+  });
+
+  it('makes every foreign key ON DELETE no action and keeps every identifier within 64 characters', () => {
+    const fks = [...up.matchAll(/ADD CONSTRAINT `(\w+)` FOREIGN KEY[^;]*;/g)];
+    expect(fks.length).toBeGreaterThan(0);
+    for (const m of fks) {
+      expect(m[0], m[1]).toContain('ON DELETE no action ON UPDATE no action');
+    }
+    for (const m of up.matchAll(/CONSTRAINT `(\w+)`/g)) {
+      expect(m[1].length, m[1]).toBeLessThanOrEqual(64);
+    }
+  });
+
+  describe('rollback/0009_assessment.down.sql', () => {
+    it('drops exactly the seven tables, child first, and then the title column', () => {
+      expect(statementsOf(down)).toEqual([
+        'DROP TABLE `assessment_releases`;',
+        'DROP TABLE `assessment_audit_events`;',
+        'DROP TABLE `comment_events`;',
+        'DROP TABLE `assessment_comments`;',
+        'DROP TABLE `assessment_field_validations`;',
+        'DROP TABLE `quick_comments`;',
+        'DROP TABLE `result_assessments`;',
+        'ALTER TABLE `timeline_results` DROP COLUMN `title`;',
+      ]);
+    });
+
+    it('tells the human it is lossy and to delete the 0009 row of __drizzle_migrations', () => {
+      expect(down).toMatch(/LOSSY/);
+      expect(down).toMatch(/__drizzle_migrations/);
+    });
+  });
+});
+
+// @akili-spec assessment/ai-suggestions
+describe('committed migration 0010 (ai_suggestion_usage)', () => {
+  const files = readdirSync(migrationsDir)
+    .filter((f) => f.endsWith('.sql'))
+    .sort();
+  const read = (path: string) => readFileSync(path, 'utf8');
+  const up = files[10] ? read(`${migrationsDir}${files[10]}`) : '';
+  const downPath = `${migrationsDir}rollback/0010_ai_suggestion_usage.down.sql`;
+  const down = existsSync(downPath) ? read(downPath) : '';
+  const columns = Object.values(getTableConfig(aiSuggestionUsage).columns).map(
+    (c) => c.name,
+  );
+
+  it('is named 0010_ai_suggestion_usage and is the eleventh journal entry', () => {
+    expect(files[10]).toBe('0010_ai_suggestion_usage.sql');
+    const journal = JSON.parse(read(`${migrationsDir}meta/_journal.json`)) as {
+      entries: { idx: number; tag: string }[];
+    };
+    expect(journal.entries[10]).toMatchObject({
+      idx: 10,
+      tag: '0010_ai_suggestion_usage',
+    });
+  });
+
+  it('creates only ai_suggestion_usage and alters no other table', () => {
+    expect([...up.matchAll(/CREATE TABLE `(\w+)`/g)].map((m) => m[1])).toEqual([
+      'ai_suggestion_usage',
+    ]);
+    expect(up).not.toMatch(/ALTER TABLE `(?!ai_suggestion_usage)/);
+    expect(up).not.toMatch(/DROP /);
+  });
+
+  it('has no user column: it measures the AI, never the reviewers (NFR-3)', () => {
+    for (const name of columns) {
+      expect(name, name).not.toMatch(
+        /user|author|actor|_by$|created_by|email|nickname/,
+      );
+    }
+    expect(columns).not.toContain('body');
+    expect(columns).not.toContain('comment_text');
+  });
+
+  it('dedupes shown, copied and validated_above_ai per suggestion, membership and step, and comment_saved per comment', () => {
+    expect(up).toContain(
+      "`dedupe_action` varchar(32) GENERATED ALWAYS AS (IF(`action` = 'comment_saved', NULL, `action`)) STORED",
+    );
+    expect(up).toContain(
+      'CONSTRAINT `uq_ai_usage_once` UNIQUE(`suggestion_id`,`timeline_result_id`,`step_position`,`dedupe_action`)',
+    );
+    expect(up).toContain(
+      'CONSTRAINT `uq_ai_usage_comment` UNIQUE(`comment_id`)',
+    );
+  });
+
+  it('refuses a validated_above_ai row without a reason or with a difference under 2', () => {
+    expect(up).toContain(
+      "CHECK(`action` <> 'validated_above_ai' OR (`reason` IS NOT NULL AND `validated_level` >= `ai_level` + 2))",
+    );
+  });
+
+  it('makes every foreign key ON DELETE no action', () => {
+    const fks = [...up.matchAll(/ADD CONSTRAINT `(\w+)` FOREIGN KEY[^;]*;/g)];
+    expect(fks.map((m) => m[1]).sort()).toEqual([
+      'fk_ai_usage_comment',
+      'fk_ai_usage_membership',
+    ]);
+    for (const m of fks) {
+      expect(m[0]).toContain('ON DELETE no action ON UPDATE no action');
+    }
+  });
+
+  it('has a lossy manual down script that drops the one table', () => {
+    expect(down).toMatch(/LOSSY/);
+    expect(down).toMatch(/__drizzle_migrations/);
+    expect(down.replace(/^--.*$/gm, '').trim()).toBe(
+      'DROP TABLE `ai_suggestion_usage`;',
+    );
+  });
+});
+
+// P2-3911 (SP view)
+describe('committed migration 0011 (sp_view)', () => {
+  const files = readdirSync(migrationsDir)
+    .filter((f) => f.endsWith('.sql'))
+    .sort();
+  const read = (path: string) => readFileSync(path, 'utf8');
+  const up = files[11] ? read(`${migrationsDir}${files[11]}`) : '';
+  const downPath = `${migrationsDir}rollback/0011_sp_view.down.sql`;
+  const down = existsSync(downPath) ? read(downPath) : '';
+  const statementsOf = (text: string) =>
+    text
+      .replace(/^--(?!>).*$/gm, '')
+      .split('--> statement-breakpoint')
+      .map((x) => x.trim())
+      .filter(Boolean);
+  const tableSql = (name: string) => {
+    const found = statementsOf(up).find((s) =>
+      s.startsWith(`CREATE TABLE \`${name}\` (`),
+    );
+    expect(found, `CREATE TABLE ${name}`).toBeDefined();
+    return found!;
+  };
+
+  it('is named 0011_sp_view and is the twelfth journal entry', () => {
+    expect(files[11]).toBe('0011_sp_view.sql');
+    const journal = JSON.parse(read(`${migrationsDir}meta/_journal.json`)) as {
+      entries: { idx: number; tag: string }[];
+    };
+    expect(journal.entries[11]).toMatchObject({
+      idx: 11,
+      tag: '0011_sp_view',
+    });
+  });
+
+  it('creates the four SP tables, alters only comment_events among the old tables, and drops nothing', () => {
+    expect(
+      [...up.matchAll(/CREATE TABLE `(\w+)`/g)].map((m) => m[1]).sort(),
+    ).toEqual(
+      [
+        'comment_clarification_answers',
+        'sp_comment_responses',
+        'sp_link_codes',
+        'sp_sessions',
+      ].sort(),
+    );
+    const altered = new Set(
+      [...up.matchAll(/ALTER TABLE `(\w+)`/g)].map((m) => m[1]),
+    );
+    expect([...altered].sort()).toEqual(
+      [
+        'comment_clarification_answers',
+        'comment_events',
+        'sp_comment_responses',
+      ].sort(),
+    );
+    expect(up).not.toMatch(/\bDROP\b/);
+  });
+
+  it('stores only the SHA-256 of a code or a token, unique', () => {
+    const codes = tableSql('sp_link_codes');
+    expect(codes).toContain('`code_hash` char(64) NOT NULL');
+    expect(codes).toContain(
+      'CONSTRAINT `uq_sp_link_codes_code_hash` UNIQUE(`code_hash`)',
+    );
+    expect(codes).toContain('`used_at` datetime,');
+    expect(codes).not.toMatch(/`code`\s/);
+    const sessions = tableSql('sp_sessions');
+    expect(sessions).toContain('`token_hash` char(64) NOT NULL');
+    expect(sessions).toContain(
+      'CONSTRAINT `uq_sp_sessions_token_hash` UNIQUE(`token_hash`)',
+    );
+    expect(sessions).not.toMatch(/`token`\s/);
+  });
+
+  it('keeps an accept without text and every other response kind with text (chk_sp_responses_body)', () => {
+    const t = tableSql('sp_comment_responses');
+    expect(t).toContain(
+      "`kind` enum('accept','accept_with_comment','disagree','request_clarification') NOT NULL",
+    );
+    expect(t).toContain(
+      "CONSTRAINT `chk_sp_responses_body` CHECK((`kind` = 'accept' AND `body` IS NULL) OR (`kind` <> 'accept' AND `body` IS NOT NULL))",
+    );
+    expect(up).toContain(
+      'CREATE INDEX `idx_sp_comment_responses_comment` ON `sp_comment_responses` (`comment_id`,`id`);',
+    );
+  });
+
+  it('answers one clarification request at most once', () => {
+    expect(tableSql('comment_clarification_answers')).toContain(
+      'CONSTRAINT `uq_clarification_answers_response` UNIQUE(`response_id`)',
+    );
+  });
+
+  it('lets a comment event come from an SP response instead of a QA user, never from neither', () => {
+    expect(up).toContain(
+      'ALTER TABLE `comment_events` MODIFY COLUMN `actor_id` int unsigned;',
+    );
+    expect(up).toContain(
+      'ALTER TABLE `comment_events` ADD `sp_response_id` bigint unsigned;',
+    );
+    expect(up).toContain(
+      'ALTER TABLE `comment_events` ADD CONSTRAINT `chk_comment_events_actor` CHECK (`actor_id` IS NOT NULL OR `sp_response_id` IS NOT NULL);',
+    );
+  });
+
+  it('makes every foreign key ON DELETE no action and keeps identifiers within 64 characters', () => {
+    const fks = [...up.matchAll(/ADD CONSTRAINT `(\w+)` FOREIGN KEY[^;]*;/g)];
+    expect(fks.map((m) => m[1]).sort()).toEqual(
+      [
+        'fk_clarification_answers_author',
+        'fk_clarification_answers_comment',
+        'fk_clarification_answers_response',
+        'fk_comment_events_sp_response',
+        'fk_sp_responses_comment',
+      ].sort(),
+    );
+    for (const m of fks) {
+      expect(m[0]).toContain('ON DELETE no action ON UPDATE no action');
+    }
+    for (const m of up.matchAll(/CONSTRAINT `(\w+)`/g)) {
+      expect(m[1].length, m[1]).toBeLessThanOrEqual(64);
+    }
+  });
+
+  it('has a lossy manual down script that restores comment_events and drops the four tables, child first', () => {
+    expect(down).toMatch(/LOSSY/);
+    expect(down).toMatch(/__drizzle_migrations/);
+    expect(statementsOf(down)).toEqual([
+      'ALTER TABLE `comment_events` DROP CONSTRAINT `chk_comment_events_actor`;',
+      'ALTER TABLE `comment_events` DROP FOREIGN KEY `fk_comment_events_sp_response`;',
+      'DELETE FROM `comment_events` WHERE `actor_id` IS NULL;',
+      'ALTER TABLE `comment_events` DROP COLUMN `sp_response_id`;',
+      'ALTER TABLE `comment_events` MODIFY COLUMN `actor_id` int unsigned NOT NULL;',
+      'DROP TABLE `comment_clarification_answers`;',
+      'DROP TABLE `sp_comment_responses`;',
+      'DROP TABLE `sp_sessions`;',
+      'DROP TABLE `sp_link_codes`;',
+    ]);
+  });
+});
+
+describe('committed migration 0012 (ai_usage_indicative)', () => {
+  const files = readdirSync(migrationsDir)
+    .filter((f) => f.endsWith('.sql'))
+    .sort();
+  const read = (path: string) => readFileSync(path, 'utf8');
+  const up = files[12] ? read(`${migrationsDir}${files[12]}`) : '';
+  const downPath = `${migrationsDir}rollback/0012_ai_usage_indicative.down.sql`;
+
+  it('is named 0012_ai_usage_indicative and is the thirteenth journal entry', () => {
+    expect(files[12]).toBe('0012_ai_usage_indicative.sql');
+    const journal = JSON.parse(read(`${migrationsDir}meta/_journal.json`)) as {
+      entries: { idx: number; tag: string }[];
+    };
+    expect(journal.entries[12]).toMatchObject({
+      idx: 12,
+      tag: '0012_ai_usage_indicative',
+    });
+  });
+
+  it('only widens ai_signal with indicative (contract 2.0.0), nothing else', () => {
+    expect(up.trim()).toBe(
+      "ALTER TABLE `ai_suggestion_usage` MODIFY COLUMN `ai_signal` enum('green','amber','red','indicative') NOT NULL;",
+    );
+  });
+
+  it('has a manual down script that narrows it back', () => {
+    expect(existsSync(downPath)).toBe(true);
+    expect(read(downPath)).toContain(
+      "MODIFY COLUMN `ai_signal` enum('green','amber','red') NOT NULL;",
+    );
   });
 });

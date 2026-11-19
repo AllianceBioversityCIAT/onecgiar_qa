@@ -45,7 +45,11 @@ export interface ApiErrorBody {
   readonly code: string;
   /** Catalog text written for users: safe to show as is. */
   readonly message: string;
-  readonly fields?: readonly ApiFieldError[];
+  /**
+   * `ApiFieldError[]` on a validation refusal. Only `ASSESSMENT_CORE_UNCOMMENTED` sends a `string[]` of
+   * field keys instead (assessment front contract § 6.5); `ApiError` splits the two.
+   */
+  readonly fields?: readonly ApiFieldError[] | readonly string[];
   /** Seconds to wait, only on 429. */
   readonly retryAfter?: number;
 }
@@ -67,7 +71,10 @@ const UNEXPECTED_MESSAGE = 'Something went wrong on our side. Please try again i
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
+  /** Field errors (`{ field, code, message }`). Never holds bare keys: those go to `fieldKeys`. */
   readonly fields: readonly ApiFieldError[];
+  /** Bare field keys, sent only by `ASSESSMENT_CORE_UNCOMMENTED` (the core fields still open). */
+  readonly fieldKeys: readonly string[];
   readonly retryAfter: number | null;
   readonly requestId: string | null;
 
@@ -76,7 +83,9 @@ export class ApiError extends Error {
     this.name = 'ApiError';
     this.status = body.status;
     this.code = body.code;
-    this.fields = body.fields ?? [];
+    const raw: readonly unknown[] = body.fields ?? [];
+    this.fields = raw.filter(isFieldError);
+    this.fieldKeys = raw.filter((f): f is string => typeof f === 'string');
     this.retryAfter = body.retryAfter ?? null;
     this.requestId = requestId;
   }
@@ -85,6 +94,10 @@ export class ApiError extends Error {
   fieldMessage(field: string): string | null {
     return this.fields.find((f) => f.field === field)?.message ?? null;
   }
+}
+
+function isFieldError(value: unknown): value is ApiFieldError {
+  return typeof value === 'object' && value !== null && typeof (value as { field?: unknown }).field === 'string';
 }
 
 export function isApiError(value: unknown): value is ApiError {
@@ -149,6 +162,26 @@ export function unwrap<T>() {
           throw new ApiError(body.error, body.meta?.requestId ?? null);
         }
         return body.data;
+      }),
+      catchError((error: unknown) => throwError(() => toApiError(error))),
+    );
+}
+
+/**
+ * Like `unwrap()` for a paginated answer whose `data` is an object, not an array (the assessment
+ * worklist: rows plus counters): keeps `meta.page.nextCursor` next to the data.
+ */
+export function unwrapWithCursor<T>() {
+  return (source: Observable<ApiEnvelope<T> | null>): Observable<{ readonly data: T; readonly nextCursor: string | null }> =>
+    source.pipe(
+      map((body) => {
+        if (!isEnvelope(body)) {
+          throw new ApiError({ status: 200, code: CLIENT_ERROR.UNEXPECTED_RESPONSE, message: UNEXPECTED_MESSAGE });
+        }
+        if (!body.success) {
+          throw new ApiError(body.error, body.meta?.requestId ?? null);
+        }
+        return { data: body.data, nextCursor: body.meta.page?.nextCursor ?? null };
       }),
       catchError((error: unknown) => throwError(() => toApiError(error))),
     );

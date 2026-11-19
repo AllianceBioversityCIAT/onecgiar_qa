@@ -1,26 +1,18 @@
 // Pure helpers and view models of the Cycle view (ported from the mockup's cyPhaseState,
 // cardVM and officialRelative).
 import { StepAudience } from '../../../core/api/cycles.models';
-import { DEFAULT_CLOSES_TIME, DEFAULT_OPENS_TIME, nowInRome, todayInRome, zoneAt } from '../../../core/domain/rome-date';
-import {
-  CORRECTION_AUDIENCE,
-  CycleStep,
-  RESULT_TYPE_RULES,
-  RT_ORDER,
-  RT_SHORT,
-  TODAY,
-  Timeline,
-} from './cycle.mock';
+import { DEFAULT_CLOSES_TIME, DEFAULT_OPENS_TIME, calendarDate, nowInRome, todayInRome, zoneAt } from '../../../core/domain/rome-date';
+import { CORRECTION_AUDIENCE, CycleStep, TODAY, Timeline } from './cycle.mock';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const DAY = 864e5;
 
-/** Parses "06 Jul 2026". Returns null when the text is not a valid date. */
+/** Parses "06 Jul 2026". Returns null when the text is not a real date ("31 Feb 2026" too). */
 export function parseDate(text: string | null | undefined): Date | null {
   const m = /^\s*(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})\s*$/.exec(text ?? '');
   if (!m) return null;
   const mi = MONTHS.findIndex((x) => x.toLowerCase() === m[2].toLowerCase());
-  return mi < 0 ? null : new Date(+m[3], mi, +m[1]);
+  return mi < 0 ? null : calendarDate(+m[3], mi, +m[1]);
 }
 
 export function formatDate(d: Date): string {
@@ -224,8 +216,6 @@ export interface StepCardVM {
   /** Opening minute, for "Opens today at 09:00". */
   opensTime: string;
   hasBatch: boolean;
-  joinText: string;
-  joinTitle: string;
   syncText: string;
   state: StepState['kind'];
   doneText: string;
@@ -275,6 +265,10 @@ export interface TimelineVM {
   needsPeople: boolean;
   /** On hold (waiting for results) and able to take a sync now: the card shows its own load button. */
   waitingLoad: boolean;
+  /** "Load results into QA round 2" while the timeline can take a sync; '' otherwise. */
+  loadLabel: string;
+  /** People can be assigned here (live timelines; a mock one has no People). */
+  canAssign: boolean;
 }
 
 /** Timeline role behind each step audience, and how a warning names it. Programs are not assigned to timelines. */
@@ -306,11 +300,6 @@ export function timelineVM(t: Timeline, loadable = false): TimelineVM {
   const steps: StepCardVM[] = t.steps.map((p, i) => {
     const st = states[i];
     const opens = opensMoment(p);
-    const joinTypes =
-      i > 0 && p.batch
-        ? RT_ORDER.filter((rt) => RESULT_TYPE_RULES[rt]?.phase === i + 1 && (!t.types.length || t.types.includes(rt)))
-        : [];
-    const firstJoin = joinTypes[0] ? (RT_SHORT[joinTypes[0]] ?? joinTypes[0]) : '';
     const corr = p.audience === CORRECTION_AUDIENCE;
     const sync = corr && (st.kind === 'active' || (st.kind === 'done' && st.text !== 'Not opened'));
     return {
@@ -319,8 +308,6 @@ export function timelineVM(t: Timeline, loadable = false): TimelineVM {
       ...cardLines(p),
       opensTime: opensTimeOf(p),
       hasBatch: p.batch,
-      joinText: joinTypes.length ? `${firstJoin}${joinTypes.length > 1 ? ` +${joinTypes.length - 1}` : ''} join here` : '',
-      joinTitle: joinTypes.join(', '),
       syncText: !sync ? '' : st.kind === 'active' ? 'Last synced 2 hours ago' : `Synced until ${shortDate(p.end || p.start)}`,
       state: st.kind,
       doneText: st.kind === 'done' ? st.text : '',
@@ -357,10 +344,9 @@ export function timelineVM(t: Timeline, loadable = false): TimelineVM {
   });
 
   const menu: TimelineVM['menu'] = [];
-  if (loadable) {
-    const round = stepRound(t, stepInForce(t, nowInRome()));
-    menu.push({ action: 'add-results', label: `Load results into QA round ${round}`, danger: false, soon: false });
-  }
+  const loadLabel = loadable ? `Load results into QA round ${stepRound(t, stepInForce(t, nowInRome()))}` : '';
+  // On hold, the card shows the load as its own button with this same name; then it leaves the "…" menu.
+  if (loadable && !held) menu.push({ action: 'add-results', label: loadLabel, danger: false, soon: false });
   else if (!soon && t.status === 'Live') menu.push({ action: 'add-results', label: 'Add results to this timeline', danger: false, soon: false });
   menu.push(
     { action: 'edit', label: 'Edit timeline', danger: false, soon: false },
@@ -397,6 +383,8 @@ export function timelineVM(t: Timeline, loadable = false): TimelineVM {
     menu,
     needsPeople: steps.some((p) => !!p.nobody),
     waitingLoad: loadable && held,
+    loadLabel,
+    canAssign: menu.some((m) => m.action === 'people' && !m.soon),
   };
 }
 

@@ -1,0 +1,57 @@
+{
+  "__edb_e__": "aiSuggestion",
+  "__edb_v__": "1",
+  "coversFieldKeys": [
+    "innovation_use.current_use.organizations",
+    "innovation_use.current_use.measures"
+  ],
+  "createdAt": "2026-11-20T12:00:00Z",
+  "evidenceHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "explanation": "Total 1,250: 1,200 farmers and 50 hectares reported in the 2025 project report.",
+  "fieldKey": "innovation_use.current_use.actors",
+  "modelId": "anthropic.claude-haiku-5-5",
+  "partialEvidence": false,
+  "pk": "RESULT#1003",
+  "promptVersion": "v1-1.0.0",
+  "quoteVerified": false,
+  "reportedValue": {
+    "actors": [
+      {
+        "actor_type": 1,
+        "how_many": 1000,
+        "men": 400,
+        "women": 600
+      }
+    ],
+    "measures": [
+      {
+        "quantity": 40,
+        "unit_of_measure": "hectares"
+      }
+    ],
+    "organizations": []
+  },
+  "resultCode": 1003,
+  "runId": "run-example",
+  "signal": "indicative",
+  "sk": "AI#2025#000012#00000003#0000000042#innovation_use.current_use.actors#v1-1.0.0",
+  "snapKey": "2025#000012#00000003#0000000042",
+  "status": "available",
+  "suggestedValue": [
+    {
+      "geolocation": "Kenya",
+      "men": 500,
+      "quantity": 1200,
+      "user": "actors",
+      "user_type": "Farmers/ (agro)pastoralist/ herders/ fishers",
+      "women": 700
+    },
+    {
+      "quantity": 50.5,
+      "user": "other type",
+      "user_type": "hectares"
+    }
+  ],
+  "suggestionId": "2c3d4e5f60718293a4b5c6d7e8f90a12",
+  "valueKind": "use_numbers"
+}

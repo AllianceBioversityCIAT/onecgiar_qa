@@ -89,7 +89,7 @@ describe('TimelinePeople', () => {
     expect(people.candidates('ASSESSOR').map((u) => u.id)).toEqual([11]);
     expect(people.candidates('TPB').map((u) => u.id)).toEqual([11]);
     expect(people.candidates('PPU')).toEqual([]);
-    expect(people.summary()).toBe('1 assessor · 0 lead assessors · 0 brokers · 0 PPU');
+    expect(people.summary()).toBe('1 assessor · 0 lead assessors · 0 third-party brokers · 0 PPU');
   });
 
   it('assign: one POST with userId and role; the row shows and the person leaves the picker', async () => {

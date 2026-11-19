@@ -1,4 +1,4 @@
-import { DestroyRef, Signal, WritableSignal, inject, signal } from '@angular/core';
+import { DestroyRef, Signal, WritableSignal, inject, linkedSignal } from '@angular/core';
 import { UnsavedChanges } from '../../core/forms/unsaved-changes';
 import { QaDrawerCloseGuard } from './qa-drawer';
 
@@ -19,7 +19,9 @@ export interface DiscardGuard {
  * (tab close / reload / leaving the view ask first). Call it in a field initializer.
  */
 export function discardGuard(open: WritableSignal<boolean>, isDirty: () => boolean): DiscardGuard {
-  const confirming = signal(false);
+  // Back to false every time the drawer opens or closes: a save that closes the drawer while it
+  // was asking (Esc mid-save) must not reopen it on the question.
+  const confirming = linkedSignal({ source: open, computation: () => false });
   const unregister = inject(UnsavedChanges).register(() => open() && isDirty());
   inject(DestroyRef).onDestroy(unregister);
 

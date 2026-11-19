@@ -100,6 +100,19 @@ describe('TimelineDrawer', () => {
     expect(fixture.componentInstance.saved).toEqual([]);
   });
 
+  it('removing step 1 of a new timeline: the step that moves up loads results, so the drawer never dead-ends', async () => {
+    const fixture = TestBed.createComponent(Host);
+    fixture.componentInstance.request.set({ timeline: null });
+    await settle(fixture);
+    const drawer = fixture.debugElement.children[0].componentInstance as TimelineDrawer;
+    expect(drawer['draft']().steps[1].batch).toBe(false);
+
+    drawer['removeRow'](0);
+    await settle(fixture);
+    expect(drawer['draft']().steps[0].batch).toBe(true);
+    expect(drawer['stepsError']()).not.toBe('Step 1 must load results.');
+  });
+
   it('an existing timeline (steps fixed, the edit sends no round) is never blocked by the rounds rule', async () => {
     const fixture = TestBed.createComponent(Host);
     // A timeline saved before the 2-round cap, with 3 "Loads results" steps: it must still be editable (name, dates).

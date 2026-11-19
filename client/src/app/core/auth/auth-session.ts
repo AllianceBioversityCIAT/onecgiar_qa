@@ -132,6 +132,17 @@ export class AuthSession {
     }
   }
 
+  /**
+   * App start on a page that never uses this session (the Science Program view, see `session-start.ts`):
+   * signed out, with no refresh call and nothing read or written in storage or cookies. A session another
+   * tab holds is left alone.
+   */
+  startAnonymous(): void {
+    if (!this.isBrowser || this.state() !== 'unknown') return;
+    this.state.set('anonymous');
+    this.resolveReady();
+  }
+
   /** One attempt at a time: a second call while one runs returns the same promise. */
   signIn(credentials: Credentials): Promise<LoginResult> {
     if (this.signInAttempt) return this.signInAttempt;

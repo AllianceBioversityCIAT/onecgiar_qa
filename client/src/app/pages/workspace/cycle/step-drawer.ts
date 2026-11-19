@@ -1,5 +1,6 @@
 import { Component, computed, effect, input, linkedSignal, model, output, untracked } from '@angular/core';
-import { FormField, form, required, validate } from '@angular/forms/signals';
+import { FormField, form, validate } from '@angular/forms/signals';
+import { requiredText } from '../../../core/forms/text-validators';
 import { HlmInput } from '@spartan/input';
 import { QaButtonImports, QaDatePicker, QaDialogImports, QaDrawerImports, QaSegmented, QaSelect, QaSwitch, QaTooltipImports, discardGuard } from '../../../ui';
 import { AUDIENCES, CORRECTION_AUDIENCE, CycleStep, DEMO_ACCESS, PROGRAMS, ReopenMode, Timeline } from './cycle.mock';
@@ -171,8 +172,8 @@ interface StepDraft {
         <div class="flex flex-col items-stretch gap-[6px]">
           <div class="flex min-h-[52px] items-center gap-4">
             <div class="flex min-w-0 flex-1 flex-col gap-[2px]">
-              <span id="cycle-step-load" class="text-(length:--fs-14) font-medium text-(--text-2)">Load results when this step opens</span>
-              <span class="text-(length:--fs-13) font-normal text-pretty text-(--text-4)">Brings in results submitted since the last load, plus anything the programs corrected.</span>
+              <span id="cycle-step-load" class="text-(length:--fs-14) font-medium text-(--text-2)">Loads results</span>
+              <span class="text-(length:--fs-13) font-normal text-pretty text-(--text-4)">Marks a step where you load results by hand with Load results: results submitted since the last load, plus anything the programs corrected.</span>
             </div>
             @if (live()) {
               <span class="text-(length:--fs-13) text-(--text-3)">{{ d.batch ? 'Yes' : 'No' }}</span>
@@ -388,7 +389,7 @@ export class StepDrawer {
   }
 
   protected readonly stepForm = form(this.draft, (f) => {
-    required(f.name, { message: 'Enter a name for the step.' });
+    requiredText(f.name, { message: 'Enter a name for the step.' });
     validate(f.closes, ({ value }) =>
       this.live() && !toApiDay(value()) ? { kind: 'date', message: 'Enter a closing date, for example 11 Jul 2026.' } : undefined,
     );

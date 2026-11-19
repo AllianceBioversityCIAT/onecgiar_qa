@@ -1,4 +1,5 @@
 import {
+  calendarDate,
   closesLabel,
   compareDays,
   formatDay,
@@ -12,6 +13,7 @@ import {
   romeZone,
   splitMoment,
   todayInRome,
+  todayInRomeDate,
   zoneAt,
 } from './rome-date';
 
@@ -104,5 +106,16 @@ describe('rome-date', () => {
     expect(opensLabel('2026-11-12', '14:00')).toBe('Opens 12 Nov 2026, 14:00 CET (Rome)');
     expect(closesLabel('2026-07-06', '17:30')).toBe('Closes 06 Jul 2026, 17:30 CEST (Rome)');
     expect(opensDayLabel('2026-11-12')).toBe('Opens 12 Nov 2026 (Rome)');
+  });
+
+  it('calendarDate: a day that does not exist is null, never the next month', () => {
+    expect(calendarDate(2026, 1, 31)).toBeNull();
+    expect(calendarDate(2026, 10, 31)).toBeNull();
+    expect(calendarDate(2028, 1, 29)?.getDate()).toBe(29);
+  });
+
+  it('todayInRomeDate: the Rome day, not the local one (23:30 in Bogotá is already tomorrow in Rome)', () => {
+    const d = todayInRomeDate(new Date('2026-11-12T04:30:00Z')); // 11 Nov 23:30 Bogotá = 12 Nov 05:30 Rome
+    expect([d.getFullYear(), d.getMonth(), d.getDate()]).toEqual([2026, 10, 12]);
   });
 });

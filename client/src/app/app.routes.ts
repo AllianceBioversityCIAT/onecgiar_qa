@@ -4,6 +4,7 @@ import { permissionActivate, permissionMatch } from './core/access/permission-gu
 import { Permission } from './core/access/role-definitions';
 import { authGuard, guestGuard } from './core/auth/auth-guards';
 import { unsavedChangesGuard } from './core/forms/unsaved-changes';
+import { aiPreviewMatch } from './pages/workspace/ai-preview/ai-preview.guard';
 
 /**
  * Workspace view: guarded by permission at match (the chunk is not downloaded) and at activation.
@@ -95,10 +96,25 @@ export const routes: Routes = [
         },
         () => import('./pages/workspace/assessors/assessors-view').then((m) => m.AssessorsView),
       ),
+      // Plan B of P2-3918: dev/test-only AI preview (the flag guard runs first, so production never matches).
+      {
+        path: 'ai-preview/:timelineId/:resultCode',
+        title: 'AI suggestions · PRMS Quality Assurance',
+        canMatch: [aiPreviewMatch, permissionMatch],
+        canActivate: [permissionActivate],
+        loadComponent: () => import('./pages/workspace/ai-preview/ai-preview').then((m) => m.AiPreviewPage),
+      },
       view('notifications', 'Notifications · PRMS Quality Assurance', { permission: Permission.ADMIN_ACCESS }, () =>
         import('./pages/workspace/notifications/notifications-view').then((m) => m.NotificationsView),
       ),
     ],
+  },
+  // P2-3911: the Science Program view inside Reporting's iframe. No authGuard and no shell: it has its
+  // own SP session (traded from a one-time code), never the Cognito one. Client-rendered (`**` in
+  // app.routes.server.ts), so the code is only traded in the browser.
+  {
+    path: 'sp',
+    loadChildren: () => import('./pages/sp/sp.routes').then((m) => m.SP_ROUTES),
   },
   { path: '**', redirectTo: '' },
 ];

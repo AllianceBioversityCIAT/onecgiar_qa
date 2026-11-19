@@ -145,3 +145,66 @@ describe('parseAllowedOrigins', () => {
     expect(() => parseAllowedOrigins(' , ')).toThrow(/ALLOWED_ORIGINS/);
   });
 });
+
+describe('notification settings (optional)', () => {
+  const base = () => ({ ...VALID });
+  it.each([
+    ['NOTIFICATION_API_URL', 'http://reports.prms.cgiar.org/api/email'],
+    ['NOTIFICATION_EMAIL_ENABLED', 'yes'],
+    ['APP_URL', 'https://qa.cgiar.org/login'],
+  ])('rejects an invalid %s', (key, value) => {
+    expect(() => validateEnv({ ...base(), [key]: value })).toThrow(key);
+  });
+
+  it('accepts them valid, or absent', () => {
+    expect(() => validateEnv(base())).not.toThrow();
+    expect(() =>
+      validateEnv({
+        ...base(),
+        NOTIFICATION_API_URL: 'https://reports.prms.cgiar.org/api/email',
+        NOTIFICATION_EMAIL_ENABLED: 'false',
+        APP_URL: 'https://qatest.ciat.cgiar.org',
+      }),
+    ).not.toThrow();
+  });
+});
+
+describe('SP view settings (optional, P2-3911)', () => {
+  const base = () => ({ ...VALID });
+  const key = 'k'.repeat(32);
+
+  it.each([
+    ['SP_ACCESS_API_KEY', 'k'.repeat(31)],
+    ['SP_REPORTING_RESULT_URL', 'http://reporting.example.org/r/{resultCode}'],
+    ['SP_REPORTING_RESULT_URL', 'https://reporting.example.org/r/123'],
+    ['SP_REPORTING_RESULT_URL', 'not a url {resultCode}'],
+  ])('rejects an invalid %s (%s)', (name, value) => {
+    expect(() => validateEnv({ ...base(), [name]: value })).toThrow(name);
+  });
+
+  it('accepts them valid, empty, or absent', () => {
+    expect(() => validateEnv(base())).not.toThrow();
+    expect(() =>
+      validateEnv({
+        ...base(),
+        SP_ACCESS_API_KEY: '',
+        SP_REPORTING_RESULT_URL: '',
+      }),
+    ).not.toThrow();
+    expect(() =>
+      validateEnv({
+        ...base(),
+        SP_ACCESS_API_KEY: key,
+        SP_REPORTING_RESULT_URL:
+          'https://reporting.example.org/result/result-detail/{resultCode}/general-information',
+      }),
+    ).not.toThrow();
+  });
+
+  it('never puts the key value in the error', () => {
+    const short = 'short-sp-key-value';
+    expect(() => validateEnv({ ...base(), SP_ACCESS_API_KEY: short })).toThrow(
+      /^(?!.*short-sp-key-value).*$/,
+    );
+  });
+});

@@ -14,7 +14,7 @@ import { CardAction, FieldActions } from './review-model';
   template: `
     @let a = actions();
     @if (a.approve) {
-      <button hlmBtn qaBtn tone="primary" size="sm" type="button" [attr.aria-label]="'Approve ' + label()" (click)="act.emit('approve')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M20 6L9 17l-5-5" /></svg>Approve</button>
+      <button hlmBtn qaBtn tone="primary" size="sm" type="button" [attr.aria-label]="'Approve ' + label()" [loading]="busy()" (click)="act.emit('approve')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M20 6L9 17l-5-5" /></svg>Approve</button>
     }
     @if (a.highlight === 'mark') {
       <button hlmBtn qaBtn tone="primary" size="sm" type="button" aria-haspopup="dialog" (click)="act.emit('highlight')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1zM4 22v-7" /></svg>Mark as highlight<span class="sr-only">: {{ label() }}</span></button>
@@ -34,7 +34,7 @@ import { CardAction, FieldActions } from './review-model';
       <button hlmBtn qaBtn tone="primary" size="sm" type="button" (click)="act.emit('done')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M20 6L9 17l-5-5" /></svg>Mark when done<span class="sr-only">: {{ label() }}</span></button>
     }
     @if (a.undo; as undo) {
-      <button hlmBtn qaBtn tone="secondary" size="sm" type="button" [attr.aria-label]="undoLabel(undo) + label()" (click)="act.emit('undo')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M9 14L4 9l5-5M4 9h11a5 5 0 0 1 0 10h-3" /></svg>Undo</button>
+      <button hlmBtn qaBtn tone="secondary" size="sm" type="button" [attr.aria-label]="undoLabel(undo) + label()" [loading]="busy()" (click)="act.emit('undo')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M9 14L4 9l5-5M4 9h11a5 5 0 0 1 0 10h-3" /></svg>Undo</button>
     }
     @if (a.secondary) {
       <button hlmBtn qaBtn tone="secondary" size="sm" type="button" aria-haspopup="dialog" (click)="act.emit('comment')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>{{ a.secondaryLabel }}@if (a.count > 0) {<span class="font-(family-name:--qa-mono) text-(length:--fs-12) font-bold text-(--accent) tabular-nums">{{ a.count }}</span>}<span class="sr-only"> for {{ label() }}</span></button>
@@ -45,6 +45,8 @@ export class ReviewCardActions {
   readonly actions = input.required<FieldActions>();
   /** Field label, for accessible button names. */
   readonly label = input('');
+  /** The green/grey write of this card is on its way: Approve / Undo spin and a second tap does nothing. */
+  readonly busy = input(false);
   readonly act = output<CardAction>();
 
   protected undoLabel(kind: NonNullable<FieldActions['undo']>): string {

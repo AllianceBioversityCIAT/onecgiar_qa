@@ -6,12 +6,14 @@ import { CycleStore, TimelineSaveOutcome } from './cycle-store';
 import { CycleLoads } from './cycle-loads';
 import { Timeline } from './cycle.mock';
 import { MenuAction, formatNumber, isStepInForce, loadTargets, stepRow, stepState, timelineStart, timelineVM } from './cycle.logic';
+import { RomeClock } from '../../../core/domain/rome-clock';
 import { nowInRome } from '../../../core/domain/rome-date';
 import { LoadDrawer, LoadDrawerNames, RunRequest } from './load-drawer';
 import { LoadSummaryDrawer } from './load-summary-drawer';
 import { PeopleDrawer } from './people-drawer';
 import { ProgressDrawer, StepProgress } from './progress-drawer';
 import { StepDrawer, StepRequest, StepSaveEvent } from './step-drawer';
+import { TimelineActions } from './timeline-actions';
 import { TimelineCard } from './timeline-card';
 import { TimelineDrawer, TimelineRequest, TimelineSaveEvent, TimelineSaveFeedback } from './timeline-drawer';
 import { TimelineSteps } from './timeline-steps';
@@ -34,7 +36,7 @@ const EMPTY_TIMELINE: Timeline = { id: '', name: '', kind: 'Sub-timeline', statu
  */
 @Component({
   selector: 'qa-cycle-view',
-  imports: [QaButtonImports, QaTabsImports, QaReveal, CycleSkeleton, TimelineSteps, TimelineCard, TimelineDrawer, StepDrawer, ProgressDrawer, LoadDrawer, LoadSummaryDrawer, PeopleDrawer],
+  imports: [QaButtonImports, QaTabsImports, QaReveal, CycleSkeleton, TimelineSteps, TimelineActions, TimelineCard, TimelineDrawer, StepDrawer, ProgressDrawer, LoadDrawer, LoadSummaryDrawer, PeopleDrawer],
   providers: [CycleStore, CycleLoads],
   templateUrl: './cycle-view.html',
 })
@@ -43,6 +45,8 @@ export class CycleView implements OnInit {
   protected readonly store = inject(CycleStore);
   protected readonly loads = inject(CycleLoads);
   private readonly toasts = inject(Toasts);
+  /** Minute in Rome: the cards, menus and load offers below run again when it moves (N-3). */
+  private readonly clock = inject(RomeClock);
 
   // ---- Data ----
   protected readonly official = this.store.official;
@@ -56,22 +60,23 @@ export class CycleView implements OnInit {
 
   protected readonly officialVM = computed(() => {
     const t = this.official();
+    this.clock.minute(); // timelineVM reads the clock inside (step states, "Opens today", round in force)
     return t ? timelineVM(t, this.loadable().has(t.id)) : null;
   });
   /** The Sub-timelines section lists sub-timelines only; the official timeline has its own card. */
   private readonly subs = computed(() => this.timelines().filter((t) => t.kind === 'Sub-timeline'));
   private readonly liveList = computed(() => this.subs().filter((t) => t.status !== 'Closed').sort(byStartDesc));
   private readonly closedList = computed(() => this.subs().filter((t) => t.status === 'Closed').sort(byStartDesc));
-  protected readonly liveVMs = computed(() => this.liveList().map((t) => timelineVM(t, this.loadable().has(t.id))));
-  protected readonly closedVMs = computed(() => this.closedList().map((t) => timelineVM(t)));
+  protected readonly liveVMs = computed(() => (this.clock.minute(), this.liveList().map((t) => timelineVM(t, this.loadable().has(t.id)))));
+  protected readonly closedVMs = computed(() => (this.clock.minute(), this.closedList().map((t) => timelineVM(t))));
   /** Ids of the timelines that can take a sync now: until their last step closes (none while a load runs or the cycle is closed). */
   private readonly loadable = computed(
-    () => new Set(this.canLoad() ? loadTargets(this.store.timelines(), nowInRome()).map((t) => t.id) : []),
+    () => new Set(this.canLoad() ? loadTargets(this.store.timelines(), this.clock.minute()).map((t) => t.id) : []),
   );
   /** The step drawer offers "Load results into this step" on the step in force of a loadable timeline (where the sync goes). */
   protected readonly stepLoadable = computed(() => {
     const r = this.stepRequest();
-    return this.loadable().has(r.timeline.id) && isStepInForce(r.timeline, r.index, nowInRome());
+    return this.loadable().has(r.timeline.id) && isStepInForce(r.timeline, r.index, this.clock.minute());
   });
   protected readonly closedTotal = computed(() => this.closedList().length);
 

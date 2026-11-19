@@ -26,7 +26,7 @@ export const FIELD_HEAD_HELP: readonly FieldHeadHelp[] = [
     align: 'start',
     items: [
       { label: 'Hidden', text: 'The assessor does not see the field.' },
-      { label: 'View only', text: 'The assessor sees it as context. No comments, no AI, not core.' },
+      { label: 'View only', text: 'The assessor sees it as context. No comments, not core.' },
       { label: 'Assessed', text: 'The assessor approves it or leaves a comment.' },
     ],
     note: 'Assessors can comment on any field that is assessed. They never comment on a view only field.',
@@ -35,11 +35,6 @@ export const FIELD_HEAD_HELP: readonly FieldHeadHelp[] = [
     label: 'Core',
     align: 'center',
     text: 'Comments on core fields go up for a second review: first to the TPB, then to the PPU.',
-  },
-  {
-    label: 'AI',
-    align: 'center',
-    text: 'The AI helper drafts an assessment of this field for the assessor to confirm or override. It never approves a field on its own.',
   },
 ];
 

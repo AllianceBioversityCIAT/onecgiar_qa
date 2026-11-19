@@ -22,6 +22,21 @@
   />
 </div>
 
+<!-- This page still shows the figures of the design prototype (overview.mock.ts, overview-roles.mock.ts): it does not
+     read the API yet (P2-3913). Said before any figure, for every role, so nobody reads them as real (P2-4079).
+     Remove this block the day Overview reads the API. -->
+<div class="px-4 pt-4 sm:px-6 lg:px-8">
+  <p
+    role="note"
+    data-testid="overview-sample-data"
+    class="m-0 flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-lg border border-warning-ink/25 bg-warning-soft px-3 py-2 text-(length:--fs-13) leading-[1.5] text-warning-ink"
+  >
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="flex-none"><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 7.5v.5" /></svg>
+    <span class="font-semibold">Preview · sample data</span>
+    <span>These figures are examples from the design prototype, not real QA data.</span>
+  </p>
+</div>
+
 @if (role() !== 'admin') {
   <!-- Body of a reviewing role: what needs them first, then where the timelines are, then their own figures. -->
   <div class="flex flex-col items-stretch gap-6 px-4 pt-6 pb-8 sm:px-6 lg:px-8">

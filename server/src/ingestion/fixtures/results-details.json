@@ -11,6 +11,12 @@
           "value": 4,
           "degree": 2
         }
+      },
+      "labels": {
+        "countries": {
+          "170": "Colombia",
+          "999": null
+        }
       }
     }
   ],

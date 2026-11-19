@@ -5,12 +5,19 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { AppModule } from '../src/app.module.js';
+import { withoutTitleBackfill } from './support/without-title-backfill.js';
 import { COGNITO_TIMEOUT_MS } from '../src/auth/cognito-auth.client.js';
 import {
   IS_PUBLIC_KEY,
   Public,
 } from '../src/auth/decorators/public.decorator.js';
 import { AuthGuard } from '../src/auth/guards/auth.guard.js';
+import { SP_SESSION_KEY } from '../src/auth/decorators/sp-session.metadata.js';
+import { SP_ACCESS_STORE } from '../src/assessment/sp-view/sp-access.store.js';
+import { SpSessionGuard } from '../src/assessment/sp-view/sp-session.guard.js';
+import { InMemorySpAccessStore } from './support/in-memory-sp.js';
+import { GUARDS_METADATA } from '@nestjs/common/constants.js';
+import { SetMetadata } from '@nestjs/common';
 import { PermissionGuard } from '../src/auth/guards/permission.guard.js';
 import { MeController } from '../src/auth/me.controller.js';
 import {
@@ -89,6 +96,19 @@ class RogueController {
 @Module({ controllers: [RogueController] })
 class RogueModule {}
 
+/** An SP route that carries the SP metadata but not its guard: the control of the SP sweep. */
+@Controller('sp')
+class RogueSpController {
+  @SetMetadata(SP_SESSION_KEY, true)
+  @Get('rogue-leak')
+  leak() {
+    return { leaked: true };
+  }
+}
+
+@Module({ controllers: [RogueSpController] })
+class RogueSpModule {}
+
 // --- World ----------------------------------------------------------------------
 
 interface World {
@@ -114,15 +134,19 @@ async function buildWorld(extraModules: unknown[] = []): Promise<World> {
   const users = new UsersRepository(usersStore);
   const assignments = new RoleAssignmentsRepository(assignmentsStore);
 
-  const moduleRef = await Test.createTestingModule({
-    imports: [AppModule, ...(extraModules as never[])],
-  })
+  const moduleRef = await withoutTitleBackfill(
+    Test.createTestingModule({
+      imports: [AppModule, ...(extraModules as never[])],
+    }),
+  )
     .overrideProvider(USERS_STORE)
     .useValue(usersStore)
     .overrideProvider(ROLE_ASSIGNMENTS_STORE)
     .useValue(assignmentsStore)
     .overrideProvider(USER_PROGRAMS_STORE)
     .useValue(new InMemoryUserProgramsStore())
+    .overrideProvider(SP_ACCESS_STORE)
+    .useValue(new InMemorySpAccessStore())
     .overrideProvider(JWKS_CACHE)
     .useValue(localJwksCache(signer))
     // The cache's only time source: it never expires inside a test.
@@ -174,11 +198,16 @@ function silenceLogs() {
 const FR10_PUBLIC_ROUTES: readonly string[] = [
   'POST /api/v1/auth/login',
   'POST /api/v1/auth/complete-new-password',
+  'POST /api/v1/auth/forgot-password',
+  'POST /api/v1/auth/reset-password',
   'GET /api/v1/auth/provider-url',
   'POST /api/v1/auth/callback',
   'POST /api/v1/auth/session/refresh',
   'POST /api/v1/auth/session/logout',
   'GET /api/v1/health',
+  // P2-3911 (SP view): Reporting's machine call (x-api-key) and the code exchange.
+  'POST /api/v1/sp-access/codes',
+  'POST /api/v1/sp-access/session',
 ];
 
 /** What the Express router serves: one `METHOD /path` per route and method. */
@@ -235,6 +264,48 @@ function declaredRoutes(app: NestExpressApplication): Map<string, boolean> {
             handler,
             metatype,
           ]) === true,
+        );
+      }
+    }
+  }
+  return routes;
+}
+
+/**
+ * Every declared route carrying `SP_SESSION_KEY` (P2-3911), read the way the
+ * global guards read it, with whether `SpSessionGuard` is among its guards.
+ */
+function spSessionRoutes(app: NestExpressApplication): Map<string, boolean> {
+  const reflector = app.get(Reflector, { strict: false });
+  const routes = new Map<string, boolean>();
+  for (const module of app.get(ModulesContainer, { strict: false }).values()) {
+    for (const { metatype } of module.controllers.values()) {
+      if (typeof metatype !== 'function') continue;
+      const controllerPath = Reflect.getMetadata(
+        PATH_METADATA,
+        metatype,
+      ) as string;
+      for (const name of Object.getOwnPropertyNames(metatype.prototype)) {
+        const handler = (metatype.prototype as Record<string, unknown>)[name];
+        if (typeof handler !== 'function') continue;
+        const method = Reflect.getMetadata(METHOD_METADATA, handler) as
+          RequestMethod | undefined;
+        if (method === undefined) continue;
+        const sp =
+          reflector.getAllAndOverride<boolean | undefined>(SP_SESSION_KEY, [
+            handler,
+            metatype,
+          ]) === true;
+        if (!sp) continue;
+        const guards = [
+          ...((Reflect.getMetadata(GUARDS_METADATA, metatype) as unknown[]) ??
+            []),
+          ...((Reflect.getMetadata(GUARDS_METADATA, handler) as unknown[]) ??
+            []),
+        ];
+        routes.set(
+          `${RequestMethod[method]} ${joinPath('api/v1', controllerPath, Reflect.getMetadata(PATH_METADATA, handler) as string)}`,
+          guards.includes(SpSessionGuard),
         );
       }
     }
@@ -299,6 +370,7 @@ describe('Route inventory (FR-10, e2e)', () => {
 
   it('answers 401 without a token on every other route', async () => {
     const { guardedRoutes } = inventoryOf(world.app);
+    const spRoutes = spSessionRoutes(world.app);
     // The sweep must cover something, or a classification bug would pass it.
     expect(guardedRoutes).toEqual(
       expect.arrayContaining(['GET /api/v1/auth/me']),
@@ -315,7 +387,13 @@ describe('Route inventory (FR-10, e2e)', () => {
       else {
         expect(res.body, key).toMatchObject({
           success: false,
-          error: { status: 401, code: 'AUTH_TOKEN_INVALID' },
+          error: {
+            status: 401,
+            // An SP route (P2-3911) is refused by its own session guard.
+            code: spRoutes.has(key)
+              ? 'SP_SESSION_INVALID'
+              : 'AUTH_TOKEN_INVALID',
+          },
           meta: { requestId: expect.any(String) },
         });
       }
@@ -325,7 +403,49 @@ describe('Route inventory (FR-10, e2e)', () => {
     );
   });
 
+  // P2-3911: an SP route skips both global guards (like @Public()), so it must
+  // carry SpSessionGuard; a forgotten guard is caught by the metadata and by HTTP.
+  it('guards every SP session route with SpSessionGuard: 401 SP_SESSION_INVALID without a token or with a Cognito token', async () => {
+    const spRoutes = spSessionRoutes(world.app);
+    expect([...spRoutes.keys()]).toEqual(
+      expect.arrayContaining(['GET /api/v1/sp/me']),
+    );
+    const user = await world.addUser('sub-sp-sweep');
+    await world.assignments.create({ userId: user.id, roleCode: 'ADMIN' });
+    const failures: string[] = [];
+    for (const [key, guarded] of spRoutes) {
+      if (!guarded) failures.push(`${key}: no SpSessionGuard`);
+      const [method, path] = key.split(' ');
+      const url = path.replace(/:[^/]+/g, '1');
+      for (const authorization of [undefined, bearerOf('sub-sp-sweep')]) {
+        const res = await world.call(method, url, authorization);
+        if (
+          res.status !== 401 ||
+          (res.body as { error?: { code?: string } }).error?.code !==
+            'SP_SESSION_INVALID'
+        ) {
+          failures.push(
+            `${key} (${authorization ? 'cognito' : 'none'}): ${res.status}`,
+          );
+        }
+      }
+    }
+    expect(failures).toEqual([]);
+  });
+
   describe('control: the inventory catches a mistake', () => {
+    it('catches an SP route whose guard was forgotten', async () => {
+      const mistaken = await buildWorld([RogueSpModule]);
+      try {
+        const spRoutes = spSessionRoutes(mistaken.app);
+        expect(spRoutes.get('GET /api/v1/sp/rogue-leak')).toBe(false);
+        // And it really is reachable without a token.
+        await mistaken.call('get', '/api/v1/sp/rogue-leak').expect(200);
+      } finally {
+        await mistaken.close();
+      }
+    });
+
     it('lists a route marked @Public() by accident, and the equality refuses it', async () => {
       const mistaken = await buildWorld([RogueModule]);
       try {
