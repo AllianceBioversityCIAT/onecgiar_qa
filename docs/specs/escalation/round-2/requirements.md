@@ -4,7 +4,7 @@
 
 | Spec path | Status | PRD stories | Tickets | Depth | Last updated |
 |---|---|---|---|---|---|
-| `docs/specs/escalation/round-2` | **Draft — waiting for the back lead's OK** | US-8 (built), US-9 and US-10 (designed) | P2-3912 (built) · P2-3916, P2-3917 (designed) | Full (migration, API, status model, release) | 2026-11-19 |
+| `docs/specs/escalation/round-2` | **Approved** — back lead, 2026-11-19 ("Si") | US-8 (built), US-9 and US-10 (designed) | P2-3912 (built) · P2-3916, P2-3917 (designed) | Full (migration, API, status model, release) | 2026-11-19 |
 
 | Field | Value |
 |---|---|
@@ -398,13 +398,13 @@ The spec SHALL publish what the front may rely on in `front-contract.md`:
 
 ## 9. Open Questions (defaults this spec is built on)
 
-| # | Question | Default | Who confirms |
-|---|---|---|---|
-| OQ-1 | `docs/qa-context.md:14` (Santi, 2026-11-12) says the Lead does not close comments, has no final step, and highlights any commented field. P2-3912 says the opposite | **The ticket** | Back lead now; Angel to ratify |
-| OQ-2 | A result NEW to round 2: who reviews it? | **The Lead, full core review**, for every type | Back lead; Angel |
-| OQ-3 | A core field green in round 1, uncommented and unchanged | **Carried green** | Back lead |
-| OQ-4 | A round-1 comment still `open` or `clarification_requested` at re-submission | **Decidable, like a disagreement** | Back lead |
-| OQ-5 | An accepted comment the Lead still finds wrong | **The Lead's own comment, escalated** (FR-9) | Back lead |
-| OQ-6 | Field config pinning: core may differ from round 1 | **Keep DD-3.** A thread on a field no longer core is read-only and never blocks | Back lead |
-| OQ-7 | Step 3 closes before the Lead finishes | **Stays Pending, read-only** (same as step 1) | Angel |
-| OQ-8 | Delete (AC11) | **Soft delete.** Not own comments, not answered comments | Back lead |
+| # | Question | Default | Who confirms | Answer |
+|---|---|---|---|---|
+| OQ-1 | `docs/qa-context.md:14` (Santi, 2026-11-12) says the Lead does not close comments, has no final step, and highlights any commented field. P2-3912 says the opposite | **The ticket** | Back lead now; Angel to ratify | Default accepted — back lead, 2026-11-19 (spec approved as written); Angel to ratify |
+| OQ-2 | A result NEW to round 2: who reviews it? | **The Lead, full core review**, for every type | Back lead; Angel | Default accepted — back lead, 2026-11-19 (spec approved as written); Angel to ratify |
+| OQ-3 | A core field green in round 1, uncommented and unchanged | **Carried green** | Back lead | Default accepted — back lead, 2026-11-19 (spec approved as written) |
+| OQ-4 | A round-1 comment still `open` or `clarification_requested` at re-submission | **Decidable, like a disagreement** | Back lead | Default accepted — back lead, 2026-11-19 (spec approved as written) |
+| OQ-5 | An accepted comment the Lead still finds wrong | **The Lead's own comment, escalated** (FR-9) | Back lead | Default accepted — back lead, 2026-11-19 (spec approved as written) |
+| OQ-6 | Field config pinning: core may differ from round 1 | **Keep DD-3.** A thread on a field no longer core is read-only and never blocks | Back lead | Default accepted — back lead, 2026-11-19 (spec approved as written) |
+| OQ-7 | Step 3 closes before the Lead finishes | **Stays Pending, read-only** (same as step 1) | Angel | Default accepted — back lead, 2026-11-19 (spec approved as written); Angel to ratify |
+| OQ-8 | Delete (AC11) | **Soft delete.** Not own comments, not answered comments | Back lead | Default accepted — back lead, 2026-11-19 (spec approved as written) |

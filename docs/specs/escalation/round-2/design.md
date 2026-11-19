@@ -4,7 +4,7 @@
 
 | Spec path | Requirements | Status | Last updated |
 |---|---|---|---|
-| `docs/specs/escalation/round-2` | `requirements.md` (FR-1 … FR-17, NFR-1 … NFR-6) | Draft — waiting for the back lead's OK | 2026-11-19 |
+| `docs/specs/escalation/round-2` | `requirements.md` (FR-1 … FR-17, NFR-1 … NFR-6) | Approved — back lead, 2026-11-19 | 2026-11-19 |
 
 | Field | Value |
 |---|---|
@@ -208,7 +208,7 @@ States: loading, error, empty thread (new result), read-only (step closed / fini
 
 ## 11. Premise Ledger
 
-Verified: 15 · UNVERIFIED: 3 (High 1, Low 2).
+Verified: 19 · UNVERIFIED: 2 (High 0, Low 2).
 Blast-radius triggers:
 
 - `live-path` (Lead opens / writes a result);
@@ -235,7 +235,7 @@ Blast-radius triggers:
 | P-16 | The latest SP response per comment is the one that counts; responses never touch validations | data-env | `schema/sp-comment-responses.ts` header; `assessment/AGENTS.md` SP rules ("A response changes the comment only") | 3750182 | The thread must read the state, not the response (Low) | — |
 | P-17 | No real round-2 membership with responses exists on qatest yet; the in-memory world can build one (`runRealLoad`) | data-env | `UNVERIFIED — confirm at source before relying on it` | — | The HITL needs a staged round on qatest (Low) | T-14, back lead |
 | P-18 | Tests that pin the disabled LEAD row (they flip when it is enabled) | consumer | `grep -rln "LEAD_ASSESSOR\|LEAD_ACCESS" server/src/assessment server/test` → 19 files, assessment ones: `scope.spec.ts`, `worklist.service.spec.ts`, `ai-suggestions-rules.spec.ts`, `role-steps.spec.ts` (others are users/admin-config) | 3750182 | A missed pin goes red in CI (Low) | — |
-| P-19 | Business: the Lead closes and finishes (P2-3912), not "highlight only" (`qa-context.md:14`) | other | `UNVERIFIED — confirm at source before relying on it` (user-stated through the ticket) | — | FR-8, FR-11 and DD-2 change shape (High) | The back lead's OK at this gate (OQ-1); Angel to ratify |
+| P-19 | Business: the Lead closes and finishes (P2-3912), not "highlight only" (`qa-context.md:14`, corrected in T-1) | other | Back lead's answer to OQ-1 at the spec gate, 2026-11-19 ("Si"); recorded in `requirements.md` § 9 | 3750182 | FR-8, FR-11 and DD-2 change shape (High) | — (Angel to ratify; non-blocking) |
 | P-20 | Migration numbering: last is `0012` on `staging-center` and `dev` | data-env | `git ls-tree --name-only origin/dev server/drizzle/` → last `0012_ai_usage_indicative.sql` (2026-11-19) | 3750182 | Rename to the next free number (Low) | Re-checked in T-3 before merge |
 | P-21 | MySQL enum appends and the new CHECKs apply on qatest's MySQL 8 | data-env | `UNVERIFIED — confirm at source before relying on it` | — | `0013` is rewritten (Low) | T-14 |
 

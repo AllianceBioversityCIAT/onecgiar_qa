@@ -23,7 +23,7 @@ All back tasks touch `server/src/assessment/` (one shared boundary), so they run
 
 ## T-1: Record the gate decisions
 
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** S
 - **Depends on:** the back lead's OK on this spec
 - **Requirements:** requirements § 9 (OQ-1 … OQ-8); P-19

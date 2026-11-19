@@ -11,11 +11,11 @@
 ## QA flow (per result)
 1. **Assessor** reviews each field: approves it or comments what to change. They can withdraw a comment while the program has not answered it. Any answer from the program, a rejection included, opens the field again for the assessor. *(Santi via Yeck, 2026-11-12)*
 2. **Program member (SP)** accepts or rejects each comment; when accepting, corrects it in the Reporting Tool. The program answers inside the Reporting Tool embed: there is no program screen in the new QA.
-3. **Lead assessor** does not close comments and has no final step. They look at every commented field (not only the rejected ones) and mark as *highlight* the ones they see fit, with an instruction for the TPB.
-4. **Third-party broker (TPB)** decides each highlighted field: *Agreed with program* or *Required changes*. With *Required changes* they leave a note for the PPU. No final step either.
+3. **Lead assessor** (step 3, round 2) works on core fields only. They validate what the program corrected, and on each core comment the program disagreed with they choose *Agree with the program* (the field turns green; the comment closes when the review ends) or *Escalate to TPB*, with a comment. When every core field is green the result becomes Quality Assessed by itself; otherwise the Lead finishes the review explicitly and the result is Pending for TPB review. *(P2-3912; back lead, 2026-11-19, spec `escalation/round-2`; replaces the earlier "highlight, no final step" reading of 2026-11-12)*
+4. **Third-party broker (TPB)** decides each escalated core comment: *Agreed with program* or *Required changes*. With *Required changes* they leave a note for the PPU. (P2-3916 names the two choices *Agree with the program* and *Agree with the assessor*; designed in spec `escalation/round-2`, not built yet.)
 5. **PPU** applies the required change in the Reporting Tool and marks it as done in QA (*Mark when done*).
 
-*(Santi, 2026-09-30; steps 1–5 detailed by Santi via Yeck, 2026-11-11 and 2026-11-12)*
+*(Santi, 2026-09-30; steps 1, 2, 4 and 5 detailed by Santi via Yeck, 2026-11-11 and 2026-11-12; step 3 sourced inline)*
 
 ## Knowledge Products (KPs)
 When a load brings results into step 1, each KP falls into one of three groups (the 2025 rule):
@@ -37,7 +37,7 @@ When a load brings results into step 1, each KP falls into one of three groups (
 - The server builds the .xlsx (one endpoint) and checks each role's scope; the front only has the drawer and the download. *(Juanda, 2026-11-11)*
 - Filters: timeline, step, science programs, result types, QA stage, which fields, and "include withdrawn comments" (off by default). *(Juanda, 2026-11-11)*
 - The three "Export comments" buttons (a result's menu in Results, a timeline's menu and a step's progress drawer in Cycle) open the same drawer with that scope set. *(Juanda, 2026-11-11)*
-- One row per comment with the whole path: the result (code, title, program, type, timeline, assessed by), the comment (field, value when commented, author, date, status, withdrawn), then the program's answer, the lead's highlight and instruction, the TPB's decision and the PPU's "done". Only step 1 exists today; the later columns come out empty until those steps are built. *(Juanda, 2026-11-11)*
+- One row per comment with the whole path: the result (code, title, program, type, timeline, assessed by), the comment (field, value when commented, author, date, status, withdrawn), then the program's answer, the lead's decision and comment, the TPB's decision and the PPU's "done". Only step 1 exists today; the later columns come out empty until those steps are built. *(Juanda, 2026-11-11)*
 - Who downloads: the QA Admin, any timeline; lead assessors, TPB and assessors, only their scope. *(Juanda, 2026-11-11)*
 - Not in the December batch. *(Juanda, 2026-11-11)*
 
@@ -56,7 +56,7 @@ Overview · Results (+ per-field detail with "AI match") · Cycle (phases + batc
 - **Result**: what a program reports in PRMS and goes through QA.
 - **Batch / mini-batch**: a group of results that enters QA together.
 - **Phase / cycle**: a QA period that coordination opens and closes.
-- **Highlighted**: a field in disagreement that goes up to the broker.
+- **Escalated**: a core-field comment the program disagreed with, which the Lead Assessor sends to the TPB ("Escalate to TPB"). Replaces the earlier term "Highlighted". *(P2-3912; back lead, 2026-11-19)*
 
 ## Open questions (do not assume an answer)
 - Can Program and PPU download the comments export? Not in P2-3914; Juanda to confirm with Ángel (2026-11-11).
