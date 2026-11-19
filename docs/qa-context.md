@@ -13,7 +13,7 @@
 2. **Program member (SP)** accepts or rejects each comment; when accepting, corrects it in the Reporting Tool. The program answers inside the Reporting Tool embed: there is no program screen in the new QA.
 3. **Lead assessor** does not close comments and has no final step. They look at every commented field (not only the rejected ones) and mark as *highlight* the ones they see fit, with an instruction for the TPB.
 4. **Third-party broker (TPB)** decides each highlighted field: *Agreed with program* or *Required changes*. With *Required changes* they leave a note for the PPU. No final step either.
-5. **PPU** applies the required change in the Reporting Tool and marks it as done in QA (*Mark when done*).
+5. **PPU** applies the required change in the Reporting Tool and marks it as done in QA (*Mark when done*). The program corrects the data in the Reporting Tool; QA shows whether the field was already changed there, but only the PPU closes the case. The PPU does not see AI suggestions. *(Ángel, meeting with Juanpa, 2026-11-17)*
 
 *(Santi, 2026-09-30; steps 1–5 detailed by Santi via Yeck, 2026-11-11 and 2026-11-12)*
 
@@ -61,7 +61,9 @@ Overview · Results (+ per-field detail with "AI match") · Cycle (phases + batc
 ## Open questions (do not assume an answer)
 - Can Program and PPU download the comments export? Not in P2-3914; Juanda to confirm with Ángel (2026-11-11).
 - Only the Reporting → QA sync is modeled; the way back (PPU corrects) is missing.
-- Can a user have several roles? The mockup assumes one.
+- Can a user have several roles? The mockup assumes one. Ángel (2026-11-17): a person can be lead assessor in one result type and assessor in another, never both in the same type. To confirm with Santi.
+- **Lead assessor, two versions.** Santi via Yeck (2026-11-12): looks at every commented field, marks *highlight* with an instruction, closes nothing. Ángel (2026-11-17): reviews only the **core fields**; closes the comment when they agree with the program, or escalates it as *Pending for TPB review* when they agree with the assessor; the result becomes Quality assessed by itself once all its core fields are validated; can edit or delete other assessors' comments. Which one holds? (For Yeck and Santi, 2026-11-17.)
+- **KPs to review:** step 1 (Juanda, 2026-11-04) or straight into round 2 for the lead assessor (Ángel, 2026-11-17)?
 - A module inside the Reporting Tool, or a standalone platform?
 - The mockup's "AI match" is not the same as the AI input that exists today.
 - When moving to the next year (2027), is a new phase created, or is the active one reconfigured (name and dates of the official timeline)?

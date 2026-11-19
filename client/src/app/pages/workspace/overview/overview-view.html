@@ -48,9 +48,11 @@
         @case ('assessor') {
           <!-- Will I finish on time? -->
           <qa-ov-pace class="xl:col-span-12" title="Your pace" [series]="myPace()" />
-          <!-- Where are my results? · Do the programs take my comments? -->
-          <qa-ov-type-progress class="xl:col-span-7" [rows]="myTypes" [query]="myQuery" />
-          <qa-ov-split class="xl:col-span-5" [data]="myComments" headingId="overview-comments-title" />
+          <!-- Where are my results? Each assessor works on a few result types, so the block needs the full width only. -->
+          <qa-ov-type-progress class="xl:col-span-12" [rows]="myTypes" [query]="myQuery" />
+          <!-- Do the programs take my comments? · Where do I comment most? (Ángel, 2026-11-17) -->
+          <qa-ov-split class="xl:col-span-6" [data]="myComments" headingId="overview-comments-title" />
+          <qa-ov-ranked class="xl:col-span-6" [data]="myFields" headingId="overview-my-fields-title" />
         }
         @case ('lead') {
           <!-- Where do I start? · Where is the guidance unclear? -->
@@ -63,7 +65,8 @@
           <qa-ov-split class="xl:col-span-5" [data]="tpbDecisions" headingId="overview-decisions-title" />
         }
         @case ('ppu') {
-          <qa-ov-next-items class="xl:col-span-12" [data]="ppuNext" />
+          <qa-ov-next-items class="xl:col-span-12" [data]="ppuNext()" (done)="markDone($event)" />
+          <p class="sr-only" role="status">{{ ppuAnnounce() }}</p>
         }
       }
     </div>
