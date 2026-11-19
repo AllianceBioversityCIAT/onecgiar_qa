@@ -264,6 +264,47 @@ export interface ReleaseRetryResult {
   readonly stillPending: number;
 }
 
+// ── The program's responses, as the assessor reads them (P2-3911, `docs/sp-view/README.md`) ──
+
+/** What a Science Program answered to a comment in step 2. */
+export type ProgramResponseKind = 'accept' | 'accept_with_comment' | 'disagree' | 'request_clarification';
+
+export interface ProgramResponse {
+  readonly id: number;
+  readonly kind: ProgramResponseKind;
+  /** No text on a plain `accept`. */
+  readonly body: string | null;
+  readonly respondedBy: { readonly name: string; readonly email: string };
+  readonly respondedAt: string;
+}
+
+export interface CommentClarification {
+  /** Id of the `request_clarification` response it belongs to. */
+  readonly requestId: number;
+  readonly question: string;
+  readonly requestedAt: string;
+  /** The comment author's answer, or null while it is pending. */
+  readonly answer: { readonly body: string; readonly answeredAt: string } | null;
+}
+
+/** One comment's thread with the program (`GET …/sp-responses`, `POST …/clarification-answer`). */
+export interface CommentThread {
+  readonly commentId: number;
+  readonly fieldKey: string;
+  readonly state: CommentState;
+  /** The latest response, or null. */
+  readonly response: ProgramResponse | null;
+  /** Every response, oldest first (the latest included). */
+  readonly history: readonly ProgramResponse[];
+  readonly clarifications: readonly CommentClarification[];
+  /**
+   * The caller can answer the pending clarification now: they wrote the comment, can write on the timeline, the
+   * comment is `clarification_requested` and the programs step is in progress (the checks of the answer POST).
+   * Absent on a server older than 2026-11-19.
+   */
+  readonly answerable?: boolean;
+}
+
 // ── Error codes (§ 9.1) ─────────────────────────────────────────────────────
 
 export const ASSESSMENT_ERROR = {
@@ -278,4 +319,6 @@ export const ASSESSMENT_ERROR = {
   CORE_UNCOMMENTED: 'ASSESSMENT_CORE_UNCOMMENTED',
   NOT_COMMENT_AUTHOR: 'ASSESSMENT_NOT_COMMENT_AUTHOR',
   COMMENT_NOT_OPEN: 'ASSESSMENT_COMMENT_NOT_OPEN',
+  /** The clarification was already answered, or the program responded again. */
+  CLARIFICATION_NOT_PENDING: 'CLARIFICATION_NOT_PENDING',
 } as const;

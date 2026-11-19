@@ -66,8 +66,15 @@ export interface FieldComment {
   readonly date: string;
   readonly text: string;
   readonly system?: boolean;
-  /** Program answers only: the program accepts the comment (and corrects the field) or rejects it. */
-  readonly reply?: 'accepted' | 'rejected';
+  /**
+   * Program answers only. The mockup knew two (accepted, rejected); the API has four kinds (P2-3911): accept,
+   * accept with comment, disagree and request clarification.
+   */
+  readonly reply?: 'accepted' | 'rejected' | 'accepted_with_comment' | 'disagreed' | 'clarification';
+  /** Program answers from the API: the responder's email (the assessor side sees it, P2-3911 AC12). */
+  readonly email?: string;
+  /** The comment author's answer to a clarification the program requested: shown under that request. */
+  readonly answer?: boolean;
   /** The caller wrote it and can still take it back (FR-13). */
   readonly canWithdraw?: boolean;
   /** Id of the comment in the API (the mockup's comments had none). */
