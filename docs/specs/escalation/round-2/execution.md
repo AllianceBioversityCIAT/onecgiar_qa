@@ -201,3 +201,18 @@
 - **spawns:** implementer 19 + 27 + 7 + 8 calls, ~160,956 tokens, ended complete; reviewer 18 + 6 + re-audit calls, ~74,223 tokens.
 - **Running totals vs budget (~10,200):** tasks 11/14 (T-13 is Yeck's) · LOC ≈ 9,460 · review rounds 21/~22.
 - auto-approved (pre-approved mode)
+
+### T-12: Whole round 2 end to end, OpenAPI and the front contract — PASS (2026-11-19)
+
+- **Attempts:** 1. Effort high. Skills: cognitive-doc-design, tdd.
+- **Files changed:** new `server/test/assessment-round-two-flow.e2e-spec.ts` (2 flows over the shared fixture's real loader), new `docs/specs/escalation/round-2/front-contract.md`, `docs/specs/assessment/step-1-assessment/front-contract.md` § 9 (+5 codes, pointer), `server/src/assessment/AGENTS.md` (round-2 section; code count; SP window "not withdrawn and not deleted"). Jira close-out draft outside the repo (scratchpad), not sent.
+- **Red run:** greenfield, green on first run (as predicted). **Falsifiers:** escalated end inserts a release → flow (a) "expected [ { assessmentId: 1000, … } ] to deeply equal []"; a code removed from a copy of the step-1 contract → grep diff "1d0 < ASSESSMENT_COMMENT_NOT_DELETABLE". Restored.
+- **Implementer verification:** lint · build · unit 4177 / 6 skipped · e2e 1317 (39 files) · client ok.
+- **Evidence re-run (Leader inline):** grep parity `assessment.errors.ts` vs step-1 contract → EQUAL (13 codes); flow + openapi e2e 20/20 → **VERIFIED**.
+- **Reviewer:** **PASS** — every carried front-facing behaviour checked against the code; flows meet proposal § 13.
+- **Leader doc precision edits after the PASS (task-owned docs, no behaviour):** contract § 4.1 (escalate on a green field greys it and drops agrees; clearing an agree greys only if no other live agree holds the field), § 4.5 (open own comment after the end: `ASSESSMENT_FINISHED` while step 3 is open, `ASSESSMENT_STEP_CLOSED` after); `assessment/AGENTS.md` code-count wording.
+- **ADVISORY (open, not acted on):** the flow header cites FR-2 without asserting order (covered in the scope e2e); OpenAPI: `DecisionResultModel` inherits optional `effectiveValidated` it never sends; the withdraw route description (`assessment.controller.ts:291`) still names steps 1–2 only and not `ASSESSMENT_COMMENT_NOT_OPEN` — OpenAPI follow-up.
+- **spawns:** implementer 42 calls, 172,500 tokens, ended complete; reviewer 43 calls, 99,596 tokens.
+- **Requirements covered:** FR-17, FR-2 (via the reused view; asserted in the scope e2e), proposal § 13.
+- **Running totals vs budget (~10,200):** back tasks done 12/12 · LOC ≈ 9,800 · review rounds 22/~22.
+- auto-approved (pre-approved mode)

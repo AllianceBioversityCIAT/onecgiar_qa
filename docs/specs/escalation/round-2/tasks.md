@@ -327,7 +327,7 @@ All back tasks touch `server/src/assessment/` (one shared boundary), so they run
 
 ## T-12: Whole round 2 end to end, OpenAPI and the front contract
 
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-9, T-10, T-11
 - **Requirements:**

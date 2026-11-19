@@ -370,6 +370,13 @@ For the admin header count, read `GET /assessment-releases?status=pending` and u
 | `ASSESSMENT_CORE_UNCOMMENTED` | 409 | Finish (6.5) |
 | `ASSESSMENT_NOT_COMMENT_AUTHOR` | 403 | Withdraw of someone else's comment |
 | `ASSESSMENT_COMMENT_NOT_OPEN` | 409 | Withdraw of a comment that is no longer open |
+| `ASSESSMENT_FIELD_NOT_CORE` | 409 | Round 2: validation or comment on a field that is not core |
+| `ASSESSMENT_FIELD_ESCALATED` | 409 | Round 2: validating, agreeing on or Check all over an escalated field |
+| `ASSESSMENT_DECISION_INVALID` | 409 | Round 2: a decision that does not apply to the comment |
+| `ASSESSMENT_CORE_UNDECIDED` | 409 | Round 2 finish with undecided grey core fields; `error.fields` is a `string[]` |
+| `ASSESSMENT_COMMENT_NOT_DELETABLE` | 409 | Round 2: delete of a comment the Lead may not delete |
+
+The round-2 codes are specified in `docs/specs/escalation/round-2/front-contract.md` (section 7).
 
 ### 9.2 Reused codes
 

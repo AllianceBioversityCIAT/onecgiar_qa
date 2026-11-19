@@ -20,7 +20,7 @@ An assessor (or an ADMIN, read only) lists the memberships of a timeline (`GET /
 | `release.service.ts`, `release.store.ts`, `releases.controller.ts` | The release outbox and its two admin routes |
 | `title-backfill.ts` | Bootstrap hook (not awaited): fills `timeline_results.title` for memberships written before the column existed |
 | `assessment-log.ts` | The one decision log line of a write (*Logging*) |
-| `assessment.errors.ts`, `dto/`, `models/` | The 8 typed refusals (`ASSESSMENT_*`, all in the front contract), pipe shapes, OpenAPI models |
+| `assessment.errors.ts`, `dto/`, `models/` | The 13 `ASSESSMENT_*` codes (all in the step-1 front contract § 9; the round-2 contract § 7 adds the 5 round-2 ones), pipe shapes, OpenAPI models |
 
 ## AI suggestions (spec `assessment/ai-suggestions`)
 
@@ -47,11 +47,30 @@ Science Program users (from Reporting, in an iframe) read the QA comments of the
 Rules:
 
 - **No assessor identity to the program.** No SP statement selects an author id, nickname, name or email; SP comments carry the responder's name only (the assessor side adds the email, AC12). `test/sp-view.e2e-spec.ts` plants nicknames and names and checks every `/sp` answer.
-- **Step-2 window.** A comment is visible to the program when `visible_to_program_at` is set, it is not withdrawn and the `programs` step has started (in progress or closed); before that, none. Responses and clarification answers only while that step is `in_progress` at the clock's Rome minute (re-judged under the timeline share lock).
+- **Step-2 window.** A comment is visible to the program when `visible_to_program_at` is set, it is not withdrawn and not deleted and the `programs` step has started (in progress or closed); before that, none. Responses and clarification answers only while that step is `in_progress` at the clock's Rome minute (re-judged under the timeline share lock).
 - **Scope = 404.** A non-admin session sees only its program; an admin session names `programId` (400 when missing). Another program, another timeline, a hidden or missing comment: the same 404 `SP_NOT_FOUND` body.
 - **A response changes the comment only**: state (conditional `UPDATE … WHERE state = ?`), an `sp_comment_responses` row, a `comment_events` row with `actor_id` NULL, role `PROGRAM` and `sp_response_id`. Never a validation, the assessment status, a release or the membership. Lock order as above.
 - **Secrets.** Codes and session tokens are 32 random bytes, stored only as SHA-256 hex; the API key is compared in constant time over SHA-256. QA signs nothing.
 - **Logs:** ids, fixed words and error codes only: never an email, a name, a code, a token, the key or a body.
+
+## Round 2: the Lead Assessor (P2-3912, spec `escalation/round-2`)
+
+A Lead Assessor reviews a re-submitted (round-2) membership in step 3. Contract: `docs/specs/escalation/round-2/front-contract.md`. Migration `0013_round_two` (down script in `drizzle/rollback/`). The code stays in this folder (DD-1).
+
+| Piece | Rule |
+|---|---|
+| Lead row | `ROLE_STEPS` `LEAD_ASSESSOR`: enabled, `round: 2`, step `lead_assessors`. TPB and PPU rows stay disabled: designed only (`design.md` § 12) |
+| Current step (DD-3) | A round-1 membership reads the `assessors` assessment; a round-2 one reads its latest assessment among steps 3 to 5, else step 3. `qa-status.ts`, `statusSqlCase` and the worklist join use that one rule |
+| Core only | Only Assessed **core** fields take a validation, comment or decision (`isActionable`); else 409 `ASSESSMENT_FIELD_NOT_CORE`. Check all covers core fields and is refused whole while one is escalated |
+| Carried green (DD-4) | Computed, never copied: stored row, else round-1 green with no round-1 comment and not in `changed_fields` (`effectiveGreen`) |
+| Decisions | `comment_decisions`, one row per comment and role, changed or cleared only while the Lead's assessment is `pending`. `agree_program` greens the field in the same transaction; `escalate` refuses its validation. States are written **at the end** (DD-7): `agree_program` to `lead_sided_program`, `escalate` to `escalated` |
+| End mapping (DD-5) | `endOnFinish` / `endAfterValidation` reused through `round-two-rules.ts`: all green gives `quality_assessed` plus one `qaed` release; grey core fields all escalated give `escalated` (Pending for TPB review) and **no release row**; a grey one with no escalate is `ASSESSMENT_CORE_UNDECIDED`. Round 2 never ends `returned` |
+| No visibility (DD-8) | Round 2 never calls `markCommentsVisible`. The SP view stays round-1 only |
+| SP mapping (DD-11) | A review state (`escalated`, `lead_sided_program`) reads to the program as the state its latest response implies (`open` with no response, or a clarification already answered). One mapping in the SP read; the SP write still judges the stored state |
+| Delete (DD-9) | `POST /assessment-comments/:id/delete`: soft delete (`deleted_at`, `deleted_by`) of another reviewer's comment in step 3; drops the Lead's decision on it; can end the review. Every reader of comments excludes deleted ones |
+| Withdraw | Opens in step 3 for a round-2 comment; after the end an escalated own comment is `ASSESSMENT_COMMENT_NOT_OPEN` |
+| Logging | New `loggedWrite` actions `decide`, `decision_clear`, `delete` (ids only); audit actions `decision_set`, `decision_clear`, `comment_delete`, `end_escalated` |
+| Tests | `test/assessment-round-two-*.e2e-spec.ts` over the shared fixture `test/support/round-two-fixture.ts` (real `runRealLoad`, never hand-built keys); `assessment-round-two-flow.e2e-spec.ts` is the whole path |
 
 ## Bindings (read before changing credentials, tables or the clock)
 
