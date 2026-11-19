@@ -435,6 +435,13 @@ describe('review.mapper (API assessment view → Review view models)', () => {
       expect(toDrawerVm(found('clarification_requested', 7), 'read', reader(1053), threads()).mode).toBe('read'); // not my comment
     });
 
+    it('does not offer the form once the server said the programs step is closed', () => {
+      const closed = toDrawerVm(found(), 'read', { me: 1053, canWithdraw: true, canClarify: false }, threads());
+      expect(closed.mode).toBe('read');
+      expect(closed.clarify).toBeNull();
+      expect(closed.comments).toHaveLength(2); // the thread is still there to read
+    });
+
     it('does not ask again once it is answered, nor before the responses are read', () => {
       const request = programResponse();
       const answered = clarificationThread({ state: 'open', clarifications: [{ requestId: request.id, question: 'Which?', requestedAt: request.respondedAt, answer: { body: 'That one.', answeredAt: '2026-11-19T10:00:00.000Z' } }] });

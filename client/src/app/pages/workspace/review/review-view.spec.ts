@@ -834,6 +834,20 @@ describe('ReviewView on the assessment API', () => {
       expect(draftBox().value).toBe('An answer');
     });
 
+    it('says which request the answer goes to, and after "step closed" takes the form away with what was typed', async () => {
+      await openAsked();
+      expect(document.querySelector('#review-clarify-question')?.textContent).toContain('Which evidence link do you mean?');
+
+      api.answerClarification.mockReturnValueOnce(refusal(409, 'ASSESSMENT_STEP_CLOSED', 'The step is closed.'));
+      type('Too late');
+      anywhere('Send answer')!.click();
+      await settle();
+      expect(toasts.error).toHaveBeenCalledWith('The step is closed.');
+      expect(document.querySelector('#review-comment-draft')).toBeNull();
+      expect(anywhere('Close')).toBeDefined();
+      expect([...thread().querySelectorAll('li')]).toHaveLength(2);
+    });
+
     it('another assessor reads the same thread with no form', async () => {
       api.view.mockReturnValue(of({ ...asked(), sections: asked().sections.map((sec) => ({ ...sec, fields: sec.fields.map((f) => ({ ...f, comments: f.comments.map((c) => ({ ...c, author: { id: 7, nickname: 'other' } })) })) })) }));
       api.programResponses.mockReturnValue(of([clarificationThread()]));

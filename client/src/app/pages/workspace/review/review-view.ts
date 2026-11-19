@@ -150,7 +150,7 @@ export class ReviewView {
     const found = view && key ? findField(view, key) : null;
     if (!view || !found) return null;
     const mode = found.field.mode === 'assessed' ? this.drawerMode() : 'read';
-    return toDrawerVm(found, mode, { me: this.store.me(), canWithdraw: withdrawOpen(view) }, this.store.threads());
+    return toDrawerVm(found, mode, { me: this.store.me(), canWithdraw: withdrawOpen(view), canClarify: !this.store.clarifyClosed() }, this.store.threads());
   });
   protected readonly quickComments = computed(() => this.store.quickComments().map((q) => ({ id: q.id, text: q.body })));
   /** Add was tried with an empty box. */
@@ -178,6 +178,20 @@ export class ReviewView {
   });
 
   constructor() {
+    // An answer typed for a clarification never stays in the box as the draft of something else (the form left
+    // because another tab answered, or the step closed): the box empties when the drawer leaves that mode.
+    let lastMode: CommentsDrawerMode | null = null;
+    effect(() => {
+      const mode = this.drawerField()?.mode ?? null;
+      untracked(() => {
+        if (lastMode === 'clarify' && mode !== 'clarify') {
+          this.commentModel.set({ text: '' });
+          this.addTried.set(false);
+          this.refusedText.set(null);
+        }
+        lastMode = mode;
+      });
+    });
     // Load on every route change (the router reuses this view for another result).
     effect(() => {
       const code = this.routeCode();

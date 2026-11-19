@@ -45,6 +45,8 @@ export interface ReviewCommentVm extends FieldComment {
 export interface ThreadReader {
   readonly me: number | null;
   readonly canWithdraw: boolean;
+  /** False once the server said the programs step is closed: the clarification form is not offered (P2-3911). */
+  readonly canClarify?: boolean;
 }
 
 const NO_READER: ThreadReader = { me: null, canWithdraw: false };
@@ -643,7 +645,7 @@ export function toDrawerVm(
   threads: CommentThreads = NO_THREADS,
 ): CommentsDrawerVm {
   const comments = openComments(found.field).flatMap((c) => [toCommentVm(c, reader), ...toThreadRows(c, threads.get(c.id))]);
-  const clarify = pendingClarification(found.field, reader.me, threads);
+  const clarify = reader.canClarify === false ? null : pendingClarification(found.field, reader.me, threads);
   return {
     label: found.field.label,
     section: found.section,

@@ -64,6 +64,10 @@
         <div class="-mb-2 flex flex-col gap-0.5">
           <label for="review-comment-draft" class="text-(length:--fs-13) font-semibold text-(--text-2)">Your answer to the program</label>
           <span class="text-(length:--fs-12) leading-[1.45] font-normal text-(--text-4)">The program asked for a clarification on your comment. Once you answer, it can respond again.</span>
+          @if (f.clarify?.question; as question) {
+            <!-- Which request the answer goes to (a field can carry more than one). -->
+            <span id="review-clarify-question" class="mt-1 line-clamp-3 border-l-2 border-(--border-strong) pl-2 text-(length:--fs-12) leading-[1.45] font-normal wrap-anywhere text-(--text-3)">{{ question }}</span>
+          }
         </div>
       } @else {
       <div class="-mb-2 flex flex-wrap items-center gap-2">

@@ -418,6 +418,26 @@ describe('ReviewStore actions (T-20)', () => {
       }
     });
 
+    it('an older read of the responses never paints over what the answer brought', async () => {
+      const slow = new Subject<readonly CommentThread[]>();
+      api.programResponses.mockReturnValueOnce(slow);
+      await store.load('9890', '29'); // its read of the responses is still on its way
+      api.view.mockReturnValue(new Subject<AssessmentView>()); // the re-read after the answer never lands here
+      await store.answerClarification(1, 'The one in the evidence section.');
+      slow.next([clarificationThread()]); // the state before the answer
+      slow.complete();
+      await settled();
+      expect(store.threads().get(1)?.state).toBe('open');
+    });
+
+    it('remembers that the programs step is closed, until another result is opened', async () => {
+      api.answerClarification.mockReturnValueOnce(refusal(409, 'ASSESSMENT_STEP_CLOSED', 'The step is closed.'));
+      await store.answerClarification(1, 'Answer');
+      expect(store.clarifyClosed()).toBe(true);
+      await store.load('9891', '29');
+      expect(store.clarifyClosed()).toBe(false);
+    });
+
     it('a refused text (too long) keeps the form and gives the message back, with no reload', async () => {
       api.view.mockClear();
       api.answerClarification.mockReturnValueOnce(refusal(400, 'VALIDATION_FAILED', 'Keep it within 2,000 characters.'));

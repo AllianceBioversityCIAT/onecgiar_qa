@@ -115,6 +115,11 @@ export class ReviewStore {
   readonly threadsFailed = signal(false);
   /** Id of the comment whose clarification answer is on its way. */
   readonly answering = signal<number | null>(null);
+  /**
+   * The server refused an answer because the programs step is closed (or the caller only reads): the form is not
+   * offered again on this result. The page has no other way to know that step's state.
+   */
+  readonly clarifyClosed = signal(false);
   readonly quickComments = signal<readonly QuickComment[]>([]);
   readonly savingQuick = signal(false);
   /** The caller's user id: only their own open comments can be withdrawn (FR-13). */
@@ -124,6 +129,8 @@ export class ReviewStore {
   private seq = 0;
   /** Two green/grey writes were on their way at once: their answers may land out of order. */
   private overlapped = false;
+  /** Only the newest read of the program's responses is painted (two re-reads may be on their way at once). */
+  private threadsSeq = 0;
   private quickLoaded = false;
 
   constructor() {
@@ -147,6 +154,8 @@ export class ReviewStore {
     this.error.set(null);
     this.threads.set(new Map());
     this.threadsFailed.set(false);
+    this.clarifyClosed.set(false);
+    this.threadsSeq++;
     const resultCode = positiveInt(code);
     if (resultCode === null) return this.fail(seq, NOT_FOUND);
     try {
@@ -276,6 +285,8 @@ export class ReviewStore {
     try {
       const thread = await firstValueFrom(this.api.answerClarification(commentId, text));
       if (this.still(at)) {
+        // A read of the threads still on its way holds the state before this answer: it is not painted.
+        this.threadsSeq++;
         this.threads.update((map) => new Map(map).set(thread.commentId, thread));
         this.patchComments(thread.fieldKey, (list) => list.map((c) => (c.id === thread.commentId ? { ...c, state: thread.state } : c)));
         // The result's status may have left "Clarification requested": read it as the server holds it now.
@@ -286,6 +297,7 @@ export class ReviewStore {
       const e = toApiError(error);
       if (!this.still(at)) return { ok: false, message: e.message };
       if (e.status === 400 || e.status === 413 || e.status === 422) return { ok: false, message: e.fields[0]?.message ?? e.message };
+      if (e.code === ASSESSMENT_ERROR.STEP_CLOSED || e.code === ASSESSMENT_ERROR.READ_ONLY) this.clarifyClosed.set(true);
       // Out of date (already answered, the step closed): the form is about to leave the drawer, so a toast says why.
       if (await this.resync(e)) {
         this.toasts.error(e.message);
@@ -299,6 +311,7 @@ export class ReviewStore {
 
   /** Best effort: a failed read keeps the threads already on screen and raises `threadsFailed`. */
   private async loadThreads(at: Target, view: AssessmentView): Promise<void> {
+    const seq = ++this.threadsSeq;
     const commented = [...view.sections.flatMap((s) => s.fields), ...view.other].some((f) => f.comments.some((c) => c.state !== 'withdrawn'));
     if (!commented) {
       this.threads.set(new Map());
@@ -307,11 +320,11 @@ export class ReviewStore {
     }
     try {
       const threads = await firstValueFrom(this.api.programResponses(at.timelineId, at.resultCode));
-      if (!this.still(at)) return;
+      if (seq !== this.threadsSeq || !this.still(at)) return;
       this.threads.set(new Map(threads.map((t) => [t.commentId, t] as const)));
       this.threadsFailed.set(false);
     } catch {
-      if (this.still(at)) this.threadsFailed.set(true);
+      if (seq === this.threadsSeq && this.still(at)) this.threadsFailed.set(true);
     }
   }
 
