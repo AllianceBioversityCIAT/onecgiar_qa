@@ -20,6 +20,15 @@ export const ME_ASSESSOR = 'M. Chen';
 /** What happened to the assessor's comments in the programs' step. */
 export const MY_COMMENT_OUTCOMES = { accepted: 41, rejected: 9, waiting: 14 } as const;
 
+/** Fields where the assessor left the most comments in this cycle (Ángel, 2026-11-17: "Most discussed fields"). */
+export const MY_TOP_FIELDS: readonly { readonly label: string; readonly n: number }[] = [
+  { label: 'Innovation readiness', n: 12 },
+  { label: 'Theory of change contribution', n: 10 },
+  { label: 'Partners', n: 8 },
+  { label: 'Geographic focus', n: 7 },
+  { label: 'Description', n: 6 },
+];
+
 /**
  * Lead assessor: every commented field is theirs to look at; they mark as highlight the ones they see fit, rejected or
  * not (Santi via Yeck, 2026-11-12). The step opens after the programs answer (29 Jul in the mock): nothing is marked yet.
@@ -51,10 +60,6 @@ export const LEAD_TOP_FIELDS: readonly { readonly label: string; readonly n: num
 /** Third-party broker: highlighted fields, decided or not. */
 export const TPB_QUEUE: { readonly toDecide: number; readonly agreed: number; readonly changes: number } = { toDecide: 5, agreed: 9, changes: 6 };
 
-/** PPU: required changes to apply in the Reporting Tool. */
-// The PPU step opens after the TPB's (24 Jul in the mock): the queue is the TPB's "Required changes" so far, none done yet.
-export const PPU_QUEUE: { readonly toApply: number; readonly done: number } = { toApply: 6, done: 0 };
-
 export interface QueueItem {
   readonly code: string;
   readonly title: string;
@@ -62,6 +67,11 @@ export interface QueueItem {
   readonly field: string;
   /** Lead's instruction (TPB) or what the TPB asked to change (PPU). */
   readonly note: string;
+  /**
+   * PPU only: whether the program already changed the field in the Reporting Tool. QA tells, but only the PPU closes the
+   * case with "Mark when done" (Ángel, 2026-11-17). TODO(api): the Reporting → QA sync of the corrected field.
+   */
+  readonly reporting?: 'updated' | 'not-updated';
 }
 
 export const TPB_NEXT: readonly QueueItem[] = [
@@ -70,8 +80,18 @@ export const TPB_NEXT: readonly QueueItem[] = [
   { code: 'QA-2026-0830', title: 'Farmer uptake of drought-tolerant sorghum in Kenya', program: 'SP07', field: 'Partners', note: 'Decide whether the seed company counts as a partner of the result.' },
 ];
 
-export const PPU_NEXT: readonly QueueItem[] = [
-  { code: 'QA-2026-0841', title: 'Low-cost soil moisture sensor validated across three rice systems', program: 'SP02', field: 'Theory of change contribution 3', note: 'Map the contribution to an Intermediate Outcome.' },
-  { code: 'QA-2026-0824', title: 'Participatory rangeland management guidelines', program: 'SP05', field: 'Link', note: 'Replace the restricted handle with an open link.' },
-  { code: 'QA-2026-0833', title: 'Training programme on post-harvest loss reduction', program: 'SP09', field: 'Description', note: 'Add the number of people trained and where.' },
+/**
+ * PPU: the TPB's "Required changes" so far (the PPU step opens after the TPB's, 24 Jul in the mock), none done yet.
+ * The ones the program already updated in the Reporting Tool come first: they only need "Mark when done".
+ */
+export const PPU_QUEUE: readonly QueueItem[] = [
+  { code: 'QA-2026-0824', title: 'Participatory rangeland management guidelines', program: 'SP05', field: 'Link', note: 'Replace the restricted handle with an open link.', reporting: 'updated' },
+  { code: 'QA-2026-0833', title: 'Training programme on post-harvest loss reduction', program: 'SP09', field: 'Description', note: 'Add the number of people trained and where.', reporting: 'updated' },
+  { code: 'QA-2026-0841', title: 'Low-cost soil moisture sensor validated across three rice systems', program: 'SP02', field: 'Theory of change contribution 3', note: 'Map the contribution to an Intermediate Outcome.', reporting: 'not-updated' },
+  { code: 'QA-2026-0836', title: 'National seed policy revision adopted in Malawi', program: 'SP11', field: 'Geographic focus', note: 'Change the scope from national to the two districts the evidence names.', reporting: 'not-updated' },
+  { code: 'QA-2026-0818', title: 'Gender-responsive extension curriculum rolled out', program: 'SP01', field: 'Partners', note: 'Remove the partner the evidence does not mention.', reporting: 'not-updated' },
+  { code: 'QA-2026-0812', title: 'Genomic selection pipeline documented for cassava', program: 'SP07', field: 'Link', note: 'Point the link to the published version, not the draft.', reporting: 'not-updated' },
 ];
+
+/** How many of the PPU's next changes the Overview lists. */
+export const PPU_NEXT_SHOWN = 3;

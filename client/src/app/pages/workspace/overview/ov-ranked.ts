@@ -21,13 +21,14 @@ export interface RankedVm {
       <ul class="m-0 flex list-none flex-col p-0">
         @for (r of rows(); track r.label) {
           <li class="grid grid-cols-[minmax(0,1fr)_2.5rem] items-center gap-x-3 gap-y-1 py-1.5 @md:grid-cols-[12rem_minmax(0,1fr)_2.5rem]">
-            <span class="min-w-0 truncate text-(length:--fs-13) text-(--text-2)">
+            <!-- Explicit cells: narrow, the label and the count share the first line and the bar goes under them. -->
+            <span class="col-start-1 row-start-1 min-w-0 truncate text-(length:--fs-13) text-(--text-2)">
               @if (r.code) {<span class="mr-1.5 font-(family-name:--qa-mono) font-semibold text-(--text-2)">{{ r.code }}</span>}{{ r.label }}
             </span>
-            <span class="col-span-2 row-start-2 flex h-3 @md:col-span-1 @md:row-start-auto" aria-hidden="true">
+            <span class="col-span-2 col-start-1 row-start-2 flex h-3 @md:col-span-1 @md:col-start-2 @md:row-start-1" aria-hidden="true">
               <span class="h-full rounded-[3px] bg-(--primary)" [style.width.%]="r.width"></span>
             </span>
-            <span class="row-start-1 text-right text-(length:--fs-13) font-bold tabular-nums text-(--text) @md:row-start-auto">{{ r.n }}</span>
+            <span class="col-start-2 row-start-1 text-right text-(length:--fs-13) font-bold tabular-nums text-(--text) @md:col-start-3">{{ r.n }}</span>
           </li>
         }
       </ul>
