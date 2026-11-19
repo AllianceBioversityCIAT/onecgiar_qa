@@ -46,7 +46,7 @@ All back tasks touch `server/src/assessment/` (one shared boundary), so they run
 
 ## T-2: Round 2 never returns (regression test first)
 
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** S
 - **Depends on:** T-1
 - **Requirements:**

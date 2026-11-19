@@ -7,7 +7,7 @@
 | Spec path | `docs/specs/escalation/round-2` |
 | Branch | `feat/P2-3912-lead-assessor-round-2` (from `origin/staging-center` `3750182`) |
 | Approval | Spec approved as written by the back lead, 2026-11-19 ("Si"); every OQ takes its default |
-| Approval Mode | gated |
+| Approval Mode | gated for T-1; **pre-approved from T-2 to T-12** (back lead, 2026-11-19, "SI" to: "pasar a modo pre-aprobado desde T-2 hasta T-12 … me detengo siempre ante un HALT, un Pivot, que se pase el presupuesto, un FATAL_FAIL o cualquier acción destructiva … No hago push ni merge sin preguntarte"). Routine continue gates auto-pass and are logged `auto-approved (pre-approved mode)` |
 | Leader | Claude Opus 5.5 (session). Implementer / Reviewer through the `.claude/agents/akili-*` wrappers |
 | Scope rule | T-13 is Yeck's and is not started here. No Slack, Jira or email messages; drafts only |
 | Persona drift (pending item for `staging`) | `akili doctor --agents` (v2.37.2), 2026-11-19: leader `primary-instructions`, `test-harness`; reviewer `audit-checklist`; tester `prove-behavior` OUTDATED. Not fixed on this spec branch (shared-file write discipline) |
@@ -25,3 +25,19 @@
 - **Decisions made:** every OQ takes its default (back lead "Si", 2026-11-19); no FR/DD amendment needed. Execute-time spec edits: `requirements.md` § 1 and § 9; `design.md` § 1 and § 11 (P-19, count line) — carried as named conformance checks into T-2's Reviewer brief.
 - **ADVISORY (not acted on):** `qa-context.md:15` keeps the old TPB choice names beside P2-3916's; settle the vocabulary when TPB is built.
 - **Running totals vs budget:** tasks 1/14 · LOC ~0 code (docs only) · review rounds 3/~16.
+
+### T-2: Round 2 never returns (regression test first) — PASS (2026-11-19)
+
+- **Attempts:** 1. Effort medium. Skills: tdd, nestjs-best-practices.
+- **Files changed:** `server/src/assessment/round-two-rules.ts` (new), `server/src/assessment/round-two-rules.spec.ts` (new).
+- **Red run (assertion-level):** pass-through stub → `pnpm exec vitest run src/assessment/round-two-rules.spec.ts` 4 failed / 6 passed: "expected 'returned' to deeply equal 'escalated'"; "expected { error: 'core_uncommented', … } to deeply equal { error: 'core_undecided', … }"; "never returns `returned` … expected [ 'returned', … ] to not include 'returned'". Baseline P-4 probe: `endOnFinish(…, false)` → `"returned"`.
+- **Falsifier:** `if (outcome === 'returned') return outcome as never;` → 2 failed (FR-11 Escalated, FR-13 never returns); reverted.
+- **Implementer verification:** lint ok · build ok · unit 3920 passed / 6 skipped (115 files) · e2e 1261 passed (33 files) · client build ok (pre-existing initial-bundle budget warning, not caused here).
+- **Evidence re-run (Leader inline, non-author):** round-two-rules + assessment-rules specs 26/26 · build ok · lint clean → **VERIFIED**.
+- **Reviewer:** **PASS** — mapping matches design § 7 / DD-5; `assessment-rules.ts` untouched; spec exercises the mapping only.
+- **ADVISORY:** (readability) note in the module doc that the round-1 flag is never passed; (reliability) cross-reference DD-5 reuse in `endOnFinish`'s doc; (risk) green + escalate on one field is read as green — the T-7 rule "validating an escalated field is refused" and T-9 tests must keep that state unreachable (forward pointer to T-7 / T-9 briefs).
+- **Not Done / Assumptions (assumptions only, no owed item):** type names `RoundTwoCoreFact`, `effectiveGreen`, `escalated`, `CoreUndecided` chosen by the Implementer.
+- **spawns:** implementer 8 calls, 83,334 tokens, ended complete; reviewer not reported by host.
+- **Requirements covered:** FR-13 (Regression), FR-11 (Undecided, rule level), FR-12 (rule level).
+- **Running totals vs budget:** tasks 2/14 · LOC ~140 · review rounds 4/~16.
+- auto-approved (pre-approved mode)
