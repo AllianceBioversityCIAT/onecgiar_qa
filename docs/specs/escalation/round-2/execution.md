@@ -135,3 +135,8 @@
 - **spawns:** implementer 76 + 6 calls, ~348,291 tokens, ended complete; reviewer 24 calls, 121,355 tokens + re-audit (not reported).
 - **Requirements covered:** FR-7 (validate interplay), FR-8, FR-12 (last agree), NFR-3 (lock order; race sharpened in T-9).
 - auto-approved (pre-approved mode)
+
+### Budget tripwire — after T-7 (2026-11-19)
+
+- Tripped: ≈ 6,530 LOC (production 1,925 · unit 2,785 · e2e 1,770 · SQL 54) against ~5,500; review rounds 12 / ~22. Cause: production also above the estimate (store, controller, DTOs, OpenAPI models, transition table, in-memory adapter); 43 unit cases in T-7.
+- Options: (1) raise to ~9,500; (2) split into two PRs; (3) stop. Back lead chose **1** ("1"). `design.md` § 13 amended. Not auto-approved.

@@ -264,3 +264,5 @@ Blast-radius triggers:
 **Budget raised (back lead, 2026-11-19, "Si", at the T-5 gate):** LOC ~5,500 in total (~1,100 production, the rest tests and SQL); review rounds ~22. Cause: round-2 test scenarios build round 1 → returned → re-submitted with the real loader, and every state has its negative case; T-1 and T-4 took extra rounds. The tripwire now compares against these numbers.
 
 **Test strategy for T-7 … T-12 (back lead, 2026-11-19, after T-6: actuals ~4,070 LOC, projection ~8,000):** the budget stays at ~5,500. Remaining e2e suites reuse one shared round-2 fixture (round 1 → returned → SP responses → re-submitted, built once with `runRealLoad`) and cover the HTTP path only; edge cases and negative branches go to unit specs over the in-memory stores. Every requirement scenario keeps a named test.
+
+**Budget raised again (back lead, 2026-11-19, option 1 at the T-7 tripwire):** LOC ~9,500 in total (~2,800 production); review rounds ~22 unchanged. Actuals after T-7: production 1,925 · unit 2,785 · e2e 1,770 · SQL 54 (≈ 6,530). One back PR.
