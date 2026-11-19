@@ -179,4 +179,22 @@ describe('AssessmentApi', () => {
     expect(releases.request.params.get('status')).toBe('pending');
     releases.flush({ success: true, data: [], meta: meta() });
   });
+
+  it("reads the program's responses of a result as a list of threads (P2-3911)", async () => {
+    const thread = { commentId: 5, fieldKey: 'general.title', state: 'accepted', response: null, history: [], clarifications: [] };
+    const read = firstValueFrom(api.programResponses(29, 9890));
+    const req = http.expectOne(`${API}/timelines/29/results/9890/sp-responses`);
+    expect(req.request.method).toBe('GET');
+    req.flush({ success: true, data: { comments: [thread] }, meta: meta() });
+    expect(await read).toEqual([thread]);
+  });
+
+  it('a clarification answer sends its text and never goes to the unsent queue (a replay would answer twice)', () => {
+    api.answerClarification(5, 'The link in the evidence section.').subscribe();
+    const req = http.expectOne(`${API}/assessment-comments/5/clarification-answer`);
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual({ body: 'The link in the evidence section.' });
+    expect(req.request.context.get(NO_QUEUE)).toBe(true);
+    req.flush({ success: true, data: {}, meta: meta() });
+  });
 });

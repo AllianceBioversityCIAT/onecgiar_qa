@@ -8,9 +8,10 @@ import { FieldComment } from './review.mock';
 /**
  * What the form at the bottom does: the assessor adds a comment, the lead assessor writes the instruction for the
  * third-party broker (and marks the field as highlight), the TPB writes the note for the PPU with "Required changes",
- * and otherwise the TPB and the PPU only read.
+ * and otherwise the TPB and the PPU only read. `clarify`: the author of a comment answers the clarification the
+ * program requested on it (P2-3911), which works on an assessment that is otherwise read only.
  */
-export type CommentsDrawerMode = 'comment' | 'instruction' | 'note' | 'read';
+export type CommentsDrawerMode = 'comment' | 'instruction' | 'note' | 'read' | 'clarify';
 
 export interface CommentsDrawerVm {
   readonly label: string;
@@ -25,7 +26,17 @@ export interface CommentsDrawerVm {
   readonly ppuNote: string;
   /** The assessor's comment that can still be withdrawn (the program has not answered it), or -1. */
   readonly withdrawIndex: number;
+  /** The clarification the caller has to answer on this field (mode `clarify`), or null. */
+  readonly clarify?: { readonly commentId: number; readonly question: string } | null;
 }
+
+const REPLY_LABELS: Readonly<Record<NonNullable<FieldComment['reply']>, string>> = {
+  accepted: 'Accepted',
+  rejected: 'Rejected',
+  accepted_with_comment: 'Accepted with comment',
+  disagreed: 'Disagreed',
+  clarification: 'Requested clarification',
+};
 
 /** A text saved for the whole role (FR-12). */
 export interface QuickCommentVm {
@@ -93,6 +104,15 @@ export class ReviewCommentsDrawer {
     return this.quickComments().filter((c) => !q || c.text.toLowerCase().includes(q));
   });
   protected readonly hasDraft = computed(() => !!this.text()().value().trim());
+
+  protected replyLabel(reply: NonNullable<FieldComment['reply']>): string {
+    return REPLY_LABELS[reply];
+  }
+
+  /** Accepted reads as done; a rejection, a disagreement or a question still asks something of the assessor. */
+  protected replyTone(reply: NonNullable<FieldComment['reply']>): string {
+    return reply === 'accepted' || reply === 'accepted_with_comment' ? 'text-(--st-submitted-fg)' : 'text-(--st-editing-fg)';
+  }
 
   private readonly textarea = viewChild<ElementRef<HTMLTextAreaElement>>('draftBox');
   private readonly search = viewChild<ElementRef<HTMLInputElement>>('qcSearch');

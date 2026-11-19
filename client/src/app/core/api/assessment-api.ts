@@ -8,6 +8,7 @@ import {
   AssessmentComment,
   AssessmentRelease,
   AssessmentView,
+  CommentThread,
   QuickComment,
   QuickCommentRole,
   ReleaseRetryResult,
@@ -29,7 +30,7 @@ import {
  * - validations: setting a field to the state it already has changes nothing, so a replay is safe;
  * - comment create: the server honors `Idempotency-Key` (the interceptor sends one per submit);
  * - quick comment save: the same text answers 200 with the existing entry.
- * Finish, withdraw and the release retry stay out (`NO_QUEUE`): a lost answer may mean it already
+ * Finish, withdraw, the clarification answer and the release retry stay out (`NO_QUEUE`): a lost answer may mean it already
  * happened (a replay would be 409 `ASSESSMENT_FINISHED` / `ASSESSMENT_COMMENT_NOT_OPEN`), so the page
  * reloads and shows the real state instead.
  */
@@ -101,6 +102,34 @@ export class AssessmentApi {
         context: this.silent('Withdraw a comment').set(NO_QUEUE, true),
       })
       .pipe(unwrap<AssessmentComment>());
+  }
+
+  /**
+   * What the program answered on each comment of the result, with who responded (P2-3911). Empty while the
+   * programs step has not started. Same 404 as the assessment view.
+   */
+  programResponses(timelineId: number, resultCode: number): Observable<readonly CommentThread[]> {
+    return this.http
+      .get<ApiEnvelope<{ readonly comments: readonly CommentThread[] }>>(`${this.base}/timelines/${timelineId}/results/${resultCode}/sp-responses`, {
+        context: new HttpContext().set(SILENT_ERRORS, true),
+      })
+      .pipe(
+        unwrap<{ readonly comments: readonly CommentThread[] }>(),
+        map((data) => data.comments),
+      );
+  }
+
+  /**
+   * The comment's author answers the clarification the program requested (only while the programs step is open).
+   * The comment is `open` again, so the program can respond once more. 409 `CLARIFICATION_NOT_PENDING` when it
+   * was already answered.
+   */
+  answerClarification(commentId: number, body: string): Observable<CommentThread> {
+    return this.http
+      .post<ApiEnvelope<CommentThread>>(`${this.base}/assessment-comments/${commentId}/clarification-answer`, { body }, {
+        context: this.silent('Answer a clarification').set(NO_QUEUE, true),
+      })
+      .pipe(unwrap<CommentThread>());
   }
 
   /** `quality_assessed`, `returned`, or 409 `ASSESSMENT_CORE_UNCOMMENTED` with `ApiError.fieldKeys`. */

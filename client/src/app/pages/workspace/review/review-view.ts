@@ -150,7 +150,7 @@ export class ReviewView {
     const found = view && key ? findField(view, key) : null;
     if (!view || !found) return null;
     const mode = found.field.mode === 'assessed' ? this.drawerMode() : 'read';
-    return toDrawerVm(found, mode, { me: this.store.me(), canWithdraw: withdrawOpen(view) });
+    return toDrawerVm(found, mode, { me: this.store.me(), canWithdraw: withdrawOpen(view) }, this.store.threads());
   });
   protected readonly quickComments = computed(() => this.store.quickComments().map((q) => ({ id: q.id, text: q.body })));
   /** Add was tried with an empty box. */
@@ -164,6 +164,12 @@ export class ReviewView {
   });
   /** Why a withdraw did not go through (shown in the thread: a toast would sit behind the drawer). */
   protected readonly threadError = signal('');
+  /** Above the thread: the withdraw refusal, or that the program's responses could not be read (P2-3911). */
+  protected readonly threadNote = computed(
+    () => this.threadError() || (this.store.threadsFailed() && this.drawerField()?.comments.length ? "The program's responses could not be loaded. Reload the page to try again." : ''),
+  );
+  /** A comment or a clarification answer is on its way: the drawer's button spins and a second tap does nothing. */
+  protected readonly sending = computed(() => this.store.commenting() || this.store.answering() !== null);
   /** The last text this page saved as a quick comment. */
   private readonly quickSavedText = signal<string | null>(null);
   protected readonly quickSaved = computed(() => {
@@ -391,6 +397,20 @@ export class ReviewView {
     const length = [...text.trim()].length;
     if (length > MAX_COMMENT) {
       this.refusedText.set({ text, message: `Keep the comment within 2,000 characters (it has ${length.toLocaleString('en-US')}).` });
+      return;
+    }
+    // P2-3911: the form is the answer to the clarification the program requested on the caller's comment.
+    const clarify = this.drawerField()?.mode === 'clarify' ? this.drawerField()?.clarify : null;
+    if (clarify) {
+      const answered = await this.store.answerClarification(clarify.commentId, text);
+      if (answered.ok) {
+        if (this.drawerKey() === key && this.commentModel().text === text) this.commentModel.set({ text: '' });
+        this.addTried.set(false);
+        this.refusedText.set(null);
+      } else if (answered.message) {
+        this.refusedText.set({ text, message: answered.message });
+        this.focusTick.update((n) => n + 1);
+      }
       return;
     }
     const outcome = await this.store.addComment(key, text);

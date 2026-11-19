@@ -10,6 +10,7 @@ import { AssessmentApi } from '../../../core/api/assessment-api';
 import {
   AssessmentComment,
   AssessmentView,
+  CommentThread,
   QuickComment,
   ValidationSummary,
   ValidationsBody,
@@ -19,7 +20,7 @@ import { AuthSession } from '../../../core/auth/auth-session';
 import { ApiError } from '../../../core/http/api-envelope';
 import { Toasts } from '../../../core/http/toasts';
 import { WorkspaceLayout } from '../../../shell/workspace-layout';
-import { comment, field, viewFixture } from './review.api-fixture';
+import { clarificationThread, comment, field, viewFixture } from './review.api-fixture';
 import { ReviewView } from './review-view';
 
 /** The signed-in assessor: the author of the fixture's comments. */
@@ -55,6 +56,10 @@ class FakeApi {
   );
   saveQuickComment = vi.fn<(role: string, body: string) => Observable<QuickComment>>((_role, body) =>
     of({ id: 9, body, createdAt: '2026-11-17T10:00:00.000Z' }),
+  );
+  programResponses = vi.fn<(timelineId: number, code: number) => Observable<readonly CommentThread[]>>(() => of([]));
+  answerClarification = vi.fn<(commentId: number, body: string) => Observable<CommentThread>>((commentId) =>
+    of(clarificationThread({ commentId, state: 'open' })),
   );
 }
 
@@ -750,6 +755,105 @@ describe('ReviewView on the assessment API', () => {
         expect(text(el.querySelector('[data-testid="review-read-only"]')!)).toContain('Finished by jdoe');
         expect(el.querySelector('[role="alertdialog"]')).toBeNull();
       });
+    });
+  });
+
+  describe("the program's responses and the clarification answer (P2-3911)", () => {
+    /** The assessment ended as returned and the program asked about the caller's comment (its step is open). */
+    const asked = (): AssessmentView => {
+      const v = finishedView();
+      return {
+        ...v,
+        header: { ...v.header, status: 'clarification_requested' },
+        sections: v.sections.map((sec) => ({
+          ...sec,
+          fields: sec.fields.map((f) => (f.key === 'general.description' ? { ...f, comments: [comment({ state: 'clarification_requested' })] } : f)),
+        })),
+      };
+    };
+    const thread = () => document.querySelector('ol[aria-label="Comments"]')!;
+    const openAsked = async () => {
+      api.view.mockReturnValue(of(asked()));
+      api.programResponses.mockReturnValue(of([clarificationThread()]));
+      const el = await open();
+      await settle();
+      byName(el, 'View comments1 for Description of Result')!.click();
+      await settle();
+      return el;
+    };
+
+    it('shows what the program asked under the comment, with who asked, and the form for the answer', async () => {
+      await openAsked();
+      const rows = [...thread().querySelectorAll('li')].map(text);
+      expect(rows).toHaveLength(2);
+      expect(rows[1]).toContain('Pepa Program · Program');
+      expect(rows[1]).toContain('Requested clarification');
+      expect(rows[1]).toContain('pepa@program.org');
+      expect(rows[1]).toContain('Which evidence link do you mean?');
+      expect(document.querySelector('label[for="review-comment-draft"]')?.textContent).toContain('Your answer to the program');
+      expect(anywhere('Send answer')).toBeDefined();
+      // The comment tools of step 1 are not offered here.
+      expect(anywhere('Add comment')).toBeUndefined();
+      expect(text(document.body)).not.toContain('Quick comment');
+    });
+
+    it('sends the answer, shows it under the request and takes the form away', async () => {
+      await openAsked();
+      const answered = clarificationThread({
+        state: 'open',
+        clarifications: [{ requestId: 70, question: 'Which evidence link do you mean?', requestedAt: '2026-11-18T14:00:00.000Z', answer: { body: 'The one in the evidence section.', answeredAt: '2026-11-19T10:00:00.000Z' } }],
+      });
+      api.answerClarification.mockReturnValueOnce(of(answered));
+      api.programResponses.mockReturnValue(of([answered]));
+      api.view.mockReturnValue(of({ ...asked(), header: { ...asked().header, status: 'returned_to_program' }, sections: finishedView().sections }));
+      type('The one in the evidence section.');
+      anywhere('Send answer')!.click();
+      await settle();
+
+      expect(api.answerClarification).toHaveBeenCalledWith(1, 'The one in the evidence section.');
+      const rows = [...thread().querySelectorAll('li')].map(text);
+      expect(rows).toHaveLength(3);
+      expect(rows[2]).toContain('mchen · Answer');
+      expect(rows[2]).toContain('The one in the evidence section.');
+      expect(anywhere('Send answer')).toBeUndefined();
+      expect(anywhere('Close')).toBeDefined();
+    });
+
+    it('an empty answer is not sent, and a refused text says why under the box', async () => {
+      await openAsked();
+      anywhere('Send answer')!.click();
+      await settle();
+      expect(api.answerClarification).not.toHaveBeenCalled();
+      expect(document.querySelector('#review-comment-error')?.textContent).toContain('Write your answer before sending it.');
+
+      api.answerClarification.mockReturnValueOnce(refusal(400, 'VALIDATION_FAILED', 'Keep it within 2,000 characters.'));
+      type('An answer');
+      anywhere('Send answer')!.click();
+      await settle();
+      expect(document.querySelector('#review-comment-server-error')?.textContent).toContain('Keep it within 2,000 characters.');
+      expect(draftBox().value).toBe('An answer');
+    });
+
+    it('another assessor reads the same thread with no form', async () => {
+      api.view.mockReturnValue(of({ ...asked(), sections: asked().sections.map((sec) => ({ ...sec, fields: sec.fields.map((f) => ({ ...f, comments: f.comments.map((c) => ({ ...c, author: { id: 7, nickname: 'other' } })) })) })) }));
+      api.programResponses.mockReturnValue(of([clarificationThread()]));
+      const el = await open();
+      await settle();
+      byName(el, 'View comments1 for Description of Result')!.click();
+      await settle();
+      expect([...thread().querySelectorAll('li')]).toHaveLength(2);
+      expect(document.querySelector('#review-comment-draft')).toBeNull();
+      expect(anywhere('Close')).toBeDefined();
+    });
+
+    it("says so in the thread when the program's responses could not be read", async () => {
+      api.view.mockReturnValue(of(asked()));
+      api.programResponses.mockReturnValue(refusal(503, 'SERVICE_UNAVAILABLE', 'Try again in a moment.'));
+      const el = await open();
+      await settle();
+      byName(el, 'View comments1 for Description of Result')!.click();
+      await settle();
+      expect(document.querySelector('#review-thread-error')?.textContent).toContain("The program's responses could not be loaded.");
     });
   });
 

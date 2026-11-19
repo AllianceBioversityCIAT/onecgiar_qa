@@ -5,6 +5,7 @@ import { AssessmentApi } from '../../../core/api/assessment-api';
 import {
   AssessmentComment,
   AssessmentView,
+  CommentThread,
   QuickComment,
   ValidationSummary,
   ValidationsBody,
@@ -13,7 +14,7 @@ import {
 import { AuthSession } from '../../../core/auth/auth-session';
 import { ApiError } from '../../../core/http/api-envelope';
 import { Toasts } from '../../../core/http/toasts';
-import { comment, viewFixture } from './review.api-fixture';
+import { clarificationThread, comment, viewFixture } from './review.api-fixture';
 import { ReviewStore } from './review-store';
 
 const ME = 1053;
@@ -54,6 +55,10 @@ class FakeApi {
   quickComments = vi.fn<(role: string) => Observable<readonly QuickComment[]>>(() => of([]));
   saveQuickComment = vi.fn<(role: string, body: string) => Observable<QuickComment>>((_role, body) =>
     of({ id: 9, body, createdAt: '2026-11-17T10:00:00.000Z' }),
+  );
+  programResponses = vi.fn<(timelineId: number, code: number) => Observable<readonly CommentThread[]>>(() => of([]));
+  answerClarification = vi.fn<(commentId: number, body: string) => Observable<CommentThread>>((commentId) =>
+    of(clarificationThread({ commentId, state: 'open' })),
   );
 }
 
@@ -316,6 +321,109 @@ describe('ReviewStore actions (T-20)', () => {
       expect(await store.saveQuickComment('Add the evidence link.')).toBe(true);
       expect(store.quickComments().map((q) => q.id)).toEqual([9]);
       expect(toasts.success).toHaveBeenCalledWith('Saved as a quick comment.');
+    });
+  });
+
+  describe("the program's responses and the clarification answer (P2-3911)", () => {
+    /** Lets the read that follows the assessment land. */
+    const settled = async () => {
+      for (let i = 0; i < 4; i++) await Promise.resolve();
+    };
+    const uncommented = (): AssessmentView => {
+      const v = viewFixture();
+      return { ...v, sections: v.sections.map((s) => ({ ...s, fields: s.fields.map((f) => ({ ...f, comments: [] })) })) };
+    };
+
+    it('reads them after the assessment when a comment stands, keyed by comment', async () => {
+      api.programResponses.mockReturnValue(of([clarificationThread()]));
+      await store.load('9890', '29');
+      await settled();
+      expect(api.programResponses).toHaveBeenLastCalledWith(29, 9890);
+      expect(store.threads().get(1)?.state).toBe('clarification_requested');
+      expect(store.threadsFailed()).toBe(false);
+    });
+
+    it('asks nothing for a result with no standing comment', async () => {
+      api.programResponses.mockClear();
+      api.view.mockReturnValue(of(uncommented()));
+      await store.load('9890', '29');
+      await settled();
+      expect(api.programResponses).not.toHaveBeenCalled();
+      expect(store.threads().size).toBe(0);
+    });
+
+    it('a failed read leaves the page as it is and says the responses are missing', async () => {
+      api.programResponses.mockReturnValue(refusal(503, 'SERVICE_UNAVAILABLE', 'Try again in a moment.'));
+      await store.load('9890', '29');
+      await settled();
+      expect(store.state()).toBe('ready');
+      expect(store.threadsFailed()).toBe(true);
+      expect(toasts.error).not.toHaveBeenCalled();
+    });
+
+    it('never paints the responses of the result left behind', async () => {
+      const slow = new Subject<readonly CommentThread[]>();
+      api.programResponses.mockReturnValueOnce(slow);
+      await store.load('9890', '29');
+      api.programResponses.mockReturnValue(of([]));
+      await store.load('9891', '29');
+      slow.next([clarificationThread()]);
+      slow.complete();
+      await settled();
+      expect(store.threads().size).toBe(0);
+    });
+
+    it('answers a clarification: the text goes trimmed, the comment is open again and the page reads the result once more', async () => {
+      api.view.mockClear();
+      const outcome = await store.answerClarification(1, '  The one in the evidence section.  ');
+      await settled();
+      expect(outcome).toEqual({ ok: true });
+      expect(api.answerClarification).toHaveBeenCalledWith(1, 'The one in the evidence section.');
+      expect(api.view).toHaveBeenCalledTimes(1);
+      expect(store.answering()).toBeNull();
+    });
+
+    it('keeps what the server answered in the thread before the read lands', async () => {
+      api.view.mockReturnValue(new Subject<AssessmentView>()); // the read that follows never lands in this test
+      await store.answerClarification(1, 'The one in the evidence section.');
+      expect(store.threads().get(1)?.state).toBe('open');
+      expect(field('general.description').comments.find((c) => c.id === 1)?.state).toBe('open');
+    });
+
+    it('a second tap while the first is on its way sends nothing, and an empty text is never sent', async () => {
+      const slow = new Subject<CommentThread>();
+      api.answerClarification.mockReturnValueOnce(slow);
+      const first = store.answerClarification(1, 'Answer');
+      expect(store.answering()).toBe(1);
+      expect(await store.answerClarification(1, 'Answer')).toEqual({ ok: false, message: '' });
+      slow.next(clarificationThread({ state: 'open' }));
+      slow.complete();
+      await first;
+      expect(api.answerClarification).toHaveBeenCalledTimes(1);
+      expect(await store.answerClarification(1, '   ')).toEqual({ ok: false, message: '' });
+      expect(api.answerClarification).toHaveBeenCalledTimes(1);
+    });
+
+    it('already answered, or the step closed: the page reads the result again and a toast says why', async () => {
+      for (const [status, code, message] of [
+        [409, 'CLARIFICATION_NOT_PENDING', 'This clarification was already answered.'],
+        [409, 'ASSESSMENT_STEP_CLOSED', 'The step is closed.'],
+      ] as const) {
+        api.view.mockClear();
+        toasts.error.mockClear();
+        api.answerClarification.mockReturnValueOnce(refusal(status, code, message));
+        expect(await store.answerClarification(1, 'Answer')).toEqual({ ok: false, message: '' });
+        expect(api.view).toHaveBeenCalledTimes(1);
+        expect(toasts.error).toHaveBeenCalledWith(message);
+      }
+    });
+
+    it('a refused text (too long) keeps the form and gives the message back, with no reload', async () => {
+      api.view.mockClear();
+      api.answerClarification.mockReturnValueOnce(refusal(400, 'VALIDATION_FAILED', 'Keep it within 2,000 characters.'));
+      expect(await store.answerClarification(1, 'Answer')).toEqual({ ok: false, message: 'Keep it within 2,000 characters.' });
+      expect(api.view).not.toHaveBeenCalled();
+      expect(toasts.error).not.toHaveBeenCalled();
     });
   });
 });

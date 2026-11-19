@@ -1,7 +1,7 @@
 // @akili-spec assessment/step-1-assessment
 import { AssessmentField, AssessmentView } from '../../../core/api/assessment.models';
 import { FieldVm } from './review-model';
-import { comment, field, viewFixture } from './review.api-fixture';
+import { clarificationThread, comment, field, programResponse, viewFixture } from './review.api-fixture';
 import { findField, formatValue, readOnlyBanner, returnsOnAnyComment, toCommentVm, toDrawerVm, toFieldVm, toReviewVm, withdrawOpen } from './review.mapper';
 
 const byLabel = (fields: readonly FieldVm[], label: string): FieldVm =>
@@ -382,6 +382,65 @@ describe('review.mapper (API assessment view → Review view models)', () => {
       expect(withdrawOpen({ writable: false, readOnlyReason: 'finished' })).toBe(true);
       expect(withdrawOpen({ writable: false, readOnlyReason: 'step_closed' })).toBe(false);
       expect(withdrawOpen({ writable: false, readOnlyReason: 'admin_read_only' })).toBe(false);
+    });
+  });
+
+  describe("the program's responses in the thread (P2-3911)", () => {
+    const found = (state: 'open' | 'clarification_requested' | 'accepted' = 'clarification_requested', author = 1053) =>
+      findField(
+        viewFixture({
+          sections: [{ key: 'general_information', label: 'General information', fields: [field({ key: 'general.description', label: 'Description of Result', comments: [comment({ state, author: { id: author, nickname: 'mchen' } })] })] }],
+        }),
+        'general.description',
+      )!;
+    const reader = (me: number | null) => ({ me, canWithdraw: true });
+    const threads = (thread = clarificationThread()) => new Map([[thread.commentId, thread]]);
+
+    it("puts each response under its comment, oldest first, with the program's name, email and what it chose", () => {
+      const accept = programResponse({ id: 71, kind: 'accept', body: null, respondedAt: '2026-11-19T09:00:00.000Z' });
+      const disagree = programResponse({ id: 69, kind: 'disagree', body: 'The link is already there.', respondedAt: '2026-11-17T09:00:00.000Z' });
+      const thread = clarificationThread({ state: 'accepted', response: accept, history: [disagree, programResponse(), accept] });
+      const rows = toDrawerVm(found('accepted'), 'read', reader(1053), threads(thread)).comments;
+      expect(rows.map((c) => [c.role, c.who, c.reply ?? null, c.text])).toEqual([
+        ['Assessor', 'mchen', null, 'Add the evidence link.'],
+        ['Program', 'Pepa Program', 'disagreed', 'The link is already there.'],
+        ['Program', 'Pepa Program', 'clarification', 'Which evidence link do you mean?'],
+        ['Program', 'Pepa Program', 'accepted', ''],
+      ]);
+      expect(rows[1].email).toBe('pepa@program.org');
+      expect(rows[1].date).toBe('17 Nov 2026');
+    });
+
+    it("shows the author's answer right under the clarification it answers", () => {
+      const request = programResponse();
+      const thread = clarificationThread({
+        state: 'open',
+        clarifications: [{ requestId: request.id, question: 'Which evidence link do you mean?', requestedAt: request.respondedAt, answer: { body: 'The one in the evidence section.', answeredAt: '2026-11-19T10:00:00.000Z' } }],
+      });
+      const rows = toDrawerVm(found('open'), 'read', reader(1053), threads(thread)).comments;
+      expect(rows.map((c) => [c.role, c.answer ?? false, c.text])).toEqual([
+        ['Assessor', false, 'Add the evidence link.'],
+        ['Program', false, 'Which evidence link do you mean?'],
+        ['Assessor', true, 'The one in the evidence section.'],
+      ]);
+    });
+
+    it('asks the author for the answer on a read-only assessment, and nobody else', () => {
+      const mine = toDrawerVm(found(), 'read', reader(1053), threads());
+      expect(mine.mode).toBe('clarify');
+      expect(mine.clarify).toEqual({ commentId: 1, question: 'Which evidence link do you mean?' });
+
+      expect(toDrawerVm(found(), 'read', reader(7), threads()).mode).toBe('read'); // another assessor reads it
+      expect(toDrawerVm(found(), 'read', reader(null), threads()).mode).toBe('read'); // no session yet
+      expect(toDrawerVm(found('clarification_requested', 7), 'read', reader(1053), threads()).mode).toBe('read'); // not my comment
+    });
+
+    it('does not ask again once it is answered, nor before the responses are read', () => {
+      const request = programResponse();
+      const answered = clarificationThread({ state: 'open', clarifications: [{ requestId: request.id, question: 'Which?', requestedAt: request.respondedAt, answer: { body: 'That one.', answeredAt: '2026-11-19T10:00:00.000Z' } }] });
+      expect(toDrawerVm(found('open'), 'read', reader(1053), threads(answered)).mode).toBe('read');
+      expect(toDrawerVm(found(), 'read', reader(1053)).mode).toBe('read');
+      expect(toDrawerVm(found(), 'read', reader(1053)).comments).toHaveLength(1);
     });
   });
 
