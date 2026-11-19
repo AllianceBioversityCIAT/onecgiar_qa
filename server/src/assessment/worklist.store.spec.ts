@@ -47,6 +47,7 @@ function scope(overrides: Partial<WorklistScope> = {}): WorklistScope {
     userId: 10,
     access: assessorAccess(),
     assessmentStepPosition: 1,
+    roundTwoStepPositions: [],
     clarificationWindowOpen: false,
     hideAutoValidated: true,
     ...overrides,
@@ -125,7 +126,8 @@ describe('DrizzleWorklistStore SQL', () => {
       ).sql,
     );
     expect(adminWhere).toContain('`timeline_results`.`status` <> ?');
-    expect(adminWhere).not.toContain('`entry_round`');
+    // The join's current-step CASE reads `entry_round`; the SCOPE predicate on it is what an admin lacks.
+    expect(adminWhere).not.toContain('`entry_round` = ?');
 
     const noneWhere = whereOf(
       pageSql(
@@ -292,10 +294,40 @@ describe('DrizzleWorklistStore SQL', () => {
   });
 });
 
+// DD-3 (P2-3912): the page and the counters join the assessment of the membership's CURRENT step,
+// one definition (`currentStepSql`) in both statements, so the status filter and the count agree.
+describe('DrizzleWorklistStore current-step join (DD-3)', () => {
+  const CURRENT =
+    '`result_assessments`.`step_position` = CASE WHEN `timeline_results`.`entry_round` <= 1 THEN ? ELSE COALESCE((SELECT MAX(`cur`.`step_position`) FROM `result_assessments` `cur` WHERE `cur`.`timeline_result_id` = `timeline_results`.`id` AND `cur`.`step_position` IN (?, ?, ?)), ?) END';
+  const withSteps = {
+    assessmentStepPosition: 1,
+    roundTwoStepPositions: [3, 4, 5],
+  };
+
+  it('reads the round-1 step for round 1 and the latest round-2 step that holds a row, else the first, in the page and in the counters', () => {
+    const page = pageSql(criteria(withSteps));
+    const count = store.buildCountQuery(scope(withSteps)).toSQL();
+    expect(page.sql).toContain(CURRENT);
+    expect(count.sql).toContain(CURRENT);
+    for (const params of [page.params, count.params]) {
+      // The select list binds its own values first; the join's run is contiguous.
+      expect(params.join('|')).toContain('1|3|4|5|3');
+    }
+  });
+
+  it('falls back to step 0 (no assessment) for a round with no step in the timeline', () => {
+    const page = pageSql(
+      criteria({ assessmentStepPosition: null, roundTwoStepPositions: [] }),
+    );
+    expect(page.sql).toContain('COALESCE(NULL, ?)');
+    expect(page.params.join('|')).toContain('0|0');
+  });
+});
+
 // P2-3911: the comments the Science Program answered.
 describe('DrizzleWorklistStore answeredBySp (P2-3911)', () => {
   const ANSWERED =
-    '(select COUNT(*) from `assessment_comments` where (`assessment_comments`.`assessment_id` = `result_assessments`.`id` and `assessment_comments`.`state` in (?, ?, ?)))';
+    '(select COUNT(*) from `assessment_comments` where (`assessment_comments`.`assessment_id` = `result_assessments`.`id` and `assessment_comments`.`deleted_at` is null and `assessment_comments`.`state` in (?, ?, ?)))';
 
   it('counts accepted, accepted-with-comment and disagreed comments of the row', () => {
     const { sql: text, params } = pageSql(criteria());

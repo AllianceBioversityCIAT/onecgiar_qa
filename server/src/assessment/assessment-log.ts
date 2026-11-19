@@ -12,6 +12,9 @@ export type AssessmentWriteAction =
   | 'comment'
   | 'withdraw'
   | 'finish'
+  | 'decide'
+  | 'decision_clear'
+  | 'delete'
   | 'quick_comment_save';
 
 export interface WriteLogContext {

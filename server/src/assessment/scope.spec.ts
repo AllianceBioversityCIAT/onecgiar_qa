@@ -495,14 +495,15 @@ describe('FR-1 the admin answer comes from the caller', () => {
 });
 
 describe('FR-1 A role with no active row', () => {
-  const leadOnly = user([grant('LEAD_ASSESSOR', 'policy_change')], [SP01]);
-  const access = accessOf(leadOnly, ['LEAD_ASSESSOR']);
+  // The Lead row is enabled (P2-3912); TPB and PPU stay designed only (FR-16).
+  const tpbOnly = user([grant('TPB', null)], [SP01]);
+  const access = accessOf(tpbOnly, ['TPB']);
 
   it('has no row and says its disabled role has no worklist yet', () => {
     expect(access).toEqual({
       reviewerRows: [],
       admin: false,
-      disabledRoles: ['LEAD_ASSESSOR'],
+      disabledRoles: ['TPB'],
     });
   });
 
@@ -685,6 +686,85 @@ describe('FR-19 clarification predicate', () => {
 
   it('is read-only in this spec: step 1 is closed while step 2 is open', () => {
     expect(writeDecision(access, membership(), timing(STEP2_OPEN))).toEqual({
+      writable: false,
+      reason: 'step_closed',
+    });
+  });
+});
+
+// FR-1 (P2-3912): the Lead row is enabled. Round 2 only, the Lead's result types and programs.
+describe('FR-1 Lead sees only round-2 memberships in their scope', () => {
+  const leadA = user(
+    [grant('LEAD_ASSESSOR', 'innovation_development')],
+    [SP01],
+  );
+  const access = accessOf(leadA, ['LEAD_ASSESSOR']);
+  const round2 = (change: Partial<MembershipFacts> = {}) =>
+    membership({ resultType: 'innovation_development', round: 2, ...change });
+
+  it('builds one LEAD_ASSESSOR row on round 2, audience lead_assessors, with the covered type and program', () => {
+    expect(access).toEqual({
+      reviewerRows: [
+        {
+          role: 'LEAD_ASSESSOR',
+          round: 2,
+          audience: 'lead_assessors',
+          resultTypes: ['innovation_development'],
+          programs: { mode: 'in', ids: [SP01] },
+        },
+      ],
+      admin: false,
+      disabledRoles: [],
+    });
+  });
+
+  it('lists the round-2 membership of their type and program, and nothing else', () => {
+    expect(listedFor(access, round2())).toBe(true);
+    // Round-1 membership of the same result, another type, another program.
+    expect(listedFor(access, round2({ round: 1 }))).toBe(false);
+    expect(listedFor(access, round2({ resultType: 'policy_change' }))).toBe(
+      false,
+    );
+    expect(listedFor(access, round2({ programId: SP02 }))).toBe(false);
+  });
+
+  it('an ASSESSOR of the same scope does not reach round 2 (the assessment 404)', () => {
+    const assessorAccess = accessOf(
+      user([grant('ASSESSOR', 'innovation_development')], [SP01]),
+      ['ASSESSOR'],
+    );
+    expect(inScope(assessorAccess, round2())).toBe(false);
+    expect(writeDecision(assessorAccess, round2(), timing(STEP1_OPEN))).toEqual(
+      { writable: false, reason: 'not_in_scope' },
+    );
+  });
+
+  it('writes only while step 3 is in progress; upcoming and closed are refused (step window)', () => {
+    const withLead = (utc: string) => ({
+      ...timing(utc),
+      steps: [
+        ...steps,
+        {
+          position: 3,
+          audience: 'lead_assessors' as const,
+          opensAt: minute('2026-11-30T09:00'),
+          closesAt: minute('2026-12-04T17:30'),
+        },
+      ],
+    });
+    expect(
+      writeDecision(access, round2(), withLead('2026-12-01T10:00:00Z')),
+    ).toMatchObject({
+      writable: true,
+      stepPosition: 3,
+    });
+    expect(writeDecision(access, round2(), withLead(STEP2_OPEN))).toEqual({
+      writable: false,
+      reason: 'step_upcoming',
+    });
+    expect(
+      writeDecision(access, round2(), withLead('2026-12-05T10:00:00Z')),
+    ).toEqual({
       writable: false,
       reason: 'step_closed',
     });

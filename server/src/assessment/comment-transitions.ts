@@ -6,8 +6,8 @@ import type { CommentState } from '../database/drizzle/schema/assessment-comment
 // which of them a route may write. P2-3911 made the program responses and the
 // clarification answer reachable; it added no comment state.
 
-/** `author` = the user who wrote the comment; `program` = a Science Program user. */
-export type TransitionActor = 'author' | 'program';
+/** `author` = the user who wrote the comment; `program` = a Science Program user; `lead` = a Lead Assessor (round 2). */
+export type TransitionActor = 'author' | 'program' | 'lead';
 
 export interface CommentTransition {
   /** `null` = the comment does not exist yet. */
@@ -38,6 +38,13 @@ export const PROGRAM_TO_STATES: readonly CommentState[] = [
   'clarification_requested',
 ];
 
+/** The states a Lead may decide a round-1 comment from (`isDecidable`, design 7). */
+export const LEAD_FROM_STATES: readonly CommentState[] = [
+  'disagreed',
+  'open',
+  'clarification_requested',
+];
+
 export const COMMENT_TRANSITIONS: readonly CommentTransition[] = [
   { from: null, to: 'open', by: 'author', reachable: true },
   { from: 'open', to: 'withdrawn', by: 'author', reachable: true },
@@ -57,6 +64,22 @@ export const COMMENT_TRANSITIONS: readonly CommentTransition[] = [
       reachable: true,
     })),
   ),
+  // Round 2 (escalation/round-2 design 4, DD-6, DD-7): written when the Lead's
+  // review ends, from the states a Lead can decide. `lead_sided_program` closes
+  // the comment (the Lead agreed with the program).
+  ...LEAD_FROM_STATES.map((from): CommentTransition => ({
+    from,
+    to: 'lead_sided_program',
+    by: 'lead',
+    reachable: true,
+  })),
+  // Round 2, the `escalated` end (T-9): written when the Lead's review ends with an `escalate` decision on the comment.
+  ...LEAD_FROM_STATES.map((from): CommentTransition => ({
+    from,
+    to: 'escalated',
+    by: 'lead',
+    reachable: true,
+  })),
 ];
 
 /** The declared transition, reachable or not; `undefined` when the table has none. */

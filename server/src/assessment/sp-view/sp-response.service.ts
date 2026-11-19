@@ -56,20 +56,13 @@ import {
   SpNotFoundError,
   SpStepClosedError,
 } from './sp-view.errors.js';
+import { STATE_OF_KIND } from './sp-state.js';
 import { SpViewService } from './sp-view.service.js';
 import {
   SP_VIEW_STORE,
   type SpResponseRecord,
   type SpViewStore,
 } from './sp-view.store.js';
-
-/** The comment state each response kind sets. */
-export const STATE_OF_KIND: Readonly<Record<SpResponseKind, CommentState>> = {
-  accept: 'accepted',
-  accept_with_comment: 'accepted_with_comment',
-  disagree: 'disagreed',
-  request_clarification: 'clarification_requested',
-};
 
 export interface SpRespondInput {
   kind: SpResponseKind;
@@ -140,6 +133,7 @@ export class SpResponseService {
     if (
       scope === null ||
       !scope.visible ||
+      scope.deleted ||
       scope.state === 'withdrawn' ||
       (!session.isReportingAdmin && scope.programId !== session.programId)
     ) {
@@ -308,6 +302,8 @@ export class SpResponseService {
       resultCode: context.resultCode,
       access,
       round: context.round,
+      // Round 1 only: the program never reads a round-2 step (round-2 FR-15).
+      roundTwoStepPositions: [],
       assessmentStepPosition: context.stepPosition,
     });
     if (

@@ -2,6 +2,7 @@
 import type { TimelineLoads } from '../../src/admin-config/timelines/timeline-loads.js';
 import type { ResultAssessmentStatus } from '../../src/database/drizzle/schema/result-assessments.js';
 import type { CommentState } from '../../src/database/drizzle/schema/assessment-comments.js';
+import type { CommentDecisionKind } from '../../src/database/drizzle/schema/comment-decisions.js';
 import type {
   TimelineResultEndReason,
   TimelineResultStatus,
@@ -9,6 +10,10 @@ import type {
 import type { CycleStatus } from '../../src/database/drizzle/schema/cycles.js';
 import type { TimelineKind } from '../../src/database/drizzle/schema/timelines.js';
 import { statusOf, type QaStatus } from '../../src/assessment/qa-status.js';
+import {
+  currentStepPosition,
+  type CurrentStepPositions,
+} from '../../src/assessment/role-steps.js';
 import {
   inScope,
   listedFor,
@@ -41,6 +46,9 @@ import type {
   CommentContext,
   CommentEventWrite,
   CommentRecord,
+  DecisionRecord,
+  DecisionTarget,
+  DecisionWrite,
   LockedAssessment,
   MembershipCriteria,
   MembershipRecord,
@@ -49,6 +57,7 @@ import type {
   NewQuickCommentRow,
   NewReleaseRow,
   QuickCommentRecord,
+  RoundOneThreadRow,
   SavedQuickComment,
   ValidationRecord,
   ValidationWrite,
@@ -120,6 +129,8 @@ export interface FakeMembership {
   ended?: boolean;
   endReason?: TimelineResultEndReason | null;
   changedFields?: string[] | null;
+  /** `timeline_results.previous_membership_id`: the returned round-1 membership a round-2 one follows. */
+  previousMembershipId?: number | null;
   /** `timeline_results.snapshot_sk`; default `SNAP#<code>` (a test of the real key passes the runner's own). */
   snapshotSk?: string;
   /** The phase's result id (default: the result code) and year (default: the cycle's year, 2026). */
@@ -159,8 +170,25 @@ export interface FakeComment {
   stepPosition?: number;
   round?: number;
   withdrawnAt?: Date | null;
+  /** Round 2 (FR-10): a Lead deleted the comment. A deleted comment keeps its state. */
+  deletedAt?: Date | null;
+  /** Round 2 (FR-10): the Lead who deleted it; set with `deletedAt`, never alone (the CHECK). */
+  deletedBy?: number | null;
   /** Set by the write side when an end makes the comment visible to the program. */
   visibleToProgramAt?: Date | null;
+}
+
+/** One `comment_decisions` row (round-2 FR-8): one per comment and role. */
+export interface FakeCommentDecision {
+  commentId: number;
+  assessmentId?: number;
+  roleCode: string;
+  decision: CommentDecisionKind;
+  body: string | null;
+  decidedAt?: Date;
+  /** Set by the write side: the author of the latest decision and the last write time (`updated_at`, set explicitly). */
+  decidedBy?: number;
+  updatedAt?: Date;
 }
 
 /** One `assessment_releases` row, as the write side queued it. */
@@ -226,6 +254,27 @@ export function defaultFakeSteps(): WorklistStep[] {
 }
 
 export class InMemoryAssessmentWorld {
+  /**
+   * The assessment a membership reads (DD-3): the row at its current step, by
+   * the same rule the SQL (`currentStepSql`) twins.
+   */
+  currentAssessment(
+    membership: FakeMembership,
+    steps: CurrentStepPositions,
+  ): FakeAssessment | undefined {
+    const mine = this.assessments.filter(
+      (a) => a.membershipId === membership.id,
+    );
+    const position = currentStepPosition(
+      steps,
+      membership.round ?? 1,
+      mine.map((a) => a.stepPosition),
+    );
+    return position === null
+      ? undefined
+      : mine.find((a) => a.stepPosition === position);
+  }
+
   /** Statements the services issued since the last `resetStatements()`. */
   statements = 0;
   timelines: FakeTimeline[] = [];
@@ -233,6 +282,8 @@ export class InMemoryAssessmentWorld {
   memberships: FakeMembership[] = [];
   assessments: FakeAssessment[] = [];
   comments: FakeComment[] = [];
+  /** `comment_decisions` rows (round-2 FR-8). */
+  commentDecisions: FakeCommentDecision[] = [];
   validations: FakeValidation[] = [];
   /** The append-only audit rows (FR-21). */
   audits: FakeAuditEvent[] = [];
@@ -476,12 +527,7 @@ export class InMemoryWorklistStore implements WorklistStore {
     const out: Array<Omit<WorklistRecord, 'sortValue'>> = [];
     for (const m of this.world.memberships) {
       if (m.timelineId !== scope.timelineId) continue;
-      const assessment = this.world.assessments.find(
-        (a) =>
-          a.membershipId === m.id &&
-          scope.assessmentStepPosition !== null &&
-          a.stepPosition === scope.assessmentStepPosition,
-      );
+      const assessment = this.world.currentAssessment(m, scope);
       const anyAssessmentIds = this.world.assessments
         .filter((a) => a.membershipId === m.id)
         .map((a) => a.id);
@@ -535,7 +581,9 @@ export class InMemoryWorklistStore implements WorklistStore {
             ? 0
             : this.world.comments.filter(
                 (c) =>
-                  c.assessmentId === assessment.id && c.state !== 'withdrawn',
+                  c.assessmentId === assessment.id &&
+                  c.state !== 'withdrawn' &&
+                  (c.deletedAt ?? null) === null,
               ).length,
         answeredBySp:
           assessment === undefined
@@ -543,6 +591,7 @@ export class InMemoryWorklistStore implements WorklistStore {
             : this.world.comments.filter(
                 (c) =>
                   c.assessmentId === assessment.id &&
+                  (c.deletedAt ?? null) === null &&
                   ['accepted', 'accepted_with_comment', 'disagreed'].includes(
                     c.state,
                   ),
@@ -641,12 +690,7 @@ export class InMemoryAssessmentStore implements AssessmentStore {
       })
       .sort((x, y) => (y.round ?? 1) - (x.round ?? 1))[0];
     if (found === undefined) return Promise.resolve(null);
-    const assessment = this.world.assessments.find(
-      (a) =>
-        a.membershipId === found.id &&
-        criteria.assessmentStepPosition !== null &&
-        a.stepPosition === criteria.assessmentStepPosition,
-    );
+    const assessment = this.world.currentAssessment(found, criteria);
     const finisher =
       assessment?.finishedBy === undefined || assessment.finishedBy === null
         ? undefined
@@ -665,12 +709,21 @@ export class InMemoryAssessmentStore implements AssessmentStore {
       endReason: found.endReason ?? null,
       snapshotSk: found.snapshotSk ?? `SNAP#${found.resultCode}`,
       cycleYear: timeline?.cycleYear ?? 2026,
+      previousMembershipId: found.previousMembershipId ?? null,
+      changedFields: found.changedFields ?? null,
+      previousAssessmentId:
+        this.world.assessments.find(
+          (x) =>
+            found.previousMembershipId !== undefined &&
+            x.membershipId === found.previousMembershipId,
+        )?.id ?? null,
       assessment:
         assessment === undefined
           ? null
           : {
               id: assessment.id,
               status: assessment.status,
+              stepPosition: assessment.stepPosition,
               fieldConfigVersion: assessment.fieldConfigVersion ?? 1,
               fieldConfigVersionId:
                 assessment.fieldConfigVersionId === undefined
@@ -697,9 +750,80 @@ export class InMemoryAssessmentStore implements AssessmentStore {
     return Promise.resolve(
       this.world.comments
         .map((c, index) => ({ c, index }))
-        .filter(({ c }) => c.assessmentId === assessmentId)
+        .filter(
+          ({ c }) =>
+            c.assessmentId === assessmentId && (c.deletedAt ?? null) === null,
+        )
         .map(({ c, index }) => commentRecordOf(this.world, c, index)),
     );
+  }
+
+  /** One counted statement, like the adapter's single SELECT (round-2 NFR-1). */
+  findRoundOneThread(
+    assessmentId: number,
+    roleCode: string,
+  ): Promise<RoundOneThreadRow[]> {
+    this.world.statements += 1;
+    const rows: RoundOneThreadRow[] = [];
+    this.world.comments.forEach((c, index) => {
+      if (c.assessmentId !== assessmentId) return;
+      if (c.state === 'withdrawn' || (c.deletedAt ?? null) !== null) return;
+      const record = commentRecordOf(this.world, c, index);
+      const own = this.world.spResponses
+        .filter((r) => r.commentId === record.id)
+        .sort((x, y) => x.id - y.id);
+      const latest = own.at(-1);
+      const shown = own.filter(
+        (r) => r.kind === 'request_clarification' || r.id === latest?.id,
+      );
+      const decision = this.world.commentDecisions.find(
+        (d) => d.commentId === record.id && d.roleCode === roleCode,
+      );
+      const base = {
+        commentId: record.id,
+        fieldKey: record.fieldKey,
+        authorId: record.authorId,
+        authorNickname: record.authorNickname,
+        body: record.body,
+        state: record.state,
+        valueCopy: record.valueCopy,
+        valueTruncated: record.valueTruncated,
+        createdAt: record.createdAt,
+        decision: decision?.decision ?? null,
+        decisionBody: decision?.body ?? null,
+        decidedAt:
+          decision === undefined
+            ? null
+            : (decision.decidedAt ?? record.createdAt),
+      };
+      const lines = shown.length === 0 ? [undefined] : shown;
+      for (const response of lines) {
+        const answer =
+          response === undefined
+            ? undefined
+            : this.world.clarificationAnswers.find(
+                (x) => x.responseId === response.id,
+              );
+        rows.push({
+          ...base,
+          responseId: response?.id ?? null,
+          responseKind: response?.kind ?? null,
+          responseBody: response?.body ?? null,
+          responderName: response?.responderName ?? null,
+          respondedAt: response?.createdAt ?? null,
+          answerBody: answer?.body ?? null,
+          answeredAt: answer?.createdAt ?? null,
+        });
+      }
+    });
+    rows.sort(
+      (x, y) =>
+        x.fieldKey.localeCompare(y.fieldKey) ||
+        x.createdAt.getTime() - y.createdAt.getTime() ||
+        x.commentId - y.commentId ||
+        (x.responseId ?? 0) - (y.responseId ?? 0),
+    );
+    return Promise.resolve(rows);
   }
 
   listQuickComments(roleCode: string): Promise<QuickCommentRecord[]> {
@@ -979,7 +1103,12 @@ export class InMemoryAssessmentWriteStore implements AssessmentWriteStore {
       (c, i) => (c.id ?? i + 1) === commentId,
     );
     // The conditional UPDATE: it matches the row only while it is `open`.
-    if (held === undefined || held.state !== 'open') {
+    // ... and while it is not deleted (a delete wins over a withdraw).
+    if (
+      held === undefined ||
+      held.state !== 'open' ||
+      (held.deletedAt ?? null) !== null
+    ) {
       return Promise.resolve(false);
     }
     held.state = 'withdrawn';
@@ -987,6 +1116,34 @@ export class InMemoryAssessmentWriteStore implements AssessmentWriteStore {
     this.undo.push(() => {
       held.state = 'open';
       held.withdrawnAt = null;
+    });
+    return Promise.resolve(true);
+  }
+
+  deleteComment(
+    commentId: number,
+    actorId: number,
+    at: Date,
+  ): Promise<boolean> {
+    this.world.statements += 1;
+    this.world.writeLog.push('deleteComment');
+    const held = this.world.comments.find(
+      (c, i) => (c.id ?? i + 1) === commentId,
+    );
+    // The conditional UPDATE: only a comment that is not deleted and that no
+    // program response points at.
+    if (
+      held === undefined ||
+      (held.deletedAt ?? null) !== null ||
+      this.world.spResponses.some((r) => r.commentId === commentId)
+    ) {
+      return Promise.resolve(false);
+    }
+    held.deletedAt = at;
+    held.deletedBy = actorId;
+    this.undo.push(() => {
+      held.deletedAt = null;
+      held.deletedBy = null;
     });
     return Promise.resolve(true);
   }
@@ -1038,6 +1195,23 @@ export class InMemoryAssessmentWriteStore implements AssessmentWriteStore {
     ]);
   }
 
+  findLiveCommentedFieldKeys(assessmentId: number): Promise<string[]> {
+    this.world.statements += 1;
+    this.world.writeLog.push('findLiveCommentedFieldKeys');
+    return Promise.resolve([
+      ...new Set(
+        this.world.comments
+          .filter(
+            (c) =>
+              c.assessmentId === assessmentId &&
+              c.state !== 'withdrawn' &&
+              (c.deletedAt ?? null) === null,
+          )
+          .map((c) => c.fieldKey ?? 'general.title'),
+      ),
+    ]);
+  }
+
   markCommentsVisible(assessmentId: number, at: Date): Promise<void> {
     this.world.statements += 1;
     this.world.writeLog.push('markCommentsVisible');
@@ -1045,6 +1219,7 @@ export class InMemoryAssessmentWriteStore implements AssessmentWriteStore {
       if (
         comment.assessmentId !== assessmentId ||
         comment.state === 'withdrawn' ||
+        (comment.deletedAt ?? null) !== null ||
         (comment.visibleToProgramAt ?? null) !== null
       ) {
         continue;
@@ -1075,6 +1250,124 @@ export class InMemoryAssessmentWriteStore implements AssessmentWriteStore {
       this.world.releases = this.world.releases.filter((r) => r !== created);
     });
     return Promise.resolve();
+  }
+
+  lockDecisionTarget(commentId: number): Promise<DecisionTarget | undefined> {
+    this.world.statements += 1;
+    this.world.writeLog.push('lockDecisionTarget');
+    const index = this.world.comments.findIndex(
+      (c, i) => (c.id ?? i + 1) === commentId,
+    );
+    const comment = this.world.comments[index];
+    if (comment === undefined) return Promise.resolve(undefined);
+    return Promise.resolve({
+      id: commentId,
+      assessmentId: comment.assessmentId,
+      authorId: comment.authorId,
+      fieldKey: comment.fieldKey ?? 'general.title',
+      state: comment.state,
+      deleted: (comment.deletedAt ?? null) !== null,
+    });
+  }
+
+  findDecisions(assessmentId: number): Promise<DecisionRecord[]> {
+    this.world.statements += 1;
+    this.world.writeLog.push('findDecisions');
+    const rows: DecisionRecord[] = [];
+    for (const d of this.world.commentDecisions) {
+      if (d.assessmentId !== assessmentId) continue;
+      const index = this.world.comments.findIndex(
+        (c, i) => (c.id ?? i + 1) === d.commentId,
+      );
+      const comment = this.world.comments[index];
+      if (comment === undefined) continue;
+      rows.push({
+        commentId: d.commentId,
+        fieldKey: comment.fieldKey ?? 'general.title',
+        decision: d.decision,
+        body: d.body,
+        decidedAt: d.decidedAt ?? new Date(0),
+        commentState: comment.state,
+        commentDeleted: (comment.deletedAt ?? null) !== null,
+      });
+    }
+    return Promise.resolve(rows.sort((x, y) => x.commentId - y.commentId));
+  }
+
+  upsertDecision(write: DecisionWrite): Promise<void> {
+    this.world.statements += 1;
+    this.world.writeLog.push('upsertDecision');
+    const held = this.world.commentDecisions.find(
+      (d) => d.commentId === write.commentId && d.roleCode === write.roleCode,
+    );
+    if (held === undefined) {
+      const created: FakeCommentDecision = {
+        commentId: write.commentId,
+        assessmentId: write.assessmentId,
+        roleCode: write.roleCode,
+        decision: write.decision,
+        body: write.body,
+        decidedAt: write.at,
+        decidedBy: write.actorId,
+        updatedAt: write.at,
+      };
+      this.world.commentDecisions.push(created);
+      this.undo.push(() => {
+        this.world.commentDecisions = this.world.commentDecisions.filter(
+          (d) => d !== created,
+        );
+      });
+    } else {
+      const before = { ...held };
+      Object.assign(held, {
+        decision: write.decision,
+        body: write.body,
+        decidedAt: write.at,
+        decidedBy: write.actorId,
+        updatedAt: write.at,
+      });
+      this.undo.push(() => {
+        Object.assign(held, before);
+      });
+    }
+    return Promise.resolve();
+  }
+
+  deleteDecision(commentId: number, roleCode: string): Promise<boolean> {
+    this.world.statements += 1;
+    this.world.writeLog.push('deleteDecision');
+    const held = this.world.commentDecisions.find(
+      (d) => d.commentId === commentId && d.roleCode === roleCode,
+    );
+    if (held === undefined) return Promise.resolve(false);
+    this.world.commentDecisions = this.world.commentDecisions.filter(
+      (d) => d !== held,
+    );
+    this.undo.push(() => {
+      this.world.commentDecisions.push(held);
+    });
+    return Promise.resolve(true);
+  }
+
+  setCommentState(
+    commentId: number,
+    from: CommentState,
+    to: CommentState,
+  ): Promise<boolean> {
+    this.world.statements += 1;
+    this.world.writeLog.push('setCommentState');
+    const held = this.world.comments.find(
+      (c, i) => (c.id ?? i + 1) === commentId,
+    );
+    // The conditional UPDATE: it matches the row only while it is in `from`.
+    if (held === undefined || held.state !== from) {
+      return Promise.resolve(false);
+    }
+    held.state = to;
+    this.undo.push(() => {
+      held.state = from;
+    });
+    return Promise.resolve(true);
   }
 
   saveQuickComment(row: NewQuickCommentRow): Promise<SavedQuickComment> {
