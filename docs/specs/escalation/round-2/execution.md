@@ -41,3 +41,21 @@
 - **Requirements covered:** FR-13 (Regression), FR-11 (Undecided, rule level), FR-12 (rule level).
 - **Running totals vs budget:** tasks 2/14 · LOC ~140 · review rounds 4/~16.
 - auto-approved (pre-approved mode)
+
+### T-3: Migration `0013_round_two` — PASS (2026-11-19)
+
+- **Attempts:** 1. Effort high. Skills: nestjs-best-practices. Review mode: parallel lens reviewers (migration / data-loss surface) — (A) SQL + rollback risk/reliability, (B) TS schema + scope + consumers.
+- **Files changed:** schema `result-assessments.ts`, `assessment-comments.ts`, `assessment-audit-events.ts`, `comment-events.ts` (header), `index.ts`, new `comment-decisions.ts`; `server/drizzle/0013_round_two.sql`, `meta/0013_snapshot.json`, `meta/_journal.json`, `rollback/0013_round_two.down.sql`; tests `schema.spec.ts`, `assessment.write-store.spec.ts`; `assessment.service.ts:117` (type widening, see below).
+- **P-20 re-check:** after `git fetch`, `origin/staging-center` and `origin/dev` both end at `0012_ai_usage_indicative.sql` → `0013` free.
+- **Red run (assertion-level):** schema.spec before any schema change: 8 failed, e.g. "expected [ 'pending', 'quality_assessed', …(1) ] to deeply equal [ … (2) ] - \"escalated\""; audit actions; "expected undefined to be 'datetime'" (deleted_at); 5 on `comment_decisions` and the 0013 SQL file.
+- **Falsifier:** remove `'lead_sided_program'` from `commentStates` → "Tests 1 failed | 228 passed"; restored.
+- **Implementer verification:** lint ok · build ok · unit 3928 passed / 6 skipped · e2e 1261 passed · client build ok.
+- **Evidence re-run (Leader inline):** schema.spec + write-store.spec + comment-transitions.spec 279/279 · build ok → **VERIFIED**.
+- **Reviewers:** (A) **PASS** — every § 5 row present, enums appended, names ≤ 64, journal/snapshot chain consistent, rollback follows the 0011 exemplar, safe on populated MySQL 8. (B) **PASS** — the two out-of-scope edits (service type widening; write-store SQL text) are necessary consequences of the build gate; API model left to T-9; no exhaustive reader broken.
+- **ADVISORY:** (A-risk) the down script drops data before the enum narrowing, the step most likely to fail — reorder (narrow first) or run carefully; checked in T-14. (A-risk) CHECK/FK on `assessment_comments` copies the table — apply in a quiet window, time it in T-14. (A-reliability) `comment_decisions.updated_at` has no ON UPDATE: the T-7 upsert sets it explicitly (forward pointer to T-7). (B-readability) `write-store.spec.ts` withdraw test reformatted (formatter noise); `schema.spec.ts` casts `schema.commentDecisions` defensively. (B-risk) narrowing the audit enum fails once new audit rows exist (append-only) — T-14 note.
+- **Decisions made / execute-time spec edits:** `design.md` § 11 P-13 corrected (premise partly refuted: the types are read widely and hand-typed copies exist; Impact Low, If-false acted on); `tasks.md` T-9 Consumers gains `EndStatus` and `AssessmentSummaryModel.status`. Carried as named conformance checks into T-4's Reviewer brief.
+- **Not Done / Assumptions (no owed item):** service type widened at `:117`; API model, `EndStatus`, client `AssessmentStatus` left to T-9 / T-13; FKs named by hand; Implementer wrote a log under `/tmp/claude-501/` (outside the repo).
+- **spawns:** implementer 24 calls, 108,118 tokens, ended complete; reviewer A 16 calls, 50,296 tokens; reviewer B 15 calls, 78,425 tokens.
+- **Requirements covered:** FR-8/FR-9 (storage), FR-10 (columns), FR-11 (`escalated`), DD-6, NFR-5 (down script; apply in T-14).
+- **Running totals vs budget:** tasks 3/14 · LOC ~140 code + ~420 schema/SQL/tests (excluding generated snapshot) · review rounds 6/~16.
+- auto-approved (pre-approved mode)

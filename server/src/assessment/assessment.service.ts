@@ -114,7 +114,7 @@ export interface AssessmentHeader {
 }
 
 export interface AssessmentSummary {
-  status: 'pending' | 'quality_assessed' | 'returned';
+  status: 'pending' | 'quality_assessed' | 'returned' | 'escalated';
   assessedBy: { id: number; nickname: string | null } | null;
   finishedAt: string | null;
 }

@@ -75,7 +75,7 @@ All back tasks touch `server/src/assessment/` (one shared boundary), so they run
 
 ## T-3: Migration `0013_round_two`
 
-- **Status:** [ ]
+- **Status:** [x]
 - **Size:** M
 - **Depends on:** T-2
 - **Requirements:**
@@ -276,7 +276,7 @@ All back tasks touch `server/src/assessment/` (one shared boundary), so they run
 - **Falsifier:** keep `insertRelease` on `escalated` → the "no release row" assertion is red.
 - **Red run:** predicted — greenfield test (observed in T-9). The FR-13 service test is quoted red against the T-8 state, before the wiring.
 - **Disqualifier:** asserting the status without asserting the release table and the comment states.
-- **Consumers:** `release.service.spec.ts`, `assessment-ends.service.spec.ts`, `assessment.end-store.spec.ts`.
+- **Consumers:** `release.service.spec.ts`, `assessment-ends.service.spec.ts`, `assessment.end-store.spec.ts`; the hand-typed status copies `EndStatus` (`assessment.service.ts:195`) and `AssessmentSummaryModel.status` (`models/assessment.model.ts:235-237`, OpenAPI) must include `escalated` (P-13, corrected in T-3).
 - **Review:** full — the end and the release.
 - **Done when:** every scenario is green, both falsifiers are red, and the step-1 end suites are unchanged and green.
 - **Skills:** nestjs-expert, tdd

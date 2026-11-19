@@ -142,9 +142,9 @@ describe('the comment writes (FR-11, FR-13, ADR-006)', () => {
     ]) {
       expect(text).toContain(`\`${column}\``);
     }
-    // `state`, `visible_to_program_at` and `withdrawn_at` take their column default.
+    // `state`, `visible_to_program_at`, `withdrawn_at` and the round-two `deleted_at` and `deleted_by` take their column default.
     expect(text).toContain(
-      'values (default, ?, ?, ?, ?, ?, ?, ?, ?, default, default, default, ?)',
+      'values (default, ?, ?, ?, ?, ?, ?, ?, ?, default, default, default, default, default, ?)',
     );
     expect(text).not.toContain('on duplicate');
     expect(params).toEqual(
@@ -159,16 +159,19 @@ describe('the comment writes (FR-11, FR-13, ADR-006)', () => {
   });
 
   it('withdraws with ONE conditional UPDATE: it matches only while the comment is open, so the database decides a race', () => {
-    const { sql: text, params } = store
-      .buildWithdrawComment(700, AT)
-      .toSQL();
+    const { sql: text, params } = store.buildWithdrawComment(700, AT).toSQL();
     expect(text).toMatch(/^update `assessment_comments` set /);
     expect(text).toContain('`state` = ?');
     expect(text).toContain('`withdrawn_at` = ?');
     expect(text).toContain(
       'where (`assessment_comments`.`id` = ? and `assessment_comments`.`state` = ?)',
     );
-    expect(params).toEqual(['withdrawn', '2026-11-13 10:00:00.000', 700, 'open']);
+    expect(params).toEqual([
+      'withdrawn',
+      '2026-11-13 10:00:00.000',
+      700,
+      'open',
+    ]);
   });
 
   it('appends a comment event with ids and states only: no body, no value', () => {
