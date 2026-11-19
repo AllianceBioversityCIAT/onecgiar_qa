@@ -616,9 +616,9 @@ export function toThreadRows(c: AssessmentComment, thread: CommentThread | undef
 }
 
 /**
- * The clarification the caller has to answer on a field: a comment they wrote that the program left in
- * `clarification_requested`, with its request still unanswered. The oldest first. The server allows it only while
- * the programs step is open, and says so when it is not.
+ * The clarification the caller has to answer on a field, the oldest first. The server says which threads the
+ * caller can answer now (`answerable`: author, pending request, programs step open). A server that does not send
+ * it falls back to what the page can tell: a comment the caller wrote, left in `clarification_requested`.
  */
 export function pendingClarification(
   f: AssessmentField,
@@ -627,8 +627,9 @@ export function pendingClarification(
 ): { readonly commentId: number; readonly question: string } | null {
   if (me === null) return null;
   for (const c of openComments(f)) {
-    if (c.state !== 'clarification_requested' || c.author.id !== me) continue;
-    const pending = [...(threads.get(c.id)?.clarifications ?? [])].reverse().find((x) => x.answer === null);
+    const thread = threads.get(c.id);
+    if (!(thread?.answerable ?? (c.state === 'clarification_requested' && c.author.id === me))) continue;
+    const pending = [...(thread?.clarifications ?? [])].reverse().find((x) => x.answer === null);
     if (pending) return { commentId: c.id, question: pending.question };
   }
   return null;

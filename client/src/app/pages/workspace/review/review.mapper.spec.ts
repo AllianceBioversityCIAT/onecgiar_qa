@@ -435,6 +435,16 @@ describe('review.mapper (API assessment view → Review view models)', () => {
       expect(toDrawerVm(found('clarification_requested', 7), 'read', reader(1053), threads()).mode).toBe('read'); // not my comment
     });
 
+    it('follows the server when it says whether the caller can answer now (programs step open, author, pending)', () => {
+      // Step 2 closed: the comment is still clarification_requested and mine, but the POST would be refused.
+      const closed = toDrawerVm(found(), 'read', reader(1053), threads(clarificationThread({ answerable: false })));
+      expect(closed.mode).toBe('read');
+      expect(closed.comments).toHaveLength(2);
+      expect(toDrawerVm(found(), 'read', reader(1053), threads(clarificationThread({ answerable: true }))).mode).toBe('clarify');
+      // A server that does not send the flag: what the page can tell (author + state).
+      expect(toDrawerVm(found(), 'read', reader(1053), threads()).mode).toBe('clarify');
+    });
+
     it('does not offer the form once the server said the programs step is closed', () => {
       const closed = toDrawerVm(found(), 'read', { me: 1053, canWithdraw: true, canClarify: false }, threads());
       expect(closed.mode).toBe('read');

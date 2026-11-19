@@ -297,6 +297,12 @@ export interface CommentThread {
   /** Every response, oldest first (the latest included). */
   readonly history: readonly ProgramResponse[];
   readonly clarifications: readonly CommentClarification[];
+  /**
+   * The caller can answer the pending clarification now: they wrote the comment, can write on the timeline, the
+   * comment is `clarification_requested` and the programs step is in progress (the checks of the answer POST).
+   * Absent on a server older than 2026-11-19.
+   */
+  readonly answerable?: boolean;
 }
 
 // ── Error codes (§ 9.1) ─────────────────────────────────────────────────────
