@@ -137,12 +137,15 @@ interface LoadedResults {
           }
         } @else {
           <div class="overflow-x-auto rounded-xl border border-(--border) bg-(--surface)" [attr.aria-busy]="results.isLoading() || null">
-            <table class="w-full border-collapse text-left md:min-w-[820px]">
+            <!-- Reporting frames this page 870–1000 px wide on a 1024–1440 px screen. Seven one-line columns need
+                 1015 px, which cut "Export comments" at the right edge. Below xl the table is compact: the type goes
+                 under the title and the headers may take two lines; from xl up it is the full table. -->
+            <table class="w-full border-collapse text-left">
               <caption class="sr-only">Results of {{ ctx.program()?.code }} in this timeline</caption>
               <thead class="bg-(--surface-3)">
                 <tr class="border-b border-(--border)">
                   @for (h of headers; track h) {
-                    <th scope="col" class="h-10 px-4 text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) md:whitespace-nowrap uppercase first:pl-5 last:pr-5">
+                    <th scope="col" [class.max-xl:hidden]="h === 'Type'" class="h-10 px-4 text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) xl:whitespace-nowrap uppercase first:pl-5 last:pr-5">
                       {{ h }}
                     </th>
                   }
@@ -166,8 +169,9 @@ interface LoadedResults {
                           <qa-badge status="submitted" size="sm">Updated</qa-badge>
                         }
                       </span>
+                      <span data-testid="sp-row-type" class="mt-1 block text-(length:--fs-12) text-(--text-3) xl:hidden">{{ r.resultType.label }}</span>
                     </td>
-                    <td class="px-4 py-3 align-middle text-(length:--fs-13) text-(--text-3)">{{ r.resultType.label }}</td>
+                    <td class="px-4 py-3 align-middle text-(length:--fs-13) text-(--text-3) max-xl:hidden">{{ r.resultType.label }}</td>
                     <td class="px-4 py-3 text-right align-middle font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums">{{ r.comments }}</td>
                     <td class="px-4 py-3 text-right align-middle font-(family-name:--qa-mono) text-(length:--fs-13) whitespace-nowrap tabular-nums">
                       <span class="font-semibold text-(--text)">{{ r.answered }}</span><span class="text-(--text-4)"> / {{ r.comments }}</span>
