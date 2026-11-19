@@ -45,8 +45,10 @@ async function settle(f: ComponentFixture<unknown>): Promise<void> {
   }
 }
 
-async function renderBell(assignments: readonly Assignment[] = ADMIN): Promise<ComponentFixture<NotificationsBell>> {
+/** `sample: false` stands for the day the store reads the API: the count comes back. */
+async function renderBell(assignments: readonly Assignment[] = ADMIN, sample = true): Promise<ComponentFixture<NotificationsBell>> {
   configure(assignments);
+  (TestBed.inject(NotificationsStore) as { sample: boolean }).sample = sample;
   const fixture = TestBed.createComponent(NotificationsBell);
   await settle(fixture);
   await TestBed.inject(NotificationsStore).load();
@@ -58,10 +60,21 @@ const hostEl = (f: ComponentFixture<unknown>): HTMLElement => f.nativeElement;
 const bell = (f: ComponentFixture<unknown>): HTMLAnchorElement => hostEl(f).querySelector('a[aria-label^="Notifications"]')!;
 
 describe('NotificationsBell', () => {
-  // (a) FR-1: as in PRMS, the bell says "Notifications" and shows the unread count in a pill; the accessible name says it too.
-  it('(a) names the bell "Notifications, 2 unread" and shows "Notifications" with a 2 pill', async () => {
+  // The store still reads the design prototype (TODO(api)): a count of invented notifications in the top bar of every
+  // page reads as real work waiting, so the bell shows no count and its name carries none (2026-11-19).
+  it('(a) while the notifications are sample data, the bell says "Notifications" with no count', async () => {
     const f = await renderBell();
     expect(bell(f), 'the bell').not.toBeNull();
+    expect(TestBed.inject(NotificationsStore).unreadCount(), 'the prototype has unread items').toBeGreaterThan(0);
+
+    expect(bell(f).getAttribute('aria-label')).toBe('Notifications');
+    expect(bell(f).querySelector('[data-count]'), 'no pill').toBeNull();
+    expect(text(bell(f)), 'the visible text').toBe('Notifications');
+  });
+
+  // (a') FR-1: as in PRMS, with real data the bell shows the unread count in a pill; the accessible name says it too.
+  it("(a') with real data it names the bell \"Notifications, 2 unread\" and shows a 2 pill", async () => {
+    const f = await renderBell(ADMIN, false);
 
     expect(bell(f).getAttribute('aria-label')).toBe('Notifications, 2 unread');
     expect(text(bell(f).querySelector('[data-count]')!), 'the pill').toBe('2');
@@ -70,7 +83,7 @@ describe('NotificationsBell', () => {
 
   // (b) FR-1: nothing unread, no pill and the plain name.
   it('(b) names the bell "Notifications" and shows no pill when nothing is unread', async () => {
-    const f = await renderBell();
+    const f = await renderBell(ADMIN, false);
     TestBed.inject(NotificationsStore).markAllRead();
     await settle(f);
 
