@@ -159,6 +159,16 @@ describe('cycle.mapper', () => {
     });
   });
 
+  it('edit: a renamed closed step sends its name alone, never its locked dates (P2-4080)', () => {
+    const before = toViewTimeline(api({ steps: [step(1, '2027-07-06', '2027-07-07', 'closed'), step(2, '2027-07-08', '2027-07-09')] }), cat);
+    const steps = before.steps.map(stepRow);
+    steps[0] = { ...steps[0], name: 'Assessors review (renamed)' };
+    expect(toUpdateBody(before, { name: 'July', programs: before.programs, types: [], steps }, cat)).toEqual({
+      version: 3,
+      steps: [{ position: 1, name: 'Assessors review (renamed)' }],
+    });
+  });
+
   it('edit: a scope change sends its flag and its list together; nothing changed gives null', () => {
     const before = toViewTimeline(api({ programIds: [11] }), cat);
     const steps = before.steps.map(stepRow);
