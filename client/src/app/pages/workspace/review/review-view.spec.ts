@@ -777,7 +777,8 @@ describe('ReviewView on the assessment API', () => {
       api.programResponses.mockReturnValue(of([clarificationThread()]));
       const el = await open();
       await settle();
-      byName(el, 'View comments1 for Description of Result')!.click();
+      // The card of a field that owes an answer offers it by name (same click as "View comments").
+      byName(el, 'Answer clarification1 for Description of Result')!.click();
       await settle();
       return el;
     };
@@ -858,6 +859,121 @@ describe('ReviewView on the assessment API', () => {
       expect([...thread().querySelectorAll('li')]).toHaveLength(2);
       expect(document.querySelector('#review-comment-draft')).toBeNull();
       expect(anywhere('Close')).toBeDefined();
+    });
+
+    describe('the page tells the author an answer is owed and takes them there', () => {
+      const cue = (el: Element) => el.querySelector('[data-testid="review-clarification-pending"]');
+      const readOnly = (el: Element) => el.querySelector('[data-testid="review-read-only"]');
+      const note = (el: Element) => text(el.querySelector('qa-review-aside')!);
+      const EXCEPTION = 'This assessment is read only for you, except for the clarification the program asked on your comment.';
+      /** `asked()` plus the caller's comment 5 on Regions (Geographic location), also awaiting an answer. */
+      const askedTwice = (): AssessmentView => {
+        const v = asked();
+        return {
+          ...v,
+          sections: v.sections.map((sec) => ({
+            ...sec,
+            fields: sec.fields.map((f) => (f.key === 'geo.regions' ? { ...f, comments: [comment({ id: 5, fieldKey: f.key, state: 'clarification_requested' })] } : f)),
+          })),
+        };
+      };
+      const regionsThread = () => clarificationThread({ commentId: 5, fieldKey: 'geo.regions' });
+      const openWith = async (view: AssessmentView, threads: readonly CommentThread[]) => {
+        api.view.mockReturnValue(of(view));
+        api.programResponses.mockReturnValue(of(threads));
+        const el = await open();
+        await settle();
+        return el;
+      };
+
+      it('one: names the field instead of the read-only sentence, relabels its button and the note', async () => {
+        const el = await openWith(asked(), [clarificationThread()]);
+        expect(text(cue(el)!)).toContain(
+          "The program asked for a clarification on your comment in “Description of Result”. You can answer it while the program's step is open.",
+        );
+        expect(cue(el)!.getAttribute('role')).toBe('status');
+        expect(readOnly(el)).toBeNull();
+        expect(byName(el, 'Answer clarification1 for Description of Result')).toBeDefined();
+        expect(byName(el, 'View comments1 for Description of Result')).toBeUndefined();
+        expect(note(el)).toContain(EXCEPTION);
+      });
+
+      it('several: counts them; the other fields keep "View comments"', async () => {
+        const v = askedTwice();
+        // A third field with a comment that owes nothing.
+        const withOther: AssessmentView = {
+          ...v,
+          sections: v.sections.map((sec) => ({ ...sec, fields: sec.fields.map((f) => (f.key === 'geo.countries' ? { ...f, comments: [comment({ id: 9, fieldKey: f.key })] } : f)) })),
+        };
+        const el = await openWith(withOther, [clarificationThread(), regionsThread()]);
+        expect(text(cue(el)!)).toContain("The program asked for a clarification on 2 of your comments. You can answer them while the program's step is open.");
+        expect(readOnly(el)).toBeNull();
+        const goGeo = [...el.querySelectorAll<HTMLButtonElement>('nav button')].find((b) => text(b).startsWith('Geographic location'))!;
+        goGeo.click();
+        await settle();
+        expect(byName(el, 'Answer clarification1 for Regions')).toBeDefined();
+        expect(byName(el, 'View comments1 for Countries')).toBeDefined();
+      });
+
+      it('the button opens the comments of the first owing field with the answer form', async () => {
+        const el = await openWith(asked(), [clarificationThread()]);
+        byName(cue(el)!, 'Answer clarification')!.click();
+        await settle();
+        expect(document.querySelector('label[for="review-comment-draft"]')?.textContent).toContain('Your answer to the program');
+        expect(document.querySelector('#review-clarify-question')?.textContent).toContain('Which evidence link do you mean?');
+        expect(anywhere('Send answer')).toBeDefined();
+      });
+
+      it('the button moves to the section of that field when it is another one', async () => {
+        const v = askedTwice();
+        // Only Regions owes an answer (the Description thread was answered already).
+        const el = await openWith(v, [clarificationThread({ state: 'open', answerable: false }), regionsThread()]);
+        expect(text(el.querySelector('#review-section-title')!)).toBe('General information');
+        byName(cue(el)!, 'Answer clarification')!.click();
+        await settle();
+        expect(text(el.querySelector('#review-section-title')!)).toBe('Geographic location');
+        expect(anywhere('Send answer')).toBeDefined();
+        type('The regions are East Africa.');
+        anywhere('Send answer')!.click();
+        await settle();
+        expect(api.answerClarification).toHaveBeenCalledWith(5, 'The regions are East Africa.');
+      });
+
+      it('once answered, the page goes back to the read-only texts by itself', async () => {
+        const el = await openWith(asked(), [clarificationThread()]);
+        const answered = clarificationThread({
+          state: 'open',
+          answerable: false,
+          clarifications: [{ requestId: 70, question: 'Which evidence link do you mean?', requestedAt: '2026-11-18T14:00:00.000Z', answer: { body: 'That one.', answeredAt: '2026-11-19T10:00:00.000Z' } }],
+        });
+        api.answerClarification.mockReturnValueOnce(of(answered));
+        // What a read answers from now on (the store may read the threads again).
+        api.programResponses.mockReturnValue(of([answered]));
+        byName(cue(el)!, 'Answer clarification')!.click();
+        await settle();
+        type('That one.');
+        anywhere('Send answer')!.click();
+        await settle();
+        expect(cue(el)).toBeNull();
+        expect(text(readOnly(el)!)).toContain('Finished by jdoe');
+        expect(byName(el, 'View comments1 for Description of Result')).toBeDefined();
+        expect(note(el)).not.toContain(EXCEPTION);
+        expect(note(el)).toContain('This assessment is read only for you. You can read every field and its comments.');
+      });
+
+      it('after the server said the step closed, the cue goes away', async () => {
+        const el = await openWith(asked(), [clarificationThread()]);
+        api.answerClarification.mockReturnValueOnce(refusal(409, 'ASSESSMENT_STEP_CLOSED', 'The step is closed.'));
+        byName(cue(el)!, 'Answer clarification')!.click();
+        await settle();
+        type('Too late');
+        anywhere('Send answer')!.click();
+        await settle();
+        expect(cue(el)).toBeNull();
+        expect(readOnly(el)).not.toBeNull();
+        expect(byName(el, 'View comments1 for Description of Result')).toBeDefined();
+        expect(note(el)).not.toContain(EXCEPTION);
+      });
     });
 
     it("says so in the thread when the program's responses could not be read", async () => {

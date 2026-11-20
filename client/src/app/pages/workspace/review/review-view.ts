@@ -18,7 +18,7 @@ import { ALL_FIELDS, ReviewStore } from './review-store';
 import { AiReasonDialog } from './ai/ai-reason-dialog';
 import { AiReasonAsk, REVIEW_AI_PROVIDERS, ReviewAiHook } from './ai/review-ai-hook';
 import { ReviewTocSection, TocCardAction } from './review-toc-section';
-import { findField, returnsOnAnyComment, toDrawerVm, withdrawOpen } from './review.mapper';
+import { PendingAnswer, findField, pendingAnswers, pendingAnswersBanner, returnsOnAnyComment, toDrawerVm, withPendingAnswers, withdrawOpen } from './review.mapper';
 
 /** The review area stacks its navigator on top below this width (container). */
 const NARROW_PX = 900;
@@ -71,7 +71,20 @@ export class ReviewView {
   private readonly routeCode = toSignal(this.route.paramMap.pipe(map((p) => p.get('code'))), { initialValue: null });
   private readonly routeTimeline = toSignal(this.route.queryParamMap.pipe(map((p) => p.get('timeline'))), { initialValue: null });
 
-  protected readonly vm = this.store.vm;
+  /**
+   * P2-3911: the caller's comments on which the program awaits an answer they can give now. None once the server
+   * said the programs step closed. Computed only: an answer sent (thread no longer answerable) clears it by itself.
+   */
+  protected readonly pendingAnswers = computed<readonly PendingAnswer[]>(() => {
+    const view = this.store.view();
+    return !view || this.store.clarifyClosed() ? [] : pendingAnswers(view, this.store.me(), this.store.threads());
+  });
+  /** Replaces the read-only banner while an answer is owed. */
+  protected readonly clarifyBanner = computed(() => pendingAnswersBanner(this.pendingAnswers()));
+  protected readonly vm = computed(() => {
+    const page = this.store.vm();
+    return page && withPendingAnswers(page, this.pendingAnswers());
+  });
   /** Not connected in step 1: no field is flagged by AI (DD-13). */
   protected readonly aiCount = 0;
 
@@ -342,6 +355,15 @@ export class ReviewView {
     const text = this.ai.copy(key);
     this.openDrawer(key);
     if (text !== null) this.commentModel.set({ text });
+  }
+
+  /** The banner's button: to the section of the first field that owes an answer, and its comments drawer. */
+  protected answerFirst(): void {
+    const first = this.pendingAnswers()[0];
+    if (!first) return;
+    const i = this.sections().findIndex((s) => s.key === first.sectionKey);
+    if (i >= 0 && i !== this.idx()) this.goSection(i);
+    this.openDrawer(first.fieldKey);
   }
 
   protected openDrawer(key: string): void {
