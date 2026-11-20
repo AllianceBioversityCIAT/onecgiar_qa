@@ -3,6 +3,7 @@ import {
   AssessmentComment,
   AssessmentField,
   AssessmentView,
+  CommentClarification,
   CommentThread,
   FieldLabels,
   AssessmentReadOnlyReason,
@@ -616,23 +617,90 @@ export function toThreadRows(c: AssessmentComment, thread: CommentThread | undef
 }
 
 /**
- * The clarification the caller has to answer on a field, the oldest first. The server says which threads the
- * caller can answer now (`answerable`: author, pending request, programs step open). A server that does not send
- * it falls back to what the page can tell: a comment the caller wrote, left in `clarification_requested`.
+ * The one rule of P2-3911 for "the caller owes an answer on this comment": the clarification request still
+ * unanswered, or null. The server says which threads the caller can answer now (`answerable`: author, pending
+ * request, programs step open). A server that does not send it falls back to what the page can tell: a comment the
+ * caller wrote, left in `clarification_requested`. Used by the drawer's form and by the page's cue alike.
  */
+function owedClarification(
+  c: AssessmentComment,
+  me: number | null,
+  threads: CommentThreads,
+): CommentClarification | null {
+  if (me === null) return null;
+  const thread = threads.get(c.id);
+  if (!(thread?.answerable ?? (c.state === 'clarification_requested' && c.author.id === me))) return null;
+  return [...(thread?.clarifications ?? [])].reverse().find((x) => x.answer === null) ?? null;
+}
+
+/** The clarification the caller has to answer on a field (its first comment that owes one). */
 export function pendingClarification(
   f: AssessmentField,
   me: number | null,
   threads: CommentThreads,
 ): { readonly commentId: number; readonly question: string } | null {
-  if (me === null) return null;
   for (const c of openComments(f)) {
-    const thread = threads.get(c.id);
-    if (!(thread?.answerable ?? (c.state === 'clarification_requested' && c.author.id === me))) continue;
-    const pending = [...(thread?.clarifications ?? [])].reverse().find((x) => x.answer === null);
+    const pending = owedClarification(c, me, threads);
     if (pending) return { commentId: c.id, question: pending.question };
   }
   return null;
+}
+
+/** A comment of the caller on which the program awaits an answer, and where it sits on the page. */
+export interface PendingAnswer {
+  readonly sectionKey: string;
+  readonly fieldKey: string;
+  readonly fieldLabel: string;
+  readonly commentId: number;
+}
+
+/**
+ * Every comment of the result the caller can answer now, in page order (sections, then fields, then comments).
+ * Only the sections' fields: the drawer opens those (`findField`); "Other fields" carry no button.
+ */
+export function pendingAnswers(view: AssessmentView, me: number | null, threads: CommentThreads): readonly PendingAnswer[] {
+  return view.sections.flatMap((s) =>
+    s.fields.flatMap((f) =>
+      openComments(f)
+        .filter((c) => owedClarification(c, me, threads) !== null)
+        .map((c) => ({ sectionKey: s.key, fieldKey: f.key, fieldLabel: f.label, commentId: c.id })),
+    ),
+  );
+}
+
+const ANSWER_LABEL = 'Answer clarification';
+const READ_ONLY_CLARIFY_INSTRUCTIONS =
+  'This assessment is read only for you, except for the clarification the program asked on your comment.';
+
+/**
+ * The page once the caller owes an answer (P2-3911): the card of each such field offers "Answer clarification"
+ * (same click, same count), and the read-only note names the exception. With nothing owed, the page as it was.
+ */
+export function withPendingAnswers(page: ReviewVm, pending: readonly PendingAnswer[]): ReviewVm {
+  if (!pending.length) return page;
+  const keys = new Set(pending.map((p) => p.fieldKey));
+  const relabel = <T extends CardStatusVm>(card: T): T =>
+    card.actions?.secondary && keys.has(card.id) ? { ...card, actions: { ...card.actions, secondaryLabel: ANSWER_LABEL } } : card;
+  return {
+    ...page,
+    header:
+      page.header.instructions === READ_ONLY_INSTRUCTIONS
+        ? { ...page.header, instructions: READ_ONLY_CLARIFY_INSTRUCTIONS }
+        : page.header,
+    sections: page.sections.map((s) => ({
+      ...s,
+      fields: s.fields.map(relabel),
+      toc: s.toc && { ...s.toc, groups: s.toc.groups.map((g) => ({ ...g, items: g.items.map(relabel) })) },
+    })),
+  };
+}
+
+/** The banner text that replaces the read-only one while the caller owes an answer; null when nothing is owed. */
+export function pendingAnswersBanner(pending: readonly PendingAnswer[]): string | null {
+  if (!pending.length) return null;
+  return pending.length === 1
+    ? `The program asked for a clarification on your comment in “${pending[0].fieldLabel}”. You can answer it while the program's step is open.`
+    : `The program asked for a clarification on ${pending.length} of your comments. You can answer them while the program's step is open.`;
 }
 
 /**

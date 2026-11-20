@@ -2,7 +2,7 @@
 import { AssessmentField, AssessmentView } from '../../../core/api/assessment.models';
 import { FieldVm } from './review-model';
 import { clarificationThread, comment, field, programResponse, viewFixture } from './review.api-fixture';
-import { findField, formatValue, readOnlyBanner, returnsOnAnyComment, toCommentVm, toDrawerVm, toFieldVm, toReviewVm, withdrawOpen } from './review.mapper';
+import { findField, formatValue, pendingAnswers, pendingAnswersBanner, readOnlyBanner, returnsOnAnyComment, toCommentVm, toDrawerVm, toFieldVm, toReviewVm, withPendingAnswers, withdrawOpen } from './review.mapper';
 
 const byLabel = (fields: readonly FieldVm[], label: string): FieldVm =>
   fields.find((f) => f.label === label)!;
@@ -458,6 +458,84 @@ describe('review.mapper (API assessment view → Review view models)', () => {
       expect(toDrawerVm(found('open'), 'read', reader(1053), threads(answered)).mode).toBe('read');
       expect(toDrawerVm(found(), 'read', reader(1053)).mode).toBe('read');
       expect(toDrawerVm(found(), 'read', reader(1053)).comments).toHaveLength(1);
+    });
+  });
+
+  describe('the answers the caller owes the program, page-wide (P2-3911)', () => {
+    const ME = 1053;
+    /** Comment 1 on Description (General information) and comment 5 on Regions (Geographic location). */
+    const askedTwice = (author = ME): AssessmentView => {
+      const v = viewFixture({ writable: false, readOnlyReason: 'step_closed' });
+      const mine = (id: number, fieldKey: string) => comment({ id, fieldKey, state: 'clarification_requested', author: { id: author, nickname: 'mchen' } });
+      return {
+        ...v,
+        sections: v.sections.map((s) => ({
+          ...s,
+          fields: s.fields.map((f) =>
+            f.key === 'general.description' ? { ...f, comments: [mine(1, f.key)] } : f.key === 'geo.regions' ? { ...f, comments: [mine(5, f.key)] } : f,
+          ),
+        })),
+      };
+    };
+    const both = () =>
+      new Map([
+        [1, clarificationThread()],
+        [5, clarificationThread({ commentId: 5, fieldKey: 'geo.regions' })],
+      ]);
+
+    it('none: no thread asks for a clarification', () => {
+      expect(pendingAnswers(askedTwice(), ME, new Map())).toEqual([]);
+      expect(pendingAnswers(viewFixture(), ME, new Map())).toEqual([]);
+    });
+
+    it('one: the field, its section and the comment', () => {
+      expect(pendingAnswers(askedTwice(), ME, new Map([[1, clarificationThread()]]))).toEqual([
+        { sectionKey: 'general_information', fieldKey: 'general.description', fieldLabel: 'Description of Result', commentId: 1 },
+      ]);
+    });
+
+    it('two in different sections, in page order', () => {
+      expect(pendingAnswers(askedTwice(), ME, both()).map((p) => [p.sectionKey, p.fieldKey, p.commentId])).toEqual([
+        ['general_information', 'general.description', 1],
+        ['geographic_location', 'geo.regions', 5],
+      ]);
+    });
+
+    it("another author's comment, or no session, owes nothing", () => {
+      expect(pendingAnswers(askedTwice(7), ME, both())).toEqual([]);
+      // Even where the server would let someone answer: without a session the page asks nothing.
+      expect(pendingAnswers(askedTwice(), null, new Map([[1, clarificationThread({ answerable: true })]]))).toEqual([]);
+    });
+
+    it('follows the server flag: answerable false owes nothing, answerable true does', () => {
+      const closed = new Map([[1, clarificationThread({ answerable: false })]]);
+      expect(pendingAnswers(askedTwice(), ME, closed)).toEqual([]);
+      expect(pendingAnswers(askedTwice(), ME, new Map([[1, clarificationThread({ answerable: true })]]))).toHaveLength(1);
+    });
+
+    it('the banner names the field for one, and counts for several', () => {
+      const one = pendingAnswers(askedTwice(), ME, new Map([[1, clarificationThread()]]));
+      expect(pendingAnswersBanner(one)).toBe(
+        "The program asked for a clarification on your comment in “Description of Result”. You can answer it while the program's step is open.",
+      );
+      expect(pendingAnswersBanner(pendingAnswers(askedTwice(), ME, both()))).toBe(
+        "The program asked for a clarification on 2 of your comments. You can answer them while the program's step is open.",
+      );
+      expect(pendingAnswersBanner([])).toBeNull();
+    });
+
+    it('relabels only the owing cards and names the exception in the read-only note', () => {
+      const view = askedTwice();
+      const page = withPendingAnswers(toReviewVm(view), pendingAnswers(view, ME, new Map([[1, clarificationThread()]])));
+      const general = page.sections.find((s) => s.key === 'general_information')!.fields;
+      const geo = page.sections.find((s) => s.key === 'geographic_location')!.fields;
+      expect(byLabel(general, 'Description of Result').actions).toMatchObject({ secondaryLabel: 'Answer clarification', count: 1 });
+      expect(byLabel(geo, 'Regions').actions).toMatchObject({ secondaryLabel: 'View comments', count: 1 });
+      expect(page.header.instructions).toBe('This assessment is read only for you, except for the clarification the program asked on your comment.');
+      // Nothing owed: the page as it was.
+      const plain = toReviewVm(view);
+      expect(withPendingAnswers(plain, [])).toBe(plain);
+      expect(plain.header.instructions).toBe('This assessment is read only for you. You can read every field and its comments.');
     });
   });
 
