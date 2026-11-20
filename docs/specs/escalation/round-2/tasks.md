@@ -372,7 +372,7 @@ All back tasks touch `server/src/assessment/` (one shared boundary), so they run
 
 ## T-14: API HITL on qatest
 
-- **Status:** [ ]
+- **Status:** [~] (run 2026-11-20; awaiting the back lead's PASS)
 - **Size:** M
 - **Depends on:** T-12 (back merged into `dev`)
 - **Requirements:** NFR-3, NFR-5, and the P-17 and P-21 premises.

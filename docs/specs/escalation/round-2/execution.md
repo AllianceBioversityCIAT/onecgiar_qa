@@ -216,3 +216,32 @@
 - **Requirements covered:** FR-17, FR-2 (via the reused view; asserted in the scope e2e), proposal § 13.
 - **Running totals vs budget (~10,200):** back tasks done 12/12 · LOC ≈ 9,800 · review rounds 22/~22.
 - auto-approved (pre-approved mode)
+
+### T-14: API HITL on qatest — RUN, awaiting the back lead's PASS (2026-11-20)
+
+- **Environment:** qatest API after the `dev` deploy of `0a4379f` (pipeline success). Own timeline only; timelines 34–37 untouched (read-only GETs of their scope and assignments).
+- **`0013` applied:** indirect evidence only — the pipeline runs the migrate image before the container swap and succeeded; worklist and assessment view answer 200 on round-2 queries; the decision routes exist (admin write 403). No direct read of `__drizzle_migrations` (no DB access from this machine).
+- **Rollback of `0013`: NOT tested on a real MySQL** (no Docker/MySQL here; never on qatest, it is shared). Back lead, 2026-11-20: resolve with a disposable server DB or a CI job **before** P2-3912 goes to `staging-center`.
+- **DD-11 ratified** by the back lead, 2026-11-20 (an answered clarification shows `open` to the program; P2-3911 AC11).
+- **Staging (ids only):** timeline 40 in cycle 34 (SP05, `policy_change`, 5 steps); pinned config v4 has one core assessed field, `general.title`. Results 10151, 10152, 10153 (Reporting test data, no personal data). Assignments 37 (Assessor, user 1050) and 38 (Lead, user 1053). Loads 22 (round 1, 3/3) and 23 (round 2, 3/3 resubmitted). Comments 11, 12, 14 (title, core) and 13 (result level, non-core). User 1053 got `LEAD_ASSESSOR` on `policy_change` only (Assessor and Lead on the same type is 409 `USERS_ROLE_CONFLICT`); restored to `ASSESSOR` all at the end.
+
+| # | Step | Expected | Observed |
+|---|---|---|---|
+| 1 | Lead opens a result in round 1 | 404 (FR-1) | 404 |
+| 2 | Round 1: 3 finishes with core comments | `returned`, one `not_qaed` release each | 3 × `returned`; 2 releases acknowledged at once, 10153's stayed `pending` (attempts 1) — see finding F-1 |
+| 3 | Admin `POST /assessment-releases/retry` | the stuck row is sent | `attempted 1, sent 1, refused 0, stillPending 0`; Reporting unlocked 10153 |
+| 4 | SP answers (step 2): 11 disagree, 12 disagree, 13 accept, 14 none | stored | stored (Reporting report) |
+| 5 | Round-2 load (step 3) | 3 resubmitted, 0 skipped | load 23: 3/3 `resubmitted` |
+| 6 | Lead view | core `actionable`, non-core not; round-1 thread with SP answer; `disagreed` and `open` decidable | as expected; `choices: [agree_program, escalate]` on 11, 12, 14 |
+| 7 | 10151: escalate 11 | stays `pending` | `pending` |
+| 8 | 10151: **5 parallel finishes** (real MySQL) | exactly one end | 1 × 200 `escalated`, 4 × 409 `ASSESSMENT_FINISHED` |
+| 9 | 10151 after the end | `pending_tpb_review`, no release, comment `escalated` | as expected; release queue empty |
+| 10 | 10152: `agree_program` on 12 (13 non-core accepted) | ends `quality_assessed` on the write; `qaed` release | `quality_assessed`; `qaed` queued and acknowledged < 4 s; comment 12 `lead_sided_program` |
+| 11 | 10153: finish with the core field undecided | 409 `ASSESSMENT_CORE_UNDECIDED` with `fields` | 409, `fields: ["general.title"]` |
+| 12 | 10153: Lead validates `general.title` | ends `quality_assessed`; `qaed` release | `quality_assessed`; release acknowledged; then a decision on 14 is 409 `ASSESSMENT_FINISHED` — see observation O-1 |
+
+- **F-1 (pre-existing, P2-3910 `e013845`):** the release outbox has no periodic sweep. A row whose post-end dispatch fails stays `pending` until another end or an admin retry; with neither it stays forever and Reporting keeps the result locked. Not fixed here.
+- **O-1 (needs a business call):** validating a core field directly ends the review while its round-1 comment has no decision. Comment 14 stays `open` on a `quality_assessed` result (FR-8 maps only decided comments; a plain validation is allowed). Options: accept as is, or treat a validation over an undecided round-1 comment as `agree_program`.
+- **Index check (T-11 ADVISORY):** not run — no DB access; the SP read answered in normal time on 3 results, which proves nothing about scale.
+- **Reporting-side notes (not QA):** Reporting let General information of a locked result be edited (reverted by its agent); the SP answers 11–13 carry the real identity of the session that made them.
+- **Credentials:** tokens kept in a 600 file outside the repo, never printed; deleted at the end. Logout answered 403 (the route uses the session cookie), so the access tokens live until they expire (≤ 1 h).
