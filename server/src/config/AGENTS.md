@@ -15,6 +15,7 @@ Environment validation and typed configuration. This is the **only** place in th
 | `cognito-admin.config.ts` | `cognitoAdminConfig`: region, pool id and `credentials` only when both `COGNITO_ADMIN_*` keys are set (else the SDK default chain, i.e. the host's IAM role) |
 | `ai-jobs.config.ts` | `aiJobsConfig`: optional `AI_JOBS_QUEUE_URL` and `AWS_REGION` for the AI job queue (spec assessment/ai-suggestions); the SQS client uses the DynamoDB keys when set (`sqsClientConfig`), else the default chain |
 | `sp-access.config.ts` | `spAccessConfig`: optional `SP_ACCESS_API_KEY` (secret; the `x-api-key` of `POST /sp-access/codes`) and `SP_REPORTING_RESULT_URL` (the "Open in Reporting" template) of the Science Program view (P2-3911) |
+| `release.config.ts` | `releaseConfig`: `sweepIntervalMs` from `RELEASE_SWEEP_INTERVAL_MS` (default 60000; `0` = sweeper off) of the release outbox sweep (P2-3910 bug) |
 | `dynamodb.config.ts` | `dynamoDbConfig`: `AWS_REGION`, `DYNAMODB_TABLE_NAME`, optional `DYNAMODB_ENDPOINT`, and `credentials` only when both `DYNAMODB_*` keys are set (else the SDK default chain) |
 
 ## Variables
@@ -41,6 +42,7 @@ Environment validation and typed configuration. This is the **only** place in th
 | `OPENAPI_ENABLED` | no | `true` / `false`; default on unless `NODE_ENV=production` (Swagger UI at `/api/v1/docs`) |
 | `SP_ACCESS_API_KEY` | no | **secret**, at least 32 characters, read only in `sp-access.config.ts` (pinned by `no-qa-tokens.spec.ts`); the same value as Reporting's `QA_SP_ACCESS_API_KEY`. Unset = SP access off, `POST /sp-access/codes` answers 503 `SP_ACCESS_DISABLED` |
 | `SP_REPORTING_RESULT_URL` | no | `https://` template containing `{resultCode}` (e.g. `https://reporting.cgiar.org/result/result-detail/{resultCode}/general-information`); unset = no "Open in Reporting" link in the SP view |
+| `RELEASE_SWEEP_INTERVAL_MS` | no | whole milliseconds between two release outbox sweeps (each pause spread ±20 %); default 60000; `0` turns the sweeper off, otherwise 1000 to 86400000. `vitest.config.e2e.ts` sets `0`: a test that needs the sweeper enables it by overriding `releaseConfig.KEY` |
 | `SEED_ADMIN_EMAIL` | no | first ADMIN for `pnpm db:seed` |
 | `PORT` | no | default 3000 |
 

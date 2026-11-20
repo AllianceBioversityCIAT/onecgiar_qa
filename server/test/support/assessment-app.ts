@@ -20,6 +20,7 @@ import { WORKLIST_STORE } from '../../src/assessment/worklist.store.js';
 import { UpstreamUnavailableError } from '../../src/users/catalogs/catalogs.errors.js';
 import { SNAPSHOT_STORE } from '../../src/ingestion/snapshot-store.port.js';
 import { RESULTS_FEED } from '../../src/ingestion/results-feed.port.js';
+import { releaseConfig } from '../../src/config/release.config.js';
 import { RELEASE_PAUSE } from '../../src/assessment/release.service.js';
 import { RELEASE_STORE } from '../../src/assessment/release.store.js';
 import { FakeResultsFeed } from './fake-results-feed.js';
@@ -121,6 +122,8 @@ export async function buildAssessmentApp(
     >;
     /** Replaces the `spAccess` config (P2-3911): unset fields are undefined. */
     spAccess?: { apiKey?: string; reportingResultUrl?: string };
+    /** Turns the release sweeper on at this interval (P2-3910); unset, the e2e env keeps it off. */
+    releaseSweepIntervalMs?: number;
   } = {},
 ) {
   // The clock the services read; `setClock` moves it (FR-2 over HTTP).
@@ -271,6 +274,12 @@ export async function buildAssessmentApp(
       reportingResultUrl: undefined,
       ...options.spAccess,
     });
+  }
+  // The sweeper stays off in the e2e env (`RELEASE_SWEEP_INTERVAL_MS=0`); a test turns it on here.
+  if (options.releaseSweepIntervalMs !== undefined) {
+    builder
+      .overrideProvider(releaseConfig.KEY)
+      .useValue({ sweepIntervalMs: options.releaseSweepIntervalMs });
   }
   const moduleRef = await builder.compile();
   const app = moduleRef.createNestApplication<NestExpressApplication>();

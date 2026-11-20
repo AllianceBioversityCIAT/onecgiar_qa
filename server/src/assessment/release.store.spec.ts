@@ -69,6 +69,40 @@ describe('the claim (design 7.6 step 1)', () => {
     ]);
   });
 
+  it('the retry (ignoreBackoff) also takes a lease later than a send in flight could put it, and never a skipped id', () => {
+    const beyond = new Date('2026-11-13T10:01:30Z');
+    const due = reads.buildDueSelect(NOW, 50, 2026, beyond, [3, 4]).toSQL();
+    expect(due.sql).toContain(
+      '(`assessment_releases`.`lease_until` is null or `assessment_releases`.`lease_until` < ? or `assessment_releases`.`lease_until` > ?)',
+    );
+    expect(due.sql).toContain('`assessment_releases`.`id` not in (?, ?)');
+    expect(due.params).toEqual([
+      'pending',
+      '2026-11-13 10:00:00.000',
+      '2026-11-13 10:01:30.000',
+      2026,
+      3,
+      4,
+      50,
+    ]);
+    const years = reads.buildDueYears(NOW, beyond, [3]).toSQL();
+    expect(years.sql).toContain('`assessment_releases`.`lease_until` > ?');
+    expect(years.sql).toContain('`assessment_releases`.`id` not in (?)');
+    const update = reads.buildClaimUpdate([7], NOW, LEASE, beyond).toSQL();
+    expect(update.sql).toContain('`assessment_releases`.`lease_until` > ?');
+  });
+
+  it('the plain claim never reads a lease in the future, with or without skipped ids', () => {
+    for (const text of [
+      reads.buildDueSelect(NOW, 50, 2026).toSQL().sql,
+      reads.buildDueYears(NOW).toSQL().sql,
+      reads.buildClaimUpdate([7], NOW, LEASE).toSQL().sql,
+    ]) {
+      expect(text).not.toContain('`lease_until` > ?');
+      expect(text).not.toContain('not in');
+    }
+  });
+
   it('reads the leased rows back with the timeline of each membership, by id', () => {
     const { sql: text } = reads.buildLeasedRows([7, 8]).toSQL();
     expect(text).toContain('from `assessment_releases`');
@@ -93,7 +127,9 @@ class ScriptedClaim extends DrizzleReleaseStore {
   }
   buildDueYears() {
     this.asked.push('years');
-    return Promise.resolve(this.years.map((phaseYear) => ({ phaseYear }))) as never;
+    return Promise.resolve(
+      this.years.map((phaseYear) => ({ phaseYear })),
+    ) as never;
   }
   buildDueSelect(_now: Date, _limit: number, phaseYear: number) {
     this.asked.push(`select ${phaseYear}`);
@@ -105,9 +141,7 @@ class ScriptedClaim extends DrizzleReleaseStore {
   }
   buildLeasedRows(ids: readonly number[]) {
     this.asked.push(`read ${ids.join(',')}`);
-    return Promise.resolve(
-      ids.map((id) => ({ id, phaseYear: 2026 })),
-    ) as never;
+    return Promise.resolve(ids.map((id) => ({ id, phaseYear: 2026 }))) as never;
   }
 }
 
@@ -134,7 +168,9 @@ describe('the claim loop over the due years (T-14)', () => {
     ]);
     expect(rows.map((row) => row.id)).toEqual([7, 9]);
     // The lease is measured from the clock read inside the claim, and every row carries it.
-    expect(rows.every((row) => row.leaseUntil.getTime() === NOW.getTime() + 60_000)).toBe(true);
+    expect(
+      rows.every((row) => row.leaseUntil.getTime() === NOW.getTime() + 60_000),
+    ).toBe(true);
   });
 
   it('claims nothing, and writes nothing, when every due year is held', async () => {
@@ -207,5 +243,43 @@ describe('the admin list (design 6)', () => {
     expect(text).toContain('`assessment_releases`.`status` = ?');
     expect(text).toContain('order by `assessment_releases`.`id`');
     expect(params).toEqual(['refused', 500]);
+  });
+});
+
+describe('the backoff and the stuck read (P2-3910 bug)', () => {
+  it('defers with ONE conditional UPDATE: only the given ids, only while pending, touching the lease alone', () => {
+    const { sql: text, params } = reads
+      .buildDefer([7, 8], new Date('2026-11-13T10:02:00Z'), 2)
+      .toSQL();
+    expect(text).toMatch(
+      /^update `assessment_releases` set `lease_until` = \? where /,
+    );
+    expect(text).toContain('`assessment_releases`.`id` in (?, ?)');
+    expect(text).toContain('`assessment_releases`.`status` = ?');
+    // Fenced by the claim's attempts; the column is never written.
+    expect(text).toContain('`assessment_releases`.`attempts` = ?');
+    expect(params).toEqual(['2026-11-13 10:02:00.000', 7, 8, 'pending', 2]);
+  });
+
+  it('reads the stuck rows: pending, attempts at or above the threshold, ids and counts only', () => {
+    const { sql: text, params } = reads.buildStuck(10).toSQL();
+    expect(text).toMatch(
+      /^select `id`, `attempts` from `assessment_releases` where /,
+    );
+    expect(text).toContain('`assessment_releases`.`status` = ?');
+    expect(text).toContain('`assessment_releases`.`attempts` >= ?');
+    expect(params).toEqual(['pending', 10, 500]);
+  });
+
+  it('does not run a statement for an empty defer', async () => {
+    let ran = false;
+    class Spy extends DrizzleReleaseStore {
+      buildDefer() {
+        ran = true;
+        return Promise.resolve() as never;
+      }
+    }
+    await new Spy(mock).deferUntil([], NOW);
+    expect(ran).toBe(false);
   });
 });

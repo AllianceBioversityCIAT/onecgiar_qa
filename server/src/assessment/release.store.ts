@@ -1,6 +1,19 @@
 // @akili-spec assessment/step-1-assessment
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, eq, inArray, isNull, lt, min, or, sql } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  eq,
+  gt,
+  gte,
+  inArray,
+  isNull,
+  lt,
+  min,
+  notInArray,
+  or,
+  sql,
+} from 'drizzle-orm';
 import type { AdminConfigClock } from '../admin-config/admin-config.clock.js';
 import { DRIZZLE } from '../database/drizzle/drizzle.constants.js';
 import type { DrizzleDB } from '../database/drizzle/drizzle.module.js';
@@ -48,6 +61,37 @@ export interface ReleaseListItem {
 
 export type ReleaseListStatus = 'pending' | 'refused';
 
+/**
+ * How a claim reads the lease. A lease is two things: the claim of a send in
+ * flight (at most `leaseMs` from the claim's clock) and, after a failure, the
+ * backoff (`deferUntil`). The sweep honours both. The admin retry
+ * (`ignoreBackoff`) also takes a row whose lease is further away than a send
+ * in flight could ever put it; `skipIds` keeps one call from taking again a row
+ * it already claimed.
+ */
+export interface ClaimOptions {
+  ignoreBackoff?: boolean;
+  skipIds?: readonly number[];
+}
+
+/** A pending row that has used many attempts: ids and counts only. */
+export interface StuckRelease {
+  id: number;
+  attempts: number;
+}
+
+/** The most rows one stuck read answers. */
+export const STUCK_LIST_LIMIT = 500;
+
+/**
+ * How far past `claim clock + leaseMs` a send in flight's lease may still sit:
+ * `datetime` rounding (under a second) and the clock skew between API
+ * instances (assumed well under this). The retry takes only a lease beyond that
+ * line, so it never takes a send in flight; a backoff that ends within it is
+ * left to the sweep.
+ */
+export const IN_FLIGHT_TOLERANCE_MS = 30 * 1000;
+
 /** The most rows the admin list answers. */
 export const RELEASE_LIST_LIMIT = 500;
 
@@ -72,7 +116,28 @@ export interface ReleaseStore {
     clock: AdminConfigClock,
     leaseMs: number,
     limit: number,
+    options?: ClaimOptions,
   ): Promise<DueRelease[]>;
+  /**
+   * The backoff: ONE conditional statement, `UPDATE ... SET lease_until = ?
+   * WHERE id IN (...) AND status = 'pending'`. The claim skips a leased row, so
+   * the lease doubles as "next attempt at"; no column of its own.
+   *
+   * Fenced by the claim: `attempts` is what the claim returned for these rows
+   * and rises on every claim, so `AND attempts = ?` matches only while the rows
+   * are still the caller's claim. A dispatcher whose lease ran out and whose
+   * rows another dispatcher re-claimed relabels nothing. Known limit: `attempts`
+   * stops at 255 (`least(…, 255)` in the claim), so past that a late defer can
+   * match again; that takes ~5 days of 30-min backoffs, long after
+   * `release_stuck` started warning (accepted, back lead 2026-11-20).
+   */
+  deferUntil(
+    ids: readonly number[],
+    until: Date,
+    attempts: number,
+  ): Promise<void>;
+  /** One statement: the `pending` rows with at least `minAttempts` attempts, oldest first, at most `STUCK_LIST_LIMIT`. */
+  listStuck(minAttempts: number): Promise<StuckRelease[]>;
   /** One statement: the `pending` or `refused` rows, oldest first, at most `RELEASE_LIST_LIMIT`. */
   list(status: ReleaseListStatus): Promise<ReleaseListItem[]>;
 }
@@ -125,9 +190,25 @@ const dueColumns = {
 /** A claim looks at this many due years at most: phase years are a handful, and a claim that finds nothing in them leaves the rest to the next sweep. */
 export const DUE_YEARS_MAX = 10;
 
-/** Due: `pending`, with no lease or one that has passed. */
-const dueCondition = (now: Date) =>
-  and(eq(r.status, 'pending'), or(isNull(r.leaseUntil), lt(r.leaseUntil, now)));
+/**
+ * Due: `pending`, with no lease or one that has passed. With `beyond`, also a
+ * lease later than that instant: only a backoff reaches so far, never a send in
+ * flight (the admin retry, which ignores the backoff).
+ */
+const dueCondition = (now: Date, beyond?: Date) =>
+  and(
+    eq(r.status, 'pending'),
+    or(
+      isNull(r.leaseUntil),
+      lt(r.leaseUntil, now),
+      beyond === undefined ? undefined : gt(r.leaseUntil, beyond),
+    ),
+  );
+
+const notSkipped = (skipIds: readonly number[] | undefined) =>
+  skipIds === undefined || skipIds.length === 0
+    ? undefined
+    : notInArray(r.id, [...skipIds]);
 
 type ReleaseDb = Pick<DrizzleDB, 'select' | 'update' | 'transaction'>;
 
@@ -137,29 +218,46 @@ export class DrizzleReleaseStore implements ReleaseStore {
   constructor(@Inject(DRIZZLE) private readonly db: ReleaseDb) {}
 
   /** The phase years that have a due row, the one with the oldest due row first (no lock: a year all of whose rows are held is still listed). At most `DUE_YEARS_MAX`. */
-  buildDueYears(now: Date) {
+  buildDueYears(now: Date, beyond?: Date, skipIds?: readonly number[]) {
     return this.db
       .select({ phaseYear: r.phaseYear })
       .from(r)
-      .where(dueCondition(now))
+      .where(and(dueCondition(now, beyond), notSkipped(skipIds)))
       .groupBy(r.phaseYear)
       .orderBy(asc(min(r.id)))
       .limit(DUE_YEARS_MAX);
   }
 
   /** The due ids of one phase year, locked: a row another dispatcher holds is skipped, never waited for. */
-  buildDueSelect(now: Date, limit: number, phaseYear: number) {
+  buildDueSelect(
+    now: Date,
+    limit: number,
+    phaseYear: number,
+    beyond?: Date,
+    skipIds?: readonly number[],
+  ) {
     return this.db
       .select({ id: r.id, resultId: r.resultId })
       .from(r)
-      .where(and(dueCondition(now), eq(r.phaseYear, phaseYear)))
+      .where(
+        and(
+          dueCondition(now, beyond),
+          eq(r.phaseYear, phaseYear),
+          notSkipped(skipIds),
+        ),
+      )
       .orderBy(asc(r.id))
       .limit(limit)
       .for('update', { skipLocked: true });
   }
 
   /** The claim: ONE conditional UPDATE. The lease condition is what keeps a leased row from being taken twice. */
-  buildClaimUpdate(ids: readonly number[], now: Date, leaseUntil: Date) {
+  buildClaimUpdate(
+    ids: readonly number[],
+    now: Date,
+    leaseUntil: Date,
+    beyond?: Date,
+  ) {
     return this.db
       .update(r)
       .set({
@@ -167,13 +265,30 @@ export class DrizzleReleaseStore implements ReleaseStore {
         // `attempts` is a tinyint: the count stops at 255 instead of failing the claim.
         attempts: sql`least(${r.attempts} + 1, 255)`,
       })
+      .where(and(inArray(r.id, [...ids]), dueCondition(now, beyond)));
+  }
+
+  /** The backoff: ONE conditional UPDATE. */
+  buildDefer(ids: readonly number[], until: Date, attempts: number) {
+    return this.db
+      .update(r)
+      .set({ leaseUntil: until })
       .where(
         and(
           inArray(r.id, [...ids]),
           eq(r.status, 'pending'),
-          or(isNull(r.leaseUntil), lt(r.leaseUntil, now)),
+          eq(r.attempts, attempts),
         ),
       );
+  }
+
+  buildStuck(minAttempts: number) {
+    return this.db
+      .select({ id: r.id, attempts: r.attempts })
+      .from(r)
+      .where(and(eq(r.status, 'pending'), gte(r.attempts, minAttempts)))
+      .orderBy(asc(r.id))
+      .limit(STUCK_LIST_LIMIT);
   }
 
   buildLeasedRows(ids: readonly number[]) {
@@ -185,10 +300,24 @@ export class DrizzleReleaseStore implements ReleaseStore {
       .orderBy(asc(r.id));
   }
 
+  async deferUntil(
+    ids: readonly number[],
+    until: Date,
+    attempts: number,
+  ): Promise<void> {
+    if (ids.length === 0) return;
+    await this.buildDefer(ids, until, attempts);
+  }
+
+  async listStuck(minAttempts: number): Promise<StuckRelease[]> {
+    return await this.buildStuck(minAttempts);
+  }
+
   async claimDue(
     clock: AdminConfigClock,
     leaseMs: number,
     limit: number,
+    options: ClaimOptions = {},
   ): Promise<DueRelease[]> {
     return await this.db.transaction(
       async (tx) =>
@@ -196,6 +325,7 @@ export class DrizzleReleaseStore implements ReleaseStore {
           clock,
           leaseMs,
           limit,
+          options,
         ),
       { isolationLevel: 'read committed' },
     );
@@ -206,14 +336,30 @@ export class DrizzleReleaseStore implements ReleaseStore {
     clock: AdminConfigClock,
     leaseMs: number,
     limit: number,
+    options: ClaimOptions = {},
   ): Promise<DueRelease[]> {
     // Read here, after the pool handed the connection over: the lease is measured from the transaction's own start.
     const now = clock();
     const leaseUntil = new Date(now.getTime() + leaseMs);
+    // The farthest a send in flight can have put a lease: anything beyond is a backoff.
+    const beyond = options.ignoreBackoff
+      ? new Date(now.getTime() + leaseMs + IN_FLIGHT_TOLERANCE_MS)
+      : undefined;
+    const { skipIds } = options;
     // ONE claim is ONE send batch: one phase year, no result id twice,
     // so the lease always outlasts the single send it covers (NFR-3).
-    for (const { phaseYear } of await this.buildDueYears(now)) {
-      const locked = await this.buildDueSelect(now, limit, phaseYear);
+    for (const { phaseYear } of await this.buildDueYears(
+      now,
+      beyond,
+      skipIds,
+    )) {
+      const locked = await this.buildDueSelect(
+        now,
+        limit,
+        phaseYear,
+        beyond,
+        skipIds,
+      );
       const seen = new Set<number>();
       const ids = locked
         .filter((row) => !seen.has(row.resultId) && seen.add(row.resultId))
@@ -221,7 +367,12 @@ export class DrizzleReleaseStore implements ReleaseStore {
       // Every row of this year is held by another dispatcher: try the next year.
       if (ids.length === 0) continue;
       // The rows are locked by the read above, so the UPDATE matches every one of them: anything else is a defect, and rolling back beats sending rows that are not leased.
-      const [header] = await this.buildClaimUpdate(ids, now, leaseUntil);
+      const [header] = await this.buildClaimUpdate(
+        ids,
+        now,
+        leaseUntil,
+        beyond,
+      );
       if (header.affectedRows !== ids.length) {
         throw new Error('release_claim_mismatch');
       }
