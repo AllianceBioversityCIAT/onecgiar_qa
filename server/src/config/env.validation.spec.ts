@@ -208,3 +208,35 @@ describe('SP view settings (optional, P2-3911)', () => {
     );
   });
 });
+
+describe('validateEnv: RELEASE_SWEEP_INTERVAL_MS (P2-3910)', () => {
+  it.each(['0', '1000', '60000', '86400000', 5000, ''])(
+    'accepts %s',
+    (value) => {
+      expect(() =>
+        validateEnv({ ...VALID, RELEASE_SWEEP_INTERVAL_MS: value }),
+      ).not.toThrow();
+    },
+  );
+
+  it('accepts it unset', () => {
+    expect(() => validateEnv({ ...VALID })).not.toThrow();
+  });
+
+  it.each([
+    '-1',
+    '1',
+    '999',
+    '20',
+    '1.5',
+    'abc',
+    '60s',
+    ' 1',
+    '86400001',
+    '1e3',
+  ])('rejects %s, naming the variable', (value) => {
+    expect(() =>
+      validateEnv({ ...VALID, RELEASE_SWEEP_INTERVAL_MS: value }),
+    ).toThrow('RELEASE_SWEEP_INTERVAL_MS');
+  });
+});

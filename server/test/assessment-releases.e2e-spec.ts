@@ -11,6 +11,8 @@ import {
   type FeedRelease,
   type FeedReleaseQuery,
 } from '../src/ingestion/results-feed.port.js';
+import { ReleaseSweeper } from '../src/assessment/release-sweeper.js';
+import { ReleaseService } from '../src/assessment/release.service.js';
 import {
   bearer,
   buildAssessmentApp,
@@ -60,8 +62,8 @@ describe('the release outbox (e2e)', () => {
   let a: AssessmentApp;
 
   /** An open step 1, one membership, and a configuration with NO core field: Finish ends it quality_assessed (OQ-2). */
-  async function start() {
-    a = await buildAssessmentApp(new Date('2026-11-13T10:00:00Z'));
+  async function start(options: { releaseSweepIntervalMs?: number } = {}) {
+    a = await buildAssessmentApp(new Date('2026-11-13T10:00:00Z'), options);
     a.world.timelines.push({
       id: 1,
       name: 'Official',
@@ -108,7 +110,7 @@ describe('the release outbox (e2e)', () => {
   });
 
   describe('Reporting down (FR-18 scenario)', () => {
-    beforeEach(start);
+    beforeEach(() => start());
 
     it('answers the end 200 while Reporting returns 503, keeps the release pending and the membership active, then sends it on the retry', async () => {
       a.feed.script(
@@ -176,7 +178,7 @@ describe('the release outbox (e2e)', () => {
   });
 
   describe('NFR-6: the end answers before the feed resolves', () => {
-    beforeEach(start);
+    beforeEach(() => start());
 
     it('answers 200 while Reporting never answers', async () => {
       let calls = 0;
@@ -200,7 +202,7 @@ describe('the release outbox (e2e)', () => {
   });
 
   describe('a refusal (FR-18)', () => {
-    beforeEach(start);
+    beforeEach(() => start());
 
     it('lists a not_submitted release as refused with its reason and leaves the membership active', async () => {
       a.feed.script('release', (q: FeedReleaseQuery) => ({
@@ -246,7 +248,7 @@ describe('the release outbox (e2e)', () => {
   });
 
   describe('the admin routes', () => {
-    beforeEach(start);
+    beforeEach(() => start());
 
     it('answer 403 to an assessor and 401 without a token', async () => {
       for (const [method, path] of [
@@ -289,6 +291,82 @@ describe('the release outbox (e2e)', () => {
         refused: 0,
         stillPending: 0,
       });
+    });
+  });
+
+  describe('the release sweep (P2-3910 bug: a pending row waited for an end or an admin)', () => {
+    it('sends a pending release with no further end and no admin retry', async () => {
+      await start({ releaseSweepIntervalMs: 20 });
+      a.feed.script(
+        'release',
+        unavailable(),
+        unavailable(),
+        unavailable(),
+        releasedAll,
+      );
+
+      await a.send('post', finishPath, { token: policy() });
+      await vi.waitFor(() => expect(a.feed.callsOf('release')).toHaveLength(3));
+      await vi.waitFor(() =>
+        expect(a.world.releases[0]!.status).toBe('pending'),
+      );
+
+      // Time passes (the backoff is over); nobody ends anything and nobody calls the retry.
+      a.setClock(new Date('2026-11-13T10:05:00Z'));
+
+      await vi.waitFor(() => expect(a.world.releases[0]!.status).toBe('sent'));
+      expect(a.world.memberships[0]).toMatchObject({
+        ended: true,
+        endReason: 'released_qaed',
+      });
+      expect(a.feed.callsOf('release')).toHaveLength(4);
+    });
+
+    it('two sweepers running at once send the row once', async () => {
+      await start();
+      let calls = 0;
+      let answer: () => void = () => undefined;
+      a.feed.release = (q) => {
+        calls += 1;
+        return new Promise<FeedRelease>((resolve) => {
+          answer = () => resolve(releasedAll(q));
+        });
+      };
+      // The end's own dispatch sends and acknowledges the row once; then the row is made due again for the race.
+      const first = a.app.get(ReleaseSweeper);
+      const second = new ReleaseSweeper(a.app.get(ReleaseService), {
+        sweepIntervalMs: 0,
+      });
+      await a.send('post', finishPath, { token: policy() });
+      await vi.waitFor(() => expect(calls).toBe(1));
+      answer();
+      await vi.waitFor(() => expect(a.world.releases[0]!.status).toBe('sent'));
+      a.world.releases[0]!.status = 'pending';
+      const meta = a.world.releaseMeta.get(a.world.releases[0]!.assessmentId)!;
+      meta.leaseUntil = null;
+      calls = 0;
+
+      const both = Promise.all([first.sweepOnce(), second.sweepOnce()]);
+      await vi.waitFor(() => expect(calls).toBeGreaterThanOrEqual(1));
+      await sleep(50);
+      // The second sweeper found the row leased and sent nothing.
+      expect(calls).toBe(1);
+      answer();
+      await both;
+      expect(calls).toBe(1);
+    });
+
+    it('is off in the e2e env: a failed send waits for an end or the retry, and no timer is armed', async () => {
+      await start();
+      a.feed.script('release', unavailable());
+      await a.send('post', finishPath, { token: policy() });
+      await vi.waitFor(() => expect(a.feed.callsOf('release')).toHaveLength(3));
+      a.setClock(new Date('2026-11-13T10:05:00Z'));
+
+      await sleep(150);
+
+      expect(a.feed.callsOf('release')).toHaveLength(3);
+      expect(a.world.releases[0]!.status).toBe('pending');
     });
   });
 });

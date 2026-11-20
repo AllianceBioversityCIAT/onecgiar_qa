@@ -1,9 +1,7 @@
 // @akili-spec assessment/step-1-assessment
 import { Logger } from '@nestjs/common';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  CATALOG_TIMEOUT_MS,
-} from '../users/catalogs/catalog-http.js';
+import { CATALOG_TIMEOUT_MS } from '../users/catalogs/catalog-http.js';
 import {
   FeedError,
   type FeedRelease,
@@ -20,8 +18,10 @@ import { FakeResultsFeed } from '../../test/support/fake-results-feed.js';
 import type { ReleaseStore } from './release.store.js';
 import {
   RELEASE_LEASE_MS,
+  RELEASE_STUCK_ATTEMPTS,
   ReleaseService,
   WORST_CASE_SEND_MS,
+  releaseBackoffMs,
 } from './release.service.js';
 
 // The release outbox (T-12; FR-18, NFR-3, design 7.6) over the fake unit of
@@ -713,28 +713,32 @@ describe('ReleaseService.dispatch (design 7.6)', () => {
 
   describe('hardening of the claim (T-14)', () => {
     /** The pool wait before the claim's transaction: the clock moves between the service's decision and the transaction's first statement. */
-    const slowPool = (waitMs: number) => (
-      store: InMemoryReleaseStore,
-      clock: { now: Date },
-    ): ReleaseStore => ({
-      list: (status) => store.list(status),
-      claimDue: (...args) => {
-        clock.now = new Date(clock.now.getTime() + waitMs);
-        return store.claimDue(...args);
-      },
-    });
+    const slowPool =
+      (waitMs: number) =>
+      (store: InMemoryReleaseStore, clock: { now: Date }): ReleaseStore => ({
+        list: (status) => store.list(status),
+        deferUntil: (ids, until, attempts) =>
+          store.deferUntil(ids, until, attempts),
+        listStuck: (min) => store.listStuck(min),
+        claimDue: (...args) => {
+          clock.now = new Date(clock.now.getTime() + waitMs);
+          return store.claimDue(...args);
+        },
+      });
     /** Time that passes AFTER the claim committed and before the send starts (a slow ack of the previous round, a busy event loop). */
-    const lateAfterClaim = (lateMs: number) => (
-      store: InMemoryReleaseStore,
-      clock: { now: Date },
-    ): ReleaseStore => ({
-      list: (status) => store.list(status),
-      claimDue: async (...args) => {
-        const rows = await store.claimDue(...args);
-        clock.now = new Date(clock.now.getTime() + lateMs);
-        return rows;
-      },
-    });
+    const lateAfterClaim =
+      (lateMs: number) =>
+      (store: InMemoryReleaseStore, clock: { now: Date }): ReleaseStore => ({
+        list: (status) => store.list(status),
+        deferUntil: (ids, until, attempts) =>
+          store.deferUntil(ids, until, attempts),
+        listStuck: (min) => store.listStuck(min),
+        claimDue: async (...args) => {
+          const rows = await store.claimDue(...args);
+          clock.now = new Date(clock.now.getTime() + lateMs);
+          return rows;
+        },
+      });
 
     it('measures the lease from the clock read INSIDE the claim, after a pool wait', async () => {
       const { world, feed, service, queue, row } = setup(slowPool(30_000));
@@ -768,7 +772,9 @@ describe('ReleaseService.dispatch (design 7.6)', () => {
       );
       const membership = queue('qaed');
       feed.script('release', releasedAll);
-      const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
+      const warn = vi
+        .spyOn(Logger.prototype, 'warn')
+        .mockImplementation(() => {});
 
       const result = await service.dispatch();
 
@@ -929,6 +935,276 @@ describe('ReleaseService.dispatch (design 7.6)', () => {
           phaseYear: 2026,
           kind: 'unavailable',
           rows: 1,
+        },
+      ]);
+    });
+  });
+});
+
+describe('the backoff and the sweep safety net (P2-3910 bug)', () => {
+  const MIN = 60_000;
+  const lease = (
+    world: InMemoryAssessmentWorld,
+    row: { assessmentId: number },
+  ) => world.releaseMeta.get(row.assessmentId)!.leaseUntil;
+
+  describe('the backoff table', () => {
+    it('doubles from a minute and stops at 30 minutes', () => {
+      expect([1, 2, 3, 4, 5, 6, 7, 10, 12, 255].map(releaseBackoffMs)).toEqual(
+        [1, 2, 4, 8, 16, 30, 30, 30, 30, 30].map((minutes) => minutes * MIN),
+      );
+    });
+  });
+
+  describe('every failure path leaves the row waiting its backoff', () => {
+    it('a failed send (three 503s): the lease is now + 1 min for attempt 1, and nothing is due until it passes', async () => {
+      const { world, feed, clock, service, queue, row } = setup();
+      const membership = queue('qaed');
+      feed.script('release', unavailable(), unavailable(), unavailable());
+
+      await service.dispatch();
+
+      expect(lease(world, row(membership))).toEqual(
+        new Date(START.getTime() + MIN),
+      );
+      clock.now = new Date(START.getTime() + MIN - 1000);
+      expect((await service.dispatch()).attempted).toBe(0);
+      clock.now = new Date(START.getTime() + MIN + 1000);
+      feed.script('release', releasedAll);
+      expect(await service.dispatch()).toMatchObject({ attempted: 1, sent: 1 });
+    });
+
+    it('waits 2, 4, 8, 16 and then 30 minutes as the attempts grow', async () => {
+      const { world, feed, clock, service, queue, row } = setup();
+      const membership = queue('qaed');
+      feed.script('release', unavailable());
+      const waits: number[] = [];
+      for (let attempt = 1; attempt <= 7; attempt++) {
+        await service.dispatch();
+        waits.push(
+          (lease(world, row(membership))!.getTime() - clock.now.getTime()) /
+            MIN,
+        );
+        clock.now = new Date(lease(world, row(membership))!.getTime() + 1000);
+      }
+      expect(waits).toEqual([1, 2, 4, 8, 16, 30, 30]);
+    });
+
+    it('an unanswered row waits its backoff, and an answered one next to it is not deferred', async () => {
+      const { world, feed, service, queue, row } = setup();
+      const answered = queue('qaed');
+      const silent = queue('qaed');
+      feed.script('release', (q: FeedReleaseQuery) => ({
+        phaseYear: q.phaseYear,
+        released: [
+          { resultId: q.items[0]!.resultId, resultCode: 1, outcome: 'qaed' },
+        ],
+        notReleased: [],
+      }));
+
+      await service.dispatch();
+
+      expect(row(answered).status).toBe('sent');
+      expect(lease(world, row(silent))).toEqual(
+        new Date(START.getTime() + MIN),
+      );
+    });
+
+    it('a rolled-back ack waits its backoff', async () => {
+      const { world, feed, service, queue, row } = setup();
+      const membership = queue('qaed');
+      feed.script('release', releasedAll);
+      world.beforeLockTimeline = () => {
+        throw new Error('connection lost');
+      };
+
+      await service.dispatch();
+
+      expect(row(membership).status).toBe('pending');
+      expect(lease(world, row(membership))).toEqual(
+        new Date(START.getTime() + MIN),
+      );
+    });
+
+    it('a row that was settled meanwhile is not deferred (the conditional UPDATE needs it still pending)', async () => {
+      const { world, queue, row } = setup();
+      const membership = queue('qaed');
+      row(membership).status = 'sent';
+
+      await new InMemoryReleaseStore(world).deferUntil(
+        [world.metaOf(row(membership)).id],
+        new Date(START.getTime() + MIN),
+        0,
+      );
+
+      expect(lease(world, row(membership))).toBeNull();
+    });
+
+    it('a late defer of a dispatcher whose lease ran out does not touch a row another dispatcher re-claimed', async () => {
+      const { world, clock, queue, row } = setup();
+      const membership = queue('qaed');
+      const store = new InMemoryReleaseStore(world);
+      // A claims (attempts 1); its lease runs out; B claims the row again (attempts 2).
+      const [byA] = await store.claimDue(() => clock.now, RELEASE_LEASE_MS, 50);
+      clock.now = new Date(clock.now.getTime() + RELEASE_LEASE_MS + 1000);
+      const [byB] = await store.claimDue(() => clock.now, RELEASE_LEASE_MS, 50);
+      expect([byA!.attempts, byB!.attempts]).toEqual([1, 2]);
+
+      // A's ack finally fails and A defers with ITS claim's attempts.
+      await store.deferUntil(
+        [byA!.id],
+        new Date(clock.now.getTime() + 60 * MIN),
+        byA!.attempts,
+      );
+
+      expect(lease(world, row(membership))).toEqual(byB!.leaseUntil);
+      // B's own defer (attempts 2) does land.
+      await store.deferUntil(
+        [byB!.id],
+        new Date(clock.now.getTime() + 2 * MIN),
+        2,
+      );
+      expect(lease(world, row(membership))).toEqual(
+        new Date(clock.now.getTime() + 2 * MIN),
+      );
+    });
+
+    it('a failing defer is logged and never makes dispatch throw', async () => {
+      const lines: string[] = [];
+      vi.spyOn(Logger.prototype, 'warn').mockImplementation((line: unknown) => {
+        lines.push(String(line));
+      });
+      const { feed, service, queue } = setup((store) => ({
+        list: (status) => store.list(status),
+        claimDue: (...args) => store.claimDue(...args),
+        listStuck: (min) => store.listStuck(min),
+        deferUntil: () => Promise.reject(new Error('db down')),
+      }));
+      queue('qaed');
+      feed.script('release', unavailable());
+
+      await expect(service.dispatch()).resolves.toMatchObject({ attempted: 1 });
+
+      expect(lines.map((l) => JSON.parse(l).outcome)).toContain('defer_failed');
+      expect(lines.join('')).not.toContain('db down');
+      vi.restoreAllMocks();
+    });
+  });
+
+  describe('the admin retry ignores the backoff, never a send in flight', () => {
+    it('sends a row that waits out a 30 minute backoff now, where the plain dispatch finds nothing', async () => {
+      const { world, feed, service, queue, row } = setup();
+      const membership = queue('qaed');
+      feed.script(
+        'release',
+        unavailable(),
+        unavailable(),
+        unavailable(),
+        releasedAll,
+      );
+      // Five failed attempts: the lease is 16 minutes away.
+      await service.dispatch();
+      world.metaOf(row(membership)).attempts = 5;
+      world.metaOf(row(membership)).leaseUntil = new Date(
+        START.getTime() + 16 * MIN,
+      );
+
+      expect((await service.dispatch()).attempted).toBe(0);
+      const retry = await service.dispatch({ ignoreBackoff: true });
+
+      expect(retry).toMatchObject({ attempted: 1, sent: 1 });
+      expect(row(membership).status).toBe('sent');
+    });
+
+    it('does not take a row another dispatcher is sending right now, even with a long lease on the books', async () => {
+      const { world, service: _unused, queue, clock } = setup();
+      const { feed, calls, answerAll } = deferredFeed();
+      const service = new ReleaseService(
+        new InMemoryReleaseStore(world),
+        feed,
+        new InMemoryAssessmentUnitOfWork(world),
+        () => clock.now,
+        () => Promise.resolve(),
+      );
+      queue('qaed');
+      const sweep = service.dispatch();
+      await vi.waitFor(() => expect(calls).toHaveLength(1));
+
+      const retry = await service.dispatch({ ignoreBackoff: true });
+
+      expect(retry.attempted).toBe(0);
+      expect(calls).toHaveLength(1);
+      answerAll();
+      await sweep;
+    });
+
+    it('sends a failing row once per call, not once per round', async () => {
+      const { world, feed, service, queue, row } = setup();
+      const membership = queue('qaed');
+      feed.script('release', unavailable());
+      // Attempt 2 backs off 2 minutes: beyond the in-flight cut-off, so only skipIds stops a second round.
+      world.metaOf(row(membership)).attempts = 1;
+
+      const retry = await service.dispatch({
+        ignoreBackoff: true,
+        maxRounds: 3,
+      });
+
+      expect(retry.attempted).toBe(1);
+      expect(feed.callsOf('release')).toHaveLength(3);
+    });
+  });
+
+  describe('release_stuck', () => {
+    let lines: Array<Record<string, unknown>>;
+    beforeEach(() => {
+      lines = [];
+      vi.spyOn(Logger.prototype, 'warn').mockImplementation((line: unknown) => {
+        lines.push(JSON.parse(String(line)) as Record<string, unknown>);
+      });
+    });
+    afterEach(() => vi.restoreAllMocks());
+
+    it('warns once per pending row at 10 attempts, with the id and the count only, and leaves the row pending', async () => {
+      const { world, service, queue, row } = setup();
+      const stuck = queue('qaed');
+      const fine = queue('qaed');
+      world.metaOf(row(stuck)).attempts = RELEASE_STUCK_ATTEMPTS;
+      world.metaOf(row(fine)).attempts = RELEASE_STUCK_ATTEMPTS - 1;
+
+      expect(await service.reportStuck()).toBe(1);
+
+      expect(lines).toEqual([
+        {
+          event: 'assessment_release',
+          outcome: 'release_stuck',
+          releaseId: world.metaOf(row(stuck)).id,
+          attempts: RELEASE_STUCK_ATTEMPTS,
+        },
+      ]);
+      expect(row(stuck).status).toBe('pending');
+    });
+
+    it('does not report a sent or refused row, and never throws when the read fails', async () => {
+      const { world, service, queue, row } = setup();
+      const sent = queue('qaed');
+      world.metaOf(row(sent)).attempts = 12;
+      row(sent).status = 'sent';
+      expect(await service.reportStuck()).toBe(0);
+
+      const broken = setup((store) => ({
+        list: (status) => store.list(status),
+        claimDue: (...args) => store.claimDue(...args),
+        deferUntil: (ids, until, attempts) =>
+          store.deferUntil(ids, until, attempts),
+        listStuck: () => Promise.reject(new Error('db down')),
+      }));
+      expect(await broken.service.reportStuck()).toBe(0);
+      expect(lines).toEqual([
+        {
+          event: 'assessment_release',
+          outcome: 'stuck_read_failed',
+          kind: 'error',
         },
       ]);
     });

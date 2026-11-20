@@ -67,7 +67,9 @@ import type {
   AssessmentUnitOfWork,
 } from '../../src/assessment/assessment.unit-of-work.js';
 import type { ReleaseDispatcher } from '../../src/assessment/release.service.js';
+import { IN_FLIGHT_TOLERANCE_MS } from '../../src/assessment/release.store.js';
 import type {
+  ClaimOptions,
   DueRelease,
   LockedReleaseAssessment,
   ReleaseListItem,
@@ -75,6 +77,7 @@ import type {
   ReleaseSettle,
   ReleaseStore,
   ReleaseWriteStore,
+  StuckRelease,
 } from '../../src/assessment/release.store.js';
 import type {
   EndAsReleasedQaedOutcome,
@@ -1416,20 +1419,57 @@ export class InMemoryAssessmentWriteStore implements AssessmentWriteStore {
 export class InMemoryReleaseStore implements ReleaseStore {
   constructor(private readonly world: InMemoryAssessmentWorld) {}
 
+  /** The backoff (one conditional UPDATE): only a row still `pending` and still at the claim's `attempts`. */
+  deferUntil(
+    ids: readonly number[],
+    until: Date,
+    attempts: number,
+  ): Promise<void> {
+    this.world.writeLog.push('deferUntil');
+    for (const release of this.world.releases) {
+      const meta = this.world.metaOf(release);
+      if (
+        release.status === 'pending' &&
+        meta.attempts === attempts &&
+        ids.includes(meta.id)
+      ) {
+        meta.leaseUntil = until;
+      }
+    }
+    return Promise.resolve();
+  }
+
+  listStuck(minAttempts: number): Promise<StuckRelease[]> {
+    return Promise.resolve(
+      this.world.releases
+        .filter((release) => release.status === 'pending')
+        .map((release) => this.world.metaOf(release))
+        .filter((meta) => meta.attempts >= minAttempts)
+        .map((meta) => ({ id: meta.id, attempts: meta.attempts }))
+        .sort((a, b) => a.id - b.id),
+    );
+  }
+
   claimDue(
     clock: () => Date,
     leaseMs: number,
     limit: number,
+    options: ClaimOptions = {},
   ): Promise<DueRelease[]> {
     this.world.writeLog.push('claimDue');
     const now = clock();
     const leaseUntil = new Date(now.getTime() + leaseMs);
+    // The same cut-off as the real claim: beyond it only a backoff can have put the lease.
+    const beyond = new Date(now.getTime() + leaseMs + IN_FLIGHT_TOLERANCE_MS);
     const dueRows = this.world.releases
       .filter((release) => {
         const meta = this.world.metaOf(release);
         return (
           release.status === 'pending' &&
-          (meta.leaseUntil === null || meta.leaseUntil < now)
+          !(options.skipIds ?? []).includes(meta.id) &&
+          (meta.leaseUntil === null ||
+            meta.leaseUntil < now ||
+            (options.ignoreBackoff === true && meta.leaseUntil > beyond))
         );
       })
       .sort((a, b) => this.world.metaOf(a).id - this.world.metaOf(b).id);

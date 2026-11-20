@@ -13,6 +13,11 @@ const REQUIRED_ENV_VARS = [
   'CLARISA_API_KEY',
 ] as const;
 
+/** The shortest `RELEASE_SWEEP_INTERVAL_MS` accepted besides 0 (off): a sweep every few ms would hammer the database. */
+export const MIN_RELEASE_SWEEP_INTERVAL_MS = 1000;
+/** The longest `RELEASE_SWEEP_INTERVAL_MS` accepted: a day. */
+export const MAX_RELEASE_SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
 /** The shortest `SP_ACCESS_API_KEY` accepted (P2-3911 contract § 5). */
 export const SP_ACCESS_API_KEY_MIN_LENGTH = 32;
 
@@ -138,6 +143,20 @@ export function validateEnv(
   ) {
     throw new Error(
       'Invalid APP_URL: expected an exact https:// origin (or http://localhost:<port>)',
+    );
+  }
+  // Release sweep (P2-3910): whole milliseconds, 0 = off.
+  const sweepInterval = config.RELEASE_SWEEP_INTERVAL_MS;
+  if (
+    sweepInterval !== undefined &&
+    sweepInterval !== '' &&
+    (!/^\d+$/.test(String(sweepInterval as string | number)) ||
+      Number(sweepInterval) > MAX_RELEASE_SWEEP_INTERVAL_MS ||
+      (Number(sweepInterval) !== 0 &&
+        Number(sweepInterval) < MIN_RELEASE_SWEEP_INTERVAL_MS))
+  ) {
+    throw new Error(
+      `Invalid RELEASE_SWEEP_INTERVAL_MS: expected 0 (off) or whole milliseconds from ${MIN_RELEASE_SWEEP_INTERVAL_MS} to ${MAX_RELEASE_SWEEP_INTERVAL_MS}`,
     );
   }
   // SP view (P2-3911): the key is a shared secret of at least 32 characters;
