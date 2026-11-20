@@ -43,20 +43,8 @@
     <div
       class="relative isolate hidden flex-col gap-10 overflow-hidden bg-[var(--qa-light)] p-10 lg:flex xl:p-12"
     >
-      <div class="flex items-center gap-2.5">
-        <svg
-          aria-hidden="true"
-          class="size-7 text-[var(--qa-mark)]"
-          viewBox="0 0 32 32"
-          fill="currentColor"
-        >
-          <path
-            d="M16 15C11 3 3 4 4 10s6 6 12 5Zm0 0c5-12 13-11 12-5s-6 6-12 5Zm0 2c-5 12-13 11-12 5s6-6 12-5Zm0 0c5 12 13 11 12 5s-6-6-12-5Z"
-          />
-        </svg>
-        <span class="text-lg font-bold tracking-tight text-[var(--qa-ink)]">PRMS</span>
-        <span class="text-sm text-[var(--qa-muted-ink)]">quality assurance</span>
-      </div>
+      <!-- The real PRMS quality assurance logo, same as the sidebar (Juanpa, 2026-11-20). -->
+      <img ngSrc="logo-prms-qa.svg" width="243" height="28" priority alt="PRMS quality assurance" class="block h-7 w-auto self-start" />
 
       <div class="relative mx-auto w-full max-w-[24rem]">
         <svg
@@ -90,20 +78,8 @@
     <div
       class="on-dark flex flex-col justify-center bg-[var(--qa-surface)] px-6 py-10 sm:px-12 lg:py-14 xl:px-16"
     >
-      <div class="mb-10 flex items-center gap-2.5 lg:hidden">
-        <svg
-          aria-hidden="true"
-          class="size-6 text-[var(--qa-mark)]"
-          viewBox="0 0 32 32"
-          fill="currentColor"
-        >
-          <path
-            d="M16 15C11 3 3 4 4 10s6 6 12 5Zm0 0c5-12 13-11 12-5s-6 6-12 5Zm0 2c-5 12-13 11-12 5s6-6 12-5Zm0 0c5 12 13 11 12 5s-6-6-12-5Z"
-          />
-        </svg>
-        <span class="font-bold tracking-tight text-[var(--qa-on-dark)]">PRMS</span>
-        <span class="text-sm text-[var(--qa-muted-on-dark)]">quality assurance</span>
-      </div>
+      <!-- White version of the logo on the dark form panel (phones and tablets). -->
+      <img ngSrc="logo-prms-qa-white.svg" width="208" height="24" priority alt="PRMS quality assurance" class="mb-10 block h-6 w-auto self-start lg:hidden" />
 
       <div class="w-full max-w-sm">
         <!-- Outside the views so it is already in the page when its message arrives (announced). -->

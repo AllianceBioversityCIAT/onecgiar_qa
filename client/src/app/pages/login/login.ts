@@ -9,6 +9,7 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
+import { NgOptimizedImage } from '@angular/common';
 import { Router } from '@angular/router';
 import { FieldTree, FormField, form, required, submit, validate } from '@angular/forms/signals';
 import { HlmButton } from '@spartan/button';
@@ -37,6 +38,7 @@ export const PASSWORD_CHANGED_NOTICE = 'Your password was changed. Sign in with 
     HlmFieldImports,
     HlmInput,
     HlmSpinner,
+    NgOptimizedImage,
     PasswordRecovery,
     PasswordRequirements,
     PasswordToggle,
