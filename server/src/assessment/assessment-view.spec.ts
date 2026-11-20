@@ -844,6 +844,109 @@ describe('annotateForRound (FR-3, FR-4, FR-5, FR-7)', () => {
       });
     });
 
+    it('T-17: after the review ended an undecided item is not decidable, no choices; a decided one keeps its decision', () => {
+      const ended = fieldsOf(
+        annotateForRound(
+          roundView(),
+          input({
+            ended: true,
+            thread: [
+              line({ commentId: 7001 }),
+              line({
+                commentId: 7002,
+                decision: 'escalate',
+                decisionBody: 'Needs the leads.',
+                decidedAt: new Date('2026-11-25T09:00:00.000Z'),
+              }),
+            ],
+          }),
+        ),
+      );
+      expect(ended[CORE]!.thread).toMatchObject([
+        { commentId: 7001, decidable: false, choices: [] },
+        {
+          commentId: 7002,
+          decision: { decision: 'escalate' },
+          decidable: false,
+          choices: [],
+        },
+      ]);
+      const before = fieldsOf(
+        annotateForRound(
+          roundView(),
+          input({ ended: false, thread: [line({ commentId: 7001 })] }),
+        ),
+      );
+      expect(before[CORE]!.thread[0]).toMatchObject({
+        decidable: true,
+        choices: ['agree_program', 'escalate'],
+      });
+    });
+
+    it('T-17: a field another live comment escalated offers only escalate on the rest; the escalated one keeps both; clearing restores both', () => {
+      const thread = (escalated: boolean) => [
+        line({
+          commentId: 7001,
+          ...(escalated
+            ? {
+                decision: 'escalate' as const,
+                decisionBody: 'Needs the leads.',
+                decidedAt: new Date('2026-11-25T09:00:00.000Z'),
+              }
+            : {}),
+        }),
+        line({ commentId: 7003 }),
+        line({ commentId: 7004, state: 'accepted' }),
+      ];
+      const items = (escalated: boolean) =>
+        fieldsOf(
+          annotateForRound(roundView(), input({ thread: thread(escalated) })),
+        )[CORE]!.thread;
+      expect(items(true)).toMatchObject([
+        {
+          commentId: 7001,
+          decidable: true,
+          choices: ['agree_program', 'escalate'],
+        },
+        { commentId: 7003, decidable: true, choices: ['escalate'] },
+        { commentId: 7004, decidable: false, choices: [] },
+      ]);
+      expect(items(false)).toMatchObject([
+        { commentId: 7001, choices: ['agree_program', 'escalate'] },
+        { commentId: 7003, choices: ['agree_program', 'escalate'] },
+        { commentId: 7004, choices: [] },
+      ]);
+    });
+
+    it('T-17: an escalate on another core field leaves agree_program offered here', () => {
+      const out = fieldsOf(
+        annotateForRound(
+          roundView(),
+          input({
+            thread: [
+              line({ commentId: 7001, fieldKey: CORE }),
+              line({
+                commentId: 7002,
+                fieldKey: CORE_2,
+                decision: 'escalate',
+                decisionBody: 'x',
+                decidedAt: new Date('2026-11-25T09:00:00.000Z'),
+              }),
+            ],
+          }),
+        ),
+      );
+      expect(out[CORE_2]!.thread[0]).toMatchObject({
+        commentId: 7002,
+        choices: ['agree_program', 'escalate'],
+      });
+      expect(out[CORE]!.thread[0]).toMatchObject({
+        commentId: 7001,
+        decidable: true,
+        choices: ['agree_program', 'escalate'],
+      });
+    });
+
     it('ADMIN (role null) reads the thread and decides nothing', () => {
       const out = fieldsOf(
         annotateForRound(roundView(), input({ role: null, thread: lines })),
@@ -967,6 +1070,25 @@ describe('annotateForRound (FR-3, FR-4, FR-5, FR-7)', () => {
         decision: { decision: 'escalate' },
         decidable: false,
         choices: [],
+      });
+    });
+
+    it('T-17: the Lead own escalated comment on the field makes a round-1 item offer only escalate', () => {
+      const out = fieldsOf(
+        annotateForRound(
+          build({
+            comments: [own()],
+            config: config({
+              [CORE]: { visibility: 'assessed', isCore: true },
+            }),
+            values: { [CORE]: 'T' },
+          }),
+          input({ ownDecisions: decided, thread: [line({ commentId: 7003 })] }),
+        ),
+      );
+      expect(out[CORE]!.thread[0]).toMatchObject({
+        decidable: true,
+        choices: ['escalate'],
       });
     });
 

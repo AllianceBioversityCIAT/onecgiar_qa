@@ -331,11 +331,19 @@ export interface RoundViewInput {
   ended: boolean;
 }
 
-/** The items of the thread rows, by field key, in row order. The rows hold one line per response worth showing. */
+/**
+ * The items of the thread rows, by field key, in row order. The rows hold one line per response worth showing.
+ * `ended` (T-17): the review is over, so no item is decidable and `choices` is empty; `decision` stays.
+ * `escalatedOn` (T-17): the ids of the live comments carrying an `escalate` on a field. While ANOTHER
+ * comment of the field is escalated, `agree_program` is not offered (the decide route's
+ * `ASSESSMENT_FIELD_ESCALATED`); an item's own escalate does not count.
+ */
 export function toThreadItems(
   rows: readonly RoundOneThreadRow[],
   role: string | null,
   fieldOf: (key: string) => { visibility: string; isCore: boolean },
+  ended = false,
+  escalatedOn: (key: string) => ReadonlySet<number> = () => new Set(),
 ): Map<string, ThreadItem[]> {
   const byComment = new Map<number, RoundOneThreadRow[]>();
   for (const row of rows) {
@@ -352,13 +360,19 @@ export function toThreadItems(
         best === null || line.responseId! > best.responseId! ? line : best,
       null,
     );
-    const choices = [
-      ...isDecidable(
-        { origin: 'round_one', state: head.state, deleted: false },
-        fieldOf(head.fieldKey),
-        role,
-      ),
-    ];
+    // T-17: once the review ended the decide route refuses every comment, so none reads decidable.
+    const blocked = [...escalatedOn(head.fieldKey)].some(
+      (id) => id !== head.commentId,
+    );
+    const choices = ended
+      ? []
+      : [
+          ...isDecidable(
+            { origin: 'round_one', state: head.state, deleted: false },
+            fieldOf(head.fieldKey),
+            role,
+          ),
+        ].filter((choice) => !(blocked && choice === 'agree_program'));
     const item: ThreadItem = {
       commentId: head.commentId,
       author: { id: head.authorId, nickname: head.authorNickname },
@@ -435,8 +449,28 @@ export function annotateForRound(
       isCore: field?.core === true,
     };
   };
+  // T-17: per field, the live comments carrying an `escalate`: the round-1 ones of the thread (the read holds live rows only) and the Lead's own round-2 ones.
+  const escalators = new Map<string, Set<number>>();
+  const addEscalator = (key: string, id: number) =>
+    escalators.set(key, (escalators.get(key) ?? new Set<number>()).add(id));
+  for (const row of input.thread) {
+    if (row.decision === 'escalate') addEscalator(row.fieldKey, row.commentId);
+  }
+  for (const [key, field] of fieldsByKey) {
+    for (const comment of field.comments) {
+      if (input.ownDecisions.get(comment.id)?.decision === 'escalate') {
+        addEscalator(key, comment.id);
+      }
+    }
+  }
   const threads = roundTwo
-    ? toThreadItems(input.thread, input.role, configured)
+    ? toThreadItems(
+        input.thread,
+        input.role,
+        configured,
+        input.ended,
+        (key) => escalators.get(key) ?? new Set<number>(),
+      )
     : new Map<string, ThreadItem[]>();
 
   // T-16: round 2, Lead only: the Lead's own round-2 comment takes the decision members.

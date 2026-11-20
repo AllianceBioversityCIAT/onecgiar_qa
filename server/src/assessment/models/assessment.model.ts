@@ -213,7 +213,8 @@ export class AssessmentThreadItemModel {
 
   @ApiProperty({
     type: Boolean,
-    description: 'The caller may decide this comment (`choices` is not empty)',
+    description:
+      'The caller may decide this comment now (`choices` is not empty). It already folds in the end of the review and a read-only view: false once the review ended or the view is not writable, so a client gates decision controls on this flag alone',
   })
   decidable!: boolean;
 
@@ -221,7 +222,7 @@ export class AssessmentThreadItemModel {
     type: [String],
     enum: ['agree_program', 'escalate'],
     description:
-      'The decisions the caller may set; empty for ADMIN and for a comment that is not decidable',
+      'The decisions the caller may set; empty for ADMIN, for a comment that is not decidable and always once the review ended (`decision` is kept). `agree_program` is left out while another live comment on the same field carries an `escalate`',
   })
   choices!: string[];
 }
@@ -239,7 +240,7 @@ export class AssessmentOwnCommentModel extends AssessmentCommentModel {
   @ApiProperty({
     type: Boolean,
     description:
-      'The comment can take a decision from the caller: true while it is open and the review has not ended; false once withdrawn or after the review ends (whatever the comment state). Like `thread[]`, it ignores `writable` before the end',
+      'The comment can take a decision from the caller: true while it is open and the review has not ended; false once withdrawn, after the review ends or when the view is not writable (whatever the comment state). Same rule as `thread[]` items: gate decision controls on this flag alone',
   })
   decidable!: boolean;
 

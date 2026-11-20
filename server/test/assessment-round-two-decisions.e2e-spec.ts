@@ -156,6 +156,107 @@ describe('Round-2 decisions of the Lead (e2e)', () => {
     ]);
   });
 
+  it('T-17: while another comment on the field is escalated the rest offers only escalate; clearing restores both choices', async () => {
+    plantRoundOneComment(a, roundOneId, 7003, {
+      state: 'disagreed',
+      fieldKey: FIRST,
+    });
+    const threadOf = async () => {
+      const view = await a.send('get', resultPath('', code), { token: lead() });
+      return view.body.data.sections
+        .flatMap(
+          (s: { fields: Array<{ key: string; thread: unknown[] }> }) =>
+            s.fields,
+        )
+        .find((f: { key: string }) => f.key === FIRST).thread;
+    };
+    const both = ['agree_program', 'escalate'];
+
+    await decide(7001, 'escalate');
+    expect(await threadOf()).toMatchObject([
+      { commentId: 7001, decidable: true, choices: both },
+      { commentId: 7003, decidable: true, choices: ['escalate'] },
+    ]);
+    const refused = await decide(7003, 'agree_program');
+    expect(refused.status).toBe(409);
+    expect(refused.body.error.code).toBe('ASSESSMENT_FIELD_ESCALATED');
+
+    const cleared = await a.send('delete', decisionPath(code, 7001), {
+      token: lead(),
+    });
+    expect(cleared.status).toBe(200);
+    expect(await threadOf()).toMatchObject([
+      { commentId: 7001, choices: both },
+      { commentId: 7003, choices: both },
+    ]);
+  });
+
+  it('T-17: once the review is finished the undecided round-1 comment on an escalated field reads not decidable, the decided one keeps its decision', async () => {
+    plantRoundOneComment(a, roundOneId, 7003, {
+      state: 'disagreed',
+      fieldKey: FIRST,
+    });
+    const threadOf = async () => {
+      const view = await a.send('get', resultPath('', code), { token: lead() });
+      return view.body.data.sections
+        .flatMap(
+          (s: { fields: Array<{ key: string; thread: unknown[] }> }) =>
+            s.fields,
+        )
+        .find((f: { key: string }) => f.key === FIRST).thread;
+    };
+
+    expect(await threadOf()).toMatchObject([
+      { commentId: 7001, decidable: true },
+      { commentId: 7003, decidable: true },
+    ]);
+
+    expect((await decide(7001, 'escalate')).status).toBe(200);
+    expect((await decide(7002, 'escalate')).status).toBe(200);
+    const done = await a.send('post', resultPath('/finish', code), {
+      token: lead(),
+    });
+    expect(done.status).toBe(200);
+
+    expect(await threadOf()).toMatchObject([
+      {
+        commentId: 7001,
+        decision: { decision: 'escalate' },
+        decidable: false,
+        choices: [],
+      },
+      { commentId: 7003, decidable: false, choices: [] },
+    ]);
+  });
+
+  it('T-17: after the Lead step closes (assessment still pending) the thread items and the own comments read not decidable', async () => {
+    const created = await a.send('post', resultPath('/comments', code), {
+      token: lead(),
+      body: { fieldKey: FIRST, body: 'My own finding' },
+      key: 'own-closed-1',
+    });
+    expect(created.status).toBe(201);
+    const fieldOf = async () => {
+      const view = await a.send('get', resultPath('', code), { token: lead() });
+      return view.body.data.sections
+        .flatMap((s: { fields: Array<Record<string, unknown>> }) => s.fields)
+        .find((f: { key: string }) => f.key === FIRST);
+    };
+
+    expect(await fieldOf()).toMatchObject({
+      thread: [{ commentId: 7001, decidable: true }],
+      comments: [{ decidable: true, choices: ['escalate'] }],
+    });
+
+    a.setClock(new Date('2026-11-28T10:00:00Z')); // step 3 closed
+    expect(roundTwoAssessment()?.status).toBe('pending');
+
+    expect(await fieldOf()).toMatchObject({
+      thread: [{ commentId: 7001, decidable: false, choices: [] }],
+      comments: [{ decidable: false, choices: [] }],
+    });
+  });
+
   it('DELETE: 200 with no decision, and an agreed field goes back to grey', async () => {
     await decide(7001, 'agree_program');
 

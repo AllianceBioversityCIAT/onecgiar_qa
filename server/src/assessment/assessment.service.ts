@@ -2047,31 +2047,6 @@ export class AssessmentService {
       validated: new Map(validations.map((v) => [v.fieldKey, v.validated])),
       comments: comments.map(toViewComment),
     });
-    // Additive members over the step-1 view (FR-3, FR-4, FR-5, FR-7). ADMIN has no
-    // reviewer row at this round: it reads the thread and decides nothing.
-    const rounded = annotateForRound(view, {
-      round: membership.round,
-      role,
-      changedFields: membership.changedFields,
-      stored: new Map(validations.map((v) => [v.fieldKey, v.validated])),
-      roundOneGreens: new Set(
-        roundOneValidations.filter((v) => v.validated).map((v) => v.fieldKey),
-      ),
-      thread: roundOneThread,
-      userId: user.id,
-      ended: assessment !== null && assessment.status !== 'pending',
-      ownDecisions: new Map(
-        ownDecisions.filter(isLiveDecision).map((d) => [
-          d.commentId,
-          {
-            decision: d.decision,
-            body: d.body,
-            decidedAt: d.decidedAt.toISOString(),
-          },
-        ]),
-      ),
-    });
-
     const decision = writeDecision(
       access,
       {
@@ -2086,6 +2061,32 @@ export class AssessmentService {
     );
     // FR-16: once the assessment ended, nothing is accepted on it.
     const finished = assessment !== null && assessment.status !== 'pending';
+    // Additive members over the step-1 view (FR-3, FR-4, FR-5, FR-7). ADMIN has no
+    // reviewer row at this round: it reads the thread and decides nothing.
+    const rounded = annotateForRound(view, {
+      round: membership.round,
+      role,
+      changedFields: membership.changedFields,
+      stored: new Map(validations.map((v) => [v.fieldKey, v.validated])),
+      roundOneGreens: new Set(
+        roundOneValidations.filter((v) => v.validated).map((v) => v.fieldKey),
+      ),
+      thread: roundOneThread,
+      userId: user.id,
+      // T-17: whatever makes the view read-only (ended review, closed step) is a refusal of every decision.
+      ended: !decision.writable || finished,
+      ownDecisions: new Map(
+        ownDecisions.filter(isLiveDecision).map((d) => [
+          d.commentId,
+          {
+            decision: d.decision,
+            body: d.body,
+            decidedAt: d.decidedAt.toISOString(),
+          },
+        ]),
+      ),
+    });
+
     const readOnlyReason: AssessmentReadOnlyReason | null = !decision.writable
       ? decision.reason === 'not_in_scope'
         ? 'admin_read_only'
