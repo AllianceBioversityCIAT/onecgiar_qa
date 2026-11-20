@@ -11,12 +11,7 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
-import {
-  SP_RESPONDABLE_STATES,
-  SpComment,
-  SpRespondAnswer,
-  SpResponse,
-} from '../../core/api/sp.models';
+import { SP_RESPONDABLE_STATES, SpComment, SpRespondAnswer } from '../../core/api/sp.models';
 import { ApiError } from '../../core/http/api-envelope';
 import { QaBadge, QaBadgeStatus, QaButtonImports } from '../../ui';
 import { SpFieldValue } from './sp-field-value';
@@ -195,12 +190,22 @@ export class SpCommentThread {
    * page (another comment's save got 404/409) keeps an open "Change response" while this comment's
    * latest response is the same on the server.
    */
-  protected readonly editing = linkedSignal<SpResponse | null, boolean>({
-    source: () => this.comment().response,
-    computation: (response, previous) =>
-      previous && previous.source?.id === response?.id
+  protected readonly editing = linkedSignal<
+    { responseId: number | null; state: SpComment['state'] },
+    boolean
+  >({
+    // The state is part of the key: an answered clarification keeps the same latest response but turns the
+    // comment `open`, and the form must open even when the page was not reloaded.
+    source: () => ({
+      responseId: this.comment().response?.id ?? null,
+      state: this.comment().state,
+    }),
+    computation: (key, previous) =>
+      previous &&
+      previous.source.responseId === key.responseId &&
+      previous.source.state === key.state
         ? previous.value
-        : response === null || this.awaitsAfterAnswer(),
+        : key.responseId === null || this.awaitsAfterAnswer(),
   });
   protected readonly notice = signal('');
 
