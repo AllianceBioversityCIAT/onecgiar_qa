@@ -1,7 +1,15 @@
 import { HttpTestingController, TestRequest } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { RouterTestingHarness } from '@angular/router/testing';
-import { SP_API, meData, setupSpTesting, spErr, spOk, startSpSession, until } from '../../core/sp/sp-testing';
+import {
+  SP_API,
+  meData,
+  setupSpTesting,
+  spErr,
+  spOk,
+  startSpSession,
+  until,
+} from '../../core/sp/sp-testing';
 import { SpContext } from './sp-context';
 import { spComment, spResult } from './sp-fixtures';
 import { SpResultPage } from './sp-result-page';
@@ -31,9 +39,13 @@ describe('SpResultPage', () => {
   }
 
   const el = () => harness.routeNativeElement as HTMLElement;
-  const radio = (kind: string) => el().querySelector<HTMLInputElement>(`input[type=radio][value=${kind}]`)!;
+  const radio = (kind: string) =>
+    el().querySelector<HTMLInputElement>(`input[type=radio][value=${kind}]`)!;
   const textarea = () => el().querySelector<HTMLTextAreaElement>('textarea');
-  const submit = () => [...el().querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.includes('Save response'))!;
+  const submit = () =>
+    [...el().querySelectorAll<HTMLButtonElement>('button')].find((b) =>
+      b.textContent?.includes('Save response'),
+    )!;
 
   async function type(text: string): Promise<void> {
     const box = textarea()!;
@@ -43,7 +55,11 @@ describe('SpResultPage', () => {
   }
 
   beforeEach(async () => {
-    http = setupSpTesting(undefined, [], [{ path: 'timelines/:timelineId/results/:resultCode', component: SpResultPage }]);
+    http = setupSpTesting(
+      undefined,
+      [],
+      [{ path: 'timelines/:timelineId/results/:resultCode', component: SpResultPage }],
+    );
     await startSpSession(http);
     TestBed.inject(SpContext).setMe(meData());
   });
@@ -75,8 +91,22 @@ describe('SpResultPage', () => {
       spOk({
         comment: spComment({
           state: 'accepted',
-          response: { id: 9, kind: 'accept', body: null, respondedBy: { name: 'Sam Program' }, respondedAt: '2026-11-17T10:00:00.000Z' },
-          history: [{ id: 9, kind: 'accept', body: null, respondedBy: { name: 'Sam Program' }, respondedAt: '2026-11-17T10:00:00.000Z' }],
+          response: {
+            id: 9,
+            kind: 'accept',
+            body: null,
+            respondedBy: { name: 'Sam Program' },
+            respondedAt: '2026-11-17T10:00:00.000Z',
+          },
+          history: [
+            {
+              id: 9,
+              kind: 'accept',
+              body: null,
+              respondedBy: { name: 'Sam Program' },
+              respondedAt: '2026-11-17T10:00:00.000Z',
+            },
+          ],
         }),
         counts: { comments: 1, answered: 1 },
       }),
@@ -109,14 +139,30 @@ describe('SpResultPage', () => {
     submit().click();
     await settle();
     const req = http.expectOne(`${SP_API}/sp/comments/501/response`);
-    expect(req.request.body).toEqual({ kind: 'request_clarification', body: 'Please say which part.' });
+    expect(req.request.body).toEqual({
+      kind: 'request_clarification',
+      body: 'Please say which part.',
+    });
     req.flush(
       spOk({
         comment: spComment({
           state: 'clarification_requested',
-          response: { id: 10, kind: 'request_clarification', body: 'Please say which part.', respondedBy: { name: 'Sam Program' }, respondedAt: '2026-11-17T10:00:00.000Z' },
+          response: {
+            id: 10,
+            kind: 'request_clarification',
+            body: 'Please say which part.',
+            respondedBy: { name: 'Sam Program' },
+            respondedAt: '2026-11-17T10:00:00.000Z',
+          },
           history: [],
-          clarifications: [{ requestId: 10, question: 'Please say which part.', requestedAt: '2026-11-17T10:00:00.000Z', answer: null }],
+          clarifications: [
+            {
+              requestId: 10,
+              question: 'Please say which part.',
+              requestedAt: '2026-11-17T10:00:00.000Z',
+              answer: null,
+            },
+          ],
         }),
         counts: { comments: 1, answered: 0 },
       }),
@@ -126,6 +172,36 @@ describe('SpResultPage', () => {
     expect(el().textContent).toContain("Waiting for the assessor's answer.");
     // The latest response counts, and it can still be changed.
     expect(el().textContent).toContain('Change response');
+  });
+
+  it('a clarification the assessor answered is the program\'s turn again: not "Answered", and the form is open', async () => {
+    const ask = {
+      id: 10,
+      kind: 'request_clarification' as const,
+      body: 'Which part?',
+      respondedBy: { name: 'Sam Program' },
+      respondedAt: '2026-11-17T10:00:00.000Z',
+    };
+    await open(
+      spResult({}, [
+        spComment({
+          state: 'open',
+          response: ask,
+          history: [ask],
+          clarifications: [
+            {
+              requestId: 10,
+              question: 'Which part?',
+              requestedAt: '2026-11-17T10:00:00.000Z',
+              answer: { body: 'The second sentence.', answeredAt: '2026-11-18T10:00:00.000Z' },
+            },
+          ],
+        }),
+      ]),
+    );
+    expect(el().textContent).toContain('Clarification answered');
+    expect(radio('accept')).not.toBeNull();
+    expect(el().textContent).toContain('The second sentence.');
   });
 
   it('a text over 2,000 characters is refused before sending', async () => {
@@ -148,10 +224,15 @@ describe('SpResultPage', () => {
     await settle();
     http
       .expectOne(`${SP_API}/sp/comments/501/response`)
-      .flush(spErr(400, 'VALIDATION_FAILED', 'Check the fields.', [{ field: 'body', code: 'TOO_LONG', message: 'This text is too long.' }]), {
-        status: 400,
-        statusText: 'x',
-      });
+      .flush(
+        spErr(400, 'VALIDATION_FAILED', 'Check the fields.', [
+          { field: 'body', code: 'TOO_LONG', message: 'This text is too long.' },
+        ]),
+        {
+          status: 400,
+          statusText: 'x',
+        },
+      );
     await settle();
     expect(el().textContent).toContain('This text is too long.');
   });
@@ -162,12 +243,16 @@ describe('SpResultPage', () => {
     await settle();
     submit().click();
     await settle();
-    http.expectOne(`${SP_API}/sp/comments/501/response`).flush(spErr(409, 'SP_COMMENT_NOT_RESPONDABLE', 'This comment can no longer be answered.'), {
-      status: 409,
-      statusText: 'x',
-    });
+    http
+      .expectOne(`${SP_API}/sp/comments/501/response`)
+      .flush(spErr(409, 'SP_COMMENT_NOT_RESPONDABLE', 'This comment can no longer be answered.'), {
+        status: 409,
+        statusText: 'x',
+      });
     await settle();
-    expect(el().querySelector('[role=alert]')?.textContent).toContain('This comment can no longer be answered.');
+    expect(el().querySelector('[role=alert]')?.textContent).toContain(
+      'This comment can no longer be answered.',
+    );
   });
 
   it('409 SP_STEP_CLOSED reloads the result read-only with the message', async () => {
@@ -176,23 +261,43 @@ describe('SpResultPage', () => {
     await settle();
     submit().click();
     await settle();
-    http.expectOne(`${SP_API}/sp/comments/501/response`).flush(spErr(409, 'SP_STEP_CLOSED', 'The response period for programs is not open.'), {
-      status: 409,
-      statusText: 'x',
-    });
+    http
+      .expectOne(`${SP_API}/sp/comments/501/response`)
+      .flush(spErr(409, 'SP_STEP_CLOSED', 'The response period for programs is not open.'), {
+        status: 409,
+        statusText: 'x',
+      });
     await settle();
-    (await until(() => http.expectOne((r) => r.url === RESULT_URL))).flush(spOk(spResult({ writable: false, readOnlyReason: 'step_closed' })));
+    (await until(() => http.expectOne((r) => r.url === RESULT_URL))).flush(
+      spOk(spResult({ writable: false, readOnlyReason: 'step_closed' })),
+    );
     await settle();
     expect(el().textContent).toContain('The response period for programs is not open.');
-    expect(el().querySelector('[data-testid=sp-read-only]')?.textContent).toContain('Step 2 is closed. Responses are read-only.');
+    expect(el().querySelector('[data-testid=sp-read-only]')?.textContent).toContain(
+      'Step 2 is closed. Responses are read-only.',
+    );
     expect(el().querySelector('qa-sp-response-form')).toBeNull();
   });
 
   it('read-only before the step opens: no form, the opening date', async () => {
-    await open(spResult({ writable: false, readOnlyReason: 'step_not_open', step: { position: 2, name: 'Programs review', opensAt: '2026-11-21T09:00', closesAt: '2026-11-30T17:30', state: 'upcoming' } }));
+    await open(
+      spResult({
+        writable: false,
+        readOnlyReason: 'step_not_open',
+        step: {
+          position: 2,
+          name: 'Programs review',
+          opensAt: '2026-11-21T09:00',
+          closesAt: '2026-11-30T17:30',
+          state: 'upcoming',
+        },
+      }),
+    );
     expect(el().querySelector('qa-sp-response-form')).toBeNull();
     expect(el().querySelector('input[type=radio]')).toBeNull();
-    expect(el().querySelector('[data-testid=sp-read-only]')?.textContent).toContain('Responses open on 21 Nov 2026, 09:00 (Rome time).');
+    expect(el().querySelector('[data-testid=sp-read-only]')?.textContent).toContain(
+      'Responses open on 21 Nov 2026, 09:00 (Rome time).',
+    );
   });
 
   it('Save without a choice announces the error and moves focus to the options', async () => {
@@ -233,11 +338,25 @@ describe('SpResultPage', () => {
       respondedAt: '2026-11-12T08:00:00.000Z',
     };
     const twoComments = () =>
-      spResult({}, [spComment(), spComment({ id: 502, body: 'Second remark.' }), spComment({ id: 503, body: 'Third remark.', state: 'disagreed', response: answered, history: [answered] })]);
+      spResult({}, [
+        spComment(),
+        spComment({ id: 502, body: 'Second remark.' }),
+        spComment({
+          id: 503,
+          body: 'Third remark.',
+          state: 'disagreed',
+          response: answered,
+          history: [answered],
+        }),
+      ]);
     const thread = (i: number) => el().querySelectorAll<HTMLElement>('qa-sp-comment-thread')[i];
-    const radioIn = (i: number, kind: string) => thread(i).querySelector<HTMLInputElement>(`input[type=radio][value=${kind}]`)!;
+    const radioIn = (i: number, kind: string) =>
+      thread(i).querySelector<HTMLInputElement>(`input[type=radio][value=${kind}]`)!;
     const boxIn = (i: number) => thread(i).querySelector<HTMLTextAreaElement>('textarea');
-    const button = (i: number, text: string) => [...thread(i).querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.includes(text))!;
+    const button = (i: number, text: string) =>
+      [...thread(i).querySelectorAll<HTMLButtonElement>('button')].find((b) =>
+        b.textContent?.includes(text),
+      )!;
 
     it("a 404 on one comment reloads the result but keeps the other forms' unsaved drafts", async () => {
       await open(twoComments());
@@ -258,7 +377,9 @@ describe('SpResultPage', () => {
       await settle();
       button(0, 'Save response').click();
       await settle();
-      http.expectOne(`${SP_API}/sp/comments/501/response`).flush(spErr(404, 'SP_NOT_FOUND'), { status: 404, statusText: 'x' });
+      http
+        .expectOne(`${SP_API}/sp/comments/501/response`)
+        .flush(spErr(404, 'SP_NOT_FOUND'), { status: 404, statusText: 'x' });
       await settle();
       (await until(() => http.expectOne((r) => r.url === RESULT_URL))).flush(spOk(twoComments()));
       await settle();
@@ -283,11 +404,24 @@ describe('SpResultPage', () => {
       await settle();
       button(0, 'Save response').click();
       await settle();
-      http.expectOne(`${SP_API}/sp/comments/501/response`).flush(spErr(404, 'SP_NOT_FOUND'), { status: 404, statusText: 'x' });
+      http
+        .expectOne(`${SP_API}/sp/comments/501/response`)
+        .flush(spErr(404, 'SP_NOT_FOUND'), { status: 404, statusText: 'x' });
       await settle();
       const other = { ...answered, id: 31, kind: 'accept' as const, body: null };
       (await until(() => http.expectOne((r) => r.url === RESULT_URL))).flush(
-        spOk(spResult({}, [spComment(), spComment({ id: 502, body: 'Second remark.', state: 'accepted', response: other, history: [other] })])),
+        spOk(
+          spResult({}, [
+            spComment(),
+            spComment({
+              id: 502,
+              body: 'Second remark.',
+              state: 'accepted',
+              response: other,
+              history: [other],
+            }),
+          ]),
+        ),
       );
       await settle();
       // Someone else answered the second comment: it now shows that answer behind "Change response".
@@ -301,7 +435,10 @@ describe('SpResultPage', () => {
       el().querySelector<HTMLInputElement>('input[type=checkbox]')!.click();
       await settle();
     };
-    const navLabels = () => [...el().querySelectorAll('[data-testid=sp-section-nav] button')].map((b) => b.textContent?.replace(/\s+/g, ' ').trim());
+    const navLabels = () =>
+      [...el().querySelectorAll('[data-testid=sp-section-nav] button')].map((b) =>
+        b.textContent?.replace(/\s+/g, ' ').trim(),
+      );
 
     it('hides sections with no commented field from the navigation too', async () => {
       const result = spResult();
@@ -309,7 +446,11 @@ describe('SpResultPage', () => {
         ...result,
         sections: [
           ...result.sections,
-          { key: 'impact', label: 'Impact', fields: [{ ...result.sections[0].fields[1], key: 'impact_area', label: 'Impact area' }] },
+          {
+            key: 'impact',
+            label: 'Impact',
+            fields: [{ ...result.sections[0].fields[1], key: 'impact_area', label: 'Impact area' }],
+          },
         ],
       });
       expect(navLabels().length).toBe(2);
@@ -324,7 +465,9 @@ describe('SpResultPage', () => {
       await open(spResult({}, []));
       expect(el().querySelector('[data-testid=sp-empty]')).toBeNull();
       await toggle();
-      expect(el().querySelector('[data-testid=sp-empty]')?.textContent).toContain('No comments on this result yet.');
+      expect(el().querySelector('[data-testid=sp-empty]')?.textContent).toContain(
+        'No comments on this result yet.',
+      );
       expect(navLabels().length).toBe(0);
       // The filter stays reachable to undo it.
       expect(el().querySelector('input[type=checkbox]')).not.toBeNull();
