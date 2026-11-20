@@ -44,6 +44,7 @@ import {
   AssessmentCoreUncommentedError,
   AssessmentCoreUndecidedError,
   AssessmentDecisionInvalidError,
+  AssessmentCoreCommentUndecidedError,
   AssessmentFieldEscalatedError,
   AssessmentFieldKeysInvalidError,
   AssessmentFieldNotCoreError,
@@ -66,6 +67,7 @@ import {
   type AssessmentWriteStore,
   type CommentRecord,
   type DecisionRecord,
+  type LiveCommentState,
   type LockedAssessment,
   type MembershipRecord,
 } from './assessment.store.js';
@@ -101,6 +103,7 @@ import {
   endRoundTwoOnFinish,
   isActionable,
   isDecidable,
+  undecidedCommentFields,
 } from './round-two-rules.js';
 import {
   resolveAccess,
@@ -438,6 +441,16 @@ export class AssessmentService {
         if (target.some((key) => escalated.has(key))) {
           throw new AssessmentFieldEscalatedError();
         }
+        // FR-8 *none (undecided)* (HITL O-1): a live round-1 comment with no decision blocks the green; the whole request is refused.
+        const undecided = await this.undecidedFields(
+          assessments,
+          membership,
+          decisions,
+          new Set(target),
+        );
+        if (undecided.length > 0) {
+          throw new AssessmentCoreCommentUndecidedError(undecided);
+        }
       }
       // A field with no row is grey in round 1; in round 2 it may be a carried green (FR-10, FR-7).
       const changed = target.filter(
@@ -569,6 +582,28 @@ export class AssessmentService {
         commented: commented.has(key),
         changed: changedFields.has(key),
       });
+  }
+
+  /**
+   * The fields among `fieldKeys` with a live decidable round-1 comment that has
+   * no decision (`undecidedCommentFields`). Reads the round-1 comments, so a
+   * result with no previous assessment answers empty without a statement.
+   */
+  private async undecidedFields(
+    assessments: AssessmentWriteStore,
+    membership: MembershipRecord,
+    decisions: readonly DecisionRecord[],
+    fieldKeys: ReadonlySet<string>,
+  ): Promise<string[]> {
+    const previous = membership.previousAssessmentId;
+    if (previous === null) return [];
+    const comments: LiveCommentState[] =
+      await assessments.findLiveCommentStates(previous);
+    return undecidedCommentFields(
+      comments,
+      new Set(decisions.filter(isLiveDecision).map((d) => d.commentId)),
+      fieldKeys,
+    );
   }
 
   /**
@@ -1381,15 +1416,8 @@ export class AssessmentService {
           await assessments.deleteDecision(commentId, context.roleCode);
           await audit('decision_clear', target.fieldKey, commentId);
           decisions = decisions.filter((d) => d !== existing);
-          // FR-8: clearing an `agree_program` turns its green back to grey, unless another agree still holds the field.
-          const stillAgreed = onField.some(
-            (d) => d !== existing && d.decision === 'agree_program',
-          );
-          if (
-            existing.decision === 'agree_program' &&
-            !stillAgreed &&
-            green(target.fieldKey)
-          ) {
+          // FR-8: clearing an `agree_program` leaves its comment undecided, so the field turns grey (the other agrees on it are kept).
+          if (existing.decision === 'agree_program' && green(target.fieldKey)) {
             await setGreen(false);
           }
         }
@@ -1447,7 +1475,17 @@ export class AssessmentService {
           decidedAt: decidedAt.toISOString(),
         };
         if (input.decision === 'agree_program') {
-          if (!green(target.fieldKey)) await setGreen(true);
+          // The agree is stored always; the field turns green only when no other live round-1 comment on it stays undecided.
+          const stillUndecided =
+            (
+              await this.undecidedFields(
+                assessments,
+                membership,
+                decisions,
+                new Set([target.fieldKey]),
+              )
+            ).length > 0;
+          if (!stillUndecided && !green(target.fieldKey)) await setGreen(true);
         } else if (green(target.fieldKey)) {
           // `escalate` keeps the field grey; an agree on another comment of it no longer holds.
           await setGreen(false);

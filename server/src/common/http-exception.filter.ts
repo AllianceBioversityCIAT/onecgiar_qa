@@ -192,7 +192,8 @@ export function toErrorBody(
   // The finish refusals name the core fields to comment on or decide: keys only (FR-15, round-2 FR-11).
   if (
     (code === 'ASSESSMENT_CORE_UNCOMMENTED' ||
-      code === 'ASSESSMENT_CORE_UNDECIDED') &&
+      code === 'ASSESSMENT_CORE_UNDECIDED' ||
+      code === 'ASSESSMENT_CORE_COMMENT_UNDECIDED') &&
     typeof body === 'object' &&
     Array.isArray(body.fields) &&
     body.fields.every((field) => typeof field === 'string')

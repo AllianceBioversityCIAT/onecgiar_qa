@@ -20,7 +20,7 @@ An assessor (or an ADMIN, read only) lists the memberships of a timeline (`GET /
 | `release.service.ts`, `release.store.ts`, `releases.controller.ts` | The release outbox and its two admin routes |
 | `title-backfill.ts` | Bootstrap hook (not awaited): fills `timeline_results.title` for memberships written before the column existed |
 | `assessment-log.ts` | The one decision log line of a write (*Logging*) |
-| `assessment.errors.ts`, `dto/`, `models/` | The 13 `ASSESSMENT_*` codes (all in the step-1 front contract § 9; the round-2 contract § 7 adds the 5 round-2 ones), pipe shapes, OpenAPI models |
+| `assessment.errors.ts`, `dto/`, `models/` | The 14 `ASSESSMENT_*` codes (all in the step-1 front contract § 9; the round-2 contract § 7 adds the 6 round-2 ones), pipe shapes, OpenAPI models |
 
 ## AI suggestions (spec `assessment/ai-suggestions`)
 
@@ -63,7 +63,7 @@ A Lead Assessor reviews a re-submitted (round-2) membership in step 3. Contract:
 | Current step (DD-3) | A round-1 membership reads the `assessors` assessment; a round-2 one reads its latest assessment among steps 3 to 5, else step 3. `qa-status.ts`, `statusSqlCase` and the worklist join use that one rule |
 | Core only | Only Assessed **core** fields take a validation, comment or decision (`isActionable`); else 409 `ASSESSMENT_FIELD_NOT_CORE`. Check all covers core fields and is refused whole while one is escalated |
 | Carried green (DD-4) | Computed, never copied: stored row, else round-1 green with no round-1 comment and not in `changed_fields` (`effectiveGreen`) |
-| Decisions | `comment_decisions`, one row per comment and role, changed or cleared only while the Lead's assessment is `pending`. `agree_program` greens the field in the same transaction; `escalate` refuses its validation. States are written **at the end** (DD-7): `agree_program` to `lead_sided_program`, `escalate` to `escalated` |
+| Decisions | `comment_decisions`, one row per comment and role, changed or cleared only while the Lead's assessment is `pending`. `agree_program` is always stored and greens the field in the same transaction, unless another live round-1 comment on it is still undecided; `escalate` refuses its validation. Validating green a core field with a live decidable round-1 comment and no live decision is 409 `ASSESSMENT_CORE_COMMENT_UNDECIDED` with sorted `fields`, whole request refused, nothing written (`undecidedCommentFields`; escalated precedence first; un-validation never refused). States are written **at the end** (DD-7): `agree_program` to `lead_sided_program`, `escalate` to `escalated` |
 | End mapping (DD-5) | `endOnFinish` / `endAfterValidation` reused through `round-two-rules.ts`: all green gives `quality_assessed` plus one `qaed` release; grey core fields all escalated give `escalated` (Pending for TPB review) and **no release row**; a grey one with no escalate is `ASSESSMENT_CORE_UNDECIDED`. Round 2 never ends `returned` |
 | No visibility (DD-8) | Round 2 never calls `markCommentsVisible`. The SP view stays round-1 only |
 | SP mapping (DD-11) | A review state (`escalated`, `lead_sided_program`) reads to the program as the state its latest response implies (`open` with no response, or a clarification already answered). One mapping in the SP read; the SP write still judges the stored state |

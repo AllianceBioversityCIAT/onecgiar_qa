@@ -122,6 +122,40 @@ describe('Round-2 decisions of the Lead (e2e)', () => {
     expect(a.world.validations.filter((v) => v.fieldKey === FIRST)).toEqual([]);
   });
 
+  it('O-1: validating a core field whose round-1 comment is open and undecided is 409 ASSESSMENT_CORE_COMMENT_UNDECIDED; agreeing then ends the review and closes the comment', async () => {
+    // The qatest path: a round-1 comment still `open` with no decision.
+    a.world.comments.find((c) => c.id === 7001)!.state = 'open';
+    a.world.comments.find((c) => c.id === 7002)!.state = 'open';
+    const validate = (fieldKeys: string[]) =>
+      a.send('put', resultPath('/validations', code), {
+        token: lead(),
+        body: { validated: true, fieldKeys },
+      });
+
+    const refused = await validate([FIRST, SECOND]);
+
+    expect(refused.status).toBe(409);
+    expect(refused.body.error.code).toBe('ASSESSMENT_CORE_COMMENT_UNDECIDED');
+    expect(refused.body.error.fields).toEqual([FIRST, SECOND].sort());
+    expect(
+      a.world.validations.filter((v) => v.assessmentId !== roundOneId),
+    ).toEqual([]);
+    expect(roundTwoAssessment()?.status ?? 'pending').toBe('pending');
+
+    await decide(7001, 'agree_program');
+    const last = await decide(7002, 'agree_program');
+
+    expect(last.body.data.status).toBe('quality_assessed');
+    expect(
+      a.world.comments
+        .filter((c) => c.assessmentId === roundOneId)
+        .map((c) => [c.id, c.state]),
+    ).toEqual([
+      [7001, 'lead_sided_program'],
+      [7002, 'lead_sided_program'],
+    ]);
+  });
+
   it('DELETE: 200 with no decision, and an agreed field goes back to grey', async () => {
     await decide(7001, 'agree_program');
 

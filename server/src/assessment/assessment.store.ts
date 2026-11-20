@@ -320,6 +320,13 @@ export interface DecisionTarget {
   deleted: boolean;
 }
 
+/** A live (not withdrawn, not deleted) comment: its id, field and state. */
+export interface LiveCommentState {
+  id: number;
+  fieldKey: string;
+  state: CommentState;
+}
+
 /** One decision of an assessment, with the comment it is on (round-2 FR-8). */
 export interface DecisionRecord {
   commentId: number;
@@ -410,6 +417,12 @@ export interface AssessmentWriteStore {
    * withdrawn nor deleted (round-2 FR-7: such a field is not a carried green).
    */
   findLiveCommentedFieldKeys(assessmentId: number): Promise<string[]>;
+  /**
+   * One statement: the comments of an assessment that are neither withdrawn nor
+   * deleted, with their field and state (round-2 FR-8, HITL O-1: the Lead's
+   * decidable round-1 comments).
+   */
+  findLiveCommentStates(assessmentId: number): Promise<LiveCommentState[]>;
   /** One statement: every non-withdrawn, non-deleted comment not yet visible becomes visible to the program at `at`. */
   markCommentsVisible(assessmentId: number, at: Date): Promise<void>;
   /** One statement: the `pending` release of an end. Unique per assessment. */
@@ -1054,6 +1067,29 @@ export class DrizzleAssessmentWriteStore implements AssessmentWriteStore {
   async findLiveCommentedFieldKeys(assessmentId: number): Promise<string[]> {
     const rows = await this.buildLiveCommentedFieldKeys(assessmentId);
     return rows.map((row) => row.fieldKey);
+  }
+
+  buildLiveCommentStates(assessmentId: number) {
+    return this.db
+      .select({
+        id: assessmentComments.id,
+        fieldKey: assessmentComments.fieldKey,
+        state: assessmentComments.state,
+      })
+      .from(assessmentComments)
+      .where(
+        and(
+          eq(assessmentComments.assessmentId, assessmentId),
+          ne(assessmentComments.state, 'withdrawn'),
+          isNull(assessmentComments.deletedAt),
+        ),
+      );
+  }
+
+  async findLiveCommentStates(
+    assessmentId: number,
+  ): Promise<LiveCommentState[]> {
+    return await this.buildLiveCommentStates(assessmentId);
   }
 
   buildMarkCommentsVisible(assessmentId: number, at: Date) {

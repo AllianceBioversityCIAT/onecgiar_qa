@@ -568,6 +568,8 @@ describe('validations PUT carries effectiveValidated (design 6)', () => {
 
   it('round 2: every core field, the carried greens included', async () => {
     const s = setup();
+    // O-1: the field carries a round-1 comment, so it is decided before it can be green.
+    await s.decide(7001, 'agree_program');
 
     const result = await s.validate(true, [CORE[0]!]);
 

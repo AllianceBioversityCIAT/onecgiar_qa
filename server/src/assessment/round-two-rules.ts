@@ -136,3 +136,30 @@ export function isDecidable(
     ? ['agree_program', 'escalate']
     : [];
 }
+
+/**
+ * FR-8 (HITL O-1): the core fields among `fieldKeys` that carry a live round-1
+ * comment the Lead may decide (`disagreed`, `open`, `clarification_requested`)
+ * with no live decision yet. `comments` are the live (not withdrawn, not
+ * deleted) comments of the round-1 assessment; `decidedCommentIds` those with a
+ * decision. Sorted ascending; empty = nothing blocks.
+ */
+export function undecidedCommentFields(
+  comments: readonly { id: number; fieldKey: string; state: CommentState }[],
+  decidedCommentIds: ReadonlySet<number>,
+  fieldKeys: ReadonlySet<string>,
+): string[] {
+  const core: ConfiguredField = { visibility: 'assessed', isCore: true };
+  const blocked = new Set<string>();
+  for (const comment of comments) {
+    if (!fieldKeys.has(comment.fieldKey)) continue;
+    if (decidedCommentIds.has(comment.id)) continue;
+    const choices = isDecidable(
+      { origin: 'round_one', state: comment.state, deleted: false },
+      core,
+      RoleCode.LEAD_ASSESSOR,
+    );
+    if (choices.length > 0) blocked.add(comment.fieldKey);
+  }
+  return [...blocked].sort();
+}

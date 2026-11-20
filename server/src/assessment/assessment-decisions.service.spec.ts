@@ -555,6 +555,9 @@ describe('FR-8 Escalate', () => {
     // Clear the escalate, agree on one comment, then escalate the other.
     await clear(7001);
     await decide(7002, 'agree_program');
+    // O-1: 7001 is undecided again, so the field stays grey until it is decided too.
+    expect(stored(world)).toEqual([]);
+    await decide(7001, 'agree_program');
     expect(stored(world)).toEqual([
       { assessmentId: 1000, fieldKey: CORE[0], validated: true },
     ]);
@@ -593,17 +596,22 @@ describe('FR-8 clearing a decision', () => {
     });
   });
 
-  it('clearing an escalate removes it, leaves the field grey and lets the field be validated again', async () => {
+  it('clearing an escalate removes it and leaves the field grey; validating it is then refused as undecided, no longer as escalated (O-1)', async () => {
     const { world, decide, clear, validate } = setup();
     await decide(7001, 'escalate');
 
     await clear(7001);
-    await validate(true, [CORE[0]!]);
+    const refused = await refusal(validate(true, [CORE[0]!]));
 
+    expect(refused).toMatchObject({
+      status: 409,
+      body: {
+        code: 'ASSESSMENT_CORE_COMMENT_UNDECIDED',
+        fields: [CORE[0]],
+      },
+    });
     expect(world.commentDecisions).toEqual([]);
-    expect(stored(world)).toEqual([
-      { assessmentId: 1000, fieldKey: CORE[0], validated: true },
-    ]);
+    expect(stored(world)).toEqual([]);
   });
 
   it('clearing where nothing was decided succeeds and writes nothing; with no assessment row it creates none', async () => {
@@ -634,19 +642,65 @@ describe('FR-8 clearing a decision', () => {
     expect(world.audits).toHaveLength(audits);
   });
 
-  it('with two agrees on one field, clearing one leaves the field green', async () => {
+  it('with two agrees on one field, clearing one turns the field grey and keeps the other agree (O-1)', async () => {
     const { world, decide, clear } = setup({
       comments: [comment(7001, CORE[0]!), comment(7002, CORE[0]!)],
     });
     await decide(7001, 'agree_program');
     await decide(7002, 'agree_program');
 
-    await clear(7001);
+    const result = await clear(7001);
 
     expect(stored(world)).toEqual([
-      { assessmentId: 1000, fieldKey: CORE[0], validated: true },
+      { assessmentId: 1000, fieldKey: CORE[0], validated: false },
     ]);
     expect(world.commentDecisions.map((d) => d.commentId)).toEqual([7002]);
+    expect(result.validations).toEqual([
+      { fieldKey: CORE[0], validated: false },
+    ]);
+    expect(auditActions(world)).toEqual([
+      'decision_set',
+      'decision_set',
+      'decision_clear',
+    ]);
+  });
+
+  it('two agrees, clear one: finish is refused ASSESSMENT_CORE_UNDECIDED, not quality_assessed; agreeing the cleared one again greens the field', async () => {
+    const { world, service, decide, clear } = setup({
+      comments: [comment(7001, CORE[0]!), comment(7002, CORE[0]!)],
+      // CORE[3] stays grey, so the two agrees alone do not end the review.
+      greens: [CORE[1]!, CORE[2]!],
+    });
+    await decide(7001, 'agree_program');
+    await decide(7002, 'agree_program');
+    await clear(7001);
+
+    const refused = await refusal(service.finish(lead(), 1, 5001, RID));
+
+    expect(refused).toMatchObject({
+      status: 409,
+      body: {
+        code: 'ASSESSMENT_CORE_UNDECIDED',
+        fields: [CORE[0]!, CORE[3]!].sort(),
+      },
+    });
+
+    const again = await decide(7001, 'agree_program');
+
+    expect(again.validations).toEqual([{ fieldKey: CORE[0], validated: true }]);
+    expect(again.status).toBe('pending');
+    // The last grey core field validated: now the review ends.
+    const end = await service.validate(
+      lead(),
+      1,
+      5001,
+      { validated: true, fieldKeys: [CORE[3]!] },
+      RID,
+    );
+    expect(end.status).toBe('quality_assessed');
+    expect(world.commentDecisions.map((d) => d.commentId)).toEqual([
+      7002, 7001,
+    ]);
   });
 
   it('a comment of another result is the 404 on a clear as well', async () => {
@@ -680,9 +734,9 @@ describe('FR-8 Un-green a field the Lead agreed on', () => {
     // CORE[2] is grey here, so validating CORE[1] does not complete the core.
     const { world, decide, validate } = setup({ greens: [CORE[3]!] });
     await decide(7001, 'agree_program');
-    await validate(true, [CORE[1]!]);
+    await validate(true, [CORE[2]!]);
 
-    await validate(false, [CORE[1]!]);
+    await validate(false, [CORE[2]!]);
 
     expect(world.commentDecisions.map((d) => d.commentId)).toEqual([7001]);
   });
@@ -739,7 +793,10 @@ describe('FR-12 / FR-7 the end over effective greens through a validation', () =
   });
 
   it('a validation that ends the review also closes the comments the Lead agreed on (lead_sided_program, one event each)', async () => {
-    const { world, decide, validate } = setup();
+    // 7002 is withdrawn: its field has no live round-1 comment, so the Lead can validate it directly.
+    const { world, decide, validate } = setup({
+      comments: [comment(7001, CORE[0]!), comment(7002, CORE[1]!, 'withdrawn')],
+    });
     await decide(7001, 'agree_program');
 
     const result = await validate(true, [CORE[1]!]);
@@ -752,7 +809,7 @@ describe('FR-12 / FR-7 the end over effective greens through a validation', () =
     ).toEqual([
       [7001, 'lead_sided_program'],
       // 7002 had no decision: the Lead validated its field directly.
-      [7002, 'disagreed'],
+      [7002, 'withdrawn'],
     ]);
     expect(world.commentEvents.map((e) => e.commentId)).toEqual([7001]);
     expect(world.writeLog).not.toContain('markCommentsVisible');
@@ -1063,5 +1120,150 @@ describe('FR-9 the Lead own comment', () => {
       status: 409,
       body: { code: 'ASSESSMENT_STEP_CLOSED' },
     });
+  });
+});
+
+describe('FR-8 none (undecided): a core field with an undecided round-1 comment cannot be validated (HITL O-1)', () => {
+  const undecided = () =>
+    setup({
+      comments: [
+        comment(7001, CORE[0]!, 'open'),
+        comment(7002, CORE[1]!, 'clarification_requested'),
+        comment(7003, CORE[2]!, 'disagreed'),
+      ],
+    });
+  const noWrite = (world: InMemoryAssessmentWorld) => {
+    expect(stored(world)).toEqual([]);
+    expect(world.audits).toEqual([]);
+    expect(world.commentDecisions).toEqual([]);
+  };
+
+  it('refuses the whole request with the sorted fields, and writes nothing', async () => {
+    const { world, validate } = undecided();
+
+    const refused = await refusal(
+      validate(true, [CORE[2]!, CORE[0]!, CORE[1]!]),
+    );
+
+    expect(refused).toMatchObject({
+      status: 409,
+      body: {
+        code: 'ASSESSMENT_CORE_COMMENT_UNDECIDED',
+        fields: [CORE[0]!, CORE[1]!, CORE[2]!].sort(),
+      },
+    });
+    noWrite(world);
+  });
+
+  it('a request mixing an undecided field with a clean one is refused whole: the clean one is not written', async () => {
+    const { world, validate } = undecided();
+
+    const refused = await refusal(validate(true, [CORE[0]!, CORE[3]!]));
+
+    expect(refused).toMatchObject({
+      status: 409,
+      body: { code: 'ASSESSMENT_CORE_COMMENT_UNDECIDED', fields: [CORE[0]] },
+    });
+    noWrite(world);
+  });
+
+  it('Check all is refused whole, naming every undecided core field', async () => {
+    const { world, service } = undecided();
+
+    const refused = await refusal(
+      service.validate(lead(), 1, 5001, { validated: true, all: true }, RID),
+    );
+
+    expect(refused).toMatchObject({
+      status: 409,
+      body: {
+        code: 'ASSESSMENT_CORE_COMMENT_UNDECIDED',
+        fields: [CORE[0]!, CORE[1]!, CORE[2]!].sort(),
+      },
+    });
+    noWrite(world);
+  });
+
+  it('an escalated field keeps its precedence: ASSESSMENT_FIELD_ESCALATED comes first', async () => {
+    const { world, decide, validate } = undecided();
+    await decide(7001, 'escalate');
+
+    const refused = await refusal(validate(true, [CORE[0]!, CORE[1]!]));
+
+    expect(refused).toMatchObject({
+      status: 409,
+      body: { code: 'ASSESSMENT_FIELD_ESCALATED' },
+    });
+    expect(stored(world)).toEqual([]);
+  });
+
+  it('a withdrawn or a deleted round-1 comment does not block', async () => {
+    const { world, validate } = setup({
+      comments: [
+        comment(7001, CORE[0]!, 'withdrawn'),
+        comment(7002, CORE[1]!, 'open', { deletedAt: STEP_THREE_OPEN }),
+      ],
+    });
+
+    await validate(true, [CORE[0]!, CORE[1]!]);
+
+    expect(stored(world).map((v) => v.fieldKey)).toEqual([CORE[0], CORE[1]]);
+  });
+
+  it('un-validating is never refused', async () => {
+    // CORE[3] is a carried green; greying it writes a stored false row while other fields stay undecided.
+    const { world, validate } = undecided();
+
+    const result = await validate(false, [CORE[3]!]);
+
+    expect(result.status).toBe('pending');
+    expect(stored(world)).toEqual([
+      { assessmentId: 1000, fieldKey: CORE[3], validated: false },
+    ]);
+  });
+
+  it('a field without a round-1 comment still validates', async () => {
+    const { world, validate } = setup({
+      comments: [comment(7001, CORE[0]!, 'open')],
+      greens: [],
+    });
+
+    await validate(true, [CORE[3]!]);
+
+    expect(stored(world)).toEqual([
+      { assessmentId: 1000, fieldKey: CORE[3], validated: true },
+    ]);
+  });
+
+  it('a field whose comment has a decision is no longer blocked by it (the agree already greened it)', async () => {
+    const { world, decide, validate } = undecided();
+    await decide(7001, 'agree_program');
+
+    await validate(true, [CORE[0]!]);
+
+    expect(stored(world)).toEqual([
+      { assessmentId: 1000, fieldKey: CORE[0], validated: true },
+    ]);
+  });
+
+  it('two comments on one field: the first agree is stored but the field stays grey until the last one is decided', async () => {
+    const { world, decide } = setup({
+      comments: [comment(7001, CORE[0]!), comment(7002, CORE[0]!, 'open')],
+    });
+
+    const first = await decide(7001, 'agree_program');
+
+    expect(world.commentDecisions.map((d) => d.commentId)).toEqual([7001]);
+    expect(stored(world)).toEqual([]);
+    expect(first.validations).toEqual([]);
+
+    const second = await decide(7002, 'agree_program');
+
+    expect(world.commentDecisions.map((d) => d.commentId)).toEqual([
+      7001, 7002,
+    ]);
+    expect(second.validations).toEqual([
+      { fieldKey: CORE[0], validated: true },
+    ]);
   });
 });

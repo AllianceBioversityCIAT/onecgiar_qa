@@ -47,6 +47,7 @@ import type {
   CommentEventWrite,
   CommentRecord,
   DecisionRecord,
+  LiveCommentState,
   DecisionTarget,
   DecisionWrite,
   LockedAssessment,
@@ -1210,6 +1211,26 @@ export class InMemoryAssessmentWriteStore implements AssessmentWriteStore {
           .map((c) => c.fieldKey ?? 'general.title'),
       ),
     ]);
+  }
+
+  findLiveCommentStates(assessmentId: number): Promise<LiveCommentState[]> {
+    this.world.statements += 1;
+    this.world.writeLog.push('findLiveCommentStates');
+    return Promise.resolve(
+      this.world.comments
+        .map((c, i) => ({ c, id: c.id ?? i + 1 }))
+        .filter(
+          ({ c }) =>
+            c.assessmentId === assessmentId &&
+            c.state !== 'withdrawn' &&
+            (c.deletedAt ?? null) === null,
+        )
+        .map(({ c, id }) => ({
+          id,
+          fieldKey: c.fieldKey ?? 'general.title',
+          state: c.state,
+        })),
+    );
   }
 
   markCommentsVisible(assessmentId: number, at: Date): Promise<void> {
