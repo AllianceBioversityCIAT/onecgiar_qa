@@ -414,6 +414,25 @@ All back tasks touch `server/src/assessment/` (one shared boundary), so they run
 - **Done when:** verification green and Reviewer PASS.
 - **Skills:** tdd, nestjs-best-practices
 
+## T-16: The Lead's own round-2 comments carry their decision in the view (front need, T-13)
+
+- **Status:** [x]
+- **Size:** S
+- **Depends on:** T-15; back lead's request 2026-11-20 (Yeck's front needs to know, after a reload, whether the Lead already escalated their own comment)
+- **Requirements:** FR-9 (Lead's own escalated comment); FR-2 (the reused view)
+- **Design refs:** design § 6 view shape; `front-contract.md` view section
+- **Scope:**
+  - Round-2 view, Lead role: each item of a field's `comments[]` that is the Lead's own round-2 comment (`origin = lead_round_two`) carries `decision` (`{ decision, body, decidedAt }` or `null`), `decidable` and `choices`, with the same meaning and rules as `thread[]` items for round-1 comments (`isDecidable`: `['escalate']` while live and not withdrawn; `[]` after the end, withdrawn or deleted).
+  - Other roles and round 1: unchanged shape (fields absent), so the round-1 front is not affected.
+  - `front-contract.md` view section and example; OpenAPI model text.
+- **Tests:** unit (view builder): own comment undecided → `decidable: true, choices: ['escalate'], decision: null`; escalated → `decision` filled; withdrawn and after the end → `decidable: false, choices: []`; round 1 and Assessor view → no new keys. e2e (round-two fixture): Lead comments a core field, escalates it, re-reads the view → the decision is there.
+- **Verification:** server lint, build, unit, e2e; client build.
+- **Falsifier:** drop the mapping → the e2e reload check fails.
+- **Disqualifier:** any change to round-1 or Assessor view shapes.
+- **Consumers:** T-13 (front, Yeck).
+- **Review:** full.
+- **Skills:** tdd, nestjs-best-practices
+
 ## Coverage check (scenario and clause → task)
 
 | Requirement clause | Task |

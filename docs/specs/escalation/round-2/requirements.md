@@ -66,6 +66,7 @@ The same model carries the TPB (step 4) and PPU (step 5) stories. They are desig
 - returning to the program in round 2;
 - notifications;
 - the comments export (P2-3914).
+- showing the deletion history in the UI ("Deleted by … on …") — it belongs to P2-3915 (Traceability). P2-3912 stores who and when (`deleted_by`, `deleted_at`, a `comment_events` row and the `comment_delete` audit row) and hides the comment; no route exposes the history yet (back lead, 2026-11-20).
 
 **Current behavior:**
 
@@ -256,7 +257,7 @@ The Lead SHALL be able to comment a core field in round 2, and to `escalate` the
 
 ### FR-10: Delete another reviewer's comment (AC11, OQ-8)
 
-The Lead SHALL be able to delete a comment written by another reviewer on a membership of the Lead's result types. Deleting stores who and when, keeps the row, and hides the comment from every list, count and end rule. The history (comment events) shows the deletion.
+The Lead SHALL be able to delete a comment written by another reviewer on a membership of the Lead's result types. Deleting stores who and when, keeps the row, and hides the comment from every list, count and end rule. The history (comment events) records the deletion; showing it is out of scope (P2-3915, see § 4).
 
 #### Scenario: Delete
 

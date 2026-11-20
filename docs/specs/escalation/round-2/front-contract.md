@@ -61,7 +61,39 @@ Comments neither withdrawn nor deleted, ordered by comment.
 | `decidable` | The comment can take a decision from this caller. It ignores `writable` |
 | `choices` | The decisions to offer. `[]` when not decidable and always for ADMIN |
 
-Decidable round-1 comments are those in state `disagreed`, `open` or `clarification_requested` on an actionable field: `choices` is `['agree_program', 'escalate']`. The Lead's own round-2 comment takes `['escalate']` only. Gate every decision control on **`writable && decidable`**: `decidable` alone is true on a finished or closed review.
+Decidable round-1 comments are those in state `disagreed`, `open` or `clarification_requested` on an actionable field: `choices` is `['agree_program', 'escalate']`. The Lead's own round-2 comment takes `['escalate']` only. Gate every decision control on **`writable && decidable`** (round-1 `thread[]` items; the Lead's own comments in `comments[]` already read `decidable: false` after the end, § 3.2): `decidable` alone is true on a finished or closed review.
+
+### 3.2 The Lead's own round-2 comments in `comments[]`
+
+In round 2, for the **Lead**, each item of a field's `comments[]` that the caller wrote in round 2 carries three more keys, with the meaning and the decision object of a `thread[]` item (3.1). Use them to draw the "Escalated" state after a reload.
+
+```
+{ …the comment as before (id, fieldKey, author, body, state, stepPosition, round, valueCopy, valueTruncated, createdAt, withdrawnAt),
+  decision: { decision: 'escalate', body: string | null, decidedAt } | null,
+  decidable: boolean, choices: ['escalate'] | [] }
+```
+
+| Key | Rule |
+|---|---|
+| `decision` | The Lead's live decision on the comment; `null` when none is set (always present on these comments, unlike `thread[]` where it is absent). A decision on a withdrawn comment is `null` |
+| `decidable` | `true` while the comment is `open` and the review has not ended; `false` once withdrawn or **after the review ends** (an own comment still `open` at the end too: any decide is then 409 `ASSESSMENT_FINISHED`). Unlike round-1 `thread[]` items it does not stay true after the end |
+| `choices` | `['escalate']` while decidable (no `agree_program` on your own comment); `[]` otherwise, and always after the end. `decision` is kept after the end |
+
+The keys are **absent** on every other comment: round 1, the Assessor's view, ADMIN, and any comment another user wrote. Round-1 and Assessor shapes are unchanged.
+
+Example, Lead re-reading round 2 after escalating its own comment:
+
+```
+"comments": [{
+  "id": 8101, "fieldKey": "general.title",
+  "author": { "id": 14, "nickname": "Lea" }, "body": "The core field is wrong",
+  "state": "open", "stepPosition": 3, "round": 2,
+  "valueCopy": { "value": "Title" }, "valueTruncated": false,
+  "createdAt": "2026-11-25T10:00:00.000Z", "withdrawnAt": null,
+  "decision": { "decision": "escalate", "body": "Escalating my own finding", "decidedAt": "2026-11-25T10:05:00.000Z" },
+  "decidable": true, "choices": ["escalate"]
+}]
+```
 
 ## 4. Routes
 
@@ -90,7 +122,7 @@ No `Idempotency-Key`: a decision is a PUT (the same body twice gives the same st
 - When an agree leaves every core field green, the same call **ends** the review (`status: 'quality_assessed'`, one `qaed` release). `status` is how the front learns it.
 - Comment states change only at the end, not on a decision. Until then the thread shows the decision, not a new `state`.
 - `effectiveValidated` is not in this answer. Re-read the view when the state of every field matters.
-- The Lead's decision on **their own** comment is not in any thread (the thread holds round-1 comments). Before the end it is visible only in this answer; after the end it shows as the comment's `state` (`escalated`, `lead_sided_program`) in the field's `comments`.
+- The Lead's decision on **their own** comment is not in any thread (the thread holds round-1 comments). It is in the view on the comment itself, in the field's `comments[]` (3.2), so a reload shows it. After the end the comment's `state` also moves to `escalated`.
 
 ### 4.2 Validations in round 2
 
