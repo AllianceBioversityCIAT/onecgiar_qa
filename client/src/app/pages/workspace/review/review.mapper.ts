@@ -99,7 +99,8 @@ export interface ReviewVm {
   readonly canFinish: boolean;
   /**
    * Status the result takes if it is finished now: returned while a core field is grey, and in step 1 also
-   * while any comment still stands (`returnsOnAnyComment`); Quality Assessed otherwise.
+   * while any comment still stands (`returnsOnAnyComment`); Quality Assessed otherwise. Round 2 (Lead): Pending for
+   * TPB review while a core field is effectively grey, Quality Assessed otherwise (`finishOutcome`).
    */
   readonly finishTo: string;
 }
@@ -234,6 +235,14 @@ const isAutoValidated = (view: Pick<AssessmentView, 'header'>): boolean =>
  */
 const asContext = (f: AssessmentField): AssessmentField => ({ ...f, mode: 'view', validated: false });
 
+/**
+ * Round 2 (Lead): only an `actionable` field (an Assessed core field) takes a check, a comment or a decision; any
+ * other field is context, drawn like a field the configuration does not assess (round-2 contract § 1, § 3).
+ * Round 1, or `actionable` absent: the field as sent. `thread`, `decidable` and `choices` are not read here.
+ */
+const leadContext = (f: AssessmentField): AssessmentField =>
+  f.actionable === false ? { ...f, mode: 'view' } : f;
+
 const openComments = (f: AssessmentField): readonly AssessmentComment[] =>
   f.comments.filter((c) => c.state !== 'withdrawn');
 /**
@@ -246,17 +255,35 @@ export function returnsOnAnyComment(view: AssessmentView): boolean {
   return [...view.sections.flatMap((s) => s.fields), ...view.other].some((f) => openComments(f).length > 0);
 }
 const isAssessed = (f: AssessmentField): boolean => f.mode === 'assessed';
+/**
+ * The green mark of a field (round-2 contract § 3): the stored mark, else the green carried from round 1. A round-1
+ * view sends `effectiveValidated` equal to `validated`, or not at all (step-1 server): then the stored mark.
+ * `validated` itself stays the stored row; every check, count and finish outcome of the page reads this.
+ */
+const isGreen = (f: AssessmentField): boolean => f.effectiveValidated ?? f.validated;
 /** Green, or carrying an open comment (the assessor has said something on it). */
-const isResolved = (f: AssessmentField): boolean => f.validated || openComments(f).length > 0;
+const isResolved = (f: AssessmentField): boolean => isGreen(f) || openComments(f).length > 0;
+/** Round 2 (Lead): the green is round 1's, unchanged, because the Lead stored nothing. */
+const isCarried = (f: AssessmentField): boolean => isAssessed(f) && isGreen(f) && f.carried === true;
 
-/** The green/grey mark (FR-9, FR-23: icon and accessible name, never color alone) and the comment count. */
+const CARRIED_LABEL = 'Green in round 1, unchanged';
+const UPDATED_LABEL = 'Updated';
+
+/**
+ * The green/grey mark (FR-9, FR-23: icon and accessible name, never color alone) and the comment count. Round 2 adds,
+ * with existing chip styles only, the carried-green hint and "Updated" (changed since round 1).
+ * TODO(design): both round-2 chips borrow the `agreed` / `changes` looks until Juanpa designs them.
+ */
 function chips(f: AssessmentField): StateChip[] {
-  if (!isAssessed(f)) return [];
+  const updated: StateChip[] = f.updated ? [{ kind: 'changes', label: UPDATED_LABEL, count: 0 }] : [];
+  if (!isAssessed(f)) return updated;
   const states: StateChip[] = [
-    f.validated
+    isGreen(f)
       ? { kind: 'ok', label: 'Validated', count: 0 }
       : { kind: 'not', label: 'Not validated', count: 0 },
   ];
+  if (isCarried(f)) states.push({ kind: 'agreed', label: CARRIED_LABEL, count: 0 });
+  states.push(...updated);
   const open = openComments(f).length;
   if (open) states.push({ kind: 'com', label: 'Commented', count: open });
   return states;
@@ -280,8 +307,8 @@ function actions(f: AssessmentField, writable: boolean): FieldActions | null {
   if (!writable) return count > 0 ? base : null;
   return {
     ...base,
-    approve: !f.validated,
-    undo: f.validated ? 'approval' : null,
+    approve: !isGreen(f),
+    undo: isGreen(f) ? 'approval' : null,
     secondary: true,
     secondaryLabel: count > 0 ? 'View comments' : 'Add comment',
   };
@@ -314,6 +341,8 @@ export function toFieldVm(f: AssessmentField, writable: boolean): FieldVm {
     before: null,
     scale: null,
     iaGroupStart: false,
+    carried: isCarried(f),
+    updated: f.updated === true,
   };
 }
 
@@ -435,7 +464,7 @@ export function toTocVm(fields: readonly AssessmentField[], writable: boolean): 
     groups,
     count,
     programs: Math.max(programGroups.length, count > 0 ? 1 : 0),
-    reviewed: fields.filter((f) => isAssessed(f) && f.validated).length,
+    reviewed: fields.filter((f) => isAssessed(f) && isGreen(f)).length,
     assessed: fields.filter(isAssessed).length,
   };
 }
@@ -507,6 +536,17 @@ export function toHeaderVm(view: AssessmentView, canAct: boolean = view.writable
 }
 
 /**
+ * The status Finish would give now. Round 1: returned while a core field is grey or any comment stands. Round 2
+ * (contract § 4.3): Quality Assessed when no core field is effectively grey, else escalated, which the result shows
+ * as Pending for TPB review (a grey core field with no escalate is refused by the server, not announced here).
+ */
+function finishOutcome(view: AssessmentView, assessed: readonly AssessmentField[]): string {
+  const grey = assessed.some((f) => f.core && !isGreen(f));
+  if (view.round === 2) return grey ? STATUS_LABELS.pending_tpb_review : STATUS_LABELS.quality_assessed;
+  return grey || returnsOnAnyComment(view) ? STATUS_LABELS.returned_to_program : STATUS_LABELS.quality_assessed;
+}
+
+/**
  * `writes` off = the page shows what the API says but offers no write button (validate, comment, finish), even to
  * a caller who may write. The banner and `writable` still say what the API said.
  */
@@ -515,8 +555,9 @@ export function toReviewVm(view: AssessmentView, writes = true): ReviewVm {
   // Nothing is assessed on an auto-validated result, whatever the caller may write elsewhere.
   const auto = isAutoValidated(view);
   const canAct = writable && writes && !auto;
+  const roundTwo = view.round === 2;
   const fieldsOf = (fields: readonly AssessmentField[]): readonly AssessmentField[] =>
-    auto ? fields.map(asContext) : fields;
+    auto ? fields.map(asContext) : roundTwo ? fields.map(leadContext) : fields;
   const sections: ReviewSectionVm[] = view.sections.map((s) => {
     const isToc = s.key === TOC_SECTION_KEY;
     const fields = fieldsOf(s.fields);
@@ -548,12 +589,9 @@ export function toReviewVm(view: AssessmentView, writes = true): ReviewVm {
     resolved: assessed.filter(isResolved).length,
     total: assessed.length,
     commented: assessed.filter((f) => openComments(f).length > 0).length,
-    validated: assessed.filter((f) => f.validated).length,
+    validated: assessed.filter(isGreen).length,
     canFinish: canAct && (view.assessment?.status ?? 'pending') === 'pending',
-    finishTo:
-      assessed.some((f) => f.core && !f.validated) || returnsOnAnyComment(view)
-        ? STATUS_LABELS.returned_to_program
-        : STATUS_LABELS.quality_assessed,
+    finishTo: finishOutcome(view, assessed),
   };
 }
 

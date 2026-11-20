@@ -93,6 +93,16 @@ export interface FieldVm extends CardStatusVm {
   readonly before: string | null;
   readonly scale: readonly ScaleCell[] | null;
   readonly iaGroupStart: boolean;
+  /**
+   * Round 2 (Lead): the green is the one carried from round 1, because the Lead stored nothing. Always false in
+   * round 1. TODO(design): the card shows it today as a neutral state chip; Juanpa decides its final look.
+   */
+  readonly carried: boolean;
+  /**
+   * Round 2 (Lead): the field changed since round 1. Always false in round 1. TODO(design): shown today as an
+   * "Updated" state chip with an existing style; Juanpa decides its final look.
+   */
+  readonly updated: boolean;
 }
 
 export interface TocLinkVm {
@@ -291,6 +301,8 @@ export function buildFieldVm(
     before: compare ? (d.before ?? null) : null,
     scale: d.score == null ? null : IA_SCALE.map((label, n) => ({ n, label, selected: n === d.score })),
     iaGroupStart: d.id === 'iagender',
+    carried: false,
+    updated: false,
   };
 }
 

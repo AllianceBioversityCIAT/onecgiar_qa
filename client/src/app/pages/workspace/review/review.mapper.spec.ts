@@ -2,6 +2,7 @@
 import { AssessmentField, AssessmentView } from '../../../core/api/assessment.models';
 import { FieldVm } from './review-model';
 import { clarificationThread, comment, field, programResponse, viewFixture } from './review.api-fixture';
+import { roundTwoViewFixture, threadItem } from './review.round2-fixture';
 import { findField, formatValue, pendingAnswers, pendingAnswersBanner, readOnlyBanner, returnsOnAnyComment, toCommentVm, toDrawerVm, toFieldVm, toReviewVm, withPendingAnswers, withdrawOpen } from './review.mapper';
 
 const byLabel = (fields: readonly FieldVm[], label: string): FieldVm =>
@@ -579,6 +580,154 @@ describe('review.mapper (API assessment view → Review view models)', () => {
       expect(returnsOnAnyComment(atStep(viewFixture(), 3))).toBe(false);
       expect(returnsOnAnyComment({ ...viewFixture(), header: { ...viewFixture().header, step: null } })).toBe(false);
       expect(returnsOnAnyComment(everyField(viewFixture(), (f) => ({ ...f, comments: f.comments.filter((c) => c.state === 'withdrawn') })))).toBe(false);
+    });
+  });
+
+
+  describe('round 2: the Lead reads a re-submitted result (P2-3912, round-2 contract § 3, § 4.3)', () => {
+    const general = (v: AssessmentView = roundTwoViewFixture()) => toReviewVm(v).sections[0].fields;
+    const withField = (key: string, change: (f: AssessmentField) => AssessmentField, v = roundTwoViewFixture()): AssessmentView => ({
+      ...v,
+      sections: v.sections.map((s) => ({ ...s, fields: s.fields.map((f) => (f.key === key ? change(f) : f)) })),
+    });
+
+    it('a field that is not actionable is context: no mark, no Core tag, no button, not counted', () => {
+      const regions = byLabel(general(), 'Regions');
+      expect(regions.isView).toBe(true);
+      expect(regions.states).toEqual([]);
+      expect(regions.actions).toBeNull();
+      expect(regions.isCore).toBe(false);
+      expect(toReviewVm(roundTwoViewFixture()).total).toBe(2);
+    });
+
+    it('a core field not actionable is context too, even with its core flag', () => {
+      const v = withField('general.title', (f) => ({ ...f, actionable: false }));
+      const title = byLabel(general(v), 'Title of Result');
+      expect([title.isView, title.isCore, title.actions]).toEqual([true, false, null]);
+    });
+
+    it('round 1: actionable false changes nothing (the round-2 rule only)', () => {
+      const plain = viewFixture();
+      const v: AssessmentView = { ...plain, sections: plain.sections.map((s) => ({ ...s, fields: s.fields.map((f) => ({ ...f, actionable: false })) })) };
+      expect(toReviewVm(v)).toEqual(toReviewVm(plain));
+    });
+
+    it('the check follows effectiveValidated: a carried green with validated false reads Validated, offers Undo', () => {
+      const title = byLabel(general(), 'Title of Result');
+      expect(title.states[0]).toEqual({ kind: 'ok', label: 'Validated', count: 0 });
+      expect(title.actions).toMatchObject({ approve: false, undo: 'approval' });
+    });
+
+    it('a stored green the Lead took back (effectiveValidated false over validated true) reads Not validated', () => {
+      const v = withField('general.title', (f) => ({ ...f, validated: true, effectiveValidated: false, carried: false }));
+      const title = byLabel(general(v), 'Title of Result');
+      expect(title.states[0].kind).toBe('not');
+      expect(title.actions).toMatchObject({ approve: true, undo: null });
+    });
+
+    it('counts, section open and resolved read the effective green', () => {
+      const vm = toReviewVm(roundTwoViewFixture());
+      // title: carried green (validated false); description: grey with the Lead's own open comment.
+      expect([vm.resolved, vm.total, vm.validated, vm.commented]).toEqual([2, 2, 1, 1]);
+      const noComment = withField('general.description', (f) => ({ ...f, comments: [] }));
+      const vm2 = toReviewVm(noComment);
+      expect(vm2.sections[0].open).toBe(1); // description only: the carried title is green
+      expect([vm2.resolved, vm2.validated]).toEqual([1, 1]);
+    });
+
+    it('the ToC "reviewed" count reads the effective green', () => {
+      const v: AssessmentView = {
+        ...roundTwoViewFixture(),
+        sections: [
+          {
+            key: 'theory_of_change',
+            label: 'Theory of Change',
+            fields: [field({ key: 'toc.entries', label: 'ToC contributions', core: true, value: 'x', validated: false, effectiveValidated: true, carried: true, actionable: true })],
+          },
+        ],
+      };
+      expect(toReviewVm(v).sections[0].toc?.reviewed).toBe(1);
+    });
+
+    it('exposes carried and updated on the field, with the hint and "Updated" as existing chips', () => {
+      const title = byLabel(general(), 'Title of Result');
+      const description = byLabel(general(), 'Description of Result');
+      expect([title.carried, title.updated]).toEqual([true, false]);
+      expect([description.carried, description.updated]).toEqual([false, true]);
+      expect(chipLabels(title)).toEqual(['Validated', 'Green in round 1, unchanged']);
+      expect(chipLabels(description)).toEqual(['Not validated', 'Updated', 'Commented']);
+      expect(description.states.find((c) => c.label === 'Updated')?.kind).toBe('changes');
+      expect(title.states.find((c) => c.label === 'Green in round 1, unchanged')?.kind).toBe('agreed');
+    });
+
+    it('carried is never shown on a field that is not green, nor on a context field', () => {
+      const grey = withField('general.title', (f) => ({ ...f, effectiveValidated: false }));
+      expect(byLabel(general(grey), 'Title of Result').carried).toBe(false);
+      const ctx = withField('general.title', (f) => ({ ...f, actionable: false }));
+      expect(byLabel(general(ctx), 'Title of Result').carried).toBe(false);
+    });
+
+    it('finish outcome: Pending for TPB review while a core field is effectively grey', () => {
+      expect(toReviewVm(roundTwoViewFixture()).finishTo).toBe('Pending for TPB review');
+    });
+
+    it('finish outcome: Quality Assessed when every core field is effectively green, comments or not', () => {
+      // The description keeps the Lead's own open comment: round 1 would return it, round 2 does not.
+      const v = withField('general.description', (f) => ({ ...f, effectiveValidated: true }));
+      expect(toReviewVm(v).finishTo).toBe('Quality Assessed');
+    });
+
+    it('ignores thread, decidable and choices: the same view without them maps the same', () => {
+      const bare = roundTwoViewFixture();
+      const stripped: AssessmentView = {
+        ...bare,
+        sections: bare.sections.map((s) => ({
+          ...s,
+          fields: s.fields.map((f) => ({
+            ...f,
+            thread: [],
+            comments: f.comments.map(({ decision: _d, decidable: _x, choices: _c, ...c }) => c),
+          })),
+        })),
+      };
+      const busy = withField('general.description', (f) => ({ ...f, thread: [threadItem(), threadItem({ commentId: 42, decidable: false, choices: [] })] }));
+      expect(toReviewVm(busy)).toEqual(toReviewVm(stripped));
+    });
+
+    it('an escalated assessment and a lead_sided_program comment map without error (ended, read only)', () => {
+      const v = withField(
+        'general.description',
+        (f) => ({ ...f, comments: f.comments.map((c) => ({ ...c, state: 'lead_sided_program' as const })) }),
+        roundTwoViewFixture({
+          writable: false,
+          readOnlyReason: 'finished',
+          assessment: { status: 'escalated', assessedBy: { id: 14, nickname: 'lea' }, finishedAt: '2026-11-25T12:00:00.000Z' },
+          header: { ...roundTwoViewFixture().header, status: 'pending_tpb_review' },
+        }),
+      );
+      const vm = toReviewVm(v);
+      expect(vm.canFinish).toBe(false);
+      expect(vm.header.status).toBe('Pending for TPB review');
+      expect(vm.header.showAssessedBy).toBe(true);
+      expect(vm.banner).toBe('Finished by lea on 25 Nov 2026.');
+      expect(byLabel(vm.sections[0].fields, 'Description of Result').actions?.count).toBe(1);
+    });
+
+    it('round 1 unchanged: a round-1 view with every round-2 key at its round-1 value maps exactly as without them', () => {
+      const plain = viewFixture();
+      const explicit: AssessmentView = {
+        ...plain,
+        round: 1,
+        sections: plain.sections.map((s) => ({
+          ...s,
+          fields: s.fields.map((f) => ({ ...f, updated: false, actionable: f.mode === 'assessed', effectiveValidated: f.validated, carried: false, thread: [] })),
+        })),
+      };
+      const vm = toReviewVm(plain);
+      expect(toReviewVm(explicit)).toEqual(vm);
+      const all = vm.sections.flatMap((s) => s.fields);
+      expect(all.every((f) => !f.carried && !f.updated)).toBe(true);
+      expect(vm.finishTo).toBe('Returned to program');
     });
   });
 
