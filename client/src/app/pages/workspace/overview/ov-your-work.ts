@@ -58,7 +58,7 @@ export interface YourWorkVm {
         </div>
       }
 
-      <ul class="m-0 -mx-2 grid list-none grid-cols-1 gap-x-4 p-0 @xl:grid-cols-3">
+      <ul class="m-0 -mx-2 grid list-none grid-cols-1 gap-x-4 p-0 @4xl:grid-cols-3">
         @for (r of d.rows; track r.label) {
           <li>
             @if (r.link; as l) {
