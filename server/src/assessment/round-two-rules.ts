@@ -120,7 +120,7 @@ const ROUND_ONE_DECIDABLE_STATES: readonly CommentState[] = [
  * Design 7: what the caller may decide on a comment; empty = not decidable.
  * Only a Lead decides. A round-1 comment in `disagreed`, `open` or
  * `clarification_requested` takes both choices; the Lead's own round-2 comment
- * takes `escalate` only; anything else, none. The field must be actionable.
+ * takes `escalate` only while it is `open` (none once withdrawn or moved by the end); anything else, none. The field must be actionable.
  */
 export function isDecidable(
   comment: DecidableComment,
@@ -130,7 +130,8 @@ export function isDecidable(
   if (role !== RoleCode.LEAD_ASSESSOR) return [];
   if (comment.deleted || !isActionable(field)) return [];
   if (comment.origin === 'lead_round_two') {
-    return comment.state === 'withdrawn' ? [] : ['escalate'];
+    // `open` only: the end moves a decided own comment to `escalated`, and a withdrawn one has left.
+    return comment.state === 'open' ? ['escalate'] : [];
   }
   return ROUND_ONE_DECIDABLE_STATES.includes(comment.state)
     ? ['agree_program', 'escalate']

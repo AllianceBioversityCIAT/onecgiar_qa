@@ -1976,7 +1976,9 @@ export class AssessmentService {
    * Round 2 (escalation/round-2 T-6, NFR-1): two more statements when the
    * membership has a previous assessment, the thread (ONE SELECT for any number
    * of round-1 comments) and that assessment's validations; none for a new
-   * round-2 membership. The view never gets a per-comment read.
+   * round-2 membership. The view never gets a per-comment read. One more
+   * (T-16, the Lead's decisions on its own comments) once the round-2
+   * assessment row exists.
    *
    * An out-of-scope result, a result that does not exist and a timeline that is
    * not the caller's are one and the same 404 (FR-1 *Out-of-scope result by
@@ -2003,12 +2005,21 @@ export class AssessmentService {
     const snapshot = await this.snapshotOf(membership);
 
     const assessment = membership.assessment;
-    const [validations, comments] =
+    // The caller's reviewer role at this round; `null` for ADMIN (reads, decides nothing).
+    const role =
+      access.reviewerRows.find((row) => row.round === membership.round)?.role ??
+      null;
+    // T-16: the Lead's decisions on its own round-2 comments, in the same
+    // parallel read; only for the Lead in round 2 with an assessment row.
+    const [validations, comments, ownDecisions] =
       assessment === null
-        ? [[], []]
+        ? [[], [], []]
         : await Promise.all([
             this.store.findValidations(assessment.id),
             this.store.findComments(assessment.id),
+            membership.round !== 1 && role === RoleCode.LEAD_ASSESSOR
+              ? this.store.findDecisions(assessment.id)
+              : Promise.resolve([]),
           ]);
     // Round 2 (design 7 *Thread read*, DD-4): the previous membership's step-1
     // thread (ONE statement for any number of comments) and its validations.
@@ -2040,15 +2051,25 @@ export class AssessmentService {
     // reviewer row at this round: it reads the thread and decides nothing.
     const rounded = annotateForRound(view, {
       round: membership.round,
-      role:
-        access.reviewerRows.find((row) => row.round === membership.round)
-          ?.role ?? null,
+      role,
       changedFields: membership.changedFields,
       stored: new Map(validations.map((v) => [v.fieldKey, v.validated])),
       roundOneGreens: new Set(
         roundOneValidations.filter((v) => v.validated).map((v) => v.fieldKey),
       ),
       thread: roundOneThread,
+      userId: user.id,
+      ended: assessment !== null && assessment.status !== 'pending',
+      ownDecisions: new Map(
+        ownDecisions.filter(isLiveDecision).map((d) => [
+          d.commentId,
+          {
+            decision: d.decision,
+            body: d.body,
+            decidedAt: d.decidedAt.toISOString(),
+          },
+        ]),
+      ),
     });
 
     const decision = writeDecision(

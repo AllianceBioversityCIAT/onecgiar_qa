@@ -554,6 +554,9 @@ describe('annotateForRound (FR-3, FR-4, FR-5, FR-7)', () => {
     stored: new Map(),
     roundOneGreens: new Set(),
     thread: [],
+    userId: 9,
+    ownDecisions: new Map(),
+    ended: false,
     ...over,
   });
 
@@ -869,6 +872,113 @@ describe('annotateForRound (FR-3, FR-4, FR-5, FR-7)', () => {
       );
       expect(out[CORE]!.thread.map((i) => i.commentId)).toEqual([11, 12]);
       expect(out[CORE_2]!.thread.map((i) => i.commentId)).toEqual([13]);
+    });
+  });
+  // T-16: the Lead's own round-2 comments carry the decision in `comments[]`.
+  describe('T-16 the Lead own round-2 comments', () => {
+    const own = (over: Partial<ViewComment> = {}): ViewComment => ({
+      id: 31,
+      fieldKey: CORE,
+      author: { id: 9, nickname: 'Lea' },
+      body: 'My finding',
+      state: 'open',
+      stepPosition: 3,
+      round: 2,
+      valueCopy: { value: 'T' },
+      valueTruncated: false,
+      createdAt: '2026-11-25T10:00:00.000Z',
+      withdrawnAt: null,
+      ...over,
+    });
+    const run = (
+      comment: ViewComment,
+      over: Partial<RoundViewInput> = {},
+    ): Record<string, unknown> => {
+      const out = fieldsOf(
+        annotateForRound(
+          build({
+            comments: [comment],
+            config: config({
+              [CORE]: { visibility: 'assessed', isCore: true },
+            }),
+            values: { [CORE]: 'T' },
+          }),
+          input(over),
+        ),
+      );
+      return out[CORE]!.comments[0] as unknown as Record<string, unknown>;
+    };
+    const decided = new Map([
+      [
+        31,
+        {
+          decision: 'escalate',
+          body: 'Escalating my own finding',
+          decidedAt: '2026-11-25T10:05:00.000Z',
+        },
+      ],
+    ]);
+
+    it('an undecided own comment: decision null, decidable, escalate only', () => {
+      expect(run(own())).toMatchObject({
+        decision: null,
+        decidable: true,
+        choices: ['escalate'],
+      });
+    });
+
+    it('an escalated own comment carries the decision object of thread[]', () => {
+      expect(run(own(), { ownDecisions: decided })).toMatchObject({
+        decision: {
+          decision: 'escalate',
+          body: 'Escalating my own finding',
+          decidedAt: '2026-11-25T10:05:00.000Z',
+        },
+        decidable: true,
+        choices: ['escalate'],
+      });
+    });
+
+    it('a withdrawn own comment: not decidable, no choices', () => {
+      expect(
+        run(
+          own({ state: 'withdrawn', withdrawnAt: '2026-11-25T10:06:00.000Z' }),
+        ),
+      ).toMatchObject({ decidable: false, choices: [] });
+    });
+
+    it('after the end the own comment is escalated: not decidable, the decision stays', () => {
+      expect(
+        run(own({ state: 'escalated' }), { ownDecisions: decided }),
+      ).toMatchObject({
+        decision: { decision: 'escalate' },
+        decidable: false,
+        choices: [],
+      });
+    });
+
+    it('an own comment still open when the review ended: not decidable, no choices, the decision kept', () => {
+      expect(run(own(), { ended: true })).toMatchObject({
+        decision: null,
+        decidable: false,
+        choices: [],
+      });
+      expect(run(own(), { ended: true, ownDecisions: decided })).toMatchObject({
+        decision: { decision: 'escalate' },
+        decidable: false,
+        choices: [],
+      });
+    });
+
+    it('round 1, the Assessor view and another author get no new key', () => {
+      const keys = (c: Record<string, unknown>) => Object.keys(c).sort();
+      const plain = keys(own() as unknown as Record<string, unknown>);
+      expect(keys(run(own(), { round: 1, role: 'ASSESSOR' }))).toEqual(plain);
+      expect(keys(run(own(), { role: 'ASSESSOR' }))).toEqual(plain);
+      expect(keys(run(own(), { role: null }))).toEqual(plain);
+      expect(keys(run(own({ author: { id: 4, nickname: 'Ana' } })))).toEqual(
+        plain,
+      );
     });
   });
 });

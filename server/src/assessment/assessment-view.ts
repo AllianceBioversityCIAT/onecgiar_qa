@@ -14,6 +14,7 @@ import {
   isDecidable,
   type DecisionChoice,
 } from './round-two-rules.js';
+import { RoleCode } from '../users/permissions.js';
 import type { ClarificationView, SpResponseView } from './sp-view/sp-thread.js';
 
 // The assessment view, pure (design 7.4, FR-8, FR-9, OQ-7 default): the
@@ -272,8 +273,22 @@ export interface ThreadItem {
   choices: DecisionChoice[];
 }
 
+/**
+ * The Lead's own round-2 comment as the Lead reads it (T-16): the comment as
+ * `comments[]` always carries it, plus the members a `thread[]` item has, so a
+ * reload shows whether the Lead already escalated it. `decision` is `null`
+ * when none is set. Only the Lead's own round-2 comments take these keys.
+ */
+export interface OwnViewComment extends ViewComment {
+  decision: ThreadDecision | null;
+  decidable: boolean;
+  choices: DecisionChoice[];
+}
+
 /** A field with the round members (design 6). Round 1 carries neutral values. */
-export interface RoundViewField extends ViewField {
+export interface RoundViewField extends Omit<ViewField, 'comments'> {
+  /** The field's comments; the Lead's own round-2 ones (round 2, Lead) carry `decision`, `decidable` and `choices`. */
+  comments: Array<ViewComment | OwnViewComment>;
   /** FR-5: the key is in the membership's `changed_fields`. */
   updated: boolean;
   /** FR-3: takes a write. Round 1: Assessed. Round 2: Assessed and core. */
@@ -308,6 +323,12 @@ export interface RoundViewInput {
   roundOneGreens: ReadonlySet<string>;
   /** The thread read, ordered by field, comment, response (one statement). */
   thread: readonly RoundOneThreadRow[];
+  /** The caller's user id: a comment is the Lead's own when it wrote it (T-16). */
+  userId: number;
+  /** The live decisions of the round-2 assessment by comment id, as `thread[]` shows them (T-16). */
+  ownDecisions: ReadonlyMap<number, ThreadDecision>;
+  /** The Lead's review has ended: an own comment takes no decision any more, whatever its state (T-16). */
+  ended: boolean;
 }
 
 /** The items of the thread rows, by field key, in row order. The rows hold one line per response worth showing. */
@@ -418,6 +439,38 @@ export function annotateForRound(
     ? toThreadItems(input.thread, input.role, configured)
     : new Map<string, ThreadItem[]>();
 
+  // T-16: round 2, Lead only: the Lead's own round-2 comment takes the decision members.
+  const withOwn = (field: ViewField): Array<ViewComment | OwnViewComment> =>
+    field.comments.map((comment) => {
+      if (
+        !roundTwo ||
+        input.role !== RoleCode.LEAD_ASSESSOR ||
+        comment.author.id !== input.userId ||
+        comment.round !== input.round
+      ) {
+        return comment;
+      }
+      const choices = input.ended
+        ? []
+        : [
+            ...isDecidable(
+              {
+                origin: 'lead_round_two',
+                state: comment.state,
+                deleted: false,
+              },
+              configured(field.key),
+              input.role,
+            ),
+          ];
+      return {
+        ...comment,
+        decision: input.ownDecisions.get(comment.id) ?? null,
+        decidable: choices.length > 0,
+        choices,
+      };
+    });
+
   const annotate = (field: ViewField): RoundViewField => {
     const assessed = field.mode === 'assessed';
     const actionable = roundTwo
@@ -427,6 +480,7 @@ export function annotateForRound(
     if (!roundTwo || !actionable) {
       return {
         ...field,
+        comments: withOwn(field),
         updated,
         actionable,
         effectiveValidated: field.validated,
@@ -442,6 +496,7 @@ export function annotateForRound(
     const stored = input.stored.get(field.key);
     return {
       ...field,
+      comments: withOwn(field),
       updated,
       actionable,
       effectiveValidated: effectiveGreen(stored, facts),

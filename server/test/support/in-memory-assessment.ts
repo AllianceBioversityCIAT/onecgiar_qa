@@ -759,6 +759,29 @@ export class InMemoryAssessmentStore implements AssessmentStore {
     );
   }
 
+  findDecisions(assessmentId: number): Promise<DecisionRecord[]> {
+    this.world.statements += 1;
+    const rows: DecisionRecord[] = [];
+    for (const d of this.world.commentDecisions) {
+      if (d.assessmentId !== assessmentId) continue;
+      const index = this.world.comments.findIndex(
+        (c, i) => (c.id ?? i + 1) === d.commentId,
+      );
+      const comment = this.world.comments[index];
+      if (comment === undefined) continue;
+      rows.push({
+        commentId: d.commentId,
+        fieldKey: comment.fieldKey ?? 'general.title',
+        decision: d.decision,
+        body: d.body,
+        decidedAt: d.decidedAt ?? new Date(0),
+        commentState: comment.state,
+        commentDeleted: (comment.deletedAt ?? null) !== null,
+      });
+    }
+    return Promise.resolve(rows.sort((x, y) => x.commentId - y.commentId));
+  }
+
   /** One counted statement, like the adapter's single SELECT (round-2 NFR-1). */
   findRoundOneThread(
     assessmentId: number,
@@ -1292,27 +1315,8 @@ export class InMemoryAssessmentWriteStore implements AssessmentWriteStore {
   }
 
   findDecisions(assessmentId: number): Promise<DecisionRecord[]> {
-    this.world.statements += 1;
     this.world.writeLog.push('findDecisions');
-    const rows: DecisionRecord[] = [];
-    for (const d of this.world.commentDecisions) {
-      if (d.assessmentId !== assessmentId) continue;
-      const index = this.world.comments.findIndex(
-        (c, i) => (c.id ?? i + 1) === d.commentId,
-      );
-      const comment = this.world.comments[index];
-      if (comment === undefined) continue;
-      rows.push({
-        commentId: d.commentId,
-        fieldKey: comment.fieldKey ?? 'general.title',
-        decision: d.decision,
-        body: d.body,
-        decidedAt: d.decidedAt ?? new Date(0),
-        commentState: comment.state,
-        commentDeleted: (comment.deletedAt ?? null) !== null,
-      });
-    }
-    return Promise.resolve(rows.sort((x, y) => x.commentId - y.commentId));
+    return new InMemoryAssessmentStore(this.world).findDecisions(assessmentId);
   }
 
   upsertDecision(write: DecisionWrite): Promise<void> {

@@ -421,4 +421,91 @@ describe('The Lead own comment on a new round-2 result (e2e)', () => {
       a.world.commentDecisions.map((d) => [d.commentId, d.decision]),
     ).toEqual([[commentId, 'escalate']]);
   });
+
+  it('T-16: a reload shows the Lead own comment with its escalate decision; before the decision it is decidable with decision null', async () => {
+    const ownComments = async () => {
+      const view = await a.send('get', resultPath('', code), {
+        token: lead(),
+      });
+      const fields = view.body.data.sections.flatMap(
+        (s: { fields: Array<{ key: string; comments: unknown[] }> }) =>
+          s.fields,
+      );
+      return fields.find((f: { key: string }) => f.key === FIRST).comments;
+    };
+    const created = await a.send('post', resultPath('/comments', code), {
+      token: lead(),
+      body: { fieldKey: FIRST, body: 'The core field is wrong' },
+      key: 'own-reload-1',
+    });
+    const commentId = created.body.data.id as number;
+
+    expect(await ownComments()).toMatchObject([
+      { id: commentId, decision: null, decidable: true, choices: ['escalate'] },
+    ]);
+
+    await a.send('put', decisionPath(code, commentId), {
+      token: lead(),
+      body: { decision: 'escalate', body: 'Escalating my own finding' },
+    });
+
+    expect(await ownComments()).toMatchObject([
+      {
+        id: commentId,
+        decision: {
+          decision: 'escalate',
+          body: 'Escalating my own finding',
+          decidedAt: '2026-11-25T10:00:00.000Z',
+        },
+        decidable: true,
+        choices: ['escalate'],
+      },
+    ]);
+  });
+
+  it('T-16: after the review ends the own comment is not decidable and keeps its decision; a withdrawn one reads decision null', async () => {
+    const commentsOf = async () => {
+      const view = await a.send('get', resultPath('', code), {
+        token: lead(),
+      });
+      return view.body.data.sections
+        .flatMap(
+          (s: { fields: Array<{ key: string; comments: unknown[] }> }) =>
+            s.fields,
+        )
+        .find((f: { key: string }) => f.key === FIRST).comments;
+    };
+    const post = async (key: string) =>
+      (
+        await a.send('post', resultPath('/comments', code), {
+          token: lead(),
+          body: { fieldKey: FIRST, body: 'A finding' },
+          key,
+        })
+      ).body.data.id as number;
+    const escalated = await post('own-end-1');
+    const withdrawn = await post('own-end-2');
+    for (const id of [escalated, withdrawn]) {
+      await a.send('put', decisionPath(code, id), {
+        token: lead(),
+        body: { decision: 'escalate', body: 'Escalating' },
+      });
+    }
+    await a.send('post', `/assessment-comments/${withdrawn}/withdraw`, {
+      token: lead(),
+      body: {},
+    });
+    a.world.assessments.find((x) => x.membershipId === roundTwoId)!.status =
+      'escalated';
+
+    expect(await commentsOf()).toMatchObject([
+      {
+        id: escalated,
+        decision: { decision: 'escalate' },
+        decidable: false,
+        choices: [],
+      },
+      { id: withdrawn, decision: null, decidable: false, choices: [] },
+    ]);
+  });
 });

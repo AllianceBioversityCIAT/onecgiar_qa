@@ -197,6 +197,8 @@ export interface AssessmentStore {
     assessmentId: number,
     roleCode: string,
   ): Promise<RoundOneThreadRow[]>;
+  /** One statement: every decision of this assessment with its comment's field and state (the Lead's own round-2 comments, T-16). */
+  findDecisions(assessmentId: number): Promise<DecisionRecord[]>;
 }
 
 /** A reusable comment text of a role (FR-12). */
@@ -628,6 +630,34 @@ export class DrizzleAssessmentStore implements AssessmentStore {
         ),
       )
       .orderBy(asc(assessmentComments.createdAt), asc(assessmentComments.id));
+  }
+
+  buildDecisions(assessmentId: number) {
+    return this.db
+      .select({
+        commentId: commentDecisions.commentId,
+        fieldKey: assessmentComments.fieldKey,
+        decision: commentDecisions.decision,
+        body: commentDecisions.body,
+        decidedAt: commentDecisions.decidedAt,
+        commentState: assessmentComments.state,
+        commentDeletedAt: assessmentComments.deletedAt,
+      })
+      .from(commentDecisions)
+      .innerJoin(
+        assessmentComments,
+        eq(assessmentComments.id, commentDecisions.commentId),
+      )
+      .where(eq(commentDecisions.assessmentId, assessmentId))
+      .orderBy(asc(commentDecisions.commentId));
+  }
+
+  async findDecisions(assessmentId: number): Promise<DecisionRecord[]> {
+    const rows = await this.buildDecisions(assessmentId);
+    return rows.map(({ commentDeletedAt, ...row }) => ({
+      ...row,
+      commentDeleted: commentDeletedAt !== null,
+    }));
   }
 
   async findComments(assessmentId: number): Promise<CommentRecord[]> {
@@ -1206,31 +1236,11 @@ export class DrizzleAssessmentWriteStore implements AssessmentWriteStore {
   }
 
   buildDecisions(assessmentId: number) {
-    return this.db
-      .select({
-        commentId: commentDecisions.commentId,
-        fieldKey: assessmentComments.fieldKey,
-        decision: commentDecisions.decision,
-        body: commentDecisions.body,
-        decidedAt: commentDecisions.decidedAt,
-        commentState: assessmentComments.state,
-        commentDeletedAt: assessmentComments.deletedAt,
-      })
-      .from(commentDecisions)
-      .innerJoin(
-        assessmentComments,
-        eq(assessmentComments.id, commentDecisions.commentId),
-      )
-      .where(eq(commentDecisions.assessmentId, assessmentId))
-      .orderBy(asc(commentDecisions.commentId));
+    return this.reads.buildDecisions(assessmentId);
   }
 
   async findDecisions(assessmentId: number): Promise<DecisionRecord[]> {
-    const rows = await this.buildDecisions(assessmentId);
-    return rows.map(({ commentDeletedAt, ...row }) => ({
-      ...row,
-      commentDeleted: commentDeletedAt !== null,
-    }));
+    return await this.reads.findDecisions(assessmentId);
   }
 
   buildUpsertDecision(write: DecisionWrite) {

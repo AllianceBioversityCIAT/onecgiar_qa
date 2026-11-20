@@ -1,7 +1,9 @@
 // @akili-spec assessment/step-1-assessment
 import {
+  ApiExtraModels,
   ApiProperty,
   ApiPropertyOptional,
+  getSchemaPath,
   type ApiPropertyOptions,
 } from '@nestjs/swagger';
 import { commentStates } from '../../database/drizzle/schema/assessment-comments.js';
@@ -224,6 +226,33 @@ export class AssessmentThreadItemModel {
   choices!: string[];
 }
 
+/** The Lead's own round-2 comment (round 2, Lead only): the comment plus the members of a `thread[]` item (T-16). */
+export class AssessmentOwnCommentModel extends AssessmentCommentModel {
+  @ApiProperty({
+    type: AssessmentThreadDecisionModel,
+    nullable: true,
+    description:
+      "The Lead's current decision on its own comment (`escalate`); `null` when none is set. Present only on the Lead's own round-2 comments, in round 2",
+  })
+  decision!: AssessmentThreadDecisionModel | null;
+
+  @ApiProperty({
+    type: Boolean,
+    description:
+      'The comment can take a decision from the caller: true while it is open and the review has not ended; false once withdrawn or after the review ends (whatever the comment state). Like `thread[]`, it ignores `writable` before the end',
+  })
+  decidable!: boolean;
+
+  @ApiProperty({
+    type: [String],
+    enum: ['agree_program', 'escalate'],
+    description:
+      "`['escalate']` while decidable (the Lead's own comment takes no `agree_program`); `[]` otherwise",
+  })
+  choices!: string[];
+}
+
+@ApiExtraModels(AssessmentCommentModel, AssessmentOwnCommentModel)
 export class AssessmentFieldModel {
   @ApiProperty({ type: String, example: 'general.title' })
   key!: string;
@@ -292,8 +321,18 @@ export class AssessmentFieldModel {
   })
   validated!: boolean;
 
-  @ApiProperty({ type: [AssessmentCommentModel] })
-  comments!: AssessmentCommentModel[];
+  @ApiProperty({
+    type: 'array',
+    items: {
+      anyOf: [
+        { $ref: getSchemaPath(AssessmentCommentModel) },
+        { $ref: getSchemaPath(AssessmentOwnCommentModel) },
+      ],
+    },
+    description:
+      "The field's comments. In round 2 the Lead's OWN round-2 comments also carry `decision` (`{ decision, body, decidedAt }` or `null`), `decidable` and `choices`, so a reload shows whether the Lead escalated them (T-16). Round 1, the Assessor view and every other comment: those keys are absent",
+  })
+  comments!: Array<AssessmentCommentModel | AssessmentOwnCommentModel>;
 
   @ApiProperty({
     type: Boolean,
