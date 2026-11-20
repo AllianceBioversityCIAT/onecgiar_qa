@@ -64,6 +64,8 @@ import { WorklistController } from './worklist.controller.js';
 import { WorklistService } from './worklist.service.js';
 import { DrizzleWorklistStore, WORKLIST_STORE } from './worklist.store.js';
 import { spAccessConfig } from '../config/sp-access.config.js';
+import { releaseConfig } from '../config/release.config.js';
+import { ReleaseSweeper } from './release-sweeper.js';
 import { AuthThrottlerModule } from '../auth/auth-throttle.js';
 import { SpAccessController } from './sp-view/sp-access.controller.js';
 import { SpAccessService } from './sp-view/sp-access.service.js';
@@ -110,6 +112,7 @@ import { DrizzleSpViewStore, SP_VIEW_STORE } from './sp-view/sp-view.store.js';
     DynamoDbModule,
     ConfigModule.forFeature(catalogsConfig),
     ConfigModule.forFeature(spAccessConfig),
+    ConfigModule.forFeature(releaseConfig),
     // The per-IP limit of the SP code exchange (P2-3911): the same global throttler AuthModule uses.
     AuthThrottlerModule,
     UsersModule,
@@ -154,6 +157,8 @@ import { DrizzleSpViewStore, SP_VIEW_STORE } from './sp-view/sp-view.store.js';
     { provide: RELEASE_PAUSE, useValue: defaultReleasePause },
     ReleaseService,
     { provide: RELEASE_DISPATCHER, useExisting: ReleaseService },
+    // The periodic sweep of the outbox (P2-3910 bug): the safety net when a post-end dispatch failed; `RELEASE_SWEEP_INTERVAL_MS=0` turns it off.
+    ReleaseSweeper,
     // The title backfill (T-13, FR-24): a bootstrap hook that is not awaited.
     { provide: TITLE_BACKFILL_STORE, useClass: DrizzleTitleBackfillStore },
     TitleBackfill,

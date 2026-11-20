@@ -35,9 +35,13 @@ export interface ReleaseDispatchResult {
   stillPending: number;
 }
 
-/** `maxRounds`: how many claim rounds (one send batch each) a call may run; the admin retry bounds it so the request cannot hang. */
+/**
+ * `maxRounds`: how many claim rounds (one send batch each) a call may run; the admin retry bounds it so the request cannot hang.
+ * `ignoreBackoff`: also send the rows that wait out a backoff (the admin retry); a send in flight is never taken.
+ */
 export interface ReleaseDispatchOptions {
   maxRounds?: number;
+  ignoreBackoff?: boolean;
 }
 
 /** What `AssessmentService` calls after an end commits (DD-5): never awaited by the request (NFR-6). */
@@ -49,6 +53,19 @@ export interface ReleaseDispatcher {
 export const RELEASE_BATCH = 50;
 /** A claimed row is not due again for this long (design 7.6). */
 export const RELEASE_LEASE_MS = 60 * 1000;
+/** The first backoff, doubled for each further attempt, up to the cap (P2-3910 bug). */
+const BACKOFF_BASE_MS = 60 * 1000;
+const BACKOFF_CAP_MS = 30 * 60 * 1000;
+/** A pending row with this many attempts is logged as `release_stuck` on every sweep. */
+export const RELEASE_STUCK_ATTEMPTS = 10;
+
+/**
+ * How long a row waits after its `attempts`-th claim failed: 1, 2, 4, 8, 16
+ * min, then every 30 min. `attempts` counts the claim that just failed.
+ */
+export const releaseBackoffMs = (attempts: number): number =>
+  Math.min(BACKOFF_BASE_MS * 2 ** (Math.max(attempts, 1) - 1), BACKOFF_CAP_MS);
+
 /** Three attempts per call, with this wait after the first and after the second (the runner's DD-8). */
 const MAX_ATTEMPTS = 3;
 const BACKOFF_MS = [1000, 4000] as const;
@@ -130,6 +147,8 @@ export class ReleaseService implements ReleaseDispatcher {
       refused: 0,
       stillPending: 0,
     };
+    // A retry that ignores the backoff must not take again a row it already sent in this call.
+    const claimed: number[] = [];
     for (let round = 0; round < maxRounds; round++) {
       let due: DueRelease[];
       try {
@@ -138,12 +157,16 @@ export class ReleaseService implements ReleaseDispatcher {
           this.clock,
           RELEASE_LEASE_MS,
           RELEASE_BATCH,
+          options.ignoreBackoff
+            ? { ignoreBackoff: true, skipIds: claimed }
+            : undefined,
         );
       } catch (error) {
         this.fail('claim_failed', error);
         break;
       }
       if (due.length === 0) break;
+      claimed.push(...due.map((row) => row.id));
       total.attempted += due.length;
       // The lease must outlast a worst-case send. Past that point another dispatcher could take the rows while they are in flight and Reporting would get a second call: leave them pending, the lease runs out and the next sweep sends them.
       if (
@@ -182,6 +205,7 @@ export class ReleaseService implements ReleaseDispatcher {
         kind: error instanceof FeedError ? error.kind : 'error',
         rows: rows.length,
       });
+      await this.defer(rows);
       return { sent: 0, refused: 0 };
     }
 
@@ -195,6 +219,7 @@ export class ReleaseService implements ReleaseDispatcher {
         });
       }
     }
+    await this.defer(rows.filter((row) => !decisions.has(row.id)));
     const answered = rows.filter((row) => decisions.has(row.id));
     if (answered.length === 0) return { sent: 0, refused: 0 };
 
@@ -203,7 +228,60 @@ export class ReleaseService implements ReleaseDispatcher {
     } catch {
       // Rolled back whole: the rows stay `pending`. The next send of an already released row answers `not_in_qa`, which counts as sent.
       this.log({ outcome: 'ack_failed', phaseYear, rows: answered.length });
+      await this.defer(answered);
       return { sent: 0, refused: 0 };
+    }
+  }
+
+  /**
+   * The backoff of rows whose send failed, were not answered or whose ack
+   * rolled back: each waits `releaseBackoffMs(attempts)` from now (one
+   * conditional UPDATE per distinct attempt count, fenced by it).
+   * Never throws: if it fails the claim's own lease still holds the rows for
+   * a minute and the sweep takes them then.
+   */
+  private async defer(rows: readonly DueRelease[]): Promise<void> {
+    // Grouped by the claim's attempt count: it fixes the wait, and it fences the UPDATE (a row another dispatcher re-claimed has a higher count and is left alone).
+    const byAttempts = new Map<number, number[]>();
+    for (const row of rows) {
+      byAttempts.set(row.attempts, [
+        ...(byAttempts.get(row.attempts) ?? []),
+        row.id,
+      ]);
+    }
+    const now = this.clock().getTime();
+    for (const [attempts, ids] of byAttempts) {
+      try {
+        await this.store.deferUntil(
+          ids,
+          new Date(now + releaseBackoffMs(attempts)),
+          attempts,
+        );
+      } catch (error) {
+        this.fail('defer_failed', error);
+      }
+    }
+  }
+
+  /**
+   * One `release_stuck` warning per pending row that used
+   * `RELEASE_STUCK_ATTEMPTS` attempts: ids and counts only, for an alert. The
+   * row stays `pending` (only Reporting can refuse it). Never throws.
+   */
+  async reportStuck(): Promise<number> {
+    try {
+      const stuck = await this.store.listStuck(RELEASE_STUCK_ATTEMPTS);
+      for (const row of stuck) {
+        this.log({
+          outcome: 'release_stuck',
+          releaseId: row.id,
+          attempts: row.attempts,
+        });
+      }
+      return stuck.length;
+    } catch (error) {
+      this.fail('stuck_read_failed', error);
+      return 0;
     }
   }
 
