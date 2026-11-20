@@ -37,7 +37,7 @@ export interface NextItemsVm {
               <span class="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
                 <span class="font-(family-name:--qa-mono) text-(length:--fs-13) font-semibold text-(--accent) tabular-nums">{{ it.code }}</span>
                 <span class="text-(length:--fs-12) text-(--text-muted)">{{ it.program }}</span>
-                <span class="min-w-0 basis-full truncate text-(length:--fs-14) text-(--text)">{{ it.title }}</span>
+                <span class="line-clamp-2 min-w-0 basis-full text-(length:--fs-14) text-(--text)">{{ it.title }}</span>
               </span>
               <span class="text-(length:--fs-13) text-(--text-2)"><span class="font-semibold">{{ it.field }}</span><span class="text-(--text-3)"> · {{ d.noteLabel }}: {{ it.note }}</span></span>
               @switch (it.reporting) {
@@ -50,7 +50,7 @@ export interface NextItemsVm {
                 @case ('not-updated') {
                   <span class="inline-flex items-center gap-[5px]">
                     <span class="box-border size-[11px] flex-none rounded-full border-[1.5px] border-(--border-strong)" aria-hidden="true"></span>
-                    <span class="text-(length:--fs-11) font-semibold text-(--text-muted)">Not updated in the Reporting Tool yet</span>
+                    <span class="text-(length:--fs-11) font-semibold text-(--text-3)">Not updated in the Reporting Tool yet</span>
                   </span>
                 }
               }
