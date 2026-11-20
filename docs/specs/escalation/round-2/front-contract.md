@@ -6,7 +6,7 @@ What the front may rely on for the Lead Assessor's review of a re-submitted resu
 
 1. Open the result with the step-1 view route. A Lead's row is round 2: `round` is `2`.
 2. Draw only fields with `actionable: true` as actionable. Every other field is context.
-3. Per core field, show `thread[]`. Show the decision controls on an item only when `writable && item.decidable`; offer exactly `item.choices`.
+3. Per core field, show `thread[]`. Show the decision controls on an item only when `item.decidable`; offer exactly `item.choices`.
 4. Write a decision with `PUT …/assessment/decisions/:commentId`; clear it with `DELETE` on the same path.
 5. Finish with `POST …/assessment/finish`. Read `data.status`: `quality_assessed` or `escalated`.
 6. Read `error.code` on every refusal (section 7). Never parse `error.message`.
@@ -58,10 +58,10 @@ Comments neither withdrawn nor deleted, ordered by comment.
 | `response` | The program's latest response; absent when none. The responder is named, never an email |
 | `clarifications` | Every request with its answer, oldest first |
 | `decision` | The Lead's current decision; absent when none |
-| `decidable` | The comment can take a decision from this caller. It ignores `writable` |
+| `decidable` | The comment can take a decision from this caller now. It already folds in the end of the review and a read-only view: `false` (with `choices: []`, `decision` kept) once the review ended |
 | `choices` | The decisions to offer. `[]` when not decidable and always for ADMIN |
 
-Decidable round-1 comments are those in state `disagreed`, `open` or `clarification_requested` on an actionable field: `choices` is `['agree_program', 'escalate']`. The Lead's own round-2 comment takes `['escalate']` only. Gate every decision control on **`writable && decidable`** (round-1 `thread[]` items; the Lead's own comments in `comments[]` already read `decidable: false` after the end, § 3.2): `decidable` alone is true on a finished or closed review.
+Decidable round-1 comments are those in state `disagreed`, `open` or `clarification_requested` on an actionable field: `choices` is `['agree_program', 'escalate']`. The Lead's own round-2 comment takes `['escalate']` only. Gate every decision control on **`decidable`** alone, for `thread[]` items and for the Lead's own comments in `comments[]` (§ 3.2): `decidable` already folds in the end of the review and a read-only view, so do not combine it with `writable`. `choices` also folds in the escalate rule: while ANOTHER live comment on the same field carries an `escalate` (a round-1 item or the Lead's own comment), `agree_program` is not offered, so `choices` is `['escalate']` and `decidable` stays `true`. An item's own escalate does not count, and clearing the escalate restores both choices. Offer exactly `choices`; never add `agree_program` back (the route would answer 409 `ASSESSMENT_FIELD_ESCALATED`).
 
 ### 3.2 The Lead's own round-2 comments in `comments[]`
 
@@ -76,7 +76,7 @@ In round 2, for the **Lead**, each item of a field's `comments[]` that the calle
 | Key | Rule |
 |---|---|
 | `decision` | The Lead's live decision on the comment; `null` when none is set (always present on these comments, unlike `thread[]` where it is absent). A decision on a withdrawn comment is `null` |
-| `decidable` | `true` while the comment is `open` and the review has not ended; `false` once withdrawn or **after the review ends** (an own comment still `open` at the end too: any decide is then 409 `ASSESSMENT_FINISHED`). Unlike round-1 `thread[]` items it does not stay true after the end |
+| `decidable` | `true` while the comment is `open`, the review has not ended and the view is writable; `false` once withdrawn, in a read-only view (step closed) or **after the review ends** (an own comment still `open` at the end too: any decide is then 409 `ASSESSMENT_FINISHED`). Same rule as `thread[]` items |
 | `choices` | `['escalate']` while decidable (no `agree_program` on your own comment); `[]` otherwise, and always after the end. `decision` is kept after the end |
 
 The keys are **absent** on every other comment: round 1, the Assessor's view, ADMIN, and any comment another user wrote. Round-1 and Assessor shapes are unchanged.
@@ -194,7 +194,7 @@ Nothing for TPB or PPU is built in this spec. The design (`design.md` § 12) add
 - [ ] Types accept `round`, per-field `updated`, `actionable`, `effectiveValidated`, `carried`, `thread[]`.
 - [ ] Only `actionable` fields take a check or a comment; the rest render as context.
 - [ ] The check follows `effectiveValidated`; the hint follows `carried`.
-- [ ] Decision controls are gated on `writable && decidable` and offer `choices`.
+- [ ] Decision controls are gated on `decidable` alone and offer `choices`.
 - [ ] After a decision or a delete, the view is re-read (either can end the review).
 - [ ] The finish handler reads `status: 'escalated'` and the 409 `ASSESSMENT_CORE_UNDECIDED` `error.fields`.
 - [ ] Check all is replaced by `fieldKeys` once a field is escalated.

@@ -433,6 +433,25 @@ All back tasks touch `server/src/assessment/` (one shared boundary), so they run
 - **Review:** full.
 - **Skills:** tdd, nestjs-best-practices
 
+## T-17: thread[] items read not decidable once they can no longer be decided
+
+- **Status:** [x]
+- **Size:** S
+- **Depends on:** T-16; back lead's request 2026-11-20 ("Yeck mira solo `decidable`")
+- **Requirements:** FR-8 (decide), FR-2 (reused view)
+- **Design refs:** `front-contract.md` § 3 (thread items) and § 3.2
+- **Scope:**
+  - Round-2 view, Lead role: a round-1 `thread[]` item reads `decidable: false, choices: []` whenever a decision on it would be refused: after the review ends (assessment not `pending`, same `ended` as T-16) and in any other state the decide route refuses for that comment. `decision` is kept.
+  - `front-contract.md`: the front gates decision controls on `decidable` alone (remove the `writable && decidable` instruction for both `thread[]` and own comments); state that `decidable` already folds in the end of the review.
+  - Round 1 and other roles: unchanged.
+- **Tests:** unit (view builder): undecided round-1 comment on a field another comment escalated, review ended → `decidable: false, choices: []`; decided one keeps `decision`; before the end unchanged. e2e: Lead escalates one of two comments on a core field, finishes → the other reads not decidable.
+- **Verification:** server lint, build, unit, e2e; client build.
+- **Falsifier:** drop the ended check → the e2e reads `decidable: true`.
+- **Disqualifier:** a change to round-1 or non-Lead shapes, or to the decide write path.
+- **Consumers:** T-13 (front, Yeck).
+- **Review:** full.
+- **Skills:** tdd
+
 ## Coverage check (scenario and clause → task)
 
 | Requirement clause | Task |

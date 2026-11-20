@@ -268,3 +268,12 @@
 - **Open (not acted on):** `thread[]` can still read `decidable: true` after the end for an undecided round-1 comment on a field another comment escalated (pre-existing; the front gates on `writable && decidable`) — offered to the back lead as a small follow-up. `ended` reads the assessment status only, like the existing `finished` flag.
 - **Also recorded:** the deletion history UI ("Deleted by … on …") is out of scope of P2-3912 → P2-3915 (`requirements.md` § 4), back lead 2026-11-20.
 - **Requirements covered:** FR-9 (view), FR-2.
+
+### T-17: thread[] items read not decidable once they can no longer be decided — PASS (2026-11-20)
+
+- **Attempts:** 1 (with two Leader-directed extensions before review). Effort high. Skills: tdd. Back lead's request: the front looks at `decidable` only.
+- **Changes:** `toThreadItems(..., ended, escalatedOn)`; `ended` = `!writable || finished` ("the view takes no decision": end of review, step closed, read-only), also for own comments (T-16 rule widened); before the end a round-1 item on a field where another live comment is escalated offers `['escalate']` only (mirrors 409 `ASSESSMENT_FIELD_ESCALATED`; own escalate does not count; clearing restores). View builder only; decide write path unchanged. `front-contract.md` (§ 3, gating sentence, § 3.2, checklist): gate on `decidable` alone. OpenAPI and AGENTS texts.
+- **Red:** unit "expected [ { commentId: 7001, …(9) } ] to match object [ { commentId: 7001, …(2) } ]" (ended); unit 2 failed + e2e 1 failed (escalate filter). **Falsifiers:** ended check dropped → unit + e2e red; escalate filter dropped → unit 2 + e2e 1 red; after the review's advisory tests: `!writable` half dropped → closed-step e2e red; field-agnostic `escalatedOn` → per-field unit red.
+- **Verification:** unit 4201 / 6 skipped · e2e 1323 · lint · build · client ok. Re-run (Leader): view + decisions unit 113/113, decisions + openapi e2e 38/38 → **VERIFIED**. Reviewer **PASS**.
+- **ADVISORY taken:** closed-step e2e, per-field unit test, contract line on read-only views (Leader edit).
+- **Requirements covered:** FR-8 (view side), FR-2.
