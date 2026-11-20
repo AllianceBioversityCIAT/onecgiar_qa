@@ -203,7 +203,10 @@ On a decidable round-1 core comment the Lead SHALL set `agree_program` or `escal
 |---|---|---|
 | `agree_program` | The field turns green | Comment → `lead_sided_program` (closed) |
 | `escalate` | The field stays grey; validating it is refused | Comment → `escalated` (open) |
-| cleared | An `agree_program` green goes back to grey | none |
+| cleared | An `agree_program` green goes back to grey — also when another `agree_program` on the same field remains, because the cleared comment is undecided again (amended 2026-11-20, T-15 review); the remaining decisions are kept, so deciding the comment again greens the field | none |
+| none (undecided) | The field cannot be validated green: 409 `ASSESSMENT_CORE_COMMENT_UNDECIDED` (amended 2026-11-20, back lead, HITL O-1) | — |
+
+A core field is **decided** when every live decidable round-1 comment on it (`disagreed`, `open`, `clarification_requested`; not withdrawn, not deleted) carries a live decision. The Lead decides first; a plain validation never closes a round-1 comment. Decisions are per comment: one field may end with an `agree_program` on one comment and an `escalate` on another; the field then counts as escalated, and at the end each comment closes on its own decision (`lead_sided_program`, `escalated`).
 
 #### Scenario: Agree with the program
 
@@ -229,6 +232,16 @@ On a decidable round-1 core comment the Lead SHALL set `agree_program` or `escal
 - GIVEN F is green through `agree_program` on C
 - WHEN the Lead un-greens F
 - THEN the decision on C is cleared in the same transaction
+
+#### Scenario: Validate a core field whose round-1 comment is undecided (amended 2026-11-20, HITL O-1)
+
+- GIVEN C `open` (or `disagreed`, `clarification_requested`) on core field F, with no decision
+- WHEN the Lead validates F green (by `fieldKeys` or Check all)
+- THEN 409 `ASSESSMENT_CORE_COMMENT_UNDECIDED` with `fields` (the undecided core fields of the request, sorted ascending), and nothing is written
+- AND an escalated field in the same request answers `ASSESSMENT_FIELD_ESCALATED` first (existing precedence)
+- AND after the Lead sets `agree_program` on C, F is green and the review may end (FR-12)
+- AND `agree_program` on C turns F green only when no other live round-1 comment on F is undecided; otherwise F stays grey until the last one is decided
+- BUT un-validating (grey) is never refused by this rule
 
 ### FR-9: Lead's own escalated comment (AC10, OQ-2, OQ-5)
 

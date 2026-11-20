@@ -97,7 +97,7 @@ All routes are under `/api/v1`, with the existing envelope and scope 404.
 | Method | Path | Roles | Request | Response | Errors |
 |---|---|---|---|---|---|
 | GET | `/timelines/:t/results/:code/assessment` | ASSESSOR, LEAD (row by round), ADMIN (read) | — | Step-1 view + `round`; per field `updated`, `actionable`, `effectiveValidated`, `carried`, `thread[]`. Each thread item: `{ commentId, author, createdAt, body, valueCopy, state, response?, clarifications[], decision?, decidable, choices[] }` | 404 |
-| PUT | `/timelines/:t/results/:code/assessment/validations` | ASSESSOR (r1), LEAD (r2) | unchanged | unchanged + `effectiveValidated` | + `ASSESSMENT_FIELD_NOT_CORE`, `ASSESSMENT_FIELD_ESCALATED` (r2) |
+| PUT | `/timelines/:t/results/:code/assessment/validations` | ASSESSOR (r1), LEAD (r2) | unchanged | unchanged + `effectiveValidated` | + `ASSESSMENT_FIELD_NOT_CORE`, `ASSESSMENT_FIELD_ESCALATED`, `ASSESSMENT_CORE_COMMENT_UNDECIDED` (r2) |
 | POST | `…/assessment/comments` | ASSESSOR, LEAD | unchanged | unchanged | + `ASSESSMENT_FIELD_NOT_CORE` (r2) |
 | PUT | `…/assessment/decisions/:commentId` | LEAD (TPB, PPU later) | `{ decision, body }` | `{ decision, validations, status, assessedBy?, finishedAt? }` | 400 body, 404, 409 `ASSESSMENT_DECISION_INVALID`, `ASSESSMENT_FINISHED`, step closed |
 | DELETE | `…/assessment/decisions/:commentId` | LEAD | — | same shape | 404, 409 `ASSESSMENT_FINISHED` |
@@ -113,6 +113,7 @@ All routes are under `/api/v1`, with the existing envelope and scope 404.
 | `ASSESSMENT_FIELD_ESCALATED` | 409 |
 | `ASSESSMENT_DECISION_INVALID` | 409 |
 | `ASSESSMENT_CORE_UNDECIDED` | 409, with `fields: string[]` |
+| `ASSESSMENT_CORE_COMMENT_UNDECIDED` | 409, with `fields: string[]` (amended 2026-11-20, HITL O-1) |
 | `ASSESSMENT_COMMENT_NOT_DELETABLE` | 409 |
 
 All five go into `common/error-codes.ts` and `front-contract.md`. `ASSESSMENT_CORE_UNDECIDED` joins `ASSESSMENT_CORE_UNCOMMENTED` as a code whose `fields` the filter forwards.

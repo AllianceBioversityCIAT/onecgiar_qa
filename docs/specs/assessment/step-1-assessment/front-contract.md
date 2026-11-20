@@ -374,6 +374,7 @@ For the admin header count, read `GET /assessment-releases?status=pending` and u
 | `ASSESSMENT_FIELD_ESCALATED` | 409 | Round 2: validating, agreeing on or Check all over an escalated field |
 | `ASSESSMENT_DECISION_INVALID` | 409 | Round 2: a decision that does not apply to the comment |
 | `ASSESSMENT_CORE_UNDECIDED` | 409 | Round 2 finish with undecided grey core fields; `error.fields` is a `string[]` |
+| `ASSESSMENT_CORE_COMMENT_UNDECIDED` | 409 | Round 2: validating green a core field with an undecided round-1 comment; `error.fields` is a `string[]` |
 | `ASSESSMENT_COMMENT_NOT_DELETABLE` | 409 | Round 2: delete of a comment the Lead may not delete |
 
 The round-2 codes are specified in `docs/specs/escalation/round-2/front-contract.md` (section 7).

@@ -372,7 +372,7 @@ All back tasks touch `server/src/assessment/` (one shared boundary), so they run
 
 ## T-14: API HITL on qatest
 
-- **Status:** [~] (run 2026-11-20; awaiting the back lead's PASS)
+- **Status:** [x] PASS by the back lead, 2026-11-20 — with `0013` (direct check) and its rollback on a real MySQL **pending before `staging-center`** (to settle with Cris)
 - **Size:** M
 - **Depends on:** T-12 (back merged into `dev`)
 - **Requirements:** NFR-3, NFR-5, and the P-17 and P-21 premises.
@@ -392,6 +392,28 @@ All back tasks touch `server/src/assessment/` (one shared boundary), so they run
 - **Done when:** the back lead marks PASS.
 - **Skills:** aws-database (read-only checks)
 
+## T-15: Lead cannot validate a core field whose round-1 comment is undecided (HITL O-1)
+
+- **Status:** [x]
+- **Size:** S
+- **Depends on:** T-14 (finding O-1); back lead's decision 2026-11-20 ("bloquear")
+- **Requirements:** FR-8 (*none (undecided)* row; Scenario: Validate a core field whose round-1 comment is undecided)
+- **Design refs:** § 4 codes table (`ASSESSMENT_CORE_COMMENT_UNDECIDED`)
+- **Scope:**
+  - `assessment.errors.ts` + `common/error-codes.ts`: new 409 `ASSESSMENT_CORE_COMMENT_UNDECIDED` carrying `fields: string[]` (forwarded by `http-exception.filter.ts` like `ASSESSMENT_CORE_UNDECIDED`).
+  - `assessment.service.ts` round-2 validations PUT: when `validated: true`, after the escalated check, refuse the whole request if any target core field has a live decidable round-1 comment with no live decision; nothing written.
+  - Decide path: `agree_program` greens the field only when no other live round-1 comment on it stays undecided (the decision is stored either way).
+  - OpenAPI text of the validations and decide routes; `assessment/AGENTS.md` round-2 section; code-count lines.
+- **Tests:** unit (service): undecided `open` / `disagreed` / `clarification_requested` → 409 with sorted `fields`, nothing written, no audit; escalated wins precedence; withdrawn/deleted comments do not block; un-validate never refused; Check all refused whole; second-comment agree keeps grey until the last decision. e2e (round-2 fixture): the qatest O-1 path (open comment, validate → 409; agree → `quality_assessed`, comment `lead_sided_program`).
+- **Verification:** server lint, build, unit, e2e; client build; grep parity of codes between `assessment.errors.ts` and the step-1 front contract § 9 (14 codes).
+- **Falsifier:** remove the new guard → the e2e reproduces the qatest result (`quality_assessed` with comment `open`).
+- **Red run:** the e2e and unit 409 cases fail before the guard.
+- **Disqualifier:** a guard that also blocks round 1, un-validation, or fields without round-1 comments.
+- **Consumers:** front (Yeck, T-13): new code in `front-contract.md`.
+- **Review:** full.
+- **Done when:** verification green and Reviewer PASS.
+- **Skills:** tdd, nestjs-best-practices
+
 ## Coverage check (scenario and clause → task)
 
 | Requirement clause | Task |
@@ -404,6 +426,7 @@ All back tasks touch `server/src/assessment/` (one shared boundary), so they run
 | FR-6 | T-6 |
 | FR-7 both; BUT changed not carried | T-6 (view), T-7 (validate interplay) |
 | FR-8 all four scenarios; AND IT MUST body 400 | T-7 |
+| FR-8 undecided scenario (O-1) | T-15 |
 | FR-9; BUT own agree refused | T-8 |
 | FR-10; BUT three refusals | T-10 |
 | FR-11 both; BUT frozen; concurrency | T-9 |

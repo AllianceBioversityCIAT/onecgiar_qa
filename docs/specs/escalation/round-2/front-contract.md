@@ -100,7 +100,7 @@ Same request as step-1 6.1, on core fields only. In round 2 the answer adds:
 effectiveValidated: [{ fieldKey, validated }]    // every core field, sorted ascending by fieldKey
 ```
 
-It is present in round 2 only. `validations` stays the stored rows. `all: true` covers the core fields only. **Check all is refused whole** (409 `ASSESSMENT_FIELD_ESCALATED`, nothing written) once any core field is escalated: send `fieldKeys` instead.
+It is present in round 2 only. `validations` stays the stored rows. `all: true` covers the core fields only. **Check all is refused whole** (409 `ASSESSMENT_FIELD_ESCALATED`, nothing written) once any core field is escalated: send `fieldKeys` instead. **A core field with an undecided round-1 comment cannot be validated green** (409 `ASSESSMENT_CORE_COMMENT_UNDECIDED`, `error.fields`, nothing written; Check all too): the Lead decides the comment first (`agree_program` greens the field once no other round-1 comment on it is undecided). Un-validating is never refused by this rule.
 
 ### 4.3 Finish
 
@@ -146,6 +146,7 @@ New in round 2 (all 409). The step-1 codes keep their meaning; see its section 9
 |---|---|
 | `ASSESSMENT_FIELD_NOT_CORE` | Validation or comment on an Assessed field that is not core (context only) |
 | `ASSESSMENT_FIELD_ESCALATED` | Validating a field that carries an `escalate`; an agree on a field another comment escalated; Check all while any core field is escalated |
+| `ASSESSMENT_CORE_COMMENT_UNDECIDED` | Validating green (or Check all) a core field with an undecided round-1 comment; `error.fields` lists them |
 | `ASSESSMENT_DECISION_INVALID` | A decision that does not apply: the comment is not decidable, or the choice is not in its `choices` |
 | `ASSESSMENT_CORE_UNDECIDED` | Finish with grey core fields and no `escalate` on them; carries `error.fields: string[]` |
 | `ASSESSMENT_COMMENT_NOT_DELETABLE` | Delete (4.4) |
