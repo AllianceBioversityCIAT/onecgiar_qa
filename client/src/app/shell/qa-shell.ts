@@ -61,6 +61,14 @@ const ADMINISTRATION: readonly NavItem[] = [
     permission: Permission.ADMIN_ACCESS,
     icon: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75',
   },
+  // P2-3915 Traceability: configuration log (design, sample data).
+  {
+    label: 'Activity log',
+    link: '/activity-log',
+    exact: false,
+    permission: Permission.ADMIN_ACCESS,
+    icon: 'M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 2',
+  },
 ];
 
 /**

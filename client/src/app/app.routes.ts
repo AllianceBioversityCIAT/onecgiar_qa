@@ -96,6 +96,16 @@ export const routes: Routes = [
         },
         () => import('./pages/workspace/assessors/assessors-view').then((m) => m.AssessorsView),
       ),
+      // P2-3915 Traceability: configuration log (design, sample data).
+      view(
+        'activity-log',
+        'Activity log · PRMS Quality Assurance',
+        {
+          permission: Permission.ADMIN_ACCESS,
+          nav: { label: 'Activity log', group: 'administration', order: 13 },
+        },
+        () => import('./pages/workspace/activity-log/activity-log-view').then((m) => m.ActivityLogView),
+      ),
       // Plan B of P2-3918: dev/test-only AI preview (the flag guard runs first, so production never matches).
       {
         path: 'ai-preview/:timelineId/:resultCode',
