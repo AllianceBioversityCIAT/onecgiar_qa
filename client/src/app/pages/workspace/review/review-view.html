@@ -73,6 +73,10 @@
                     <button hlmBtn qaBtn tone="secondary" size="sm" type="button" [loading]="validating().has(allKey)" [disabled]="validating().size > 0" (click)="toggleAll()">{{ allGreen() ? 'Uncheck all' : 'Check all' }}</button>
                   </div>
                 }
+                <!-- P2-3915 Traceability: the result's history, read only (design, sample data). -->
+                <div class="flex flex-none items-center gap-2">
+                  <qa-review-history [code]="h.code" />
+                </div>
                 @if (compact()) {
                   <div class="flex flex-none flex-wrap items-center gap-2">
                     <button hlmBtn qaBtn tone="secondary" type="button" aria-haspopup="dialog" (click)="navOpen.set(true)">

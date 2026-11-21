@@ -18,6 +18,7 @@ import { ALL_FIELDS, ReviewStore } from './review-store';
 import { AiReasonDialog } from './ai/ai-reason-dialog';
 import { AiReasonAsk, REVIEW_AI_PROVIDERS, ReviewAiHook } from './ai/review-ai-hook';
 import { ReviewTocSection, TocCardAction } from './review-toc-section';
+import { ReviewHistory } from './history/review-history';
 import { PendingAnswer, findField, pendingAnswers, pendingAnswersBanner, returnsOnAnyComment, toDrawerVm, withPendingAnswers, withdrawOpen } from './review.mapper';
 
 /** The review area stacks its navigator on top below this width (container). */
@@ -48,6 +49,7 @@ const COMPACT_QUERY = '(max-width: 767.98px)';
     ReviewCommentsDrawer,
     ReviewFieldCard,
     ReviewFooter,
+    ReviewHistory,
     ReviewSkeleton,
     ReviewTocSection,
     AiReasonDialog,
