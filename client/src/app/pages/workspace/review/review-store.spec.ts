@@ -6,6 +6,8 @@ import {
   AssessmentComment,
   AssessmentView,
   CommentThread,
+  DecisionResult,
+  LeadDecisionKind,
   QuickComment,
   ValidationSummary,
   ValidationsBody,
@@ -16,6 +18,7 @@ import { ApiError } from '../../../core/http/api-envelope';
 import { Toasts } from '../../../core/http/toasts';
 import { clarificationThread, comment, viewFixture } from './review.api-fixture';
 import { ReviewStore } from './review-store';
+import { decisionResultFixture, endedRoundTwo, roundTwoViewFixture, withField, withThread } from './review.round2-fixture';
 
 const ME = 1053;
 
@@ -59,6 +62,12 @@ class FakeApi {
   programResponses = vi.fn<(timelineId: number, code: number) => Observable<readonly CommentThread[]>>(() => of([]));
   answerClarification = vi.fn<(commentId: number, body: string) => Observable<CommentThread>>((commentId) =>
     of(clarificationThread({ commentId, state: 'open' })),
+  );
+  decide = vi.fn<(timelineId: number, code: number, commentId: number, decision: LeadDecisionKind, body: string) => Observable<DecisionResult>>(() =>
+    of(decisionResultFixture()),
+  );
+  clearDecision = vi.fn<(timelineId: number, code: number, commentId: number) => Observable<DecisionResult>>(() =>
+    of(decisionResultFixture({ decision: null, validations: [] })),
   );
 }
 
@@ -444,6 +453,234 @@ describe('ReviewStore actions (T-20)', () => {
       expect(await store.answerClarification(1, 'Answer')).toEqual({ ok: false, message: 'Keep it within 2,000 characters.' });
       expect(api.view).not.toHaveBeenCalled();
       expect(toasts.error).not.toHaveBeenCalled();
+    });
+  });
+  describe('round 2: the Lead decides the round-1 comments (P2-3912, round-2 contract § 4.1)', () => {
+    const item = (id: number) => field('general.description').thread!.find((t) => t.commentId === id)!;
+    const agreed = withThread(
+      { decision: { decision: 'agree_program', body: 'The program is right.', decidedAt: '2026-11-25T11:00:00.000Z' } },
+      [],
+      withField('general.description', (f) => ({ ...f, validated: true, effectiveValidated: true })),
+    );
+
+    beforeEach(async () => {
+      api.view.mockReturnValue(of(roundTwoViewFixture()));
+      await store.load('9890', '29');
+      api.view.mockClear();
+    });
+
+    describe('green / grey and finish in round 2 (tramo-2 findings)', () => {
+      it('a green/grey answer repaints effectiveValidated too: Undo on a carried green turns it grey at once', async () => {
+        api.view.mockReturnValue(new Subject<AssessmentView>());
+        api.setValidations.mockReturnValueOnce(
+          of(
+            summary({
+              validations: [{ fieldKey: 'general.title', validated: false }],
+              effectiveValidated: [
+                { fieldKey: 'general.description', validated: false },
+                { fieldKey: 'general.title', validated: false },
+              ],
+            }),
+          ),
+        );
+        await store.setValidated('general.title', false);
+        expect(field('general.title').effectiveValidated).toBe(false);
+        expect(field('general.title').carried).toBe(false);
+        expect(store.vm()!.validated).toBe(0);
+      });
+
+      it('an answer without effectiveValidated: a stored row wins over the carried green, no row keeps it', async () => {
+        api.setValidations.mockReturnValueOnce(of(summary({ validations: [{ fieldKey: 'general.description', validated: true }] })));
+        await store.setValidated('general.description', true);
+        expect(field('general.description').effectiveValidated).toBe(true);
+        expect(field('general.title').effectiveValidated).toBe(true);
+        expect(field('general.title').carried).toBe(true);
+        expect(store.vm()!.validated).toBe(2);
+      });
+
+      it('a finish that ends escalated says Pending for TPB review, never "returned to the program"', async () => {
+        api.finish.mockReturnValueOnce(
+          of(summary({ status: 'escalated', assessedBy: { id: 14, nickname: 'lea' }, finishedAt: '2026-11-25T12:00:00.000Z' })),
+        );
+        api.view.mockReturnValueOnce(of(endedRoundTwo('escalated')));
+        await store.finish();
+        expect(toasts.success).toHaveBeenCalledWith('Assessment finished: Pending for TPB review.');
+        expect(toasts.success).not.toHaveBeenCalledWith('Assessment finished: returned to the program.');
+      });
+
+      it('a green write refused with ASSESSMENT_CORE_COMMENT_UNDECIDED says so next to the field, by code, with no toast', async () => {
+        api.setValidations.mockReturnValueOnce(refusal(409, 'ASSESSMENT_CORE_COMMENT_UNDECIDED', 'raw server text', ['general.description']));
+        expect(await store.setValidated('general.description', true)).toBe(false);
+        expect(store.fieldErrors().get('general.description')).toBe(
+          'Decide the round-1 comments on this field first: agree with the program or escalate them.',
+        );
+        expect(toasts.error).not.toHaveBeenCalled();
+        // The next try on that field starts clean.
+        api.setValidations.mockReturnValueOnce(of(summary()));
+        await store.setValidated('general.description', true);
+        expect(store.fieldErrors().has('general.description')).toBe(false);
+      });
+
+      it('Check all refused with ASSESSMENT_CORE_COMMENT_UNDECIDED marks each listed field and says it in a toast', async () => {
+        api.setValidations.mockReturnValueOnce(refusal(409, 'ASSESSMENT_CORE_COMMENT_UNDECIDED', 'raw server text', ['general.description']));
+        await store.setAllValidated(true);
+        expect([...store.fieldErrors().keys()]).toEqual(['general.description']);
+        expect(toasts.error).toHaveBeenCalledWith('Decide the round-1 comments first on: Description of Result.');
+      });
+
+      it('a green write refused with ASSESSMENT_FIELD_ESCALATED says so next to the field', async () => {
+        api.setValidations.mockReturnValueOnce(refusal(409, 'ASSESSMENT_FIELD_ESCALATED', 'raw server text'));
+        await store.setValidated('general.description', true);
+        expect(store.fieldErrors().get('general.description')).toBe('This field is escalated to TPB, so it cannot be validated.');
+        expect(toasts.error).not.toHaveBeenCalled();
+      });
+    });
+
+    it('decide: PUT with the trimmed text, then the view is read again (the server is the source of truth)', async () => {
+      api.view.mockReturnValueOnce(of(agreed));
+      expect(await store.decide(41, 'agree_program', '  The program is right.  ')).toEqual({ ok: true });
+      expect(api.decide).toHaveBeenCalledWith(29, 9890, 41, 'agree_program', 'The program is right.');
+      expect(api.view).toHaveBeenCalledTimes(1);
+      expect(item(41).decision?.decision).toBe('agree_program');
+      expect(field('general.description').effectiveValidated).toBe(true);
+      expect(store.deciding()).toBeNull();
+    });
+
+    it('while the re-read is on its way the answer is already painted (decision and stored marks)', async () => {
+      api.view.mockReturnValueOnce(new Subject<AssessmentView>());
+      void store.decide(41, 'agree_program', 'Right.');
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(item(41).decision?.decision).toBe('agree_program');
+      expect(field('general.description').validated).toBe(true);
+    });
+
+    it('an empty or too long text sends nothing and says why next to the control', async () => {
+      expect(await store.decide(41, 'escalate', '   ')).toEqual({ ok: false, message: 'Write a comment before saving the decision.' });
+      expect(store.decisionErrors().get(41)).toBe('Write a comment before saving the decision.');
+      const long = await store.decide(41, 'escalate', 'x'.repeat(2001));
+      expect(long).toEqual({ ok: false, message: 'Keep the comment within 2,000 characters (it has 2,001).' });
+      expect(api.decide).not.toHaveBeenCalled();
+    });
+
+    it('a second tap while a decision is on its way sends nothing (double tap safe)', async () => {
+      const slow = new Subject<DecisionResult>();
+      api.decide.mockReturnValueOnce(slow);
+      const first = store.decide(41, 'escalate', 'Escalate it.');
+      expect(store.deciding()).toEqual({ commentId: 41, action: 'decide' });
+      expect((await store.decide(41, 'escalate', 'Escalate it.')).ok).toBe(false);
+      expect((await store.clearDecision(41)).ok).toBe(false);
+      expect(await store.setValidated('general.description', true)).toBe(false);
+      slow.next(decisionResultFixture({ decision: { decision: 'escalate', body: 'Escalate it.', decidedAt: '2026-11-25T11:00:00.000Z' }, validations: [] }));
+      slow.complete();
+      await first;
+      expect(api.decide).toHaveBeenCalledTimes(1);
+      expect(api.setValidations).not.toHaveBeenCalled();
+      expect(store.deciding()).toBeNull();
+    });
+
+    it('no decision while a green write is on its way', async () => {
+      const slow = new Subject<ValidationSummary>();
+      api.setValidations.mockReturnValueOnce(slow);
+      const write = store.setValidated('general.title', false);
+      expect((await store.decide(41, 'escalate', 'Escalate it.')).ok).toBe(false);
+      slow.next(summary());
+      slow.complete();
+      await write;
+      expect(api.decide).not.toHaveBeenCalled();
+    });
+
+    it('an agree that leaves every core field green ends the review: read only at once, read again, a toast says so', async () => {
+      api.decide.mockReturnValueOnce(
+        of(decisionResultFixture({ status: 'quality_assessed', assessedBy: { id: 14, nickname: 'lea' }, finishedAt: '2026-11-25T12:00:00.000Z' })),
+      );
+      api.view.mockReturnValueOnce(of(endedRoundTwo('quality_assessed')));
+      expect(await store.decide(41, 'agree_program', 'Right.')).toEqual({ ok: true });
+      expect(api.view).toHaveBeenCalledTimes(1);
+      expect(store.view()!.writable).toBe(false);
+      expect(store.view()!.readOnlyReason).toBe('finished');
+      expect(toasts.success).toHaveBeenCalledWith('Assessment finished: Quality Assessed.');
+    });
+
+    it('409 ASSESSMENT_FIELD_ESCALATED: a message by code next to the control (not the raw text), and the choices are read again', async () => {
+      api.decide.mockReturnValueOnce(refusal(409, 'ASSESSMENT_FIELD_ESCALATED', 'raw server text'));
+      const outcome = await store.decide(41, 'agree_program', 'Right.');
+      const message = 'Another comment on this field is escalated to TPB, so you cannot agree with the program here. Escalate this one or clear that escalation first.';
+      expect(outcome).toEqual({ ok: false, message });
+      expect(store.decisionErrors().get(41)).toBe(message);
+      expect(api.view).toHaveBeenCalledTimes(1);
+      expect(toasts.error).not.toHaveBeenCalled();
+    });
+
+    it('409 ASSESSMENT_DECISION_INVALID: its own message, and the view is read again', async () => {
+      api.decide.mockReturnValueOnce(refusal(409, 'ASSESSMENT_DECISION_INVALID', 'raw server text'));
+      await store.decide(41, 'agree_program', 'Right.');
+      expect(store.decisionErrors().get(41)).toBe('This comment cannot take that decision now. The page now shows what it can take.');
+      expect(api.view).toHaveBeenCalledTimes(1);
+    });
+
+    it('409 ASSESSMENT_FINISHED: someone ended it first; the page reads it again and says why next to the control', async () => {
+      api.decide.mockReturnValueOnce(refusal(409, 'ASSESSMENT_FINISHED', 'raw server text'));
+      api.view.mockReturnValueOnce(of(endedRoundTwo('quality_assessed')));
+      await store.decide(41, 'agree_program', 'Right.');
+      expect(store.decisionErrors().get(41)).toBe('This review has already finished. The page now shows its final state.');
+      expect(store.view()!.readOnlyReason).toBe('finished');
+    });
+
+    it('400 VALIDATION_FAILED: the field message of the server, no reload', async () => {
+      api.decide.mockReturnValueOnce(
+        throwError(
+          () =>
+            new ApiError({
+              status: 400,
+              code: 'VALIDATION_FAILED',
+              message: 'The request is not valid.',
+              fields: [{ field: 'body', code: 'too_long', message: 'Keep the comment within 2,000 characters.' }],
+            }),
+        ),
+      );
+      await store.decide(41, 'escalate', 'Escalate it.');
+      expect(store.decisionErrors().get(41)).toBe('Keep the comment within 2,000 characters.');
+      expect(api.view).not.toHaveBeenCalled();
+    });
+
+    it('a new attempt clears the error of that comment', async () => {
+      api.decide.mockReturnValueOnce(refusal(409, 'ASSESSMENT_DECISION_INVALID', 'raw'));
+      await store.decide(41, 'escalate', 'Escalate it.');
+      expect(store.decisionErrors().has(41)).toBe(true);
+      await store.decide(41, 'escalate', 'Escalate it.');
+      expect(store.decisionErrors().has(41)).toBe(false);
+    });
+
+    it('a successful decision clears the green-write error of its field', async () => {
+      api.setValidations.mockReturnValueOnce(refusal(409, 'ASSESSMENT_CORE_COMMENT_UNDECIDED', 'raw', ['general.description']));
+      await store.setValidated('general.description', true);
+      await store.decide(41, 'agree_program', 'Right.');
+      expect(store.fieldErrors().has('general.description')).toBe(false);
+    });
+
+    it('clear: DELETE, busy as "clear", then the view is read again', async () => {
+      api.view.mockReturnValue(of(agreed));
+      await store.load('9890', '29');
+      api.view.mockClear();
+      api.view.mockReturnValueOnce(of(roundTwoViewFixture()));
+      const slow = new Subject<DecisionResult>();
+      api.clearDecision.mockReturnValueOnce(slow);
+      const cleared = store.clearDecision(41);
+      expect(store.deciding()).toEqual({ commentId: 41, action: 'clear' });
+      slow.next(decisionResultFixture({ decision: null, validations: [] }));
+      slow.complete();
+      expect(await cleared).toEqual({ ok: true });
+      expect(api.clearDecision).toHaveBeenCalledWith(29, 9890, 41);
+      expect(api.view).toHaveBeenCalledTimes(1);
+      expect(item(41).decision).toBeUndefined();
+    });
+
+    it('opening another result drops the errors of the one left behind', async () => {
+      api.decide.mockReturnValueOnce(refusal(409, 'ASSESSMENT_DECISION_INVALID', 'raw'));
+      await store.decide(41, 'escalate', 'Escalate it.');
+      await store.load('9891', '29');
+      expect(store.decisionErrors().size).toBe(0);
     });
   });
 });

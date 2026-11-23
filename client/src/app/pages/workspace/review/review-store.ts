@@ -1,13 +1,17 @@
 // @akili-spec assessment/step-1-assessment
 import { Injectable, OnDestroy, computed, inject, signal } from '@angular/core';
-import { firstValueFrom } from 'rxjs';
+import { Observable, firstValueFrom } from 'rxjs';
 import { ActingRole, ActingRoleState } from '../../../core/api/acting-role';
 import { AssessmentApi } from '../../../core/api/assessment-api';
 import {
   ASSESSMENT_ERROR,
   AssessmentComment,
+  AssessmentField,
+  AssessmentStatus,
   AssessmentView,
+  DecisionResult,
   CommentThread,
+  LeadDecisionKind,
   QuickComment,
   QuickCommentRole,
   ValidationSummary,
@@ -41,6 +45,13 @@ export type AnswerOutcome = { readonly ok: true } | { readonly ok: false; readon
  * `message` is '' when the page was out of date: it was read again and the reason said in a toast.
  */
 export type FinishOutcome = { readonly ok: true } | { readonly ok: false; readonly message: string; readonly coreKeys?: readonly string[] };
+/** Round 2 (Lead): a decision or its clear. A refusal's `message` is also in `decisionErrors`, next to the control. */
+export type DecisionOutcome = { readonly ok: true } | { readonly ok: false; readonly message: string };
+/** The Lead's decision write on its way: which comment, and whether it decides or clears. */
+export interface DecidingState {
+  readonly commentId: number;
+  readonly action: 'decide' | 'clear';
+}
 
 const NOT_FOUND: ReviewError = {
   code: ASSESSMENT_ERROR.NOT_FOUND,
@@ -71,6 +82,40 @@ const OUT_OF_DATE: ReadonlySet<string> = new Set([
   ASSESSMENT_ERROR.NOT_COMMENT_AUTHOR,
   ASSESSMENT_ERROR.CLARIFICATION_NOT_PENDING,
 ]);
+
+/** Longest decision comment the API takes, counted by character (round-2 contract § 4). */
+const MAX_DECISION = 2000;
+const DECISION_EMPTY = 'Write a comment before saving the decision.';
+
+/**
+ * Round 2 (Lead): what a refused decision says next to its control, by `error.code` (never the server's text, except
+ * as the last resort for a code not listed here). `true` in `reread` = the comment's choices or state may have changed:
+ * the view is read again so the controls match what the server holds.
+ */
+const DECISION_REFUSALS: Readonly<Record<string, { readonly message: string; readonly reread: boolean }>> = {
+  [ASSESSMENT_ERROR.FIELD_ESCALATED]: {
+    message:
+      'Another comment on this field is escalated to TPB, so you cannot agree with the program here. Escalate this one or clear that escalation first.',
+    reread: true,
+  },
+  [ASSESSMENT_ERROR.DECISION_INVALID]: { message: 'This comment cannot take that decision now. The page now shows what it can take.', reread: true },
+  [ASSESSMENT_ERROR.FINISHED]: { message: 'This review has already finished. The page now shows its final state.', reread: true },
+  [ASSESSMENT_ERROR.STEP_CLOSED]: { message: 'The Lead assessors step is closed, so decisions can no longer change.', reread: true },
+  [ASSESSMENT_ERROR.READ_ONLY]: { message: 'You can only read this review.', reread: true },
+};
+
+/** Why a green write on one field was refused in round 2, by code: shown next to the field, not in a toast. */
+const FIELD_REFUSALS: Readonly<Record<string, string>> = {
+  [ASSESSMENT_ERROR.CORE_COMMENT_UNDECIDED]: 'Decide the round-1 comments on this field first: agree with the program or escalate them.',
+  [ASSESSMENT_ERROR.FIELD_ESCALATED]: 'This field is escalated to TPB, so it cannot be validated.',
+};
+
+/** What the toast says when a write ended the assessment, by the status it ended with. */
+const ENDED_MESSAGES: Readonly<Record<Exclude<AssessmentStatus, 'pending'>, string>> = {
+  quality_assessed: 'Assessment finished: Quality Assessed.',
+  returned: 'Assessment finished: returned to the program.',
+  escalated: 'Assessment finished: Pending for TPB review.',
+};
 
 interface Target {
   readonly timelineId: number;
@@ -108,6 +153,12 @@ export class ReviewStore implements OnDestroy {
   /** Id of the comment being withdrawn. */
   readonly withdrawing = signal<number | null>(null);
   readonly finishing = signal(false);
+  /** Round 2 (Lead): the decision write on its way (one at a time), or null. */
+  readonly deciding = signal<DecidingState | null>(null);
+  /** Round 2 (Lead): why the last decision on a comment was refused, by comment id (shown next to its control). */
+  readonly decisionErrors = signal<ReadonlyMap<number, string>>(new Map());
+  /** Why a green write on a field was refused, by field key (shown next to its Approve), e.g. an undecided comment. */
+  readonly fieldErrors = signal<ReadonlyMap<string, string>>(new Map());
   /**
    * What the program answered on each comment, by comment id (P2-3911). Read after the assessment, and again with
    * it, only when the result carries a comment that still stands.
@@ -159,6 +210,9 @@ export class ReviewStore implements OnDestroy {
     const seq = ++this.seq;
     // The busy marks belong to the result left behind (its answers are dropped by `still`).
     this.validating.set(new Set());
+    this.deciding.set(null);
+    this.decisionErrors.set(new Map());
+    this.fieldErrors.set(new Map());
     this.overlapped = false;
     this.state.set('loading');
     this.error.set(null);
@@ -214,8 +268,9 @@ export class ReviewStore implements OnDestroy {
     const at = this.target();
     const busy = this.validating();
     // Not while a finish is on its way: its end and this answer could land in either order.
-    if (!at || this.finishing() || busy.has(busyKey) || busy.has(ALL_FIELDS) || (busyKey === ALL_FIELDS && busy.size > 0)) return false;
+    if (!at || this.finishing() || this.deciding() || busy.has(busyKey) || busy.has(ALL_FIELDS) || (busyKey === ALL_FIELDS && busy.size > 0)) return false;
     if (busy.size > 0) this.overlapped = true;
+    this.dropFieldErrors(busyKey === ALL_FIELDS ? null : busyKey);
     this.validating.update((set) => new Set(set).add(busyKey));
     try {
       const summary = await firstValueFrom(this.api.setValidations(at.timelineId, at.resultCode, body));
@@ -225,6 +280,7 @@ export class ReviewStore implements OnDestroy {
     } catch (error) {
       if (this.still(at)) {
         const e = toApiError(error);
+        if (this.fieldRefusal(busyKey, e)) return false;
         await this.resync(e);
         this.toasts.error(e.message);
       }
@@ -348,7 +404,7 @@ export class ReviewStore implements OnDestroy {
   async finish(): Promise<FinishOutcome> {
     const at = this.target();
     // Not while a green/grey write is on its way: its answer could repaint a pending state over the end.
-    if (!at || this.finishing() || this.validating().size > 0) return { ok: false, message: '' };
+    if (!at || this.finishing() || this.deciding() || this.validating().size > 0) return { ok: false, message: '' };
     this.finishing.set(true);
     try {
       const summary = await firstValueFrom(this.api.finish(at.timelineId, at.resultCode));
@@ -366,6 +422,144 @@ export class ReviewStore implements OnDestroy {
     } finally {
       this.finishing.set(false);
     }
+  }
+
+  // ---------- Round 2: the Lead's decisions (round-2 contract § 4.1) ----------
+
+  /**
+   * The Lead agrees with the program or escalates a round-1 comment, with a required comment (1 to 2,000 characters).
+   * A second PUT replaces the decision. The answer is painted at once (decision and stored marks), then the view is
+   * read again: the answer carries no `effectiveValidated` and the other comments' `choices` may have changed. When the
+   * call ended the review (`status` not `pending`), the page turns read only and says so.
+   */
+  async decide(commentId: number, decision: LeadDecisionKind, body: string): Promise<DecisionOutcome> {
+    const text = body.trim();
+    if (!text) return this.decisionRefused(commentId, DECISION_EMPTY);
+    const length = [...text].length;
+    if (length > MAX_DECISION)
+      return this.decisionRefused(commentId, `Keep the comment within 2,000 characters (it has ${length.toLocaleString('en-US')}).`);
+    return this.writeDecision(commentId, 'decide', (at) => this.api.decide(at.timelineId, at.resultCode, commentId, decision, text));
+  }
+
+  /** Clears the Lead's decision on a comment (no decision = nothing changes). The view is read again after. */
+  clearDecision(commentId: number): Promise<DecisionOutcome> {
+    return this.writeDecision(commentId, 'clear', (at) => this.api.clearDecision(at.timelineId, at.resultCode, commentId));
+  }
+
+  /** One decision write at a time, never during a green/grey write or a finish (their answers could cross). */
+  private async writeDecision(
+    commentId: number,
+    action: DecidingState['action'],
+    send: (at: Target) => Observable<DecisionResult>,
+  ): Promise<DecisionOutcome> {
+    const at = this.target();
+    if (!at || this.deciding() || this.finishing() || this.validating().size > 0) return { ok: false, message: '' };
+    this.deciding.set({ commentId, action });
+    this.dropDecisionError(commentId);
+    try {
+      const result = await firstValueFrom(send(at));
+      if (!this.still(at)) return { ok: true };
+      const fieldKey = this.threadFieldOf(commentId);
+      if (fieldKey) this.dropFieldErrors(fieldKey);
+      this.paintDecision(commentId, result);
+      await this.applySummary(result, true);
+      return { ok: true };
+    } catch (error) {
+      const e = toApiError(error);
+      if (!this.still(at)) return { ok: false, message: e.message };
+      if (e.status === 400 || e.status === 413 || e.status === 422) return this.decisionRefused(commentId, e.fields[0]?.message ?? e.message);
+      const known = DECISION_REFUSALS[e.code];
+      // The answer never arrived (status 0): the server may have done it, so the page reads what it holds.
+      if (known?.reread || e.status === 0) await this.reload();
+      return this.decisionRefused(commentId, known?.message ?? e.message);
+    } finally {
+      this.deciding.set(null);
+    }
+  }
+
+  private decisionRefused(commentId: number, message: string): DecisionOutcome {
+    this.decisionErrors.update((map) => new Map(map).set(commentId, message));
+    return { ok: false, message };
+  }
+
+  private dropDecisionError(commentId: number): void {
+    if (!this.decisionErrors().has(commentId)) return;
+    this.decisionErrors.update((map) => {
+      const next = new Map(map);
+      next.delete(commentId);
+      return next;
+    });
+  }
+
+  /** The field whose round-1 thread holds the comment, or null. */
+  private threadFieldOf(commentId: number): string | null {
+    for (const s of this.view()?.sections ?? []) for (const f of s.fields) if (f.thread?.some((t) => t.commentId === commentId)) return f.key;
+    return null;
+  }
+
+  /** The decision as the server stored it, on its thread item, before the re-read lands. */
+  private paintDecision(commentId: number, result: DecisionResult): void {
+    this.view.update(
+      (view) =>
+        view && {
+          ...view,
+          sections: view.sections.map((s) => ({
+            ...s,
+            fields: s.fields.map((f) =>
+              f.thread?.some((t) => t.commentId === commentId)
+                ? {
+                    ...f,
+                    thread: f.thread.map((t) => {
+                      if (t.commentId !== commentId) return t;
+                      const { decision: _old, ...rest } = t;
+                      return result.decision ? { ...rest, decision: result.decision } : rest;
+                    }),
+                  }
+                : f,
+            ),
+          })),
+        },
+    );
+  }
+
+  /**
+   * A green write refused for a reason that belongs to the field (an undecided round-1 comment, an escalated field):
+   * said next to each field it names, by code. Check all also says it in a toast, since the fields may sit in other
+   * sections. False = not such a refusal.
+   */
+  private fieldRefusal(busyKey: string, e: ApiError): boolean {
+    const message = FIELD_REFUSALS[e.code];
+    if (!message) return false;
+    const keys = e.fieldKeys.length ? e.fieldKeys : busyKey === ALL_FIELDS ? [] : [busyKey];
+    this.fieldErrors.update((map) => {
+      const next = new Map(map);
+      for (const key of keys) next.set(key, message);
+      return next;
+    });
+    if (busyKey === ALL_FIELDS) {
+      const view = this.view();
+      const names = keys.map((key) => (view ? labelOf(view, key) : null) ?? key);
+      this.toasts.error(
+        e.code === ASSESSMENT_ERROR.CORE_COMMENT_UNDECIDED
+          ? names.length
+            ? `Decide the round-1 comments first on: ${names.join(', ')}.`
+            : message
+          : // Check all once a core field is escalated (contract § 4.2); validating them one by one is tramo 5.
+            'A core field is escalated to TPB, so Check all cannot run. Validate the other fields one by one.',
+      );
+    }
+    return true;
+  }
+
+  /** Drops the refusal shown on one field (`null` = on every field). */
+  private dropFieldErrors(fieldKey: string | null): void {
+    if (fieldKey === null ? this.fieldErrors().size === 0 : !this.fieldErrors().has(fieldKey)) return;
+    this.fieldErrors.update((map) => {
+      if (fieldKey === null) return new Map();
+      const next = new Map(map);
+      next.delete(fieldKey);
+      return next;
+    });
   }
 
   // ---------- Quick comments (FR-12) ----------
@@ -448,31 +642,35 @@ export class ReviewStore implements OnDestroy {
   }
 
   /**
-   * Paints the answer of a green/grey write or of a finish: the marks as the assessment holds them (a field with no
-   * row is grey) and its end. An ended assessment is read again, so the page shows the end, who did it and why it is
-   * read only now.
+   * Paints the answer of a green/grey write, a finish or a decision: the marks as the assessment holds them (a field
+   * with no row is grey) and its end. Round 2: the effective green follows too (`effectiveValidated` of the answer when
+   * it has it, else the stored row, else the green carried from round 1), so an Undo on a carried green turns it grey
+   * at once. An ended assessment is read again, so the page shows the end, who did it and why it is read only now.
+   * `reread`: read the view again even when the assessment goes on (a decision's answer has no effective marks).
    */
-  private async applySummary(summary: ValidationSummary): Promise<void> {
-    const green = new Map(summary.validations.map((v) => [v.fieldKey, v.validated] as const));
+  private async applySummary(summary: ValidationSummary, reread = false): Promise<void> {
+    const stored = new Map(summary.validations.map((v) => [v.fieldKey, v.validated] as const));
+    const effective = summary.effectiveValidated ? new Map(summary.effectiveValidated.map((v) => [v.fieldKey, v.validated] as const)) : null;
     this.view.update(
       (view) =>
         view && {
           ...view,
           sections: view.sections.map((s) => ({
             ...s,
-            fields: s.fields.map((f) => (f.mode === 'assessed' ? { ...f, validated: green.get(f.key) ?? false } : f)),
+            fields: s.fields.map((f) => (f.mode === 'assessed' ? withMarks(f, stored, effective) : f)),
           })),
           assessment: { status: summary.status, assessedBy: summary.assessedBy, finishedAt: summary.finishedAt },
           // An ended assessment takes no more writes, whatever the read that follows manages to bring.
           ...(summary.status === 'pending' ? {} : { writable: false, readOnlyReason: 'finished' as const }),
         },
     );
-    if (summary.status === 'pending') return;
+    if (summary.status === 'pending') {
+      if (reread) await this.reload();
+      return;
+    }
     await this.reload();
     if (this.state() !== 'ready') return;
-    this.toasts.success(
-      summary.status === 'quality_assessed' ? 'Assessment finished: Quality Assessed.' : 'Assessment finished: returned to the program.',
-    );
+    this.toasts.success(ENDED_MESSAGES[summary.status]);
   }
 
   private patchComments(fieldKey: string, change: (list: readonly AssessmentComment[]) => readonly AssessmentComment[]): void {
@@ -533,4 +731,28 @@ function positiveInt(value: string | null): number | null {
   if (!value || !/^\d+$/.test(value)) return null;
   const n = Number(value);
   return n > 0 && Number.isSafeInteger(n) ? n : null;
+}
+
+/**
+ * A field with the marks of a write's answer. `validated` = the stored row (none = grey). Round 2 adds the effective
+ * green (contract § 3): the answer's `effectiveValidated` when sent, else the stored row, else the carried green kept.
+ * A round-1 field (no effective mark on it, none in the answer) keeps its shape.
+ */
+function withMarks(
+  f: AssessmentField,
+  stored: ReadonlyMap<string, boolean>,
+  effective: ReadonlyMap<string, boolean> | null,
+): AssessmentField {
+  const row = stored.get(f.key);
+  const validated = row ?? false;
+  if (f.effectiveValidated === undefined && !effective) return { ...f, validated };
+  const carried = row === undefined && f.carried === true;
+  const green = effective?.get(f.key) ?? row ?? (carried ? (f.effectiveValidated ?? false) : false);
+  return { ...f, validated, effectiveValidated: green, carried: carried && green };
+}
+
+/** The label of a field of the view, by key. */
+function labelOf(view: AssessmentView, key: string): string | null {
+  for (const s of view.sections) for (const f of s.fields) if (f.key === key) return f.label;
+  return null;
 }

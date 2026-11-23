@@ -1,7 +1,7 @@
 // @akili-spec escalation/round-2
 // Test fixture: a round-2 (Lead Assessor) assessment view as `GET …/assessment` answers it (round-2 front contract
 // § 3, § 3.1, § 3.2) and the answer of a decision (§ 4.1). Used by specs only. Built on the step-1 fixture helpers.
-import { AssessmentView, DecisionResult, ThreadItem } from '../../../core/api/assessment.models';
+import { AssessmentField, AssessmentView, DecisionResult, ThreadItem } from '../../../core/api/assessment.models';
 import { comment, field, viewFixture } from './review.api-fixture';
 
 /** A round-1 comment the program disagreed with: the Lead may agree with the program or escalate it. */
@@ -111,3 +111,21 @@ export const decisionResultFixture = (over: Partial<DecisionResult> = {}): Decis
   decision: { decision: 'agree_program', body: 'The program is right.', decidedAt: '2026-11-25T11:00:00.000Z' },
   ...over,
 });
+
+/** The view with one field changed (by key). */
+export function withField(key: string, change: (f: AssessmentField) => AssessmentField, view: AssessmentView = roundTwoViewFixture()): AssessmentView {
+  return { ...view, sections: view.sections.map((s) => ({ ...s, fields: s.fields.map((f) => (f.key === key ? change(f) : f)) })) };
+}
+
+/** The description's thread with its first item changed (and any extra items after it). */
+export const withThread = (over: Partial<ThreadItem>, extra: readonly ThreadItem[] = [], view?: AssessmentView): AssessmentView =>
+  withField('general.description', (f) => ({ ...f, thread: [threadItem(over), ...extra] }), view);
+
+/** What a read answers once the Lead's review ended (`quality_assessed` or `escalated`). */
+export const endedRoundTwo = (status: 'quality_assessed' | 'escalated'): AssessmentView =>
+  roundTwoViewFixture({
+    writable: false,
+    readOnlyReason: 'finished',
+    assessment: { status, assessedBy: { id: 14, nickname: 'lea' }, finishedAt: '2026-11-25T12:00:00.000Z' },
+    header: { ...roundTwoViewFixture().header, status: status === 'escalated' ? 'pending_tpb_review' : 'quality_assessed' },
+  });
