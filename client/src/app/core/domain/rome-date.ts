@@ -149,3 +149,17 @@ export function todayInRome(now: Date = new Date()): string {
   const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
   return `${get('year')}-${get('month')}-${get('day')}`;
 }
+
+const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/;
+
+/**
+ * An instant with its offset (`2026-11-23T13:45:47.371Z`, how Reporting sends creation dates) as Rome wall time:
+ * `23 Nov 2026, 14:45 CET`. Null when the text is not such an instant (a Rome moment has no offset: see above).
+ */
+export function romeInstantLabel(text: string): string | null {
+  if (!ISO_INSTANT.test(text)) return null;
+  const at = new Date(text);
+  if (Number.isNaN(at.getTime())) return null;
+  const m = splitMoment(nowInRome(at));
+  return m ? `${formatDay(m.day)}, ${m.time} ${zoneAt(m.day, m.time)}` : null;
+}
