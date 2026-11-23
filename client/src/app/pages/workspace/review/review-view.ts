@@ -7,6 +7,7 @@ import { map } from 'rxjs';
 import { Toasts } from '../../../core/http/toasts';
 import { WorkspaceLayout } from '../../../shell/workspace-layout';
 import { QaButtonImports, QaDialogImports, QaDrawerImports, QaReveal } from '../../../ui';
+import { AdminRolePicker } from './admin-role-picker';
 import { ReviewAside } from './review-aside';
 import { ReviewCodeInfo } from './review-code-info';
 import { CommentsDrawerMode, CommentsDrawerVm, ReviewCommentsDrawer } from './review-comments-drawer';
@@ -51,6 +52,7 @@ const COMPACT_QUERY = '(max-width: 767.98px)';
     ReviewSkeleton,
     ReviewTocSection,
     AiReasonDialog,
+    AdminRolePicker,
   ],
   providers: [ReviewStore, ...REVIEW_AI_PROVIDERS],
   // A block, so the host has the width of the area (it is what the layout measures).

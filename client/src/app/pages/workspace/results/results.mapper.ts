@@ -4,6 +4,7 @@ import {
   WorklistStep,
   WorklistTimeline,
 } from '../../../core/api/assessment.models';
+import { reviewerLabel } from '../../../core/api/acting-role';
 import { formatDay, parseDay, splitMoment, zoneAt } from '../../../core/domain/rome-date';
 import { QaSelectOption } from '../../../ui';
 import { STATUS_CLASSES, STATUS_LABELS } from './qa-status';
@@ -16,7 +17,7 @@ export const NO_NICKNAME = '—';
 
 /** API row → table row. Program code always; "· nickname" once someone assessed it. */
 export function toRowVm(row: WorklistRow): ResultRowVm {
-  const assessor = row.assessedBy ? ` · ${row.assessedBy.nickname ?? NO_NICKNAME}` : '';
+  const assessor = row.assessedBy ? ` · ${reviewerLabel(row.assessedBy, NO_NICKNAME)}` : '';
   return {
     id: row.membershipId,
     code: String(row.resultCode),

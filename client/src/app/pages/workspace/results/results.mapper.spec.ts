@@ -41,6 +41,8 @@ describe('results.mapper', () => {
     expect(toRowVm(row()).meta).toBe('SP02');
     expect(toRowVm(row({ assessedBy: { id: 3, nickname: 'mchen' } })).meta).toBe('SP02 · mchen');
     expect(toRowVm(row({ assessedBy: { id: 3, nickname: null } })).meta).toBe(`SP02 · ${NO_NICKNAME}`);
+    // admin/acts-as-reviewer: a QA Admin who finished it acting as a reviewer is named as the Admin.
+    expect(toRowVm(row({ assessedBy: { id: 4, nickname: 'jd', admin: true } })).meta).toBe('SP02 · Admin · jd');
   });
 
   it('keeps the open comments count, the Updated flag and the result type label; a missing title shows the code', () => {
