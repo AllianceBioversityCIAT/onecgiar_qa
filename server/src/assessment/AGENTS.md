@@ -4,7 +4,7 @@ Step-1 assessment: the worklist an assessor opens, the assessment view of one re
 
 ## Model in one line
 
-An assessor (or an ADMIN, read only) lists the memberships of a timeline (`GET /timelines/:id/worklist`), opens one, greens or comments Assessed fields, and finishes: `quality_assessed` when no core field is grey, `returned` when every grey core field has a comment. The end queues one `assessment_releases` row in the same transaction; `ReleaseService` sends it to Reporting after the commit and, on the answer, ends the membership.
+An assessor (or an ADMIN, read only unless it acts as a role with `X-Acting-Role`) lists the memberships of a timeline (`GET /timelines/:id/worklist`), opens one, greens or comments Assessed fields, and finishes: `quality_assessed` when no core field is grey, `returned` when every grey core field has a comment. The end queues one `assessment_releases` row in the same transaction; `ReleaseService` sends it to Reporting after the commit and, on the answer, ends the membership.
 
 ## Files
 
@@ -74,6 +74,22 @@ A Lead Assessor reviews a re-submitted (round-2) membership in step 3. Contract:
 | Logging | New `loggedWrite` actions `decide`, `decision_clear`, `delete` (ids only); audit actions `decision_set`, `decision_clear`, `comment_delete`, `end_escalated` |
 | Tests | `test/assessment-round-two-*.e2e-spec.ts` over the shared fixture `test/support/round-two-fixture.ts` (real `runRealLoad`, never hand-built keys); `assessment-round-two-flow.e2e-spec.ts` is the whole path |
 
+## The QA Admin acting as a reviewer (spec `admin/acts-as-reviewer`, 2026-11-23)
+
+A QA Admin is transversal: with the `X-Acting-Role` header it works on any result **as** `ASSESSOR` or `LEAD_ASSESSOR` (the enabled reviewer rows; TPB and PPU join when their rows are enabled). Contract: step-1 `front-contract.md` § 2.1. Migration `0014_admin_acts_as_reviewer` (down script in `drizzle/rollback/`).
+
+| Piece | Rule |
+|---|---|
+| Header | `acting-role.ts`: `@ActingRole()` parses it (unknown or disabled role: 400 `VALIDATION_FAILED` on the header), `asCaller` adds it to the user (`ReviewerCaller`). Every `AssessmentController` route takes it |
+| Access | `resolveAccess(user, roles, isAdmin, actingRole)`: an Admin with a role gets ONE row of that role, `resultTypes: 'all'`, all programs, `byAdmin: true`, in place of its own grants' rows. A non-admin's role is ignored. `actsAsAdmin` / `actingRoleOf` read it |
+| Dates (R2) | `writeDecision` makes a `byAdmin` row writable whatever its step state, as long as the timeline has the step (`no_step` otherwise). The withdraw window is waived for it too. Everything else is the role's: round (`rowCovers`), auto-validated, finished, ended, end rules, release |
+| Authorship (R4) | `acted_as_admin` on `assessment_comments` and `comment_decisions`, `finished_as_admin` on `result_assessments`, set on the Admin's writes. Reviewers and admins read `author.admin` / `assessedBy.admin` (`reviewerAuthor`, present only when true). The SP queries never select them |
+| View | ADMIN only: `actingRoles` (enabled roles of the membership's round whose step exists) and `actingRole` (the role honored, `null` when read-only) |
+| Quick comments | A live ADMIN grant reads and saves any reviewer role's list |
+| Conflict (R5) | `users/role-assignments.repository.ts`: the Assessor / Lead overlap rule is skipped for a user with a live ADMIN grant |
+| Log | The `assessment` decision line adds `actingRole` and `asAdmin: true` for an Admin acting as a role |
+| Tests | `acting-role.spec.ts`, `scope.spec.ts` (acting Admin block), `test/assessment-admin-acting.e2e-spec.ts` |
+
 ## Bindings (read before changing credentials, tables or the clock)
 
 DD-1. `AssessmentModule` imports `UsersModule` and `FieldConfigModule` **only among the feature modules**; "only" does not cover the infrastructure modules it also imports (`DrizzleModule`, `DynamoDbModule`, `ConfigModule.forFeature(catalogsConfig)`). It does not import `IngestionModule` (it exports nothing) or `TimelinesModule`. It binds its **own** copies, the way `IngestionModule` does:
@@ -112,7 +128,7 @@ Order of every write: **timeline row `FOR SHARE`** (`lockTimelineShared`; the lo
 ## Rules
 
 - **Time only through `ADMIN_CONFIG_CLOCK`**, read once per request, judged in Rome minutes.
-- **A write is checked with the caller's role row, not just `canReview`.** ADMIN holds every permission (P-35) and never writes through this module (`ASSESSMENT_READ_ONLY`).
+- **A write is checked with the caller's role row, not just `canReview`.** ADMIN holds every permission (P-35) and writes through this module only with `X-Acting-Role`, as that role's `byAdmin` row; otherwise `ASSESSMENT_READ_ONLY`.
 - **Out of scope looks like missing:** the same 404 body. The bodies are byte-equal but not time-equal; this is accepted.
 - **The status is computed on read, never stored.** Change the table in `qa-status.ts` only.
 - **The database carries the invariants:** one assessment per membership and step, one release per assessment, one quick comment per role and text hash. A lost race is a typed 409 or a no-op, never a duplicate row.

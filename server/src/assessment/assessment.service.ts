@@ -34,7 +34,6 @@ import {
 } from '../ingestion/snapshot-store.port.js';
 import { AuthorizationService } from '../users/authorization.service.js';
 import { CatalogService } from '../users/catalogs/catalog.service.js';
-import type { AuthenticatedUser } from '../users/current-user.cache.js';
 import { Permission, RoleCode } from '../users/permissions.js';
 import {
   AssessmentBusyError,
@@ -76,9 +75,12 @@ import {
   endOnFinish,
   type CoreFieldState,
 } from './assessment-rules.js';
+import type { ReviewerCaller } from './acting-role.js';
 import {
   annotateForRound,
   buildAssessmentView,
+  reviewerAuthor,
+  type ReviewerAuthor,
   type RoundViewField,
   type RoundViewSection,
   type ViewComment,
@@ -94,7 +96,9 @@ import { buildValueCopy } from './comment-value-copy.js';
 import {
   currentStepPosition,
   currentStepPositionsOf,
+  enabledReviewerRows,
   isWithdrawWindowOpen,
+  stepOfRole,
   type StepTiming,
 } from './role-steps.js';
 import {
@@ -106,6 +110,8 @@ import {
   undecidedCommentFields,
 } from './round-two-rules.js';
 import {
+  actingRoleOf,
+  actsAsAdmin,
   resolveAccess,
   writeDecision,
   type MembershipFacts,
@@ -135,7 +141,8 @@ export interface AssessmentHeader {
 
 export interface AssessmentSummary {
   status: 'pending' | 'quality_assessed' | 'returned' | 'escalated';
-  assessedBy: { id: number; nickname: string | null } | null;
+  /** Who ended it; `admin: true` when a QA Admin ended it acting as the role (admin/acts-as-reviewer R4). */
+  assessedBy: ReviewerAuthor | null;
   finishedAt: string | null;
 }
 
@@ -184,6 +191,14 @@ export interface AssessmentViewResponse {
   writable: boolean;
   readOnlyReason: AssessmentReadOnlyReason | null;
   assessment: AssessmentSummary | null;
+  /**
+   * ADMIN only (admin/acts-as-reviewer): the roles the Admin may act as on this
+   * result (`X-Acting-Role`): the enabled reviewer roles of the membership's
+   * round whose step the timeline has. Absent for any other caller.
+   */
+  actingRoles?: RoleCode[];
+  /** ADMIN only: the role this view was built for (the header honored), `null` when read-only. */
+  actingRole?: RoleCode | null;
 }
 
 /** A comment as the delete route answers: the comment with who deleted it and when (round-2 FR-10). */
@@ -195,7 +210,7 @@ export type DeletedViewComment = ViewComment & {
 const toViewComment = (row: CommentRecord): ViewComment => ({
   id: row.id,
   fieldKey: row.fieldKey,
-  author: { id: row.authorId, nickname: row.authorNickname },
+  author: reviewerAuthor(row.authorId, row.authorNickname, row.authorAsAdmin),
   body: row.body,
   state: row.state,
   stepPosition: row.stepPosition,
@@ -233,7 +248,7 @@ interface WriteContext {
   held: MembershipRecord['assessment'];
   /** The version the request judged its keys by. */
   version: number;
-  user: AuthenticatedUser;
+  user: ReviewerCaller;
 }
 
 /** The audit action of each end (`applyEnd`). */
@@ -310,7 +325,7 @@ export class AssessmentService {
    * ends the assessment in the same transaction (FR-14, OQ-2, `applyEnd`).
    */
   async validate(
-    user: AuthenticatedUser,
+    user: ReviewerCaller,
     timelineId: number,
     resultCode: number,
     input: ValidateInput,
@@ -341,7 +356,7 @@ export class AssessmentService {
 
   private async validateAt(
     at: Date,
-    user: AuthenticatedUser,
+    user: ReviewerCaller,
     timelineId: number,
     resultCode: number,
     input: ValidateInput,
@@ -353,6 +368,7 @@ export class AssessmentService {
     const { timeline, access, membership, facts, hasLoad, decision } =
       await this.resolveWrite(user, timelineId, resultCode, now);
     trace.membershipId = membership.membershipId;
+    trace.actingRole = actingRoleOf(access);
     const stepPosition = decision.stepPosition;
     const held =
       membership.assessment?.stepPosition === stepPosition
@@ -651,7 +667,7 @@ export class AssessmentService {
    * after it, so a loser writes none of them. The clock is read once.
    */
   async finish(
-    user: AuthenticatedUser,
+    user: ReviewerCaller,
     timelineId: number,
     resultCode: number,
     requestId: string,
@@ -686,7 +702,7 @@ export class AssessmentService {
 
   private async finishAt(
     at: Date,
-    user: AuthenticatedUser,
+    user: ReviewerCaller,
     timelineId: number,
     resultCode: number,
     requestId: string,
@@ -696,6 +712,7 @@ export class AssessmentService {
     const { timeline, access, membership, facts, hasLoad, decision } =
       await this.resolveWrite(user, timelineId, resultCode, now);
     trace.membershipId = membership.membershipId;
+    trace.actingRole = actingRoleOf(access);
     const stepPosition = decision.stepPosition;
     const held =
       membership.assessment?.stepPosition === stepPosition
@@ -875,10 +892,12 @@ export class AssessmentService {
   ): Promise<AssessmentSummary> {
     const { membership, user, at } = context;
     const finishedAt = wholeSecond(at);
+    const asAdmin = actsAsAdmin(context.access);
     const ended = await assessments.endAssessment({
       assessmentId: locked.id,
       status,
       actorId: user.id,
+      asAdmin,
       at: finishedAt,
     });
     if (!ended) throw new AssessmentFinishedError();
@@ -913,7 +932,7 @@ export class AssessmentService {
     });
     return {
       status,
-      assessedBy: { id: user.id, nickname: user.nickname },
+      assessedBy: reviewerAuthor(user.id, user.nickname, asAdmin),
       finishedAt: finishedAt.toISOString(),
     };
   }
@@ -1041,7 +1060,7 @@ export class AssessmentService {
    * all. The clock is read once.
    */
   async comment(
-    user: AuthenticatedUser,
+    user: ReviewerCaller,
     timelineId: number,
     resultCode: number,
     input: CommentInput,
@@ -1071,7 +1090,7 @@ export class AssessmentService {
 
   private async commentAt(
     at: Date,
-    user: AuthenticatedUser,
+    user: ReviewerCaller,
     timelineId: number,
     resultCode: number,
     input: CommentInput,
@@ -1084,6 +1103,7 @@ export class AssessmentService {
     const { timeline, access, membership, facts, hasLoad, decision } =
       await this.resolveWrite(user, timelineId, resultCode, now);
     trace.membershipId = membership.membershipId;
+    trace.actingRole = actingRoleOf(access);
     const stepPosition = decision.stepPosition;
     const held =
       membership.assessment?.stepPosition === stepPosition
@@ -1147,6 +1167,7 @@ export class AssessmentService {
           body: input.body,
           valueCopy,
           valueTruncated: truncated,
+          asAdmin: actsAsAdmin(access),
           at: createdAt,
         });
         await assessments.insertCommentEvent({
@@ -1179,6 +1200,7 @@ export class AssessmentService {
       fieldKey: input.fieldKey,
       authorId: user.id,
       authorNickname: user.nickname,
+      authorAsAdmin: actsAsAdmin(access),
       body: input.body,
       state: 'open',
       stepPosition,
@@ -1205,7 +1227,7 @@ export class AssessmentService {
    * validation from then on). Comment states change only at the end (DD-7).
    */
   async decide(
-    user: AuthenticatedUser,
+    user: ReviewerCaller,
     timelineId: number,
     resultCode: number,
     commentId: number,
@@ -1234,7 +1256,7 @@ export class AssessmentService {
    * there is no decision changes nothing (a DELETE is idempotent).
    */
   async clearDecision(
-    user: AuthenticatedUser,
+    user: ReviewerCaller,
     timelineId: number,
     resultCode: number,
     commentId: number,
@@ -1258,7 +1280,7 @@ export class AssessmentService {
 
   /** Both decision routes: `input` is `null` for a clear. The clock is read once. */
   private async writeDecision(
-    user: AuthenticatedUser,
+    user: ReviewerCaller,
     timelineId: number,
     resultCode: number,
     commentId: number,
@@ -1286,7 +1308,7 @@ export class AssessmentService {
 
   private async decideAt(
     at: Date,
-    user: AuthenticatedUser,
+    user: ReviewerCaller,
     timelineId: number,
     resultCode: number,
     commentId: number,
@@ -1298,6 +1320,7 @@ export class AssessmentService {
     const { timeline, access, membership, facts, hasLoad, decision } =
       await this.resolveWrite(user, timelineId, resultCode, now);
     trace.membershipId = membership.membershipId;
+    trace.actingRole = actingRoleOf(access);
     // Only a Lead decides, and only in round 2: for any other caller the route is not there.
     if (
       membership.round === 1 ||
@@ -1454,6 +1477,7 @@ export class AssessmentService {
           decision: input.decision,
           body: input.body,
           actorId: user.id,
+          asAdmin: actsAsAdmin(context.access),
           at: decidedAt,
         });
         await audit('decision_set', target.fieldKey, commentId);
@@ -1550,7 +1574,7 @@ export class AssessmentService {
    * once.
    */
   async withdraw(
-    user: AuthenticatedUser,
+    user: ReviewerCaller,
     commentId: number,
     requestId: string,
   ): Promise<ViewComment> {
@@ -1562,7 +1586,7 @@ export class AssessmentService {
   }
 
   private async withdrawAt(
-    user: AuthenticatedUser,
+    user: ReviewerCaller,
     commentId: number,
     requestId: string,
     trace: WriteLogTrace,
@@ -1578,7 +1602,12 @@ export class AssessmentService {
     );
     if (timeline === undefined) throw new AssessmentNotFoundError();
     const admin = this.authorization.can(user, Permission.ADMIN_ACCESS);
-    const access = resolveAccess(user, timeline.roleCodes, admin);
+    const access = resolveAccess(
+      user,
+      timeline.roleCodes,
+      admin,
+      user.actingRole,
+    );
     if (!admin && access.reviewerRows.length === 0) {
       throw new AssessmentNotFoundError();
     }
@@ -1599,13 +1628,17 @@ export class AssessmentService {
     // Ids only, and only once the comment is inside the caller's scope.
     trace.timelineId = timeline.id;
     trace.membershipId = membership.membershipId;
+    trace.actingRole = actingRoleOf(access);
 
     if (context.authorId !== user.id) {
       throw new AssessmentNotCommentAuthorError();
     }
     if (context.state !== 'open') throw new AssessmentCommentNotOpenError();
     const hasLoad = (await this.loads.withLoad([timeline.id])).has(timeline.id);
+    // admin/acts-as-reviewer R2: an Admin acting as a role withdraws whatever the step dates.
+    const anyTime = actsAsAdmin(access);
     if (
+      !anyTime &&
       !isWithdrawWindowOpen(
         { steps: timeline.steps, now, hasLoad },
         context.round,
@@ -1619,7 +1652,10 @@ export class AssessmentService {
     await this.unitOfWork.run(async ({ assessments }) => {
       const steps = await assessments.lockTimelineShared(timeline.id);
       if (steps === null) throw new AssessmentNotFoundError();
-      if (!isWithdrawWindowOpen({ steps, now, hasLoad }, context.round)) {
+      if (
+        !anyTime &&
+        !isWithdrawWindowOpen({ steps, now, hasLoad }, context.round)
+      ) {
         throw new AssessmentStepClosedError();
       }
       const locked = await assessments.lockAssessment(
@@ -1699,7 +1735,7 @@ export class AssessmentService {
    * field. The clock is read once.
    */
   async deleteComment(
-    user: AuthenticatedUser,
+    user: ReviewerCaller,
     commentId: number,
     requestId: string,
   ): Promise<DeletedViewComment> {
@@ -1711,7 +1747,7 @@ export class AssessmentService {
   }
 
   private async deleteAt(
-    user: AuthenticatedUser,
+    user: ReviewerCaller,
     commentId: number,
     requestId: string,
     trace: WriteLogTrace,
@@ -1731,6 +1767,7 @@ export class AssessmentService {
     }
     trace.timelineId = timeline.id;
     trace.membershipId = membership.membershipId;
+    trace.actingRole = actingRoleOf(access);
     const stepPosition = decision.stepPosition;
     const held =
       membership.assessment?.stepPosition === stepPosition
@@ -1911,7 +1948,7 @@ export class AssessmentService {
    * timeline and rows, the membership, the load probe.
    */
   private async resolveWrite(
-    user: AuthenticatedUser,
+    user: ReviewerCaller,
     timelineId: number,
     resultCode: number,
     now: RomeMinute,
@@ -1919,7 +1956,12 @@ export class AssessmentService {
     const [timeline] = await this.worklist.findTimelines(user.id, timelineId);
     if (timeline === undefined) throw new AssessmentNotFoundError();
     const admin = this.authorization.can(user, Permission.ADMIN_ACCESS);
-    const access = resolveAccess(user, timeline.roleCodes, admin);
+    const access = resolveAccess(
+      user,
+      timeline.roleCodes,
+      admin,
+      user.actingRole,
+    );
     if (!admin && access.reviewerRows.length === 0) {
       throw new AssessmentNotFoundError();
     }
@@ -1985,7 +2027,7 @@ export class AssessmentService {
    * URL*): nothing tells them apart.
    */
   async open(
-    user: AuthenticatedUser,
+    user: ReviewerCaller,
     timelineId: number,
     resultCode: number,
     round?: number,
@@ -2142,15 +2184,29 @@ export class AssessmentService {
               assessedBy:
                 assessment.finishedById === null
                   ? null
-                  : {
-                      id: assessment.finishedById,
-                      nickname: assessment.finishedByNickname,
-                    },
+                  : reviewerAuthor(
+                      assessment.finishedById,
+                      assessment.finishedByNickname,
+                      assessment.finishedAsAdmin,
+                    ),
               finishedAt:
                 assessment.finishedAt === null
                   ? null
                   : assessment.finishedAt.toISOString(),
             },
+      ...(access.admin
+        ? {
+            actingRoles: enabledReviewerRows()
+              .filter(
+                (row) =>
+                  row.round === membership.round &&
+                  stepOfRole(row, timeline.steps) !== undefined,
+              )
+              .map((row) => row.role),
+            // The honored role only: one that does not fit the membership's round is read-only.
+            actingRole: actsAsAdmin(access) ? role : null,
+          }
+        : {}),
     };
   }
 
@@ -2161,7 +2217,7 @@ export class AssessmentService {
    * caller's are the same 404. Three statements; nothing is written.
    */
   private async resolveMembership(
-    user: AuthenticatedUser,
+    user: ReviewerCaller,
     timelineId: number,
     resultCode: number,
     round: number | null,
@@ -2174,7 +2230,12 @@ export class AssessmentService {
     const [timeline] = await this.worklist.findTimelines(user.id, timelineId);
     if (timeline === undefined) throw new AssessmentNotFoundError();
     const admin = this.authorization.can(user, Permission.ADMIN_ACCESS);
-    const access = resolveAccess(user, timeline.roleCodes, admin);
+    const access = resolveAccess(
+      user,
+      timeline.roleCodes,
+      admin,
+      user.actingRole,
+    );
     if (!admin && access.reviewerRows.length === 0) {
       throw new AssessmentNotFoundError();
     }
@@ -2202,7 +2263,7 @@ export class AssessmentService {
    * A read never creates the assessment (DD-3).
    */
   async resolveForAi(
-    user: AuthenticatedUser,
+    user: ReviewerCaller,
     timelineId: number,
     resultCode: number,
   ): Promise<{

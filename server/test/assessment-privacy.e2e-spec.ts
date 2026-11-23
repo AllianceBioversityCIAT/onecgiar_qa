@@ -263,15 +263,16 @@ describe('NFR-5 / FR-22: the assessment routes log ids and fixed words only', ()
     });
     expect(quickList.status).toBe(200);
     expect(JSON.stringify(quickList.body)).toContain(PLANTED_QUICK);
+    // A user of another role (a QA Admin may use the list since admin/acts-as-reviewer).
     const quickDenied = await a.send('post', '/quick-comments', {
-      token: bearer('sub-admin'),
+      token: bearer('sub-tpb'),
       body: { role: 'ASSESSOR', body: PLANTED_QUICK },
     });
     expect(quickDenied.status).toBe(403);
     expectDecisionLine(
       quickDenied,
       'quick_comment_save',
-      a.users.admin.id,
+      a.users.tpb.id,
       'refused',
       {},
       'AUTH_PERMISSION_DENIED',

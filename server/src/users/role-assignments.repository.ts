@@ -113,7 +113,8 @@ export class RoleAssignmentsRepository {
 
   /**
    * Assessor and Lead Assessor never share a result type, `*` included (FR-3,
-   * DD-2, DD-11): the user's active grants of the opposite role are read
+   * DD-2, DD-11), except for a user who holds a live ADMIN grant
+   * (admin/acts-as-reviewer R5): the user's active grants of the opposite role are read
    * before inserting, with a shared lock so a concurrent commit is seen (the
    * user-row lock that serializes writers is the unit of work's, DD-10).
    * Revoked rows are not active, so they never conflict. A grant of an
@@ -130,6 +131,16 @@ export class RoleAssignmentsRepository {
     const held = await this.store.findActiveViewsByUserId(userId, {
       forShare: true,
     });
+    // admin/acts-as-reviewer R5: a QA Admin is transversal; the rule does not
+    // apply to a user who holds a live ADMIN grant (read in the same locked read).
+    const isAdmin = held.some(
+      (view) =>
+        view.roleIsActive &&
+        view.isActive &&
+        view.revokedAt === null &&
+        view.roleCode === RoleCode.ADMIN,
+    );
+    if (isAdmin) return;
     const clash = held.find(
       (view) =>
         view.isActive &&

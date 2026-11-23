@@ -15,7 +15,7 @@ export class QuickCommentsQuery {
     enum: QUICK_COMMENT_ROLES,
     example: 'ASSESSOR',
     description:
-      'The role whose quick comments are listed. The caller must hold a live grant of it',
+      'The role whose quick comments are listed. The caller must hold a live grant of it, or be a QA Admin (admin/acts-as-reviewer)',
   })
   @IsIn(QUICK_COMMENT_ROLES)
   role!: string;
@@ -28,7 +28,7 @@ export class CreateQuickCommentBody {
     enum: QUICK_COMMENT_ROLES,
     example: 'ASSESSOR',
     description:
-      'The role the text is saved for. The caller must hold a live grant of it',
+      'The role the text is saved for. The caller must hold a live grant of it, or be a QA Admin (admin/acts-as-reviewer)',
   })
   @IsIn(QUICK_COMMENT_ROLES)
   role!: string;

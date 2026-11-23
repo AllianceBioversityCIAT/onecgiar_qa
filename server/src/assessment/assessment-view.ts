@@ -1,4 +1,5 @@
 // @akili-spec assessment/step-1-assessment
+// @akili-spec admin/acts-as-reviewer
 import {
   applicableFields,
   type CatalogField,
@@ -34,11 +35,32 @@ export const isTocField = (key: string): boolean =>
 /** How a field is shown: value only, or value with mark and comment action. */
 export type FieldMode = 'view' | 'assessed';
 
+/**
+ * Who wrote a comment, as a reviewer or an Admin reads it: the nickname only
+ * (FR-11). `admin: true` when a QA Admin wrote it acting as a reviewer role
+ * (admin/acts-as-reviewer R4); absent otherwise. The program view never
+ * carries an author at all.
+ */
+export interface ReviewerAuthor {
+  id: number;
+  nickname: string | null;
+  admin?: true;
+}
+
+/** The author of a comment or an end, with the Admin mark only when it applies. */
+export function reviewerAuthor(
+  id: number,
+  nickname: string | null,
+  asAdmin: boolean,
+): ReviewerAuthor {
+  return asAdmin ? { id, nickname, admin: true } : { id, nickname };
+}
+
 /** A comment as the view carries it (the author by nickname only, FR-11). */
 export interface ViewComment {
   id: number;
   fieldKey: string;
-  author: { id: number; nickname: string | null };
+  author: ReviewerAuthor;
   body: string;
   state: CommentState;
   stepPosition: number;
@@ -256,7 +278,7 @@ export interface ThreadDecision {
  */
 export interface ThreadItem {
   commentId: number;
-  author: { id: number; nickname: string | null };
+  author: ReviewerAuthor;
   createdAt: string;
   body: string;
   /** The value when the comment was written; the current value is the field's own `value`. */
@@ -375,7 +397,11 @@ export function toThreadItems(
         ].filter((choice) => !(blocked && choice === 'agree_program'));
     const item: ThreadItem = {
       commentId: head.commentId,
-      author: { id: head.authorId, nickname: head.authorNickname },
+      author: reviewerAuthor(
+        head.authorId,
+        head.authorNickname,
+        head.authorAsAdmin,
+      ),
       createdAt: head.createdAt.toISOString(),
       body: head.body,
       valueCopy: head.valueCopy,

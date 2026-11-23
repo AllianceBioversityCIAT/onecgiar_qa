@@ -104,6 +104,8 @@ export interface MembershipRecord {
     finishedAt: Date | null;
     finishedById: number | null;
     finishedByNickname: string | null;
+    /** admin/acts-as-reviewer R4: a QA Admin acting as the role ended it. */
+    finishedAsAdmin: boolean;
   } | null;
 }
 
@@ -117,6 +119,8 @@ export interface CommentRecord {
   fieldKey: string;
   authorId: number;
   authorNickname: string | null;
+  /** admin/acts-as-reviewer R4: written by a QA Admin acting as a reviewer role. */
+  authorAsAdmin: boolean;
   body: string;
   state: CommentState;
   stepPosition: number;
@@ -139,6 +143,8 @@ export interface RoundOneThreadRow {
   fieldKey: string;
   authorId: number;
   authorNickname: string | null;
+  /** admin/acts-as-reviewer R4: written by a QA Admin acting as the Assessor. */
+  authorAsAdmin: boolean;
   body: string;
   state: CommentState;
   valueCopy: CommentValueCopy;
@@ -235,6 +241,8 @@ export interface AssessmentEndWrite {
   assessmentId: number;
   status: Exclude<ResultAssessmentStatus, 'pending'>;
   actorId: number;
+  /** admin/acts-as-reviewer R4: the actor is a QA Admin acting as the role. */
+  asAdmin?: boolean;
   at: Date;
 }
 
@@ -289,6 +297,8 @@ export interface NewCommentRow {
   body: string;
   valueCopy: CommentValueCopy;
   valueTruncated: boolean;
+  /** admin/acts-as-reviewer R4: the author is a QA Admin acting as the role. */
+  asAdmin?: boolean;
   at: Date;
 }
 
@@ -351,6 +361,8 @@ export interface DecisionWrite {
   decision: CommentDecisionKind;
   body: string;
   actorId: number;
+  /** admin/acts-as-reviewer R4: the actor is a QA Admin acting as the role. */
+  asAdmin?: boolean;
   at: Date;
 }
 
@@ -504,6 +516,7 @@ export class DrizzleAssessmentStore implements AssessmentStore {
           finishedAt: a.finishedAt,
           finishedById: users.id,
           finishedByNickname: users.nickname,
+          finishedAsAdmin: a.finishedAsAdmin,
         })
         .from(t)
         .innerJoin(cycles, eq(cycles.id, t.cycleId))
@@ -580,6 +593,7 @@ export class DrizzleAssessmentStore implements AssessmentStore {
               finishedAt: row.finishedAt,
               finishedById: row.finishedById,
               finishedByNickname: row.finishedByNickname,
+              finishedAsAdmin: row.finishedAsAdmin ?? false,
             },
     };
   }
@@ -611,6 +625,7 @@ export class DrizzleAssessmentStore implements AssessmentStore {
         fieldKey: assessmentComments.fieldKey,
         authorId: assessmentComments.authorId,
         authorNickname: users.nickname,
+        authorAsAdmin: assessmentComments.actedAsAdmin,
         body: assessmentComments.body,
         state: assessmentComments.state,
         stepPosition: assessmentComments.stepPosition,
@@ -682,6 +697,7 @@ export class DrizzleAssessmentStore implements AssessmentStore {
         fieldKey: assessmentComments.fieldKey,
         authorId: assessmentComments.authorId,
         authorNickname: users.nickname,
+        authorAsAdmin: assessmentComments.actedAsAdmin,
         body: assessmentComments.body,
         state: assessmentComments.state,
         valueCopy: assessmentComments.valueCopy,
@@ -751,6 +767,7 @@ export class DrizzleAssessmentStore implements AssessmentStore {
         fieldKey: assessmentComments.fieldKey,
         authorId: assessmentComments.authorId,
         authorNickname: users.nickname,
+        authorAsAdmin: assessmentComments.actedAsAdmin,
         body: assessmentComments.body,
         state: assessmentComments.state,
         stepPosition: assessmentComments.stepPosition,
@@ -971,6 +988,7 @@ export class DrizzleAssessmentWriteStore implements AssessmentWriteStore {
       body: row.body,
       valueCopy: row.valueCopy,
       valueTruncated: row.valueTruncated,
+      actedAsAdmin: row.asAdmin ?? false,
       createdAt: row.at,
     });
   }
@@ -1048,6 +1066,7 @@ export class DrizzleAssessmentWriteStore implements AssessmentWriteStore {
         status: end.status,
         finishedAt: end.at,
         finishedBy: end.actorId,
+        finishedAsAdmin: end.asAdmin ?? false,
       })
       .where(
         and(
@@ -1255,6 +1274,7 @@ export class DrizzleAssessmentWriteStore implements AssessmentWriteStore {
           decision: write.decision,
           body: write.body,
           decidedBy: write.actorId,
+          actedAsAdmin: write.asAdmin ?? false,
           decidedAt: write.at,
           updatedAt: write.at,
         })
@@ -1265,6 +1285,7 @@ export class DrizzleAssessmentWriteStore implements AssessmentWriteStore {
             decision: column('decision'),
             body: column('body'),
             decidedBy: column('decided_by'),
+            actedAsAdmin: column('acted_as_admin'),
             decidedAt: column('decided_at'),
             updatedAt: column('updated_at'),
           },

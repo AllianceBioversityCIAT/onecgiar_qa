@@ -1,5 +1,6 @@
 // @akili-spec assessment/step-1-assessment
 // @akili-spec escalation/round-2
+// @akili-spec admin/acts-as-reviewer
 import { sql } from 'drizzle-orm';
 import {
   bigint,
@@ -72,6 +73,8 @@ export const assessmentComments = mysqlTable(
     // Soft delete (escalation/round-2 FR-10). A deleted comment keeps its state.
     deletedAt: datetime('deleted_at'),
     deletedBy: int('deleted_by', { unsigned: true }),
+    // admin/acts-as-reviewer R4: written by a QA Admin acting as the comment's role.
+    actedAsAdmin: boolean('acted_as_admin').notNull().default(false),
     createdAt: datetime('created_at')
       .notNull()
       .default(sql`CURRENT_TIMESTAMP`),

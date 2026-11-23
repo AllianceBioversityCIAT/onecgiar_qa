@@ -124,10 +124,17 @@ describe('quick comments (e2e)', () => {
     );
   });
 
-  it('403 for an ADMIN, who holds no ASSESSOR grant', async () => {
+  it('200 for an ADMIN with no ASSESSOR grant: it acts as the role (admin/acts-as-reviewer)', async () => {
     const res = await a.send('get', '/quick-comments?role=ASSESSOR', {
       token: bearer('sub-admin'),
     });
-    expectError(res, 403, 'AUTH_PERMISSION_DENIED');
+    expect(res.status).toBe(200);
+  });
+
+  it('400 for ADMIN as the quick-comment role (not a role that comments)', async () => {
+    const res = await a.send('get', '/quick-comments?role=ADMIN', {
+      token: bearer('sub-admin'),
+    });
+    expect(res.status).toBe(400);
   });
 });

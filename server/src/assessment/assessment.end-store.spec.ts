@@ -30,7 +30,7 @@ describe('the end writes (FR-14, FR-15, FR-17, FR-18; design 7.5)', () => {
       .toSQL();
     expect(text).toMatch(/^update `result_assessments` set /);
     expect(text).toContain(
-      '`status` = ?, `finished_at` = ?, `finished_by` = ?',
+      '`status` = ?, `finished_at` = ?, `finished_by` = ?, `finished_as_admin` = ?',
     );
     expect(text).toContain(
       "where (`result_assessments`.`id` = ? and `result_assessments`.`status` = ?)",
@@ -39,6 +39,7 @@ describe('the end writes (FR-14, FR-15, FR-17, FR-18; design 7.5)', () => {
       'returned',
       '2026-11-13 10:00:00.000',
       10,
+      false,
       70,
       'pending',
     ]);

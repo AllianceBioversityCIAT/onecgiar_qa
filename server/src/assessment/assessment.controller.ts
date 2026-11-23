@@ -1,4 +1,5 @@
 // @akili-spec assessment/step-1-assessment
+// @akili-spec admin/acts-as-reviewer
 import {
   Body,
   Controller,
@@ -25,6 +26,8 @@ import { Idempotent } from '../common/idempotency/idempotent.decorator.js';
 import { ACCESS_TOKEN_SCHEME } from '../common/openapi.js';
 import { requestIdOf, type RequestWithId } from '../common/request-id.js';
 import type { AuthenticatedUser } from '../users/current-user.cache.js';
+import type { RoleCode } from '../users/permissions.js';
+import { ActingRole, ApiActingRole, asCaller } from './acting-role.js';
 import {
   AssessmentService,
   type AssessmentViewResponse,
@@ -65,6 +68,7 @@ export class AssessmentController {
     @Inject(AssessmentService) private readonly assessments: AssessmentService,
   ) {}
 
+  @ApiActingRole()
   @ApiOperation({
     summary: 'Open the assessment view of a result',
     description:
@@ -81,17 +85,19 @@ export class AssessmentController {
   @Get('timelines/:timelineId/results/:resultCode/assessment')
   open(
     @CurrentUser() user: AuthenticatedUser,
+    @ActingRole() actingRole: RoleCode | undefined,
     @Param() params: AssessmentParams,
     @Query() query: AssessmentViewQuery,
   ): Promise<AssessmentViewResponse> {
     return this.assessments.open(
-      user,
+      asCaller(user, actingRole),
       params.timelineId,
       params.resultCode,
       query.round,
     );
   }
 
+  @ApiActingRole()
   @ApiOperation({
     summary: 'Set Assessed fields green or grey, or check all',
     description:
@@ -116,12 +122,13 @@ export class AssessmentController {
   @Put('timelines/:timelineId/results/:resultCode/assessment/validations')
   validate(
     @CurrentUser() user: AuthenticatedUser,
+    @ActingRole() actingRole: RoleCode | undefined,
     @Req() request: RequestWithId,
     @Param() params: AssessmentParams,
     @Body() body: ValidateAssessmentBody,
   ): Promise<ValidationSummary> {
     return this.assessments.validate(
-      user,
+      asCaller(user, actingRole),
       params.timelineId,
       params.resultCode,
       {
@@ -133,6 +140,7 @@ export class AssessmentController {
     );
   }
 
+  @ApiActingRole()
   @ApiOperation({
     summary: 'Comment on an Assessed field',
     description:
@@ -162,12 +170,13 @@ export class AssessmentController {
   @Post('timelines/:timelineId/results/:resultCode/assessment/comments')
   comment(
     @CurrentUser() user: AuthenticatedUser,
+    @ActingRole() actingRole: RoleCode | undefined,
     @Req() request: RequestWithId,
     @Param() params: AssessmentParams,
     @Body() body: CreateCommentBody,
   ): Promise<ViewComment> {
     return this.assessments.comment(
-      user,
+      asCaller(user, actingRole),
       params.timelineId,
       params.resultCode,
       { fieldKey: body.fieldKey, body: body.body },
@@ -176,6 +185,7 @@ export class AssessmentController {
     );
   }
 
+  @ApiActingRole()
   @ApiOperation({
     summary: 'Decide a round-1 comment (Lead Assessor, round 2)',
     description:
@@ -202,12 +212,13 @@ export class AssessmentController {
   )
   decide(
     @CurrentUser() user: AuthenticatedUser,
+    @ActingRole() actingRole: RoleCode | undefined,
     @Req() request: RequestWithId,
     @Param() params: DecisionParams,
     @Body() body: DecideCommentBody,
   ): Promise<DecisionResult> {
     return this.assessments.decide(
-      user,
+      asCaller(user, actingRole),
       params.timelineId,
       params.resultCode,
       params.commentId,
@@ -216,6 +227,7 @@ export class AssessmentController {
     );
   }
 
+  @ApiActingRole()
   @ApiOperation({
     summary: 'Clear a decision (Lead Assessor, round 2)',
     description:
@@ -239,11 +251,12 @@ export class AssessmentController {
   )
   clearDecision(
     @CurrentUser() user: AuthenticatedUser,
+    @ActingRole() actingRole: RoleCode | undefined,
     @Req() request: RequestWithId,
     @Param() params: DecisionParams,
   ): Promise<DecisionResult> {
     return this.assessments.clearDecision(
-      user,
+      asCaller(user, actingRole),
       params.timelineId,
       params.resultCode,
       params.commentId,
@@ -251,6 +264,7 @@ export class AssessmentController {
     );
   }
 
+  @ApiActingRole()
   @ApiOperation({
     summary: 'Finish the assessment',
     description:
@@ -275,17 +289,19 @@ export class AssessmentController {
   @Post('timelines/:timelineId/results/:resultCode/assessment/finish')
   finish(
     @CurrentUser() user: AuthenticatedUser,
+    @ActingRole() actingRole: RoleCode | undefined,
     @Req() request: RequestWithId,
     @Param() params: AssessmentParams,
   ): Promise<ValidationSummary> {
     return this.assessments.finish(
-      user,
+      asCaller(user, actingRole),
       params.timelineId,
       params.resultCode,
       requestIdOf(request),
     );
   }
 
+  @ApiActingRole()
   @ApiOperation({
     summary: 'Withdraw your own comment',
     description:
@@ -308,16 +324,18 @@ export class AssessmentController {
   @Post('assessment-comments/:commentId/withdraw')
   withdraw(
     @CurrentUser() user: AuthenticatedUser,
+    @ActingRole() actingRole: RoleCode | undefined,
     @Req() request: RequestWithId,
     @Param() params: CommentParams,
   ): Promise<ViewComment> {
     return this.assessments.withdraw(
-      user,
+      asCaller(user, actingRole),
       params.commentId,
       requestIdOf(request),
     );
   }
 
+  @ApiActingRole()
   @ApiOperation({
     summary: "Delete another reviewer's comment (Lead Assessor)",
     description:
@@ -340,11 +358,12 @@ export class AssessmentController {
   @Post('assessment-comments/:commentId/delete')
   deleteComment(
     @CurrentUser() user: AuthenticatedUser,
+    @ActingRole() actingRole: RoleCode | undefined,
     @Req() request: RequestWithId,
     @Param() params: CommentParams,
   ): Promise<DeletedViewComment> {
     return this.assessments.deleteComment(
-      user,
+      asCaller(user, actingRole),
       params.commentId,
       requestIdOf(request),
     );

@@ -119,8 +119,20 @@ describe('FR-12: shared by role', () => {
       await refusal(service.list(userOf(22, [grant('ADMIN')]), 'ADMIN')),
     ).toMatchObject({ status: 403 });
     expect(
-      await refusal(service.list(userOf(22, [grant('ADMIN')]), 'ASSESSOR')),
+      await refusal(
+        service.list(userOf(22, [grant('ADMIN', false)]), 'ASSESSOR'),
+      ),
     ).toMatchObject({ status: 403 });
+  });
+
+  it('a live ADMIN reads and saves the list of the reviewer role it acts as (admin/acts-as-reviewer)', async () => {
+    const { world, service } = setup();
+    const admin = userOf(22, [grant('ADMIN')]);
+    await service.save(admin, 'LEAD_ASSESSOR', 'From the admin', 'req-a');
+    expect((await service.list(admin, 'LEAD_ASSESSOR')).map((q) => q.body)).toEqual([
+      'From the admin',
+    ]);
+    expect(world.quickComments).toHaveLength(1);
   });
 
   it('lists newest first', async () => {

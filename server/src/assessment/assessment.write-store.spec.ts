@@ -142,9 +142,10 @@ describe('the comment writes (FR-11, FR-13, ADR-006)', () => {
     ]) {
       expect(text).toContain(`\`${column}\``);
     }
-    // `state`, `visible_to_program_at`, `withdrawn_at` and the round-two `deleted_at` and `deleted_by` take their column default.
+    // `state`, `visible_to_program_at`, `withdrawn_at` and the round-two `deleted_at` and `deleted_by` take their column default;
+    // `acted_as_admin` is always bound (false unless a QA Admin acts as the role, admin/acts-as-reviewer).
     expect(text).toContain(
-      'values (default, ?, ?, ?, ?, ?, ?, ?, ?, default, default, default, default, default, ?)',
+      'values (default, ?, ?, ?, ?, ?, ?, ?, ?, default, default, default, default, default, ?, ?)',
     );
     expect(text).not.toContain('on duplicate');
     expect(params).toEqual(
