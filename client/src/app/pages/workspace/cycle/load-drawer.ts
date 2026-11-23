@@ -128,8 +128,13 @@ export interface LoadDrawerNames {
                 <p class="m-0 text-(length:--fs-13) text-(--text-3)">No new submitted results match this timeline right now.</p>
               }
               @if (p.skipped.length) {
-                <div>
-                  <h3 class="m-0 mb-1 text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--text-muted) uppercase">Will be skipped</h3>
+                <!-- Folded to its count: the reasons are detail, the decision is the load above (23-nov demo). -->
+                <details class="group">
+                  <summary class="flex min-h-9 cursor-pointer list-none items-center gap-2 rounded-md outline-none focus-visible:shadow-(--focus-ring) [&::-webkit-details-marker]:hidden">
+                    <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" class="flex-none transition-transform group-open:rotate-90"><path d="M9 6l6 6-6 6" /></svg>
+                    <h3 class="m-0 text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--text-muted) uppercase">Will be skipped</h3>
+                    <span class="ml-auto font-(family-name:--qa-mono) text-(length:--fs-13) font-semibold text-(--text-2) tabular-nums">{{ fmt(skippedTotal(p.skipped)) }}</span>
+                  </summary>
                   <ul class="m-0 flex list-none flex-col p-0">
                     @for (s of p.skipped; track s.reason) {
                       <li class="flex min-h-9 items-center justify-between gap-3 border-b border-(--surface-4)">
@@ -143,7 +148,7 @@ export interface LoadDrawerNames {
                       </li>
                     }
                   </ul>
-                </div>
+                </details>
               }
               @if (p.returnedNotResubmitted?.total) {
                 <qa-cycle-load-returned [returned]="p.returnedNotResubmitted" [names]="names()" />
@@ -182,6 +187,9 @@ export class LoadDrawer {
   readonly start = output<Timeline>();
 
   protected readonly fmt = formatNumber;
+  protected skippedTotal(rows: readonly { readonly count: number }[]): number {
+    return rows.reduce((sum, r) => sum + r.count, 0);
+  }
   protected readonly skip = skipLabel;
   protected readonly windowClosed = WINDOW_CLOSED_MESSAGE;
   protected readonly skeleton = [0, 1, 2, 3, 4];
