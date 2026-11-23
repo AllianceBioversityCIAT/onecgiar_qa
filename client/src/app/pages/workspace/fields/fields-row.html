@@ -78,7 +78,9 @@
       </div>
       <div class="flex min-h-10 items-center gap-2" [class.opacity-55]="r.dim">
         <span aria-hidden="true" class="text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase">Core</span>
-        <qa-switch [checked]="r.effective.core" (checkedChange)="coreChange.emit($event)" [disabled]="readOnly() || !r.active" [aria-label]="'Core: ' + r.name" />
+        <span class="inline-flex rounded-full outline-none focus-visible:shadow-(--focus-ring)" [qaTooltip]="coreHelp" [qaTooltipDisabled]="r.active || readOnly()" [attr.tabindex]="r.active || readOnly() ? null : 0">
+          <qa-switch [checked]="r.effective.core" (checkedChange)="coreChange.emit($event)" [disabled]="readOnly() || !r.active" [aria-label]="'Core: ' + r.name" />
+        </span>
       </div>
     </div>
   </div>
@@ -91,7 +93,9 @@
     <ng-container [ngTemplateOutlet]="nameBlock" />
     <ng-container [ngTemplateOutlet]="segmented" />
     <div class="flex justify-center" [class.opacity-55]="r.dim">
-      <qa-switch [checked]="r.effective.core" (checkedChange)="coreChange.emit($event)" [disabled]="readOnly() || !r.active" [aria-label]="'Core: ' + r.name" />
+      <span class="inline-flex rounded-full outline-none focus-visible:shadow-(--focus-ring)" [qaTooltip]="coreHelp" [qaTooltipDisabled]="r.active || readOnly()" [attr.tabindex]="r.active || readOnly() ? null : 0">
+          <qa-switch [checked]="r.effective.core" (checkedChange)="coreChange.emit($event)" [disabled]="readOnly() || !r.active" [aria-label]="'Core: ' + r.name" />
+        </span>
     </div>
     <div class="flex">
       <ng-container [ngTemplateOutlet]="docButton" />
