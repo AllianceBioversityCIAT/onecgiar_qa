@@ -12,8 +12,8 @@ const IMPACT_AREAS: Readonly<Record<string, string>> = {
 
 const IMPACT_AREA_KEY = /^general\.([a-z]+)_impact_areas$/;
 
-/** The label to show for a catalog field: its own, plus the Impact Area when the catalog repeats the question. */
+/** The label to show for a catalog field: its own, led by the Impact Area when the catalog repeats the question (first, so a cut-off row still tells them apart). */
 export function fieldLabel(key: string, label: string): string {
   const area = IMPACT_AREAS[IMPACT_AREA_KEY.exec(key)?.[1] ?? ''];
-  return area ? `${label} (${area})` : label;
+  return area ? `${area} · ${label}` : label;
 }
