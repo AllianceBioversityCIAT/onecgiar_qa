@@ -132,3 +132,39 @@ describe('TimelineDrawer', () => {
     expect(document.body.textContent).not.toContain('at most 2 QA rounds');
   });
 });
+
+describe('TimelineDrawer — next step opening (23-nov demo)', () => {
+  const field = (label: string) => document.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)!;
+  const type = async (fixture: ComponentFixture<Host>, label: string, value: string) => {
+    const input = field(label);
+    input.value = value;
+    input.dispatchEvent(new Event('input'));
+    input.dispatchEvent(new Event('blur'));
+    await settle(fixture);
+  };
+  const newTimeline = async () => {
+    const fixture = TestBed.createComponent(Host);
+    await settle(fixture);
+    fixture.componentInstance.request.set({ timeline: null });
+    await settle(fixture);
+    return fixture;
+  };
+
+  it('opens the next step the minute after a close, and follows the close time typed afterwards', async () => {
+    const fixture = await newTimeline();
+    await type(fixture, 'Step 1 closes', '02 Dec 2026');
+    expect(field('Step 2 opens').value).toBe('03 Dec 2026');
+    expect(field('Step 2 opening time, 24-hour, Rome').value).toBe('00:00');
+
+    await type(fixture, 'Step 1 closing time, 24-hour, Rome', '17:30');
+    expect(field('Step 2 opens').value).toBe('02 Dec 2026');
+    expect(field('Step 2 opening time, 24-hour, Rome').value).toBe('17:31');
+  });
+
+  it('never overwrites an opening the admin typed', async () => {
+    const fixture = await newTimeline();
+    await type(fixture, 'Step 2 opens', '10 Dec 2026');
+    await type(fixture, 'Step 1 closes', '02 Dec 2026');
+    expect(field('Step 2 opens').value).toBe('10 Dec 2026');
+  });
+});

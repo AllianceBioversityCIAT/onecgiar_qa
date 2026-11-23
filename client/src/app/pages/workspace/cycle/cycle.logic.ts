@@ -172,6 +172,21 @@ function firstOpenDay(first: Pick<CycleStep, 'startTime'> | undefined, now: stri
  * "Reset to main batch": the official steps, shifted to start on `startText`, each keeping its hour and minute.
  * With no day typed in step 1 yet, they start on the first day step 1 can open (never on a fixed past date).
  */
+/**
+ * Where the next step opens by default once a step's close is set: the minute after it (23:59 → 00:00 of the
+ * next day), because a step may not open on or before the minute the previous one closes. Null if the close is
+ * not a full date and time yet.
+ */
+export function nextOpening(endText: string, endTime: string): { start: string; startTime: string } | null {
+  const day = parseDate(endText);
+  const m = /^(\d{2}):(\d{2})$/.exec(endTime.trim());
+  if (!day || !m) return null;
+  const total = Number(m[1]) * 60 + Number(m[2]) + 1;
+  const next = new Date(day.getFullYear(), day.getMonth(), day.getDate() + Math.floor(total / 1440));
+  const min = total % 1440;
+  return { start: formatDate(next), startTime: `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}` };
+}
+
 export function officialRelative(startText: string, official: Timeline): StepDraftRow[] {
   const o0 = parseDate(official.steps[0]?.start);
   const base = parseDate(startText) ?? firstOpenDay(official.steps[0], nowInRome());
