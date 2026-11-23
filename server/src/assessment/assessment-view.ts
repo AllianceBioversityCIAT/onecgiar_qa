@@ -6,6 +6,16 @@ import {
 } from '../admin-config/field-config/field-config-catalog.js';
 import type { ConfigItem } from '../admin-config/field-config/field-config-diff.js';
 import type { CommentState } from '../database/drizzle/schema/assessment-comments.js';
+import type { RoundOneThreadRow } from './assessment.store.js';
+import {
+  effectiveGreen,
+  isActionable,
+  isCarriedGreen,
+  isDecidable,
+  type DecisionChoice,
+} from './round-two-rules.js';
+import { RoleCode } from '../users/permissions.js';
+import type { ClarificationView, SpResponseView } from './sp-view/sp-thread.js';
 
 // The assessment view, pure (design 7.4, FR-8, FR-9, OQ-7 default): the
 // sections and fields of a result in catalog order, shaped by the effective
@@ -225,4 +235,315 @@ export function buildAssessmentView(
     );
 
   return { sections, other };
+}
+
+// ---- The round layer (escalation/round-2 T-6) ---------------------------------
+// Added on top of `buildAssessmentView`, never inside it: the Science Program
+// view builds from the same function and must not see these members (DD-8).
+// Pure: the thread rows, the stored validations and the round-1 facts come in.
+
+/** The Lead's current decision on a round-1 comment (FR-4). */
+export interface ThreadDecision {
+  decision: string;
+  body: string | null;
+  decidedAt: string;
+}
+
+/**
+ * A round-1 comment as the Lead reads it (FR-4, design 6). The author by
+ * nickname, the responder by name: never an email (the QA side shows names, the
+ * assessor's `sp-responses` route adds the email, this view does not).
+ */
+export interface ThreadItem {
+  commentId: number;
+  author: { id: number; nickname: string | null };
+  createdAt: string;
+  body: string;
+  /** The value when the comment was written; the current value is the field's own `value`. */
+  valueCopy: { value: unknown; labels?: unknown };
+  valueTruncated: boolean;
+  state: CommentState;
+  /** The program's latest response, when there is one. */
+  response?: SpResponseView;
+  /** Every clarification request with its answer, oldest first. */
+  clarifications: ClarificationView[];
+  /** The Lead's decision, when one is set. */
+  decision?: ThreadDecision;
+  decidable: boolean;
+  choices: DecisionChoice[];
+}
+
+/**
+ * The Lead's own round-2 comment as the Lead reads it (T-16): the comment as
+ * `comments[]` always carries it, plus the members a `thread[]` item has, so a
+ * reload shows whether the Lead already escalated it. `decision` is `null`
+ * when none is set. Only the Lead's own round-2 comments take these keys.
+ */
+export interface OwnViewComment extends ViewComment {
+  decision: ThreadDecision | null;
+  decidable: boolean;
+  choices: DecisionChoice[];
+}
+
+/** A field with the round members (design 6). Round 1 carries neutral values. */
+export interface RoundViewField extends Omit<ViewField, 'comments'> {
+  /** The field's comments; the Lead's own round-2 ones (round 2, Lead) carry `decision`, `decidable` and `choices`. */
+  comments: Array<ViewComment | OwnViewComment>;
+  /** FR-5: the key is in the membership's `changed_fields`. */
+  updated: boolean;
+  /** FR-3: takes a write. Round 1: Assessed. Round 2: Assessed and core. */
+  actionable: boolean;
+  /** FR-7, DD-4: the stored validation, else the carried green. Equals `validated` in round 1. */
+  effectiveValidated: boolean;
+  /** The green is the round-1 one, carried because nothing is stored. */
+  carried: boolean;
+  /** FR-4: the round-1 thread of an actionable field; empty in round 1. */
+  thread: ThreadItem[];
+}
+
+export interface RoundViewSection extends Omit<ViewSection, 'fields'> {
+  fields: RoundViewField[];
+}
+
+export interface RoundView {
+  sections: RoundViewSection[];
+  other: RoundViewField[];
+}
+
+export interface RoundViewInput {
+  /** The membership's round: 1 leaves the neutral values. */
+  round: number;
+  /** The caller's reviewer role at this round; `null` for ADMIN (reads, decides nothing). */
+  role: string | null;
+  /** `changed_fields` of the membership; `null` = none (a new membership, or round 1). */
+  changedFields: readonly string[] | null;
+  /** The assessment's own validation rows (`undefined` = no row, which is not `false`). */
+  stored: ReadonlyMap<string, boolean>;
+  /** Keys green in the previous membership's step-1 assessment. */
+  roundOneGreens: ReadonlySet<string>;
+  /** The thread read, ordered by field, comment, response (one statement). */
+  thread: readonly RoundOneThreadRow[];
+  /** The caller's user id: a comment is the Lead's own when it wrote it (T-16). */
+  userId: number;
+  /** The live decisions of the round-2 assessment by comment id, as `thread[]` shows them (T-16). */
+  ownDecisions: ReadonlyMap<number, ThreadDecision>;
+  /** The Lead's review has ended: an own comment takes no decision any more, whatever its state (T-16). */
+  ended: boolean;
+}
+
+/**
+ * The items of the thread rows, by field key, in row order. The rows hold one line per response worth showing.
+ * `ended` (T-17): the review is over, so no item is decidable and `choices` is empty; `decision` stays.
+ * `escalatedOn` (T-17): the ids of the live comments carrying an `escalate` on a field. While ANOTHER
+ * comment of the field is escalated, `agree_program` is not offered (the decide route's
+ * `ASSESSMENT_FIELD_ESCALATED`); an item's own escalate does not count.
+ */
+export function toThreadItems(
+  rows: readonly RoundOneThreadRow[],
+  role: string | null,
+  fieldOf: (key: string) => { visibility: string; isCore: boolean },
+  ended = false,
+  escalatedOn: (key: string) => ReadonlySet<number> = () => new Set(),
+): Map<string, ThreadItem[]> {
+  const byComment = new Map<number, RoundOneThreadRow[]>();
+  for (const row of rows) {
+    const list = byComment.get(row.commentId) ?? [];
+    list.push(row);
+    byComment.set(row.commentId, list);
+  }
+  const out = new Map<string, ThreadItem[]>();
+  for (const lines of byComment.values()) {
+    const head = lines[0]!;
+    const answered = lines.filter((l) => l.responseId !== null);
+    const latest = answered.reduce<RoundOneThreadRow | null>(
+      (best, line) =>
+        best === null || line.responseId! > best.responseId! ? line : best,
+      null,
+    );
+    // T-17: once the review ended the decide route refuses every comment, so none reads decidable.
+    const blocked = [...escalatedOn(head.fieldKey)].some(
+      (id) => id !== head.commentId,
+    );
+    const choices = ended
+      ? []
+      : [
+          ...isDecidable(
+            { origin: 'round_one', state: head.state, deleted: false },
+            fieldOf(head.fieldKey),
+            role,
+          ),
+        ].filter((choice) => !(blocked && choice === 'agree_program'));
+    const item: ThreadItem = {
+      commentId: head.commentId,
+      author: { id: head.authorId, nickname: head.authorNickname },
+      createdAt: head.createdAt.toISOString(),
+      body: head.body,
+      valueCopy: head.valueCopy,
+      valueTruncated: head.valueTruncated,
+      state: head.state,
+      ...(latest === null
+        ? {}
+        : {
+            response: {
+              id: latest.responseId!,
+              kind: latest.responseKind!,
+              body: latest.responseBody,
+              respondedBy: { name: latest.responderName! },
+              respondedAt: latest.respondedAt!.toISOString(),
+            },
+          }),
+      clarifications: answered
+        .filter((l) => l.responseKind === 'request_clarification')
+        .map((l) => ({
+          requestId: l.responseId!,
+          question: l.responseBody ?? '',
+          requestedAt: l.respondedAt!.toISOString(),
+          answer:
+            l.answerBody === null
+              ? null
+              : {
+                  body: l.answerBody,
+                  answeredAt: l.answeredAt!.toISOString(),
+                },
+        })),
+      ...(head.decision === null
+        ? {}
+        : {
+            decision: {
+              decision: head.decision,
+              body: head.decisionBody,
+              decidedAt: head.decidedAt!.toISOString(),
+            },
+          }),
+      decidable: choices.length > 0,
+      choices,
+    };
+    const list = out.get(head.fieldKey) ?? [];
+    list.push(item);
+    out.set(head.fieldKey, list);
+  }
+  return out;
+}
+
+/**
+ * FR-3, FR-4, FR-5, FR-7 (design 6, 7): the round members of every field. Round
+ * 1 is neutral: `updated` false, `actionable` = Assessed, `effectiveValidated` =
+ * the stored mark, no carry, no thread. Round 2: the thread and the carried
+ * green are for actionable (core) fields; `updated` is for any field.
+ */
+export function annotateForRound(
+  view: AssessmentView,
+  input: RoundViewInput,
+): RoundView {
+  const roundTwo = input.round !== 1;
+  const changed = new Set(input.changedFields ?? []);
+  const commented = new Set(input.thread.map((row) => row.fieldKey));
+  const fieldsByKey = new Map<string, ViewField>();
+  for (const section of view.sections) {
+    for (const field of section.fields) fieldsByKey.set(field.key, field);
+  }
+  const configured = (key: string) => {
+    const field = fieldsByKey.get(key);
+    return {
+      visibility: field?.mode === 'assessed' ? 'assessed' : 'view_only',
+      isCore: field?.core === true,
+    };
+  };
+  // T-17: per field, the live comments carrying an `escalate`: the round-1 ones of the thread (the read holds live rows only) and the Lead's own round-2 ones.
+  const escalators = new Map<string, Set<number>>();
+  const addEscalator = (key: string, id: number) =>
+    escalators.set(key, (escalators.get(key) ?? new Set<number>()).add(id));
+  for (const row of input.thread) {
+    if (row.decision === 'escalate') addEscalator(row.fieldKey, row.commentId);
+  }
+  for (const [key, field] of fieldsByKey) {
+    for (const comment of field.comments) {
+      if (input.ownDecisions.get(comment.id)?.decision === 'escalate') {
+        addEscalator(key, comment.id);
+      }
+    }
+  }
+  const threads = roundTwo
+    ? toThreadItems(
+        input.thread,
+        input.role,
+        configured,
+        input.ended,
+        (key) => escalators.get(key) ?? new Set<number>(),
+      )
+    : new Map<string, ThreadItem[]>();
+
+  // T-16: round 2, Lead only: the Lead's own round-2 comment takes the decision members.
+  const withOwn = (field: ViewField): Array<ViewComment | OwnViewComment> =>
+    field.comments.map((comment) => {
+      if (
+        !roundTwo ||
+        input.role !== RoleCode.LEAD_ASSESSOR ||
+        comment.author.id !== input.userId ||
+        comment.round !== input.round
+      ) {
+        return comment;
+      }
+      const choices = input.ended
+        ? []
+        : [
+            ...isDecidable(
+              {
+                origin: 'lead_round_two',
+                state: comment.state,
+                deleted: false,
+              },
+              configured(field.key),
+              input.role,
+            ),
+          ];
+      return {
+        ...comment,
+        decision: input.ownDecisions.get(comment.id) ?? null,
+        decidable: choices.length > 0,
+        choices,
+      };
+    });
+
+  const annotate = (field: ViewField): RoundViewField => {
+    const assessed = field.mode === 'assessed';
+    const actionable = roundTwo
+      ? isActionable(configured(field.key))
+      : assessed;
+    const updated = changed.has(field.key);
+    if (!roundTwo || !actionable) {
+      return {
+        ...field,
+        comments: withOwn(field),
+        updated,
+        actionable,
+        effectiveValidated: field.validated,
+        carried: false,
+        thread: [],
+      };
+    }
+    const facts = {
+      green: input.roundOneGreens.has(field.key),
+      commented: commented.has(field.key),
+      changed: updated,
+    };
+    const stored = input.stored.get(field.key);
+    return {
+      ...field,
+      comments: withOwn(field),
+      updated,
+      actionable,
+      effectiveValidated: effectiveGreen(stored, facts),
+      carried: isCarriedGreen(stored, facts),
+      thread: threads.get(field.key) ?? [],
+    };
+  };
+
+  return {
+    sections: view.sections.map((section) => ({
+      ...section,
+      fields: section.fields.map(annotate),
+    })),
+    other: view.other.map(annotate),
+  };
 }

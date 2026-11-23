@@ -1,4 +1,5 @@
 // @akili-spec assessment/step-1-assessment
+// @akili-spec escalation/round-2
 import { sql } from 'drizzle-orm';
 import {
   bigint,
@@ -18,6 +19,8 @@ export const resultAssessmentStatuses = [
   'pending',
   'quality_assessed',
   'returned',
+  // Round 2 (escalation/round-2 FR-11): a finished state, so the CHECK below holds.
+  'escalated',
 ] as const;
 export type ResultAssessmentStatus = (typeof resultAssessmentStatuses)[number];
 

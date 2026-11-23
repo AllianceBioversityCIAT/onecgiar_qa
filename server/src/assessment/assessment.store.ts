@@ -1,6 +1,7 @@
 // @akili-spec assessment/step-1-assessment
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, desc, eq, isNull, ne, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/mysql-core';
 import { DRIZZLE } from '../database/drizzle/drizzle.constants.js';
 import type { DrizzleDB } from '../database/drizzle/drizzle.module.js';
 import {
@@ -9,6 +10,15 @@ import {
   type CommentValueCopy,
 } from '../database/drizzle/schema/assessment-comments.js';
 import { commentEvents } from '../database/drizzle/schema/comment-events.js';
+import { commentClarificationAnswers } from '../database/drizzle/schema/comment-clarification-answers.js';
+import {
+  commentDecisions,
+  type CommentDecisionKind,
+} from '../database/drizzle/schema/comment-decisions.js';
+import {
+  spCommentResponses,
+  type SpResponseKind,
+} from '../database/drizzle/schema/sp-comment-responses.js';
 import { assessmentFieldValidations } from '../database/drizzle/schema/assessment-field-validations.js';
 import { cycles } from '../database/drizzle/schema/cycles.js';
 import { fieldConfigVersions } from '../database/drizzle/schema/field-config-versions.js';
@@ -32,7 +42,11 @@ import { isDuplicateKeyError } from '../common/idempotency/idempotency.errors.js
 import { timelineSteps } from '../database/drizzle/schema/timeline-steps.js';
 import { timelines } from '../database/drizzle/schema/timelines.js';
 import type { WorklistAccess } from './scope.js';
-import { scopeCondition, type WorklistStep } from './worklist.store.js';
+import {
+  currentStepSql,
+  scopeCondition,
+  type WorklistStep,
+} from './worklist.store.js';
 
 // Port of the assessment reads (design 5, 6, 7.4; DD-3: a read never writes):
 // three methods, one statement each. The write side below (T-10) is a second
@@ -47,8 +61,10 @@ export interface MembershipCriteria {
   access: WorklistAccess;
   /** ADMIN only: the round asked for; `null` = the reviewer's own round, or the latest for an ADMIN. */
   round: number | null;
-  /** The step whose assessment is read; `null` when the timeline has none. */
+  /** The `assessors` step, where a round-1 membership's assessment lives; `null` when the timeline has none. */
   assessmentStepPosition: number | null;
+  /** The round-2 steps in order: a round-2 membership reads the latest assessment among them, else the first (DD-3). */
+  roundTwoStepPositions: readonly number[];
 }
 
 /** A membership in scope, with the assessment of the role's step when one exists. */
@@ -70,9 +86,17 @@ export interface MembershipRecord {
   snapshotSk: string;
   /** The year of the membership's cycle: the catalog year (P-14). */
   cycleYear: number;
+  /** The returned round-1 membership a round-2 one follows; `null` for a new one (round-2 FR-4). */
+  previousMembershipId: number | null;
+  /** Keys whose value changed since the previous membership; `null` = none (round-2 FR-5). */
+  changedFields: string[] | null;
+  /** The previous membership's step-1 assessment, joined in the membership statement (round-2 DD-4); `null` when there is none. */
+  previousAssessmentId: number | null;
   assessment: {
     id: number;
     status: ResultAssessmentStatus;
+    /** The step the row belongs to: the membership's current step (DD-3). */
+    stepPosition: number;
     /** The version NUMBER the assessment pinned (DD-3). */
     fieldConfigVersion: number;
     /** The id of that version's row, joined by (cycle, number); null when no such row exists (a defect). */
@@ -101,6 +125,35 @@ export interface CommentRecord {
   valueTruncated: boolean;
   createdAt: Date;
   withdrawnAt: Date | null;
+}
+
+/**
+ * One line of the round-1 thread read (round-2 FR-4, design 7 *Thread read*):
+ * a comment joined to the program response it shows (the latest, and every
+ * clarification request), that request's answer and the Lead's decision. A
+ * comment with several lines to show repeats its own columns. No responder
+ * email is selected: the QA view carries the name only.
+ */
+export interface RoundOneThreadRow {
+  commentId: number;
+  fieldKey: string;
+  authorId: number;
+  authorNickname: string | null;
+  body: string;
+  state: CommentState;
+  valueCopy: CommentValueCopy;
+  valueTruncated: boolean;
+  createdAt: Date;
+  responseId: number | null;
+  responseKind: SpResponseKind | null;
+  responseBody: string | null;
+  responderName: string | null;
+  respondedAt: Date | null;
+  answerBody: string | null;
+  answeredAt: Date | null;
+  decision: CommentDecisionKind | null;
+  decisionBody: string | null;
+  decidedAt: Date | null;
 }
 
 /** A comment with where it lives: its assessment and membership (withdraw, and the replay reader). */
@@ -133,6 +186,19 @@ export interface AssessmentStore {
   findCommentContext(commentId: number): Promise<CommentContext | null>;
   /** One statement: the quick comments of a role, newest first (FR-12). */
   listQuickComments(roleCode: string): Promise<QuickCommentRecord[]>;
+  /**
+   * ONE statement for the whole thread of a round-2 view, whatever the number
+   * of comments (round-2 NFR-1): the comments of the previous membership's
+   * step-1 assessment that are neither withdrawn nor deleted, with the latest
+   * program response of each, every clarification request and its answer, and
+   * the decision of `roleCode`. Ordered by field, comment, response.
+   */
+  findRoundOneThread(
+    assessmentId: number,
+    roleCode: string,
+  ): Promise<RoundOneThreadRow[]>;
+  /** One statement: every decision of this assessment with its comment's field and state (the Lead's own round-2 comments, T-16). */
+  findDecisions(assessmentId: number): Promise<DecisionRecord[]>;
 }
 
 /** A reusable comment text of a role (FR-12). */
@@ -240,6 +306,55 @@ export interface CommentEventWrite {
 }
 
 /**
+ * The round-1 comment a decision targets, read `FOR UPDATE` after the round-2
+ * assessment lock (round-2 design 7 *Write path*). The round-1 assessment row
+ * is never locked: it is finished.
+ */
+export interface DecisionTarget {
+  id: number;
+  /** The assessment the comment belongs to: it must be the previous membership's step-1 one. */
+  assessmentId: number;
+  /** The comment's author: the Lead's OWN round-2 comment is decidable (FR-9). */
+  authorId: number;
+  fieldKey: string;
+  state: CommentState;
+  /** `deleted_at` is set (FR-10). */
+  deleted: boolean;
+}
+
+/** A live (not withdrawn, not deleted) comment: its id, field and state. */
+export interface LiveCommentState {
+  id: number;
+  fieldKey: string;
+  state: CommentState;
+}
+
+/** One decision of an assessment, with the comment it is on (round-2 FR-8). */
+export interface DecisionRecord {
+  commentId: number;
+  fieldKey: string;
+  decision: CommentDecisionKind;
+  body: string | null;
+  decidedAt: Date;
+  /** The comment's state now: the `from` of the move the end applies (DD-7). */
+  commentState: CommentState;
+  /** `deleted_at` is set (FR-10): the decision no longer counts. */
+  commentDeleted: boolean;
+}
+
+/** A decision to store: one per (comment, role); a second write replaces the first (DD-2). */
+export interface DecisionWrite {
+  commentId: number;
+  /** The deciding role's assessment. */
+  assessmentId: number;
+  roleCode: string;
+  decision: CommentDecisionKind;
+  body: string;
+  actorId: number;
+  at: Date;
+}
+
+/**
  * The statements of one assessment write, bound to ONE transaction by the unit
  * of work (design 5, 7.5). Their order is the lock order: the timeline
  * `FOR SHARE`, then the assessment row `FOR UPDATE`, then the rows under it.
@@ -282,6 +397,13 @@ export interface AssessmentWriteStore {
    * or the program answered): the database decides the race, not a prior read.
    */
   withdrawComment(commentId: number, at: Date): Promise<boolean>;
+  /**
+   * One conditional statement (round-2 FR-10): sets `deleted_at` and
+   * `deleted_by` where the comment is not deleted yet and no program response
+   * points at it. `false` when it matched nothing (another delete got there, or
+   * the program answered): the database decides the race, not a prior read.
+   */
+  deleteComment(commentId: number, actorId: number, at: Date): Promise<boolean>;
   /** One statement. */
   insertCommentEvent(event: CommentEventWrite): Promise<void>;
   /**
@@ -292,7 +414,18 @@ export interface AssessmentWriteStore {
   endAssessment(end: AssessmentEndWrite): Promise<boolean>;
   /** One statement: the distinct field keys that carry a non-withdrawn comment. */
   findCommentedFieldKeys(assessmentId: number): Promise<string[]>;
-  /** One statement: every non-withdrawn comment not yet visible becomes visible to the program at `at`. */
+  /**
+   * One statement: the distinct field keys that carry a LIVE comment, neither
+   * withdrawn nor deleted (round-2 FR-7: such a field is not a carried green).
+   */
+  findLiveCommentedFieldKeys(assessmentId: number): Promise<string[]>;
+  /**
+   * One statement: the comments of an assessment that are neither withdrawn nor
+   * deleted, with their field and state (round-2 FR-8, HITL O-1: the Lead's
+   * decidable round-1 comments).
+   */
+  findLiveCommentStates(assessmentId: number): Promise<LiveCommentState[]>;
+  /** One statement: every non-withdrawn, non-deleted comment not yet visible becomes visible to the program at `at`. */
   markCommentsVisible(assessmentId: number, at: Date): Promise<void>;
   /** One statement: the `pending` release of an end. Unique per assessment. */
   insertRelease(row: NewReleaseRow): Promise<void>;
@@ -302,6 +435,24 @@ export interface AssessmentWriteStore {
    * `created: false`.
    */
   saveQuickComment(row: NewQuickCommentRow): Promise<SavedQuickComment>;
+  /** One statement: the comment `FOR UPDATE`; `undefined` when there is none. Taken after the assessment lock. */
+  lockDecisionTarget(commentId: number): Promise<DecisionTarget | undefined>;
+  /** One statement: every decision whose `assessment_id` is this assessment, with its comment's field and state. */
+  findDecisions(assessmentId: number): Promise<DecisionRecord[]>;
+  /**
+   * One statement: `INSERT … ON DUPLICATE KEY UPDATE` on (comment, role). A
+   * second decision replaces the first, with its author and time; `updated_at`
+   * is set explicitly because the column has no ON UPDATE (T-3).
+   */
+  upsertDecision(write: DecisionWrite): Promise<void>;
+  /** One statement: removes the role's decision on the comment; `false` when there was none. */
+  deleteDecision(commentId: number, roleCode: string): Promise<boolean>;
+  /** One conditional statement: `from` to `to` where the comment is still in `from`; `false` when it matched nothing. */
+  setCommentState(
+    commentId: number,
+    from: CommentState,
+    to: CommentState,
+  ): Promise<boolean>;
 }
 
 // ---- Drizzle adapter -------------------------------------------------------
@@ -310,6 +461,8 @@ type AssessmentDb = Pick<DrizzleDB, 'select'>;
 
 const t = timelineResults;
 const a = resultAssessments;
+/** The previous membership's step-1 assessment (round-2 DD-4): its row id and its validations feed the round-2 view. */
+const prevA = alias(resultAssessments, 'prev_assessment');
 const MEMBERSHIP_TABLE = sql.identifier('timeline_results');
 const ASSESSMENT_TABLE = sql.identifier('result_assessments');
 
@@ -340,8 +493,12 @@ export class DrizzleAssessmentStore implements AssessmentStore {
           endReason: t.endReason,
           snapshotSk: t.snapshotSk,
           cycleYear: cycles.year,
+          previousMembershipId: t.previousMembershipId,
+          changedFields: t.changedFields,
+          previousAssessmentId: prevA.id,
           assessmentId: a.id,
           assessmentStatus: a.status,
+          assessmentStepPosition: a.stepPosition,
           fieldConfigVersion: a.fieldConfigVersion,
           fieldConfigVersionId: fieldConfigVersions.id,
           finishedAt: a.finishedAt,
@@ -354,10 +511,14 @@ export class DrizzleAssessmentStore implements AssessmentStore {
           a,
           and(
             eq(a.timelineResultId, t.id),
-            // Position 0 never exists (positions are 1 to 5): no step, no assessment.
-            eq(a.stepPosition, criteria.assessmentStepPosition ?? 0),
+            eq(a.stepPosition, currentStepSql(criteria)),
           ),
         )
+        // Round 2 only: the returned round-1 membership's assessment, in this same
+        // statement (DD-4). A round-1 membership holds the one assessment of the
+        // assessors step (a role writes only in its own round's step), so no step
+        // filter is needed and the statement binds nothing new.
+        .leftJoin(prevA, eq(prevA.timelineResultId, t.previousMembershipId))
         .leftJoin(users, eq(users.id, a.finishedBy))
         // The pinned NUMBER is the version of the membership's cycle: its row id, with no extra statement.
         .leftJoin(
@@ -401,14 +562,19 @@ export class DrizzleAssessmentStore implements AssessmentStore {
       endReason: row.endReason,
       snapshotSk: row.snapshotSk,
       cycleYear: row.cycleYear,
+      previousMembershipId: row.previousMembershipId,
+      changedFields: row.changedFields,
+      previousAssessmentId: row.previousAssessmentId,
       assessment:
         row.assessmentId === null ||
         row.assessmentStatus === null ||
+        row.assessmentStepPosition === null ||
         row.fieldConfigVersion === null
           ? null
           : {
               id: row.assessmentId,
               status: row.assessmentStatus,
+              stepPosition: row.assessmentStepPosition,
               fieldConfigVersion: row.fieldConfigVersion,
               fieldConfigVersionId: row.fieldConfigVersionId,
               finishedAt: row.finishedAt,
@@ -456,12 +622,125 @@ export class DrizzleAssessmentStore implements AssessmentStore {
       })
       .from(assessmentComments)
       .innerJoin(users, eq(users.id, assessmentComments.authorId))
-      .where(eq(assessmentComments.assessmentId, assessmentId))
+      .where(
+        and(
+          eq(assessmentComments.assessmentId, assessmentId),
+          // FR-10: a deleted comment is in no list.
+          isNull(assessmentComments.deletedAt),
+        ),
+      )
       .orderBy(asc(assessmentComments.createdAt), asc(assessmentComments.id));
+  }
+
+  buildDecisions(assessmentId: number) {
+    return this.db
+      .select({
+        commentId: commentDecisions.commentId,
+        fieldKey: assessmentComments.fieldKey,
+        decision: commentDecisions.decision,
+        body: commentDecisions.body,
+        decidedAt: commentDecisions.decidedAt,
+        commentState: assessmentComments.state,
+        commentDeletedAt: assessmentComments.deletedAt,
+      })
+      .from(commentDecisions)
+      .innerJoin(
+        assessmentComments,
+        eq(assessmentComments.id, commentDecisions.commentId),
+      )
+      .where(eq(commentDecisions.assessmentId, assessmentId))
+      .orderBy(asc(commentDecisions.commentId));
+  }
+
+  async findDecisions(assessmentId: number): Promise<DecisionRecord[]> {
+    const rows = await this.buildDecisions(assessmentId);
+    return rows.map(({ commentDeletedAt, ...row }) => ({
+      ...row,
+      commentDeleted: commentDeletedAt !== null,
+    }));
   }
 
   async findComments(assessmentId: number): Promise<CommentRecord[]> {
     return await this.buildCommentsQuery(assessmentId);
+  }
+
+  /**
+   * The thread statement of a round-2 view; public so a spec can read its SQL.
+   * One SELECT: the program responses join as the latest per comment OR a
+   * clarification request, so a comment never costs a statement of its own.
+   * No `responder_email` column, no per-row subquery on the comment list.
+   */
+  buildRoundOneThreadQuery(assessmentId: number, roleCode: string) {
+    // The latest response of the comment, as a scalar inside this same statement.
+    // Written with qualified identifiers (as `currentStepSql` is) so the inner
+    // `id` can never be read as the outer join's.
+    const latest = sql.identifier('latest_response');
+    const latestId = sql`(SELECT MAX(${latest}.${sql.identifier('id')}) FROM ${sql.identifier('sp_comment_responses')} ${latest} WHERE ${latest}.${sql.identifier('comment_id')} = ${assessmentComments.id})`;
+    return this.db
+      .select({
+        commentId: assessmentComments.id,
+        fieldKey: assessmentComments.fieldKey,
+        authorId: assessmentComments.authorId,
+        authorNickname: users.nickname,
+        body: assessmentComments.body,
+        state: assessmentComments.state,
+        valueCopy: assessmentComments.valueCopy,
+        valueTruncated: assessmentComments.valueTruncated,
+        createdAt: assessmentComments.createdAt,
+        responseId: spCommentResponses.id,
+        responseKind: spCommentResponses.kind,
+        responseBody: spCommentResponses.body,
+        responderName: spCommentResponses.responderName,
+        respondedAt: spCommentResponses.createdAt,
+        answerBody: commentClarificationAnswers.body,
+        answeredAt: commentClarificationAnswers.createdAt,
+        decision: commentDecisions.decision,
+        decisionBody: commentDecisions.body,
+        decidedAt: commentDecisions.decidedAt,
+      })
+      .from(assessmentComments)
+      .innerJoin(users, eq(users.id, assessmentComments.authorId))
+      .leftJoin(
+        spCommentResponses,
+        and(
+          eq(spCommentResponses.commentId, assessmentComments.id),
+          or(
+            eq(spCommentResponses.kind, 'request_clarification'),
+            eq(spCommentResponses.id, latestId),
+          ),
+        ),
+      )
+      .leftJoin(
+        commentClarificationAnswers,
+        eq(commentClarificationAnswers.responseId, spCommentResponses.id),
+      )
+      .leftJoin(
+        commentDecisions,
+        and(
+          eq(commentDecisions.commentId, assessmentComments.id),
+          eq(commentDecisions.roleCode, roleCode),
+        ),
+      )
+      .where(
+        and(
+          eq(assessmentComments.assessmentId, assessmentId),
+          isNull(assessmentComments.withdrawnAt),
+          isNull(assessmentComments.deletedAt),
+        ),
+      )
+      .orderBy(
+        asc(assessmentComments.fieldKey),
+        asc(assessmentComments.createdAt),
+        asc(assessmentComments.id),
+        asc(spCommentResponses.id),
+      );
+  }
+
+  async findRoundOneThread(
+    assessmentId: number,
+    roleCode: string,
+  ): Promise<RoundOneThreadRow[]> {
+    return await this.buildRoundOneThreadQuery(assessmentId, roleCode);
   }
 
   /** The comment-context statement; public so a spec can read its SQL. */
@@ -520,7 +799,7 @@ export class DrizzleAssessmentStore implements AssessmentStore {
 
 type AssessmentWriteDb = Pick<
   DrizzleDB,
-  'select' | 'selectDistinct' | 'insert' | 'update'
+  'select' | 'selectDistinct' | 'insert' | 'update' | 'delete'
 >;
 
 /**
@@ -566,18 +845,20 @@ export class DrizzleAssessmentWriteStore implements AssessmentWriteStore {
   }
 
   buildEnsureAssessment(row: NewAssessmentRow) {
-    return this.db
-      .insert(a)
-      .values({
-        timelineResultId: row.timelineResultId,
-        stepPosition: row.stepPosition,
-        roleCode: row.roleCode,
-        fieldConfigVersion: row.fieldConfigVersion,
-        createdAt: row.at,
-        createdBy: row.createdBy,
-      })
-      // The key onto itself: on a duplicate nothing changes (the pinned version stays).
-      .onDuplicateKeyUpdate({ set: { id: sql`${sql.identifier('id')}` } });
+    return (
+      this.db
+        .insert(a)
+        .values({
+          timelineResultId: row.timelineResultId,
+          stepPosition: row.stepPosition,
+          roleCode: row.roleCode,
+          fieldConfigVersion: row.fieldConfigVersion,
+          createdAt: row.at,
+          createdBy: row.createdBy,
+        })
+        // The key onto itself: on a duplicate nothing changes (the pinned version stays).
+        .onDuplicateKeyUpdate({ set: { id: sql`${sql.identifier('id')}` } })
+    );
   }
 
   async ensureAssessment(row: NewAssessmentRow): Promise<void> {
@@ -709,12 +990,39 @@ export class DrizzleAssessmentWriteStore implements AssessmentWriteStore {
           // The guard: only an open comment is withdrawn, so a second request
           // or a program answer in between matches nothing.
           eq(assessmentComments.state, 'open'),
+          // A delete wins over a withdraw: a deleted comment is out of every list.
+          isNull(assessmentComments.deletedAt),
         ),
       );
   }
 
   async withdrawComment(commentId: number, at: Date): Promise<boolean> {
     const [header] = await this.buildWithdrawComment(commentId, at);
+    return header.affectedRows > 0;
+  }
+
+  buildDeleteComment(commentId: number, actorId: number, at: Date) {
+    const responses = sql.identifier('sp_comment_responses');
+    return this.db
+      .update(assessmentComments)
+      .set({ deletedAt: at, deletedBy: actorId })
+      .where(
+        and(
+          eq(assessmentComments.id, commentId),
+          // The guards: a second delete matches nothing, and a comment the
+          // program answered (any response row) is never deleted.
+          isNull(assessmentComments.deletedAt),
+          sql`NOT EXISTS (SELECT 1 FROM ${responses} WHERE ${responses}.${sql.identifier('comment_id')} = ${assessmentComments.id})`,
+        ),
+      );
+  }
+
+  async deleteComment(
+    commentId: number,
+    actorId: number,
+    at: Date,
+  ): Promise<boolean> {
+    const [header] = await this.buildDeleteComment(commentId, actorId, at);
     return header.affectedRows > 0;
   }
 
@@ -773,6 +1081,47 @@ export class DrizzleAssessmentWriteStore implements AssessmentWriteStore {
     return rows.map((row) => row.fieldKey);
   }
 
+  buildLiveCommentedFieldKeys(assessmentId: number) {
+    return this.db
+      .selectDistinct({ fieldKey: assessmentComments.fieldKey })
+      .from(assessmentComments)
+      .where(
+        and(
+          eq(assessmentComments.assessmentId, assessmentId),
+          ne(assessmentComments.state, 'withdrawn'),
+          isNull(assessmentComments.deletedAt),
+        ),
+      );
+  }
+
+  async findLiveCommentedFieldKeys(assessmentId: number): Promise<string[]> {
+    const rows = await this.buildLiveCommentedFieldKeys(assessmentId);
+    return rows.map((row) => row.fieldKey);
+  }
+
+  buildLiveCommentStates(assessmentId: number) {
+    return this.db
+      .select({
+        id: assessmentComments.id,
+        fieldKey: assessmentComments.fieldKey,
+        state: assessmentComments.state,
+      })
+      .from(assessmentComments)
+      .where(
+        and(
+          eq(assessmentComments.assessmentId, assessmentId),
+          ne(assessmentComments.state, 'withdrawn'),
+          isNull(assessmentComments.deletedAt),
+        ),
+      );
+  }
+
+  async findLiveCommentStates(
+    assessmentId: number,
+  ): Promise<LiveCommentState[]> {
+    return await this.buildLiveCommentStates(assessmentId);
+  }
+
   buildMarkCommentsVisible(assessmentId: number, at: Date) {
     return this.db
       .update(assessmentComments)
@@ -781,6 +1130,7 @@ export class DrizzleAssessmentWriteStore implements AssessmentWriteStore {
         and(
           eq(assessmentComments.assessmentId, assessmentId),
           ne(assessmentComments.state, 'withdrawn'),
+          isNull(assessmentComments.deletedAt),
           isNull(assessmentComments.visibleToProgramAt),
         ),
       );
@@ -852,5 +1202,119 @@ export class DrizzleAssessmentWriteStore implements AssessmentWriteStore {
       if (existing === undefined) throw error;
       return { ...existing, created: false };
     }
+  }
+
+  buildDecisionTargetLock(commentId: number) {
+    return this.db
+      .select({
+        id: assessmentComments.id,
+        assessmentId: assessmentComments.assessmentId,
+        authorId: assessmentComments.authorId,
+        fieldKey: assessmentComments.fieldKey,
+        state: assessmentComments.state,
+        deletedAt: assessmentComments.deletedAt,
+      })
+      .from(assessmentComments)
+      .where(eq(assessmentComments.id, commentId))
+      .limit(1)
+      .for('update');
+  }
+
+  async lockDecisionTarget(
+    commentId: number,
+  ): Promise<DecisionTarget | undefined> {
+    const [row] = await this.buildDecisionTargetLock(commentId);
+    if (row === undefined) return undefined;
+    return {
+      id: row.id,
+      assessmentId: row.assessmentId,
+      authorId: row.authorId,
+      fieldKey: row.fieldKey,
+      state: row.state,
+      deleted: row.deletedAt !== null,
+    };
+  }
+
+  buildDecisions(assessmentId: number) {
+    return this.reads.buildDecisions(assessmentId);
+  }
+
+  async findDecisions(assessmentId: number): Promise<DecisionRecord[]> {
+    return await this.reads.findDecisions(assessmentId);
+  }
+
+  buildUpsertDecision(write: DecisionWrite) {
+    const column = (name: string) => sql`values(${sql.identifier(name)})`;
+    return (
+      this.db
+        .insert(commentDecisions)
+        .values({
+          commentId: write.commentId,
+          assessmentId: write.assessmentId,
+          roleCode: write.roleCode,
+          decision: write.decision,
+          body: write.body,
+          decidedBy: write.actorId,
+          decidedAt: write.at,
+          updatedAt: write.at,
+        })
+        // The key is (comment, role): the second decision replaces the first.
+        // `assessment_id` and `role_code` never move; `updated_at` has no ON UPDATE, so it is set here.
+        .onDuplicateKeyUpdate({
+          set: {
+            decision: column('decision'),
+            body: column('body'),
+            decidedBy: column('decided_by'),
+            decidedAt: column('decided_at'),
+            updatedAt: column('updated_at'),
+          },
+        })
+    );
+  }
+
+  async upsertDecision(write: DecisionWrite): Promise<void> {
+    await this.buildUpsertDecision(write);
+  }
+
+  buildDeleteDecision(commentId: number, roleCode: string) {
+    return this.db
+      .delete(commentDecisions)
+      .where(
+        and(
+          eq(commentDecisions.commentId, commentId),
+          eq(commentDecisions.roleCode, roleCode),
+        ),
+      );
+  }
+
+  async deleteDecision(commentId: number, roleCode: string): Promise<boolean> {
+    const [header] = await this.buildDeleteDecision(commentId, roleCode);
+    return header.affectedRows > 0;
+  }
+
+  buildSetCommentState(
+    commentId: number,
+    from: CommentState,
+    to: CommentState,
+  ) {
+    return this.db
+      .update(assessmentComments)
+      .set({ state: to })
+      .where(
+        and(
+          eq(assessmentComments.id, commentId),
+          // The guard: only a comment still in the state the end read moves.
+          eq(assessmentComments.state, from),
+        ),
+      );
+  }
+
+  async setCommentState(
+    commentId: number,
+    from: CommentState,
+    to: CommentState,
+  ): Promise<boolean> {
+    const [header] = await this.buildSetCommentState(commentId, from, to);
+    return header.affectedRows > 0;
   }
 }

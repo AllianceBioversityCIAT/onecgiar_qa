@@ -45,7 +45,7 @@ export interface StatusRule {
   readonly membershipStatus?: readonly TimelineResultStatus[];
   /** `timeline_results.end_reason`; `null` = the membership has not ended. */
   readonly endReason?: readonly (TimelineResultEndReason | null)[];
-  /** `result_assessments.status` of the role's step; `null` = no row. */
+  /** `result_assessments.status` of the membership's current step (DD-3); `null` = no row. */
   readonly assessmentStatus?: readonly (ResultAssessmentStatus | null)[];
   /** Whether any comment thread of the assessment is `clarification_requested`. */
   readonly clarificationThread?: boolean;
@@ -73,6 +73,8 @@ export const STATUS_RULES: readonly StatusRule[] = [
     assessmentStatus: ['returned'],
     clarificationThread: false,
   },
+  // FR-14: the Lead's assessment of a round-2 membership ended `escalated`.
+  { status: 'pending_tpb_review', assessmentStatus: ['escalated'] },
   { status: 'quality_assessed', assessmentStatus: ['quality_assessed'] },
 ];
 

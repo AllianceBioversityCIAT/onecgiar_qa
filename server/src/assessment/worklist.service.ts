@@ -20,6 +20,7 @@ import { InvalidListQueryError } from '../users/users.errors.js';
 import { QA_STATUS_LABELS, QA_STATUSES, type QaStatus } from './qa-status.js';
 import {
   audienceStepState,
+  currentStepPositionsOf,
   enabledReviewerRows,
   roleStepState,
   type StepTiming,
@@ -35,7 +36,6 @@ import {
   type WorklistRecord,
   type WorklistSortKey,
   type WorklistStore,
-  type WorklistTimeline,
 } from './worklist.store.js';
 
 export const DEFAULT_WORKLIST_LIMIT = 25;
@@ -117,6 +117,8 @@ const FINISHED_STATUSES: readonly QaStatus[] = [
   'quality_assessed',
   'returned_to_program',
   'clarification_requested',
+  // Round-2 FR-14: the Lead's review has ended.
+  'pending_tpb_review',
 ];
 
 @Injectable()
@@ -266,7 +268,7 @@ export class WorklistService {
       timelineId: timeline.id,
       userId: user.id,
       access,
-      assessmentStepPosition: this.assessmentStep(timeline, access),
+      ...currentStepPositionsOf(timeline.steps),
       clarificationWindowOpen:
         audienceStepState('programs', timing) === 'in_progress',
       // FR-4: hidden unless the status filter names it; the counters follow.
@@ -393,19 +395,6 @@ export class WorklistService {
       admin,
       access: resolveAccess(user, timeline.roleCodes, admin),
     };
-  }
-
-  /** The step whose assessment feeds the status: the first reviewer row's, else the enabled reviewer role's (ADMIN reads the same step). */
-  private assessmentStep(
-    timeline: WorklistTimeline,
-    access: WorklistAccess,
-  ): number | null {
-    const audience =
-      access.reviewerRows[0]?.audience ?? enabledReviewerRows()[0]?.audience;
-    return (
-      timeline.steps.find((step) => step.audience === audience)?.position ??
-      null
-    );
   }
 
   private toRow(

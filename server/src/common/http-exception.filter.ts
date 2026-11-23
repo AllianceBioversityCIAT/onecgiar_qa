@@ -189,9 +189,11 @@ export function toErrorBody(
   ) {
     error.fields = body.fields as ApiErrorBody['fields'];
   }
-  // The finish refusal names the core fields to comment on: keys only (FR-15).
+  // The finish refusals name the core fields to comment on or decide: keys only (FR-15, round-2 FR-11).
   if (
-    code === 'ASSESSMENT_CORE_UNCOMMENTED' &&
+    (code === 'ASSESSMENT_CORE_UNCOMMENTED' ||
+      code === 'ASSESSMENT_CORE_UNDECIDED' ||
+      code === 'ASSESSMENT_CORE_COMMENT_UNDECIDED') &&
     typeof body === 'object' &&
     Array.isArray(body.fields) &&
     body.fields.every((field) => typeof field === 'string')

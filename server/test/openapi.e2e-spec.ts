@@ -422,6 +422,8 @@ describe('OpenAPI document (e2e)', () => {
           '403': ['ASSESSMENT_READ_ONLY'],
           '404': ['ASSESSMENT_NOT_FOUND'],
           '409': [
+            'ASSESSMENT_CORE_COMMENT_UNDECIDED',
+            'ASSESSMENT_FIELD_NOT_CORE',
             'ASSESSMENT_FINISHED',
             'ASSESSMENT_NO_FIELD_CONFIG',
             'ASSESSMENT_STEP_CLOSED',
@@ -450,6 +452,7 @@ describe('OpenAPI document (e2e)', () => {
           '404': ['ASSESSMENT_NOT_FOUND'],
           '409': [
             'ASSESSMENT_CORE_UNCOMMENTED',
+            'ASSESSMENT_CORE_UNDECIDED',
             'ASSESSMENT_FINISHED',
             'ASSESSMENT_NO_FIELD_CONFIG',
             'ASSESSMENT_STEP_CLOSED',
@@ -463,7 +466,11 @@ describe('OpenAPI document (e2e)', () => {
           '400': ['VALIDATION_FAILED'],
           '403': ['ASSESSMENT_NOT_COMMENT_AUTHOR'],
           '404': ['ASSESSMENT_NOT_FOUND'],
-          '409': ['ASSESSMENT_COMMENT_NOT_OPEN', 'ASSESSMENT_STEP_CLOSED'],
+          '409': [
+            'ASSESSMENT_COMMENT_NOT_OPEN',
+            'ASSESSMENT_FINISHED',
+            'ASSESSMENT_STEP_CLOSED',
+          ],
         },
       },
       {

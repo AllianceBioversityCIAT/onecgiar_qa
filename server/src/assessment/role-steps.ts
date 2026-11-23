@@ -40,7 +40,7 @@ export const ROLE_STEPS: readonly RoleStepRow[] = [
     permission: Permission.LEAD_ACCESS,
     audience: 'lead_assessors',
     round: 2,
-    enabled: false,
+    enabled: true,
     access: 'write',
   },
   {
@@ -74,7 +74,7 @@ export function findRoleStep(role: string): RoleStepRow | undefined {
   return ROLE_STEPS.find((row) => row.role === role);
 }
 
-/** The rows that give a worklist with write rights today: ASSESSOR in this spec. */
+/** The rows that give a worklist with write rights today: ASSESSOR and LEAD_ASSESSOR; TPB and PPU stay designed only (round-2 FR-16). */
 export function enabledReviewerRows(): readonly RoleStepRow[] {
   return ROLE_STEPS.filter((row) => row.enabled && row.access === 'write');
 }
@@ -146,11 +146,68 @@ export function audienceStepState(
  * OQ-8 (FR-13): the window in which an author may withdraw their own comment,
  * step 1 (`assessors`) or step 2 (`programs`) in progress. It is not the role's
  * write window: an ended assessment does not close it, and an assessor may
- * withdraw while the programs step is the open one.
+ * withdraw while the programs step is the open one. Round 2 (FR-9): a round-2
+ * comment (the Lead's own) can also be withdrawn while the `lead_assessors`
+ * step is in progress; round 1 keeps its two steps.
  */
-export function isWithdrawWindowOpen(timing: StepTiming): boolean {
+export function isWithdrawWindowOpen(
+  timing: StepTiming,
+  round: number = 1,
+): boolean {
   return (
     audienceStepState('assessors', timing) === 'in_progress' ||
-    audienceStepState('programs', timing) === 'in_progress'
+    audienceStepState('programs', timing) === 'in_progress' ||
+    (round !== 1 &&
+      audienceStepState('lead_assessors', timing) === 'in_progress')
   );
+}
+
+/** The audiences of the round-2 steps, in step order (the `lead_assessors`, `tpb` and `ppu` steps, positions 3 to 5). */
+const ROUND_TWO_AUDIENCES: readonly StepAudience[] = [
+  'lead_assessors',
+  'tpb',
+  'ppu',
+];
+
+/** The steps a membership's current assessment can sit in (DD-3). */
+export interface CurrentStepPositions {
+  /** Position of the `assessors` step: where a round-1 membership's assessment lives; `null` when the timeline has none. */
+  assessmentStepPosition: number | null;
+  /** Positions of the `lead_assessors`, `tpb` and `ppu` steps in position order: where a round-2 membership's assessment lives. */
+  roundTwoStepPositions: readonly number[];
+}
+
+/** The two step families of a timeline (DD-3): its `assessors` step and its round-2 steps. */
+export function currentStepPositionsOf(
+  steps: readonly { position: number; audience: StepAudience }[],
+): CurrentStepPositions {
+  return {
+    assessmentStepPosition:
+      steps.find((step) => step.audience === 'assessors')?.position ?? null,
+    roundTwoStepPositions: steps
+      .filter((step) => ROUND_TWO_AUDIENCES.includes(step.audience))
+      .map((step) => step.position)
+      .sort((a, b) => a - b),
+  };
+}
+
+/**
+ * DD-3, the one rule of the current step (the worklist SQL and the view read
+ * the same): a round-1 membership reads the `assessors` step's assessment; a
+ * round-2 membership reads the latest existing assessment among its round-2
+ * steps (3 to 5), else the first (step 3). `existing` is the positions that
+ * hold an assessment row for the membership.
+ */
+export function currentStepPosition(
+  positions: CurrentStepPositions,
+  round: number,
+  existing: readonly number[],
+): number | null {
+  if (round <= 1) return positions.assessmentStepPosition;
+  const held = positions.roundTwoStepPositions.filter((position) =>
+    existing.includes(position),
+  );
+  return held.length > 0
+    ? Math.max(...held)
+    : (positions.roundTwoStepPositions[0] ?? null);
 }

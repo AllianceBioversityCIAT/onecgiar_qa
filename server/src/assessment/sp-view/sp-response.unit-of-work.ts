@@ -3,7 +3,7 @@
 // lock order: timeline FOR SHARE → assessment FOR UPDATE → the comment and the
 // rows under it.
 import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, isNull } from 'drizzle-orm';
 import { DRIZZLE } from '../../database/drizzle/drizzle.constants.js';
 import type { DrizzleDB } from '../../database/drizzle/drizzle.module.js';
 import {
@@ -89,6 +89,8 @@ export class DrizzleSpWriteStore implements SpWriteStore {
         and(
           eq(assessmentComments.id, commentId),
           eq(assessmentComments.state, from),
+          // A comment the Lead deleted takes no answer (round-2 FR-10): 0 rows, 409.
+          isNull(assessmentComments.deletedAt),
         ),
       );
   }

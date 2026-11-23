@@ -302,6 +302,54 @@ describe('toErrorBody: only catalog text reaches the client', () => {
     });
   });
 
+  it('forwards the field keys of ASSESSMENT_CORE_UNDECIDED in the response body (round-2 design 6)', () => {
+    expect(
+      toErrorBody(
+        new ConflictException({
+          code: 'ASSESSMENT_CORE_UNDECIDED',
+          fields: ['general.title', 'toc.outcomes'],
+        }),
+      ),
+    ).toEqual({
+      status: 409,
+      code: 'ASSESSMENT_CORE_UNDECIDED',
+      message:
+        'Some core fields are neither validated nor escalated. Validate them or escalate them before finishing.',
+      fields: ['general.title', 'toc.outcomes'],
+    });
+    expect(
+      toErrorBody(
+        new ConflictException({
+          code: 'ASSESSMENT_CORE_UNDECIDED',
+          fields: [{ field: 'x', message: EMAIL }, 7],
+        }),
+      ),
+    ).not.toHaveProperty('fields');
+  });
+
+  it('forwards the field keys of ASSESSMENT_CORE_COMMENT_UNDECIDED, strings only (HITL O-1)', () => {
+    expect(
+      toErrorBody(
+        new ConflictException({
+          code: 'ASSESSMENT_CORE_COMMENT_UNDECIDED',
+          fields: ['general.title'],
+        }),
+      ),
+    ).toMatchObject({
+      status: 409,
+      code: 'ASSESSMENT_CORE_COMMENT_UNDECIDED',
+      fields: ['general.title'],
+    });
+    expect(
+      toErrorBody(
+        new ConflictException({
+          code: 'ASSESSMENT_CORE_COMMENT_UNDECIDED',
+          fields: [{ field: 'x', message: EMAIL }, 7],
+        }),
+      ),
+    ).not.toHaveProperty('fields');
+  });
+
   it('forwards only strings for ASSESSMENT_CORE_UNCOMMENTED, and never fields for another 409', () => {
     expect(
       toErrorBody(

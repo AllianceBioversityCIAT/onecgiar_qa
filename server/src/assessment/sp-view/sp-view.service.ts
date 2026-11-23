@@ -311,6 +311,8 @@ export class SpViewService {
       resultCode,
       access: READ_ALL,
       round: 1,
+      // Round 1 only: the program never reads a round-2 step (round-2 FR-15).
+      roundTwoStepPositions: [],
       assessmentStepPosition: context.assessmentStepPosition,
     });
     if (

@@ -209,6 +209,8 @@ export async function buildAssessmentApp(
       options.nicknames?.policy2 ?? 'Pablo',
       options.names?.policy2,
     ),
+    // A Lead Assessor of policy change (round 2, P2-3912). Appended last so no earlier id moves.
+    lead: await actor('sub-lead', [['LEAD_ASSESSOR', 'policy_change']], 'Lena'),
   };
 
   const builder = withoutTitleBackfill(

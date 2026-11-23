@@ -1,10 +1,16 @@
 // @akili-spec assessment/step-1-assessment
 import {
+  ApiExtraModels,
   ApiProperty,
   ApiPropertyOptional,
+  getSchemaPath,
   type ApiPropertyOptions,
 } from '@nestjs/swagger';
 import { commentStates } from '../../database/drizzle/schema/assessment-comments.js';
+import {
+  SpClarificationModel,
+  SpResponseModel,
+} from '../sp-view/models/sp-view.model.js';
 import { QA_STATUSES, type QaStatus } from '../qa-status.js';
 import {
   WorklistAssessedByModel,
@@ -135,6 +141,119 @@ export class AssessmentCommentModel {
   withdrawnAt!: string | null;
 }
 
+/** The delete route's answer: the comment with who deleted it and when (round-2 FR-10). */
+export class AssessmentDeletedCommentModel extends AssessmentCommentModel {
+  @ApiProperty({ type: String, format: 'date-time' })
+  deletedAt!: string;
+
+  @ApiProperty({ type: Number, example: 20 })
+  deletedBy!: number;
+}
+
+export class AssessmentThreadDecisionModel {
+  @ApiProperty({
+    type: String,
+    example: 'escalate',
+    description: "The Lead's current decision: `agree_program` or `escalate`",
+  })
+  decision!: string;
+
+  @ApiProperty({ type: String, nullable: true })
+  body!: string | null;
+
+  @ApiProperty({ type: String, format: 'date-time' })
+  decidedAt!: string;
+}
+
+/** A round-1 comment as the Lead reads it (round-2 FR-4). Never an email: the responder is named. */
+export class AssessmentThreadItemModel {
+  @ApiProperty({ type: Number, example: 12 })
+  commentId!: number;
+
+  @ApiProperty({ type: AssessmentCommentAuthorModel })
+  author!: AssessmentCommentAuthorModel;
+
+  @ApiProperty({ type: String, format: 'date-time' })
+  createdAt!: string;
+
+  @ApiProperty({ type: String })
+  body!: string;
+
+  @ApiProperty({
+    type: AssessmentCommentValueCopyModel,
+    description:
+      "The field value when the comment was written; the current value is the field's own `value`",
+  })
+  valueCopy!: AssessmentCommentValueCopyModel;
+
+  @ApiProperty({ type: Boolean })
+  valueTruncated!: boolean;
+
+  @ApiProperty({ type: String, enum: commentStates, example: 'disagreed' })
+  state!: string;
+
+  @ApiPropertyOptional({
+    type: SpResponseModel,
+    description:
+      "The program's latest response; absent when the program has not responded",
+  })
+  response?: SpResponseModel;
+
+  @ApiProperty({
+    type: [SpClarificationModel],
+    description: 'Every clarification request with its answer, oldest first',
+  })
+  clarifications!: SpClarificationModel[];
+
+  @ApiPropertyOptional({
+    type: AssessmentThreadDecisionModel,
+    description: "The Lead's current decision; absent when none is set",
+  })
+  decision?: AssessmentThreadDecisionModel;
+
+  @ApiProperty({
+    type: Boolean,
+    description:
+      'The caller may decide this comment now (`choices` is not empty). It already folds in the end of the review and a read-only view: false once the review ended or the view is not writable, so a client gates decision controls on this flag alone',
+  })
+  decidable!: boolean;
+
+  @ApiProperty({
+    type: [String],
+    enum: ['agree_program', 'escalate'],
+    description:
+      'The decisions the caller may set; empty for ADMIN, for a comment that is not decidable and always once the review ended (`decision` is kept). `agree_program` is left out while another live comment on the same field carries an `escalate`',
+  })
+  choices!: string[];
+}
+
+/** The Lead's own round-2 comment (round 2, Lead only): the comment plus the members of a `thread[]` item (T-16). */
+export class AssessmentOwnCommentModel extends AssessmentCommentModel {
+  @ApiProperty({
+    type: AssessmentThreadDecisionModel,
+    nullable: true,
+    description:
+      "The Lead's current decision on its own comment (`escalate`); `null` when none is set. Present only on the Lead's own round-2 comments, in round 2",
+  })
+  decision!: AssessmentThreadDecisionModel | null;
+
+  @ApiProperty({
+    type: Boolean,
+    description:
+      'The comment can take a decision from the caller: true while it is open and the review has not ended; false once withdrawn, after the review ends or when the view is not writable (whatever the comment state). Same rule as `thread[]` items: gate decision controls on this flag alone',
+  })
+  decidable!: boolean;
+
+  @ApiProperty({
+    type: [String],
+    enum: ['agree_program', 'escalate'],
+    description:
+      "`['escalate']` while decidable (the Lead's own comment takes no `agree_program`); `[]` otherwise",
+  })
+  choices!: string[];
+}
+
+@ApiExtraModels(AssessmentCommentModel, AssessmentOwnCommentModel)
 export class AssessmentFieldModel {
   @ApiProperty({ type: String, example: 'general.title' })
   key!: string;
@@ -203,14 +322,59 @@ export class AssessmentFieldModel {
   })
   validated!: boolean;
 
-  @ApiProperty({ type: [AssessmentCommentModel] })
-  comments!: AssessmentCommentModel[];
+  @ApiProperty({
+    type: 'array',
+    items: {
+      anyOf: [
+        { $ref: getSchemaPath(AssessmentCommentModel) },
+        { $ref: getSchemaPath(AssessmentOwnCommentModel) },
+      ],
+    },
+    description:
+      "The field's comments. In round 2 the Lead's OWN round-2 comments also carry `decision` (`{ decision, body, decidedAt }` or `null`), `decidable` and `choices`, so a reload shows whether the Lead escalated them (T-16). Round 1, the Assessor view and every other comment: those keys are absent",
+  })
+  comments!: Array<AssessmentCommentModel | AssessmentOwnCommentModel>;
 
   @ApiProperty({
     type: Boolean,
     description: 'The catalog has the field and the snapshot has no key for it',
   })
   notApplicable!: boolean;
+
+  @ApiProperty({
+    type: Boolean,
+    description:
+      "Round 2: the field's key is in the membership's `changed_fields`. Always false in round 1 and on a new round-2 membership",
+  })
+  updated!: boolean;
+
+  @ApiProperty({
+    type: Boolean,
+    description:
+      'The field takes a write. Round 1: an Assessed field. Round 2: an Assessed core field; every other field is read-only context',
+  })
+  actionable!: boolean;
+
+  @ApiProperty({
+    type: Boolean,
+    description:
+      'Round 2: the stored validation, else the carried green. Equals `validated` in round 1 and on a field that is not actionable',
+  })
+  effectiveValidated!: boolean;
+
+  @ApiProperty({
+    type: Boolean,
+    description:
+      'Round 2: the green is the round-1 one, carried because the Lead stored nothing. False in round 1',
+  })
+  carried!: boolean;
+
+  @ApiProperty({
+    type: [AssessmentThreadItemModel],
+    description:
+      'Round 2: the round-1 thread of a core field (comments neither withdrawn nor deleted). Always empty in round 1 and on a new round-2 membership',
+  })
+  thread!: AssessmentThreadItemModel[];
 }
 
 export class AssessmentSectionModel {
@@ -232,9 +396,11 @@ export class AssessmentSectionModel {
 export class AssessmentSummaryModel {
   @ApiProperty({
     type: String,
-    enum: ['pending', 'quality_assessed', 'returned'],
+    enum: ['pending', 'quality_assessed', 'returned', 'escalated'],
+    description:
+      '`escalated`: a round-2 review that ended with at least one grey core field escalated (Pending for TPB review). Round 2 never ends `returned`; round 1 never ends `escalated`',
   })
-  status!: 'pending' | 'quality_assessed' | 'returned';
+  status!: 'pending' | 'quality_assessed' | 'returned' | 'escalated';
 
   @ApiProperty({ type: WorklistAssessedByModel, nullable: true })
   assessedBy!: WorklistAssessedByModel | null;
@@ -262,11 +428,37 @@ export class ValidationSummaryModel extends AssessmentSummaryModel {
       'Every validation row of the assessment after the request, by field key. Empty when the assessment does not exist yet',
   })
   validations!: AssessmentValidationModel[];
+
+  @ApiPropertyOptional({
+    type: [AssessmentValidationModel],
+    description:
+      'Round 2 only: the effective state of every core field after the request, by field key (the stored mark, else the green carried from round 1). Absent in round 1',
+  })
+  effectiveValidated?: AssessmentValidationModel[];
+}
+
+/** The answer of `PUT` and `DELETE …/assessment/decisions/:commentId` (round-2 design 6). */
+export class DecisionResultModel extends ValidationSummaryModel {
+  @ApiProperty({
+    type: AssessmentThreadDecisionModel,
+    nullable: true,
+    description:
+      "The Lead's decision on the comment as stored; `null` after a clear",
+  })
+  decision!: AssessmentThreadDecisionModel | null;
 }
 
 export class AssessmentViewModel {
   @ApiProperty({ type: AssessmentHeaderModel })
   header!: AssessmentHeaderModel;
+
+  @ApiProperty({
+    type: Number,
+    example: 2,
+    description:
+      "The membership's round: 1 for an assessor, 2 for a Lead Assessor; ADMIN reads the latest",
+  })
+  round!: number;
 
   @ApiProperty({
     type: [AssessmentSectionModel],

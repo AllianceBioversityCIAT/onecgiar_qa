@@ -11,6 +11,7 @@ import type {
   SpResponseRecord,
 } from './sp-view.store.js';
 import { ANSWERED_STATES } from './sp-view.store.js';
+import { programSideState } from './sp-state.js';
 
 export interface SpResponseView {
   id: number;
@@ -140,7 +141,13 @@ export function toSpComments(
       id: comment.id,
       fieldKey: comment.fieldKey,
       body: comment.body,
-      state: comment.state,
+      state: programSideState(
+        comment.state,
+        own.at(-1)?.kind ?? null,
+        (answersOf.get(comment.id) ?? []).some(
+          (x) => x.responseId === own.at(-1)?.id,
+        ),
+      ),
       createdAt: comment.createdAt.toISOString(),
       valueCopy: comment.valueCopy,
       valueTruncated: comment.valueTruncated,

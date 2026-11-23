@@ -61,3 +61,19 @@ export class AssessmentViewQuery {
   @Max(2)
   round?: number;
 }
+
+/** `…/assessment/decisions/:commentId` (round-2 design 6): the result and the round-1 comment decided. */
+export class DecisionParams extends AssessmentParams {
+  @ApiProperty({
+    type: Number,
+    minimum: 1,
+    example: 12,
+    description:
+      'Comment id (`commentId` of a thread item of the round-2 view)',
+  })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(Number.MAX_SAFE_INTEGER)
+  commentId!: number;
+}
