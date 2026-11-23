@@ -40,6 +40,16 @@
           <div class="flex min-w-0 flex-1 flex-col" [class.min-h-0]="!narrow() && !compact()">
             <div #scroller class="flex-1 bg-(--surface-3) py-8 max-[1100px]:px-6 max-sm:px-4 max-sm:py-5" [class]="narrow() || compact() ? 'px-10' : 'min-h-0 overflow-x-hidden overflow-y-auto ' + (layout.navigatorCollapsed() ? 'px-12' : 'px-10')">
               @let h = page.header;
+              @if (store.actingRoles().length) {
+                <!-- admin/acts-as-reviewer: the Admin picks the role it acts as on this result (top of the page). -->
+                <qa-admin-role-picker
+                  class="mb-4"
+                  [roles]="store.actingRoles()"
+                  [role]="store.actingRole()"
+                  [busy]="store.switchingRole()"
+                  (roleChange)="store.actAs($event)"
+                />
+              }
               @if (clarifyBanner(); as ask) {
                 <!-- P2-3911: the caller owes the program an answer; it says so instead of "read only" and takes them there. -->
                 <div role="status" class="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-[8px] border border-(--st-editing-bg) bg-(--st-editing-bg) px-[14px] py-3 text-(length:--fs-13) leading-[1.5] text-(--text)" data-testid="review-clarification-pending">
