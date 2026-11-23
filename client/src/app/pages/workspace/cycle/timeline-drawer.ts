@@ -546,13 +546,23 @@ export class TimelineDrawer {
     if (key === 'endTime') this.fillNextOpening(i);
   }
 
-  /** A step's close is set → the next step opens the minute after, if its opening is still empty and editable. */
+  /** Openings this drawer filled on its own, by row: they follow the close until the admin edits them. */
+  private readonly autoOpenings = linkedSignal<TimelineRequest, ReadonlyMap<number, string>>({ source: this.request, computation: () => new Map() });
+
+  /**
+   * A step's close is set → the next step opens the minute after, if its opening is empty or still the one filled
+   * here (date first, then time: the opening follows the new time). An opening the admin typed is never touched.
+   */
   protected fillNextOpening(i: number): void {
     const row = this.draft().steps[i];
     const next = this.draft().steps[i + 1];
-    if (!row || !next || next.start.trim() || i + 1 < this.closedCount() || i + 1 === this.activeIndex()) return;
+    if (!row || !next || i + 1 < this.closedCount() || i + 1 === this.activeIndex()) return;
+    const ours = this.autoOpenings().get(i + 1) === `${next.start} ${next.startTime}`;
+    if (next.start.trim() && !ours) return;
     const at = nextOpening(row.end, row.endTime);
-    if (at) this.patchRow(i + 1, at);
+    if (!at) return;
+    this.patchRow(i + 1, at);
+    this.autoOpenings.update((m) => new Map(m).set(i + 1, `${at.start} ${at.startTime}`));
   }
 
   protected removeRow(i: number): void {
