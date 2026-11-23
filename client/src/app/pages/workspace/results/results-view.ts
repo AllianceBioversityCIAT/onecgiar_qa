@@ -6,7 +6,7 @@ import { filter } from 'rxjs';
 import { HlmInput } from '@spartan/input';
 import { QA_STATUSES, QaStatus } from '../../../core/api/assessment.models';
 import { TableSort } from '../../../core/list/table-sort';
-import { QaButtonImports, QaMultiSelect, QaSelectImports } from '../../../ui';
+import { QaButtonImports, QaMultiSelect, QaScopeCardImports, QaSelectImports } from '../../../ui';
 import { ResultsSkeleton } from './results-skeleton';
 import { ResultsFilters, ResultsStore } from './results-store';
 import { ResultsTable, SortDir, SortKey } from './results-table';
@@ -64,7 +64,7 @@ export function readFilters(params: ParamMap): ResultsFilters {
 @Component({
   selector: 'qa-results-view',
   templateUrl: './results-view.html',
-  imports: [NgTemplateOutlet, QaButtonImports, HlmInput, RouterLink, QaMultiSelect, QaSelectImports, ResultsTable, ResultsSkeleton],
+  imports: [NgTemplateOutlet, QaButtonImports, HlmInput, RouterLink, QaMultiSelect, QaScopeCardImports, QaSelectImports, ResultsTable, ResultsSkeleton],
   providers: [ResultsStore],
 })
 export class ResultsView {
@@ -121,6 +121,17 @@ export class ResultsView {
     const id = this.store.timelineId();
     return id === null ? null : String(id);
   });
+
+  /** Under the timeline in the context card: "Main batch · <step note>" (display only). */
+  protected readonly timelineMeta = computed(() => {
+    const option = this.timelineOptions().find((o) => o.value === this.timelineValue());
+    if (!option) return null;
+    const kind = option.group === 'Main batch' ? 'Main batch' : 'Complementary batch';
+    return [kind, option.description].filter(Boolean).join(' · ');
+  });
+
+  /** Big number at the right of the context card, once the timeline answered. */
+  protected readonly totalText = computed(() => (this.store.state() === 'ready' ? this.store.counters().total.toLocaleString('en-US') : null));
 
   protected onTimeline(value: string | null): void {
     const id = value ? Number(value) : null;
