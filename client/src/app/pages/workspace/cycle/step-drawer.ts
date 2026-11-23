@@ -109,7 +109,7 @@ interface StepDraft {
                   type="text"
                   [formField]="stepForm.opens"
                   aria-labelledby="cycle-step-opens"
-                  placeholder="06 Jul 2026"
+                  placeholder="Select date"
                   [attr.aria-invalid]="bad().opens ? true : null"
                   [attr.aria-describedby]="opensError() ? 'cycle-step-opens-err' : null"
                   [attr.data-error]="bad().opens"
@@ -137,7 +137,7 @@ interface StepDraft {
               <span id="cycle-step-closes" class="text-(length:--fs-13) font-semibold text-(--text-2)">Closes</span>
               <span class="flex gap-1.5">
                 <span class="relative flex">
-                  <input hlmInput type="text" [formField]="stepForm.closes" aria-labelledby="cycle-step-closes" placeholder="11 Jul 2026" [attr.aria-invalid]="bad().closes ? true : null" [attr.aria-describedby]="opensError() ? 'cycle-step-opens-err' : null" [attr.data-error]="bad().closes" class="h-9 w-[180px] rounded-[8px] border-(--border) bg-(--field-bg) py-0 pr-10 pl-3 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) dark:bg-(--field-bg)" />
+                  <input hlmInput type="text" [formField]="stepForm.closes" aria-labelledby="cycle-step-closes" placeholder="Select date" [attr.aria-invalid]="bad().closes ? true : null" [attr.aria-describedby]="opensError() ? 'cycle-step-opens-err' : null" [attr.data-error]="bad().closes" class="h-9 w-[180px] rounded-[8px] border-(--border) bg-(--field-bg) py-0 pr-10 pl-3 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) dark:bg-(--field-bg)" />
                   <qa-date-picker [value]="stepForm.closes().value()" (valueChange)="stepForm.closes().value.set($event)" label="Pick the closing date" class="absolute top-1/2 right-1 -translate-y-1/2" />
                 </span>
                 <input
