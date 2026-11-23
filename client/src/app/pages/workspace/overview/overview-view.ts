@@ -27,7 +27,7 @@ import {
 import { CycleHeroVm, OvCycleHero, RoundVm } from './ov-cycle-hero';
 import { OvPace, PaceVm } from './ov-pace';
 import { PROGRAMS, PROGRAM_CODES, QaResult, QaStage, RESULTS, RESULT_TYPES, qaStage } from '../results/results.mock';
-import { QaButtonImports, QaMultiSelect, QaSelectImports, QaSelectOption } from '../../../ui';
+import { QaButtonImports, QaMultiSelect, QaScopeCardImports, QaSelectImports, QaSelectOption } from '../../../ui';
 import { OvStages, StageStatus, TimelineStagesVm } from './ov-stages';
 import { OvTimelineLanes, TimelineLaneVm } from './ov-timeline-lanes';
 import { OvTypeProgress, TypeProgressVm } from './ov-type-progress';
@@ -187,6 +187,7 @@ const ROLE_OF: Readonly<Record<RoleName, OverviewRole | null>> = {
   selector: 'qa-overview-view',
   imports: [
     QaButtonImports,
+    QaScopeCardImports,
     QaSelectImports,
     QaMultiSelect,
     OvCycleHero,
@@ -285,6 +286,19 @@ export class OverviewView {
       count: fmt(b.results),
     })),
   ];
+  /** Under the timeline in the context card. */
+  protected readonly scopeMeta = computed(() => {
+    const id = this.timeline();
+    if (id === 'all') return `All ${this.live.length} live timelines of the active cycle`;
+    const b = this.live.find((t) => t.id === id);
+    return b ? `${isOfficial(b) ? 'Main batch' : 'Complementary batch'} · Live` : null;
+  });
+  /** Big number at the right of the context card: the results of the chosen timeline(s). */
+  protected readonly scopeCount = computed(() => {
+    const count = this.timelineOptions.find((o) => o.value === this.timeline())?.count;
+    return count === undefined ? null : String(count);
+  });
+
   protected readonly programOptions = PROGRAM_CODES.map((c) => ({ value: c, label: `${c} ${PROGRAMS[c]}` }));
   protected readonly typeOptions = RESULT_TYPES.map((t) => ({ value: t, label: t }));
 
