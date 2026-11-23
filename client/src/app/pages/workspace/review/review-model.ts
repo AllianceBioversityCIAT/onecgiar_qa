@@ -103,6 +103,60 @@ export interface FieldVm extends CardStatusVm {
    * "Updated" state chip with an existing style; Juanpa decides its final look.
    */
   readonly updated: boolean;
+  /**
+   * Round 2 (Lead): the round-1 comments of a core field, with what the program answered and the Lead's decision.
+   * Empty in round 1 and on any field that is not actionable.
+   */
+  readonly leadThread: readonly ThreadItemVm[];
+  /** Round 2 (Lead): the thread opens by default while one of its comments still waits for the Lead's decision. */
+  readonly threadOpen: boolean;
+}
+
+/** A decision the Lead may take on a comment ("Agree with the program", "Escalate to TPB"). */
+export interface DecisionChoiceVm {
+  readonly kind: 'agree_program' | 'escalate';
+  readonly label: string;
+}
+
+/** One round-1 comment as the Lead reads it in the card (round-2 contract § 3.1). */
+export interface ThreadItemVm {
+  readonly commentId: number;
+  /** The assessor, by nickname ("Admin · nickname" for an admin). */
+  readonly who: string;
+  readonly date: string;
+  readonly text: string;
+  /** The value when the assessor commented, only when it differs from the value now. */
+  readonly valueThen: string | null;
+  /** The program's latest response, or null when it never responded. */
+  readonly response: {
+    readonly who: string;
+    readonly label: string;
+    readonly date: string;
+    readonly text: string;
+  } | null;
+  /** Every clarification request with its answer, oldest first. */
+  readonly clarifications: readonly {
+    readonly question: string;
+    readonly askedOn: string;
+    readonly answer: string | null;
+    readonly answeredOn: string;
+  }[];
+  /** The Lead's current decision, or null. */
+  readonly decision: {
+    readonly kind: 'agree_program' | 'escalate';
+    readonly label: string;
+    readonly text: string;
+    readonly date: string;
+  } | null;
+  /** Exactly the server's `choices` while the comment is decidable (and the page offers writes); `[]` otherwise. */
+  readonly choices: readonly DecisionChoiceVm[];
+  /** Still waits for the Lead: decidable, no decision yet. */
+  readonly pending: boolean;
+  /**
+   * An agree here would leave every core field green, so the review finishes in the same call (contract § 4.1).
+   * Announced only: the server decides.
+   */
+  readonly agreeEnds: boolean;
 }
 
 export interface TocLinkVm {
@@ -303,6 +357,8 @@ export function buildFieldVm(
     iaGroupStart: d.id === 'iagender',
     carried: false,
     updated: false,
+    leadThread: [],
+    threadOpen: false,
   };
 }
 

@@ -7,8 +7,11 @@ import {
   CommentThread,
   FieldLabels,
   AssessmentReadOnlyReason,
+  CommentState,
+  LeadDecisionKind,
   ProgramResponseKind,
   TOC_SECTION_KEY,
+  ThreadItem,
 } from '../../../core/api/assessment.models';
 import { reviewerLabel } from '../../../core/api/acting-role';
 import { fieldLabel } from '../../../core/domain/field-label';
@@ -23,6 +26,7 @@ import {
   StateChip,
   TocCardVm,
   TocGroupVm,
+  ThreadItemVm,
   TocLinkVm,
 } from './review-model';
 import type { FieldComment } from './review.mock';
@@ -343,7 +347,73 @@ function cardStatus(f: AssessmentField, writable: boolean, id: string = f.key): 
   };
 }
 
-export function toFieldVm(f: AssessmentField, writable: boolean): FieldVm {
+// ---------- Round 2: the round-1 thread and the Lead's decisions (round-2 contract § 3.1, § 4.1) ----------
+
+/**
+ * What the page lets the Lead do on the threads. `decide`: the page offers writes at all (the controls then follow
+ * each item's `decidable` / `choices` alone, never `writable`: contract § 3.1). `othersGreen`: every other core field
+ * is effectively green, so an agree here may end the review.
+ */
+export interface LeadContext {
+  readonly decide: boolean;
+  readonly othersGreen: boolean;
+}
+const NO_LEAD: LeadContext = { decide: false, othersGreen: false };
+
+const DECISION_LABELS: Readonly<Record<LeadDecisionKind, { readonly offer: string; readonly taken: string }>> = {
+  agree_program: { offer: 'Agree with the program', taken: 'Agreed with the program' },
+  escalate: { offer: 'Escalate to TPB', taken: 'Escalated to TPB' },
+};
+/** The program's response as the drawer names it. */
+const RESPONSE_LABELS: Readonly<Record<ProgramResponseKind, string>> = {
+  accept: 'Accepted',
+  accept_with_comment: 'Accepted with comment',
+  disagree: 'Disagreed',
+  request_clarification: 'Requested clarification',
+};
+/** Round-1 states a Lead decides (contract § 3.1). */
+const TO_DECIDE: ReadonlySet<CommentState> = new Set<CommentState>(['disagreed', 'open', 'clarification_requested']);
+/** A comment that keeps its field grey: escalated, or still waiting for a decision (contract § 4.1, § 4.2). */
+const holdsGrey = (t: ThreadItem): boolean => t.decision?.decision === 'escalate' || (!t.decision && TO_DECIDE.has(t.state));
+
+/** The round-1 thread of an actionable core field, as the card shows it. Empty anywhere else. */
+function toThreadVm(f: AssessmentField, lead: LeadContext): ThreadItemVm[] {
+  if (!isAssessed(f) || !f.thread?.length) return [];
+  const now = formatValue(f);
+  // The Lead's own escalated comment keeps the field grey too (contract § 3.2).
+  const ownEscalate = f.comments.some((c) => c.decision?.decision === 'escalate');
+  return f.thread.map((t, i, all) => {
+    const then = formatValue({ value: t.valueCopy.value, labels: t.valueCopy.labels ?? f.labels, notApplicable: false, subfieldLists: f.subfieldLists });
+    const choices = lead.decide && t.decidable ? t.choices.map((kind) => ({ kind, label: DECISION_LABELS[kind].offer })) : [];
+    return {
+      commentId: t.commentId,
+      who: reviewerLabel(t.author),
+      date: romeDay(t.createdAt),
+      text: t.body,
+      valueThen: then === now ? null : t.valueTruncated ? `${then}…` : then,
+      response: t.response
+        ? { who: t.response.respondedBy.name, label: RESPONSE_LABELS[t.response.kind], date: romeDay(t.response.respondedAt), text: t.response.body ?? '' }
+        : null,
+      clarifications: t.clarifications.map((c) => ({
+        question: c.question,
+        askedOn: romeDay(c.requestedAt),
+        answer: c.answer?.body ?? null,
+        answeredOn: c.answer ? romeDay(c.answer.answeredAt) : '',
+      })),
+      decision: t.decision
+        ? { kind: t.decision.decision, label: DECISION_LABELS[t.decision.decision].taken, text: t.decision.body ?? '', date: romeDay(t.decision.decidedAt) }
+        : null,
+      choices,
+      pending: t.decidable && !t.decision,
+      // Announced only, the server decides: agree greens the field once nothing else on it holds it grey.
+      agreeEnds:
+        lead.othersGreen && !ownEscalate && choices.some((c) => c.kind === 'agree_program') && all.every((o, j) => j === i || !holdsGrey(o)),
+    };
+  });
+}
+
+export function toFieldVm(f: AssessmentField, writable: boolean, lead: LeadContext = NO_LEAD): FieldVm {
+  const leadThread = toThreadVm(f, lead);
   return {
     ...cardStatus(f, writable),
     label: fieldLabel(f.key, f.label),
@@ -358,6 +428,8 @@ export function toFieldVm(f: AssessmentField, writable: boolean): FieldVm {
     iaGroupStart: false,
     carried: isCarried(f),
     updated: f.updated === true,
+    leadThread,
+    threadOpen: leadThread.some((t) => t.pending),
   };
 }
 
@@ -575,6 +647,9 @@ export function toReviewVm(view: AssessmentView, writes = true): ReviewVm {
   const roundTwo = view.round === 2;
   const fieldsOf = (fields: readonly AssessmentField[]): readonly AssessmentField[] =>
     auto ? fields.map(asContext) : roundTwo ? fields.map(leadContext) : fields;
+  const assessed = view.sections.flatMap((s) => fieldsOf(s.fields)).filter(isAssessed);
+  const greyCores = assessed.filter((f) => f.core && !isGreen(f)).map((f) => f.key);
+  const lead = (f: AssessmentField): LeadContext => ({ decide: writes && !auto, othersGreen: greyCores.every((k) => k === f.key) });
   const sections: ReviewSectionVm[] = view.sections.map((s) => {
     const isToc = s.key === TOC_SECTION_KEY;
     const fields = fieldsOf(s.fields);
@@ -582,7 +657,7 @@ export function toReviewVm(view: AssessmentView, writes = true): ReviewVm {
       key: s.key,
       name: s.label,
       isToc,
-      fields: isToc ? [] : fields.map((f) => toFieldVm(f, canAct)),
+      fields: isToc ? [] : fields.map((f) => toFieldVm(f, canAct, lead(f))),
       toc: isToc ? toTocVm(fields, canAct) : null,
       open: fields.filter((f) => isAssessed(f) && !isResolved(f)).length,
     };
@@ -597,7 +672,6 @@ export function toReviewVm(view: AssessmentView, writes = true): ReviewVm {
       open: 0,
     });
   }
-  const assessed = view.sections.flatMap((s) => fieldsOf(s.fields)).filter(isAssessed);
   return {
     header: toHeaderVm(view, canAct),
     sections,

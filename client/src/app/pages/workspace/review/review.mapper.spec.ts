@@ -2,7 +2,7 @@
 import { AssessmentField, AssessmentView } from '../../../core/api/assessment.models';
 import { FieldVm } from './review-model';
 import { clarificationThread, comment, field, programResponse, viewFixture } from './review.api-fixture';
-import { roundTwoViewFixture, threadItem } from './review.round2-fixture';
+import { roundTwoViewFixture, threadItem as threadItemOf, withThread } from './review.round2-fixture';
 import { findField, formatValue, pendingAnswers, pendingAnswersBanner, readOnlyBanner, returnsOnAnyComment, toCommentVm, toDrawerVm, toFieldVm, toReviewVm, withPendingAnswers, withdrawOpen } from './review.mapper';
 
 const byLabel = (fields: readonly FieldVm[], label: string): FieldVm =>
@@ -690,21 +690,123 @@ describe('review.mapper (API assessment view → Review view models)', () => {
       expect(toReviewVm(v).finishTo).toBe('Quality Assessed');
     });
 
-    it('ignores thread, decidable and choices: the same view without them maps the same', () => {
+    it("the Lead's own-comment keys (decision, decidable, choices) do not change the cards", () => {
       const bare = roundTwoViewFixture();
       const stripped: AssessmentView = {
         ...bare,
         sections: bare.sections.map((s) => ({
           ...s,
-          fields: s.fields.map((f) => ({
-            ...f,
-            thread: [],
-            comments: f.comments.map(({ decision: _d, decidable: _x, choices: _c, ...c }) => c),
-          })),
+          fields: s.fields.map((f) => ({ ...f, comments: f.comments.map(({ decision: _d, decidable: _x, choices: _c, ...c }) => c) })),
         })),
       };
-      const busy = withField('general.description', (f) => ({ ...f, thread: [threadItem(), threadItem({ commentId: 42, decidable: false, choices: [] })] }));
-      expect(toReviewVm(busy)).toEqual(toReviewVm(stripped));
+      expect(toReviewVm(bare)).toEqual(toReviewVm(stripped));
+    });
+
+    describe('the round-1 thread in the card (tramo 3)', () => {
+      const description = (v: AssessmentView = roundTwoViewFixture(), writes = true) =>
+        byLabel(toReviewVm(v, writes).sections[0].fields, 'Description of Result');
+
+      it('maps each round-1 comment: author, date, text, the value then, the program response, and the choices', () => {
+        const f = description();
+        expect(f.threadOpen).toBe(true);
+        expect(f.leadThread).toEqual([
+          {
+            commentId: 41,
+            who: 'mchen',
+            date: '12 Nov 2026',
+            text: 'The description does not match the evidence.',
+            valueThen: 'Old description',
+            response: { who: 'Pepa Program', label: 'Disagreed', date: '18 Nov 2026', text: 'The evidence was updated in this submission.' },
+            clarifications: [],
+            decision: null,
+            choices: [
+              { kind: 'agree_program', label: 'Agree with the program' },
+              { kind: 'escalate', label: 'Escalate to TPB' },
+            ],
+            pending: true,
+            agreeEnds: true,
+          },
+        ]);
+      });
+
+      it('an admin author reads "Admin · nickname" (reviewerLabel)', () => {
+        const f = description(withThread({ author: { id: 2, nickname: 'ana', admin: true } }));
+        expect(f.leadThread[0].who).toBe('Admin · ana');
+      });
+
+      it('the value then is left out when it reads the same as now; clarifications are listed oldest first', () => {
+        const f = description(
+          withThread({
+            valueCopy: { value: 'New description' },
+            response: undefined,
+            clarifications: [
+              { requestId: 1, question: 'Which link?', requestedAt: '2026-11-14T10:00:00.000Z', answer: { body: 'The annex.', answeredAt: '2026-11-15T10:00:00.000Z' } },
+              { requestId: 2, question: 'And the date?', requestedAt: '2026-11-16T10:00:00.000Z', answer: null },
+            ],
+          }),
+        );
+        expect(f.leadThread[0].valueThen).toBeNull();
+        expect(f.leadThread[0].response).toBeNull();
+        expect(f.leadThread[0].clarifications).toEqual([
+          { question: 'Which link?', askedOn: '14 Nov 2026', answer: 'The annex.', answeredOn: '15 Nov 2026' },
+          { question: 'And the date?', askedOn: '16 Nov 2026', answer: null, answeredOn: '' },
+        ]);
+      });
+
+      it('a decided comment shows the decision; its choices stay (for Change and Clear) and it no longer waits', () => {
+        const f = description(withThread({ decision: { decision: 'escalate', body: 'TPB should look.', decidedAt: '2026-11-25T11:00:00.000Z' } }));
+        expect(f.leadThread[0].decision).toEqual({ kind: 'escalate', label: 'Escalated to TPB', text: 'TPB should look.', date: '25 Nov 2026' });
+        expect(f.leadThread[0].choices).toHaveLength(2);
+        expect(f.leadThread[0].pending).toBe(false);
+        expect(f.threadOpen).toBe(false);
+      });
+
+      it('offers exactly the server choices: only "Escalate to TPB" while another comment is escalated', () => {
+        const f = description(withThread({ choices: ['escalate'] }));
+        expect(f.leadThread[0].choices).toEqual([{ kind: 'escalate', label: 'Escalate to TPB' }]);
+      });
+
+      it('gated on decidable alone: not decidable (review ended, admin reading) = no control, decision kept', () => {
+        const ended = withThread(
+          { decidable: false, choices: [], decision: { decision: 'agree_program', body: null, decidedAt: '2026-11-25T11:00:00.000Z' } },
+          [],
+          roundTwoViewFixture({ writable: false, readOnlyReason: 'finished' }),
+        );
+        const f = description(ended);
+        expect(f.leadThread[0].choices).toEqual([]);
+        expect(f.leadThread[0].decision?.label).toBe('Agreed with the program');
+        expect(f.leadThread[0].decision?.text).toBe('');
+        expect(f.leadThread[0].pending).toBe(false);
+      });
+
+      it('decidable wins over writable: an admin acting as the Lead on a view the contract marks decidable gets the controls', () => {
+        const f = description(roundTwoViewFixture({ writable: false, readOnlyReason: 'step_closed' }));
+        expect(f.leadThread[0].choices).toHaveLength(2);
+      });
+
+      it('a page that offers no writes shows no control', () => {
+        expect(description(roundTwoViewFixture(), false).leadThread[0].choices).toEqual([]);
+      });
+
+      it('agreeEnds only when every other core field is green and nothing else on the field holds it grey', () => {
+        const undecided = threadItemOf({ commentId: 42 });
+        expect(description(withThread({}, [undecided])).leadThread[0].agreeEnds).toBe(false);
+        const escalated = threadItemOf({ commentId: 42, decision: { decision: 'escalate', body: 'x', decidedAt: '2026-11-25T11:00:00.000Z' } });
+        expect(description(withThread({}, [escalated])).leadThread[0].agreeEnds).toBe(false);
+        const agreedOther = threadItemOf({ commentId: 42, decision: { decision: 'agree_program', body: 'x', decidedAt: '2026-11-25T11:00:00.000Z' } });
+        expect(description(withThread({}, [agreedOther])).leadThread[0].agreeEnds).toBe(true);
+        const accepted = threadItemOf({ commentId: 42, state: 'accepted', decidable: false, choices: [] });
+        expect(description(withThread({}, [accepted])).leadThread[0].agreeEnds).toBe(true);
+        const greyTitle = withThread({}, [], withField('general.title', (t) => ({ ...t, effectiveValidated: false, carried: false })));
+        expect(description(greyTitle).leadThread[0].agreeEnds).toBe(false);
+      });
+
+      it('no thread on a context field, nor in round 1', () => {
+        const ctx = withField('general.description', (f) => ({ ...f, actionable: false }));
+        expect(description(ctx).leadThread).toEqual([]);
+        const r1 = toReviewVm({ ...viewFixture(), sections: viewFixture().sections.map((s) => ({ ...s, fields: s.fields.map((f) => ({ ...f, thread: [] })) })) });
+        expect(r1.sections.flatMap((s) => s.fields).every((f) => f.leadThread.length === 0 && !f.threadOpen)).toBe(true);
+      });
     });
 
     it('an escalated assessment and a lead_sided_program comment map without error (ended, read only)', () => {
