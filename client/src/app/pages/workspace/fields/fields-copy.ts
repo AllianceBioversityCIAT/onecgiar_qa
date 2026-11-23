@@ -42,3 +42,6 @@ export const REQUIRED_HIDDEN_HELP =
   'This field is required in the reporting tool but not assessed in QA, so no assessor will check it.';
 
 export const CONDITIONAL_HELP = 'Required in the reporting tool only in some cases.';
+
+/** Why the Core switch is off: only an Assessed field can be core (23-nov demo). */
+export const CORE_NEEDS_ASSESSED = 'Set the field to Assessed to mark it as core.';

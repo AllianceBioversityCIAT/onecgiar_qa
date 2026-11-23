@@ -10,7 +10,8 @@ import {
   ProgramResponseKind,
   TOC_SECTION_KEY,
 } from '../../../core/api/assessment.models';
-import { formatDay, todayInRome } from '../../../core/domain/rome-date';
+import { fieldLabel } from '../../../core/domain/field-label';
+import { formatDay, romeInstantLabel, todayInRome } from '../../../core/domain/rome-date';
 import { STATUS_LABELS, qaStatusPill } from '../results/qa-status';
 import type { CommentsDrawerMode, CommentsDrawerVm } from './review-comments-drawer';
 import {
@@ -183,8 +184,19 @@ function scalarText(
   if (typeof v === 'boolean') return v ? 'Yes' : 'No';
   if (isEmpty(v)) return '—';
   if (select && (typeof v === 'number' || typeof v === 'string')) return labelOf(v, labels, list);
+  if (typeof v === 'string') return romeInstantLabel(v) ?? v;
   return typeof v === 'object' ? JSON.stringify(v) : String(v);
 }
+
+/**
+ * Subfields that repeat `value` for the directory (Lead contact person: `{ value, directory_user }`, both the same
+ * name, seen in the 23-nov demo as "Value: … · Directory user: …"). An entry made of `value` and these reads as its value.
+ */
+const ECHOES_VALUE = new Set(['directory_user']);
+const valueOnly = (entry: Readonly<Record<string, Json>>): Json | undefined =>
+  Object.hasOwn(entry, 'value') && !isEmpty(entry['value']) && Object.keys(entry).every((k) => k === 'value' || ECHOES_VALUE.has(k) || isEmpty(entry[k]))
+    ? entry['value']
+    : undefined;
 
 /**
  * One entry of a list field: "Level: Outcome · Target: 4". A subfield is labelled when `lists` names its control
@@ -196,6 +208,8 @@ function entryText(
   lists: Readonly<Record<string, string>> = SUBFIELD_LISTS,
 ): string {
   if (!isObject(entry)) return scalarText(entry, labels, undefined, !!labels);
+  const single = valueOnly(entry);
+  if (single !== undefined) return scalarText(single, labels, lists['value'], Object.hasOwn(lists, 'value'));
   return Object.entries(entry)
     .filter(([, v]) => !isEmpty(v))
     .map(
@@ -304,7 +318,7 @@ function cardStatus(f: AssessmentField, writable: boolean, id: string = f.key): 
 export function toFieldVm(f: AssessmentField, writable: boolean): FieldVm {
   return {
     ...cardStatus(f, writable),
-    label: f.label,
+    label: fieldLabel(f.key, f.label),
     // Reporting's help text of the field (catalog `description`); absent = no tooltip.
     tip: f.description ?? '',
     isCore: isAssessed(f) && f.core,

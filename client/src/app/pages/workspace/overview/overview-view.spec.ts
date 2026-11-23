@@ -23,9 +23,10 @@ describe('OverviewView (still on the prototype data)', () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  const render = async (as?: string): Promise<HTMLElement> => {
+  const ADMIN_AND_ASSESSOR = [{ role: 'ADMIN' }, { role: 'ASSESSOR', resultTypeKey: 'policy_change' }];
+  const render = async (as?: string, assignments: readonly object[] = ADMIN_AND_ASSESSOR): Promise<HTMLElement> => {
     TestBed.configureTestingModule({
-      providers: [provideRouter([]), { provide: AuthSession, useValue: { user: signal({ firstName: 'Ana' }) } }],
+      providers: [provideRouter([]), { provide: AuthSession, useValue: { user: signal({ firstName: 'Ana', assignments }) } }],
     });
     if (as) await TestBed.inject(Router).navigate([], { queryParams: { as } });
     const fixture = TestBed.createComponent(OverviewView);
@@ -46,6 +47,19 @@ describe('OverviewView (still on the prototype data)', () => {
     const el = await render('assessor');
     expect(el.querySelector('qa-ov-your-work')).not.toBeNull(); // the reviewing-role body is the one on screen
     expect(notice(el)?.textContent).toContain('Preview · sample data');
+  });
+
+  it('offers "Viewing as" only among the roles the user holds, starting on the first one', async () => {
+    const el = await render();
+    expect(el.querySelector('qa-select[label="Viewing as"]')).not.toBeNull();
+    expect(el.querySelector('qa-ov-cycle-hero')).not.toBeNull(); // admin first
+  });
+
+  it('shows an assessor only their own Overview, with no "Viewing as" and no admin figures (23-nov demo)', async () => {
+    const el = await render('admin', [{ role: 'ASSESSOR', resultTypeKey: 'policy_change' }]);
+    expect(el.querySelector('qa-select[label="Viewing as"]')).toBeNull();
+    expect(el.querySelector('qa-ov-your-work')).not.toBeNull();
+    expect(el.querySelector('qa-ov-cycle-hero')).toBeNull();
   });
 
   it('says it before the first figure of the page', async () => {
