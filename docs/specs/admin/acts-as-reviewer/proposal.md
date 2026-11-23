@@ -121,3 +121,21 @@ Option A. It reuses the role-step table (one row per role, as the design intende
 ```text
 /akili-specify admin/acts-as-reviewer
 ```
+
+## 14. Implementation notes (back, 2026-11-23)
+
+Built without the AKILI triad at the back lead's request ("sin framework"). Front (Yeck) not started.
+
+| Piece | What was built |
+|---|---|
+| Contract | Header `X-Acting-Role: ASSESSOR \| LEAD_ASSESSOR` on every assessment route, honored for ADMIN only; any other value is 400 `VALIDATION_FAILED` on the header. No header: the Admin is read-only as before. Full contract: step-1 `front-contract.md` § 2.1; round-2 `front-contract.md` § 2 |
+| R1, R6 | The Admin gets that role's row (every type and program); the role must fit the round, else read-only (`admin_read_only`, 403 `ASSESSMENT_READ_ONLY`) |
+| R2 | The role's step dates (and the withdraw window) are waived for the Admin; the timeline must have the step |
+| R3, R7 | Finish, end and release are the role's; concurrent finishes keep "first wins, 409 `ASSESSMENT_FINISHED`" |
+| R4 | Migration `0014_admin_acts_as_reviewer` (additive: three `NOT NULL DEFAULT false` flags; lossy down script). `author.admin` and `assessedBy.admin` (view, write answers, worklist) when true; the SP view selects neither |
+| R5 | The Assessor / Lead conflict rule skips a user with a live ADMIN grant |
+| View | ADMIN only: `actingRoles`, `actingRole` |
+| Q4 | Decided in code: a live Admin reads and saves any reviewer role's quick comments |
+| Log | Decision log line adds `actingRole` and `asAdmin: true` |
+
+Still open: Q1 (business confirmation of R1–R7), Q2 (how "Admin" shows in the export, P2-3914), Q3 (a late Admin finish of round 1 releases to Reporting like any end; confirm that Reporting accepts it after the program window). Also not covered: TPB and PPU (their rows are disabled; they join with P2-3916 / P2-3917 with no change to the header code), and the worklist for an Admin stays read-only (`writable: false`): the Admin picks the role on the review page.

@@ -30,8 +30,27 @@ Permissions in the tables below:
 | Word | Meaning |
 |---|---|
 | any user | Any authenticated, admitted user (`@ReadAccess()`). The service then applies the scope |
-| writer | A caller with an enabled reviewer role row (today only `ASSESSOR`) that covers the result, with that role's step open now. ADMIN alone is never a writer |
+| writer | A caller with an enabled reviewer role row (`ASSESSOR`, `LEAD_ASSESSOR`) that covers the result, with that role's step open now. ADMIN alone is never a writer, unless it acts as a role with `X-Acting-Role` (§ 2.1) |
 | admin | `ADMIN_ACCESS`; anyone else gets 403 `AUTH_PERMISSION_DENIED` before the handler runs |
+
+### 2.1 The Admin acting as a reviewer (`X-Acting-Role`)
+
+admin/acts-as-reviewer (back lead, 2026-11-23). A QA Admin is transversal: it can work on any result **as** a reviewer role.
+
+| Rule | Behavior |
+|---|---|
+| Header | `X-Acting-Role: ASSESSOR \| LEAD_ASSESSOR` on every assessment route: the view, validations, comments, withdraw, decisions, delete, finish. Send it on the read too: the view is built for that role |
+| Who | Honored only for a caller with the admin permission. Any other caller's header is ignored (a valid value) |
+| Bad value | Any other value (`TPB`, `PPU` until their rows are enabled, a typo) is 400 `VALIDATION_FAILED` with `fields: [{ field: 'X-Acting-Role', code: 'INVALID' }]`, for every caller |
+| No header | The Admin is read-only, exactly as before (`readOnlyReason: 'admin_read_only'`, 403 `ASSESSMENT_READ_ONLY` on a write) |
+| Dates | The role's step dates do not bind the Admin: it writes before the step opens and after it closes (withdraw included). The timeline must have the role's step (`no_step` otherwise) |
+| Flow | Kept. The role must fit the result's round: `ASSESSOR` on round 1, `LEAD_ASSESSOR` on round 2. A role that does not fit is read-only (`admin_read_only`, 403 `ASSESSMENT_READ_ONLY`). Auto-validated, finished and ended results stay read-only (409 `ASSESSMENT_FINISHED`) |
+| Rules | Every other rule is the role's: which fields, decisions, end rules, the release to Reporting. Of two concurrent finishes (Admin and reviewer) exactly one wins; the other gets 409 `ASSESSMENT_FINISHED` |
+| Author | What the Admin writes carries `admin: true` on its author (`Comment.author`, a round-2 `thread[]` item's `author`) and on `assessedBy` (view and worklist). Reviewers and admins see it; the program view carries no author at all, as before |
+| Scope | Every result type and program; no assignment, grant or conflict rule is needed |
+| Quick comments | An Admin reads and saves the list of any reviewer role (§ 7) |
+
+Use `actingRoles` (5.1) to offer the picker, then send the chosen one on every call. `actingRole` in the view says which role the server honored (`null` = read-only).
 
 ## 3. Vocabulary
 
@@ -120,7 +139,7 @@ data: {
     resultType: { key, label },
     comments: number,            // open comments
     answeredBySp: 0,             // always 0 for now
-    assessedBy: { id, nickname: string | null } | null,
+    assessedBy: { id, nickname: string | null, admin?: true } | null,   // admin: 2.1
     status, canOpen: true,
     readOnlyReason: string | null
   }],
@@ -182,9 +201,13 @@ data: {
   other: Field[],
   writable: boolean,
   readOnlyReason: string | null,          // 3.2
-  assessment: { status, assessedBy: { id, nickname } | null, finishedAt: string | null } | null
+  assessment: { status, assessedBy: { id, nickname, admin?: true } | null, finishedAt: string | null } | null,
+  actingRoles?: ('ASSESSOR' | 'LEAD_ASSESSOR')[],   // ADMIN only (2.1)
+  actingRole?: 'ASSESSOR' | 'LEAD_ASSESSOR' | null  // ADMIN only (2.1)
 }
 ```
+
+`actingRoles` (ADMIN only, absent for anyone else): the roles the Admin may act as on this result: the enabled reviewer roles of the membership's round whose step the timeline has (round 1: `['ASSESSOR']`, round 2: `['LEAD_ASSESSOR']`). `actingRole` (ADMIN only): the `X-Acting-Role` the view was built for, `null` when there was none or it does not fit the round.
 
 `assessment` is `null` until the first write creates the assessment.
 
@@ -210,13 +233,13 @@ Errors: 400 `VALIDATION_FAILED`, 401, 404 `ASSESSMENT_NOT_FOUND`, 409 `ASSESSMEN
 ### 5.2 `Comment`
 
 ```
-{ id, fieldKey, author: { id, nickname: string | null }, body,
+{ id, fieldKey, author: { id, nickname: string | null, admin?: true }, body,
   state, stepPosition, round,
   valueCopy: { value, labels? }, valueTruncated: boolean,
   createdAt, withdrawnAt: string | null }
 ```
 
-Authors are shown by nickname only. `valueCopy` is the field value (and its labels when the snapshot had them) as the author saw it; a value over 64 KiB is stored cut, with `valueTruncated: true`.
+Authors are shown by nickname only. `author.admin` is `true` when a QA Admin wrote it acting as a reviewer role (2.1), and absent otherwise. `valueCopy` is the field value (and its labels when the snapshot had them) as the author saw it; a value over 64 KiB is stored cut, with `valueTruncated: true`.
 
 ## 6. Write routes
 
@@ -237,7 +260,7 @@ Send exactly one of `fieldKeys` and `all`. Setting a field to the state it alrea
 Response `data` (`ValidationSummary`, also the answer of 6.4):
 
 ```
-{ status, assessedBy: { id, nickname } | null, finishedAt: string | null,
+{ status, assessedBy: { id, nickname, admin?: true } | null, finishedAt: string | null,
   validations: [{ fieldKey, validated }] }       // every row the assessment holds
 ```
 
@@ -310,7 +333,7 @@ The end sets "Assessed by" to the caller, queues one release to Reporting (secti
 
 ## 7. Quick comments
 
-Reusable comment texts shared by role. Permission: any user at the controller; the service then requires a live grant **of the role named** (an ADMIN's blanket permissions do not count). Any other caller gets 403 `AUTH_PERMISSION_DENIED`.
+Reusable comment texts shared by role. Permission: any user at the controller; the service then requires a live grant **of the role named**, or a live ADMIN grant (the Admin acting as that role, 2.1). Any other caller gets 403 `AUTH_PERMISSION_DENIED`.
 
 Quick comments are open to any live grant of `ASSESSOR`, `LEAD_ASSESSOR`, `TPB` or `PPU`, including roles that cannot write assessment comments yet (only `ASSESSOR` can today). **beyond § 6**
 
@@ -363,7 +386,7 @@ For the admin header count, read `GET /assessment-releases?status=pending` and u
 | Code | Status | Raised by |
 |---|---|---|
 | `ASSESSMENT_NOT_FOUND` | 404 | View, every write, withdraw: no such membership, or outside the caller's scope |
-| `ASSESSMENT_READ_ONLY` | 403 | Writes by a caller with no writer row (an admin, for example) |
+| `ASSESSMENT_READ_ONLY` | 403 | Writes by a caller with no writer row (an admin without `X-Acting-Role`, or acting as a role that does not fit the round) |
 | `ASSESSMENT_STEP_CLOSED` | 409 | Writes while the role's step is not open; withdraw when neither step 1 nor step 2 is open |
 | `ASSESSMENT_FINISHED` | 409 | A write on an ended assessment; the losers of concurrent finishes |
 | `ASSESSMENT_NO_FIELD_CONFIG` | 409 | View and writes: no field configuration applies to the result type |
@@ -397,7 +420,9 @@ The round-2 codes are specified in `docs/specs/escalation/round-2/front-contract
 
 - [ ] Types accept `error.fields` as `ApiFieldError[]` or `string[]`.
 - [ ] The worklist reads `counters.total` and `noActiveRole`.
-- [ ] `roles` may contain `'ADMIN'`; an admin-only caller sees every timeline read-only.
+- [ ] `roles` may contain `'ADMIN'`; an admin-only caller sees every timeline read-only until it picks a role.
+- [ ] An Admin picks a role from `actingRoles` and sends `X-Acting-Role` on the view and every write of that result; `actingRole` confirms it.
+- [ ] `author.admin` and `assessedBy.admin` show "Admin" to reviewers and admins.
 - [ ] The filter options map `{ id, code, name }` and `{ key, label }` separately.
 - [ ] The comment form sends an `Idempotency-Key` and treats `Idempotency-Replayed: true` as success.
 - [ ] The admin release count does not assume an array under 500 is complete.

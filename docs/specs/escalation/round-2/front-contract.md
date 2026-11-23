@@ -17,7 +17,8 @@ What the front may rely on for the Lead Assessor's review of a re-submitted resu
 |---|---|---|
 | LEAD_ASSESSOR with an enabled row covering the result | Yes, `round: 2` | While the lead-assessors step (step 3) is open |
 | ASSESSOR | Round 1 only | Unchanged |
-| ADMIN | Latest round by default (`?round=1\|2` to pick); read only | Never. `choices` is always `[]` |
+| ADMIN | Latest round by default (`?round=1\|2` to pick); read only | Never without `X-Acting-Role`: `choices` is then always `[]` |
+| ADMIN with `X-Acting-Role: LEAD_ASSESSOR` | As the Lead, on any result type and program; `actingRole: 'LEAD_ASSESSOR'` | As the Lead (`decidable`, `choices`, end rules), **whatever the step-3 dates** (admin/acts-as-reviewer, step-1 contract § 2.1) |
 | TPB, PPU | Designed only, not built (section 8) | None |
 
 `…` stands for `/timelines/:timelineId/results/:resultCode`. The write order of step-1 section 6 applies unchanged (404, 403, 409 step closed, 409 finished).
@@ -43,7 +44,7 @@ Per field (all present in both rounds, with the round-1 values in the last colum
 Comments neither withdrawn nor deleted, ordered by comment.
 
 ```
-{ commentId, author: { id, nickname }, createdAt, body,
+{ commentId, author: { id, nickname, admin?: true }, createdAt, body,
   valueCopy: { value, labels? }, valueTruncated,
   state,
   response?: { id, kind, body: string | null, respondedBy: { name }, respondedAt },
@@ -59,7 +60,7 @@ Comments neither withdrawn nor deleted, ordered by comment.
 | `clarifications` | Every request with its answer, oldest first |
 | `decision` | The Lead's current decision; absent when none |
 | `decidable` | The comment can take a decision from this caller now. It already folds in the end of the review and a read-only view: `false` (with `choices: []`, `decision` kept) once the review ended |
-| `choices` | The decisions to offer. `[]` when not decidable and always for ADMIN |
+| `choices` | The decisions to offer. `[]` when not decidable and always for an ADMIN without `X-Acting-Role` (acting as the Lead, the Lead's) |
 
 Decidable round-1 comments are those in state `disagreed`, `open` or `clarification_requested` on an actionable field: `choices` is `['agree_program', 'escalate']`. The Lead's own round-2 comment takes `['escalate']` only. Gate every decision control on **`decidable`** alone, for `thread[]` items and for the Lead's own comments in `comments[]` (§ 3.2): `decidable` already folds in the end of the review and a read-only view, so do not combine it with `writable`. `choices` also folds in the escalate rule: while ANOTHER live comment on the same field carries an `escalate` (a round-1 item or the Lead's own comment), `agree_program` is not offered, so `choices` is `['escalate']` and `decidable` stays `true`. An item's own escalate does not count, and clearing the escalate restores both choices. Offer exactly `choices`; never add `agree_program` back (the route would answer 409 `ASSESSMENT_FIELD_ESCALATED`).
 
@@ -200,3 +201,4 @@ Nothing for TPB or PPU is built in this spec. The design (`design.md` § 12) add
 - [ ] Check all is replaced by `fieldKeys` once a field is escalated.
 - [ ] The worklist counts `pending_tpb_review` as finished.
 - [ ] The Lead's decision on their own comment is read from the decision answer, then from the comment `state`.
+- [ ] An ADMIN acting as the Lead sends `X-Acting-Role: LEAD_ASSESSOR` on the view and every write; the controls then follow `decidable` / `choices` as for the Lead. `author.admin` / `assessedBy.admin` mark what it wrote.

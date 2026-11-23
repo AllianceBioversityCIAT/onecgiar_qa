@@ -116,7 +116,7 @@ Roles are configured as data. LEAD_ASSESSOR (step 3, round 2), TPB (step 4) and 
 
 ### FR-2: Open, read-only and locked by the clock (3909 AC3; 3910 AC20)
 
-A reviewer SHALL be able to write on an assessment only while their role's step of the membership's timeline is open at the clock's current Rome minute, the step-state rule of `admin-config` (open from :00 of the opening minute to :59 of the closing minute). Outside that window the worklist and the assessment view SHALL be read-only: rows still open the view. An ADMIN is always read-only, unless they also hold an active reviewer assignment to that timeline, in which case FR-1's reviewer row applies to them.
+A reviewer SHALL be able to write on an assessment only while their role's step of the membership's timeline is open at the clock's current Rome minute, the step-state rule of `admin-config` (open from :00 of the opening minute to :59 of the closing minute). Outside that window the worklist and the assessment view SHALL be read-only: rows still open the view. An ADMIN is always read-only, unless they also hold an active reviewer assignment to that timeline, in which case FR-1's reviewer row applies to them. **Amended by `admin/acts-as-reviewer` (back lead, 2026-11-23):** an ADMIN that names a reviewer role in `X-Acting-Role` writes as that role on any result of its round, whatever the step dates; without the header the ADMIN stays read-only.
 
 #### Scenario: Step 1 not yet open, then closed
 - GIVEN step 1 of T opens at 2026-11-12T09:00 Rome and closes at 2026-11-20T17:30 Rome
