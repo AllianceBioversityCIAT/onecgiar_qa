@@ -149,6 +149,8 @@ export interface FakeAssessment {
   status: ResultAssessmentStatus;
   finishedBy?: number | null;
   finishedAt?: Date | null;
+  /** admin/acts-as-reviewer: a QA Admin acting as the role ended it. */
+  finishedAsAdmin?: boolean;
   /** The version NUMBER the assessment pinned (`result_assessments.field_config_version`). Default 1. */
   fieldConfigVersion?: number;
   /** The id of that version row, which the membership statement joins in. Default: the number; `null` = no such row. */
@@ -180,6 +182,8 @@ export interface FakeComment {
   deletedBy?: number | null;
   /** Set by the write side when an end makes the comment visible to the program. */
   visibleToProgramAt?: Date | null;
+  /** admin/acts-as-reviewer: a QA Admin acting as a reviewer role wrote it. */
+  actedAsAdmin?: boolean;
 }
 
 /** One `comment_decisions` row (round-2 FR-8): one per comment and role. */
@@ -193,6 +197,8 @@ export interface FakeCommentDecision {
   /** Set by the write side: the author of the latest decision and the last write time (`updated_at`, set explicitly). */
   decidedBy?: number;
   updatedAt?: Date;
+  /** admin/acts-as-reviewer: a QA Admin acting as the role decided it. */
+  actedAsAdmin?: boolean;
 }
 
 /** One `assessment_releases` row, as the write side queued it. */
@@ -601,6 +607,7 @@ export class InMemoryWorklistStore implements WorklistStore {
                   ),
               ).length,
         assessedById: finisher?.id ?? null,
+        assessedByAdmin: assessment?.finishedAsAdmin ?? false,
         assessedByNickname: finisher?.nickname ?? null,
         status,
       });
@@ -736,6 +743,7 @@ export class InMemoryAssessmentStore implements AssessmentStore {
               finishedAt: assessment.finishedAt ?? null,
               finishedById: finisher?.id ?? null,
               finishedByNickname: finisher?.nickname ?? null,
+              finishedAsAdmin: assessment.finishedAsAdmin ?? false,
             },
     });
   }
@@ -811,6 +819,7 @@ export class InMemoryAssessmentStore implements AssessmentStore {
         fieldKey: record.fieldKey,
         authorId: record.authorId,
         authorNickname: record.authorNickname,
+        authorAsAdmin: record.authorAsAdmin,
         body: record.body,
         state: record.state,
         valueCopy: record.valueCopy,
@@ -905,6 +914,7 @@ function commentRecordOf(
     authorId: c.authorId,
     authorNickname:
       world.users.find((u) => u.id === c.authorId)?.nickname ?? null,
+    authorAsAdmin: c.actedAsAdmin ?? false,
     body: c.body ?? 'A comment',
     state: c.state,
     stepPosition: c.stepPosition ?? 1,
@@ -1115,6 +1125,7 @@ export class InMemoryAssessmentWriteStore implements AssessmentWriteStore {
       valueTruncated: row.valueTruncated,
       stepPosition: row.stepPosition,
       round: row.round,
+      actedAsAdmin: row.asAdmin === true ? true : undefined,
     };
     this.world.comments.push(created);
     this.undo.push(() => {
@@ -1200,10 +1211,12 @@ export class InMemoryAssessmentWriteStore implements AssessmentWriteStore {
     held.status = end.status;
     held.finishedBy = end.actorId;
     held.finishedAt = end.at;
+    held.finishedAsAdmin = end.asAdmin === true ? true : undefined;
     this.undo.push(() => {
       held.status = 'pending';
       held.finishedBy = null;
       held.finishedAt = null;
+      held.finishedAsAdmin = undefined;
     });
     return Promise.resolve(true);
   }
@@ -1338,6 +1351,7 @@ export class InMemoryAssessmentWriteStore implements AssessmentWriteStore {
         decidedAt: write.at,
         decidedBy: write.actorId,
         updatedAt: write.at,
+        actedAsAdmin: write.asAdmin === true ? true : undefined,
       };
       this.world.commentDecisions.push(created);
       this.undo.push(() => {
@@ -1353,6 +1367,7 @@ export class InMemoryAssessmentWriteStore implements AssessmentWriteStore {
         decidedAt: write.at,
         decidedBy: write.actorId,
         updatedAt: write.at,
+        actedAsAdmin: write.asAdmin === true ? true : undefined,
       });
       this.undo.push(() => {
         Object.assign(held, before);

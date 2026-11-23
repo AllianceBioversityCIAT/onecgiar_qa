@@ -75,7 +75,7 @@ export class AssessmentCoreUncommentedError extends ConflictException {
 
 /**
  * The quick comments of a role are for the users who hold a live grant of that
- * role (FR-12): any other caller, an ADMIN included, is refused.
+ * role (FR-12), or a QA Admin (admin/acts-as-reviewer): any other caller is refused.
  */
 export class AssessmentQuickCommentsForbiddenError extends ForbiddenException {
   constructor() {

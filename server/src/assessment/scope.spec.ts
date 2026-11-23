@@ -14,6 +14,8 @@ import {
 } from '../users/effective-scope.js';
 import { Permission } from '../users/permissions.js';
 import {
+  actingRoleOf,
+  actsAsAdmin,
   clarificationOpen,
   inScope,
   listedFor,
@@ -767,6 +769,125 @@ describe('FR-1 Lead sees only round-2 memberships in their scope', () => {
     ).toEqual({
       writable: false,
       reason: 'step_closed',
+    });
+  });
+});
+
+describe('admin/acts-as-reviewer: a QA Admin acting as a reviewer role', () => {
+  const admin = user([grant('ADMIN', null)]);
+  const adminAs = (role: 'ASSESSOR' | 'LEAD_ASSESSOR' | 'TPB') =>
+    resolveAccess(
+      admin,
+      [],
+      authorization.can(admin, Permission.ADMIN_ACCESS),
+      role as never,
+    );
+  const withLead = (utc: string) => ({
+    ...timing(utc),
+    steps: [
+      ...steps,
+      {
+        position: 3,
+        audience: 'lead_assessors' as const,
+        opensAt: minute('2026-11-30T09:00'),
+        closesAt: minute('2026-12-04T17:30'),
+      },
+    ],
+  });
+
+  it('gets ONE row of the role, every type and program, flagged byAdmin, with no assignment or grant', () => {
+    const access = adminAs('ASSESSOR');
+    expect(access).toEqual({
+      reviewerRows: [
+        {
+          role: 'ASSESSOR',
+          round: 1,
+          audience: 'assessors',
+          resultTypes: 'all',
+          programs: { mode: 'all', excluded: [] },
+          byAdmin: true,
+        },
+      ],
+      admin: true,
+      disabledRoles: [],
+    });
+    expect(actsAsAdmin(access)).toBe(true);
+    expect(actingRoleOf(access)).toBe('ASSESSOR');
+  });
+
+  it('writes as Assessor before step 1 opens and after it closes (R2), in the step of the role', () => {
+    const access = adminAs('ASSESSOR');
+    for (const utc of ['2026-11-01T10:00:00Z', STEP1_OPEN, STEP2_OPEN]) {
+      expect(writeDecision(access, membership(), timing(utc))).toMatchObject({
+        writable: true,
+        stepPosition: 1,
+      });
+    }
+  });
+
+  it('writes as Lead on round 2 whatever the state of step 3 (R2)', () => {
+    const access = adminAs('LEAD_ASSESSOR');
+    const round2 = membership({ round: 2 });
+    for (const utc of [
+      STEP2_OPEN,
+      '2026-12-01T10:00:00Z',
+      '2026-12-05T10:00:00Z',
+    ]) {
+      expect(writeDecision(access, round2, withLead(utc))).toMatchObject({
+        writable: true,
+        stepPosition: 3,
+      });
+    }
+  });
+
+  it('keeps the flow (R6): the role must fit the round, the timeline must have its step, auto-validated stays read-only', () => {
+    // Lead on a round-1 result, Assessor on a round-2 one: in scope (ADMIN), no covering row, 403.
+    expect(
+      writeDecision(
+        adminAs('LEAD_ASSESSOR'),
+        membership(),
+        withLead(STEP1_OPEN),
+      ),
+    ).toEqual({ writable: false, reason: 'admin_read_only' });
+    expect(
+      writeDecision(
+        adminAs('ASSESSOR'),
+        membership({ round: 2 }),
+        withLead(STEP1_OPEN),
+      ),
+    ).toEqual({ writable: false, reason: 'admin_read_only' });
+    // No step 3 on the timeline.
+    expect(
+      writeDecision(
+        adminAs('LEAD_ASSESSOR'),
+        membership({ round: 2 }),
+        timing(STEP1_OPEN),
+      ),
+    ).toEqual({ writable: false, reason: 'no_step' });
+    expect(
+      writeDecision(
+        adminAs('ASSESSOR'),
+        membership({ status: 'auto_validated' }),
+        timing(STEP1_OPEN),
+      ),
+    ).toEqual({ writable: false, reason: 'auto_validated' });
+  });
+
+  it('ignores the acting role of a non-admin and of a disabled role row', () => {
+    const asReviewer = resolveAccess(
+      assessorA,
+      ['ASSESSOR'],
+      false,
+      'LEAD_ASSESSOR' as never,
+    );
+    expect(asReviewer).toEqual(accessOf(assessorA, ['ASSESSOR']));
+    expect(actsAsAdmin(asReviewer)).toBe(false);
+    // TPB has a declared, disabled row: no acting row, the Admin stays read-only.
+    const tpb = adminAs('TPB');
+    expect(tpb.reviewerRows).toEqual([]);
+    expect(writeDecision(tpb, membership(), timing(STEP1_OPEN))).toEqual({
+      writable: false,
+      reason: 'admin_read_only',
     });
   });
 });

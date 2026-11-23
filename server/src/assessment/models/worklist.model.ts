@@ -1,5 +1,5 @@
 // @akili-spec assessment/step-1-assessment
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { QA_STATUSES, type QaStatus } from '../qa-status.js';
 
 /** OpenAPI models of the worklist routes (design 6). The service's views are what they describe. */
@@ -102,6 +102,14 @@ export class WorklistAssessedByModel {
 
   @ApiProperty({ type: String, nullable: true, example: 'Ana' })
   nickname!: string | null;
+
+  @ApiPropertyOptional({
+    type: Boolean,
+    enum: [true],
+    description:
+      'Present (true) only when a QA Admin ended it acting as the role (`X-Acting-Role`); absent otherwise',
+  })
+  admin?: true;
 }
 
 export class WorklistRowModel {
