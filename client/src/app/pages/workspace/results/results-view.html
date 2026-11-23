@@ -28,20 +28,21 @@
       <p class="m-0 text-(length:--fs-14) text-(--text-3)">You are not assigned to any QA timeline yet.</p>
     }
   } @else {
-    <!-- Search + menus. Above them, the timeline as a line of text ("Viewing <timeline> ⌄"):
-         it sets what the whole page shows, so it reads as context, not as one more filter. -->
-    <div class="flex flex-col gap-3">
+    <!-- The timeline sets what the whole page shows, so it leads the grey scope band that closes the page header; the
+         search and menus that depend on it sit inside (same band in Overview and Fields; Juanpa, 2026-11-23). -->
+    <qa-scope-card class="-mx-4 -mt-5 px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8" regionLabel="Timeline" [meta]="timelineMeta()" [count]="totalText()" countLabel="results in this timeline">
       <qa-select
+        qaScopePicker
         [value]="timelineValue()"
         (valueChange)="onTimeline($event)"
         [options]="timelineOptions()"
-        label="Viewing"
-        appearance="inline"
+        label="Timeline"
+        appearance="scope"
         searchable
         searchPlaceholder="Search timelines"
         panelWidth="340px"
         listMaxHeight="none"
-        class="self-start"
+        class="min-w-0 self-start"
       />
       @if (store.state() !== 'error' && !store.noActiveRole()) {
         <div class="flex flex-wrap items-center gap-2 lg:gap-3">
@@ -69,7 +70,7 @@
           </div>
         }
       }
-    </div>
+    </qa-scope-card>
 
     <!-- A timeline that failed to load keeps the picker above, so another one can be chosen. -->
     @if (store.state() === 'error') {
