@@ -10,16 +10,18 @@
          "Progress by timeline" and the sidebar's cycle card (Juanpa, 2026-11-11). -->
     <p class="m-0 text-(length:--fs-14) font-normal text-(--text-3)">{{ subtitle() }}</p>
   </div>
-  <!-- "Viewing as": design preview of each role's Overview, as in Review (the real role comes from the signed-in user). -->
-  <qa-select
-    [value]="role()"
-    (valueChange)="setRole($event)"
-    [options]="roleOptions"
-    label="Viewing as"
-    appearance="inline"
-    panelWidth="240px"
-    class="mt-1.5 flex-none"
-  />
+  <!-- "Viewing as": only for someone with several roles, among the roles they hold. -->
+  @if (roleOptions().length > 1) {
+    <qa-select
+      [value]="role()"
+      (valueChange)="setRole($event)"
+      [options]="roleOptions()"
+      label="Viewing as"
+      appearance="inline"
+      panelWidth="240px"
+      class="mt-1.5 flex-none"
+    />
+  }
 </div>
 
 <!-- This page still shows the figures of the design prototype (overview.mock.ts, overview-roles.mock.ts): it does not
