@@ -44,6 +44,7 @@ import {
   AssessmentCoreUncommentedError,
   AssessmentCoreUndecidedError,
   AssessmentDecisionInvalidError,
+  AssessmentCoreCommentUndecidedError,
   AssessmentFieldEscalatedError,
   AssessmentFieldKeysInvalidError,
   AssessmentFieldNotCoreError,
@@ -66,6 +67,7 @@ import {
   type AssessmentWriteStore,
   type CommentRecord,
   type DecisionRecord,
+  type LiveCommentState,
   type LockedAssessment,
   type MembershipRecord,
 } from './assessment.store.js';
@@ -101,6 +103,7 @@ import {
   endRoundTwoOnFinish,
   isActionable,
   isDecidable,
+  undecidedCommentFields,
 } from './round-two-rules.js';
 import {
   resolveAccess,
@@ -438,6 +441,16 @@ export class AssessmentService {
         if (target.some((key) => escalated.has(key))) {
           throw new AssessmentFieldEscalatedError();
         }
+        // FR-8 *none (undecided)* (HITL O-1): a live round-1 comment with no decision blocks the green; the whole request is refused.
+        const undecided = await this.undecidedFields(
+          assessments,
+          membership,
+          decisions,
+          new Set(target),
+        );
+        if (undecided.length > 0) {
+          throw new AssessmentCoreCommentUndecidedError(undecided);
+        }
       }
       // A field with no row is grey in round 1; in round 2 it may be a carried green (FR-10, FR-7).
       const changed = target.filter(
@@ -569,6 +582,28 @@ export class AssessmentService {
         commented: commented.has(key),
         changed: changedFields.has(key),
       });
+  }
+
+  /**
+   * The fields among `fieldKeys` with a live decidable round-1 comment that has
+   * no decision (`undecidedCommentFields`). Reads the round-1 comments, so a
+   * result with no previous assessment answers empty without a statement.
+   */
+  private async undecidedFields(
+    assessments: AssessmentWriteStore,
+    membership: MembershipRecord,
+    decisions: readonly DecisionRecord[],
+    fieldKeys: ReadonlySet<string>,
+  ): Promise<string[]> {
+    const previous = membership.previousAssessmentId;
+    if (previous === null) return [];
+    const comments: LiveCommentState[] =
+      await assessments.findLiveCommentStates(previous);
+    return undecidedCommentFields(
+      comments,
+      new Set(decisions.filter(isLiveDecision).map((d) => d.commentId)),
+      fieldKeys,
+    );
   }
 
   /**
@@ -1381,15 +1416,8 @@ export class AssessmentService {
           await assessments.deleteDecision(commentId, context.roleCode);
           await audit('decision_clear', target.fieldKey, commentId);
           decisions = decisions.filter((d) => d !== existing);
-          // FR-8: clearing an `agree_program` turns its green back to grey, unless another agree still holds the field.
-          const stillAgreed = onField.some(
-            (d) => d !== existing && d.decision === 'agree_program',
-          );
-          if (
-            existing.decision === 'agree_program' &&
-            !stillAgreed &&
-            green(target.fieldKey)
-          ) {
+          // FR-8: clearing an `agree_program` leaves its comment undecided, so the field turns grey (the other agrees on it are kept).
+          if (existing.decision === 'agree_program' && green(target.fieldKey)) {
             await setGreen(false);
           }
         }
@@ -1447,7 +1475,17 @@ export class AssessmentService {
           decidedAt: decidedAt.toISOString(),
         };
         if (input.decision === 'agree_program') {
-          if (!green(target.fieldKey)) await setGreen(true);
+          // The agree is stored always; the field turns green only when no other live round-1 comment on it stays undecided.
+          const stillUndecided =
+            (
+              await this.undecidedFields(
+                assessments,
+                membership,
+                decisions,
+                new Set([target.fieldKey]),
+              )
+            ).length > 0;
+          if (!stillUndecided && !green(target.fieldKey)) await setGreen(true);
         } else if (green(target.fieldKey)) {
           // `escalate` keeps the field grey; an agree on another comment of it no longer holds.
           await setGreen(false);
@@ -1938,7 +1976,9 @@ export class AssessmentService {
    * Round 2 (escalation/round-2 T-6, NFR-1): two more statements when the
    * membership has a previous assessment, the thread (ONE SELECT for any number
    * of round-1 comments) and that assessment's validations; none for a new
-   * round-2 membership. The view never gets a per-comment read.
+   * round-2 membership. The view never gets a per-comment read. One more
+   * (T-16, the Lead's decisions on its own comments) once the round-2
+   * assessment row exists.
    *
    * An out-of-scope result, a result that does not exist and a timeline that is
    * not the caller's are one and the same 404 (FR-1 *Out-of-scope result by
@@ -1965,12 +2005,21 @@ export class AssessmentService {
     const snapshot = await this.snapshotOf(membership);
 
     const assessment = membership.assessment;
-    const [validations, comments] =
+    // The caller's reviewer role at this round; `null` for ADMIN (reads, decides nothing).
+    const role =
+      access.reviewerRows.find((row) => row.round === membership.round)?.role ??
+      null;
+    // T-16: the Lead's decisions on its own round-2 comments, in the same
+    // parallel read; only for the Lead in round 2 with an assessment row.
+    const [validations, comments, ownDecisions] =
       assessment === null
-        ? [[], []]
+        ? [[], [], []]
         : await Promise.all([
             this.store.findValidations(assessment.id),
             this.store.findComments(assessment.id),
+            membership.round !== 1 && role === RoleCode.LEAD_ASSESSOR
+              ? this.store.findDecisions(assessment.id)
+              : Promise.resolve([]),
           ]);
     // Round 2 (design 7 *Thread read*, DD-4): the previous membership's step-1
     // thread (ONE statement for any number of comments) and its validations.
@@ -1998,21 +2047,6 @@ export class AssessmentService {
       validated: new Map(validations.map((v) => [v.fieldKey, v.validated])),
       comments: comments.map(toViewComment),
     });
-    // Additive members over the step-1 view (FR-3, FR-4, FR-5, FR-7). ADMIN has no
-    // reviewer row at this round: it reads the thread and decides nothing.
-    const rounded = annotateForRound(view, {
-      round: membership.round,
-      role:
-        access.reviewerRows.find((row) => row.round === membership.round)
-          ?.role ?? null,
-      changedFields: membership.changedFields,
-      stored: new Map(validations.map((v) => [v.fieldKey, v.validated])),
-      roundOneGreens: new Set(
-        roundOneValidations.filter((v) => v.validated).map((v) => v.fieldKey),
-      ),
-      thread: roundOneThread,
-    });
-
     const decision = writeDecision(
       access,
       {
@@ -2027,6 +2061,32 @@ export class AssessmentService {
     );
     // FR-16: once the assessment ended, nothing is accepted on it.
     const finished = assessment !== null && assessment.status !== 'pending';
+    // Additive members over the step-1 view (FR-3, FR-4, FR-5, FR-7). ADMIN has no
+    // reviewer row at this round: it reads the thread and decides nothing.
+    const rounded = annotateForRound(view, {
+      round: membership.round,
+      role,
+      changedFields: membership.changedFields,
+      stored: new Map(validations.map((v) => [v.fieldKey, v.validated])),
+      roundOneGreens: new Set(
+        roundOneValidations.filter((v) => v.validated).map((v) => v.fieldKey),
+      ),
+      thread: roundOneThread,
+      userId: user.id,
+      // T-17: whatever makes the view read-only (ended review, closed step) is a refusal of every decision.
+      ended: !decision.writable || finished,
+      ownDecisions: new Map(
+        ownDecisions.filter(isLiveDecision).map((d) => [
+          d.commentId,
+          {
+            decision: d.decision,
+            body: d.body,
+            decidedAt: d.decidedAt.toISOString(),
+          },
+        ]),
+      ),
+    });
+
     const readOnlyReason: AssessmentReadOnlyReason | null = !decision.writable
       ? decision.reason === 'not_in_scope'
         ? 'admin_read_only'

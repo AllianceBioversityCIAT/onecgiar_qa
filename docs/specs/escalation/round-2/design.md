@@ -97,7 +97,7 @@ All routes are under `/api/v1`, with the existing envelope and scope 404.
 | Method | Path | Roles | Request | Response | Errors |
 |---|---|---|---|---|---|
 | GET | `/timelines/:t/results/:code/assessment` | ASSESSOR, LEAD (row by round), ADMIN (read) | — | Step-1 view + `round`; per field `updated`, `actionable`, `effectiveValidated`, `carried`, `thread[]`. Each thread item: `{ commentId, author, createdAt, body, valueCopy, state, response?, clarifications[], decision?, decidable, choices[] }` | 404 |
-| PUT | `/timelines/:t/results/:code/assessment/validations` | ASSESSOR (r1), LEAD (r2) | unchanged | unchanged + `effectiveValidated` | + `ASSESSMENT_FIELD_NOT_CORE`, `ASSESSMENT_FIELD_ESCALATED` (r2) |
+| PUT | `/timelines/:t/results/:code/assessment/validations` | ASSESSOR (r1), LEAD (r2) | unchanged | unchanged + `effectiveValidated` | + `ASSESSMENT_FIELD_NOT_CORE`, `ASSESSMENT_FIELD_ESCALATED`, `ASSESSMENT_CORE_COMMENT_UNDECIDED` (r2) |
 | POST | `…/assessment/comments` | ASSESSOR, LEAD | unchanged | unchanged | + `ASSESSMENT_FIELD_NOT_CORE` (r2) |
 | PUT | `…/assessment/decisions/:commentId` | LEAD (TPB, PPU later) | `{ decision, body }` | `{ decision, validations, status, assessedBy?, finishedAt? }` | 400 body, 404, 409 `ASSESSMENT_DECISION_INVALID`, `ASSESSMENT_FINISHED`, step closed |
 | DELETE | `…/assessment/decisions/:commentId` | LEAD | — | same shape | 404, 409 `ASSESSMENT_FINISHED` |
@@ -113,6 +113,7 @@ All routes are under `/api/v1`, with the existing envelope and scope 404.
 | `ASSESSMENT_FIELD_ESCALATED` | 409 |
 | `ASSESSMENT_DECISION_INVALID` | 409 |
 | `ASSESSMENT_CORE_UNDECIDED` | 409, with `fields: string[]` |
+| `ASSESSMENT_CORE_COMMENT_UNDECIDED` | 409, with `fields: string[]` (amended 2026-11-20, HITL O-1) |
 | `ASSESSMENT_COMMENT_NOT_DELETABLE` | 409 |
 
 All five go into `common/error-codes.ts` and `front-contract.md`. `ASSESSMENT_CORE_UNDECIDED` joins `ASSESSMENT_CORE_UNCOMMENTED` as a code whose `fields` the filter forwards.
@@ -198,7 +199,7 @@ States: loading, error, empty thread (new result), read-only (step closed / fini
 | DD-6 | Add comment state `lead_sided_program` | Reuse `accepted` (it is a program state) or `done` (PPU) | Reports and the export (P2-3914) can tell who closed a comment | FR-8 |
 | DD-7 | Comment states are written **at the end**, not at decision time | Write states on each decision | The thread never shows half-applied states; a changed decision costs nothing | FR-8, FR-11 |
 | DD-8 | Round-2 ends never mark comments visible to the program | Reuse `markCommentsVisible` | The SP view stays round-1 only | FR-15 |
-| DD-11 | **The program sees the program-side state** (amended 2026-11-19, back lead, T-11 pivot): when a comment's stored state is a review state (`escalated`, `lead_sided_program`, and later `tpb_sided_program`, `tpb_sided_assessor`, `done`), the SP read (list counts, detail, CSV) shows the state implied by the program's latest response (`accept` → `accepted`, `accept_with_comment` → `accepted_with_comment`, `disagree` → `disagreed`, `request_clarification` → `clarification_requested`, **but `open` when that clarification request already has an assessor answer** (amended in T-11 attempt 3, 2026-11-19: the program last saw such a comment `open`); no response → `open`). DD-7 still writes the review state on the comment. The SP write path still judges the stored state; unreachable while the programs step is closed in round 2 | Show the review state to the program; store a second state column | The program never learns the Lead/TPB/PPU outcome from the SP view; one mapping in the SP read; no migration | FR-15 |
+| DD-11 | **The program sees the program-side state** (amended 2026-11-19, back lead, T-11 pivot): when a comment's stored state is a review state (`escalated`, `lead_sided_program`, and later `tpb_sided_program`, `tpb_sided_assessor`, `done`), the SP read (list counts, detail, CSV) shows the state implied by the program's latest response (`accept` → `accepted`, `accept_with_comment` → `accepted_with_comment`, `disagree` → `disagreed`, `request_clarification` → `clarification_requested`, **but `open` when that clarification request already has an assessor answer** (amended in T-11 attempt 3, 2026-11-19: the program last saw such a comment `open`; ratified by the back lead 2026-11-20, P2-3911 AC11); no response → `open`). DD-7 still writes the review state on the comment. The SP write path still judges the stored state; unreachable while the programs step is closed in round 2 | Show the review state to the program; store a second state column | The program never learns the Lead/TPB/PPU outcome from the SP view; one mapping in the SP read; no migration | FR-15 |
 | DD-9 | Soft delete with `deleted_at` / `deleted_by` | A `deleted` comment state | The state history stays intact; one CHECK | FR-10 |
 | DD-10 | Front work is Yeck's, from `front-contract.md` | The back agent edits `review-*` | Team rule (the brief). Back PR first | FR-17 |
 

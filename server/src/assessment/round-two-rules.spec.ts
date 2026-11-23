@@ -214,6 +214,7 @@ describe('isDecidable (FR-4, FR-8, design 7)', () => {
   it.each<[string, Partial<DecidableComment>, DecisionChoice[]]>([
     ['own open comment', { state: 'open' }, ['escalate']],
     ['own withdrawn comment', { state: 'withdrawn' }, []],
+    ['own escalated comment (after the end)', { state: 'escalated' }, []],
     ['own deleted comment', { state: 'open', deleted: true }, []],
   ])('the Lead own round-2 comment: %s', (_name, over, expected) => {
     expect(

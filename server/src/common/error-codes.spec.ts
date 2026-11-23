@@ -292,12 +292,13 @@ describe('assessment errors (step-1-assessment FR-25, design 6)', () => {
     expect(ERROR_CATALOG.ASSESSMENT_CORE_UNCOMMENTED.status).toBe(409);
   });
 
-  it('lists exactly the thirteen assessment codes in the catalog', () => {
+  it('lists exactly the fourteen assessment codes in the catalog', () => {
     expect(
       ERROR_CODES.filter((code) => code.startsWith('ASSESSMENT_')).sort(),
     ).toEqual([
       'ASSESSMENT_COMMENT_NOT_DELETABLE',
       'ASSESSMENT_COMMENT_NOT_OPEN',
+      'ASSESSMENT_CORE_COMMENT_UNDECIDED',
       'ASSESSMENT_CORE_UNCOMMENTED',
       'ASSESSMENT_CORE_UNDECIDED',
       'ASSESSMENT_DECISION_INVALID',

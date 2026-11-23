@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   AssessmentCommentNotDeletableError,
   AssessmentCoreUncommentedError,
+  AssessmentCoreCommentUndecidedError,
   AssessmentCoreUndecidedError,
   AssessmentDecisionInvalidError,
   AssessmentFieldEscalatedError,
@@ -48,6 +49,16 @@ describe('round-2 refusals (round-2 FR-3, FR-17, design 6)', () => {
     expect(error.getResponse()).toMatchObject({
       code: 'ASSESSMENT_CORE_UNDECIDED',
       fields: ['general.title', 'toc.outcomes'],
+    });
+  });
+
+  it('AssessmentCoreCommentUndecidedError answers 409 and carries the field keys', () => {
+    const error = new AssessmentCoreCommentUndecidedError(['general.title']);
+    expect(error.fields).toEqual(['general.title']);
+    expect(error.getStatus()).toBe(409);
+    expect(error.getResponse()).toMatchObject({
+      code: 'ASSESSMENT_CORE_COMMENT_UNDECIDED',
+      fields: ['general.title'],
     });
   });
 });

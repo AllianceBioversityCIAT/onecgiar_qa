@@ -1,7 +1,9 @@
 // @akili-spec assessment/step-1-assessment
 import {
+  ApiExtraModels,
   ApiProperty,
   ApiPropertyOptional,
+  getSchemaPath,
   type ApiPropertyOptions,
 } from '@nestjs/swagger';
 import { commentStates } from '../../database/drizzle/schema/assessment-comments.js';
@@ -211,7 +213,8 @@ export class AssessmentThreadItemModel {
 
   @ApiProperty({
     type: Boolean,
-    description: 'The caller may decide this comment (`choices` is not empty)',
+    description:
+      'The caller may decide this comment now (`choices` is not empty). It already folds in the end of the review and a read-only view: false once the review ended or the view is not writable, so a client gates decision controls on this flag alone',
   })
   decidable!: boolean;
 
@@ -219,11 +222,38 @@ export class AssessmentThreadItemModel {
     type: [String],
     enum: ['agree_program', 'escalate'],
     description:
-      'The decisions the caller may set; empty for ADMIN and for a comment that is not decidable',
+      'The decisions the caller may set; empty for ADMIN, for a comment that is not decidable and always once the review ended (`decision` is kept). `agree_program` is left out while another live comment on the same field carries an `escalate`',
   })
   choices!: string[];
 }
 
+/** The Lead's own round-2 comment (round 2, Lead only): the comment plus the members of a `thread[]` item (T-16). */
+export class AssessmentOwnCommentModel extends AssessmentCommentModel {
+  @ApiProperty({
+    type: AssessmentThreadDecisionModel,
+    nullable: true,
+    description:
+      "The Lead's current decision on its own comment (`escalate`); `null` when none is set. Present only on the Lead's own round-2 comments, in round 2",
+  })
+  decision!: AssessmentThreadDecisionModel | null;
+
+  @ApiProperty({
+    type: Boolean,
+    description:
+      'The comment can take a decision from the caller: true while it is open and the review has not ended; false once withdrawn, after the review ends or when the view is not writable (whatever the comment state). Same rule as `thread[]` items: gate decision controls on this flag alone',
+  })
+  decidable!: boolean;
+
+  @ApiProperty({
+    type: [String],
+    enum: ['agree_program', 'escalate'],
+    description:
+      "`['escalate']` while decidable (the Lead's own comment takes no `agree_program`); `[]` otherwise",
+  })
+  choices!: string[];
+}
+
+@ApiExtraModels(AssessmentCommentModel, AssessmentOwnCommentModel)
 export class AssessmentFieldModel {
   @ApiProperty({ type: String, example: 'general.title' })
   key!: string;
@@ -292,8 +322,18 @@ export class AssessmentFieldModel {
   })
   validated!: boolean;
 
-  @ApiProperty({ type: [AssessmentCommentModel] })
-  comments!: AssessmentCommentModel[];
+  @ApiProperty({
+    type: 'array',
+    items: {
+      anyOf: [
+        { $ref: getSchemaPath(AssessmentCommentModel) },
+        { $ref: getSchemaPath(AssessmentOwnCommentModel) },
+      ],
+    },
+    description:
+      "The field's comments. In round 2 the Lead's OWN round-2 comments also carry `decision` (`{ decision, body, decidedAt }` or `null`), `decidable` and `choices`, so a reload shows whether the Lead escalated them (T-16). Round 1, the Assessor view and every other comment: those keys are absent",
+  })
+  comments!: Array<AssessmentCommentModel | AssessmentOwnCommentModel>;
 
   @ApiProperty({
     type: Boolean,

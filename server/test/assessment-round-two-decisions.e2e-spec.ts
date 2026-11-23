@@ -122,6 +122,141 @@ describe('Round-2 decisions of the Lead (e2e)', () => {
     expect(a.world.validations.filter((v) => v.fieldKey === FIRST)).toEqual([]);
   });
 
+  it('O-1: validating a core field whose round-1 comment is open and undecided is 409 ASSESSMENT_CORE_COMMENT_UNDECIDED; agreeing then ends the review and closes the comment', async () => {
+    // The qatest path: a round-1 comment still `open` with no decision.
+    a.world.comments.find((c) => c.id === 7001)!.state = 'open';
+    a.world.comments.find((c) => c.id === 7002)!.state = 'open';
+    const validate = (fieldKeys: string[]) =>
+      a.send('put', resultPath('/validations', code), {
+        token: lead(),
+        body: { validated: true, fieldKeys },
+      });
+
+    const refused = await validate([FIRST, SECOND]);
+
+    expect(refused.status).toBe(409);
+    expect(refused.body.error.code).toBe('ASSESSMENT_CORE_COMMENT_UNDECIDED');
+    expect(refused.body.error.fields).toEqual([FIRST, SECOND].sort());
+    expect(
+      a.world.validations.filter((v) => v.assessmentId !== roundOneId),
+    ).toEqual([]);
+    expect(roundTwoAssessment()?.status ?? 'pending').toBe('pending');
+
+    await decide(7001, 'agree_program');
+    const last = await decide(7002, 'agree_program');
+
+    expect(last.body.data.status).toBe('quality_assessed');
+    expect(
+      a.world.comments
+        .filter((c) => c.assessmentId === roundOneId)
+        .map((c) => [c.id, c.state]),
+    ).toEqual([
+      [7001, 'lead_sided_program'],
+      [7002, 'lead_sided_program'],
+    ]);
+  });
+
+  it('T-17: while another comment on the field is escalated the rest offers only escalate; clearing restores both choices', async () => {
+    plantRoundOneComment(a, roundOneId, 7003, {
+      state: 'disagreed',
+      fieldKey: FIRST,
+    });
+    const threadOf = async () => {
+      const view = await a.send('get', resultPath('', code), { token: lead() });
+      return view.body.data.sections
+        .flatMap(
+          (s: { fields: Array<{ key: string; thread: unknown[] }> }) =>
+            s.fields,
+        )
+        .find((f: { key: string }) => f.key === FIRST).thread;
+    };
+    const both = ['agree_program', 'escalate'];
+
+    await decide(7001, 'escalate');
+    expect(await threadOf()).toMatchObject([
+      { commentId: 7001, decidable: true, choices: both },
+      { commentId: 7003, decidable: true, choices: ['escalate'] },
+    ]);
+    const refused = await decide(7003, 'agree_program');
+    expect(refused.status).toBe(409);
+    expect(refused.body.error.code).toBe('ASSESSMENT_FIELD_ESCALATED');
+
+    const cleared = await a.send('delete', decisionPath(code, 7001), {
+      token: lead(),
+    });
+    expect(cleared.status).toBe(200);
+    expect(await threadOf()).toMatchObject([
+      { commentId: 7001, choices: both },
+      { commentId: 7003, choices: both },
+    ]);
+  });
+
+  it('T-17: once the review is finished the undecided round-1 comment on an escalated field reads not decidable, the decided one keeps its decision', async () => {
+    plantRoundOneComment(a, roundOneId, 7003, {
+      state: 'disagreed',
+      fieldKey: FIRST,
+    });
+    const threadOf = async () => {
+      const view = await a.send('get', resultPath('', code), { token: lead() });
+      return view.body.data.sections
+        .flatMap(
+          (s: { fields: Array<{ key: string; thread: unknown[] }> }) =>
+            s.fields,
+        )
+        .find((f: { key: string }) => f.key === FIRST).thread;
+    };
+
+    expect(await threadOf()).toMatchObject([
+      { commentId: 7001, decidable: true },
+      { commentId: 7003, decidable: true },
+    ]);
+
+    expect((await decide(7001, 'escalate')).status).toBe(200);
+    expect((await decide(7002, 'escalate')).status).toBe(200);
+    const done = await a.send('post', resultPath('/finish', code), {
+      token: lead(),
+    });
+    expect(done.status).toBe(200);
+
+    expect(await threadOf()).toMatchObject([
+      {
+        commentId: 7001,
+        decision: { decision: 'escalate' },
+        decidable: false,
+        choices: [],
+      },
+      { commentId: 7003, decidable: false, choices: [] },
+    ]);
+  });
+
+  it('T-17: after the Lead step closes (assessment still pending) the thread items and the own comments read not decidable', async () => {
+    const created = await a.send('post', resultPath('/comments', code), {
+      token: lead(),
+      body: { fieldKey: FIRST, body: 'My own finding' },
+      key: 'own-closed-1',
+    });
+    expect(created.status).toBe(201);
+    const fieldOf = async () => {
+      const view = await a.send('get', resultPath('', code), { token: lead() });
+      return view.body.data.sections
+        .flatMap((s: { fields: Array<Record<string, unknown>> }) => s.fields)
+        .find((f: { key: string }) => f.key === FIRST);
+    };
+
+    expect(await fieldOf()).toMatchObject({
+      thread: [{ commentId: 7001, decidable: true }],
+      comments: [{ decidable: true, choices: ['escalate'] }],
+    });
+
+    a.setClock(new Date('2026-11-28T10:00:00Z')); // step 3 closed
+    expect(roundTwoAssessment()?.status).toBe('pending');
+
+    expect(await fieldOf()).toMatchObject({
+      thread: [{ commentId: 7001, decidable: false, choices: [] }],
+      comments: [{ decidable: false, choices: [] }],
+    });
+  });
+
   it('DELETE: 200 with no decision, and an agreed field goes back to grey', async () => {
     await decide(7001, 'agree_program');
 
@@ -386,5 +521,92 @@ describe('The Lead own comment on a new round-2 result (e2e)', () => {
     expect(
       a.world.commentDecisions.map((d) => [d.commentId, d.decision]),
     ).toEqual([[commentId, 'escalate']]);
+  });
+
+  it('T-16: a reload shows the Lead own comment with its escalate decision; before the decision it is decidable with decision null', async () => {
+    const ownComments = async () => {
+      const view = await a.send('get', resultPath('', code), {
+        token: lead(),
+      });
+      const fields = view.body.data.sections.flatMap(
+        (s: { fields: Array<{ key: string; comments: unknown[] }> }) =>
+          s.fields,
+      );
+      return fields.find((f: { key: string }) => f.key === FIRST).comments;
+    };
+    const created = await a.send('post', resultPath('/comments', code), {
+      token: lead(),
+      body: { fieldKey: FIRST, body: 'The core field is wrong' },
+      key: 'own-reload-1',
+    });
+    const commentId = created.body.data.id as number;
+
+    expect(await ownComments()).toMatchObject([
+      { id: commentId, decision: null, decidable: true, choices: ['escalate'] },
+    ]);
+
+    await a.send('put', decisionPath(code, commentId), {
+      token: lead(),
+      body: { decision: 'escalate', body: 'Escalating my own finding' },
+    });
+
+    expect(await ownComments()).toMatchObject([
+      {
+        id: commentId,
+        decision: {
+          decision: 'escalate',
+          body: 'Escalating my own finding',
+          decidedAt: '2026-11-25T10:00:00.000Z',
+        },
+        decidable: true,
+        choices: ['escalate'],
+      },
+    ]);
+  });
+
+  it('T-16: after the review ends the own comment is not decidable and keeps its decision; a withdrawn one reads decision null', async () => {
+    const commentsOf = async () => {
+      const view = await a.send('get', resultPath('', code), {
+        token: lead(),
+      });
+      return view.body.data.sections
+        .flatMap(
+          (s: { fields: Array<{ key: string; comments: unknown[] }> }) =>
+            s.fields,
+        )
+        .find((f: { key: string }) => f.key === FIRST).comments;
+    };
+    const post = async (key: string) =>
+      (
+        await a.send('post', resultPath('/comments', code), {
+          token: lead(),
+          body: { fieldKey: FIRST, body: 'A finding' },
+          key,
+        })
+      ).body.data.id as number;
+    const escalated = await post('own-end-1');
+    const withdrawn = await post('own-end-2');
+    for (const id of [escalated, withdrawn]) {
+      await a.send('put', decisionPath(code, id), {
+        token: lead(),
+        body: { decision: 'escalate', body: 'Escalating' },
+      });
+    }
+    await a.send('post', `/assessment-comments/${withdrawn}/withdraw`, {
+      token: lead(),
+      body: {},
+    });
+    a.world.assessments.find((x) => x.membershipId === roundTwoId)!.status =
+      'escalated';
+
+    expect(await commentsOf()).toMatchObject([
+      {
+        id: escalated,
+        decision: { decision: 'escalate' },
+        decidable: false,
+        choices: [],
+      },
+      { id: withdrawn, decision: null, decidable: false, choices: [] },
+    ]);
   });
 });

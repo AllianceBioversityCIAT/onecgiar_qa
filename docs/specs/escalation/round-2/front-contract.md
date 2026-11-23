@@ -6,7 +6,7 @@ What the front may rely on for the Lead Assessor's review of a re-submitted resu
 
 1. Open the result with the step-1 view route. A Lead's row is round 2: `round` is `2`.
 2. Draw only fields with `actionable: true` as actionable. Every other field is context.
-3. Per core field, show `thread[]`. Show the decision controls on an item only when `writable && item.decidable`; offer exactly `item.choices`.
+3. Per core field, show `thread[]`. Show the decision controls on an item only when `item.decidable`; offer exactly `item.choices`.
 4. Write a decision with `PUT …/assessment/decisions/:commentId`; clear it with `DELETE` on the same path.
 5. Finish with `POST …/assessment/finish`. Read `data.status`: `quality_assessed` or `escalated`.
 6. Read `error.code` on every refusal (section 7). Never parse `error.message`.
@@ -58,10 +58,42 @@ Comments neither withdrawn nor deleted, ordered by comment.
 | `response` | The program's latest response; absent when none. The responder is named, never an email |
 | `clarifications` | Every request with its answer, oldest first |
 | `decision` | The Lead's current decision; absent when none |
-| `decidable` | The comment can take a decision from this caller. It ignores `writable` |
+| `decidable` | The comment can take a decision from this caller now. It already folds in the end of the review and a read-only view: `false` (with `choices: []`, `decision` kept) once the review ended |
 | `choices` | The decisions to offer. `[]` when not decidable and always for ADMIN |
 
-Decidable round-1 comments are those in state `disagreed`, `open` or `clarification_requested` on an actionable field: `choices` is `['agree_program', 'escalate']`. The Lead's own round-2 comment takes `['escalate']` only. Gate every decision control on **`writable && decidable`**: `decidable` alone is true on a finished or closed review.
+Decidable round-1 comments are those in state `disagreed`, `open` or `clarification_requested` on an actionable field: `choices` is `['agree_program', 'escalate']`. The Lead's own round-2 comment takes `['escalate']` only. Gate every decision control on **`decidable`** alone, for `thread[]` items and for the Lead's own comments in `comments[]` (§ 3.2): `decidable` already folds in the end of the review and a read-only view, so do not combine it with `writable`. `choices` also folds in the escalate rule: while ANOTHER live comment on the same field carries an `escalate` (a round-1 item or the Lead's own comment), `agree_program` is not offered, so `choices` is `['escalate']` and `decidable` stays `true`. An item's own escalate does not count, and clearing the escalate restores both choices. Offer exactly `choices`; never add `agree_program` back (the route would answer 409 `ASSESSMENT_FIELD_ESCALATED`).
+
+### 3.2 The Lead's own round-2 comments in `comments[]`
+
+In round 2, for the **Lead**, each item of a field's `comments[]` that the caller wrote in round 2 carries three more keys, with the meaning and the decision object of a `thread[]` item (3.1). Use them to draw the "Escalated" state after a reload.
+
+```
+{ …the comment as before (id, fieldKey, author, body, state, stepPosition, round, valueCopy, valueTruncated, createdAt, withdrawnAt),
+  decision: { decision: 'escalate', body: string | null, decidedAt } | null,
+  decidable: boolean, choices: ['escalate'] | [] }
+```
+
+| Key | Rule |
+|---|---|
+| `decision` | The Lead's live decision on the comment; `null` when none is set (always present on these comments, unlike `thread[]` where it is absent). A decision on a withdrawn comment is `null` |
+| `decidable` | `true` while the comment is `open`, the review has not ended and the view is writable; `false` once withdrawn, in a read-only view (step closed) or **after the review ends** (an own comment still `open` at the end too: any decide is then 409 `ASSESSMENT_FINISHED`). Same rule as `thread[]` items |
+| `choices` | `['escalate']` while decidable (no `agree_program` on your own comment); `[]` otherwise, and always after the end. `decision` is kept after the end |
+
+The keys are **absent** on every other comment: round 1, the Assessor's view, ADMIN, and any comment another user wrote. Round-1 and Assessor shapes are unchanged.
+
+Example, Lead re-reading round 2 after escalating its own comment:
+
+```
+"comments": [{
+  "id": 8101, "fieldKey": "general.title",
+  "author": { "id": 14, "nickname": "Lea" }, "body": "The core field is wrong",
+  "state": "open", "stepPosition": 3, "round": 2,
+  "valueCopy": { "value": "Title" }, "valueTruncated": false,
+  "createdAt": "2026-11-25T10:00:00.000Z", "withdrawnAt": null,
+  "decision": { "decision": "escalate", "body": "Escalating my own finding", "decidedAt": "2026-11-25T10:05:00.000Z" },
+  "decidable": true, "choices": ["escalate"]
+}]
+```
 
 ## 4. Routes
 
@@ -90,7 +122,7 @@ No `Idempotency-Key`: a decision is a PUT (the same body twice gives the same st
 - When an agree leaves every core field green, the same call **ends** the review (`status: 'quality_assessed'`, one `qaed` release). `status` is how the front learns it.
 - Comment states change only at the end, not on a decision. Until then the thread shows the decision, not a new `state`.
 - `effectiveValidated` is not in this answer. Re-read the view when the state of every field matters.
-- The Lead's decision on **their own** comment is not in any thread (the thread holds round-1 comments). Before the end it is visible only in this answer; after the end it shows as the comment's `state` (`escalated`, `lead_sided_program`) in the field's `comments`.
+- The Lead's decision on **their own** comment is not in any thread (the thread holds round-1 comments). It is in the view on the comment itself, in the field's `comments[]` (3.2), so a reload shows it. After the end the comment's `state` also moves to `escalated`.
 
 ### 4.2 Validations in round 2
 
@@ -100,7 +132,7 @@ Same request as step-1 6.1, on core fields only. In round 2 the answer adds:
 effectiveValidated: [{ fieldKey, validated }]    // every core field, sorted ascending by fieldKey
 ```
 
-It is present in round 2 only. `validations` stays the stored rows. `all: true` covers the core fields only. **Check all is refused whole** (409 `ASSESSMENT_FIELD_ESCALATED`, nothing written) once any core field is escalated: send `fieldKeys` instead.
+It is present in round 2 only. `validations` stays the stored rows. `all: true` covers the core fields only. **Check all is refused whole** (409 `ASSESSMENT_FIELD_ESCALATED`, nothing written) once any core field is escalated: send `fieldKeys` instead. **A core field with an undecided round-1 comment cannot be validated green** (409 `ASSESSMENT_CORE_COMMENT_UNDECIDED`, `error.fields`, nothing written; Check all too): the Lead decides the comment first (`agree_program` greens the field once no other round-1 comment on it is undecided). Un-validating is never refused by this rule.
 
 ### 4.3 Finish
 
@@ -146,6 +178,7 @@ New in round 2 (all 409). The step-1 codes keep their meaning; see its section 9
 |---|---|
 | `ASSESSMENT_FIELD_NOT_CORE` | Validation or comment on an Assessed field that is not core (context only) |
 | `ASSESSMENT_FIELD_ESCALATED` | Validating a field that carries an `escalate`; an agree on a field another comment escalated; Check all while any core field is escalated |
+| `ASSESSMENT_CORE_COMMENT_UNDECIDED` | Validating green (or Check all) a core field with an undecided round-1 comment; `error.fields` lists them |
 | `ASSESSMENT_DECISION_INVALID` | A decision that does not apply: the comment is not decidable, or the choice is not in its `choices` |
 | `ASSESSMENT_CORE_UNDECIDED` | Finish with grey core fields and no `escalate` on them; carries `error.fields: string[]` |
 | `ASSESSMENT_COMMENT_NOT_DELETABLE` | Delete (4.4) |
@@ -161,7 +194,7 @@ Nothing for TPB or PPU is built in this spec. The design (`design.md` § 12) add
 - [ ] Types accept `round`, per-field `updated`, `actionable`, `effectiveValidated`, `carried`, `thread[]`.
 - [ ] Only `actionable` fields take a check or a comment; the rest render as context.
 - [ ] The check follows `effectiveValidated`; the hint follows `carried`.
-- [ ] Decision controls are gated on `writable && decidable` and offer `choices`.
+- [ ] Decision controls are gated on `decidable` alone and offer `choices`.
 - [ ] After a decision or a delete, the view is re-read (either can end the review).
 - [ ] The finish handler reads `status: 'escalated'` and the 409 `ASSESSMENT_CORE_UNDECIDED` `error.fields`.
 - [ ] Check all is replaced by `fieldKeys` once a field is escalated.

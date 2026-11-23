@@ -371,6 +371,11 @@ export const ERROR_CATALOG = {
     message:
       'Some core fields are neither validated nor escalated. Validate them or escalate them before finishing.',
   },
+  ASSESSMENT_CORE_COMMENT_UNDECIDED: {
+    status: 409,
+    message:
+      'A round-1 comment on these fields has no decision yet. Agree with the program or escalate it before validating the field.',
+  },
   ASSESSMENT_COMMENT_NOT_DELETABLE: {
     status: 409,
     message: 'This comment cannot be deleted.',

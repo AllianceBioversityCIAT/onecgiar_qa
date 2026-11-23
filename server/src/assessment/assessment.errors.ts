@@ -151,6 +151,16 @@ export class AssessmentFieldEscalatedError extends ConflictException {
   }
 }
 
+/**
+ * Round 2: validating a core field whose round-1 comment has no Lead decision is refused
+ * (HITL O-1). `fields` are the undecided core keys, sorted; the global filter forwards them as `error.fields`.
+ */
+export class AssessmentCoreCommentUndecidedError extends ConflictException {
+  constructor(readonly fields: string[]) {
+    super({ ...errorBody('ASSESSMENT_CORE_COMMENT_UNDECIDED'), fields });
+  }
+}
+
 /** Round 2: the decision does not apply to this comment (declared here, thrown by the decision task). */
 export class AssessmentDecisionInvalidError extends ConflictException {
   constructor() {

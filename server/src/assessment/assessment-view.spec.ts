@@ -554,6 +554,9 @@ describe('annotateForRound (FR-3, FR-4, FR-5, FR-7)', () => {
     stored: new Map(),
     roundOneGreens: new Set(),
     thread: [],
+    userId: 9,
+    ownDecisions: new Map(),
+    ended: false,
     ...over,
   });
 
@@ -841,6 +844,109 @@ describe('annotateForRound (FR-3, FR-4, FR-5, FR-7)', () => {
       });
     });
 
+    it('T-17: after the review ended an undecided item is not decidable, no choices; a decided one keeps its decision', () => {
+      const ended = fieldsOf(
+        annotateForRound(
+          roundView(),
+          input({
+            ended: true,
+            thread: [
+              line({ commentId: 7001 }),
+              line({
+                commentId: 7002,
+                decision: 'escalate',
+                decisionBody: 'Needs the leads.',
+                decidedAt: new Date('2026-11-25T09:00:00.000Z'),
+              }),
+            ],
+          }),
+        ),
+      );
+      expect(ended[CORE]!.thread).toMatchObject([
+        { commentId: 7001, decidable: false, choices: [] },
+        {
+          commentId: 7002,
+          decision: { decision: 'escalate' },
+          decidable: false,
+          choices: [],
+        },
+      ]);
+      const before = fieldsOf(
+        annotateForRound(
+          roundView(),
+          input({ ended: false, thread: [line({ commentId: 7001 })] }),
+        ),
+      );
+      expect(before[CORE]!.thread[0]).toMatchObject({
+        decidable: true,
+        choices: ['agree_program', 'escalate'],
+      });
+    });
+
+    it('T-17: a field another live comment escalated offers only escalate on the rest; the escalated one keeps both; clearing restores both', () => {
+      const thread = (escalated: boolean) => [
+        line({
+          commentId: 7001,
+          ...(escalated
+            ? {
+                decision: 'escalate' as const,
+                decisionBody: 'Needs the leads.',
+                decidedAt: new Date('2026-11-25T09:00:00.000Z'),
+              }
+            : {}),
+        }),
+        line({ commentId: 7003 }),
+        line({ commentId: 7004, state: 'accepted' }),
+      ];
+      const items = (escalated: boolean) =>
+        fieldsOf(
+          annotateForRound(roundView(), input({ thread: thread(escalated) })),
+        )[CORE]!.thread;
+      expect(items(true)).toMatchObject([
+        {
+          commentId: 7001,
+          decidable: true,
+          choices: ['agree_program', 'escalate'],
+        },
+        { commentId: 7003, decidable: true, choices: ['escalate'] },
+        { commentId: 7004, decidable: false, choices: [] },
+      ]);
+      expect(items(false)).toMatchObject([
+        { commentId: 7001, choices: ['agree_program', 'escalate'] },
+        { commentId: 7003, choices: ['agree_program', 'escalate'] },
+        { commentId: 7004, choices: [] },
+      ]);
+    });
+
+    it('T-17: an escalate on another core field leaves agree_program offered here', () => {
+      const out = fieldsOf(
+        annotateForRound(
+          roundView(),
+          input({
+            thread: [
+              line({ commentId: 7001, fieldKey: CORE }),
+              line({
+                commentId: 7002,
+                fieldKey: CORE_2,
+                decision: 'escalate',
+                decisionBody: 'x',
+                decidedAt: new Date('2026-11-25T09:00:00.000Z'),
+              }),
+            ],
+          }),
+        ),
+      );
+      expect(out[CORE_2]!.thread[0]).toMatchObject({
+        commentId: 7002,
+        choices: ['agree_program', 'escalate'],
+      });
+      expect(out[CORE]!.thread[0]).toMatchObject({
+        commentId: 7001,
+        decidable: true,
+        choices: ['agree_program', 'escalate'],
+      });
+    });
+
     it('ADMIN (role null) reads the thread and decides nothing', () => {
       const out = fieldsOf(
         annotateForRound(roundView(), input({ role: null, thread: lines })),
@@ -869,6 +975,132 @@ describe('annotateForRound (FR-3, FR-4, FR-5, FR-7)', () => {
       );
       expect(out[CORE]!.thread.map((i) => i.commentId)).toEqual([11, 12]);
       expect(out[CORE_2]!.thread.map((i) => i.commentId)).toEqual([13]);
+    });
+  });
+  // T-16: the Lead's own round-2 comments carry the decision in `comments[]`.
+  describe('T-16 the Lead own round-2 comments', () => {
+    const own = (over: Partial<ViewComment> = {}): ViewComment => ({
+      id: 31,
+      fieldKey: CORE,
+      author: { id: 9, nickname: 'Lea' },
+      body: 'My finding',
+      state: 'open',
+      stepPosition: 3,
+      round: 2,
+      valueCopy: { value: 'T' },
+      valueTruncated: false,
+      createdAt: '2026-11-25T10:00:00.000Z',
+      withdrawnAt: null,
+      ...over,
+    });
+    const run = (
+      comment: ViewComment,
+      over: Partial<RoundViewInput> = {},
+    ): Record<string, unknown> => {
+      const out = fieldsOf(
+        annotateForRound(
+          build({
+            comments: [comment],
+            config: config({
+              [CORE]: { visibility: 'assessed', isCore: true },
+            }),
+            values: { [CORE]: 'T' },
+          }),
+          input(over),
+        ),
+      );
+      return out[CORE]!.comments[0] as unknown as Record<string, unknown>;
+    };
+    const decided = new Map([
+      [
+        31,
+        {
+          decision: 'escalate',
+          body: 'Escalating my own finding',
+          decidedAt: '2026-11-25T10:05:00.000Z',
+        },
+      ],
+    ]);
+
+    it('an undecided own comment: decision null, decidable, escalate only', () => {
+      expect(run(own())).toMatchObject({
+        decision: null,
+        decidable: true,
+        choices: ['escalate'],
+      });
+    });
+
+    it('an escalated own comment carries the decision object of thread[]', () => {
+      expect(run(own(), { ownDecisions: decided })).toMatchObject({
+        decision: {
+          decision: 'escalate',
+          body: 'Escalating my own finding',
+          decidedAt: '2026-11-25T10:05:00.000Z',
+        },
+        decidable: true,
+        choices: ['escalate'],
+      });
+    });
+
+    it('a withdrawn own comment: not decidable, no choices', () => {
+      expect(
+        run(
+          own({ state: 'withdrawn', withdrawnAt: '2026-11-25T10:06:00.000Z' }),
+        ),
+      ).toMatchObject({ decidable: false, choices: [] });
+    });
+
+    it('after the end the own comment is escalated: not decidable, the decision stays', () => {
+      expect(
+        run(own({ state: 'escalated' }), { ownDecisions: decided }),
+      ).toMatchObject({
+        decision: { decision: 'escalate' },
+        decidable: false,
+        choices: [],
+      });
+    });
+
+    it('an own comment still open when the review ended: not decidable, no choices, the decision kept', () => {
+      expect(run(own(), { ended: true })).toMatchObject({
+        decision: null,
+        decidable: false,
+        choices: [],
+      });
+      expect(run(own(), { ended: true, ownDecisions: decided })).toMatchObject({
+        decision: { decision: 'escalate' },
+        decidable: false,
+        choices: [],
+      });
+    });
+
+    it('T-17: the Lead own escalated comment on the field makes a round-1 item offer only escalate', () => {
+      const out = fieldsOf(
+        annotateForRound(
+          build({
+            comments: [own()],
+            config: config({
+              [CORE]: { visibility: 'assessed', isCore: true },
+            }),
+            values: { [CORE]: 'T' },
+          }),
+          input({ ownDecisions: decided, thread: [line({ commentId: 7003 })] }),
+        ),
+      );
+      expect(out[CORE]!.thread[0]).toMatchObject({
+        decidable: true,
+        choices: ['escalate'],
+      });
+    });
+
+    it('round 1, the Assessor view and another author get no new key', () => {
+      const keys = (c: Record<string, unknown>) => Object.keys(c).sort();
+      const plain = keys(own() as unknown as Record<string, unknown>);
+      expect(keys(run(own(), { round: 1, role: 'ASSESSOR' }))).toEqual(plain);
+      expect(keys(run(own(), { role: 'ASSESSOR' }))).toEqual(plain);
+      expect(keys(run(own(), { role: null }))).toEqual(plain);
+      expect(keys(run(own({ author: { id: 4, nickname: 'Ana' } })))).toEqual(
+        plain,
+      );
     });
   });
 });

@@ -216,3 +216,64 @@
 - **Requirements covered:** FR-17, FR-2 (via the reused view; asserted in the scope e2e), proposal § 13.
 - **Running totals vs budget (~10,200):** back tasks done 12/12 · LOC ≈ 9,800 · review rounds 22/~22.
 - auto-approved (pre-approved mode)
+
+### T-14: API HITL on qatest — RUN, awaiting the back lead's PASS (2026-11-20)
+
+- **Environment:** qatest API after the `dev` deploy of `0a4379f` (pipeline success). Own timeline only; timelines 34–37 untouched (read-only GETs of their scope and assignments).
+- **`0013` applied:** indirect evidence only — the pipeline runs the migrate image before the container swap and succeeded; worklist and assessment view answer 200 on round-2 queries; the decision routes exist (admin write 403). No direct read of `__drizzle_migrations` (no DB access from this machine).
+- **Rollback of `0013`: NOT tested on a real MySQL** (no Docker/MySQL here; never on qatest, it is shared). Back lead, 2026-11-20: resolve with a disposable server DB or a CI job **before** P2-3912 goes to `staging-center`.
+- **DD-11 ratified** by the back lead, 2026-11-20 (an answered clarification shows `open` to the program; P2-3911 AC11).
+- **Staging (ids only):** timeline 40 in cycle 34 (SP05, `policy_change`, 5 steps); pinned config v4 has one core assessed field, `general.title`. Results 10151, 10152, 10153 (Reporting test data, no personal data). Assignments 37 (Assessor, user 1050) and 38 (Lead, user 1053). Loads 22 (round 1, 3/3) and 23 (round 2, 3/3 resubmitted). Comments 11, 12, 14 (title, core) and 13 (result level, non-core). User 1053 got `LEAD_ASSESSOR` on `policy_change` only (Assessor and Lead on the same type is 409 `USERS_ROLE_CONFLICT`); restored to `ASSESSOR` all at the end.
+
+| # | Step | Expected | Observed |
+|---|---|---|---|
+| 1 | Lead opens a result in round 1 | 404 (FR-1) | 404 |
+| 2 | Round 1: 3 finishes with core comments | `returned`, one `not_qaed` release each | 3 × `returned`; 2 releases acknowledged at once, 10153's stayed `pending` (attempts 1) — see finding F-1 |
+| 3 | Admin `POST /assessment-releases/retry` | the stuck row is sent | `attempted 1, sent 1, refused 0, stillPending 0`; Reporting unlocked 10153 |
+| 4 | SP answers (step 2): 11 disagree, 12 disagree, 13 accept, 14 none | stored | stored (Reporting report) |
+| 5 | Round-2 load (step 3) | 3 resubmitted, 0 skipped | load 23: 3/3 `resubmitted` |
+| 6 | Lead view | core `actionable`, non-core not; round-1 thread with SP answer; `disagreed` and `open` decidable | as expected; `choices: [agree_program, escalate]` on 11, 12, 14 |
+| 7 | 10151: escalate 11 | stays `pending` | `pending` |
+| 8 | 10151: **5 parallel finishes** (real MySQL) | exactly one end | 1 × 200 `escalated`, 4 × 409 `ASSESSMENT_FINISHED` |
+| 9 | 10151 after the end | `pending_tpb_review`, no release, comment `escalated` | as expected; release queue empty |
+| 10 | 10152: `agree_program` on 12 (13 non-core accepted) | ends `quality_assessed` on the write; `qaed` release | `quality_assessed`; `qaed` queued and acknowledged < 4 s; comment 12 `lead_sided_program` |
+| 11 | 10153: finish with the core field undecided | 409 `ASSESSMENT_CORE_UNDECIDED` with `fields` | 409, `fields: ["general.title"]` |
+| 12 | 10153: Lead validates `general.title` | ends `quality_assessed`; `qaed` release | `quality_assessed`; release acknowledged; then a decision on 14 is 409 `ASSESSMENT_FINISHED` — see observation O-1 |
+
+- **F-1 (pre-existing, P2-3910 `e013845`):** the release outbox has no periodic sweep. A row whose post-end dispatch fails stays `pending` until another end or an admin retry; with neither it stays forever and Reporting keeps the result locked. Not fixed here.
+- **O-1 (needs a business call):** validating a core field directly ends the review while its round-1 comment has no decision. Comment 14 stays `open` on a `quality_assessed` result (FR-8 maps only decided comments; a plain validation is allowed). Options: accept as is, or treat a validation over an undecided round-1 comment as `agree_program`.
+- **Index check (T-11 ADVISORY):** not run — no DB access; the SP read answered in normal time on 3 results, which proves nothing about scale.
+- **Reporting-side notes (not QA):** Reporting let General information of a locked result be edited (reverted by its agent); the SP answers 11–13 carry the real identity of the session that made them.
+- **Credentials:** tokens kept in a 600 file outside the repo, never printed; deleted at the end. Logout answered 403 (the route uses the session cookie), so the access tokens live until they expire (≤ 1 h).
+
+### T-14: PASS (back lead, 2026-11-20)
+
+- PASS with two items **pending before `staging-center`**: the direct check that `0013` is applied, and its rollback on a real MySQL (to settle with Cris). O-1 → T-15 (block). F-1 → separate bugfix spec `bugfix/release-sweep` on branch `fix/P2-3910-release-sweep` (round 1, not this branch).
+
+### T-15: Lead cannot validate a core field whose round-1 comment is undecided (HITL O-1) — PASS (2026-11-20)
+
+- **Attempts:** 2. Effort high → xhigh. Skills: tdd, nestjs-best-practices.
+- **Spec amendment (Leader, back lead's decision "bloquear"):** FR-8 row *none (undecided)*, the "decided field" definition and the new scenario; design § 4 code; `front-contract.md` validations + codes; step-1 contract § 9 (14 codes). Back lead confirmed: with two round-1 comments on a core field, `agree_program` on one keeps the field grey until the other is decided.
+- **Attempt 1** — new 409 `ASSESSMENT_CORE_COMMENT_UNDECIDED` with sorted `fields` (errors, registry, filter, OpenAPI, AGENTS); `undecidedCommentFields` (pure, on `isDecidable`); store `findLiveCommentStates` (not withdrawn, not deleted); guard in the round-2 validations PUT after the escalated check, whole request refused, nothing written; `agree_program` greens only when nothing on the field is undecided. 6 existing test setups changed to decide before validating (Leader checked each against HEAD: justified, assertions kept). Red/falsifier: guard removed → unit 6 failed ("expected a refusal"), e2e "expected 200 to be 409", falsifier log `200 quality_assessed [[7001,"open"],[7002,"open"]]` (the qatest outcome). Verification: unit 4189 / 6 skipped · e2e 1318 · lint · build · client ok. Re-run (Leader): decisions + common unit 510/510, decisions + openapi e2e 34/34, parity EQUAL → **VERIFIED**. Reviewer **FAIL**: clearing one of two agrees left the field green with the cleared comment undecided (pre-existing test asserted it) → O-1 by another route.
+- **Attempt 2** — FR-8 "cleared" row amended (Leader): clearing an agree greys the field even if another agree remains; other decisions kept; re-deciding greens it. `stillAgreed` removed from the clear branch; test flipped; new test clear → finish 409 `ASSESSMENT_CORE_UNDECIDED` → re-agree → end. Red: "expected [ … validated: true … ] to deeply equal [ … validated: false … ]". Verification: unit 4190 / 6 skipped · e2e 1318 · lint · build · client ok. Re-run (Leader): decisions unit 62/62 → **VERIFIED**. Reviewer **PASS**.
+- **ADVISORY (taken):** a field may end with an agree on one comment and an escalate on another — FR-8 note added (per-comment end states, the field counts as escalated). Open: the Drizzle query `buildLiveCommentStates` is only type-checked by the e2e (in-memory world) — re-run the O-1 path at the next qatest HITL.
+- **Requirements covered:** FR-8 (undecided scenario, cleared row).
+
+### T-16: The Lead's own round-2 comments carry their decision in the view — PASS (2026-11-20)
+
+- **Attempts:** 2. Effort high → xhigh. Skills: tdd, nestjs-best-practices. Back lead's request for Yeck's front (T-13).
+- **Attempt 1** — `OwnViewComment` with `decision`, `decidable`, `choices` on the Lead's own round-2 comments in `comments[]` (`withOwn` in `annotateForRound`); `isDecidable` own branch narrowed to state `open`; `findDecisions` on the read store; OpenAPI `AssessmentOwnCommentModel`; `front-contract.md` § 3.2. Red: 4 view + 1 rules cases (keys absent; escalated still offered). Falsifier: `decision: null` → e2e reload check red. Verification: unit 4196 / 6 skipped · e2e 1319 · lint · build · client ok. Re-run (Leader): view + rules + decisions unit 152/152, decisions + openapi + round-two-view e2e 55/55 → **VERIFIED**. Reviewer **FAIL**: an own comment still `open` at the end read `decidable: true, choices: ['escalate']` (card: `[]` after the end).
+- **Attempt 2** — `RoundViewInput.ended`; after the end own comments read `decidable: false, choices: []`, decision kept; `thread[]` untouched. Advisories taken: `anyOf`, withdrawn-decision e2e, `findDecisions` only for the Lead inside the `Promise.all`, fake delegates. Red: "decidable: false expected, true received". Verification: unit 4197 / 6 skipped · e2e 1320 · lint · build · client ok. Re-run (Leader): view + rules unit 91/91, decisions + openapi e2e 36/36 → **VERIFIED**. Reviewer **PASS**.
+- **Leader doc precision edit:** `front-contract.md` gating sentence scoped to round-1 `thread[]` items.
+- **Open (not acted on):** `thread[]` can still read `decidable: true` after the end for an undecided round-1 comment on a field another comment escalated (pre-existing; the front gates on `writable && decidable`) — offered to the back lead as a small follow-up. `ended` reads the assessment status only, like the existing `finished` flag.
+- **Also recorded:** the deletion history UI ("Deleted by … on …") is out of scope of P2-3912 → P2-3915 (`requirements.md` § 4), back lead 2026-11-20.
+- **Requirements covered:** FR-9 (view), FR-2.
+
+### T-17: thread[] items read not decidable once they can no longer be decided — PASS (2026-11-20)
+
+- **Attempts:** 1 (with two Leader-directed extensions before review). Effort high. Skills: tdd. Back lead's request: the front looks at `decidable` only.
+- **Changes:** `toThreadItems(..., ended, escalatedOn)`; `ended` = `!writable || finished` ("the view takes no decision": end of review, step closed, read-only), also for own comments (T-16 rule widened); before the end a round-1 item on a field where another live comment is escalated offers `['escalate']` only (mirrors 409 `ASSESSMENT_FIELD_ESCALATED`; own escalate does not count; clearing restores). View builder only; decide write path unchanged. `front-contract.md` (§ 3, gating sentence, § 3.2, checklist): gate on `decidable` alone. OpenAPI and AGENTS texts.
+- **Red:** unit "expected [ { commentId: 7001, …(9) } ] to match object [ { commentId: 7001, …(2) } ]" (ended); unit 2 failed + e2e 1 failed (escalate filter). **Falsifiers:** ended check dropped → unit + e2e red; escalate filter dropped → unit 2 + e2e 1 red; after the review's advisory tests: `!writable` half dropped → closed-step e2e red; field-agnostic `escalatedOn` → per-field unit red.
+- **Verification:** unit 4201 / 6 skipped · e2e 1323 · lint · build · client ok. Re-run (Leader): view + decisions unit 113/113, decisions + openapi e2e 38/38 → **VERIFIED**. Reviewer **PASS**.
+- **ADVISORY taken:** closed-step e2e, per-field unit test, contract line on read-only views (Leader edit).
+- **Requirements covered:** FR-8 (view side), FR-2.

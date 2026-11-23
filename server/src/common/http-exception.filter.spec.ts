@@ -327,6 +327,29 @@ describe('toErrorBody: only catalog text reaches the client', () => {
     ).not.toHaveProperty('fields');
   });
 
+  it('forwards the field keys of ASSESSMENT_CORE_COMMENT_UNDECIDED, strings only (HITL O-1)', () => {
+    expect(
+      toErrorBody(
+        new ConflictException({
+          code: 'ASSESSMENT_CORE_COMMENT_UNDECIDED',
+          fields: ['general.title'],
+        }),
+      ),
+    ).toMatchObject({
+      status: 409,
+      code: 'ASSESSMENT_CORE_COMMENT_UNDECIDED',
+      fields: ['general.title'],
+    });
+    expect(
+      toErrorBody(
+        new ConflictException({
+          code: 'ASSESSMENT_CORE_COMMENT_UNDECIDED',
+          fields: [{ field: 'x', message: EMAIL }, 7],
+        }),
+      ),
+    ).not.toHaveProperty('fields');
+  });
+
   it('forwards only strings for ASSESSMENT_CORE_UNCOMMENTED, and never fields for another 409', () => {
     expect(
       toErrorBody(

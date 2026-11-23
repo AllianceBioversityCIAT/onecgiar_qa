@@ -66,6 +66,7 @@ The same model carries the TPB (step 4) and PPU (step 5) stories. They are desig
 - returning to the program in round 2;
 - notifications;
 - the comments export (P2-3914).
+- showing the deletion history in the UI ("Deleted by … on …") — it belongs to P2-3915 (Traceability). P2-3912 stores who and when (`deleted_by`, `deleted_at`, a `comment_events` row and the `comment_delete` audit row) and hides the comment; no route exposes the history yet (back lead, 2026-11-20).
 
 **Current behavior:**
 
@@ -203,7 +204,10 @@ On a decidable round-1 core comment the Lead SHALL set `agree_program` or `escal
 |---|---|---|
 | `agree_program` | The field turns green | Comment → `lead_sided_program` (closed) |
 | `escalate` | The field stays grey; validating it is refused | Comment → `escalated` (open) |
-| cleared | An `agree_program` green goes back to grey | none |
+| cleared | An `agree_program` green goes back to grey — also when another `agree_program` on the same field remains, because the cleared comment is undecided again (amended 2026-11-20, T-15 review); the remaining decisions are kept, so deciding the comment again greens the field | none |
+| none (undecided) | The field cannot be validated green: 409 `ASSESSMENT_CORE_COMMENT_UNDECIDED` (amended 2026-11-20, back lead, HITL O-1) | — |
+
+A core field is **decided** when every live decidable round-1 comment on it (`disagreed`, `open`, `clarification_requested`; not withdrawn, not deleted) carries a live decision. The Lead decides first; a plain validation never closes a round-1 comment. Decisions are per comment: one field may end with an `agree_program` on one comment and an `escalate` on another; the field then counts as escalated, and at the end each comment closes on its own decision (`lead_sided_program`, `escalated`).
 
 #### Scenario: Agree with the program
 
@@ -230,6 +234,16 @@ On a decidable round-1 core comment the Lead SHALL set `agree_program` or `escal
 - WHEN the Lead un-greens F
 - THEN the decision on C is cleared in the same transaction
 
+#### Scenario: Validate a core field whose round-1 comment is undecided (amended 2026-11-20, HITL O-1)
+
+- GIVEN C `open` (or `disagreed`, `clarification_requested`) on core field F, with no decision
+- WHEN the Lead validates F green (by `fieldKeys` or Check all)
+- THEN 409 `ASSESSMENT_CORE_COMMENT_UNDECIDED` with `fields` (the undecided core fields of the request, sorted ascending), and nothing is written
+- AND an escalated field in the same request answers `ASSESSMENT_FIELD_ESCALATED` first (existing precedence)
+- AND after the Lead sets `agree_program` on C, F is green and the review may end (FR-12)
+- AND `agree_program` on C turns F green only when no other live round-1 comment on F is undecided; otherwise F stays grey until the last one is decided
+- BUT un-validating (grey) is never refused by this rule
+
 ### FR-9: Lead's own escalated comment (AC10, OQ-2, OQ-5)
 
 The Lead SHALL be able to comment a core field in round 2, and to `escalate` their own comment (a decision with the same body rules). The Lead may withdraw their own comment while the review is open.
@@ -243,7 +257,7 @@ The Lead SHALL be able to comment a core field in round 2, and to `escalate` the
 
 ### FR-10: Delete another reviewer's comment (AC11, OQ-8)
 
-The Lead SHALL be able to delete a comment written by another reviewer on a membership of the Lead's result types. Deleting stores who and when, keeps the row, and hides the comment from every list, count and end rule. The history (comment events) shows the deletion.
+The Lead SHALL be able to delete a comment written by another reviewer on a membership of the Lead's result types. Deleting stores who and when, keeps the row, and hides the comment from every list, count and end rule. The history (comment events) records the deletion; showing it is out of scope (P2-3915, see § 4).
 
 #### Scenario: Delete
 
