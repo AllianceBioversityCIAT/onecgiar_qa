@@ -120,7 +120,12 @@
                         (act)="onCard(f.id, $event)"
                         (aiShown)="ai.shown(f.id)"
                         (aiCopy)="onAiCopy(f.id)"
-                      />
+                        [error]="store.fieldErrors().get(f.id) ?? ''"
+                      >
+                        @if (f.leadThread.length) {
+                          <qa-review-lead-thread [items]="f.leadThread" [fieldLabel]="f.label" [open]="f.threadOpen" />
+                        }
+                      </qa-review-field-card>
                     } @empty {
                       <p class="m-0 text-(length:--fs-13) text-(--text-4)">No fields in this section.</p>
                     }

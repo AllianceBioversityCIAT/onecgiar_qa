@@ -12,6 +12,7 @@ import { ReviewAside } from './review-aside';
 import { ReviewCodeInfo } from './review-code-info';
 import { CommentsDrawerMode, CommentsDrawerVm, ReviewCommentsDrawer } from './review-comments-drawer';
 import { ReviewFieldCard } from './review-field-card';
+import { ReviewLeadThread } from './review-lead-thread';
 import { FooterMode, ReviewFooter } from './review-footer';
 import { CardAction, SectionNavVm } from './review-model';
 import { ReviewSkeleton } from './review-skeleton';
@@ -48,6 +49,7 @@ const COMPACT_QUERY = '(max-width: 767.98px)';
     ReviewCodeInfo,
     ReviewCommentsDrawer,
     ReviewFieldCard,
+    ReviewLeadThread,
     ReviewFooter,
     ReviewSkeleton,
     ReviewTocSection,
@@ -345,7 +347,12 @@ export class ReviewView {
     const view = this.store.view();
     if (view && returnsOnAnyComment(view)) return false;
     const cores = (view?.sections ?? []).flatMap((s) => s.fields).filter((f) => f.mode === 'assessed' && f.core);
-    return cores.length > 0 && cores.every((f) => f.validated || key === ALL_FIELDS || f.key === key);
+    // Round 2: a field with a round-1 comment still waiting for the Lead's decision cannot turn green (409
+    // ASSESSMENT_CORE_COMMENT_UNDECIDED): the write is sent as is and the refusal shows on the card, no confirmation.
+    const undecided = (key: string) => cores.some((f) => f.key === key && f.thread?.some((t) => t.decidable && !t.decision));
+    if (key !== ALL_FIELDS && undecided(key)) return false;
+    // The effective green (round 2: a green carried from round 1 counts; round 1: equals `validated`).
+    return cores.length > 0 && cores.every((f) => (f.effectiveValidated ?? f.validated) || key === ALL_FIELDS || f.key === key);
   }
 
   protected onTocCard(e: TocCardAction): void {

@@ -11,6 +11,8 @@ import {
   AssessmentComment,
   AssessmentView,
   CommentThread,
+  DecisionResult,
+  LeadDecisionKind,
   QuickComment,
   ValidationSummary,
   ValidationsBody,
@@ -22,6 +24,7 @@ import { Toasts } from '../../../core/http/toasts';
 import { WorkspaceLayout } from '../../../shell/workspace-layout';
 import { clarificationThread, comment, field, viewFixture } from './review.api-fixture';
 import { ReviewView } from './review-view';
+import { decisionResultFixture, endedRoundTwo, roundTwoViewFixture, withField, withThread } from './review.round2-fixture';
 
 /** The signed-in assessor: the author of the fixture's comments. */
 const ME = 1053;
@@ -60,6 +63,12 @@ class FakeApi {
   programResponses = vi.fn<(timelineId: number, code: number) => Observable<readonly CommentThread[]>>(() => of([]));
   answerClarification = vi.fn<(commentId: number, body: string) => Observable<CommentThread>>((commentId) =>
     of(clarificationThread({ commentId, state: 'open' })),
+  );
+  decide = vi.fn<(timelineId: number, code: number, commentId: number, decision: LeadDecisionKind, body: string) => Observable<DecisionResult>>(() =>
+    of(decisionResultFixture()),
+  );
+  clearDecision = vi.fn<(timelineId: number, code: number, commentId: number) => Observable<DecisionResult>>(() =>
+    of(decisionResultFixture({ decision: null, validations: [] })),
   );
 }
 
@@ -984,6 +993,165 @@ describe('ReviewView on the assessment API', () => {
       byName(el, 'View comments1 for Description of Result')!.click();
       await settle();
       expect(document.querySelector('#review-thread-error')?.textContent).toContain("The program's responses could not be loaded.");
+    });
+  });
+
+  describe('round 2: the Lead decides in the card (P2-3912 tramo 3)', () => {
+    const thread = (el: Element) => card(el, 'Description of Result').querySelector('[data-testid="lead-thread"]') as HTMLDetailsElement | null;
+    const inThread = (el: Element, name: string) => {
+      const t = thread(el);
+      return t ? buttons(t).find((b) => (b.getAttribute('aria-label') ?? text(b)) === name) : undefined;
+    };
+    const decisionBox = () => document.querySelector<HTMLTextAreaElement>('#lead-decision-41');
+    const write = (value: string) => {
+      const box = decisionBox()!;
+      box.value = value;
+      box.dispatchEvent(new Event('input'));
+      harness.detectChanges();
+    };
+
+    beforeEach(() => api.view.mockReturnValue(of(roundTwoViewFixture())));
+
+    it('the round-1 thread sits in the core field card, open, with the comment, the program answer and the choices', async () => {
+      const el = await open();
+      const t = thread(el)!;
+      expect(t).not.toBeNull();
+      expect(t.open).toBe(true);
+      expect(text(t)).toContain('The description does not match the evidence.');
+      expect(text(t)).toContain('Pepa Program · Program');
+      expect(text(t)).toContain('Disagreed');
+      expect(text(t)).toContain('Old description');
+      expect(inThread(el, 'Agree with the program')).toBeDefined();
+      expect(inThread(el, 'Escalate to TPB')).toBeDefined();
+      // Not on the carried-green title, nor on the context field.
+      expect(card(el, 'Title of Result').querySelector('[data-testid="lead-thread"]')).toBeNull();
+    });
+
+    it('a decision needs a comment: an empty Save sends nothing and says why next to the control', async () => {
+      const el = await open();
+      inThread(el, 'Escalate to TPB')!.click();
+      harness.detectChanges();
+      expect(text(thread(el)!)).toContain('Why escalate to TPB?');
+      inThread(el, 'Save decision')!.click();
+      await settle();
+      expect(api.decide).not.toHaveBeenCalled();
+      expect(text(thread(el)!.querySelector('[role="alert"]')!)).toBe('Write a comment before saving the decision.');
+    });
+
+    it('Save sends the decision; while on its way it spins and a second tap does nothing; then the view is read again', async () => {
+      const slow = new Subject<DecisionResult>();
+      api.decide.mockReturnValueOnce(slow);
+      const el = await open();
+      inThread(el, 'Escalate to TPB')!.click();
+      harness.detectChanges();
+      write('TPB should check the evidence.');
+      const save = inThread(el, 'Save decision')!;
+      save.click();
+      harness.detectChanges();
+      expect(save.getAttribute('aria-busy')).toBe('true');
+      save.click();
+      api.view.mockReturnValueOnce(
+        of(withThread({ decision: { decision: 'escalate', body: 'TPB should check the evidence.', decidedAt: '2026-11-25T11:00:00.000Z' } })),
+      );
+      slow.next(decisionResultFixture({ decision: { decision: 'escalate', body: 'TPB should check the evidence.', decidedAt: '2026-11-25T11:00:00.000Z' }, validations: [] }));
+      slow.complete();
+      await settle();
+      await settle();
+      expect(api.decide).toHaveBeenCalledTimes(1);
+      expect(api.decide).toHaveBeenCalledWith(29, 9890, 41, 'escalate', 'TPB should check the evidence.');
+      expect(api.view).toHaveBeenCalledTimes(2);
+      expect(text(thread(el)!.querySelector('[data-testid="lead-decision"]')!)).toContain('Escalated to TPB');
+      expect(decisionBox()).toBeNull();
+    });
+
+    it('a decided comment shows Change and Clear; Clear sends the DELETE', async () => {
+      api.view.mockReturnValue(of(withThread({ decision: { decision: 'agree_program', body: 'Fine.', decidedAt: '2026-11-25T11:00:00.000Z' } })));
+      const el = await open();
+      expect(inThread(el, 'Agree with the program')).toBeUndefined();
+      inThread(el, 'Change')!.click();
+      harness.detectChanges();
+      expect(inThread(el, 'Escalate to TPB')).toBeDefined();
+      inThread(el, 'Cancel')!.click();
+      harness.detectChanges();
+      inThread(el, 'Clear')!.click();
+      await settle();
+      expect(api.clearDecision).toHaveBeenCalledWith(29, 9890, 41);
+    });
+
+    it('Change to the same decision keeps the text the Lead wrote', async () => {
+      api.view.mockReturnValue(of(withThread({ decision: { decision: 'agree_program', body: 'Fine.', decidedAt: '2026-11-25T11:00:00.000Z' } })));
+      const el = await open();
+      inThread(el, 'Change')!.click();
+      harness.detectChanges();
+      inThread(el, 'Agree with the program')!.click();
+      harness.detectChanges();
+      await harness.fixture.whenStable();
+      expect(decisionBox()!.value).toBe('Fine.');
+    });
+
+    it('a refusal shows the message for its code next to the control, not in a toast', async () => {
+      api.decide.mockReturnValueOnce(throwError(() => new ApiError({ status: 409, code: 'ASSESSMENT_FIELD_ESCALATED', message: 'raw server text' })));
+      const el = await open();
+      inThread(el, 'Agree with the program')!.click();
+      harness.detectChanges();
+      write('The program is right.');
+      inThread(el, 'Agree and finish')!.click();
+      await settle();
+      expect(text(thread(el)!.querySelector('[role="alert"]')!)).toContain('Another comment on this field is escalated to TPB');
+      expect(toasts.error).not.toHaveBeenCalled();
+    });
+
+    it('an agree that would finish the review says so and its button reads "Agree and finish"', async () => {
+      const el = await open();
+      inThread(el, 'Agree with the program')!.click();
+      harness.detectChanges();
+      expect(inThread(el, 'Agree and finish')).toBeDefined();
+      expect(text(thread(el)!)).toContain('the review finishes as Quality Assessed');
+    });
+
+    it('the decision that ends the review leaves the page read only (no more controls)', async () => {
+      api.decide.mockReturnValueOnce(
+        of(decisionResultFixture({ status: 'quality_assessed', assessedBy: { id: 14, nickname: 'lea' }, finishedAt: '2026-11-25T12:00:00.000Z' })),
+      );
+      const el = await open();
+      api.view.mockReturnValue(of(withThread({ decidable: false, choices: [], decision: { decision: 'agree_program', body: 'Right.', decidedAt: '2026-11-25T11:00:00.000Z' } }, [], endedRoundTwo('quality_assessed'))));
+      inThread(el, 'Agree with the program')!.click();
+      harness.detectChanges();
+      write('Right.');
+      inThread(el, 'Agree and finish')!.click();
+      await settle();
+      expect(toasts.success).toHaveBeenCalledWith('Assessment finished: Quality Assessed.');
+      expect(inThread(el, 'Change')).toBeUndefined();
+      expect(inThread(el, 'Clear')).toBeUndefined();
+      expect(text(el.querySelector('[data-testid="review-read-only"]')!)).toContain('Finished by lea');
+    });
+
+    it('not decidable (an admin reading): the thread shows, no control', async () => {
+      api.view.mockReturnValue(of(withThread({ decidable: false, choices: [] }, [], roundTwoViewFixture({ writable: false, readOnlyReason: 'admin_read_only' }))));
+      const el = await open();
+      expect(thread(el)).not.toBeNull();
+      expect(buttons(thread(el)!).map(text)).toEqual([]);
+    });
+
+    it('Approve refused with ASSESSMENT_CORE_COMMENT_UNDECIDED: the reason under the field, no toast', async () => {
+      api.setValidations.mockReturnValueOnce(
+        throwError(() => new ApiError({ status: 409, code: 'ASSESSMENT_CORE_COMMENT_UNDECIDED', message: 'raw', fields: ['general.description'] })),
+      );
+      const el = await open();
+      byName(el, 'Approve Description of Result')!.click();
+      await settle();
+      expect(text(card(el, 'Description of Result'))).toContain('Decide the round-1 comments on this field first');
+      expect(toasts.error).not.toHaveBeenCalled();
+    });
+
+    it('the confirmation before a green write that ends the review reads the effective green (a carried green counts)', async () => {
+      // Title is carried green (validated false): validating the description is the write that ends the review.
+      api.view.mockReturnValue(of(withField('general.description', (f) => ({ ...f, thread: [], comments: [] }))));
+      const el = await open();
+      byName(el, 'Approve Description of Result')!.click();
+      await settle();
+      expect(document.body.textContent).toContain('Finish as Quality Assessed?');
+      expect(api.setValidations).not.toHaveBeenCalled();
     });
   });
 
