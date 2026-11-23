@@ -2,7 +2,7 @@ import { Component, computed, effect, input, linkedSignal, model, output, untrac
 import { FormField, form, validate } from '@angular/forms/signals';
 import { requiredText } from '../../../core/forms/text-validators';
 import { HlmInput } from '@spartan/input';
-import { QaButtonImports, QaDatePicker, QaDialogImports, QaDrawerImports, QaSegmented, QaSelect, QaSwitch, QaTooltipImports, discardGuard } from '../../../ui';
+import { QaButtonImports, QaDatePicker, QaDialogImports, QaDrawerImports, QaSegmented, QaSelect, QaSwitch, QaTimeMask, QaTooltipImports, discardGuard } from '../../../ui';
 import { AUDIENCES, CORRECTION_AUDIENCE, CycleStep, DEMO_ACCESS, PROGRAMS, ReopenMode, Timeline } from './cycle.mock';
 import { formatNumber, parseDate, stepState } from './cycle.logic';
 import { boundaryPart, stepDateIssues, toApiDay } from './cycle.mapper';
@@ -47,7 +47,7 @@ interface StepDraft {
 /** "Edit step" / "New step" drawer (every step card and every "Add step" button). */
 @Component({
   selector: 'qa-cycle-step-drawer',
-  imports: [FormField, QaButtonImports, HlmInput, QaDatePicker, QaDialogImports, QaDrawerImports, QaSegmented, QaSelect, QaSwitch, QaTooltipImports],
+  imports: [FormField, QaButtonImports, HlmInput, QaDatePicker, QaDialogImports, QaDrawerImports, QaSegmented, QaSelect, QaSwitch, QaTimeMask, QaTooltipImports],
   template: `
     <qa-drawer [(open)]="open" [closeGuard]="discard.guard" [title]="title()" [subtitle]="request().timeline.name" width="720px">
       @if (open()) {
@@ -119,6 +119,7 @@ interface StepDraft {
               </span>
               <input
                 hlmInput
+                qaTimeMask
                 type="text"
                 inputmode="numeric"
                 [formField]="stepForm.opensTime"
@@ -142,6 +143,7 @@ interface StepDraft {
                 </span>
                 <input
                   hlmInput
+                  qaTimeMask
                   type="text"
                   inputmode="numeric"
                   [formField]="stepForm.closesTime"
