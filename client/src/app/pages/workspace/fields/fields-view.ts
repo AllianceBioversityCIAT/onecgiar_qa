@@ -1,7 +1,7 @@
 import { Component, DestroyRef, ElementRef, afterNextRender, computed, effect, inject, linkedSignal, signal, viewChild } from '@angular/core';
 import { cycleShortName } from '../../../core/domain/cycle-label';
 import { FieldConfigField, FieldConfigResultType, PublishTimelines } from '../../../core/api/field-config.models';
-import { QaButtonImports, QaSelect, QaSelectOption, QaSkeleton } from '../../../ui';
+import { QaButtonImports, QaScopeCardImports, QaSelect, QaSelectOption, QaSkeleton } from '../../../ui';
 import {
   FieldChangeGroupVm,
   FieldConfig,
@@ -29,7 +29,7 @@ const COMPACT_BELOW = 900;
 @Component({
   selector: 'qa-fields-view',
   templateUrl: './fields-view.html',
-  imports: [QaButtonImports, QaSelect, QaSkeleton, FieldsColumnHeader, FieldsSection, FieldsPublishConfirm, FieldsSkeleton],
+  imports: [QaButtonImports, QaScopeCardImports, QaSelect, QaSkeleton, FieldsColumnHeader, FieldsSection, FieldsPublishConfirm, FieldsSkeleton],
   providers: [FieldsStore],
 })
 export class FieldsView {
@@ -104,6 +104,11 @@ export class FieldsView {
     })),
   );
   protected readonly cycleShortName = cycleShortName;
+  /** Under the result type in the context card: its cycle, unless the cycle has its own picker at the right. */
+  protected readonly scopeMeta = computed(() => {
+    const cycle = this.store.cycle();
+    return cycle && this.cycleOptions().length <= 1 ? `Cycle ${cycleShortName(cycle.name)}` : null;
+  });
   protected readonly cycleValue = computed(() => (this.store.cycle() ? String(this.store.cycle()!.id) : null));
 
   protected readonly typeOptions = computed<readonly QaSelectOption[]>(() =>

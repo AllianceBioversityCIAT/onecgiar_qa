@@ -17,4 +17,5 @@ export * from './button/qa-button';
 export * from './unsent/qa-unsent-center';
 export * from './pagination/qa-pagination';
 export * from './loading/qa-loading';
+export * from './scope-card/qa-scope-card';
 export * from './time-mask/qa-time-mask';
