@@ -85,6 +85,26 @@ export type QaMultiSelectAppearance = 'filter' | 'field';
               class="h-8 w-full rounded-md border-(--border) bg-(--field-bg) px-2.5 py-0 text-(length:--fs-13) text-(--text) shadow-none placeholder:text-(--text-4) focus-visible:border-(--primary) focus-visible:ring-0 md:text-(length:--fs-13) dark:bg-(--field-bg)"
             />
           }
+          @if (bulkActions() && filtered().length > 1) {
+            <div class="flex flex-none items-center justify-between gap-2 border-b border-(--border) px-1 pb-1.5">
+              <button
+                type="button"
+                (click)="selectAllVisible()"
+                [disabled]="allVisibleSelected()"
+                class="cursor-pointer rounded-md border-0 bg-transparent px-1.5 py-1 text-(length:--fs-12) font-semibold text-(--accent) outline-none hover:bg-(--surface-3) focus-visible:shadow-(--focus-ring) disabled:cursor-default disabled:text-(--text-4) disabled:hover:bg-transparent"
+              >
+                {{ query().trim() ? 'Select matches' : 'Select all' }}
+              </button>
+              <button
+                type="button"
+                (click)="clearVisible()"
+                [disabled]="!anyVisibleSelected()"
+                class="cursor-pointer rounded-md border-0 bg-transparent px-1.5 py-1 text-(length:--fs-12) font-semibold text-(--text-3) outline-none hover:bg-(--surface-3) focus-visible:shadow-(--focus-ring) disabled:cursor-default disabled:text-(--text-4) disabled:hover:bg-transparent"
+              >
+                Clear all
+              </button>
+            </div>
+          }
           <div role="group" [attr.aria-label]="label()" class="flex flex-col gap-px overflow-y-auto" [style.max-height]="listMaxHeight()">
             @for (option of filtered(); track option.value; let i = $index) {
               @let on = isSelected(option.value);
@@ -145,6 +165,10 @@ export class QaMultiSelect {
   readonly summaryMax = input<number, NumberInput>(2, { transform: numberAttribute });
   /** Red border + aria-invalid (validation error). */
   readonly invalid = input<boolean, BooleanInput>(false, { transform: booleanAttribute });
+  /** "Select all / Clear all" row above the list (acts on the search matches while searching). */
+  readonly bulkActions = input<boolean, BooleanInput>(true, { transform: booleanAttribute });
+  /** Field appearance: trigger text when every option is selected (default: the placeholder, or "All <label>" for required pickers). */
+  readonly allText = input<string | null>(null);
   /** Id of the trigger button, for a `<label for>` (the host id is removed). */
   readonly triggerId = input<string | null>(null);
 
@@ -156,6 +180,10 @@ export class QaMultiSelect {
   protected readonly summary = computed(() => {
     const sel = this.value();
     if (!sel.length) return this.placeholder();
+    const opts = this.options();
+    if (opts.length > 1 && opts.every((o) => sel.includes(o.value))) {
+      return this.allText() ?? (this.mutedPlaceholder() ? `All ${this.label().toLowerCase()}` : this.placeholder());
+    }
     return sel.length <= this.summaryMax() ? sel.join(', ') : `${sel.length} selected`;
   });
   protected readonly filtered = computed(() => {
@@ -175,6 +203,25 @@ export class QaMultiSelect {
     this.value.update((current) =>
       current.includes(value) ? current.filter((v) => v !== value) : [...current, value],
     );
+  }
+
+  protected readonly allVisibleSelected = computed(() => {
+    const sel = this.value();
+    return this.filtered().every((o) => sel.includes(o.value));
+  });
+  protected readonly anyVisibleSelected = computed(() => {
+    const sel = this.value();
+    return this.filtered().some((o) => sel.includes(o.value));
+  });
+
+  protected selectAllVisible(): void {
+    const visible = this.filtered().map((o) => o.value);
+    this.value.update((current) => [...current, ...visible.filter((v) => !current.includes(v))]);
+  }
+
+  protected clearVisible(): void {
+    const visible = new Set(this.filtered().map((o) => o.value));
+    this.value.update((current) => current.filter((v) => !visible.has(v)));
   }
 
   protected onQuery(event: Event): void {

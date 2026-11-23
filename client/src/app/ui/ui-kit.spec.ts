@@ -117,6 +117,7 @@ class Host2 {
     { value: 'SP01', label: 'SP01 Breeding' },
     { value: 'SP02', label: 'SP02 Rice' },
     { value: 'SP05', label: 'SP05 Landscapes' },
+    { value: 'SP09', label: 'SP09 Scaling' },
   ];
 }
 
@@ -427,6 +428,25 @@ describe('UI kit variants', () => {
     await settle(fixture);
     expect(trigger().textContent).toContain('3 selected');
     expect(trigger().getAttribute('aria-label')).toBe('Science programs: 3 selected');
+    fixture.componentInstance.programs.set(['SP01', 'SP02', 'SP05', 'SP09']);
+    await settle(fixture);
+    expect(trigger().textContent).toContain('All programs');
+  });
+
+  it('field multi-select selects and clears every option from the panel', async () => {
+    const fixture = await setup();
+    $('qa-multi-select button')!.click();
+    await settle(fixture);
+    const bulk = (text: string) =>
+      [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find((b) => b.textContent?.trim() === text)!;
+    expect(bulk('Clear all').disabled).toBe(true);
+    bulk('Select all').click();
+    await settle(fixture);
+    expect(fixture.componentInstance.programs()).toEqual(['SP01', 'SP02', 'SP05', 'SP09']);
+    expect(bulk('Select all').disabled).toBe(true);
+    bulk('Clear all').click();
+    await settle(fixture);
+    expect(fixture.componentInstance.programs()).toEqual([]);
   });
 
   it('menu panel density and item sizes come from inputs', async () => {
