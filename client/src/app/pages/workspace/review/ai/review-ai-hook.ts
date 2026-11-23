@@ -97,7 +97,8 @@ export class ReviewAiHook {
     if (this.readOnly()) return null;
     for (const field of this.fields().values()) {
       if (key !== ALL && field.key !== key) continue;
-      if (field.mode !== 'assessed' || field.validated || this.reasonGiven.has(field.key)) continue;
+      // Already green (round 2: a carried green counts, `effectiveValidated`): nothing to validate, nothing to ask.
+      if (field.mode !== 'assessed' || (field.effectiveValidated ?? field.validated) || this.reasonGiven.has(field.key)) continue;
       const reportedLevel = levelOf(field.value);
       const ai = this.ai.availableView(field.key);
       if (!needsReason(field.key, reportedLevel, ai) || ai?.valueKind !== 'level') continue;

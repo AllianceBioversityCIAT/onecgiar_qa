@@ -162,6 +162,28 @@ describe('ReviewAiHook (P2-3918 plan A)', () => {
     expect(events).toEqual([{ action: 'copied' }]);
   });
 
+  it('round 2: no reason is asked on an IRL already green, carried green included (reads effectiveValidated)', async () => {
+    const IRL = 'innovation_dev.readiness_level';
+    const irl: AiSuggestionView = { ...GENDER, fieldKey: IRL, suggestionId: 's-irl', suggestedValue: 3 };
+    const s = setup([irl]);
+    const view = (effective: boolean) =>
+      viewFixture({
+        round: 2,
+        sections: [{ key: 'general_information', label: 'General information', fields: [field({ key: IRL, label: 'Readiness level', type: 'number', core: true, value: 6, validated: false, effectiveValidated: effective, carried: effective })] }],
+      });
+    s.review.timelineId.set(27);
+    s.review.view.set(view(true));
+    TestBed.tick();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(s.hook.reasonAsk(IRL)).toBeNull();
+    expect(s.hook.reasonAsk('*')).toBeNull();
+    // The same field grey still asks (the check is the green, not the field).
+    s.review.view.set(view(false));
+    TestBed.tick();
+    expect(s.hook.reasonAsk(IRL)).not.toBeNull();
+  });
+
   it('shown is posted once per suggestion', async () => {
     const { hook, events } = await loaded();
     hook.shown('general.gender_tag');
