@@ -1,7 +1,9 @@
 // @akili-spec escalation/round-2
+// @akili-spec admin/acts-as-reviewer
 import { sql } from 'drizzle-orm';
 import {
   bigint,
+  boolean,
   check,
   datetime,
   foreignKey,
@@ -51,6 +53,8 @@ export const commentDecisions = mysqlTable(
     decision: mysqlEnum('decision', commentDecisionKinds).notNull(),
     body: varchar('body', { length: 2000 }),
     decidedBy: int('decided_by', { unsigned: true }).notNull(),
+    // admin/acts-as-reviewer R4: set by a QA Admin acting as the role.
+    actedAsAdmin: boolean('acted_as_admin').notNull().default(false),
     decidedAt: datetime('decided_at')
       .notNull()
       .default(sql`CURRENT_TIMESTAMP`),

@@ -306,8 +306,8 @@ describe('committed migrations', () => {
     .filter((f) => f.endsWith('.sql'))
     .sort();
 
-  it('are exactly fourteen SQL files', () => {
-    expect(files).toHaveLength(14);
+  it('are exactly fifteen SQL files', () => {
+    expect(files).toHaveLength(15);
   });
 
   const sql = readFileSync(`${migrationsDir}${files[0]}`, 'utf8');
@@ -2932,5 +2932,71 @@ describe('committed migration 0013 (round_two)', () => {
     expect(s.join('\n')).toContain(
       "`status` enum('pending','quality_assessed','returned') NOT NULL DEFAULT 'pending';",
     );
+  });
+});
+
+describe('committed migration 0014 (admin_acts_as_reviewer)', () => {
+  const files = readdirSync(migrationsDir)
+    .filter((f) => f.endsWith('.sql'))
+    .sort();
+  const read = (path: string) => readFileSync(path, 'utf8');
+  const up = files[14] ? read(`${migrationsDir}${files[14]}`) : '';
+  const downPath = `${migrationsDir}rollback/0014_admin_acts_as_reviewer.down.sql`;
+  const down = existsSync(downPath) ? read(downPath) : '';
+  const statementsOf = (text: string) =>
+    text
+      .replace(/^--(?!>).*$/gm, '')
+      .split('--> statement-breakpoint')
+      .map((x) => x.trim())
+      .filter(Boolean);
+
+  it('is named 0014_admin_acts_as_reviewer and is the fifteenth journal entry', () => {
+    expect(files[14]).toBe('0014_admin_acts_as_reviewer.sql');
+    const journal = JSON.parse(read(`${migrationsDir}meta/_journal.json`)) as {
+      entries: { idx: number; tag: string }[];
+    };
+    expect(journal.entries[14]).toMatchObject({
+      idx: 14,
+      tag: '0014_admin_acts_as_reviewer',
+    });
+  });
+
+  it('only adds the three NOT NULL DEFAULT false flags', () => {
+    expect(up).not.toMatch(/\bDROP\b|\bMODIFY\b|CREATE TABLE/);
+    expect(statementsOf(up).sort()).toEqual(
+      [
+        'ALTER TABLE `assessment_comments` ADD `acted_as_admin` boolean DEFAULT false NOT NULL;',
+        'ALTER TABLE `comment_decisions` ADD `acted_as_admin` boolean DEFAULT false NOT NULL;',
+        'ALTER TABLE `result_assessments` ADD `finished_as_admin` boolean DEFAULT false NOT NULL;',
+      ].sort(),
+    );
+  });
+
+  it('declares the flags on the schema', () => {
+    const tables = schema as unknown as Record<
+      string,
+      Parameters<typeof getTableConfig>[0]
+    >;
+    const colOf = (table: Parameters<typeof getTableConfig>[0], n: string) =>
+      getTableConfig(table).columns.find((c) => c.name === n);
+    expect(colOf(tables.assessmentComments, 'acted_as_admin')?.notNull).toBe(
+      true,
+    );
+    expect(colOf(tables.commentDecisions, 'acted_as_admin')?.notNull).toBe(
+      true,
+    );
+    expect(colOf(tables.resultAssessments, 'finished_as_admin')?.notNull).toBe(
+      true,
+    );
+  });
+
+  it('has a lossy manual down script that drops the three columns', () => {
+    expect(down).toMatch(/LOSSY/);
+    expect(down).toMatch(/__drizzle_migrations/);
+    expect(statementsOf(down)).toEqual([
+      'ALTER TABLE `comment_decisions` DROP COLUMN `acted_as_admin`;',
+      'ALTER TABLE `assessment_comments` DROP COLUMN `acted_as_admin`;',
+      'ALTER TABLE `result_assessments` DROP COLUMN `finished_as_admin`;',
+    ]);
   });
 });

@@ -25,6 +25,7 @@ import {
   roleStepState,
   type StepTiming,
 } from './role-steps.js';
+import { reviewerAuthor, type ReviewerAuthor } from './assessment-view.js';
 import { resolveAccess, writeDecision, type WorklistAccess } from './scope.js';
 import {
   decodeWorklistCursor,
@@ -83,7 +84,8 @@ export interface WorklistRow {
   comments: number;
   /** P2-3911: non-withdrawn comments the Science Program accepted, accepted with a comment, or disagreed with. */
   answeredBySp: number;
-  assessedBy: { id: number; nickname: string | null } | null;
+  /** `admin: true` when a QA Admin ended it acting as the role (admin/acts-as-reviewer R4). */
+  assessedBy: ReviewerAuthor | null;
   status: QaStatus | null;
   canOpen: boolean;
   readOnlyReason: string | null;
@@ -436,7 +438,11 @@ export class WorklistService {
       assessedBy:
         record.assessedById === null
           ? null
-          : { id: record.assessedById, nickname: record.assessedByNickname },
+          : reviewerAuthor(
+              record.assessedById,
+              record.assessedByNickname,
+              record.assessedByAdmin,
+            ),
       status: record.status,
       canOpen: true,
       readOnlyReason: decision.writable ? null : decision.reason,

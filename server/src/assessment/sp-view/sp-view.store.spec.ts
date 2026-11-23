@@ -68,8 +68,10 @@ describe('DrizzleSpViewStore SQL (P2-3911)', () => {
     expect(sql).toContain(
       '`round_two`.`timeline_id` = `timeline_results`.`timeline_id` AND `round_two`.`result_code` = `timeline_results`.`result_code` AND `round_two`.`entry_round` = 2',
     );
-    // Never an assessor column.
-    expect(sql).not.toMatch(/author_id|nickname|finished_by|`users`/);
+    // Never an assessor column, nor the Admin mark (admin/acts-as-reviewer R4).
+    expect(sql).not.toMatch(
+      /author_id|nickname|finished_by|`users`|acted_as_admin|finished_as_admin/,
+    );
   });
 
   it('counts nothing before the programs step starts', () => {
@@ -84,10 +86,10 @@ describe('DrizzleSpViewStore SQL (P2-3911)', () => {
     expect(sql).not.toContain('visible_to_program_at');
   });
 
-  it('reads only visible, non-withdrawn comments, without their author', () => {
+  it('reads only visible, non-withdrawn comments, without their author or the Admin mark', () => {
     const { sql } = store.buildVisibleCommentsQuery(5).toSQL();
     expect(sql).toMatch(/`visible_to_program_at` is not null/);
     expect(sql).toMatch(/`state` <> \?/);
-    expect(sql).not.toMatch(/author_id|nickname|`users`/);
+    expect(sql).not.toMatch(/author_id|nickname|`users`|acted_as_admin/);
   });
 });

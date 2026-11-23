@@ -7,6 +7,7 @@ import {
 } from '../admin-config/admin-config.clock.js';
 import { isLiveAssignment } from '../users/current-user.cache.js';
 import type { AuthenticatedUser } from '../users/current-user.cache.js';
+import { RoleCode } from '../users/permissions.js';
 import { AssessmentQuickCommentsForbiddenError } from './assessment.errors.js';
 import { loggedWrite } from './assessment-log.js';
 import {
@@ -125,13 +126,19 @@ export class QuickCommentsService {
     return { comment: toView(saved), created: saved.created };
   }
 
-  /** A live grant of the role itself (not ADMIN's every permission, P-35), and a role that writes comments. */
+  /**
+   * A role that writes comments, and a live grant of that role itself (not
+   * ADMIN's every permission, P-35) or a live ADMIN grant: a QA Admin acting as
+   * a reviewer role uses that role's shared list (admin/acts-as-reviewer).
+   */
   private assertGrant(user: AuthenticatedUser, role: string): void {
     if (
       !QUICK_COMMENT_ROLES.includes(role) ||
       !user.assignments.some(
         (assignment) =>
-          assignment.roleCode === role && isLiveAssignment(assignment),
+          (assignment.roleCode === role ||
+            assignment.roleCode === RoleCode.ADMIN) &&
+          isLiveAssignment(assignment),
       )
     ) {
       throw new AssessmentQuickCommentsForbiddenError();

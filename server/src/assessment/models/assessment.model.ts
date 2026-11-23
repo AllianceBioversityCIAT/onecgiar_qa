@@ -89,6 +89,14 @@ export class AssessmentCommentAuthorModel {
     description: 'Authors are shown by nickname only',
   })
   nickname!: string | null;
+
+  @ApiPropertyOptional({
+    type: Boolean,
+    enum: [true],
+    description:
+      'Present (true) only when a QA Admin wrote it acting as a reviewer role (`X-Acting-Role`); absent otherwise. Reviewers and admins see it; the program view never carries an author',
+  })
+  admin?: true;
 }
 
 export class AssessmentCommentValueCopyModel {
@@ -498,4 +506,22 @@ export class AssessmentViewModel {
     description: 'null until the first write creates the assessment (DD-3)',
   })
   assessment!: AssessmentSummaryModel | null;
+
+  @ApiPropertyOptional({
+    type: String,
+    isArray: true,
+    enum: ['ASSESSOR', 'LEAD_ASSESSOR'],
+    description:
+      'ADMIN only: the roles the Admin may act as on this result with the `X-Acting-Role` header (round 1: `ASSESSOR`; round 2: `LEAD_ASSESSOR`), when the timeline has that step. Absent for any other caller',
+  })
+  actingRoles?: string[];
+
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    enum: ['ASSESSOR', 'LEAD_ASSESSOR'],
+    description:
+      'ADMIN only: the role this view was built for (the `X-Acting-Role` header that was honored); null when the Admin reads without one, or the role does not fit this result. `writable`, `decidable` and `choices` follow it. Absent for any other caller',
+  })
+  actingRole?: string | null;
 }

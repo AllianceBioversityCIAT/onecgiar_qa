@@ -144,6 +144,8 @@ export interface WorklistRecord {
   answeredBySp: number;
   assessedById: number | null;
   assessedByNickname: string | null;
+  /** admin/acts-as-reviewer R4: a QA Admin acting as the role ended it. */
+  assessedByAdmin: boolean;
   status: QaStatus | null;
   /** The value the sort ordered by; the cursor carries the last one. */
   sortValue: string | number;
@@ -505,6 +507,7 @@ export class DrizzleWorklistStore implements WorklistStore {
         answeredBySp: this.answeredCount(),
         assessedById: users.id,
         assessedByNickname: users.nickname,
+        assessedByAdmin: a.finishedAsAdmin,
         status: sql<QaStatus | null>`${this.statusCase()}`,
         sortValue: sql<string | number>`${expression}`,
       })
@@ -565,6 +568,7 @@ export class DrizzleWorklistStore implements WorklistStore {
       answeredBySp: Number(row.answeredBySp),
       assessedById: row.assessedById,
       assessedByNickname: row.assessedByNickname,
+      assessedByAdmin: row.assessedByAdmin ?? false,
       status: row.status,
       sortValue: numeric ? Number(row.sortValue) : String(row.sortValue ?? ''),
     }));

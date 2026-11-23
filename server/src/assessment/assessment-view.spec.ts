@@ -530,6 +530,7 @@ describe('annotateForRound (FR-3, FR-4, FR-5, FR-7)', () => {
     fieldKey: CORE,
     authorId: 5,
     authorNickname: 'Ana',
+    authorAsAdmin: false,
     body: 'The title is unclear',
     state: 'disagreed',
     valueCopy: { value: 'Old title' },

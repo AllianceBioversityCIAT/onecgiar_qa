@@ -1,8 +1,10 @@
 // @akili-spec assessment/step-1-assessment
 // @akili-spec escalation/round-2
+// @akili-spec admin/acts-as-reviewer
 import { sql } from 'drizzle-orm';
 import {
   bigint,
+  boolean,
   check,
   datetime,
   int,
@@ -62,6 +64,8 @@ export const resultAssessments = mysqlTable(
     finishedBy: int('finished_by', { unsigned: true }).references(
       () => users.id,
     ),
+    // admin/acts-as-reviewer R4: finished by a QA Admin acting as `role_code`.
+    finishedAsAdmin: boolean('finished_as_admin').notNull().default(false),
   },
   (t) => [
     unique('uq_result_assessments_membership_step').on(
