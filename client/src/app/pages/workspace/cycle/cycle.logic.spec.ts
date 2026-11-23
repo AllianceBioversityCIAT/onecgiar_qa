@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { CycleStep, Timeline } from './cycle.mock';
-import { isStepInForce, loadTargets, officialRelative, parseDate, stepInForce, stepRound, timelineNow, timelineVM } from './cycle.logic';
+import { isStepInForce, loadTargets, nextOpening, officialRelative, parseDate, stepInForce, stepRound, timelineNow, timelineVM } from './cycle.logic';
 import { TimelineSteps } from './timeline-steps';
 
 // 3 Nov 2026, 10:00 in Rome (CET, UTC+1).
@@ -278,5 +278,22 @@ describe('cycle.logic', () => {
       expect(parseDate('29 Feb 2028')?.getDate()).toBe(29);
       expect(parseDate('06 Jul 2026')?.getMonth()).toBe(6);
     });
+  });
+});
+
+describe('nextOpening', () => {
+  it('opens the next step the minute after the close', () => {
+    expect(nextOpening('06 Jul 2026', '10:00')).toEqual({ start: '06 Jul 2026', startTime: '10:01' });
+  });
+
+  it('rolls 23:59 into 00:00 of the next day, across months and years', () => {
+    expect(nextOpening('11 Jul 2026', '23:59')).toEqual({ start: '12 Jul 2026', startTime: '00:00' });
+    expect(nextOpening('31 Dec 2026', '23:59')).toEqual({ start: '01 Jan 2027', startTime: '00:00' });
+  });
+
+  it('is null while the close is incomplete', () => {
+    expect(nextOpening('', '23:59')).toBeNull();
+    expect(nextOpening('31 Feb 2026', '23:59')).toBeNull();
+    expect(nextOpening('06 Jul 2026', '9')).toBeNull();
   });
 });
