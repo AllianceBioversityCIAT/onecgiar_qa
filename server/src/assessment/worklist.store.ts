@@ -35,6 +35,7 @@ import {
 } from '../database/drizzle/schema/timelines.js';
 import { users } from '../database/drizzle/schema/users.js';
 import { statusSqlCase, type QaStatus } from './qa-status.js';
+import type { CurrentStepPositions } from './role-steps.js';
 import type { ReviewerRow, WorklistAccess } from './scope.js';
 
 // Port of the worklist reads (design 7.3, FR-1, FR-3..FR-7, FR-19, NFR-1). Three
@@ -85,8 +86,10 @@ export interface WorklistScope {
   timelineId: number;
   userId: number;
   access: WorklistAccess;
-  /** Position of the step whose assessment feeds the status; `null` when the timeline has none. */
+  /** Position of the `assessors` step: the assessment that feeds the status of a round-1 membership; `null` when the timeline has none. */
   assessmentStepPosition: number | null;
+  /** Positions of the round-2 steps in order: a round-2 membership reads the latest assessment among them, else the first (DD-3). */
+  roundTwoStepPositions: readonly number[];
   /** FR-19: step 2 is open, so a clarification the user wrote keeps an ended membership listed. */
   clarificationWindowOpen: boolean;
   /** FR-4: Auto-validated is hidden unless the status filter names it; the counters follow the same flag. */
@@ -141,6 +144,8 @@ export interface WorklistRecord {
   answeredBySp: number;
   assessedById: number | null;
   assessedByNickname: string | null;
+  /** admin/acts-as-reviewer R4: a QA Admin acting as the role ended it. */
+  assessedByAdmin: boolean;
   status: QaStatus | null;
   /** The value the sort ordered by; the cursor carries the last one. */
   sortValue: string | number;
@@ -193,6 +198,22 @@ function fieldRank(column: SQL, order: readonly (string | number)[]): SQL {
 }
 
 const FALSE_SQL = sql.raw('1 = 0');
+
+/**
+ * DD-3 as SQL, the twin of `currentStepPosition` (`role-steps.ts`): the step
+ * whose assessment a membership reads. Round 1 reads the `assessors` step;
+ * round 2 reads the highest of its round-2 steps that holds a row, else the
+ * first of them. Position 0 never exists (positions are 1 to 5): no step, no
+ * assessment. Shared by the worklist join and the membership read.
+ */
+export function currentStepSql(steps: CurrentStepPositions): SQL {
+  const first = steps.roundTwoStepPositions[0] ?? 0;
+  const held =
+    steps.roundTwoStepPositions.length === 0
+      ? sql`NULL`
+      : sql`(SELECT MAX(${sql.identifier('cur')}.${sql.identifier('step_position')}) FROM ${sql.identifier('result_assessments')} ${sql.identifier('cur')} WHERE ${sql.identifier('cur')}.${sql.identifier('timeline_result_id')} = ${t.id} AND ${sql.identifier('cur')}.${sql.identifier('step_position')} IN (${valueList(steps.roundTwoStepPositions)}))`;
+  return sql`CASE WHEN ${t.entryRound} <= 1 THEN ${steps.assessmentStepPosition ?? 0} ELSE COALESCE(${held}, ${first}) END`;
+}
 
 /** One reviewer row as SQL, the same test as `rowCovers` plus the reviewed statuses (`scope.ts`). */
 function reviewerRowCondition(row: ReviewerRow): SQL | undefined {
@@ -376,6 +397,7 @@ export class DrizzleWorklistStore implements WorklistStore {
         and(
           eq(assessmentComments.assessmentId, a.id),
           ne(assessmentComments.state, 'withdrawn'),
+          isNull(assessmentComments.deletedAt),
         ),
       )})`;
   }
@@ -388,6 +410,7 @@ export class DrizzleWorklistStore implements WorklistStore {
       .where(
         and(
           eq(assessmentComments.assessmentId, a.id),
+          isNull(assessmentComments.deletedAt),
           inArray(assessmentComments.state, [
             'accepted',
             'accepted_with_comment',
@@ -484,6 +507,7 @@ export class DrizzleWorklistStore implements WorklistStore {
         answeredBySp: this.answeredCount(),
         assessedById: users.id,
         assessedByNickname: users.nickname,
+        assessedByAdmin: a.finishedAsAdmin,
         status: sql<QaStatus | null>`${this.statusCase()}`,
         sortValue: sql<string | number>`${expression}`,
       })
@@ -492,8 +516,7 @@ export class DrizzleWorklistStore implements WorklistStore {
         a,
         and(
           eq(a.timelineResultId, t.id),
-          // Position 0 never exists (positions are 1 to 5): no step, no assessment.
-          eq(a.stepPosition, criteria.assessmentStepPosition ?? 0),
+          eq(a.stepPosition, currentStepSql(criteria)),
         ),
       )
       .leftJoin(users, eq(users.id, a.finishedBy))
@@ -520,7 +543,7 @@ export class DrizzleWorklistStore implements WorklistStore {
         a,
         and(
           eq(a.timelineResultId, t.id),
-          eq(a.stepPosition, scope.assessmentStepPosition ?? 0),
+          eq(a.stepPosition, currentStepSql(scope)),
         ),
       )
       .where(this.scopeWhere(scope))
@@ -545,6 +568,7 @@ export class DrizzleWorklistStore implements WorklistStore {
       answeredBySp: Number(row.answeredBySp),
       assessedById: row.assessedById,
       assessedByNickname: row.assessedByNickname,
+      assessedByAdmin: row.assessedByAdmin ?? false,
       status: row.status,
       sortValue: numeric ? Number(row.sortValue) : String(row.sortValue ?? ''),
     }));

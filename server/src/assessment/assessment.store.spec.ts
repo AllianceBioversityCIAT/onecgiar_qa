@@ -55,6 +55,7 @@ function criteria(
     access: reviewerAccess(),
     round: null,
     assessmentStepPosition: 1,
+    roundTwoStepPositions: [],
     ...overrides,
   };
 }
@@ -91,10 +92,10 @@ describe('DrizzleAssessmentStore.buildMembershipQuery', () => {
     // Dropping the timeline predicate leaks a result across timelines.
     expect(where).toContain(TIMELINE);
     expect(where).toContain(CODE);
-    // The step position of the join binds first, then the timeline and the code.
-    expect(params.slice(1, 3)).toEqual([7, 5001]);
-    expect(membershipSql(criteria({ timelineId: 8 })).params[1]).toBe(8);
-    expect(membershipSql(criteria({ resultCode: 5002 })).params[2]).toBe(5002);
+    // The join binds first (the round-1 step, then the round-2 default: 1 and 0 with no round-2 step), then the timeline and the code.
+    expect(params.slice(0, 4)).toEqual([1, 0, 7, 5001]);
+    expect(membershipSql(criteria({ timelineId: 8 })).params[2]).toBe(8);
+    expect(membershipSql(criteria({ resultCode: 5002 })).params[3]).toBe(5002);
   });
 
   it('scopes a reviewer by the worklist condition: the row round, the granted result type and the program scope', () => {
@@ -124,7 +125,7 @@ describe('DrizzleAssessmentStore.buildMembershipQuery', () => {
     );
     const where = whereOf(text);
     expect(where).toContain('`timeline_results`.`status` <> ?');
-    expect(params).toEqual([1, 7, 5001, 'not_in_qa', 1]);
+    expect(params).toEqual([1, 0, 7, 5001, 'not_in_qa', 1]);
     expect(where).not.toContain('`entry_round`');
     expect(where).not.toContain('result_type_key');
     expect(where).toContain(TIMELINE);
@@ -137,25 +138,34 @@ describe('DrizzleAssessmentStore.buildMembershipQuery', () => {
     );
     const where = whereOf(text);
     expect(count(where, ROUND)).toBe(1);
-    expect(params).toEqual([1, 7, 5001, 'not_in_qa', 2, 1]);
+    expect(params).toEqual([1, 0, 7, 5001, 'not_in_qa', 2, 1]);
   });
 
-  it('joins the assessment of the step on the membership and the step position, and reads zero when the timeline has no step', () => {
-    const withStep = membershipSql(criteria({ assessmentStepPosition: 2 }));
+  // DD-3: the join reads the membership's CURRENT step: round 1 the assessors step, round 2 the latest
+  // existing assessment among its round-2 steps, else the first.
+  it("joins the assessment of the membership's current step (DD-3), and reads zero when the timeline has no step", () => {
+    const withSteps = membershipSql(
+      criteria({ assessmentStepPosition: 2, roundTwoStepPositions: [3, 4, 5] }),
+    );
     const join = between(
-      withStep.sql,
+      withSteps.sql,
       ' left join `result_assessments`',
       ' left join `users`',
     );
     expect(join).toContain(
       '`result_assessments`.`timeline_result_id` = `timeline_results`.`id`',
     );
-    expect(join).toContain('`result_assessments`.`step_position` = ?');
-    expect(withStep.params[0]).toBe(2);
+    expect(join).toContain(
+      '`result_assessments`.`step_position` = CASE WHEN `timeline_results`.`entry_round` <= 1 THEN ? ELSE COALESCE((SELECT MAX(`cur`.`step_position`) FROM `result_assessments` `cur` WHERE `cur`.`timeline_result_id` = `timeline_results`.`id` AND `cur`.`step_position` IN (?, ?, ?)), ?) END',
+    );
+    // Round-1 step, the three round-2 steps, then the first of them as the default.
+    expect(withSteps.params.slice(0, 5)).toEqual([2, 3, 4, 5, 3]);
 
     // Position 0 never exists (positions are 1 to 5): no step, no assessment.
-    const noStep = membershipSql(criteria({ assessmentStepPosition: null }));
-    expect(noStep.params[0]).toBe(0);
+    const noStep = membershipSql(
+      criteria({ assessmentStepPosition: null, roundTwoStepPositions: [] }),
+    );
+    expect(noStep.params.slice(0, 2)).toEqual([0, 0]);
   });
 
   it('joins the cycle for the catalog year, who finished the assessment, and the row of the version the assessment pinned', () => {
@@ -198,8 +208,9 @@ describe('DrizzleAssessmentStore.buildCommentsQuery', () => {
   it('reads the comments of one assessment with the nickname of the author only, oldest first', () => {
     const { sql: text, params } = store.buildCommentsQuery(70).toSQL();
     expect(params).toEqual([70]);
+    // FR-10: a deleted comment is in no list.
     expect(whereOf(text)).toBe(
-      ' where `assessment_comments`.`assessment_id` = ?',
+      ' where (`assessment_comments`.`assessment_id` = ? and `assessment_comments`.`deleted_at` is null)',
     );
     expect(text).toContain(
       ' inner join `users` on `users`.`id` = `assessment_comments`.`author_id`',
@@ -219,7 +230,9 @@ describe('the comment context statement (withdraw and the replay reader)', () =>
   it('reads the comment, its author nickname, its assessment and membership in ONE statement, by the comment id', () => {
     const { sql: text, params } = store.buildCommentContextQuery(700).toSQL();
     expect(text).toContain('from `assessment_comments`');
-    expect(text).toContain('inner join `users` on `users`.`id` = `assessment_comments`.`author_id`');
+    expect(text).toContain(
+      'inner join `users` on `users`.`id` = `assessment_comments`.`author_id`',
+    );
     expect(text).toContain(
       'inner join `result_assessments` on `result_assessments`.`id` = `assessment_comments`.`assessment_id`',
     );
@@ -233,5 +246,90 @@ describe('the comment context statement (withdraw and the replay reader)', () =>
     // The author is shown by nickname only.
     expect(text).not.toContain('`email`');
     expect(params).toEqual([700, 1]);
+  });
+});
+
+describe('the round-2 additions to the membership statement (escalation/round-2 T-6)', () => {
+  it('reads the previous membership id, the changed fields and the previous assessment in the same SELECT, binding nothing new', () => {
+    const { sql: text, params } = membershipSql(criteria());
+    expect(text).toContain('`timeline_results`.`previous_membership_id`');
+    expect(text).toContain('`timeline_results`.`changed_fields`');
+    expect(text).toContain('`prev_assessment`.`id`');
+    expect(text).toContain(
+      ' left join `result_assessments` `prev_assessment` on `prev_assessment`.`timeline_result_id` = `timeline_results`.`previous_membership_id`',
+    );
+    // Same parameters as before the join: round-1 step, round-2 default, timeline, code.
+    expect(params.slice(0, 4)).toEqual([1, 0, 7, 5001]);
+    expect(text.startsWith('select ')).toBe(true);
+  });
+});
+
+describe('DrizzleAssessmentStore.buildRoundOneThreadQuery (round-2 NFR-1, design 7 Thread read)', () => {
+  const threadSql = (assessmentId = 70, role = 'LEAD_ASSESSOR') =>
+    store.buildRoundOneThreadQuery(assessmentId, role).toSQL();
+
+  it('is ONE SELECT for the whole thread: a single statement, the same text for any assessment, nothing per comment', () => {
+    const one = threadSql(70);
+    const other = threadSql(71);
+    expect(one.sql.startsWith('select ')).toBe(true);
+    expect(one.sql).not.toContain(';');
+    expect(one.sql).not.toMatch(/\b(insert|update|delete)\b/i);
+    // The statement does not depend on the data: only its parameters change.
+    expect(other.sql).toBe(one.sql);
+    expect(one.params).toContain(70);
+    expect(other.params).toContain(71);
+    // The one subquery is the latest-response lookup, a scalar inside the same statement.
+    expect(count(one.sql.toLowerCase(), 'select')).toBe(2);
+  });
+
+  it('keeps the comments of the previous assessment that are neither withdrawn nor deleted', () => {
+    const { sql: text } = threadSql();
+    const where = between(text, ' where ', ' order by ');
+    expect(where).toContain('`assessment_comments`.`assessment_id` = ?');
+    expect(where).toContain('`assessment_comments`.`withdrawn_at` is null');
+    expect(where).toContain('`assessment_comments`.`deleted_at` is null');
+  });
+
+  it('joins the latest program response per comment OR a clarification request, its answer, and the decision of the role asked for', () => {
+    const { sql: text, params } = threadSql(70, 'LEAD_ASSESSOR');
+    const responses = between(
+      text,
+      ' left join `sp_comment_responses`',
+      ' left join `comment_clarification_answers`',
+    );
+    expect(responses).toContain(
+      '`sp_comment_responses`.`comment_id` = `assessment_comments`.`id`',
+    );
+    expect(responses).toContain('`sp_comment_responses`.`kind` = ?');
+    expect(responses).toContain('MAX(`latest_response`.`id`)');
+    expect(text).toContain(
+      ' left join `comment_clarification_answers` on `comment_clarification_answers`.`response_id` = `sp_comment_responses`.`id`',
+    );
+    const decisions = between(
+      text,
+      ' left join `comment_decisions`',
+      ' where ',
+    );
+    expect(decisions).toContain(
+      '`comment_decisions`.`comment_id` = `assessment_comments`.`id`',
+    );
+    expect(decisions).toContain('`comment_decisions`.`role_code` = ?');
+    expect(params).toEqual(
+      expect.arrayContaining(['request_clarification', 'LEAD_ASSESSOR', 70]),
+    );
+  });
+
+  it('is ordered by field, comment, then response, so the service groups in memory', () => {
+    const { sql: text } = threadSql();
+    expect(text).toContain(
+      ' order by `assessment_comments`.`field_key` asc, `assessment_comments`.`created_at` asc, `assessment_comments`.`id` asc, `sp_comment_responses`.`id` asc',
+    );
+  });
+
+  it('never selects a responder email (the QA view names the responder only)', () => {
+    const { sql: text } = threadSql();
+    expect(text).toContain('`responder_name`');
+    expect(text).not.toContain('responder_email');
+    expect(text).not.toContain('`email`');
   });
 });

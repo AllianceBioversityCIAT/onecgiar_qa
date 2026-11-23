@@ -4,9 +4,9 @@ import { ApiFieldError } from '../../../core/http/api-envelope';
 import { FormField, applyEach, form, validate } from '@angular/forms/signals';
 import { requiredText } from '../../../core/forms/text-validators';
 import { HlmInput } from '@spartan/input';
-import { QaButtonImports, QaDatePicker, QaDialogImports, QaDrawerImports, QaMultiSelect, QaSelectOption, QaSwitch, QaTooltipImports, discardGuard } from '../../../ui';
+import { QaButtonImports, QaDatePicker, QaDialogImports, QaDrawerImports, QaMultiSelect, QaSelectOption, QaSwitch, QaTimeMask, QaTooltipImports, discardGuard } from '../../../ui';
 import { DEFAULT_STEP_DATES, PROGRAMS, RESULT_TYPES, STEP_NAMES, Timeline } from './cycle.mock';
-import { StepDraftRow, formatNumber, officialRelative, stepOrderErrors, stepRow, stepState } from './cycle.logic';
+import { StepDraftRow, formatNumber, nextOpening, officialRelative, stepOrderErrors, stepRow, stepState } from './cycle.logic';
 import { StepDateIssue, boundaryPart, nextAudience, roundsOf, stepDateIssues, toApiDay } from './cycle.mapper';
 import { RomeClock } from '../../../core/domain/rome-clock';
 import { DEFAULT_CLOSES_TIME, DEFAULT_OPENS_TIME, parseTime } from '../../../core/domain/rome-date';
@@ -62,7 +62,7 @@ function firstLoads(steps: StepDraftRow[]): StepDraftRow[] {
 
 @Component({
   selector: 'qa-cycle-timeline-drawer',
-  imports: [FormField, QaButtonImports, HlmInput, QaDatePicker, QaDialogImports, QaDrawerImports, QaSwitch, QaTooltipImports, QaMultiSelect],
+  imports: [FormField, QaButtonImports, HlmInput, QaDatePicker, QaDialogImports, QaDrawerImports, QaSwitch, QaTimeMask, QaTooltipImports, QaMultiSelect],
   template: `
     <qa-drawer [(open)]="open" [closeGuard]="discard.guard" [title]="title()" [subtitle]="subtitle()" width="880px">
       @if (open()) {
@@ -119,6 +119,7 @@ function firstLoads(steps: StepDraftRow[]): StepDraftRow[] {
               label="Science programs"
               [placeholder]="isMain() ? 'All programs' : 'Select programs'"
               [mutedPlaceholder]="!isMain()"
+              allText="All programs"
               [invalid]="!!programsError()"
               searchPlaceholder="Search programs"
               appearance="field"
@@ -176,10 +177,10 @@ function firstLoads(steps: StepDraftRow[]): StepDraftRow[] {
                       } @else {
                       <span class="flex min-w-0 gap-1.5">
                       <span class="relative flex min-w-0 flex-1">
-                        <input hlmInput type="text" [formField]="rf.start" [attr.aria-label]="'Step ' + (i + 1) + ' opens'" placeholder="06 Jul 2026" [attr.data-error]="bad(i, 'start')" [attr.aria-invalid]="bad(i, 'start') || null" class="h-10 w-full min-w-0 rounded-[8px] border-(--border) bg-(--field-bg) py-0 pr-9 pl-[10px] font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) @3xl:h-8 dark:bg-(--field-bg)" />
+                        <input hlmInput type="text" [formField]="rf.start" [attr.aria-label]="'Step ' + (i + 1) + ' opens'" placeholder="Select date" [attr.data-error]="bad(i, 'start')" [attr.aria-invalid]="bad(i, 'start') || null" class="h-10 w-full min-w-0 rounded-[8px] border-(--border) bg-(--field-bg) py-0 pr-9 pl-[10px] font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) @3xl:h-8 dark:bg-(--field-bg)" />
                         <qa-date-picker [value]="rf.start().value()" (valueChange)="rf.start().value.set($event)" [label]="'Pick step ' + (i + 1) + ' opening date'" class="absolute top-1/2 right-1 -translate-y-1/2" />
                       </span>
-                      <input hlmInput type="text" inputmode="numeric" [formField]="rf.startTime" [attr.aria-label]="'Step ' + (i + 1) + ' opening time, 24-hour, Rome'" placeholder="00:00" (blur)="tidyTime(i, 'startTime')" [attr.data-error]="bad(i, 'startTime')" [attr.aria-invalid]="bad(i, 'startTime') || null" class="h-10 w-[60px] flex-none rounded-[8px] border-(--border) bg-(--field-bg) px-[10px] py-0 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) @3xl:h-8 dark:bg-(--field-bg)" />
+                      <input hlmInput qaTimeMask type="text" inputmode="numeric" [formField]="rf.startTime" [attr.aria-label]="'Step ' + (i + 1) + ' opening time, 24-hour, Rome'" placeholder="00:00" (blur)="tidyTime(i, 'startTime')" [attr.data-error]="bad(i, 'startTime')" [attr.aria-invalid]="bad(i, 'startTime') || null" class="h-10 w-[60px] flex-none rounded-[8px] border-(--border) bg-(--field-bg) px-[10px] py-0 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) @3xl:h-8 dark:bg-(--field-bg)" />
                       </span>
                       }
                     </span>
@@ -190,10 +191,10 @@ function firstLoads(steps: StepDraftRow[]): StepDraftRow[] {
                       } @else {
                       <span class="flex min-w-0 gap-1.5">
                       <span class="relative flex min-w-0 flex-1">
-                        <input hlmInput type="text" [formField]="rf.end" [attr.aria-label]="'Step ' + (i + 1) + ' closes'" [placeholder]="last && !live() ? 'Optional' : '11 Jul 2026'" [attr.data-error]="bad(i, 'end')" [attr.aria-invalid]="bad(i, 'end') || null" class="h-10 w-full min-w-0 rounded-[8px] border-(--border) bg-(--field-bg) py-0 pr-9 pl-[10px] font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) @3xl:h-8 dark:bg-(--field-bg)" />
-                        <qa-date-picker [value]="rf.end().value()" (valueChange)="rf.end().value.set($event)" [label]="'Pick step ' + (i + 1) + ' closing date'" class="absolute top-1/2 right-1 -translate-y-1/2" />
+                        <input hlmInput type="text" [formField]="rf.end" [attr.aria-label]="'Step ' + (i + 1) + ' closes'" (blur)="fillNextOpening(i)" [placeholder]="last && !live() ? 'Optional' : 'Select date'" [attr.data-error]="bad(i, 'end')" [attr.aria-invalid]="bad(i, 'end') || null" class="h-10 w-full min-w-0 rounded-[8px] border-(--border) bg-(--field-bg) py-0 pr-9 pl-[10px] font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) @3xl:h-8 dark:bg-(--field-bg)" />
+                        <qa-date-picker [value]="rf.end().value()" (valueChange)="rf.end().value.set($event); fillNextOpening(i)" [label]="'Pick step ' + (i + 1) + ' closing date'" class="absolute top-1/2 right-1 -translate-y-1/2" />
                       </span>
-                      <input hlmInput type="text" inputmode="numeric" [formField]="rf.endTime" [attr.aria-label]="'Step ' + (i + 1) + ' closing time, 24-hour, Rome'" placeholder="23:59" (blur)="tidyTime(i, 'endTime')" [attr.data-error]="bad(i, 'endTime')" [attr.aria-invalid]="bad(i, 'endTime') || null" class="h-10 w-[60px] flex-none rounded-[8px] border-(--border) bg-(--field-bg) px-[10px] py-0 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) @3xl:h-8 dark:bg-(--field-bg)" />
+                      <input hlmInput qaTimeMask type="text" inputmode="numeric" [formField]="rf.endTime" [attr.aria-label]="'Step ' + (i + 1) + ' closing time, 24-hour, Rome'" placeholder="23:59" (blur)="tidyTime(i, 'endTime')" [attr.data-error]="bad(i, 'endTime')" [attr.aria-invalid]="bad(i, 'endTime') || null" class="h-10 w-[60px] flex-none rounded-[8px] border-(--border) bg-(--field-bg) px-[10px] py-0 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) @3xl:h-8 dark:bg-(--field-bg)" />
                       </span>
                       }
                     </span>
@@ -542,6 +543,26 @@ export class TimelineDrawer {
     const typed = this.draft().steps[i]?.[key] ?? '';
     const t = parseTime(typed);
     if (t && t !== typed) this.patchRow(i, { [key]: t });
+    if (key === 'endTime') this.fillNextOpening(i);
+  }
+
+  /** Openings this drawer filled on its own, by row: they follow the close until the admin edits them. */
+  private readonly autoOpenings = linkedSignal<TimelineRequest, ReadonlyMap<number, string>>({ source: this.request, computation: () => new Map() });
+
+  /**
+   * A step's close is set → the next step opens the minute after, if its opening is empty or still the one filled
+   * here (date first, then time: the opening follows the new time). An opening the admin typed is never touched.
+   */
+  protected fillNextOpening(i: number): void {
+    const row = this.draft().steps[i];
+    const next = this.draft().steps[i + 1];
+    if (!row || !next || i + 1 < this.closedCount() || i + 1 === this.activeIndex()) return;
+    const ours = this.autoOpenings().get(i + 1) === `${next.start} ${next.startTime}`;
+    if (next.start.trim() && !ours) return;
+    const at = nextOpening(row.end, row.endTime);
+    if (!at) return;
+    this.patchRow(i + 1, at);
+    this.autoOpenings.update((m) => new Map(m).set(i + 1, `${at.start} ${at.startTime}`));
   }
 
   protected removeRow(i: number): void {

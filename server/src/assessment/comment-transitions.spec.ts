@@ -30,12 +30,22 @@ const TO: CommentState[] = [
   'clarification_requested',
 ];
 
+const LEAD_FROM: CommentState[] = [
+  'disagreed',
+  'open',
+  'clarification_requested',
+];
+
 describe('comment transitions (FR-19, design 7.7, P2-3911)', () => {
   it.each<Move>([
     [null, 'open', 'author'],
     ['open', 'withdrawn', 'author'],
     ['clarification_requested', 'open', 'author'],
     ...FROM.flatMap((from) => TO.map((to): Move => [from, to, 'program'])),
+    // Round 2 (design 4, DD-6): the Lead's agree closes a comment when the review ends.
+    ...LEAD_FROM.map((from): Move => [from, 'lead_sided_program', 'lead']),
+    // Round 2 (T-9): the Lead's escalate moves the comment when the review ends `escalated`.
+    ...LEAD_FROM.map((from): Move => [from, 'escalated', 'lead']),
   ])('allows %s -> %s by %s', (from, to, by) => {
     expect(isTransitionAllowed(from, to, by)).toBe(true);
   });
@@ -57,6 +67,24 @@ describe('comment transitions (FR-19, design 7.7, P2-3911)', () => {
     ['escalated', 'accepted', 'program'],
     ['done', 'disagreed', 'program'],
     ['accepted', 'open', 'program'],
+    // The Lead closes only a comment it can decide; and it is the only one to write this state.
+    ['accepted', 'lead_sided_program', 'lead'],
+    ['accepted_with_comment', 'lead_sided_program', 'lead'],
+    ['withdrawn', 'lead_sided_program', 'lead'],
+    ['escalated', 'lead_sided_program', 'lead'],
+    ['lead_sided_program', 'lead_sided_program', 'lead'],
+    [null, 'lead_sided_program', 'lead'],
+    ['disagreed', 'lead_sided_program', 'program'],
+    ['disagreed', 'lead_sided_program', 'author'],
+    ['disagreed', 'accepted', 'lead'],
+    ['disagreed', 'open', 'lead'],
+    // The Lead escalates only a comment it can decide.
+    ['accepted', 'escalated', 'lead'],
+    ['accepted_with_comment', 'escalated', 'lead'],
+    ['withdrawn', 'escalated', 'lead'],
+    ['escalated', 'escalated', 'lead'],
+    [null, 'escalated', 'lead'],
+    ['disagreed', 'escalated', 'author'],
   ])('refuses %s -> %s by %s', (from, to, by) => {
     expect(findTransition(from, to, by)).toBeUndefined();
     expect(isTransitionAllowed(from, to, by)).toBe(false);
@@ -69,9 +97,9 @@ describe('comment transitions (FR-19, design 7.7, P2-3911)', () => {
     }
   });
 
-  it('has exactly the 23 reachable moves: 3 by the author, 20 by the program', () => {
+  it('has exactly the 29 reachable moves: 3 by the author, 20 by the program, 6 by the Lead', () => {
     const reachable = COMMENT_TRANSITIONS.filter((row) => row.reachable);
-    expect(reachable).toHaveLength(23);
+    expect(reachable).toHaveLength(29);
     expect(
       reachable
         .filter((row) => row.by === 'author')
@@ -82,5 +110,24 @@ describe('comment transitions (FR-19, design 7.7, P2-3911)', () => {
       'clarification_requested->open',
     ]);
     expect(reachable.filter((row) => row.by === 'program')).toHaveLength(20);
+    expect(
+      reachable
+        .filter((row) => row.by === 'lead')
+        .map((row) => `${row.from}->${row.to}`),
+    ).toEqual([
+      'disagreed->lead_sided_program',
+      'open->lead_sided_program',
+      'clarification_requested->lead_sided_program',
+      'disagreed->escalated',
+      'open->escalated',
+      'clarification_requested->escalated',
+    ]);
+  });
+
+  it('declares the Lead escalations (T-9) as reachable', () => {
+    for (const from of LEAD_FROM) {
+      expect(findTransition(from, 'escalated', 'lead')?.reachable).toBe(true);
+      expect(isTransitionAllowed(from, 'escalated', 'lead')).toBe(true);
+    }
   });
 });

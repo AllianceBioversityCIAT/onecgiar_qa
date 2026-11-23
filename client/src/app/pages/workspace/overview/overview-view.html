@@ -10,16 +10,18 @@
          "Progress by timeline" and the sidebar's cycle card (Juanpa, 2026-11-11). -->
     <p class="m-0 text-(length:--fs-14) font-normal text-(--text-3)">{{ subtitle() }}</p>
   </div>
-  <!-- "Viewing as": design preview of each role's Overview, as in Review (the real role comes from the signed-in user). -->
-  <qa-select
-    [value]="role()"
-    (valueChange)="setRole($event)"
-    [options]="roleOptions"
-    label="Viewing as"
-    appearance="inline"
-    panelWidth="240px"
-    class="mt-1.5 flex-none"
-  />
+  <!-- "Viewing as": only for someone with several roles, among the roles they hold. -->
+  @if (roleOptions().length > 1) {
+    <qa-select
+      [value]="role()"
+      (valueChange)="setRole($event)"
+      [options]="roleOptions()"
+      label="Viewing as"
+      appearance="inline"
+      panelWidth="240px"
+      class="mt-1.5 flex-none"
+    />
+  }
 </div>
 
 <!-- This page still shows the figures of the design prototype (overview.mock.ts, overview-roles.mock.ts): it does not
@@ -77,20 +79,21 @@
 <!-- Body -->
 <div class="flex flex-col items-stretch gap-6 px-4 pt-6 pb-8 sm:px-6 lg:px-8">
   <!-- Filters for the whole page (agreed with María Julia and Ángel, 2026-10-27): every block below counts only what they keep.
-       The timeline reads as context ("Viewing All timelines ⌄"), with program and type as menus under it, exactly as in
-       Results: same layout, and it scrolls away with the page (docs/ux-ui/design.md § 6, "Filter bar"). -->
-  <div class="flex flex-col gap-3">
+       The timeline leads a context card, with program and type as menus inside it, under a hairline: exactly as in
+       Results (Juanpa, 2026-11-23). It scrolls away with the page (docs/ux-ui/design.md § 6, "Filter bar"). -->
+  <qa-scope-card class="-mx-4 -mt-6 px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8" regionLabel="Timeline" [meta]="scopeMeta()" [count]="scopeCount()" countLabel="results in QA">
     <qa-select
+      qaScopePicker
       [value]="timeline()"
       (valueChange)="timeline.set($event ?? 'all')"
       [options]="timelineOptions"
-      label="Viewing"
-      appearance="inline"
+      label="Timeline"
+      appearance="scope"
       searchable
       searchPlaceholder="Search timelines"
       panelWidth="340px"
       listMaxHeight="320px"
-      class="self-start"
+      class="min-w-0 self-start"
     />
     <div class="flex flex-wrap items-center gap-2 lg:gap-3">
       <qa-multi-select [(value)]="programs" [options]="programOptions" label="Science program" [searchable]="false" panelWidth="320px" listMaxHeight="none" />
@@ -111,7 +114,7 @@
         <button hlmBtn qaBtn tone="link" size="sm" type="button" (click)="clearAll()">Clear all</button>
       </div>
     }
-  </div>
+  </qa-scope-card>
 
   <!-- Order agreed with María Julia (2026-10-27): timelines, then rounds and statuses, then the analysis of the results. -->
   <!-- Where is each timeline? -->

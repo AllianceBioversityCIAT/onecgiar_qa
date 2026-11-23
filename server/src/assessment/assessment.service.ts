@@ -34,14 +34,19 @@ import {
 } from '../ingestion/snapshot-store.port.js';
 import { AuthorizationService } from '../users/authorization.service.js';
 import { CatalogService } from '../users/catalogs/catalog.service.js';
-import type { AuthenticatedUser } from '../users/current-user.cache.js';
-import { Permission } from '../users/permissions.js';
+import { Permission, RoleCode } from '../users/permissions.js';
 import {
   AssessmentBusyError,
   AssessmentCommentFieldInvalidError,
+  AssessmentCommentNotDeletableError,
   AssessmentCommentNotOpenError,
   AssessmentCoreUncommentedError,
+  AssessmentCoreUndecidedError,
+  AssessmentDecisionInvalidError,
+  AssessmentCoreCommentUndecidedError,
+  AssessmentFieldEscalatedError,
   AssessmentFieldKeysInvalidError,
+  AssessmentFieldNotCoreError,
   AssessmentFinishedError,
   AssessmentNoFieldConfigError,
   AssessmentNotCommentAuthorError,
@@ -49,6 +54,7 @@ import {
   AssessmentReadOnlyError,
   AssessmentStepClosedError,
 } from './assessment.errors.js';
+import type { CommentState } from '../database/drizzle/schema/assessment-comments.js';
 import { loggedWrite, type WriteLogTrace } from './assessment-log.js';
 import {
   ASSESSMENT_UNIT_OF_WORK,
@@ -59,6 +65,8 @@ import {
   type AssessmentStore,
   type AssessmentWriteStore,
   type CommentRecord,
+  type DecisionRecord,
+  type LiveCommentState,
   type LockedAssessment,
   type MembershipRecord,
 } from './assessment.store.js';
@@ -67,12 +75,17 @@ import {
   endOnFinish,
   type CoreFieldState,
 } from './assessment-rules.js';
+import type { ReviewerCaller } from './acting-role.js';
 import {
+  annotateForRound,
   buildAssessmentView,
+  reviewerAuthor,
+  type ReviewerAuthor,
+  type RoundViewField,
+  type RoundViewSection,
   type ViewComment,
-  type ViewSection,
-  type ViewField,
 } from './assessment-view.js';
+import { isTransitionAllowed } from './comment-transitions.js';
 import type { QaStatus } from './qa-status.js';
 import { statusOf } from './qa-status.js';
 import {
@@ -81,11 +94,24 @@ import {
 } from './release.service.js';
 import { buildValueCopy } from './comment-value-copy.js';
 import {
+  currentStepPosition,
+  currentStepPositionsOf,
   enabledReviewerRows,
   isWithdrawWindowOpen,
+  stepOfRole,
   type StepTiming,
 } from './role-steps.js';
 import {
+  effectiveGreen,
+  endRoundTwoAfterWrite,
+  endRoundTwoOnFinish,
+  isActionable,
+  isDecidable,
+  undecidedCommentFields,
+} from './round-two-rules.js';
+import {
+  actingRoleOf,
+  actsAsAdmin,
   resolveAccess,
   writeDecision,
   type MembershipFacts,
@@ -114,8 +140,9 @@ export interface AssessmentHeader {
 }
 
 export interface AssessmentSummary {
-  status: 'pending' | 'quality_assessed' | 'returned';
-  assessedBy: { id: number; nickname: string | null } | null;
+  status: 'pending' | 'quality_assessed' | 'returned' | 'escalated';
+  /** Who ended it; `admin: true` when a QA Admin ended it acting as the role (admin/acts-as-reviewer R4). */
+  assessedBy: ReviewerAuthor | null;
   finishedAt: string | null;
 }
 
@@ -135,22 +162,55 @@ export interface ValidateInput {
 /** The answer of a validation write: the assessment's end state and every validation row it holds (design 6). */
 export interface ValidationSummary extends AssessmentSummary {
   validations: Array<{ fieldKey: string; validated: boolean }>;
+  /**
+   * Round 2 only (design 6): the effective state of every core field after the
+   * request (stored mark, else the carried round-1 green), by field key. Absent
+   * in round 1, where `validations` already is the state.
+   */
+  effectiveValidated?: Array<{ fieldKey: string; validated: boolean }>;
+}
+
+/** The request of `PUT …/assessment/decisions/:commentId` (round-2 FR-8): the choice and its text, already trimmed and length-checked by the DTO. */
+export interface DecisionInput {
+  decision: 'agree_program' | 'escalate';
+  body: string;
+}
+
+/** The answer of a decision write (round-2 design 6): the decision as stored (`null` after a clear) and the assessment as `validate` answers it. */
+export interface DecisionResult extends ValidationSummary {
+  decision: { decision: string; body: string | null; decidedAt: string } | null;
 }
 
 /** The answer of `GET …/results/:resultCode/assessment` (design 6). */
 export interface AssessmentViewResponse {
   header: AssessmentHeader;
-  sections: ViewSection[];
-  other: ViewField[];
+  /** The membership's round: 1 for the assessor, 2 for the Lead (round-2 design 6). */
+  round: number;
+  sections: RoundViewSection[];
+  other: RoundViewField[];
   writable: boolean;
   readOnlyReason: AssessmentReadOnlyReason | null;
   assessment: AssessmentSummary | null;
+  /**
+   * ADMIN only (admin/acts-as-reviewer): the roles the Admin may act as on this
+   * result (`X-Acting-Role`): the enabled reviewer roles of the membership's
+   * round whose step the timeline has. Absent for any other caller.
+   */
+  actingRoles?: RoleCode[];
+  /** ADMIN only: the role this view was built for (the header honored), `null` when read-only. */
+  actingRole?: RoleCode | null;
 }
+
+/** A comment as the delete route answers: the comment with who deleted it and when (round-2 FR-10). */
+export type DeletedViewComment = ViewComment & {
+  deletedAt: string;
+  deletedBy: number;
+};
 
 const toViewComment = (row: CommentRecord): ViewComment => ({
   id: row.id,
   fieldKey: row.fieldKey,
-  author: { id: row.authorId, nickname: row.authorNickname },
+  author: reviewerAuthor(row.authorId, row.authorNickname, row.authorAsAdmin),
   body: row.body,
   state: row.state,
   stepPosition: row.stepPosition,
@@ -188,11 +248,37 @@ interface WriteContext {
   held: MembershipRecord['assessment'];
   /** The version the request judged its keys by. */
   version: number;
-  user: AuthenticatedUser;
+  user: ReviewerCaller;
+}
+
+/** The audit action of each end (`applyEnd`). */
+const END_AUDIT_ACTION = {
+  quality_assessed: 'end_quality_assessed',
+  returned: 'end_returned',
+  escalated: 'end_escalated',
+} as const satisfies Record<EndStatus, string>;
+
+/**
+ * A decision counts only while its comment is live: not withdrawn and not
+ * deleted (FR-10, FR-11). A deleted comment keeps its state, so both are read.
+ */
+function isLiveDecision(decision: DecisionRecord): boolean {
+  return decision.commentState !== 'withdrawn' && !decision.commentDeleted;
+}
+
+/** The core fields that carry a live `escalate` decision (FR-11). */
+function escalatedFieldKeys(
+  decisions: readonly DecisionRecord[],
+): ReadonlySet<string> {
+  return new Set(
+    decisions
+      .filter((d) => d.decision === 'escalate' && isLiveDecision(d))
+      .map((d) => d.fieldKey),
+  );
 }
 
 /** The end an in-transaction write applied. */
-type EndStatus = 'quality_assessed' | 'returned';
+type EndStatus = 'quality_assessed' | 'returned' | 'escalated';
 
 @Injectable()
 export class AssessmentService {
@@ -239,7 +325,7 @@ export class AssessmentService {
    * ends the assessment in the same transaction (FR-14, OQ-2, `applyEnd`).
    */
   async validate(
-    user: AuthenticatedUser,
+    user: ReviewerCaller,
     timelineId: number,
     resultCode: number,
     input: ValidateInput,
@@ -270,7 +356,7 @@ export class AssessmentService {
 
   private async validateAt(
     at: Date,
-    user: AuthenticatedUser,
+    user: ReviewerCaller,
     timelineId: number,
     resultCode: number,
     input: ValidateInput,
@@ -279,12 +365,13 @@ export class AssessmentService {
   ): Promise<ValidationSummary> {
     const now = nowInRome(at);
 
-    const { timeline, access, membership, facts, hasLoad, decision, readStep } =
+    const { timeline, access, membership, facts, hasLoad, decision } =
       await this.resolveWrite(user, timelineId, resultCode, now);
     trace.membershipId = membership.membershipId;
+    trace.actingRole = actingRoleOf(access);
     const stepPosition = decision.stepPosition;
     const held =
-      membership.assessment !== null && readStep === stepPosition
+      membership.assessment?.stepPosition === stepPosition
         ? membership.assessment
         : null;
 
@@ -298,20 +385,41 @@ export class AssessmentService {
       membership,
       held,
     );
+    // Round 2 (FR-3): only core fields take a write, and Check all / Uncheck all
+    // act on them alone; round 1 keeps every Assessed field.
+    const roundTwo = membership.round !== 1;
     const target =
-      input.all === true ? assessed : [...new Set(input.fieldKeys ?? [])];
+      input.all === true
+        ? roundTwo
+          ? core
+          : assessed
+        : [...new Set(input.fieldKeys ?? [])];
     const wrong = target.filter((key) => !assessed.includes(key));
     if (wrong.length > 0) throw new AssessmentFieldKeysInvalidError(wrong);
+    if (roundTwo && target.some((key) => !core.includes(key))) {
+      throw new AssessmentFieldNotCoreError();
+    }
 
     // Nothing to write before the first write: no row, no transaction, no audit
     // (DD-3, "created lazily"). Greying fields has nothing to undo, and a check
     // all that targets no Assessed field has nothing to set.
-    if (held === null && (!input.validated || target.length === 0)) {
+    // Round 2 with a previous assessment: a carried green may be un-greened (FR-7), so only an empty target is nothing.
+    const carriesGreens = roundTwo && membership.previousAssessmentId !== null;
+    if (
+      held === null &&
+      (target.length === 0 || (!input.validated && !carriesGreens))
+    ) {
       return {
         status: 'pending',
         assessedBy: null,
         finishedAt: null,
         validations: [],
+        // Nothing carried (`carriesGreens` is false) and nothing stored: every core field is grey.
+        ...(roundTwo
+          ? {
+              effectiveValidated: this.effectiveRows(core, () => false),
+            }
+          : {}),
       };
     }
 
@@ -338,9 +446,31 @@ export class AssessmentService {
           row.validated,
         ]),
       );
-      // A field with no row is grey: writing grey to it changes nothing (FR-10).
+      // Round 2 (FR-7, FR-8): the effective green (stored ?? carried) and the Lead's decisions.
+      let decisions: DecisionRecord[] = roundTwo
+        ? await assessments.findDecisions(locked.id)
+        : [];
+      const current = await this.effectiveOf(assessments, membership);
+      if (roundTwo && input.validated) {
+        // FR-8 *Escalate*: a field carrying an `escalate` decision cannot be validated, so green + escalate stays unreachable.
+        const escalated = escalatedFieldKeys(decisions);
+        if (target.some((key) => escalated.has(key))) {
+          throw new AssessmentFieldEscalatedError();
+        }
+        // FR-8 *none (undecided)* (HITL O-1): a live round-1 comment with no decision blocks the green; the whole request is refused.
+        const undecided = await this.undecidedFields(
+          assessments,
+          membership,
+          decisions,
+          new Set(target),
+        );
+        if (undecided.length > 0) {
+          throw new AssessmentCoreCommentUndecidedError(undecided);
+        }
+      }
+      // A field with no row is grey in round 1; in round 2 it may be a carried green (FR-10, FR-7).
       const changed = target.filter(
-        (key) => (state.get(key) ?? false) !== input.validated,
+        (key) => current(key, state.get(key)) !== input.validated,
       );
       if (changed.length > 0) {
         await assessments.upsertValidations(
@@ -366,6 +496,17 @@ export class AssessmentService {
           at,
         });
         for (const key of changed) state.set(key, input.validated);
+        if (roundTwo && !input.validated) {
+          // FR-8 *Un-green*: a field turned grey drops the `agree_program` decisions on it, in this transaction.
+          decisions = await this.dropAgreeDecisions(
+            assessments,
+            context,
+            locked.id,
+            decisions,
+            changed,
+            requestId,
+          );
+        }
       }
       // FR-14 (OQ-2): the write that leaves every core field green ends the assessment, in this transaction.
       // Only a write that turned something green can complete the core; a configuration with no core field never ends here.
@@ -375,17 +516,27 @@ export class AssessmentService {
         finishedAt: null,
       };
       // OQ-2: in round 1 a result with any comment never ends by itself; the
-      // comments are read only when the core alone would end it.
+      // comments are read only when the core alone would end it. Round 2 judges
+      // EFFECTIVE greens (stored ?? carried) and never reads comments (design 7).
+      const escalatedNow = escalatedFieldKeys(decisions);
       const coreEnds =
         changed.length > 0 &&
         input.validated &&
-        endAfterValidation(
-          core.map((key) => ({
-            key,
-            validated: state.get(key) ?? false,
-            commented: false,
-          })),
-        ) === 'quality_assessed';
+        (roundTwo
+          ? endRoundTwoAfterWrite(
+              core.map((key) => ({
+                key,
+                effectiveGreen: current(key, state.get(key)),
+                escalated: escalatedNow.has(key),
+              })),
+            )
+          : endAfterValidation(
+              core.map((key) => ({
+                key,
+                validated: state.get(key) ?? false,
+                commented: false,
+              })),
+            )) === 'quality_assessed';
       if (
         coreEnds &&
         !(
@@ -399,10 +550,107 @@ export class AssessmentService {
           locked,
           'quality_assessed',
           requestId,
+          decisions,
         );
       }
-      return { ...end, validations: this.validationRows(state) };
+      return {
+        ...end,
+        validations: this.validationRows(state),
+        ...(roundTwo
+          ? {
+              effectiveValidated: this.effectiveRows(core, (key) =>
+                current(key, state.get(key)),
+              ),
+            }
+          : {}),
+      };
     });
+  }
+
+  /**
+   * DD-4: the state a core field has in this assessment, as a function of its
+   * stored mark. Round 1: the mark, else grey. Round 2: the mark, else the
+   * round-1 fact (green, uncommented, unchanged), read from the previous
+   * assessment under the round-2 lock (the carried green is computed, never
+   * copied). A new round-2 membership has no previous assessment and carries
+   * nothing.
+   */
+  private async effectiveOf(
+    assessments: AssessmentWriteStore,
+    membership: MembershipRecord,
+  ): Promise<(key: string, stored: boolean | undefined) => boolean> {
+    const previous = membership.previousAssessmentId;
+    if (membership.round === 1 || previous === null) {
+      return (_key, stored) => stored ?? false;
+    }
+    const greens = new Set(
+      (await assessments.findValidations(previous))
+        .filter((row) => row.validated)
+        .map((row) => row.fieldKey),
+    );
+    const commented = new Set(
+      await assessments.findLiveCommentedFieldKeys(previous),
+    );
+    const changedFields = new Set(membership.changedFields ?? []);
+    return (key, stored) =>
+      effectiveGreen(stored, {
+        green: greens.has(key),
+        commented: commented.has(key),
+        changed: changedFields.has(key),
+      });
+  }
+
+  /**
+   * The fields among `fieldKeys` with a live decidable round-1 comment that has
+   * no decision (`undecidedCommentFields`). Reads the round-1 comments, so a
+   * result with no previous assessment answers empty without a statement.
+   */
+  private async undecidedFields(
+    assessments: AssessmentWriteStore,
+    membership: MembershipRecord,
+    decisions: readonly DecisionRecord[],
+    fieldKeys: ReadonlySet<string>,
+  ): Promise<string[]> {
+    const previous = membership.previousAssessmentId;
+    if (previous === null) return [];
+    const comments: LiveCommentState[] =
+      await assessments.findLiveCommentStates(previous);
+    return undecidedCommentFields(
+      comments,
+      new Set(decisions.filter(isLiveDecision).map((d) => d.commentId)),
+      fieldKeys,
+    );
+  }
+
+  /**
+   * Removes the Lead's `agree_program` decisions on `fieldKeys` (the fields just
+   * turned grey) and writes one `decision_clear` audit row for each. Returns the
+   * decisions that remain.
+   */
+  private async dropAgreeDecisions(
+    assessments: AssessmentWriteStore,
+    context: WriteContext,
+    assessmentId: number,
+    decisions: readonly DecisionRecord[],
+    fieldKeys: readonly string[],
+    requestId: string,
+  ): Promise<DecisionRecord[]> {
+    const dropped = decisions.filter(
+      (d) => d.decision === 'agree_program' && fieldKeys.includes(d.fieldKey),
+    );
+    for (const d of dropped) {
+      await assessments.deleteDecision(d.commentId, context.roleCode);
+      await assessments.insertAudit({
+        assessmentId,
+        actorId: context.user.id,
+        action: 'decision_clear',
+        fieldKeys: [d.fieldKey],
+        commentId: d.commentId,
+        requestId,
+        at: context.at,
+      });
+    }
+    return decisions.filter((d) => !dropped.includes(d));
   }
 
   /**
@@ -419,7 +667,7 @@ export class AssessmentService {
    * after it, so a loser writes none of them. The clock is read once.
    */
   async finish(
-    user: AuthenticatedUser,
+    user: ReviewerCaller,
     timelineId: number,
     resultCode: number,
     requestId: string,
@@ -454,19 +702,20 @@ export class AssessmentService {
 
   private async finishAt(
     at: Date,
-    user: AuthenticatedUser,
+    user: ReviewerCaller,
     timelineId: number,
     resultCode: number,
     requestId: string,
     trace: WriteLogTrace,
   ): Promise<ValidationSummary> {
     const now = nowInRome(at);
-    const { timeline, access, membership, facts, hasLoad, decision, readStep } =
+    const { timeline, access, membership, facts, hasLoad, decision } =
       await this.resolveWrite(user, timelineId, resultCode, now);
     trace.membershipId = membership.membershipId;
+    trace.actingRole = actingRoleOf(access);
     const stepPosition = decision.stepPosition;
     const held =
-      membership.assessment !== null && readStep === stepPosition
+      membership.assessment?.stepPosition === stepPosition
         ? membership.assessment
         : null;
 
@@ -498,6 +747,33 @@ export class AssessmentService {
           row.validated,
         ]),
       );
+      if (membership.round !== 1) {
+        // Round 2 (FR-11, FR-12, FR-13, DD-5): effective greens (stored ?? carried)
+        // and the live `escalate` decisions; comments are never read. It never returns.
+        const decisions = await assessments.findDecisions(locked.id);
+        const current = await this.effectiveOf(assessments, membership);
+        const escalated = escalatedFieldKeys(decisions);
+        const roundTwo = endRoundTwoOnFinish(
+          core.map((key) => ({
+            key,
+            effectiveGreen: current(key, state.get(key)),
+            escalated: escalated.has(key),
+          })),
+        );
+        if (typeof roundTwo === 'object') {
+          // Rolls the transaction back: a row created for this request goes with it.
+          throw new AssessmentCoreUndecidedError([...roundTwo.fieldKeys]);
+        }
+        const end = await this.applyEnd(
+          assessments,
+          context,
+          locked,
+          roundTwo,
+          requestId,
+          decisions,
+        );
+        return { ...end, validations: this.validationRows(state) };
+      }
       const commented = new Set(
         await assessments.findCommentedFieldKeys(locked.id),
       );
@@ -507,10 +783,7 @@ export class AssessmentService {
         commented: commented.has(key),
       }));
       // OQ-2: in round 1 any comment, core or not, sends the result back.
-      const outcome = endOnFinish(
-        coreStates,
-        membership.round === 1 && commented.size > 0,
-      );
+      const outcome = endOnFinish(coreStates, commented.size > 0);
       if (typeof outcome === 'object') {
         // Rolls the transaction back: a row created for this request goes with it.
         throw new AssessmentCoreUncommentedError([...outcome.fieldKeys]);
@@ -524,6 +797,16 @@ export class AssessmentService {
       );
       return { ...end, validations: this.validationRows(state) };
     });
+  }
+
+  /** The effective state of each core field as the round-2 validations answer lists it, by field key. */
+  private effectiveRows(
+    core: readonly string[],
+    green: (key: string) => boolean,
+  ): Array<{ fieldKey: string; validated: boolean }> {
+    return core
+      .map((fieldKey) => ({ fieldKey, validated: green(fieldKey) }))
+      .sort((x, y) => (x.fieldKey < y.fieldKey ? -1 : 1));
   }
 
   /** Every validation row as the answer lists it, by field key. */
@@ -595,6 +878,9 @@ export class AssessmentService {
    * written), then the one release row, the comments becoming visible to the
    * program, and the end audit row. `quality_assessed` queues a `qaed`
    * release, `returned` a `not_qaed` one (FR-18). T-12 dispatches it.
+   * Round 2 (DD-7, DD-8): `escalated` queues NO release (the result stays in QA
+   * for TPB review); both round-2 ends apply the Lead's decisions as comment
+   * states and never make a comment visible to the program.
    */
   private async applyEnd(
     assessments: AssessmentWriteStore,
@@ -602,30 +888,43 @@ export class AssessmentService {
     locked: LockedAssessment,
     status: EndStatus,
     requestId: string,
+    decisions?: readonly DecisionRecord[],
   ): Promise<AssessmentSummary> {
     const { membership, user, at } = context;
     const finishedAt = wholeSecond(at);
+    const asAdmin = actsAsAdmin(context.access);
     const ended = await assessments.endAssessment({
       assessmentId: locked.id,
       status,
       actorId: user.id,
+      asAdmin,
       at: finishedAt,
     });
     if (!ended) throw new AssessmentFinishedError();
-    await assessments.insertRelease({
-      assessmentId: locked.id,
-      timelineResultId: membership.membershipId,
-      resultId: membership.resultId,
-      phaseYear: membership.phaseYear,
-      outcome: status === 'quality_assessed' ? 'qaed' : 'not_qaed',
-      at: finishedAt,
-    });
-    await assessments.markCommentsVisible(locked.id, finishedAt);
+    if (status !== 'escalated') {
+      await assessments.insertRelease({
+        assessmentId: locked.id,
+        timelineResultId: membership.membershipId,
+        resultId: membership.resultId,
+        phaseYear: membership.phaseYear,
+        outcome: status === 'quality_assessed' ? 'qaed' : 'not_qaed',
+        at: finishedAt,
+      });
+    }
+    if (membership.round === 1) {
+      await assessments.markCommentsVisible(locked.id, finishedAt);
+    } else {
+      // DD-7: the Lead's decisions become comment states now; DD-8: round 2 never makes a comment visible to the program.
+      await this.applyLeadDecisions(
+        assessments,
+        context,
+        decisions ?? (await assessments.findDecisions(locked.id)),
+      );
+    }
     await assessments.insertAudit({
       assessmentId: locked.id,
       actorId: user.id,
-      action:
-        status === 'quality_assessed' ? 'end_quality_assessed' : 'end_returned',
+      action: END_AUDIT_ACTION[status],
       fieldKeys: null,
       commentId: null,
       requestId,
@@ -633,9 +932,45 @@ export class AssessmentService {
     });
     return {
       status,
-      assessedBy: { id: user.id, nickname: user.nickname },
+      assessedBy: reviewerAuthor(user.id, user.nickname, asAdmin),
       finishedAt: finishedAt.toISOString(),
     };
+  }
+
+  /**
+   * The end of a round-2 review writes the Lead's decisions as comment states
+   * (DD-7): `agree_program` closes the comment as `lead_sided_program` and
+   * `escalate` moves it to `escalated`, with one `comment_events` row each. An
+   * `escalate` cannot exist on a green field, so a Quality Assessed end has
+   * none. A decision on a withdrawn or deleted comment moves nothing.
+   */
+  private async applyLeadDecisions(
+    assessments: AssessmentWriteStore,
+    context: WriteContext,
+    decisions: readonly DecisionRecord[],
+  ): Promise<void> {
+    for (const d of decisions) {
+      if (!isLiveDecision(d)) continue;
+      const to: CommentState =
+        d.decision === 'escalate' ? 'escalated' : 'lead_sided_program';
+      // ADR-006: the move must be in the transition table. A comment that left a
+      // decidable state since the decision (nothing does today) is not moved.
+      if (!isTransitionAllowed(d.commentState, to, 'lead')) continue;
+      const moved = await assessments.setCommentState(
+        d.commentId,
+        d.commentState,
+        to,
+      );
+      if (!moved) continue;
+      await assessments.insertCommentEvent({
+        commentId: d.commentId,
+        actorId: context.user.id,
+        actorRole: RoleCode.LEAD_ASSESSOR,
+        fromState: d.commentState,
+        toState: to,
+        at: context.at,
+      });
+    }
   }
 
   /**
@@ -699,7 +1034,7 @@ export class AssessmentService {
       assessed: assessedItems.map((item) => item.fieldKey),
       // The core fields are Assessed fields flagged `isCore` (FR-14), in configuration order.
       core: assessedItems
-        .filter((item) => item.isCore)
+        .filter((item) => isActionable(item))
         .map((item) => item.fieldKey),
       version,
     };
@@ -725,7 +1060,7 @@ export class AssessmentService {
    * all. The clock is read once.
    */
   async comment(
-    user: AuthenticatedUser,
+    user: ReviewerCaller,
     timelineId: number,
     resultCode: number,
     input: CommentInput,
@@ -755,7 +1090,7 @@ export class AssessmentService {
 
   private async commentAt(
     at: Date,
-    user: AuthenticatedUser,
+    user: ReviewerCaller,
     timelineId: number,
     resultCode: number,
     input: CommentInput,
@@ -765,12 +1100,13 @@ export class AssessmentService {
   ): Promise<ViewComment> {
     const now = nowInRome(at);
 
-    const { timeline, access, membership, facts, hasLoad, decision, readStep } =
+    const { timeline, access, membership, facts, hasLoad, decision } =
       await this.resolveWrite(user, timelineId, resultCode, now);
     trace.membershipId = membership.membershipId;
+    trace.actingRole = actingRoleOf(access);
     const stepPosition = decision.stepPosition;
     const held =
-      membership.assessment !== null && readStep === stepPosition
+      membership.assessment?.stepPosition === stepPosition
         ? membership.assessment
         : null;
 
@@ -779,13 +1115,17 @@ export class AssessmentService {
       throw new AssessmentFinishedError();
     }
 
-    const { assessed, version } = await this.assessedOf(
+    const { assessed, core, version } = await this.assessedOf(
       timeline,
       membership,
       held,
     );
     if (!assessed.includes(input.fieldKey)) {
       throw new AssessmentCommentFieldInvalidError();
+    }
+    // Round 2 (FR-3): a non-core field is context only; refused before any write.
+    if (membership.round !== 1 && !core.includes(input.fieldKey)) {
+      throw new AssessmentFieldNotCoreError();
     }
 
     const catalog = await this.catalogOf(membership.cycleYear);
@@ -827,6 +1167,7 @@ export class AssessmentService {
           body: input.body,
           valueCopy,
           valueTruncated: truncated,
+          asAdmin: actsAsAdmin(access),
           at: createdAt,
         });
         await assessments.insertCommentEvent({
@@ -859,6 +1200,7 @@ export class AssessmentService {
       fieldKey: input.fieldKey,
       authorId: user.id,
       authorNickname: user.nickname,
+      authorAsAdmin: actsAsAdmin(access),
       body: input.body,
       state: 'open',
       stepPosition,
@@ -871,10 +1213,351 @@ export class AssessmentService {
   }
 
   /**
+   * Round-2 FR-8 (design 6, 7): the Lead sets `agree_program` or `escalate` on a
+   * round-1 comment of THIS result, or changes the decision it set. The same
+   * steps and lock order as a validation (timeline `FOR SHARE`, the round-2
+   * assessment `FOR UPDATE`), then the comment row `FOR UPDATE`; the round-1
+   * assessment row is never locked. A comment of another result, or none, is the
+   * 404 that tells nothing; a comment that cannot be decided is 409
+   * `ASSESSMENT_DECISION_INVALID`.
+   *
+   * `agree_program` writes the field's validation green in the same transaction
+   * and, when that leaves every core field effectively green, ends the review
+   * Quality Assessed (FR-12). `escalate` greys the field (and refuses its
+   * validation from then on). Comment states change only at the end (DD-7).
+   */
+  async decide(
+    user: ReviewerCaller,
+    timelineId: number,
+    resultCode: number,
+    commentId: number,
+    input: DecisionInput,
+    requestId: string,
+  ): Promise<DecisionResult> {
+    return await loggedWrite(
+      this.logger,
+      { action: 'decide', actorId: user.id, requestId, timelineId },
+      (trace) =>
+        this.writeDecision(
+          user,
+          timelineId,
+          resultCode,
+          commentId,
+          input,
+          requestId,
+          trace,
+        ),
+    );
+  }
+
+  /**
+   * Round-2 FR-8: the Lead clears the decision it set, until the review ends.
+   * Clearing an `agree_program` puts its field back to grey. Clearing where
+   * there is no decision changes nothing (a DELETE is idempotent).
+   */
+  async clearDecision(
+    user: ReviewerCaller,
+    timelineId: number,
+    resultCode: number,
+    commentId: number,
+    requestId: string,
+  ): Promise<DecisionResult> {
+    return await loggedWrite(
+      this.logger,
+      { action: 'decision_clear', actorId: user.id, requestId, timelineId },
+      (trace) =>
+        this.writeDecision(
+          user,
+          timelineId,
+          resultCode,
+          commentId,
+          null,
+          requestId,
+          trace,
+        ),
+    );
+  }
+
+  /** Both decision routes: `input` is `null` for a clear. The clock is read once. */
+  private async writeDecision(
+    user: ReviewerCaller,
+    timelineId: number,
+    resultCode: number,
+    commentId: number,
+    input: DecisionInput | null,
+    requestId: string,
+    trace: WriteLogTrace,
+  ): Promise<DecisionResult> {
+    const at = this.clock();
+    const result = await this.withPinnedRetry(() =>
+      this.decideAt(
+        at,
+        user,
+        timelineId,
+        resultCode,
+        commentId,
+        input,
+        requestId,
+        trace,
+      ),
+    );
+    // Only a decision that ended the review queued a release.
+    if (result.status !== 'pending') this.dispatchRelease();
+    return result;
+  }
+
+  private async decideAt(
+    at: Date,
+    user: ReviewerCaller,
+    timelineId: number,
+    resultCode: number,
+    commentId: number,
+    input: DecisionInput | null,
+    requestId: string,
+    trace: WriteLogTrace,
+  ): Promise<DecisionResult> {
+    const now = nowInRome(at);
+    const { timeline, access, membership, facts, hasLoad, decision } =
+      await this.resolveWrite(user, timelineId, resultCode, now);
+    trace.membershipId = membership.membershipId;
+    trace.actingRole = actingRoleOf(access);
+    // Only a Lead decides, and only in round 2: for any other caller the route is not there.
+    if (
+      membership.round === 1 ||
+      decision.row.role !== RoleCode.LEAD_ASSESSOR
+    ) {
+      throw new AssessmentNotFoundError();
+    }
+    const stepPosition = decision.stepPosition;
+    const held =
+      membership.assessment?.stepPosition === stepPosition
+        ? membership.assessment
+        : null;
+
+    // FR-16: an ended membership or assessment takes no more decisions.
+    if (membership.ended || (held !== null && held.status !== 'pending')) {
+      throw new AssessmentFinishedError();
+    }
+    // The decidable comments are the previous membership's step-1 ones and the Lead's own round-2 ones (FR-9).
+    // A new round-2 result has no previous one, and no own comment until an assessment row exists.
+    const previous = membership.previousAssessmentId;
+    if (previous === null && held === null) throw new AssessmentNotFoundError();
+
+    if (held === null && input === null) {
+      // Nothing was decided, so there is nothing to clear: no row, no transaction. The comment is still checked.
+      const found = await this.store.findCommentContext(commentId);
+      if (found === null || found.assessmentId !== previous) {
+        throw new AssessmentNotFoundError();
+      }
+      return {
+        status: 'pending',
+        assessedBy: null,
+        finishedAt: null,
+        validations: [],
+        decision: null,
+      };
+    }
+
+    const { assessed, core, version } = await this.assessedOf(
+      timeline,
+      membership,
+      held,
+    );
+    const context: WriteContext = {
+      timeline,
+      access,
+      membership,
+      facts,
+      hasLoad,
+      now,
+      at,
+      stepPosition,
+      roleCode: decision.row.role,
+      held,
+      version,
+      user,
+    };
+    const decidedAt = wholeSecond(at);
+    return await this.unitOfWork.run(async ({ assessments }) => {
+      const locked = await this.lockForWrite(assessments, context);
+      // Design 7 *Write path*: the comment row after the round-2 assessment lock.
+      const target = await assessments.lockDecisionTarget(commentId);
+      // The previous step-1 comment, or the Lead's OWN comment on this assessment; any other is the 404.
+      const ownComment =
+        target !== undefined &&
+        target.assessmentId === locked.id &&
+        target.authorId === user.id;
+      if (
+        target === undefined ||
+        (target.assessmentId !== previous && !ownComment)
+      ) {
+        throw new AssessmentNotFoundError();
+      }
+      const state = new Map(
+        (await assessments.findValidations(locked.id)).map((row) => [
+          row.fieldKey,
+          row.validated,
+        ]),
+      );
+      let decisions = await assessments.findDecisions(locked.id);
+      const current = await this.effectiveOf(assessments, membership);
+      const green = (key: string) => current(key, state.get(key));
+      const setGreen = async (validated: boolean) => {
+        await assessments.upsertValidations(
+          locked.id,
+          [{ fieldKey: target.fieldKey, validated }],
+          user.id,
+          at,
+        );
+        state.set(target.fieldKey, validated);
+      };
+      const audit = (
+        action: 'decision_set' | 'decision_clear',
+        fieldKey: string,
+        comment: number,
+      ) =>
+        assessments.insertAudit({
+          assessmentId: locked.id,
+          actorId: user.id,
+          action,
+          fieldKeys: [fieldKey],
+          commentId: comment,
+          requestId,
+          at,
+        });
+      const onField = decisions.filter((d) => d.fieldKey === target.fieldKey);
+      let end: AssessmentSummary = {
+        status: locked.status,
+        assessedBy: null,
+        finishedAt: null,
+      };
+      let stored: DecisionResult['decision'] = null;
+
+      if (input === null) {
+        const existing = decisions.find((d) => d.commentId === commentId);
+        if (existing !== undefined) {
+          await assessments.deleteDecision(commentId, context.roleCode);
+          await audit('decision_clear', target.fieldKey, commentId);
+          decisions = decisions.filter((d) => d !== existing);
+          // FR-8: clearing an `agree_program` leaves its comment undecided, so the field turns grey (the other agrees on it are kept).
+          if (existing.decision === 'agree_program' && green(target.fieldKey)) {
+            await setGreen(false);
+          }
+        }
+      } else {
+        const choices = isDecidable(
+          {
+            origin: ownComment ? 'lead_round_two' : 'round_one',
+            state: target.state,
+            deleted: target.deleted,
+          },
+          {
+            visibility: assessed.includes(target.fieldKey)
+              ? 'assessed'
+              : 'view_only',
+            isCore: core.includes(target.fieldKey),
+          },
+          RoleCode.LEAD_ASSESSOR,
+        );
+        if (!choices.includes(input.decision)) {
+          throw new AssessmentDecisionInvalidError();
+        }
+        const others = onField.filter((d) => d.commentId !== commentId);
+        // Green + escalate on one field stays unreachable: an agree cannot turn green a field another comment escalated.
+        if (
+          input.decision === 'agree_program' &&
+          escalatedFieldKeys(others).has(target.fieldKey)
+        ) {
+          throw new AssessmentFieldEscalatedError();
+        }
+        await assessments.upsertDecision({
+          commentId,
+          assessmentId: locked.id,
+          roleCode: context.roleCode,
+          decision: input.decision,
+          body: input.body,
+          actorId: user.id,
+          asAdmin: actsAsAdmin(context.access),
+          at: decidedAt,
+        });
+        await audit('decision_set', target.fieldKey, commentId);
+        decisions = [
+          ...decisions.filter((d) => d.commentId !== commentId),
+          {
+            commentId,
+            fieldKey: target.fieldKey,
+            decision: input.decision,
+            body: input.body,
+            decidedAt,
+            commentState: target.state,
+            commentDeleted: target.deleted,
+          },
+        ];
+        stored = {
+          decision: input.decision,
+          body: input.body,
+          decidedAt: decidedAt.toISOString(),
+        };
+        if (input.decision === 'agree_program') {
+          // The agree is stored always; the field turns green only when no other live round-1 comment on it stays undecided.
+          const stillUndecided =
+            (
+              await this.undecidedFields(
+                assessments,
+                membership,
+                decisions,
+                new Set([target.fieldKey]),
+              )
+            ).length > 0;
+          if (!stillUndecided && !green(target.fieldKey)) await setGreen(true);
+        } else if (green(target.fieldKey)) {
+          // `escalate` keeps the field grey; an agree on another comment of it no longer holds.
+          await setGreen(false);
+          decisions = await this.dropAgreeDecisions(
+            assessments,
+            context,
+            locked.id,
+            decisions,
+            [target.fieldKey],
+            requestId,
+          );
+        }
+        // FR-12: the agree that leaves every core field effectively green ends the review, in this transaction.
+        const escalatedNow = escalatedFieldKeys(decisions);
+        if (
+          input.decision === 'agree_program' &&
+          endRoundTwoAfterWrite(
+            core.map((key) => ({
+              key,
+              effectiveGreen: green(key),
+              escalated: escalatedNow.has(key),
+            })),
+          ) === 'quality_assessed'
+        ) {
+          end = await this.applyEnd(
+            assessments,
+            context,
+            locked,
+            'quality_assessed',
+            requestId,
+            decisions,
+          );
+        }
+      }
+      return {
+        ...end,
+        validations: this.validationRows(state),
+        decision: stored,
+      };
+    });
+  }
+
+  /**
    * FR-13, FR-19, FR-21, OQ-8 (design 7.7): the author withdraws their own
    * comment while it is `open` (the program has not answered) and step 1 or
-   * step 2 of the timeline is open. A withdraw after the END is allowed: it
-   * never refuses an ended assessment and never changes its status.
+   * step 2 of the timeline is open. A round-1 withdraw after the END is allowed
+   * (OQ-8): it never refuses an ended assessment and never changes its status. A
+   * round-2 comment is frozen by the end (FR-11): 409 `ASSESSMENT_FINISHED`.
    *
    * Before the transaction: the comment with its assessment and membership,
    * the caller's scope on that membership (a comment that is missing and one
@@ -891,7 +1574,7 @@ export class AssessmentService {
    * once.
    */
   async withdraw(
-    user: AuthenticatedUser,
+    user: ReviewerCaller,
     commentId: number,
     requestId: string,
   ): Promise<ViewComment> {
@@ -903,7 +1586,7 @@ export class AssessmentService {
   }
 
   private async withdrawAt(
-    user: AuthenticatedUser,
+    user: ReviewerCaller,
     commentId: number,
     requestId: string,
     trace: WriteLogTrace,
@@ -919,7 +1602,12 @@ export class AssessmentService {
     );
     if (timeline === undefined) throw new AssessmentNotFoundError();
     const admin = this.authorization.can(user, Permission.ADMIN_ACCESS);
-    const access = resolveAccess(user, timeline.roleCodes, admin);
+    const access = resolveAccess(
+      user,
+      timeline.roleCodes,
+      admin,
+      user.actingRole,
+    );
     if (!admin && access.reviewerRows.length === 0) {
       throw new AssessmentNotFoundError();
     }
@@ -928,7 +1616,7 @@ export class AssessmentService {
       resultCode: context.resultCode,
       access,
       round: context.round,
-      assessmentStepPosition: context.stepPosition,
+      ...currentStepPositionsOf(timeline.steps),
     });
     // The membership of THIS comment, inside the caller's scope: any other is "not found".
     if (
@@ -940,13 +1628,22 @@ export class AssessmentService {
     // Ids only, and only once the comment is inside the caller's scope.
     trace.timelineId = timeline.id;
     trace.membershipId = membership.membershipId;
+    trace.actingRole = actingRoleOf(access);
 
     if (context.authorId !== user.id) {
       throw new AssessmentNotCommentAuthorError();
     }
     if (context.state !== 'open') throw new AssessmentCommentNotOpenError();
     const hasLoad = (await this.loads.withLoad([timeline.id])).has(timeline.id);
-    if (!isWithdrawWindowOpen({ steps: timeline.steps, now, hasLoad })) {
+    // admin/acts-as-reviewer R2: an Admin acting as a role withdraws whatever the step dates.
+    const anyTime = actsAsAdmin(access);
+    if (
+      !anyTime &&
+      !isWithdrawWindowOpen(
+        { steps: timeline.steps, now, hasLoad },
+        context.round,
+      )
+    ) {
       throw new AssessmentStepClosedError();
     }
 
@@ -955,7 +1652,10 @@ export class AssessmentService {
     await this.unitOfWork.run(async ({ assessments }) => {
       const steps = await assessments.lockTimelineShared(timeline.id);
       if (steps === null) throw new AssessmentNotFoundError();
-      if (!isWithdrawWindowOpen({ steps, now, hasLoad })) {
+      if (
+        !anyTime &&
+        !isWithdrawWindowOpen({ steps, now, hasLoad }, context.round)
+      ) {
         throw new AssessmentStepClosedError();
       }
       const locked = await assessments.lockAssessment(
@@ -963,9 +1663,31 @@ export class AssessmentService {
         context.stepPosition,
       );
       if (locked === undefined) throw new Error('assessment_row_missing');
-      // No `status` check on purpose (OQ-8): withdrawing after the end is allowed.
+      // Round 2 (FR-11): the end freezes the Lead's review, so a withdraw after it is refused.
+      if (
+        context.round !== 1 &&
+        (locked.membershipEnded || locked.status !== 'pending')
+      ) {
+        throw new AssessmentFinishedError();
+      }
+      // No `status` check for round 1 on purpose (OQ-8): withdrawing after the end is allowed.
       if (!(await assessments.withdrawComment(commentId, withdrawnAt))) {
         throw new AssessmentCommentNotOpenError();
+      }
+      // Round 2 (FR-9): a withdrawn comment takes its decision with it, so a finish never counts it.
+      if (
+        context.round !== 1 &&
+        (await assessments.deleteDecision(commentId, RoleCode.LEAD_ASSESSOR))
+      ) {
+        await assessments.insertAudit({
+          assessmentId: context.assessmentId,
+          actorId: user.id,
+          action: 'decision_clear',
+          fieldKeys: [context.fieldKey],
+          commentId,
+          requestId,
+          at,
+        });
       }
       await assessments.insertCommentEvent({
         commentId,
@@ -990,6 +1712,221 @@ export class AssessmentService {
   }
 
   /**
+   * Round-2 FR-10, FR-11, OQ-8 (design 5, 6, 7, DD-9): the Lead soft-deletes
+   * another reviewer's comment. The targets are the round-1 comments of the
+   * previous membership's step-1 assessment of THIS result and the round-2
+   * comments of other reviewers on this assessment (another Lead).
+   *
+   * Scope is the decision's: only a Lead, only the round-2 membership of its
+   * result types, so another result, another type, a non-Lead and a comment that
+   * is not there are one and the same 404; an ADMIN is 403; step 3 not open is
+   * 409 `ASSESSMENT_STEP_CLOSED`; an ended review is 409 `ASSESSMENT_FINISHED`
+   * (every delete after the end, FR-11). In the transaction, in the lock order
+   * of design 5: the timeline `FOR SHARE`, the round-2 assessment row `FOR
+   * UPDATE`, the comment row `FOR UPDATE`, then ONE conditional UPDATE
+   * (`deleted_at IS NULL` and no program response) so a second delete or a program
+   * answer that committed in between is decided by the database. Refused with
+   * 409 `ASSESSMENT_COMMENT_NOT_DELETABLE`: the Lead's own comment (it withdraws
+   * it), a comment already deleted or withdrawn, one the program answered. The
+   * comment keeps its state; the `comment_events` row repeats it (to = from) with
+   * the Lead and its role, and the `comment_delete` audit row says who and when. A
+   * decision on the comment is dropped in the same transaction (`decision_clear`):
+   * an `agree_program` green goes back to grey unless another agree holds its
+   * field. The clock is read once.
+   */
+  async deleteComment(
+    user: ReviewerCaller,
+    commentId: number,
+    requestId: string,
+  ): Promise<DeletedViewComment> {
+    return await loggedWrite(
+      this.logger,
+      { action: 'delete', actorId: user.id, requestId },
+      (trace) => this.deleteAt(user, commentId, requestId, trace),
+    );
+  }
+
+  private async deleteAt(
+    user: ReviewerCaller,
+    commentId: number,
+    requestId: string,
+    trace: WriteLogTrace,
+  ): Promise<DeletedViewComment> {
+    const at = this.clock();
+    const now = nowInRome(at);
+    const target = await this.store.findCommentContext(commentId);
+    if (target === null) throw new AssessmentNotFoundError();
+    // The Lead's membership of the comment's result: the scope, the step and the end are the decision's.
+    const { timeline, access, membership, facts, hasLoad, decision } =
+      await this.resolveWrite(user, target.timelineId, target.resultCode, now);
+    if (
+      membership.round === 1 ||
+      decision.row.role !== RoleCode.LEAD_ASSESSOR
+    ) {
+      throw new AssessmentNotFoundError();
+    }
+    trace.timelineId = timeline.id;
+    trace.membershipId = membership.membershipId;
+    trace.actingRole = actingRoleOf(access);
+    const stepPosition = decision.stepPosition;
+    const held =
+      membership.assessment?.stepPosition === stepPosition
+        ? membership.assessment
+        : null;
+    if (membership.ended || (held !== null && held.status !== 'pending')) {
+      throw new AssessmentFinishedError();
+    }
+    // Only a round-1 comment of THIS result's previous assessment, or one on the Lead's own round-2 assessment.
+    if (
+      target.assessmentId !== membership.previousAssessmentId &&
+      target.assessmentId !== held?.id
+    ) {
+      throw new AssessmentNotFoundError();
+    }
+
+    const { core, version } = await this.assessedOf(timeline, membership, held);
+    const context: WriteContext = {
+      timeline,
+      access,
+      membership,
+      facts,
+      hasLoad,
+      now,
+      at,
+      stepPosition,
+      roleCode: decision.row.role,
+      held,
+      version,
+      user,
+    };
+    const deletedAt = wholeSecond(at);
+    const ended = await this.unitOfWork.run(async ({ assessments }) => {
+      const locked = await this.lockForWrite(assessments, context);
+      // Design 7 *Write path*: the comment row after the round-2 assessment lock.
+      const comment = await assessments.lockDecisionTarget(commentId);
+      if (comment === undefined) throw new AssessmentNotFoundError();
+      // The Lead withdraws its own comment; a deleted or withdrawn one is already out of every list.
+      if (
+        comment.authorId === user.id ||
+        comment.deleted ||
+        comment.state === 'withdrawn'
+      ) {
+        throw new AssessmentCommentNotDeletableError();
+      }
+      if (!(await assessments.deleteComment(commentId, user.id, deletedAt))) {
+        throw new AssessmentCommentNotDeletableError();
+      }
+      // FR-8: a decision on a deleted comment no longer counts, so it goes with it.
+      const decisions = await assessments.findDecisions(locked.id);
+      const dropped = decisions.find((d) => d.commentId === commentId);
+      if (
+        dropped !== undefined &&
+        (await assessments.deleteDecision(commentId, context.roleCode))
+      ) {
+        await assessments.insertAudit({
+          assessmentId: locked.id,
+          actorId: user.id,
+          action: 'decision_clear',
+          fieldKeys: [comment.fieldKey],
+          commentId,
+          requestId,
+          at,
+        });
+        const stillAgreed = decisions.some(
+          (d) =>
+            d !== dropped &&
+            d.fieldKey === comment.fieldKey &&
+            d.decision === 'agree_program' &&
+            isLiveDecision(d),
+        );
+        if (dropped.decision === 'agree_program' && !stillAgreed) {
+          const stored = new Map(
+            (await assessments.findValidations(locked.id)).map((row) => [
+              row.fieldKey,
+              row.validated,
+            ]),
+          );
+          const current = await this.effectiveOf(assessments, membership);
+          if (current(comment.fieldKey, stored.get(comment.fieldKey))) {
+            await assessments.upsertValidations(
+              locked.id,
+              [{ fieldKey: comment.fieldKey, validated: false }],
+              user.id,
+              at,
+            );
+          }
+        }
+      }
+      await assessments.insertCommentEvent({
+        commentId,
+        actorId: user.id,
+        actorRole: context.roleCode,
+        fromState: comment.state,
+        toState: comment.state,
+        at,
+      });
+      await assessments.insertAudit({
+        assessmentId: locked.id,
+        actorId: user.id,
+        action: 'comment_delete',
+        fieldKeys: [comment.fieldKey],
+        commentId,
+        requestId,
+        at,
+      });
+      // FR-12: a delete is a write. Taking the only live round-1 comment off a
+      // field the assessor greened (nothing stored for it) makes it a carried
+      // green; when that leaves every core field effectively green, the review
+      // ends Quality Assessed in this transaction, as after a decision.
+      const stored = new Map(
+        (await assessments.findValidations(locked.id)).map((row) => [
+          row.fieldKey,
+          row.validated,
+        ]),
+      );
+      const current = await this.effectiveOf(assessments, membership);
+      if (
+        comment.assessmentId === membership.previousAssessmentId &&
+        core.includes(comment.fieldKey) &&
+        !stored.has(comment.fieldKey) &&
+        current(comment.fieldKey, undefined)
+      ) {
+        const remaining = (await assessments.findDecisions(locked.id)).filter(
+          (d) => d.commentId !== commentId,
+        );
+        const escalated = escalatedFieldKeys(remaining);
+        if (
+          endRoundTwoAfterWrite(
+            core.map((key) => ({
+              key,
+              effectiveGreen: current(key, stored.get(key)),
+              escalated: escalated.has(key),
+            })),
+          ) === 'quality_assessed'
+        ) {
+          await this.applyEnd(
+            assessments,
+            context,
+            locked,
+            'quality_assessed',
+            requestId,
+            remaining,
+          );
+          return true;
+        }
+      }
+      return false;
+    });
+    // Only a delete that ended the review queued a release.
+    if (ended) this.dispatchRelease();
+    return {
+      ...toViewComment(target),
+      deletedAt: deletedAt.toISOString(),
+      deletedBy: user.id,
+    };
+  }
+
+  /**
    * The answer of a comment create as recorded (P-17), for the idempotency
    * replay reader: the comment read back by id, with no scope check (the key
    * belongs to the caller who made it). The comment and the key mark commit
@@ -1011,7 +1948,7 @@ export class AssessmentService {
    * timeline and rows, the membership, the load probe.
    */
   private async resolveWrite(
-    user: AuthenticatedUser,
+    user: ReviewerCaller,
     timelineId: number,
     resultCode: number,
     now: RomeMinute,
@@ -1019,17 +1956,21 @@ export class AssessmentService {
     const [timeline] = await this.worklist.findTimelines(user.id, timelineId);
     if (timeline === undefined) throw new AssessmentNotFoundError();
     const admin = this.authorization.can(user, Permission.ADMIN_ACCESS);
-    const access = resolveAccess(user, timeline.roleCodes, admin);
+    const access = resolveAccess(
+      user,
+      timeline.roleCodes,
+      admin,
+      user.actingRole,
+    );
     if (!admin && access.reviewerRows.length === 0) {
       throw new AssessmentNotFoundError();
     }
-    const readStep = this.assessmentStep(timeline, access);
     const membership = await this.store.findMembership({
       timelineId: timeline.id,
       resultCode,
       access,
       round: null,
-      assessmentStepPosition: readStep,
+      ...currentStepPositionsOf(timeline.steps),
     });
     if (membership === null) throw new AssessmentNotFoundError();
     const hasLoad = (await this.loads.withLoad([timeline.id])).has(timeline.id);
@@ -1044,7 +1985,7 @@ export class AssessmentService {
     const decision = this.assertWritable(
       writeDecision(access, facts, { steps: timeline.steps, now, hasLoad }),
     );
-    return { timeline, access, membership, facts, hasLoad, decision, readStep };
+    return { timeline, access, membership, facts, hasLoad, decision };
   }
 
   /** The refusal of a write decision: 404 (not in scope), 403 (an ADMIN with no reviewer row), 409 (the step is not open). */
@@ -1074,12 +2015,19 @@ export class AssessmentService {
    * the validations and comments two more: six in all, whatever the size of the
    * result. One snapshot GetItem. A read never writes (DD-3).
    *
+   * Round 2 (escalation/round-2 T-6, NFR-1): two more statements when the
+   * membership has a previous assessment, the thread (ONE SELECT for any number
+   * of round-1 comments) and that assessment's validations; none for a new
+   * round-2 membership. The view never gets a per-comment read. One more
+   * (T-16, the Lead's decisions on its own comments) once the round-2
+   * assessment row exists.
+   *
    * An out-of-scope result, a result that does not exist and a timeline that is
    * not the caller's are one and the same 404 (FR-1 *Out-of-scope result by
    * URL*): nothing tells them apart.
    */
   async open(
-    user: AuthenticatedUser,
+    user: ReviewerCaller,
     timelineId: number,
     resultCode: number,
     round?: number,
@@ -1099,12 +2047,33 @@ export class AssessmentService {
     const snapshot = await this.snapshotOf(membership);
 
     const assessment = membership.assessment;
-    const [validations, comments] =
+    // The caller's reviewer role at this round; `null` for ADMIN (reads, decides nothing).
+    const role =
+      access.reviewerRows.find((row) => row.round === membership.round)?.role ??
+      null;
+    // T-16: the Lead's decisions on its own round-2 comments, in the same
+    // parallel read; only for the Lead in round 2 with an assessment row.
+    const [validations, comments, ownDecisions] =
       assessment === null
-        ? [[], []]
+        ? [[], [], []]
         : await Promise.all([
             this.store.findValidations(assessment.id),
             this.store.findComments(assessment.id),
+            membership.round !== 1 && role === RoleCode.LEAD_ASSESSOR
+              ? this.store.findDecisions(assessment.id)
+              : Promise.resolve([]),
+          ]);
+    // Round 2 (design 7 *Thread read*, DD-4): the previous membership's step-1
+    // thread (ONE statement for any number of comments) and its validations.
+    // A new round-2 membership has no previous assessment: nothing is read.
+    const previous =
+      membership.round === 1 ? null : membership.previousAssessmentId;
+    const [roundOneThread, roundOneValidations] =
+      previous === null
+        ? [[], []]
+        : await Promise.all([
+            this.store.findRoundOneThread(previous, RoleCode.LEAD_ASSESSOR),
+            this.store.findValidations(previous),
           ]);
     const [programs, resultTypes] = await Promise.all([
       this.catalog.listSciencePrograms(),
@@ -1120,7 +2089,6 @@ export class AssessmentService {
       validated: new Map(validations.map((v) => [v.fieldKey, v.validated])),
       comments: comments.map(toViewComment),
     });
-
     const decision = writeDecision(
       access,
       {
@@ -1135,6 +2103,32 @@ export class AssessmentService {
     );
     // FR-16: once the assessment ended, nothing is accepted on it.
     const finished = assessment !== null && assessment.status !== 'pending';
+    // Additive members over the step-1 view (FR-3, FR-4, FR-5, FR-7). ADMIN has no
+    // reviewer row at this round: it reads the thread and decides nothing.
+    const rounded = annotateForRound(view, {
+      round: membership.round,
+      role,
+      changedFields: membership.changedFields,
+      stored: new Map(validations.map((v) => [v.fieldKey, v.validated])),
+      roundOneGreens: new Set(
+        roundOneValidations.filter((v) => v.validated).map((v) => v.fieldKey),
+      ),
+      thread: roundOneThread,
+      userId: user.id,
+      // T-17: whatever makes the view read-only (ended review, closed step) is a refusal of every decision.
+      ended: !decision.writable || finished,
+      ownDecisions: new Map(
+        ownDecisions.filter(isLiveDecision).map((d) => [
+          d.commentId,
+          {
+            decision: d.decision,
+            body: d.body,
+            decidedAt: d.decidedAt.toISOString(),
+          },
+        ]),
+      ),
+    });
+
     const readOnlyReason: AssessmentReadOnlyReason | null = !decision.writable
       ? decision.reason === 'not_in_scope'
         ? 'admin_read_only'
@@ -1177,8 +2171,9 @@ export class AssessmentService {
           ),
         }),
       },
-      sections: view.sections,
-      other: view.other,
+      round: membership.round,
+      sections: rounded.sections,
+      other: rounded.other,
       writable: readOnlyReason === null,
       readOnlyReason,
       assessment:
@@ -1189,15 +2184,29 @@ export class AssessmentService {
               assessedBy:
                 assessment.finishedById === null
                   ? null
-                  : {
-                      id: assessment.finishedById,
-                      nickname: assessment.finishedByNickname,
-                    },
+                  : reviewerAuthor(
+                      assessment.finishedById,
+                      assessment.finishedByNickname,
+                      assessment.finishedAsAdmin,
+                    ),
               finishedAt:
                 assessment.finishedAt === null
                   ? null
                   : assessment.finishedAt.toISOString(),
             },
+      ...(access.admin
+        ? {
+            actingRoles: enabledReviewerRows()
+              .filter(
+                (row) =>
+                  row.round === membership.round &&
+                  stepOfRole(row, timeline.steps) !== undefined,
+              )
+              .map((row) => row.role),
+            // The honored role only: one that does not fit the membership's round is read-only.
+            actingRole: actsAsAdmin(access) ? role : null,
+          }
+        : {}),
     };
   }
 
@@ -1208,7 +2217,7 @@ export class AssessmentService {
    * caller's are the same 404. Three statements; nothing is written.
    */
   private async resolveMembership(
-    user: AuthenticatedUser,
+    user: ReviewerCaller,
     timelineId: number,
     resultCode: number,
     round: number | null,
@@ -1221,19 +2230,28 @@ export class AssessmentService {
     const [timeline] = await this.worklist.findTimelines(user.id, timelineId);
     if (timeline === undefined) throw new AssessmentNotFoundError();
     const admin = this.authorization.can(user, Permission.ADMIN_ACCESS);
-    const access = resolveAccess(user, timeline.roleCodes, admin);
+    const access = resolveAccess(
+      user,
+      timeline.roleCodes,
+      admin,
+      user.actingRole,
+    );
     if (!admin && access.reviewerRows.length === 0) {
       throw new AssessmentNotFoundError();
     }
-    const stepPosition = this.assessmentStep(timeline, access);
+    const steps = currentStepPositionsOf(timeline.steps);
     const membership = await this.store.findMembership({
       timelineId: timeline.id,
       resultCode,
       access,
       round,
-      assessmentStepPosition: stepPosition,
+      ...steps,
     });
     if (membership === null) throw new AssessmentNotFoundError();
+    // DD-3: the step of the membership's own round, whoever reads it (ADMIN included).
+    const stepPosition =
+      membership.assessment?.stepPosition ??
+      currentStepPosition(steps, membership.round, []);
     return { timeline, access, stepPosition, membership };
   }
 
@@ -1245,7 +2263,7 @@ export class AssessmentService {
    * A read never creates the assessment (DD-3).
    */
   async resolveForAi(
-    user: AuthenticatedUser,
+    user: ReviewerCaller,
     timelineId: number,
     resultCode: number,
   ): Promise<{
@@ -1361,18 +2379,5 @@ export class AssessmentService {
       throw new Error('assessment_snapshot_missing');
     }
     return snapshot;
-  }
-
-  /** The step whose assessment is read: the first reviewer row's, else the enabled reviewer role's (an ADMIN reads the same step). */
-  private assessmentStep(
-    timeline: WorklistTimeline,
-    access: WorklistAccess,
-  ): number | null {
-    const audience =
-      access.reviewerRows[0]?.audience ?? enabledReviewerRows()[0]?.audience;
-    return (
-      timeline.steps.find((step) => step.audience === audience)?.position ??
-      null
-    );
   }
 }

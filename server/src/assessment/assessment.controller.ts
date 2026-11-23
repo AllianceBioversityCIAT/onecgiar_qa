@@ -1,7 +1,9 @@
 // @akili-spec assessment/step-1-assessment
+// @akili-spec admin/acts-as-reviewer
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   Inject,
@@ -24,9 +26,13 @@ import { Idempotent } from '../common/idempotency/idempotent.decorator.js';
 import { ACCESS_TOKEN_SCHEME } from '../common/openapi.js';
 import { requestIdOf, type RequestWithId } from '../common/request-id.js';
 import type { AuthenticatedUser } from '../users/current-user.cache.js';
+import type { RoleCode } from '../users/permissions.js';
+import { ActingRole, ApiActingRole, asCaller } from './acting-role.js';
 import {
   AssessmentService,
   type AssessmentViewResponse,
+  type DecisionResult,
+  type DeletedViewComment,
   type ValidationSummary,
 } from './assessment.service.js';
 import type { ViewComment } from './assessment-view.js';
@@ -34,12 +40,16 @@ import {
   AssessmentParams,
   AssessmentViewQuery,
   CommentParams,
+  DecisionParams,
 } from './dto/assessment-params.js';
 import { CreateCommentBody } from './dto/create-comment.body.js';
+import { DecideCommentBody } from './dto/decide-comment.body.js';
 import { ValidateAssessmentBody } from './dto/validate-assessment.body.js';
 import {
   AssessmentCommentModel,
+  AssessmentDeletedCommentModel,
   AssessmentViewModel,
+  DecisionResultModel,
   ValidationSummaryModel,
 } from './models/assessment.model.js';
 
@@ -58,6 +68,7 @@ export class AssessmentController {
     @Inject(AssessmentService) private readonly assessments: AssessmentService,
   ) {}
 
+  @ApiActingRole()
   @ApiOperation({
     summary: 'Open the assessment view of a result',
     description:
@@ -74,21 +85,23 @@ export class AssessmentController {
   @Get('timelines/:timelineId/results/:resultCode/assessment')
   open(
     @CurrentUser() user: AuthenticatedUser,
+    @ActingRole() actingRole: RoleCode | undefined,
     @Param() params: AssessmentParams,
     @Query() query: AssessmentViewQuery,
   ): Promise<AssessmentViewResponse> {
     return this.assessments.open(
-      user,
+      asCaller(user, actingRole),
       params.timelineId,
       params.resultCode,
       query.round,
     );
   }
 
+  @ApiActingRole()
   @ApiOperation({
     summary: 'Set Assessed fields green or grey, or check all',
     description:
-      'Send `validated` and exactly one of `fieldKeys` (1 to 200 Assessed fields of the pinned configuration) and `all: true` (every Assessed field). Setting a field to the state it already has succeeds and changes nothing. Only the fields that change are written, with one audit row. A View only, Hidden or unknown key is a 400 naming it. The assessment row is created at the first write. A write that leaves every core field green ends the assessment as `quality_assessed` in the same transaction, with the caller as "Assessed by" (an assessment with no core field never ends this way). Refused with 409 once the step is not open or the assessment ended.',
+      'Send `validated` and exactly one of `fieldKeys` (1 to 200 Assessed fields of the pinned configuration) and `all: true` (every Assessed field). Setting a field to the state it already has succeeds and changes nothing. Only the fields that change are written, with one audit row. A View only, Hidden or unknown key is a 400 naming it. The assessment row is created at the first write. A write that leaves every core field green ends the assessment as `quality_assessed` in the same transaction, with the caller as "Assessed by" (an assessment with no core field never ends this way). Refused with 409 once the step is not open or the assessment ended. In round 2 only Assessed core fields take a write: a non-core key is 409 `ASSESSMENT_FIELD_NOT_CORE` (nothing written) and `all: true` acts on the core fields only; the answer also carries `effectiveValidated` for every core field (carried greens included). Round 2, `validated: true` only: a core field with a live round-1 comment (`disagreed`, `open` or `clarification_requested`) that has no Lead decision is 409 `ASSESSMENT_CORE_COMMENT_UNDECIDED` whose `error.fields` are those keys, sorted (the whole request is refused, nothing written; an escalated field is still 409 `ASSESSMENT_FIELD_ESCALATED` first). Un-validating is never refused.',
   })
   @ApiOkEnvelope(ValidationSummaryModel)
   @ApiErrorResponses({
@@ -100,6 +113,8 @@ export class AssessmentController {
       'ASSESSMENT_STEP_CLOSED',
       'ASSESSMENT_FINISHED',
       'ASSESSMENT_NO_FIELD_CONFIG',
+      'ASSESSMENT_FIELD_NOT_CORE',
+      'ASSESSMENT_CORE_COMMENT_UNDECIDED',
     ],
     413: ['PAYLOAD_TOO_LARGE'],
     503: ['SERVICE_UNAVAILABLE'],
@@ -107,12 +122,13 @@ export class AssessmentController {
   @Put('timelines/:timelineId/results/:resultCode/assessment/validations')
   validate(
     @CurrentUser() user: AuthenticatedUser,
+    @ActingRole() actingRole: RoleCode | undefined,
     @Req() request: RequestWithId,
     @Param() params: AssessmentParams,
     @Body() body: ValidateAssessmentBody,
   ): Promise<ValidationSummary> {
     return this.assessments.validate(
-      user,
+      asCaller(user, actingRole),
       params.timelineId,
       params.resultCode,
       {
@@ -124,6 +140,7 @@ export class AssessmentController {
     );
   }
 
+  @ApiActingRole()
   @ApiOperation({
     summary: 'Comment on an Assessed field',
     description:
@@ -143,6 +160,7 @@ export class AssessmentController {
         'ASSESSMENT_STEP_CLOSED',
         'ASSESSMENT_FINISHED',
         'ASSESSMENT_NO_FIELD_CONFIG',
+        'ASSESSMENT_FIELD_NOT_CORE',
       ],
       413: ['PAYLOAD_TOO_LARGE'],
       503: ['SERVICE_UNAVAILABLE'],
@@ -152,12 +170,13 @@ export class AssessmentController {
   @Post('timelines/:timelineId/results/:resultCode/assessment/comments')
   comment(
     @CurrentUser() user: AuthenticatedUser,
+    @ActingRole() actingRole: RoleCode | undefined,
     @Req() request: RequestWithId,
     @Param() params: AssessmentParams,
     @Body() body: CreateCommentBody,
   ): Promise<ViewComment> {
     return this.assessments.comment(
-      user,
+      asCaller(user, actingRole),
       params.timelineId,
       params.resultCode,
       { fieldKey: body.fieldKey, body: body.body },
@@ -166,10 +185,90 @@ export class AssessmentController {
     );
   }
 
+  @ApiActingRole()
+  @ApiOperation({
+    summary: 'Decide a round-1 comment (Lead Assessor, round 2)',
+    description:
+      'Sets `agree_program` or `escalate` on a round-1 core comment of this result that is `disagreed`, `open` or `clarification_requested`, with a comment of 1 to 2,000 characters (trimmed). A second call replaces the decision. `agree_program` is always stored and turns the field green in the same transaction, unless another live round-1 comment on that field is still undecided (the field stays grey until the last one is decided); when that leaves every core field green the review ends `quality_assessed` with one `qaed` release. `escalate` keeps the field grey, and validating it is 409 `ASSESSMENT_FIELD_ESCALATED`; so is an agree on a field another comment of it escalated. A comment that cannot be decided is 409 `ASSESSMENT_DECISION_INVALID`; a comment of another result is the same 404 as a missing one. The comment states change when the review ends. Refused with 409 once the step is not open or the assessment ended. One audit row.',
+  })
+  @ApiOkEnvelope(DecisionResultModel)
+  @ApiErrorResponses({
+    400: ['VALIDATION_FAILED', 'MALFORMED_JSON'],
+    401: ['AUTH_TOKEN_INVALID', 'AUTH_USER_NOT_ADMITTED'],
+    403: ['ASSESSMENT_READ_ONLY'],
+    404: ['ASSESSMENT_NOT_FOUND'],
+    409: [
+      'ASSESSMENT_DECISION_INVALID',
+      'ASSESSMENT_FIELD_ESCALATED',
+      'ASSESSMENT_STEP_CLOSED',
+      'ASSESSMENT_FINISHED',
+      'ASSESSMENT_NO_FIELD_CONFIG',
+    ],
+    413: ['PAYLOAD_TOO_LARGE'],
+    503: ['SERVICE_UNAVAILABLE'],
+  })
+  @Put(
+    'timelines/:timelineId/results/:resultCode/assessment/decisions/:commentId',
+  )
+  decide(
+    @CurrentUser() user: AuthenticatedUser,
+    @ActingRole() actingRole: RoleCode | undefined,
+    @Req() request: RequestWithId,
+    @Param() params: DecisionParams,
+    @Body() body: DecideCommentBody,
+  ): Promise<DecisionResult> {
+    return this.assessments.decide(
+      asCaller(user, actingRole),
+      params.timelineId,
+      params.resultCode,
+      params.commentId,
+      { decision: body.decision, body: body.body },
+      requestIdOf(request),
+    );
+  }
+
+  @ApiActingRole()
+  @ApiOperation({
+    summary: 'Clear a decision (Lead Assessor, round 2)',
+    description:
+      'Removes the decision the Lead set on a round-1 comment, until the review ends. Clearing an `agree_program` turns its field back to grey. Clearing where there is no decision succeeds and changes nothing. A comment of another result is the same 404 as a missing one. Refused with 409 once the step is not open or the assessment ended. One audit row when a decision was removed.',
+  })
+  @ApiOkEnvelope(DecisionResultModel)
+  @ApiErrorResponses({
+    400: ['VALIDATION_FAILED'],
+    401: ['AUTH_TOKEN_INVALID', 'AUTH_USER_NOT_ADMITTED'],
+    403: ['ASSESSMENT_READ_ONLY'],
+    404: ['ASSESSMENT_NOT_FOUND'],
+    409: [
+      'ASSESSMENT_STEP_CLOSED',
+      'ASSESSMENT_FINISHED',
+      'ASSESSMENT_NO_FIELD_CONFIG',
+    ],
+    503: ['SERVICE_UNAVAILABLE'],
+  })
+  @Delete(
+    'timelines/:timelineId/results/:resultCode/assessment/decisions/:commentId',
+  )
+  clearDecision(
+    @CurrentUser() user: AuthenticatedUser,
+    @ActingRole() actingRole: RoleCode | undefined,
+    @Req() request: RequestWithId,
+    @Param() params: DecisionParams,
+  ): Promise<DecisionResult> {
+    return this.assessments.clearDecision(
+      asCaller(user, actingRole),
+      params.timelineId,
+      params.resultCode,
+      params.commentId,
+      requestIdOf(request),
+    );
+  }
+
+  @ApiActingRole()
   @ApiOperation({
     summary: 'Finish the assessment',
     description:
-      'Ends a pending assessment with the caller as "Assessed by". With no grey core field (or no core field at all) it becomes `quality_assessed`; if every grey core field carries a non-withdrawn comment it becomes `returned`; otherwise it is a 409 `ASSESSMENT_CORE_UNCOMMENTED` whose `error.fields` are the core field keys still to validate or comment on. The end queues one release to Reporting and makes every non-withdrawn comment visible to the program. Of several concurrent finishes exactly one succeeds and the others get 409 `ASSESSMENT_FINISHED`. One audit row.',
+      'Ends a pending assessment with the caller as "Assessed by". With no grey core field (or no core field at all) it becomes `quality_assessed`; if every grey core field carries a non-withdrawn comment it becomes `returned`; otherwise it is a 409 `ASSESSMENT_CORE_UNCOMMENTED` whose `error.fields` are the core field keys still to validate or comment on. The end queues one release to Reporting and makes every non-withdrawn comment visible to the program. Round 2 (Lead Assessor) never returns: an effectively grey core field needs a live `escalate` decision, else 409 `ASSESSMENT_CORE_UNDECIDED` whose `error.fields` name the undecided core fields (nothing is written); with at least one grey core field the assessment ends `escalated` (Pending for TPB review), applies the Lead decisions to the comment states, queues no release and makes nothing visible to the program; with none it ends `quality_assessed` as in round 1. Of several concurrent finishes exactly one succeeds and the others get 409 `ASSESSMENT_FINISHED`. One audit row.',
   })
   @ApiOkEnvelope(ValidationSummaryModel)
   @ApiErrorResponses({
@@ -179,6 +278,7 @@ export class AssessmentController {
     404: ['ASSESSMENT_NOT_FOUND'],
     409: [
       'ASSESSMENT_CORE_UNCOMMENTED',
+      'ASSESSMENT_CORE_UNDECIDED',
       'ASSESSMENT_FINISHED',
       'ASSESSMENT_STEP_CLOSED',
       'ASSESSMENT_NO_FIELD_CONFIG',
@@ -189,21 +289,23 @@ export class AssessmentController {
   @Post('timelines/:timelineId/results/:resultCode/assessment/finish')
   finish(
     @CurrentUser() user: AuthenticatedUser,
+    @ActingRole() actingRole: RoleCode | undefined,
     @Req() request: RequestWithId,
     @Param() params: AssessmentParams,
   ): Promise<ValidationSummary> {
     return this.assessments.finish(
-      user,
+      asCaller(user, actingRole),
       params.timelineId,
       params.resultCode,
       requestIdOf(request),
     );
   }
 
+  @ApiActingRole()
   @ApiOperation({
     summary: 'Withdraw your own comment',
     description:
-      'The author withdraws a comment while it is still open (the program has not answered) and step 1 or step 2 of the timeline is open. A withdrawn comment leaves the counts and the program view and stays in the audit and the comment events. Allowed after the assessment ended. A comment of someone else is a 403; a comment that does not exist or is outside the caller scope is the same 404.',
+      'The author withdraws a comment while it is still open (the program has not answered) and step 1 or step 2 of the timeline is open. A withdrawn comment leaves the counts and the program view and stays in the audit and the comment events. Allowed after a round-1 assessment ended; a round-2 comment is frozen by the end (409 `ASSESSMENT_FINISHED`). A comment of someone else is a 403; a comment that does not exist or is outside the caller scope is the same 404.',
   })
   @ApiOkEnvelope(AssessmentCommentModel)
   @ApiErrorResponses({
@@ -211,18 +313,57 @@ export class AssessmentController {
     401: ['AUTH_TOKEN_INVALID', 'AUTH_USER_NOT_ADMITTED'],
     403: ['ASSESSMENT_NOT_COMMENT_AUTHOR'],
     404: ['ASSESSMENT_NOT_FOUND'],
-    409: ['ASSESSMENT_COMMENT_NOT_OPEN', 'ASSESSMENT_STEP_CLOSED'],
+    409: [
+      'ASSESSMENT_COMMENT_NOT_OPEN',
+      'ASSESSMENT_STEP_CLOSED',
+      'ASSESSMENT_FINISHED',
+    ],
     503: ['SERVICE_UNAVAILABLE'],
   })
   @HttpCode(200)
   @Post('assessment-comments/:commentId/withdraw')
   withdraw(
     @CurrentUser() user: AuthenticatedUser,
+    @ActingRole() actingRole: RoleCode | undefined,
     @Req() request: RequestWithId,
     @Param() params: CommentParams,
   ): Promise<ViewComment> {
     return this.assessments.withdraw(
-      user,
+      asCaller(user, actingRole),
+      params.commentId,
+      requestIdOf(request),
+    );
+  }
+
+  @ApiActingRole()
+  @ApiOperation({
+    summary: "Delete another reviewer's comment (Lead Assessor)",
+    description:
+      "The Lead soft-deletes a comment of another reviewer while step 3 is in progress: a round-1 comment of this result, or another Lead's round-2 comment on this assessment. The row stays; the answer carries `deletedAt` and `deletedBy`, the comment history shows who and when, and a decision the Lead set on the comment is dropped with it. The comment leaves the thread, the counts, the end rules and the program view. Refused with 409 `ASSESSMENT_COMMENT_NOT_DELETABLE`: the Lead's own comment (it withdraws it), a comment already deleted or withdrawn, a comment the program already answered. 409 `ASSESSMENT_FINISHED` once the Lead review ended; 409 `ASSESSMENT_STEP_CLOSED` when step 3 is not open. A comment that does not exist, a result outside the Lead's result types and a caller who is not a Lead are the same 404.",
+  })
+  @ApiOkEnvelope(AssessmentDeletedCommentModel)
+  @ApiErrorResponses({
+    400: ['VALIDATION_FAILED'],
+    401: ['AUTH_TOKEN_INVALID', 'AUTH_USER_NOT_ADMITTED'],
+    403: ['ASSESSMENT_READ_ONLY'],
+    404: ['ASSESSMENT_NOT_FOUND'],
+    409: [
+      'ASSESSMENT_COMMENT_NOT_DELETABLE',
+      'ASSESSMENT_STEP_CLOSED',
+      'ASSESSMENT_FINISHED',
+    ],
+    503: ['SERVICE_UNAVAILABLE'],
+  })
+  @HttpCode(200)
+  @Post('assessment-comments/:commentId/delete')
+  deleteComment(
+    @CurrentUser() user: AuthenticatedUser,
+    @ActingRole() actingRole: RoleCode | undefined,
+    @Req() request: RequestWithId,
+    @Param() params: CommentParams,
+  ): Promise<DeletedViewComment> {
+    return this.assessments.deleteComment(
+      asCaller(user, actingRole),
       params.commentId,
       requestIdOf(request),
     );

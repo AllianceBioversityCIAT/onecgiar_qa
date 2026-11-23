@@ -20,10 +20,12 @@ import { InvalidListQueryError } from '../users/users.errors.js';
 import { QA_STATUS_LABELS, QA_STATUSES, type QaStatus } from './qa-status.js';
 import {
   audienceStepState,
+  currentStepPositionsOf,
   enabledReviewerRows,
   roleStepState,
   type StepTiming,
 } from './role-steps.js';
+import { reviewerAuthor, type ReviewerAuthor } from './assessment-view.js';
 import { resolveAccess, writeDecision, type WorklistAccess } from './scope.js';
 import {
   decodeWorklistCursor,
@@ -35,7 +37,6 @@ import {
   type WorklistRecord,
   type WorklistSortKey,
   type WorklistStore,
-  type WorklistTimeline,
 } from './worklist.store.js';
 
 export const DEFAULT_WORKLIST_LIMIT = 25;
@@ -83,7 +84,8 @@ export interface WorklistRow {
   comments: number;
   /** P2-3911: non-withdrawn comments the Science Program accepted, accepted with a comment, or disagreed with. */
   answeredBySp: number;
-  assessedBy: { id: number; nickname: string | null } | null;
+  /** `admin: true` when a QA Admin ended it acting as the role (admin/acts-as-reviewer R4). */
+  assessedBy: ReviewerAuthor | null;
   status: QaStatus | null;
   canOpen: boolean;
   readOnlyReason: string | null;
@@ -117,6 +119,8 @@ const FINISHED_STATUSES: readonly QaStatus[] = [
   'quality_assessed',
   'returned_to_program',
   'clarification_requested',
+  // Round-2 FR-14: the Lead's review has ended.
+  'pending_tpb_review',
 ];
 
 @Injectable()
@@ -266,7 +270,7 @@ export class WorklistService {
       timelineId: timeline.id,
       userId: user.id,
       access,
-      assessmentStepPosition: this.assessmentStep(timeline, access),
+      ...currentStepPositionsOf(timeline.steps),
       clarificationWindowOpen:
         audienceStepState('programs', timing) === 'in_progress',
       // FR-4: hidden unless the status filter names it; the counters follow.
@@ -395,19 +399,6 @@ export class WorklistService {
     };
   }
 
-  /** The step whose assessment feeds the status: the first reviewer row's, else the enabled reviewer role's (ADMIN reads the same step). */
-  private assessmentStep(
-    timeline: WorklistTimeline,
-    access: WorklistAccess,
-  ): number | null {
-    const audience =
-      access.reviewerRows[0]?.audience ?? enabledReviewerRows()[0]?.audience;
-    return (
-      timeline.steps.find((step) => step.audience === audience)?.position ??
-      null
-    );
-  }
-
   private toRow(
     record: WorklistRecord,
     access: WorklistAccess,
@@ -447,7 +438,11 @@ export class WorklistService {
       assessedBy:
         record.assessedById === null
           ? null
-          : { id: record.assessedById, nickname: record.assessedByNickname },
+          : reviewerAuthor(
+              record.assessedById,
+              record.assessedByNickname,
+              record.assessedByAdmin,
+            ),
       status: record.status,
       canOpen: true,
       readOnlyReason: decision.writable ? null : decision.reason,

@@ -1,3 +1,4 @@
+import { RoleName } from '../../../core/auth/auth.models';
 import { Component, computed, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
@@ -26,7 +27,7 @@ import {
 import { CycleHeroVm, OvCycleHero, RoundVm } from './ov-cycle-hero';
 import { OvPace, PaceVm } from './ov-pace';
 import { PROGRAMS, PROGRAM_CODES, QaResult, QaStage, RESULTS, RESULT_TYPES, qaStage } from '../results/results.mock';
-import { QaButtonImports, QaMultiSelect, QaSelectImports, QaSelectOption } from '../../../ui';
+import { QaButtonImports, QaMultiSelect, QaScopeCardImports, QaSelectImports, QaSelectOption } from '../../../ui';
 import { OvStages, StageStatus, TimelineStagesVm } from './ov-stages';
 import { OvTimelineLanes, TimelineLaneVm } from './ov-timeline-lanes';
 import { OvTypeProgress, TypeProgressVm } from './ov-type-progress';
@@ -168,6 +169,16 @@ function typeRows(list: readonly QaResult[]): TypeProgressVm[] {
 /** The assessor's own results under assessment (TODO(api): the user's assignments). */
 const MINE: readonly QaResult[] = IN_QA.filter((r) => r.assessor === ME_ASSESSOR);
 
+/** Overview of each assigned role; a PROGRAM user has no Overview of their own here. */
+const ROLE_OF: Readonly<Record<RoleName, OverviewRole | null>> = {
+  ADMIN: 'admin',
+  ASSESSOR: 'assessor',
+  LEAD_ASSESSOR: 'lead',
+  TPB: 'tpb',
+  PPU: 'ppu',
+  PROGRAM: null,
+};
+
 /**
  * Overview of the QA Platform. The QA admin (María Julia) gets the dashboard where each block answers one of her
  * questions; the assessor, lead assessor, TPB and PPU get "Your work" and a few figures of their own.
@@ -176,6 +187,7 @@ const MINE: readonly QaResult[] = IN_QA.filter((r) => r.assessor === ME_ASSESSOR
   selector: 'qa-overview-view',
   imports: [
     QaButtonImports,
+    QaScopeCardImports,
     QaSelectImports,
     QaMultiSelect,
     OvCycleHero,
@@ -210,17 +222,27 @@ export class OverviewView {
    * "Your work" and a few figures of their own. Design preview: picked with "Viewing as" (?as=assessor|lead|tpb|ppu).
    * TODO(api): take it from the signed-in user's assignments; keep the menu only for people with several roles.
    */
-  protected readonly role = computed<OverviewRole>(
-    () => OVERVIEW_ROLES.find((r) => r.value === this.routeRole())?.value ?? 'admin',
-  );
-  protected readonly roleOptions: readonly QaSelectOption[] = OVERVIEW_ROLES;
+  /**
+   * The Overviews the signed-in user may see: one per role they hold (23-nov demo: an assessor must not see the
+   * admin's figures). Several roles → "Viewing as" picks among them; one role → no menu.
+   */
+  protected readonly roleOptions = computed<readonly QaSelectOption[]>(() => {
+    const held = new Set((this.session.user()?.assignments ?? []).map((a) => ROLE_OF[a.role]));
+    const own = OVERVIEW_ROLES.filter((r) => held.has(r.value));
+    return own.length ? own : OVERVIEW_ROLES.filter((r) => r.value === 'assessor');
+  });
+  /** The user's own first role (admin first), unless the URL picks another role they hold (?as=…). */
+  protected readonly role = computed<OverviewRole>(() => {
+    const own = this.roleOptions();
+    return (own.find((r) => r.value === this.routeRole()) ?? own[0]).value as OverviewRole;
+  });
 
   protected setRole(value: string | null): void {
     this.clearAll();
     this.timeline.set('all');
     void this.router.navigate([], {
       relativeTo: this.route,
-      queryParams: { as: value && value !== 'admin' ? value : null },
+      queryParams: { as: value && value !== this.roleOptions()[0]?.value ? value : null },
       queryParamsHandling: 'merge',
       replaceUrl: true,
     });
@@ -264,6 +286,19 @@ export class OverviewView {
       count: fmt(b.results),
     })),
   ];
+  /** Under the timeline in the context card. */
+  protected readonly scopeMeta = computed(() => {
+    const id = this.timeline();
+    if (id === 'all') return `All ${this.live.length} live timelines of the active cycle`;
+    const b = this.live.find((t) => t.id === id);
+    return b ? `${isOfficial(b) ? 'Main batch' : 'Complementary batch'} · Live` : null;
+  });
+  /** Big number at the right of the context card: the results of the chosen timeline(s). */
+  protected readonly scopeCount = computed(() => {
+    const count = this.timelineOptions.find((o) => o.value === this.timeline())?.count;
+    return count === undefined ? null : String(count);
+  });
+
   protected readonly programOptions = PROGRAM_CODES.map((c) => ({ value: c, label: `${c} ${PROGRAMS[c]}` }));
   protected readonly typeOptions = RESULT_TYPES.map((t) => ({ value: t, label: t }));
 

@@ -209,6 +209,8 @@ export async function buildAssessmentApp(
       options.nicknames?.policy2 ?? 'Pablo',
       options.names?.policy2,
     ),
+    // A Lead Assessor of policy change (round 2, P2-3912). Appended last so no earlier id moves.
+    lead: await actor('sub-lead', [['LEAD_ASSESSOR', 'policy_change']], 'Lena'),
   };
 
   const builder = withoutTitleBackfill(
@@ -290,10 +292,19 @@ export async function buildAssessmentApp(
   const send = (
     method: 'get' | 'post' | 'put' | 'patch' | 'delete',
     path: string,
-    options: { token?: string | null; body?: object; key?: string } = {},
+    options: {
+      token?: string | null;
+      body?: object;
+      key?: string;
+      /** Extra request headers (e.g. `X-Acting-Role`, admin/acts-as-reviewer). */
+      headers?: Record<string, string>;
+    } = {},
   ) => {
     const call = request(app.getHttpServer())[method](`/api/v1${path}`);
     if (options.key !== undefined) call.set('Idempotency-Key', options.key);
+    for (const [name, value] of Object.entries(options.headers ?? {})) {
+      call.set(name, value);
+    }
     const token =
       options.token === undefined ? bearer('sub-assessor') : options.token;
     if (token !== null) call.set('Authorization', token);

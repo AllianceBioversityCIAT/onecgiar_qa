@@ -1,4 +1,5 @@
 // @akili-spec assessment/step-1-assessment
+// @akili-spec escalation/round-2
 import { sql } from 'drizzle-orm';
 import {
   bigint,
@@ -24,6 +25,11 @@ export const assessmentAuditActions = [
   'end_returned',
   'release_sent',
   'release_refused',
+  // Round 2 (escalation/round-2 FR-8, FR-10, FR-11).
+  'decision_set',
+  'decision_clear',
+  'comment_delete',
+  'end_escalated',
 ] as const;
 export type AssessmentAuditAction = (typeof assessmentAuditActions)[number];
 

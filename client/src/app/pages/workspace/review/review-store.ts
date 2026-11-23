@@ -1,6 +1,7 @@
 // @akili-spec assessment/step-1-assessment
-import { Injectable, computed, inject, signal } from '@angular/core';
+import { Injectable, OnDestroy, computed, inject, signal } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
+import { ActingRole, ActingRoleState } from '../../../core/api/acting-role';
 import { AssessmentApi } from '../../../core/api/assessment-api';
 import {
   ASSESSMENT_ERROR,
@@ -84,8 +85,9 @@ interface Target {
  * of the same result did (FR-17). Each action refuses a second tap while its first call is on its way.
  */
 @Injectable()
-export class ReviewStore {
+export class ReviewStore implements OnDestroy {
   private readonly api = inject(AssessmentApi);
+  private readonly acting = inject(ActingRoleState);
   private readonly toasts = inject(Toasts);
   private readonly session = inject(AuthSession);
 
@@ -122,6 +124,14 @@ export class ReviewStore {
   readonly clarifyClosed = signal(false);
   readonly quickComments = signal<readonly QuickComment[]>([]);
   readonly savingQuick = signal(false);
+  /**
+   * The QA Admin acting as a reviewer (admin/acts-as-reviewer): the roles the server offers on this result (empty for
+   * anyone else) and the one the view was built for (`null` = reading only).
+   */
+  readonly actingRoles = computed(() => this.view()?.actingRoles ?? []);
+  readonly actingRole = computed(() => this.view()?.actingRole ?? null);
+  /** A role switch is reading the view again as the new role. */
+  readonly switchingRole = signal(false);
   /** The caller's user id: only their own open comments can be withdrawn (FR-13). */
   readonly me = computed(() => this.session.user()?.id ?? null);
 
@@ -157,7 +167,10 @@ export class ReviewStore {
     this.clarifyClosed.set(false);
     this.threadsSeq++;
     const resultCode = positiveInt(code);
-    if (resultCode === null) return this.fail(seq, NOT_FOUND);
+    if (resultCode === null) {
+      this.acting.clear();
+      return this.fail(seq, NOT_FOUND);
+    }
     try {
       let timelineId = positiveInt(timeline);
       if (timelineId === null) {
@@ -165,6 +178,8 @@ export class ReviewStore {
         if (seq !== this.seq) return;
         if (timelineId === null) return this.fail(seq, NO_TIMELINE);
       }
+      // A role picked on another result never travels to this one.
+      this.acting.keepOnly(timelineId, resultCode);
       const view = await firstValueFrom(this.api.view(timelineId, resultCode));
       if (seq !== this.seq) return;
       this.timelineId.set(timelineId);
@@ -360,7 +375,7 @@ export class ReviewStore {
     if (this.quickLoaded) return;
     this.quickLoaded = true;
     try {
-      const list = await firstValueFrom(this.api.quickComments(WRITER_ROLE));
+      const list = await firstValueFrom(this.api.quickComments(this.quickRole()));
       // A text saved while the list was on its way stays on top.
       this.quickComments.update((mine) => [...mine.filter((q) => !list.some((l) => l.id === q.id)), ...list]);
     } catch (error) {
@@ -375,7 +390,7 @@ export class ReviewStore {
     if (!text || this.savingQuick()) return false;
     this.savingQuick.set(true);
     try {
-      const saved = await firstValueFrom(this.api.saveQuickComment(WRITER_ROLE, text));
+      const saved = await firstValueFrom(this.api.saveQuickComment(this.quickRole(), text));
       this.quickComments.update((list) => [saved, ...list.filter((q) => q.id !== saved.id)]);
       this.toasts.success('Saved as a quick comment.');
       return true;
@@ -388,6 +403,38 @@ export class ReviewStore {
   }
 
   // ---------- Shared ----------
+
+  // ---------- The Admin acting as a reviewer (admin/acts-as-reviewer) ----------
+
+  /**
+   * The Admin acts as `role` on this result (`null` = back to reading only): every call of the result carries the
+   * role from now on and the view is read again, built for it. The controls then follow `writable` / `decidable` as
+   * for that reviewer. The quick comments are the role's list, so they are read again on the next open.
+   */
+  async actAs(role: ActingRole | null): Promise<void> {
+    const at = this.target();
+    if (!at || this.switchingRole() || role === this.actingRole()) return;
+    if (role !== null && !this.actingRoles().includes(role)) return;
+    this.acting.set(at.timelineId, at.resultCode, role);
+    this.quickLoaded = false;
+    this.quickComments.set([]);
+    this.switchingRole.set(true);
+    try {
+      await this.reload();
+    } finally {
+      this.switchingRole.set(false);
+    }
+  }
+
+  /** Leaving the page drops the pick: the Admin reads only on the next result until it picks again. */
+  ngOnDestroy(): void {
+    this.acting.clear();
+  }
+
+  /** The quick comments of the role the caller writes as: the Admin's picked role, else the assessors' list. */
+  private quickRole(): QuickCommentRole {
+    return this.actingRole() ?? WRITER_ROLE;
+  }
 
   private target(): Target | null {
     const timelineId = this.timelineId();

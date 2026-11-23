@@ -75,7 +75,7 @@ export class AssessmentCoreUncommentedError extends ConflictException {
 
 /**
  * The quick comments of a role are for the users who hold a live grant of that
- * role (FR-12): any other caller, an ADMIN included, is refused.
+ * role (FR-12), or a QA Admin (admin/acts-as-reviewer): any other caller is refused.
  */
 export class AssessmentQuickCommentsForbiddenError extends ForbiddenException {
   constructor() {
@@ -130,5 +130,58 @@ export class AssessmentFieldKeysInvalidError extends BadRequestException {
         message: FIELD_ERRORS.INVALID(),
       })),
     });
+  }
+}
+
+/**
+ * Round 2 (FR-3): a validation or a comment names an Assessed field that is not
+ * core in the pinned configuration. It is context only for the Lead. Nothing is
+ * written.
+ */
+export class AssessmentFieldNotCoreError extends ConflictException {
+  constructor() {
+    super(errorBody('ASSESSMENT_FIELD_NOT_CORE'));
+  }
+}
+
+/** Round 2: a field carrying an `escalate` decision cannot be validated (declared here, thrown by the decision task). */
+export class AssessmentFieldEscalatedError extends ConflictException {
+  constructor() {
+    super(errorBody('ASSESSMENT_FIELD_ESCALATED'));
+  }
+}
+
+/**
+ * Round 2: validating a core field whose round-1 comment has no Lead decision is refused
+ * (HITL O-1). `fields` are the undecided core keys, sorted; the global filter forwards them as `error.fields`.
+ */
+export class AssessmentCoreCommentUndecidedError extends ConflictException {
+  constructor(readonly fields: string[]) {
+    super({ ...errorBody('ASSESSMENT_CORE_COMMENT_UNDECIDED'), fields });
+  }
+}
+
+/** Round 2: the decision does not apply to this comment (declared here, thrown by the decision task). */
+export class AssessmentDecisionInvalidError extends ConflictException {
+  constructor() {
+    super(errorBody('ASSESSMENT_DECISION_INVALID'));
+  }
+}
+
+/**
+ * Round 2 finish refused: grey core fields with no `escalate` decision. `fields`
+ * are the undecided core keys; the global filter forwards them as `error.fields`
+ * (declared here, thrown by the finish task).
+ */
+export class AssessmentCoreUndecidedError extends ConflictException {
+  constructor(readonly fields: string[]) {
+    super({ ...errorBody('ASSESSMENT_CORE_UNDECIDED'), fields });
+  }
+}
+
+/** Round 2: the comment is already deleted or is not one the Lead may delete (declared here, thrown by the delete task). */
+export class AssessmentCommentNotDeletableError extends ConflictException {
+  constructor() {
+    super(errorBody('ASSESSMENT_COMMENT_NOT_DELETABLE'));
   }
 }

@@ -267,6 +267,19 @@ describe('review.mapper (API assessment view → Review view models)', () => {
       expect(formatValue({ value: null, labels: null, notApplicable: false })).toBe('—');
       expect(formatValue({ value: [], labels: null, notApplicable: false })).toBe('—');
     });
+
+    it('reads an instant from Reporting as Rome wall time, not raw ISO (23-nov demo)', () => {
+      expect(formatValue({ value: '2026-11-23T13:45:47.371Z', labels: null, notApplicable: false })).toBe('23 Nov 2026, 14:45 CET');
+      expect(formatValue({ value: '2026-07-06T08:00:00Z', labels: null, notApplicable: false })).toBe('06 Jul 2026, 10:00 CEST');
+      expect(formatValue({ value: '2026-11-23', labels: null, notApplicable: false })).toBe('2026-11-23');
+    });
+
+    it('reads a directory person once, not "Value: … · Directory user: …" (23-nov demo)', () => {
+      const person = 'Jarrin, Angel Alberto (Alliance)';
+      expect(formatValue({ value: { value: person, directory_user: person }, labels: null, notApplicable: false })).toBe(person);
+      expect(formatValue({ value: { value: person, directory_user: null }, labels: null, notApplicable: false })).toBe(person);
+      expect(formatValue({ value: { value: 'x', role: 'Lead' }, labels: null, notApplicable: false })).toBe('Value: x · Role: Lead');
+    });
   });
 
   describe('header and read-only banner (FR-2, FR-23)', () => {

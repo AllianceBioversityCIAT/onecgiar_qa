@@ -2,7 +2,7 @@ import { NgTemplateOutlet } from '@angular/common';
 import { Component, input, output } from '@angular/core';
 import { QaButtonImports, QaSegmented, QaSwitch, QaTooltipImports } from '../../../ui';
 import { FieldRowVm, FieldState } from './fields-config';
-import { CONDITIONAL_HELP, FIELD_STATES, REQUIRED_HIDDEN_HELP } from './fields-copy';
+import { CONDITIONAL_HELP, CORE_NEEDS_ASSESSED, FIELD_STATES, REQUIRED_HIDDEN_HELP } from './fields-copy';
 
 /**
  * One field of the Fields matrix: name, In QA segmented, Core switch and documentation ⓘ.
@@ -28,6 +28,7 @@ export class FieldsRow {
   protected readonly states = FIELD_STATES;
   protected readonly requiredHiddenHelp = REQUIRED_HIDDEN_HELP;
   protected readonly conditionalHelp = CONDITIONAL_HELP;
+  protected readonly coreHelp = CORE_NEEDS_ASSESSED;
 
   protected onState(value: string | null): void {
     const state = FIELD_STATES.find((s) => s.value === value)?.value;

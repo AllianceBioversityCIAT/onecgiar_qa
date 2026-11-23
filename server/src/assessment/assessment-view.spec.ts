@@ -8,11 +8,14 @@ import {
 import type { ConfigItem } from '../admin-config/field-config/field-config-diff.js';
 import type { FieldVisibility } from '../admin-config/field-config/field-config-rules.js';
 import {
+  annotateForRound,
   buildAssessmentView,
   TOC_SECTION_KEY,
   TOC_SECTION_LABEL,
+  type RoundViewInput,
   type ViewComment,
 } from './assessment-view.js';
+import type { RoundOneThreadRow } from './assessment.store.js';
 
 // The pure view over the real Reporting TEST catalog (2026.30), never a hand
 // typed catalog: the order, the Hidden rule, the ToC group, "Other fields" and
@@ -496,5 +499,609 @@ describe('buildAssessmentView: values, labels, other and not applicable (FR-8, F
       },
     });
     expect(view.other).toEqual([]);
+  });
+});
+
+// The round layer (escalation/round-2 T-6): FR-3 `actionable`, FR-4 thread, FR-5
+// `updated`, FR-7 carried green. Expected values are literals from those
+// scenarios. CORE is core; PLAIN is Assessed and not core; the rest View only.
+describe('annotateForRound (FR-3, FR-4, FR-5, FR-7)', () => {
+  const CORE = 'general.title';
+  const CORE_2 = 'general.description';
+  const PLAIN = 'general.gender_tag';
+  const VIEW_ONLY = 'general.climate_tag';
+  const roundView = (validated: Map<string, boolean> = new Map()) =>
+    build({
+      validated,
+      config: config({
+        [CORE]: { visibility: 'assessed', isCore: true },
+        [CORE_2]: { visibility: 'assessed', isCore: true },
+        [PLAIN]: { visibility: 'assessed', isCore: false },
+      }),
+      values: { [CORE]: 'T', [CORE_2]: 'D', [PLAIN]: 1, [VIEW_ONLY]: 2 },
+    });
+  const fieldsOf = (view: ReturnType<typeof annotateForRound>) =>
+    Object.fromEntries(
+      view.sections.flatMap((s) => s.fields.map((f) => [f.key, f] as const)),
+    );
+
+  const line = (over: Partial<RoundOneThreadRow> = {}): RoundOneThreadRow => ({
+    commentId: 11,
+    fieldKey: CORE,
+    authorId: 5,
+    authorNickname: 'Ana',
+    authorAsAdmin: false,
+    body: 'The title is unclear',
+    state: 'disagreed',
+    valueCopy: { value: 'Old title' },
+    valueTruncated: false,
+    createdAt: new Date('2026-11-05T09:00:00.000Z'),
+    responseId: null,
+    responseKind: null,
+    responseBody: null,
+    responderName: null,
+    respondedAt: null,
+    answerBody: null,
+    answeredAt: null,
+    decision: null,
+    decisionBody: null,
+    decidedAt: null,
+    ...over,
+  });
+  const input = (over: Partial<RoundViewInput> = {}): RoundViewInput => ({
+    round: 2,
+    role: 'LEAD_ASSESSOR',
+    changedFields: null,
+    stored: new Map(),
+    roundOneGreens: new Set(),
+    thread: [],
+    userId: 9,
+    ownDecisions: new Map(),
+    ended: false,
+    ...over,
+  });
+
+  describe('round 1 is neutral', () => {
+    it('marks an Assessed field actionable, nothing updated, no carry, no thread, the stored mark', () => {
+      const out = fieldsOf(
+        annotateForRound(
+          roundView(new Map([[PLAIN, true]])),
+          input({
+            round: 1,
+            role: 'ASSESSOR',
+            stored: new Map([[PLAIN, true]]),
+            roundOneGreens: new Set([CORE]),
+            changedFields: [CORE],
+            thread: [line()],
+          }),
+        ),
+      );
+      expect(
+        [CORE, PLAIN, VIEW_ONLY].map((k) => [
+          k,
+          out[k]!.actionable,
+          out[k]!.updated,
+          out[k]!.carried,
+          out[k]!.thread,
+        ]),
+      ).toEqual([
+        [CORE, true, true, false, []],
+        [PLAIN, true, false, false, []],
+        [VIEW_ONLY, false, false, false, []],
+      ]);
+      expect(out[PLAIN]!.effectiveValidated).toBe(true);
+      expect(out[CORE]!.effectiveValidated).toBe(false);
+    });
+  });
+
+  describe('FR-3 actionable in round 2', () => {
+    it('only an Assessed core field is actionable', () => {
+      const out = fieldsOf(annotateForRound(roundView(), input()));
+      expect(
+        [CORE, CORE_2, PLAIN, VIEW_ONLY].map((k) => out[k]!.actionable),
+      ).toEqual([true, true, false, false]);
+    });
+
+    it('a non-core field carries no thread and no carried green even when round 1 had both', () => {
+      const out = fieldsOf(
+        annotateForRound(
+          roundView(),
+          input({
+            roundOneGreens: new Set([PLAIN]),
+            thread: [line({ fieldKey: PLAIN })],
+          }),
+        ),
+      );
+      expect(out[PLAIN]).toMatchObject({
+        thread: [],
+        carried: false,
+        effectiveValidated: false,
+      });
+    });
+  });
+
+  describe('FR-5 updated', () => {
+    it('Changed field: changed_fields = [title] marks title and no other field', () => {
+      const out = fieldsOf(
+        annotateForRound(roundView(), input({ changedFields: [CORE] })),
+      );
+      expect(
+        [CORE, CORE_2, PLAIN, VIEW_ONLY].map((k) => out[k]!.updated),
+      ).toEqual([true, false, false, false]);
+    });
+
+    it('marks a non-core field that changed too', () => {
+      const out = fieldsOf(
+        annotateForRound(roundView(), input({ changedFields: [PLAIN] })),
+      );
+      expect(out[PLAIN]!.updated).toBe(true);
+    });
+
+    it('BUT a new round-2 membership (changed_fields NULL) has no updated field', () => {
+      const view = annotateForRound(
+        roundView(),
+        input({ changedFields: null }),
+      );
+      expect(
+        view.sections.flatMap((s) => s.fields).filter((f) => f.updated),
+      ).toEqual([]);
+    });
+  });
+
+  describe('FR-7 carried greens', () => {
+    it('Carried green: green in round 1, uncommented, unchanged shows green before any write', () => {
+      const out = fieldsOf(
+        annotateForRound(
+          roundView(),
+          input({ roundOneGreens: new Set([CORE]) }),
+        ),
+      );
+      expect(out[CORE]).toMatchObject({
+        validated: false,
+        effectiveValidated: true,
+        carried: true,
+      });
+    });
+
+    it('BUT a field in changed_fields is not carried', () => {
+      const out = fieldsOf(
+        annotateForRound(
+          roundView(),
+          input({ roundOneGreens: new Set([CORE]), changedFields: [CORE] }),
+        ),
+      );
+      expect(out[CORE]).toMatchObject({
+        effectiveValidated: false,
+        carried: false,
+      });
+    });
+
+    it('a round-1 comment on the field blocks the carry', () => {
+      const out = fieldsOf(
+        annotateForRound(
+          roundView(),
+          input({ roundOneGreens: new Set([CORE]), thread: [line()] }),
+        ),
+      );
+      expect(out[CORE]).toMatchObject({
+        effectiveValidated: false,
+        carried: false,
+      });
+    });
+
+    it('the Lead un-greened it: the stored false wins', () => {
+      const out = fieldsOf(
+        annotateForRound(
+          roundView(),
+          input({
+            roundOneGreens: new Set([CORE]),
+            stored: new Map([[CORE, false]]),
+          }),
+        ),
+      );
+      expect(out[CORE]).toMatchObject({
+        effectiveValidated: false,
+        carried: false,
+      });
+    });
+
+    it('Accepted and corrected: the Lead greened a changed field', () => {
+      const out = fieldsOf(
+        annotateForRound(
+          roundView(),
+          input({ changedFields: [CORE], stored: new Map([[CORE, true]]) }),
+        ),
+      );
+      expect(out[CORE]).toMatchObject({
+        validated: false,
+        effectiveValidated: true,
+        carried: false,
+      });
+    });
+  });
+
+  describe('FR-4 the thread', () => {
+    // The scenario: the program requested a clarification, the assessor
+    // answered, the program then disagreed with a justification.
+    const lines = [
+      line({
+        responseId: 3001,
+        responseKind: 'request_clarification',
+        responseBody: 'What do you mean?',
+        responderName: 'Pat Program',
+        respondedAt: new Date('2026-11-12T09:00:00.000Z'),
+        answerBody: 'The title repeats the acronym.',
+        answeredAt: new Date('2026-11-13T09:00:00.000Z'),
+      }),
+      line({
+        responseId: 3002,
+        responseKind: 'disagree',
+        responseBody: 'The acronym is the official name.',
+        responderName: 'Pat Program',
+        respondedAt: new Date('2026-11-14T09:00:00.000Z'),
+      }),
+    ];
+
+    it('Disagreement with a clarification: shows both values, the request and answer, the latest response; decidable with both choices', () => {
+      const out = fieldsOf(
+        annotateForRound(roundView(), input({ thread: lines })),
+      );
+      expect(out[CORE]!.value).toBe('T');
+      expect(out[CORE]!.thread).toEqual([
+        {
+          commentId: 11,
+          author: { id: 5, nickname: 'Ana' },
+          createdAt: '2026-11-05T09:00:00.000Z',
+          body: 'The title is unclear',
+          valueCopy: { value: 'Old title' },
+          valueTruncated: false,
+          state: 'disagreed',
+          response: {
+            id: 3002,
+            kind: 'disagree',
+            body: 'The acronym is the official name.',
+            respondedBy: { name: 'Pat Program' },
+            respondedAt: '2026-11-14T09:00:00.000Z',
+          },
+          clarifications: [
+            {
+              requestId: 3001,
+              question: 'What do you mean?',
+              requestedAt: '2026-11-12T09:00:00.000Z',
+              answer: {
+                body: 'The title repeats the acronym.',
+                answeredAt: '2026-11-13T09:00:00.000Z',
+              },
+            },
+          ],
+          decidable: true,
+          choices: ['agree_program', 'escalate'],
+        },
+      ]);
+    });
+
+    it('never carries a responder email', () => {
+      const withEmail = lines.map((l) => ({
+        ...l,
+        responderEmail: 'pat@example.org',
+      }));
+      const view = annotateForRound(roundView(), input({ thread: withEmail }));
+      expect(JSON.stringify(view)).not.toContain('pat@example.org');
+    });
+
+    it('a comment with no response has no `response` key and an empty clarifications list', () => {
+      const out = fieldsOf(
+        annotateForRound(
+          roundView(),
+          input({ thread: [line({ state: 'open' })] }),
+        ),
+      );
+      const item = out[CORE]!.thread[0]!;
+      expect('response' in item).toBe(false);
+      expect(item.clarifications).toEqual([]);
+      expect(item.choices).toEqual(['agree_program', 'escalate']);
+    });
+
+    it('a clarification not answered yet has a null answer; the Lead decision is shown', () => {
+      const out = fieldsOf(
+        annotateForRound(
+          roundView(),
+          input({
+            thread: [
+              line({
+                state: 'clarification_requested',
+                responseId: 3001,
+                responseKind: 'request_clarification',
+                responseBody: 'Which one?',
+                responderName: 'Pat Program',
+                respondedAt: new Date('2026-11-12T09:00:00.000Z'),
+                decision: 'escalate',
+                decisionBody: 'Needs the leads.',
+                decidedAt: new Date('2026-11-25T09:00:00.000Z'),
+              }),
+            ],
+          }),
+        ),
+      );
+      const item = out[CORE]!.thread[0]!;
+      expect(item.clarifications[0]!.answer).toBeNull();
+      expect(item.decision).toEqual({
+        decision: 'escalate',
+        body: 'Needs the leads.',
+        decidedAt: '2026-11-25T09:00:00.000Z',
+      });
+    });
+
+    it('a closed state (accepted) is listed but not decidable', () => {
+      const out = fieldsOf(
+        annotateForRound(
+          roundView(),
+          input({ thread: [line({ state: 'accepted' })] }),
+        ),
+      );
+      expect(out[CORE]!.thread[0]).toMatchObject({
+        decidable: false,
+        choices: [],
+      });
+    });
+
+    it('T-17: after the review ended an undecided item is not decidable, no choices; a decided one keeps its decision', () => {
+      const ended = fieldsOf(
+        annotateForRound(
+          roundView(),
+          input({
+            ended: true,
+            thread: [
+              line({ commentId: 7001 }),
+              line({
+                commentId: 7002,
+                decision: 'escalate',
+                decisionBody: 'Needs the leads.',
+                decidedAt: new Date('2026-11-25T09:00:00.000Z'),
+              }),
+            ],
+          }),
+        ),
+      );
+      expect(ended[CORE]!.thread).toMatchObject([
+        { commentId: 7001, decidable: false, choices: [] },
+        {
+          commentId: 7002,
+          decision: { decision: 'escalate' },
+          decidable: false,
+          choices: [],
+        },
+      ]);
+      const before = fieldsOf(
+        annotateForRound(
+          roundView(),
+          input({ ended: false, thread: [line({ commentId: 7001 })] }),
+        ),
+      );
+      expect(before[CORE]!.thread[0]).toMatchObject({
+        decidable: true,
+        choices: ['agree_program', 'escalate'],
+      });
+    });
+
+    it('T-17: a field another live comment escalated offers only escalate on the rest; the escalated one keeps both; clearing restores both', () => {
+      const thread = (escalated: boolean) => [
+        line({
+          commentId: 7001,
+          ...(escalated
+            ? {
+                decision: 'escalate' as const,
+                decisionBody: 'Needs the leads.',
+                decidedAt: new Date('2026-11-25T09:00:00.000Z'),
+              }
+            : {}),
+        }),
+        line({ commentId: 7003 }),
+        line({ commentId: 7004, state: 'accepted' }),
+      ];
+      const items = (escalated: boolean) =>
+        fieldsOf(
+          annotateForRound(roundView(), input({ thread: thread(escalated) })),
+        )[CORE]!.thread;
+      expect(items(true)).toMatchObject([
+        {
+          commentId: 7001,
+          decidable: true,
+          choices: ['agree_program', 'escalate'],
+        },
+        { commentId: 7003, decidable: true, choices: ['escalate'] },
+        { commentId: 7004, decidable: false, choices: [] },
+      ]);
+      expect(items(false)).toMatchObject([
+        { commentId: 7001, choices: ['agree_program', 'escalate'] },
+        { commentId: 7003, choices: ['agree_program', 'escalate'] },
+        { commentId: 7004, choices: [] },
+      ]);
+    });
+
+    it('T-17: an escalate on another core field leaves agree_program offered here', () => {
+      const out = fieldsOf(
+        annotateForRound(
+          roundView(),
+          input({
+            thread: [
+              line({ commentId: 7001, fieldKey: CORE }),
+              line({
+                commentId: 7002,
+                fieldKey: CORE_2,
+                decision: 'escalate',
+                decisionBody: 'x',
+                decidedAt: new Date('2026-11-25T09:00:00.000Z'),
+              }),
+            ],
+          }),
+        ),
+      );
+      expect(out[CORE_2]!.thread[0]).toMatchObject({
+        commentId: 7002,
+        choices: ['agree_program', 'escalate'],
+      });
+      expect(out[CORE]!.thread[0]).toMatchObject({
+        commentId: 7001,
+        decidable: true,
+        choices: ['agree_program', 'escalate'],
+      });
+    });
+
+    it('ADMIN (role null) reads the thread and decides nothing', () => {
+      const out = fieldsOf(
+        annotateForRound(roundView(), input({ role: null, thread: lines })),
+      );
+      expect(out[CORE]!.thread[0]).toMatchObject({
+        decidable: false,
+        choices: [],
+      });
+    });
+
+    it('groups comments by field in the order given, two comments on one field', () => {
+      const out = fieldsOf(
+        annotateForRound(
+          roundView(),
+          input({
+            thread: [
+              line({ commentId: 11 }),
+              line({
+                commentId: 12,
+                createdAt: new Date('2026-11-06T09:00:00Z'),
+              }),
+              line({ commentId: 13, fieldKey: CORE_2 }),
+            ],
+          }),
+        ),
+      );
+      expect(out[CORE]!.thread.map((i) => i.commentId)).toEqual([11, 12]);
+      expect(out[CORE_2]!.thread.map((i) => i.commentId)).toEqual([13]);
+    });
+  });
+  // T-16: the Lead's own round-2 comments carry the decision in `comments[]`.
+  describe('T-16 the Lead own round-2 comments', () => {
+    const own = (over: Partial<ViewComment> = {}): ViewComment => ({
+      id: 31,
+      fieldKey: CORE,
+      author: { id: 9, nickname: 'Lea' },
+      body: 'My finding',
+      state: 'open',
+      stepPosition: 3,
+      round: 2,
+      valueCopy: { value: 'T' },
+      valueTruncated: false,
+      createdAt: '2026-11-25T10:00:00.000Z',
+      withdrawnAt: null,
+      ...over,
+    });
+    const run = (
+      comment: ViewComment,
+      over: Partial<RoundViewInput> = {},
+    ): Record<string, unknown> => {
+      const out = fieldsOf(
+        annotateForRound(
+          build({
+            comments: [comment],
+            config: config({
+              [CORE]: { visibility: 'assessed', isCore: true },
+            }),
+            values: { [CORE]: 'T' },
+          }),
+          input(over),
+        ),
+      );
+      return out[CORE]!.comments[0] as unknown as Record<string, unknown>;
+    };
+    const decided = new Map([
+      [
+        31,
+        {
+          decision: 'escalate',
+          body: 'Escalating my own finding',
+          decidedAt: '2026-11-25T10:05:00.000Z',
+        },
+      ],
+    ]);
+
+    it('an undecided own comment: decision null, decidable, escalate only', () => {
+      expect(run(own())).toMatchObject({
+        decision: null,
+        decidable: true,
+        choices: ['escalate'],
+      });
+    });
+
+    it('an escalated own comment carries the decision object of thread[]', () => {
+      expect(run(own(), { ownDecisions: decided })).toMatchObject({
+        decision: {
+          decision: 'escalate',
+          body: 'Escalating my own finding',
+          decidedAt: '2026-11-25T10:05:00.000Z',
+        },
+        decidable: true,
+        choices: ['escalate'],
+      });
+    });
+
+    it('a withdrawn own comment: not decidable, no choices', () => {
+      expect(
+        run(
+          own({ state: 'withdrawn', withdrawnAt: '2026-11-25T10:06:00.000Z' }),
+        ),
+      ).toMatchObject({ decidable: false, choices: [] });
+    });
+
+    it('after the end the own comment is escalated: not decidable, the decision stays', () => {
+      expect(
+        run(own({ state: 'escalated' }), { ownDecisions: decided }),
+      ).toMatchObject({
+        decision: { decision: 'escalate' },
+        decidable: false,
+        choices: [],
+      });
+    });
+
+    it('an own comment still open when the review ended: not decidable, no choices, the decision kept', () => {
+      expect(run(own(), { ended: true })).toMatchObject({
+        decision: null,
+        decidable: false,
+        choices: [],
+      });
+      expect(run(own(), { ended: true, ownDecisions: decided })).toMatchObject({
+        decision: { decision: 'escalate' },
+        decidable: false,
+        choices: [],
+      });
+    });
+
+    it('T-17: the Lead own escalated comment on the field makes a round-1 item offer only escalate', () => {
+      const out = fieldsOf(
+        annotateForRound(
+          build({
+            comments: [own()],
+            config: config({
+              [CORE]: { visibility: 'assessed', isCore: true },
+            }),
+            values: { [CORE]: 'T' },
+          }),
+          input({ ownDecisions: decided, thread: [line({ commentId: 7003 })] }),
+        ),
+      );
+      expect(out[CORE]!.thread[0]).toMatchObject({
+        decidable: true,
+        choices: ['escalate'],
+      });
+    });
+
+    it('round 1, the Assessor view and another author get no new key', () => {
+      const keys = (c: Record<string, unknown>) => Object.keys(c).sort();
+      const plain = keys(own() as unknown as Record<string, unknown>);
+      expect(keys(run(own(), { round: 1, role: 'ASSESSOR' }))).toEqual(plain);
+      expect(keys(run(own(), { role: 'ASSESSOR' }))).toEqual(plain);
+      expect(keys(run(own(), { role: null }))).toEqual(plain);
+      expect(keys(run(own({ author: { id: 4, nickname: 'Ana' } })))).toEqual(
+        plain,
+      );
+    });
   });
 });

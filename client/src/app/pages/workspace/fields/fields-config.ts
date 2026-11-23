@@ -1,4 +1,5 @@
 // Pure helpers for the Fields view: the API's field configuration mapped to what the matrix renders.
+import { fieldLabel } from '../../../core/domain/field-label';
 import {
   FieldConfigEdit,
   FieldConfigField,
@@ -127,7 +128,7 @@ export function rowVm(f: FieldConfigField, cfg: FieldConfig, notSet: boolean): F
   const required = f.requirement === 'required';
   return {
     id: f.key,
-    name: f.label,
+    name: fieldLabel(f.key, f.label),
     doc: f.description ?? '',
     required,
     conditional: f.requirement === 'conditional',

@@ -9,6 +9,7 @@ import {
   exists,
   inArray,
   isNotNull,
+  isNull,
   ne,
   or,
   sql,
@@ -43,6 +44,7 @@ import {
   type TimelineKind,
 } from '../../database/drizzle/schema/timelines.js';
 import type { WorklistStep } from '../worklist.store.js';
+import { REVIEW_STATES, STATE_OF_KIND } from './sp-state.js';
 
 export const SP_VIEW_STORE = Symbol('SP_VIEW_STORE');
 
@@ -127,6 +129,8 @@ export interface SpCommentScope {
   authorId: number;
   fieldKey: string;
   visible: boolean;
+  /** `deleted_at` is set (round-2 FR-10): the program cannot see or answer it. */
+  deleted: boolean;
   assessmentId: number;
   stepPosition: number;
   membershipId: number;
@@ -245,6 +249,27 @@ export class DrizzleSpViewStore implements SpViewStore {
     return [...byId.values()];
   }
 
+  /** DD-11 in SQL: the state the program reads for the comment row (same table as `programSideState`). */
+  private programState(): SQL<string> {
+    const latestOf = (column: string) =>
+      sql`(SELECT ${id('sp_comment_responses')}.${id(column)} FROM ${id('sp_comment_responses')} WHERE ${id('sp_comment_responses')}.${id('comment_id')} = ${id('assessment_comments')}.${id('id')} ORDER BY ${id('sp_comment_responses')}.${id('id')} DESC LIMIT 1)`;
+    // A clarification request the assessor already answered reads `open`.
+    const answered = sql`EXISTS (SELECT 1 FROM ${id('comment_clarification_answers')} WHERE ${id('comment_clarification_answers')}.${id('response_id')} = ${latestOf('id')})`;
+    const kinds = sql.join(
+      Object.entries(STATE_OF_KIND).map(([kind, state]) =>
+        kind === 'request_clarification'
+          ? sql`WHEN ${kind} THEN CASE WHEN ${answered} THEN 'open' ELSE ${state} END`
+          : sql`WHEN ${kind} THEN ${state}`,
+      ),
+      sql.raw(' '),
+    );
+    const reviewStates = sql.join(
+      REVIEW_STATES.map((s) => sql`${s}`),
+      sql.raw(', '),
+    );
+    return sql<string>`(CASE WHEN ${id('assessment_comments')}.${id('state')} IN (${reviewStates}) THEN COALESCE(CASE ${latestOf('kind')} ${kinds} END, 'open') ELSE ${id('assessment_comments')}.${id('state')} END)`;
+  }
+
   /**
    * The correlated counts are spelled with table-qualified identifiers, so the
    * outer `result_assessments` row is never confused with an inner table.
@@ -253,11 +278,11 @@ export class DrizzleSpViewStore implements SpViewStore {
     const stateFilter =
       states === null
         ? sql``
-        : sql` AND ${id('assessment_comments')}.${id('state')} IN (${sql.join(
+        : sql` AND ${this.programState()} IN (${sql.join(
             states.map((s) => sql`${s}`),
             sql.raw(', '),
           )})`;
-    return sql<number>`(SELECT COUNT(*) FROM ${id('assessment_comments')} WHERE ${id('assessment_comments')}.${id('assessment_id')} = ${id('result_assessments')}.${id('id')} AND ${id('assessment_comments')}.${id('visible_to_program_at')} IS NOT NULL AND ${id('assessment_comments')}.${id('state')} <> 'withdrawn'${stateFilter})`;
+    return sql<number>`(SELECT COUNT(*) FROM ${id('assessment_comments')} WHERE ${id('assessment_comments')}.${id('assessment_id')} = ${id('result_assessments')}.${id('id')} AND ${id('assessment_comments')}.${id('visible_to_program_at')} IS NOT NULL AND ${id('assessment_comments')}.${id('deleted_at')} IS NULL AND ${id('assessment_comments')}.${id('state')} <> 'withdrawn'${stateFilter})`;
   }
 
   buildResultsQuery(criteria: SpResultsCriteria) {
@@ -271,7 +296,7 @@ export class DrizzleSpViewStore implements SpViewStore {
         membershipStatus: t.status,
         endReason: t.endReason,
         assessmentStatus: a.status,
-        hasClarificationThread: sql<number>`EXISTS (SELECT 1 FROM ${id('assessment_comments')} WHERE ${id('assessment_comments')}.${id('assessment_id')} = ${id('result_assessments')}.${id('id')} AND ${id('assessment_comments')}.${id('state')} = 'clarification_requested')`,
+        hasClarificationThread: sql<number>`EXISTS (SELECT 1 FROM ${id('assessment_comments')} WHERE ${id('assessment_comments')}.${id('assessment_id')} = ${id('result_assessments')}.${id('id')} AND ${this.programState()} = 'clarification_requested')`,
         // DD-11: a boolean only; `changed_fields` itself is never selected.
         updated: sql<number>`EXISTS (SELECT 1 FROM ${id('timeline_results')} AS ${id('round_two')} WHERE ${id('round_two')}.${id('timeline_id')} = ${id('timeline_results')}.${id('timeline_id')} AND ${id('round_two')}.${id('result_code')} = ${id('timeline_results')}.${id('result_code')} AND ${id('round_two')}.${id('entry_round')} = 2 AND COALESCE(JSON_LENGTH(${id('round_two')}.${id('changed_fields')}), 0) > 0)`,
         comments: criteria.commentsVisible ? this.visibleCount(null) : zero,
@@ -338,6 +363,8 @@ export class DrizzleSpViewStore implements SpViewStore {
           eq(c.assessmentId, assessmentId),
           isNotNull(c.visibleToProgramAt),
           ne(c.state, 'withdrawn'),
+          // Round-2 FR-10: a comment the Lead deleted is not shown to the program.
+          isNull(c.deletedAt),
         ),
       )
       .orderBy(asc(c.createdAt), asc(c.id));
@@ -416,6 +443,7 @@ export class DrizzleSpViewStore implements SpViewStore {
         authorId: c.authorId,
         fieldKey: c.fieldKey,
         visibleAt: c.visibleToProgramAt,
+        deletedAt: c.deletedAt,
         assessmentId: a.id,
         stepPosition: a.stepPosition,
         membershipId: t.id,
@@ -434,7 +462,11 @@ export class DrizzleSpViewStore implements SpViewStore {
   async findCommentScope(commentId: number): Promise<SpCommentScope | null> {
     const [row] = await this.buildCommentScopeQuery(commentId);
     if (row === undefined) return null;
-    const { visibleAt, ...rest } = row;
-    return { ...rest, visible: visibleAt !== null };
+    const { visibleAt, deletedAt, ...rest } = row;
+    return {
+      ...rest,
+      visible: visibleAt !== null,
+      deleted: deletedAt !== null,
+    };
   }
 }

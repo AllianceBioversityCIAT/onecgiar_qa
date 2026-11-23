@@ -65,6 +65,17 @@ describe('statusOf (FR-5 table)', () => {
       { assessmentStatus: 'quality_assessed', endReason: 'released_qaed' },
       'quality_assessed',
     ],
+    // FR-14: the Lead's assessment ended `escalated`.
+    [
+      'escalated assessment (Lead, round 2), membership not ended',
+      { assessmentStatus: 'escalated' },
+      'pending_tpb_review',
+    ],
+    [
+      'escalated assessment, membership ended',
+      { assessmentStatus: 'escalated', endReason: 'timeline_closed' },
+      'pending_tpb_review',
+    ],
   ])('%s', (_name, change, expected) => {
     expect(statusOf({ ...base, ...change })).toBe(expected);
   });
@@ -95,9 +106,9 @@ describe('statusOf (FR-5 table)', () => {
     );
   });
 
-  it('never produces the statuses of later stories, which stay filter values (FR-5)', () => {
+  it('produces pending_tpb_review (FR-14) and still not the statuses of later stories, which stay filter values (FR-5)', () => {
     const produced = new Set(STATUS_RULES.map((rule) => rule.status));
-    expect(produced.has('pending_tpb_review')).toBe(false);
+    expect(produced.has('pending_tpb_review')).toBe(true);
     expect(produced.has('pending_ppu')).toBe(false);
     expect(produced.has('unresolved')).toBe(false);
     expect([...QA_STATUSES]).toEqual([
@@ -144,6 +155,7 @@ describe('statusSqlCase (DD-4: one table, two readers)', () => {
         "WHEN m_status = 'pending' AND (a_status IS NULL OR a_status = 'pending') THEN 'pending' " +
         "WHEN m_status = 'pending' AND (m_end IS NULL OR m_end = 'returned') AND a_status = 'returned' AND thread = 1 THEN 'clarification_requested' " +
         "WHEN m_status = 'pending' AND (m_end IS NULL OR m_end = 'returned') AND a_status = 'returned' AND thread = 0 THEN 'returned_to_program' " +
+        "WHEN a_status = 'escalated' THEN 'pending_tpb_review' " +
         "WHEN a_status = 'quality_assessed' THEN 'quality_assessed' ELSE NULL END",
     );
     expect(text.params).toEqual([]);
@@ -217,6 +229,7 @@ describe('statusSqlCase (DD-4: one table, two readers)', () => {
       'pending',
       'quality_assessed',
       'returned',
+      'escalated',
     ] as const;
     let compared = 0;
     for (const membershipStatus of memberships) {
@@ -237,7 +250,7 @@ describe('statusSqlCase (DD-4: one table, two readers)', () => {
         }
       }
     }
-    expect(compared).toBe(120);
-    expect(rows).toHaveLength(5);
+    expect(compared).toBe(150);
+    expect(rows).toHaveLength(6);
   });
 });

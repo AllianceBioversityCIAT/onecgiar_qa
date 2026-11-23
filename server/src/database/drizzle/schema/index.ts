@@ -25,6 +25,7 @@ export * from './result-assessments.js';
 export * from './assessment-field-validations.js';
 export * from './assessment-comments.js';
 export * from './comment-events.js';
+export * from './comment-decisions.js';
 export * from './quick-comments.js';
 export * from './assessment-audit-events.js';
 export * from './assessment-releases.js';

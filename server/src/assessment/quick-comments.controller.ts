@@ -51,7 +51,7 @@ export class QuickCommentsController {
   @ApiOperation({
     summary: 'List the quick comments of a role',
     description:
-      'The reusable comment texts saved for the role, newest first. Every user with a live grant of that role sees the same list; a user of another role, an ADMIN included, gets a 403.',
+      'The reusable comment texts saved for the role, newest first. Every user with a live grant of that role sees the same list, and so does a QA Admin (who acts as that role with `X-Acting-Role`); a user of another role gets a 403.',
   })
   @ApiOkEnvelope(
     { type: 'array', items: { $ref: getSchemaPath(QuickCommentModel) } },
@@ -74,7 +74,7 @@ export class QuickCommentsController {
   @ApiOperation({
     summary: 'Save a quick comment for a role',
     description:
-      'Saves a text of 1 to 2,000 characters (trimmed) for the role; every user of that role then sees it. The same text saved again (case-sensitive) keeps one entry: 201 when this call created it, 200 with the existing entry otherwise, and only the first writes an audit row.',
+      'Saves a text of 1 to 2,000 characters (trimmed) for the role (a user with a live grant of it, or a QA Admin acting as it); every user of that role then sees it. The same text saved again (case-sensitive) keeps one entry: 201 when this call created it, 200 with the existing entry otherwise, and only the first writes an audit row.',
   })
   @ApiOkEnvelope(QuickCommentModel, {
     status: 201,

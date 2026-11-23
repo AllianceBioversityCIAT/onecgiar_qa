@@ -1,4 +1,5 @@
 // @akili-spec assessment/step-1-assessment
+// @akili-spec admin/acts-as-reviewer
 import { HttpException, type Logger } from '@nestjs/common';
 
 // The decision log of the assessment writes (FR-22, NFR-5; design 7.9): ONE
@@ -12,6 +13,9 @@ export type AssessmentWriteAction =
   | 'comment'
   | 'withdraw'
   | 'finish'
+  | 'decide'
+  | 'decision_clear'
+  | 'delete'
   | 'quick_comment_save';
 
 export interface WriteLogContext {
@@ -26,6 +30,8 @@ export interface WriteLogContext {
 export interface WriteLogTrace {
   timelineId?: number;
   membershipId?: number;
+  /** admin/acts-as-reviewer: the role a QA Admin acted as (a fixed role code); absent for anyone else. */
+  actingRole?: string;
 }
 
 /** The refusal word: the error code of the envelope, else the status, else a fixed word. */
@@ -62,6 +68,9 @@ export async function loggedWrite<T>(
       ...(reason === undefined ? {} : { reason }),
       requestId: context.requestId,
       actorId: context.actorId,
+      ...(trace.actingRole === undefined
+        ? {}
+        : { actingRole: trace.actingRole, asAdmin: true }),
     });
   try {
     const result = await work(trace);

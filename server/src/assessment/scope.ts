@@ -1,4 +1,5 @@
 // @akili-spec assessment/step-1-assessment
+// @akili-spec admin/acts-as-reviewer
 import type { StepAudience } from '../admin-config/timelines/default-steps.js';
 import type { TimelineStepState } from '../admin-config/timelines/timeline-view.js';
 import type {
@@ -47,6 +48,12 @@ export interface ReviewerRow {
   audience: StepAudience;
   resultTypes: ResultTypeSet;
   programs: ProgramSet;
+  /**
+   * admin/acts-as-reviewer: the row of a QA Admin acting as this role. It
+   * covers every result type and program, and its step dates do not bind it
+   * (R2); the round and the result's state still do (R6).
+   */
+  byAdmin?: boolean;
 }
 
 export interface WorklistAccess {
@@ -66,12 +73,41 @@ export interface WorklistAccess {
  * alone grants nothing. `isAdmin` is the caller's answer to
  * `AuthorizationService.can(user, Permission.ADMIN_ACCESS)`, so the admin
  * decision follows the provider the app injects (DD-2).
+ *
+ * admin/acts-as-reviewer (R1, R5): an Admin that names an `actingRole` gets
+ * ONE row, that role's, flagged `byAdmin`, in place of any row of its own
+ * grants: no assignment, grant or conflict rule is needed. A non-admin's
+ * `actingRole` is ignored.
  */
 export function resolveAccess(
   user: AuthorizationSubject,
   timelineRoles: readonly string[],
   isAdmin: boolean,
+  actingRole?: RoleCode,
 ): WorklistAccess {
+  if (isAdmin && actingRole !== undefined) {
+    const acting = enabledReviewerRows().find((row) => row.role === actingRole);
+    if (
+      acting !== undefined &&
+      acting.audience !== null &&
+      acting.round !== null
+    ) {
+      return {
+        reviewerRows: [
+          {
+            role: acting.role,
+            round: acting.round,
+            audience: acting.audience,
+            resultTypes: 'all',
+            programs: { mode: 'all', excluded: [] },
+            byAdmin: true,
+          },
+        ],
+        admin: true,
+        disabledRoles: [],
+      };
+    }
+  }
   const liveGrantsOf = (role: string) =>
     user.assignments.filter(
       (assignment) =>
@@ -105,6 +141,16 @@ export function resolveAccess(
     admin: isAdmin,
     disabledRoles,
   };
+}
+
+/** admin/acts-as-reviewer: the caller is a QA Admin acting as a reviewer role (its one row is `byAdmin`). */
+export function actsAsAdmin(access: WorklistAccess): boolean {
+  return access.reviewerRows.some((row) => row.byAdmin === true);
+}
+
+/** The role a QA Admin acts as on this request, for the decision log; `undefined` for anyone else. */
+export function actingRoleOf(access: WorklistAccess): RoleCode | undefined {
+  return access.reviewerRows.find((row) => row.byAdmin === true)?.role;
 }
 
 function resultTypeSet(keys: readonly (string | null)[]): ResultTypeSet {
@@ -239,6 +285,9 @@ export type WriteDecision =
  * covers it (ADMIN alone never writes, DD-2) and the row's step `in_progress`
  * at `timing.now`: the step-state rule of `admin-config`, called as is. The
  * order is the one of design 7.5: not found, admin read-only, step state.
+ *
+ * admin/acts-as-reviewer R2: a `byAdmin` row writes whatever the state of its
+ * step (upcoming or closed), as long as the timeline has that step.
  */
 export function writeDecision(
   access: WorklistAccess,
@@ -264,7 +313,7 @@ export function writeDecision(
     const roleStep = findRoleStep(row.role);
     const state = roleStep ? roleStepState(roleStep, timing) : null;
     if (state === null) continue;
-    if (state.state === 'in_progress') {
+    if (state.state === 'in_progress' || row.byAdmin === true) {
       return { writable: true, row, stepPosition: state.position };
     }
     refusal = stepRefusal(state.state);

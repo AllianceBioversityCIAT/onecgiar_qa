@@ -14,6 +14,8 @@ import {
 } from '../users/effective-scope.js';
 import { Permission } from '../users/permissions.js';
 import {
+  actingRoleOf,
+  actsAsAdmin,
   clarificationOpen,
   inScope,
   listedFor,
@@ -495,14 +497,15 @@ describe('FR-1 the admin answer comes from the caller', () => {
 });
 
 describe('FR-1 A role with no active row', () => {
-  const leadOnly = user([grant('LEAD_ASSESSOR', 'policy_change')], [SP01]);
-  const access = accessOf(leadOnly, ['LEAD_ASSESSOR']);
+  // The Lead row is enabled (P2-3912); TPB and PPU stay designed only (FR-16).
+  const tpbOnly = user([grant('TPB', null)], [SP01]);
+  const access = accessOf(tpbOnly, ['TPB']);
 
   it('has no row and says its disabled role has no worklist yet', () => {
     expect(access).toEqual({
       reviewerRows: [],
       admin: false,
-      disabledRoles: ['LEAD_ASSESSOR'],
+      disabledRoles: ['TPB'],
     });
   });
 
@@ -687,6 +690,204 @@ describe('FR-19 clarification predicate', () => {
     expect(writeDecision(access, membership(), timing(STEP2_OPEN))).toEqual({
       writable: false,
       reason: 'step_closed',
+    });
+  });
+});
+
+// FR-1 (P2-3912): the Lead row is enabled. Round 2 only, the Lead's result types and programs.
+describe('FR-1 Lead sees only round-2 memberships in their scope', () => {
+  const leadA = user(
+    [grant('LEAD_ASSESSOR', 'innovation_development')],
+    [SP01],
+  );
+  const access = accessOf(leadA, ['LEAD_ASSESSOR']);
+  const round2 = (change: Partial<MembershipFacts> = {}) =>
+    membership({ resultType: 'innovation_development', round: 2, ...change });
+
+  it('builds one LEAD_ASSESSOR row on round 2, audience lead_assessors, with the covered type and program', () => {
+    expect(access).toEqual({
+      reviewerRows: [
+        {
+          role: 'LEAD_ASSESSOR',
+          round: 2,
+          audience: 'lead_assessors',
+          resultTypes: ['innovation_development'],
+          programs: { mode: 'in', ids: [SP01] },
+        },
+      ],
+      admin: false,
+      disabledRoles: [],
+    });
+  });
+
+  it('lists the round-2 membership of their type and program, and nothing else', () => {
+    expect(listedFor(access, round2())).toBe(true);
+    // Round-1 membership of the same result, another type, another program.
+    expect(listedFor(access, round2({ round: 1 }))).toBe(false);
+    expect(listedFor(access, round2({ resultType: 'policy_change' }))).toBe(
+      false,
+    );
+    expect(listedFor(access, round2({ programId: SP02 }))).toBe(false);
+  });
+
+  it('an ASSESSOR of the same scope does not reach round 2 (the assessment 404)', () => {
+    const assessorAccess = accessOf(
+      user([grant('ASSESSOR', 'innovation_development')], [SP01]),
+      ['ASSESSOR'],
+    );
+    expect(inScope(assessorAccess, round2())).toBe(false);
+    expect(writeDecision(assessorAccess, round2(), timing(STEP1_OPEN))).toEqual(
+      { writable: false, reason: 'not_in_scope' },
+    );
+  });
+
+  it('writes only while step 3 is in progress; upcoming and closed are refused (step window)', () => {
+    const withLead = (utc: string) => ({
+      ...timing(utc),
+      steps: [
+        ...steps,
+        {
+          position: 3,
+          audience: 'lead_assessors' as const,
+          opensAt: minute('2026-11-30T09:00'),
+          closesAt: minute('2026-12-04T17:30'),
+        },
+      ],
+    });
+    expect(
+      writeDecision(access, round2(), withLead('2026-12-01T10:00:00Z')),
+    ).toMatchObject({
+      writable: true,
+      stepPosition: 3,
+    });
+    expect(writeDecision(access, round2(), withLead(STEP2_OPEN))).toEqual({
+      writable: false,
+      reason: 'step_upcoming',
+    });
+    expect(
+      writeDecision(access, round2(), withLead('2026-12-05T10:00:00Z')),
+    ).toEqual({
+      writable: false,
+      reason: 'step_closed',
+    });
+  });
+});
+
+describe('admin/acts-as-reviewer: a QA Admin acting as a reviewer role', () => {
+  const admin = user([grant('ADMIN', null)]);
+  const adminAs = (role: 'ASSESSOR' | 'LEAD_ASSESSOR' | 'TPB') =>
+    resolveAccess(
+      admin,
+      [],
+      authorization.can(admin, Permission.ADMIN_ACCESS),
+      role as never,
+    );
+  const withLead = (utc: string) => ({
+    ...timing(utc),
+    steps: [
+      ...steps,
+      {
+        position: 3,
+        audience: 'lead_assessors' as const,
+        opensAt: minute('2026-11-30T09:00'),
+        closesAt: minute('2026-12-04T17:30'),
+      },
+    ],
+  });
+
+  it('gets ONE row of the role, every type and program, flagged byAdmin, with no assignment or grant', () => {
+    const access = adminAs('ASSESSOR');
+    expect(access).toEqual({
+      reviewerRows: [
+        {
+          role: 'ASSESSOR',
+          round: 1,
+          audience: 'assessors',
+          resultTypes: 'all',
+          programs: { mode: 'all', excluded: [] },
+          byAdmin: true,
+        },
+      ],
+      admin: true,
+      disabledRoles: [],
+    });
+    expect(actsAsAdmin(access)).toBe(true);
+    expect(actingRoleOf(access)).toBe('ASSESSOR');
+  });
+
+  it('writes as Assessor before step 1 opens and after it closes (R2), in the step of the role', () => {
+    const access = adminAs('ASSESSOR');
+    for (const utc of ['2026-11-01T10:00:00Z', STEP1_OPEN, STEP2_OPEN]) {
+      expect(writeDecision(access, membership(), timing(utc))).toMatchObject({
+        writable: true,
+        stepPosition: 1,
+      });
+    }
+  });
+
+  it('writes as Lead on round 2 whatever the state of step 3 (R2)', () => {
+    const access = adminAs('LEAD_ASSESSOR');
+    const round2 = membership({ round: 2 });
+    for (const utc of [
+      STEP2_OPEN,
+      '2026-12-01T10:00:00Z',
+      '2026-12-05T10:00:00Z',
+    ]) {
+      expect(writeDecision(access, round2, withLead(utc))).toMatchObject({
+        writable: true,
+        stepPosition: 3,
+      });
+    }
+  });
+
+  it('keeps the flow (R6): the role must fit the round, the timeline must have its step, auto-validated stays read-only', () => {
+    // Lead on a round-1 result, Assessor on a round-2 one: in scope (ADMIN), no covering row, 403.
+    expect(
+      writeDecision(
+        adminAs('LEAD_ASSESSOR'),
+        membership(),
+        withLead(STEP1_OPEN),
+      ),
+    ).toEqual({ writable: false, reason: 'admin_read_only' });
+    expect(
+      writeDecision(
+        adminAs('ASSESSOR'),
+        membership({ round: 2 }),
+        withLead(STEP1_OPEN),
+      ),
+    ).toEqual({ writable: false, reason: 'admin_read_only' });
+    // No step 3 on the timeline.
+    expect(
+      writeDecision(
+        adminAs('LEAD_ASSESSOR'),
+        membership({ round: 2 }),
+        timing(STEP1_OPEN),
+      ),
+    ).toEqual({ writable: false, reason: 'no_step' });
+    expect(
+      writeDecision(
+        adminAs('ASSESSOR'),
+        membership({ status: 'auto_validated' }),
+        timing(STEP1_OPEN),
+      ),
+    ).toEqual({ writable: false, reason: 'auto_validated' });
+  });
+
+  it('ignores the acting role of a non-admin and of a disabled role row', () => {
+    const asReviewer = resolveAccess(
+      assessorA,
+      ['ASSESSOR'],
+      false,
+      'LEAD_ASSESSOR' as never,
+    );
+    expect(asReviewer).toEqual(accessOf(assessorA, ['ASSESSOR']));
+    expect(actsAsAdmin(asReviewer)).toBe(false);
+    // TPB has a declared, disabled row: no acting row, the Admin stays read-only.
+    const tpb = adminAs('TPB');
+    expect(tpb.reviewerRows).toEqual([]);
+    expect(writeDecision(tpb, membership(), timing(STEP1_OPEN))).toEqual({
+      writable: false,
+      reason: 'admin_read_only',
     });
   });
 });

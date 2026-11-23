@@ -10,7 +10,9 @@ import {
   ProgramResponseKind,
   TOC_SECTION_KEY,
 } from '../../../core/api/assessment.models';
-import { formatDay, todayInRome } from '../../../core/domain/rome-date';
+import { reviewerLabel } from '../../../core/api/acting-role';
+import { fieldLabel } from '../../../core/domain/field-label';
+import { formatDay, romeInstantLabel, todayInRome } from '../../../core/domain/rome-date';
 import { STATUS_LABELS, qaStatusPill } from '../results/qa-status';
 import type { CommentsDrawerMode, CommentsDrawerVm } from './review-comments-drawer';
 import {
@@ -184,8 +186,19 @@ function scalarText(
   if (typeof v === 'boolean') return v ? 'Yes' : 'No';
   if (isEmpty(v)) return '—';
   if (select && (typeof v === 'number' || typeof v === 'string')) return labelOf(v, labels, list);
+  if (typeof v === 'string') return romeInstantLabel(v) ?? v;
   return typeof v === 'object' ? JSON.stringify(v) : String(v);
 }
+
+/**
+ * Subfields that repeat `value` for the directory (Lead contact person: `{ value, directory_user }`, both the same
+ * name, seen in the 23-nov demo as "Value: … · Directory user: …"). An entry made of `value` and these reads as its value.
+ */
+const ECHOES_VALUE = new Set(['directory_user']);
+const valueOnly = (entry: Readonly<Record<string, Json>>): Json | undefined =>
+  Object.hasOwn(entry, 'value') && !isEmpty(entry['value']) && Object.keys(entry).every((k) => k === 'value' || ECHOES_VALUE.has(k) || isEmpty(entry[k]))
+    ? entry['value']
+    : undefined;
 
 /**
  * One entry of a list field: "Level: Outcome · Target: 4". A subfield is labelled when `lists` names its control
@@ -197,6 +210,8 @@ function entryText(
   lists: Readonly<Record<string, string>> = SUBFIELD_LISTS,
 ): string {
   if (!isObject(entry)) return scalarText(entry, labels, undefined, !!labels);
+  const single = valueOnly(entry);
+  if (single !== undefined) return scalarText(single, labels, lists['value'], Object.hasOwn(lists, 'value'));
   return Object.entries(entry)
     .filter(([, v]) => !isEmpty(v))
     .map(
@@ -331,7 +346,7 @@ function cardStatus(f: AssessmentField, writable: boolean, id: string = f.key): 
 export function toFieldVm(f: AssessmentField, writable: boolean): FieldVm {
   return {
     ...cardStatus(f, writable),
-    label: f.label,
+    label: fieldLabel(f.key, f.label),
     // Reporting's help text of the field (catalog `description`); absent = no tooltip.
     tip: f.description ?? '',
     isCore: isAssessed(f) && f.core,
@@ -474,7 +489,7 @@ export function toTocVm(fields: readonly AssessmentField[], writable: boolean): 
 /** The read-only banner (FR-23). `stepName` is the role's step of the timeline. */
 export function readOnlyBanner(
   reason: AssessmentReadOnlyReason | null,
-  view: Pick<AssessmentView, 'assessment' | 'header'>,
+  view: Pick<AssessmentView, 'assessment' | 'header'> & Pick<Partial<AssessmentView>, 'actingRoles'>,
 ): string | null {
   const step = view.header.step
     ? `Step ${view.header.step.position} · ${view.header.step.name}`
@@ -483,7 +498,9 @@ export function readOnlyBanner(
     case null:
       return null;
     case 'admin_read_only':
-      return 'View only for admins: you are not assigned to assess this timeline.';
+      return view.actingRoles?.length
+        ? 'View only. To act as a reviewer on this result, pick a role in "Act as".'
+        : 'View only for admins: you are not assigned to assess this timeline.';
     case 'step_upcoming':
       return `${step} has not opened yet. You can read the assessment.`;
     case 'step_closed':
@@ -494,7 +511,7 @@ export function readOnlyBanner(
       return 'Auto-validated: this result is not assessed.';
     case 'finished': {
       const a = view.assessment;
-      const who = a?.assessedBy?.nickname ?? '—';
+      const who = reviewerLabel(a?.assessedBy);
       return `Finished by ${who}${a?.finishedAt ? ' on ' + romeDay(a.finishedAt) : ''}.`;
     }
     default:
@@ -507,7 +524,7 @@ export function toHeaderVm(view: AssessmentView, canAct: boolean = view.writable
   const pill = qaStatusPill(h.status);
   const a = view.assessment;
   const ended = !!a && a.status !== 'pending';
-  const assessor = a?.assessedBy?.nickname ?? '—';
+  const assessor = reviewerLabel(a?.assessedBy);
   return {
     code: String(h.resultCode),
     title: h.title ?? 'Untitled result',
@@ -613,7 +630,7 @@ export function toCommentVm(c: AssessmentComment, reader: ThreadReader = NO_READ
     authorId: c.author.id,
     open: c.state === 'open',
     canWithdraw: reader.canWithdraw && c.state === 'open' && reader.me !== null && c.author.id === reader.me,
-    who: c.author.nickname ?? '—',
+    who: reviewerLabel(c.author),
     role: 'Assessor',
     date: romeDay(c.createdAt),
     text: c.body,
@@ -649,7 +666,7 @@ export function toThreadRows(c: AssessmentComment, thread: CommentThread | undef
     };
     const answer = r.kind === 'request_clarification' ? thread.clarifications.find((x) => x.requestId === r.id)?.answer : null;
     return answer
-      ? [row, { who: c.author.nickname ?? '—', role: 'Assessor', date: romeDay(answer.answeredAt), text: answer.body, answer: true }]
+      ? [row, { who: reviewerLabel(c.author), role: 'Assessor', date: romeDay(answer.answeredAt), text: answer.body, answer: true }]
       : [row];
   });
 }

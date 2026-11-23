@@ -306,8 +306,8 @@ describe('committed migrations', () => {
     .filter((f) => f.endsWith('.sql'))
     .sort();
 
-  it('are exactly thirteen SQL files', () => {
-    expect(files).toHaveLength(13);
+  it('are exactly fifteen SQL files', () => {
+    expect(files).toHaveLength(15);
   });
 
   const sql = readFileSync(`${migrationsDir}${files[0]}`, 'utf8');
@@ -2731,5 +2731,272 @@ describe('committed migration 0012 (ai_usage_indicative)', () => {
     expect(read(downPath)).toContain(
       "MODIFY COLUMN `ai_signal` enum('green','amber','red') NOT NULL;",
     );
+  });
+});
+
+// @akili-spec escalation/round-2
+describe('round two schema (escalation/round-2 design 5)', () => {
+  const colOf = (table: Parameters<typeof getTableConfig>[0], n: string) =>
+    getTableConfig(table).columns.find((c) => c.name === n);
+
+  it('appends escalated to the assessment statuses and lead_sided_program to the comment states, in order', () => {
+    expect(schema.resultAssessmentStatuses).toEqual([
+      'pending',
+      'quality_assessed',
+      'returned',
+      'escalated',
+    ]);
+    expect(schema.commentStates).toEqual([
+      'open',
+      'withdrawn',
+      'clarification_requested',
+      'accepted',
+      'accepted_with_comment',
+      'disagreed',
+      'escalated',
+      'tpb_sided_program',
+      'tpb_sided_assessor',
+      'done',
+      'lead_sided_program',
+    ]);
+    expect(colOf(schema.commentEvents, 'to_state')?.getSQLType()).toContain(
+      "'lead_sided_program'",
+    );
+    expect(colOf(schema.commentEvents, 'from_state')?.getSQLType()).toContain(
+      "'lead_sided_program'",
+    );
+  });
+
+  it('appends the four audit actions', () => {
+    expect(schema.assessmentAuditActions.slice(-4)).toEqual([
+      'decision_set',
+      'decision_clear',
+      'comment_delete',
+      'end_escalated',
+    ]);
+    expect(schema.assessmentAuditActions).toHaveLength(15);
+  });
+
+  it('adds the soft-delete columns with a both-or-neither CHECK', () => {
+    const config = getTableConfig(schema.assessmentComments);
+    expect(colOf(schema.assessmentComments, 'deleted_at')?.getSQLType()).toBe(
+      'datetime',
+    );
+    expect(colOf(schema.assessmentComments, 'deleted_at')?.notNull).toBe(false);
+    expect(colOf(schema.assessmentComments, 'deleted_by')?.getSQLType()).toBe(
+      'int unsigned',
+    );
+    expect(colOf(schema.assessmentComments, 'deleted_by')?.notNull).toBe(false);
+    const chk = config.checks.find((c) => c.name === 'chk_comment_deleted');
+    expect(chk).toBeDefined();
+    expect(render(chk!.value)).toBe(
+      '(`deleted_at` IS NULL AND `deleted_by` IS NULL) OR (`deleted_at` IS NOT NULL AND `deleted_by` IS NOT NULL)',
+    );
+    expect(config.foreignKeys.map((fk) => fk.getName())).toContain(
+      'fk_assessment_comments_deleted_by',
+    );
+  });
+
+  it('declares comment_decisions with a unique (comment_id, role_code) and the body CHECK', () => {
+    const t = (schema as Record<string, unknown>).commentDecisions as
+      Parameters<typeof getTableConfig>[0] | undefined;
+    expect(t).toBeDefined();
+    const config = getTableConfig(t!);
+    expect(config.name).toBe('comment_decisions');
+    expect(colOf(t!, 'decision')?.getSQLType()).toBe(
+      "enum('agree_program','escalate','tpb_agree_program','tpb_agree_assessor','ppu_done')",
+    );
+    expect(colOf(t!, 'role_code')?.getSQLType()).toBe('varchar(32)');
+    expect(colOf(t!, 'body')?.getSQLType()).toBe('varchar(2000)');
+    expect(colOf(t!, 'body')?.notNull).toBe(false);
+    for (const n of [
+      'comment_id',
+      'assessment_id',
+      'role_code',
+      'decision',
+      'decided_by',
+      'decided_at',
+      'updated_at',
+    ]) {
+      expect(colOf(t!, n)?.notNull, n).toBe(true);
+    }
+    expect(uniqueColumnSets(t!)).toContainEqual(['comment_id', 'role_code']);
+    expect(config.foreignKeys.map((fk) => fk.getName()).sort()).toEqual([
+      'fk_comment_decisions_assessment',
+      'fk_comment_decisions_comment',
+      'fk_comment_decisions_decided_by',
+    ]);
+    const chk = config.checks.find(
+      (c) => c.name === 'chk_comment_decisions_body',
+    );
+    expect(render(chk!.value)).toBe(
+      "`body` IS NOT NULL OR `decision` = 'ppu_done'",
+    );
+  });
+});
+
+describe('committed migration 0013 (round_two)', () => {
+  const files = readdirSync(migrationsDir)
+    .filter((f) => f.endsWith('.sql'))
+    .sort();
+  const read = (path: string) => readFileSync(path, 'utf8');
+  const up = files[13] ? read(`${migrationsDir}${files[13]}`) : '';
+  const downPath = `${migrationsDir}rollback/0013_round_two.down.sql`;
+  const down = existsSync(downPath) ? read(downPath) : '';
+  const statementsOf = (text: string) =>
+    text
+      .replace(/^--(?!>).*$/gm, '')
+      .split('--> statement-breakpoint')
+      .map((x) => x.trim())
+      .filter(Boolean);
+
+  it('is named 0013_round_two and is the fourteenth journal entry', () => {
+    expect(files[13]).toBe('0013_round_two.sql');
+    const journal = JSON.parse(read(`${migrationsDir}meta/_journal.json`)) as {
+      entries: { idx: number; tag: string }[];
+    };
+    expect(journal.entries[13]).toMatchObject({
+      idx: 13,
+      tag: '0013_round_two',
+    });
+  });
+
+  it('holds exactly the design 5 changes and drops nothing', () => {
+    expect(up).not.toMatch(/\bDROP\b/);
+    expect([...up.matchAll(/CREATE TABLE `(\w+)`/g)].map((m) => m[1])).toEqual([
+      'comment_decisions',
+    ]);
+    expect(up).toContain(
+      "ALTER TABLE `result_assessments` MODIFY COLUMN `status` enum('pending','quality_assessed','returned','escalated') NOT NULL DEFAULT 'pending';",
+    );
+    expect(up).toContain("'done','lead_sided_program'");
+    expect(up).toContain(
+      'ALTER TABLE `assessment_comments` ADD `deleted_at` datetime;',
+    );
+    expect(up).toContain(
+      'ALTER TABLE `assessment_comments` ADD `deleted_by` int unsigned;',
+    );
+    expect(up).toContain(
+      'ALTER TABLE `assessment_comments` ADD CONSTRAINT `chk_comment_deleted` CHECK',
+    );
+    expect(up).toContain(
+      "enum('agree_program','escalate','tpb_agree_program','tpb_agree_assessor','ppu_done') NOT NULL",
+    );
+    expect(up).toContain(
+      'CONSTRAINT `uq_comment_decisions_comment_role` UNIQUE(`comment_id`,`role_code`)',
+    );
+    expect(up).toContain(
+      "CONSTRAINT `chk_comment_decisions_body` CHECK(`body` IS NOT NULL OR `decision` = 'ppu_done')",
+    );
+    expect(up).toContain(
+      "'release_refused','decision_set','decision_clear','comment_delete','end_escalated'",
+    );
+    for (const table of ['assessment_comments', 'comment_events']) {
+      expect(up).toContain(`ALTER TABLE \`${table}\``);
+    }
+    expect(up).toContain('ALTER TABLE `assessment_audit_events`');
+  });
+
+  it('makes every foreign key ON DELETE no action and keeps identifiers within 64 characters', () => {
+    const fks = [...up.matchAll(/ADD CONSTRAINT `(\w+)` FOREIGN KEY[^;]*;/g)];
+    expect(fks.map((m) => m[1]).sort()).toEqual(
+      [
+        'fk_assessment_comments_deleted_by',
+        'fk_comment_decisions_assessment',
+        'fk_comment_decisions_comment',
+        'fk_comment_decisions_decided_by',
+      ].sort(),
+    );
+    for (const m of fks) {
+      expect(m[0]).toContain('ON DELETE no action ON UPDATE no action');
+    }
+    for (const m of up.matchAll(/CONSTRAINT `(\w+)`/g)) {
+      expect(m[1].length, m[1]).toBeLessThanOrEqual(64);
+    }
+  });
+
+  it('has a lossy manual down script, child first', () => {
+    expect(down).toMatch(/LOSSY/);
+    expect(down).toMatch(/__drizzle_migrations/);
+    const s = statementsOf(down);
+    expect(s[0]).toBe('DROP TABLE `comment_decisions`;');
+    expect(s.join('\n')).toContain(
+      'ALTER TABLE `assessment_comments` DROP CONSTRAINT `chk_comment_deleted`;',
+    );
+    expect(s.join('\n')).toContain(
+      'ALTER TABLE `assessment_comments` DROP FOREIGN KEY `fk_assessment_comments_deleted_by`;',
+    );
+    expect(s.join('\n')).toContain(
+      'ALTER TABLE `assessment_comments` DROP COLUMN `deleted_by`;',
+    );
+    expect(s.join('\n')).toContain(
+      "`status` enum('pending','quality_assessed','returned') NOT NULL DEFAULT 'pending';",
+    );
+  });
+});
+
+describe('committed migration 0014 (admin_acts_as_reviewer)', () => {
+  const files = readdirSync(migrationsDir)
+    .filter((f) => f.endsWith('.sql'))
+    .sort();
+  const read = (path: string) => readFileSync(path, 'utf8');
+  const up = files[14] ? read(`${migrationsDir}${files[14]}`) : '';
+  const downPath = `${migrationsDir}rollback/0014_admin_acts_as_reviewer.down.sql`;
+  const down = existsSync(downPath) ? read(downPath) : '';
+  const statementsOf = (text: string) =>
+    text
+      .replace(/^--(?!>).*$/gm, '')
+      .split('--> statement-breakpoint')
+      .map((x) => x.trim())
+      .filter(Boolean);
+
+  it('is named 0014_admin_acts_as_reviewer and is the fifteenth journal entry', () => {
+    expect(files[14]).toBe('0014_admin_acts_as_reviewer.sql');
+    const journal = JSON.parse(read(`${migrationsDir}meta/_journal.json`)) as {
+      entries: { idx: number; tag: string }[];
+    };
+    expect(journal.entries[14]).toMatchObject({
+      idx: 14,
+      tag: '0014_admin_acts_as_reviewer',
+    });
+  });
+
+  it('only adds the three NOT NULL DEFAULT false flags', () => {
+    expect(up).not.toMatch(/\bDROP\b|\bMODIFY\b|CREATE TABLE/);
+    expect(statementsOf(up).sort()).toEqual(
+      [
+        'ALTER TABLE `assessment_comments` ADD `acted_as_admin` boolean DEFAULT false NOT NULL;',
+        'ALTER TABLE `comment_decisions` ADD `acted_as_admin` boolean DEFAULT false NOT NULL;',
+        'ALTER TABLE `result_assessments` ADD `finished_as_admin` boolean DEFAULT false NOT NULL;',
+      ].sort(),
+    );
+  });
+
+  it('declares the flags on the schema', () => {
+    const tables = schema as unknown as Record<
+      string,
+      Parameters<typeof getTableConfig>[0]
+    >;
+    const colOf = (table: Parameters<typeof getTableConfig>[0], n: string) =>
+      getTableConfig(table).columns.find((c) => c.name === n);
+    expect(colOf(tables.assessmentComments, 'acted_as_admin')?.notNull).toBe(
+      true,
+    );
+    expect(colOf(tables.commentDecisions, 'acted_as_admin')?.notNull).toBe(
+      true,
+    );
+    expect(colOf(tables.resultAssessments, 'finished_as_admin')?.notNull).toBe(
+      true,
+    );
+  });
+
+  it('has a lossy manual down script that drops the three columns', () => {
+    expect(down).toMatch(/LOSSY/);
+    expect(down).toMatch(/__drizzle_migrations/);
+    expect(statementsOf(down)).toEqual([
+      'ALTER TABLE `comment_decisions` DROP COLUMN `acted_as_admin`;',
+      'ALTER TABLE `assessment_comments` DROP COLUMN `acted_as_admin`;',
+      'ALTER TABLE `result_assessments` DROP COLUMN `finished_as_admin`;',
+    ]);
   });
 });
