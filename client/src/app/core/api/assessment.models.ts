@@ -4,6 +4,8 @@
  * `feat/assessment-step-1`). If the server and this file disagree, the server wins: fix this file.
  */
 
+import type { ActingRole } from './acting-role';
+
 /** The 8 QA statuses (contract § 3.1). Closed set, in display order. */
 export const QA_STATUSES = [
   'pending',
@@ -53,6 +55,8 @@ export interface KeyLabel<K extends string = string> {
 export interface Person {
   readonly id: number;
   readonly nickname: string | null;
+  /** A QA Admin wrote or finished it acting as a reviewer role (§ 2.1). Absent otherwise. */
+  readonly admin?: true;
 }
 
 // ── Worklist (§ 4) ──────────────────────────────────────────────────────────
@@ -219,6 +223,10 @@ export interface AssessmentView {
   readonly readOnlyReason: AssessmentReadOnlyReason | null;
   /** `null` until the first write creates the assessment. */
   readonly assessment: AssessmentSummary | null;
+  /** ADMIN only (§ 2.1): the roles the Admin may act as on this result. Absent for anyone else. */
+  readonly actingRoles?: readonly ActingRole[];
+  /** ADMIN only (§ 2.1): the `X-Acting-Role` the view was built for; `null` = read only. */
+  readonly actingRole?: ActingRole | null;
 }
 
 // ── Writes (§ 6) ────────────────────────────────────────────────────────────
