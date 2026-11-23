@@ -322,7 +322,8 @@ describe('Worklist routes (e2e)', () => {
       expectError(unassigned, 404, 'TIMELINES_NOT_FOUND');
       expectError(missing, 404, 'TIMELINES_NOT_FOUND');
       expect(unassigned.body.error).toEqual(missing.body.error);
-      expect(JSON.stringify(unassigned.body)).not.toContain('301');
+      // `error` only: `meta.requestId` (a UUID) and `meta.timestamp` may contain "301" by chance.
+      expect(JSON.stringify(unassigned.body.error)).not.toContain('301');
     });
 
     it('a caller assigned to no timeline gets 404 on timeline 1', async () => {
