@@ -59,7 +59,7 @@ export function readFilters(params: ParamMap): ResultsFilters {
 /**
  * "Results in QA" on the worklist API (T-18): the caller's results of one timeline, filtered, searched
  * and sorted on the server, with "Load more" (the API pages by cursor and gives no filtered total).
- * Auto-validated results are hidden unless the Status menu asks for them.
+ * Without a Status filter the server lists Auto-validated results with the rest (F-010).
  */
 @Component({
   selector: 'qa-results-view',
