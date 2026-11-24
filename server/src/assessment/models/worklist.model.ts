@@ -179,9 +179,17 @@ export class WorklistCountersModel {
     type: Number,
     example: 10,
     description:
-      'Every membership of the caller scope under the Auto-validated hiding. Filters and the page do not change it',
+      'Every membership of the caller scope, Auto-validated included. Filters and the page do not change it',
   })
   total!: number;
+
+  @ApiProperty({
+    type: Number,
+    example: 2,
+    description:
+      'The Auto-validated memberships among `total` (not assessed: never pending nor finished). Filters and the page do not change it',
+  })
+  autoValidated!: number;
 }
 
 export class WorklistPageModel {
