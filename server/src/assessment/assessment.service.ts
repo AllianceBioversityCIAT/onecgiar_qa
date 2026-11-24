@@ -20,6 +20,7 @@ import {
   type EffectiveFieldConfig,
   type FieldConfigEffective,
 } from '../admin-config/field-config/field-config.module.js';
+import { withLiveVisibility } from '../admin-config/field-config/live-visibility.js';
 import { nowInRome, type RomeMinute } from '../admin-config/rome-date.js';
 import type { IdempotencyHandle } from '../common/idempotency/idempotency.context.js';
 import {
@@ -2306,8 +2307,30 @@ export class AssessmentService {
    * resolves the timeline's version (five statements). No version, or a type
    * the timeline does not cover: 409 `ASSESSMENT_NO_FIELD_CONFIG`. A timeline
    * that vanished between two reads is the same 404 as any result not seen.
+   *
+   * F-005 (bugfix/live-field-visibility): the cycle's latest version is read
+   * alongside (two statements, in parallel) and its Hidden / View only moves are
+   * laid over the kept items (`withLiveVisibility`). Assessed, Core and AI input
+   * stay as kept, so writes, which never read this, are unaffected.
    */
   private async configOf(
+    timeline: Pick<WorklistTimeline, 'id' | 'cycleId'>,
+    membership: MembershipRecord,
+  ): Promise<readonly ConfigItem[]> {
+    const [kept, latest] = await Promise.all([
+      this.keptConfigOf(timeline, membership),
+      this.fieldConfig.latestVersionItems(
+        timeline.cycleId,
+        membership.resultTypeKey,
+      ),
+    ]);
+    return latest === null
+      ? kept
+      : withLiveVisibility(membership.resultTypeKey, kept, latest);
+  }
+
+  /** The pinned version's items, else the timeline's (DD-3, P-16). */
+  private async keptConfigOf(
     timeline: Pick<WorklistTimeline, 'id' | 'cycleId'>,
     membership: MembershipRecord,
   ): Promise<readonly ConfigItem[]> {

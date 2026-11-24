@@ -369,6 +369,12 @@ export class InMemoryAssessmentWorld {
   fieldConfigItems: Record<string, EffectiveFieldConfig['items']> = {};
   /** The items of a PINNED version, by version id then result type: what `versionItems` reads. Nothing falls back to `fieldConfigItems`. */
   versionItems: Record<number, Record<string, ConfigItem[]>> = {};
+  /**
+   * The cycle's LATEST version items by result type: what `latestVersionItems`
+   * reads (F-005). A type with none answers `null`, which production answers
+   * only for a cycle with no version: the kept items are then used as they are.
+   */
+  latestVersionItems: Record<string, ConfigItem[]> = {};
   /** Set to make `effectiveFor` throw `FieldConfigNoVersionError`. */
   noFieldConfigVersion = false;
   /** Set to make `effectiveFor` throw `TimelineNotFoundError` (the timeline vanished between two reads). */
@@ -930,7 +936,8 @@ function commentRecordOf(
  * `FieldConfigEffective` over the world, counting what production runs.
  * `effectiveFor` is FIVE statements: `listTimelineStarts` is three (the
  * timelines, their steps, their scope rows), then `listVersions` and
- * `listVersionItems`. `versionItems` is ONE (`listVersionItems`). The e2e
+ * `listVersionItems`. `versionItems` is ONE (`listVersionItems`).
+ * `latestVersionItems` is TWO (`listVersions`, `listVersionItems`). The e2e
  * statement budget (NFR-2) is therefore the real one.
  */
 export class FakeFieldConfigEffective implements FieldConfigEffective {
@@ -964,6 +971,15 @@ export class FakeFieldConfigEffective implements FieldConfigEffective {
     this.world.statements += 1;
     return Promise.resolve(
       this.world.versionItems[versionId]?.[resultTypeKey] ?? [],
+    );
+  }
+  latestVersionItems(
+    _cycleId: number,
+    resultTypeKey: string,
+  ): Promise<ConfigItem[] | null> {
+    this.world.statements += 2;
+    return Promise.resolve(
+      this.world.latestVersionItems[resultTypeKey] ?? null,
     );
   }
 }

@@ -60,6 +60,16 @@ export interface FieldConfigEffective {
    * runs five statements to find it.
    */
   versionItems(versionId: number, resultTypeKey: string): Promise<ConfigItem[]>;
+  /**
+   * The items of the cycle's LATEST published version for one result type, in
+   * TWO statements (`listVersions`, `listVersionItems`); `null` when the cycle
+   * has no version. The assessment view lays its Hidden / View only moves over
+   * the version a timeline or an assessment keeps (F-005, `withLiveVisibility`).
+   */
+  latestVersionItems(
+    cycleId: number,
+    resultTypeKey: string,
+  ): Promise<ConfigItem[] | null>;
 }
 
 /**
