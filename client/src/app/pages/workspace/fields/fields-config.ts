@@ -131,7 +131,8 @@ export function rowVm(f: FieldConfigField, cfg: FieldConfig, notSet: boolean): F
     doc: f.description ?? '',
     required,
     conditional: f.requirement === 'conditional',
-    notSet,
+    // A conditional field already reads "Conditional" under its name: "Not set yet" under it too only adds noise (F-023).
+    notSet: notSet && f.requirement !== 'conditional',
     config: cfg,
     effective: eff,
     active: isActive(cfg.state),
