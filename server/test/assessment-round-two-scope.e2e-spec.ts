@@ -378,6 +378,7 @@ describe('Round 2 scope of the Lead (e2e)', () => {
         pending: 0,
         finished: 2,
         total: 2,
+        autoValidated: 0,
       });
 
       const all = await a.send('get', '/timelines/1/worklist', {

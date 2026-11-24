@@ -67,7 +67,7 @@ export class WorklistController {
   @ApiOperation({
     summary: 'One page of the worklist of a timeline',
     description:
-      'Filters combine with AND; list filters take comma-separated values. Auto-validated results are hidden unless `status` names them, and the counters follow the same hiding but ignore the filters. Sorted by `sort` and `dir`, then by result code; page with `meta.page.nextCursor`, which is valid only with the same `sort` and `dir`. A timeline that is not offered to the caller, or does not exist, is the same 404.',
+      'Filters combine with AND; list filters take comma-separated values. Auto-validated results are listed when `status` is absent and left out by a `status` that does not name them; the counters ignore the filters and count Auto-validated apart (`autoValidated`). Sorted by `sort` and `dir`, then by result code; page with `meta.page.nextCursor`, which is valid only with the same `sort` and `dir`. A timeline that is not offered to the caller, or does not exist, is the same 404.',
   })
   @ApiOkEnvelope(WorklistPageModel, { paged: true })
   @ApiErrorResponses({ ...TIMELINE_ERRORS, 400: ['VALIDATION_FAILED'] })

@@ -209,8 +209,13 @@ describe('FR-1: scope by role row', () => {
       }),
     );
 
+    // F-010: with no status filter, Auto-validated is listed too.
     const page = await service.list(admin(), 1);
-    expect(codes(page)).toEqual([1, 4]);
+    expect(codes(page)).toEqual([1, 2, 4]);
+    const pendingOnly = await service.list(admin(), 1, {
+      statuses: ['pending'],
+    });
+    expect(codes(pendingOnly)).toEqual([1, 4]);
 
     const withAuto = await service.list(admin(), 1, {
       statuses: ['auto_validated'],
@@ -238,7 +243,12 @@ describe('FR-1: scope by role row', () => {
 
     expect(page.rows).toEqual([]);
     expect(page.noActiveRole).toBe(true);
-    expect(page.counters).toEqual({ pending: 0, finished: 0, total: 0 });
+    expect(page.counters).toEqual({
+      pending: 0,
+      finished: 0,
+      total: 0,
+      autoValidated: 0,
+    });
   });
 });
 
@@ -347,19 +357,25 @@ describe('FR-4: filters and search', () => {
     return ctx;
   }
 
-  it('hides Auto-validated by default and applies the same hiding to the counters', async () => {
+  it('F-010: lists Auto-validated by default, filters it like any status, and counts it apart whatever the filter', async () => {
     const { service } = tenPendingThreeAuto();
+    const counters = { pending: 10, finished: 0, total: 13, autoValidated: 3 };
 
     const page = await service.list(assessorA(), 1);
-    expect(page.rows).toHaveLength(10);
-    expect(page.counters).toEqual({ pending: 10, finished: 0, total: 10 });
+    expect(page.rows).toHaveLength(13);
+    expect(page.counters).toEqual(counters);
 
     const auto = await service.list(assessorA(), 1, {
       statuses: ['auto_validated'],
     });
     expect(auto.rows).toHaveLength(3);
-    // Named in the filter, so the counters stop hiding them too.
-    expect(auto.counters).toEqual({ pending: 10, finished: 0, total: 13 });
+    expect(auto.counters).toEqual(counters);
+
+    const pending = await service.list(assessorA(), 1, {
+      statuses: ['pending'],
+    });
+    expect(pending.rows).toHaveLength(10);
+    expect(pending.counters).toEqual(counters);
   });
 
   it('searches the title case-insensitively and the result code by prefix; no match is an empty page', async () => {
@@ -1131,7 +1147,12 @@ describe('Round 2: the Lead worklist and the current step', () => {
     expect(all.counters.total).toBe(3);
     // FR-14: the Lead's review has ended, so the escalated row is finished, not pending.
     // Rows: 1 escalated, 2 pending, 3 returned_to_program.
-    expect(all.counters).toEqual({ pending: 1, finished: 2, total: 3 });
+    expect(all.counters).toEqual({
+      pending: 1,
+      finished: 2,
+      total: 3,
+      autoValidated: 0,
+    });
   });
 
   it('the Lead sees the same status as ADMIN for an escalated membership (one status for every role)', async () => {
