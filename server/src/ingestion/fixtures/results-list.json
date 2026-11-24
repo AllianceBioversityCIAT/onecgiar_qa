@@ -1,0 +1,33 @@
+{
+  "phase": 2026,
+  "page": 1,
+  "page_size": 100,
+  "total": 1,
+  "breakdown": {
+    "by_program": [
+      {
+        "clarisa_id": 5,
+        "code": "SP05",
+        "count": 1
+      }
+    ],
+    "by_result_type": [
+      {
+        "key": "policy_change",
+        "count": 1
+      }
+    ]
+  },
+  "items": [
+    {
+      "result_id": 900001,
+      "result_code": 5120,
+      "program": {
+        "clarisa_id": 5,
+        "code": "SP05"
+      },
+      "result_type_key": "policy_change",
+      "submitted_at": "2026-09-30T14:03:12.000Z"
+    }
+  ]
+}

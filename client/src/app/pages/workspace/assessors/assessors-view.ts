@@ -1,0 +1,273 @@
+import { NgTemplateOutlet } from '@angular/common';
+import { Component, ElementRef, computed, effect, inject, signal, viewChild } from '@angular/core';
+import { HlmInputImports } from '@spartan/input';
+import { TableSort } from '../../../core/list/table-sort';
+import { QaButtonImports, QaMenuImports, QaMultiSelect, QaMultiSelectOption, QaReveal } from '../../../ui';
+import { AssessorsSkeleton } from './assessors-skeleton';
+import { AssessorDrawer, DrawerSession } from './assessor-drawer';
+import { AssessorsStore } from './assessors-store';
+import { CELL } from './assessors-table';
+import { ACTIVITY_LABELS, ROLE_OPTIONS, TeamMember, TeamRole, fmt, initials } from './assessors.models';
+import { AssessorRoleCell } from './role-cell';
+import { AssessorTypesCell } from './types-cell';
+
+type FilterKey = 'role' | 'type' | 'activity' | 'perm' | 'prog';
+type SortKey = 'person' | 'role' | 'types' | 'progress';
+
+interface FilterDef {
+  readonly key: FilterKey;
+  readonly label: string;
+  readonly placeholder: string;
+  readonly searchable: boolean;
+  readonly options: readonly QaMultiSelectOption[];
+}
+
+const opts = (values: readonly string[]): QaMultiSelectOption[] => values.map((v) => ({ value: v, label: v }));
+
+const FILTER_KEYS: readonly FilterKey[] = ['role', 'type', 'activity', 'perm', 'prog'];
+
+const HEADS: readonly { key: SortKey; label: string }[] = [
+  { key: 'person', label: 'Person' },
+  { key: 'role', label: 'Role' },
+  { key: 'types', label: 'Result types' },
+  { key: 'progress', label: 'Progress' },
+];
+
+const assignedOf = (p: TeamMember) => p.prog.reduce((a, e) => a + e.assigned, 0);
+const reviewedOf = (p: TeamMember) => p.prog.reduce((a, e) => a + e.reviewed, 0);
+
+/** "Assessors" view: the assessment team, its coverage gaps and who assesses what. */
+@Component({
+  selector: 'qa-assessors-view',
+  templateUrl: './assessors-view.html',
+  imports: [NgTemplateOutlet, QaButtonImports, QaReveal, AssessorsSkeleton, HlmInputImports, QaMenuImports, QaMultiSelect, AssessorDrawer, AssessorRoleCell, AssessorTypesCell],
+  providers: [AssessorsStore],
+})
+export class AssessorsView {
+  protected readonly store = inject(AssessorsStore);
+  /** Active team, or the removed people while "Show removed people" is on. */
+  protected readonly showRemoved = signal(false);
+  protected readonly team = computed(() => (this.showRemoved() ? (this.store.removed() ?? []) : this.store.team()));
+
+  // Toolbar state
+  protected readonly search = signal('');
+  protected readonly filters = {
+    role: signal<readonly string[]>([]),
+    type: signal<readonly string[]>([]),
+    activity: signal<readonly string[]>([]),
+    perm: signal<readonly string[]>([]),
+    prog: signal<readonly string[]>([]),
+  } as const;
+  /** Filter options come from the catalogs (result types, programs). */
+  protected readonly filterDefs = computed<readonly FilterDef[]>(() => [
+    { key: 'role', label: 'Role', placeholder: 'Search roles', searchable: true, options: opts(ROLE_OPTIONS.map((r) => r.role)) },
+    { key: 'type', label: 'Result type', placeholder: 'Search result types', searchable: true, options: opts(this.store.typeNames()) },
+    { key: 'activity', label: 'Activity', placeholder: 'Search activity', searchable: true, options: opts(Object.values(ACTIVITY_LABELS)) },
+    { key: 'perm', label: 'Permissions', placeholder: '', searchable: false, options: opts(['Lead assessor', 'Has blocked programs']) },
+    {
+      key: 'prog',
+      label: 'Science program',
+      placeholder: 'Search programs',
+      searchable: true,
+      options: this.store.programCodes().map((c) => ({ value: c, label: c + ' ' + this.store.programName(c) })),
+    },
+  ]);
+  protected readonly heads = HEADS;
+  protected readonly sort = new TableSort<SortKey>();
+  protected readonly sortKey = this.sort.key;
+  protected readonly sortDir = this.sort.dir;
+
+  // Drawer state
+  protected readonly drawerOpen = signal(false);
+  protected readonly drawerSession = signal<DrawerSession | null>(null);
+  private seq = 0;
+
+  // Table layout classes per container width (see CELL).
+  protected readonly cell = CELL;
+
+  // Square the sticky header corners while it is stuck to the top of the scrolling <main>.
+  protected readonly headerStuck = signal(false);
+  private readonly stickSentinel = viewChild<ElementRef<HTMLElement>>('stickSentinel');
+
+  constructor() {
+    void this.store.load();
+    effect((onCleanup) => {
+      const sentinel = this.stickSentinel()?.nativeElement;
+      if (!sentinel || typeof IntersectionObserver === 'undefined') {
+        this.headerStuck.set(false);
+        return;
+      }
+      const observer = new IntersectionObserver(
+        ([entry]) => {
+          const top = entry.rootBounds?.top ?? 0;
+          this.headerStuck.set(!entry.isIntersecting && entry.boundingClientRect.top < top);
+        },
+        { root: sentinel.closest('main'), threshold: 0 },
+      );
+      observer.observe(sentinel);
+      onCleanup(() => observer.disconnect());
+    });
+  }
+
+  /** Result types no one who has signed in assesses. */
+  protected readonly gaps = computed(() => {
+    const team = this.store.team();
+    const covered = (t: string) => team.some((p) => p.role === 'Assessor' && p.act !== 'never' && p.types.includes(t));
+    return this.store.typeNames().filter((t) => !covered(t));
+  });
+
+  protected readonly applied = computed(() =>
+    this.filterDefs().filter((d) => this.filters[d.key]().length).map((d) => ({
+      key: d.key,
+      label: d.label,
+      values: this.filters[d.key]()
+        .map((v) => d.options.find((o) => o.value === v)?.label ?? v)
+        .join(', '),
+    })),
+  );
+
+  private readonly filtered = computed(() => {
+    const q = this.search().trim().toLowerCase();
+    const role = this.filters.role();
+    const type = this.filters.type();
+    const activity = this.filters.activity();
+    const perm = this.filters.perm();
+    const prog = this.filters.prog();
+    return this.team().filter(
+      (p) =>
+        (!q || p.name.toLowerCase().includes(q) || p.email.toLowerCase().includes(q) || p.nick.toLowerCase().includes(q)) &&
+        (!role.length || role.includes(p.role)) &&
+        (!type.length || (p.role === 'Assessor' && p.types.some((t) => type.includes(t)))) &&
+        (!activity.length || activity.includes(ACTIVITY_LABELS[p.act])) &&
+        (!perm.length || perm.every((x) => (x === 'Lead assessor' ? p.lead || p.role === 'Lead assessor' : p.blocked.length > 0))) &&
+        (!prog.length ||
+          prog.some((code) => !p.blocked.some((b) => b.code === code) && (!p.programs.length || p.programs.includes(code)))),
+    );
+  });
+
+  private readonly sorted = computed(() =>
+    this.sort.apply(this.filtered(), (p: TeamMember, k): string | number => {
+      switch (k) {
+        case 'person':
+          return p.nick || p.name;
+        case 'role':
+          return p.role;
+        case 'types':
+          return p.role === 'Assessor' ? (p.types[0] ?? '~') : '~~';
+        case 'progress': {
+          const a = assignedOf(p);
+          return a ? reviewedOf(p) / a : -1;
+        }
+      }
+    }),
+  );
+
+  protected readonly rows = computed(() =>
+    this.sorted().map((p) => {
+      const byPct = [...p.prog].sort(
+        (a, b) => (a.assigned ? a.reviewed / a.assigned : 1) - (b.assigned ? b.reviewed / b.assigned : 1),
+      );
+      const meta = (p.programs.length ? p.programs.join(' · ') : 'All programs') + ' · ' + p.last;
+      return {
+        member: p,
+        initials: initials(p.name),
+        title: p.nick ? p.nick + ' · ' + p.name : p.name,
+        meta,
+        invited: p.invite === 'pending',
+        hasAccount: p.invite === 'existing_account',
+        progRows: byPct.slice(0, 3).map((e) => ({
+          label: e.label,
+          done: fmt(e.reviewed),
+          of: fmt(e.assigned),
+          pct: e.assigned ? Math.round((e.reviewed / e.assigned) * 100) : 0,
+        })),
+        progExtra: p.prog.length > 3 ? '+' + (p.prog.length - 3) + ' more result types' : '',
+      };
+    }),
+  );
+
+  // Toolbar
+  protected onSearch(event: Event): void {
+    this.search.set((event.target as HTMLInputElement).value);
+  }
+
+  protected clearFilter(key: FilterKey): void {
+    this.filters[key].set([]);
+  }
+
+  protected clearAll(): void {
+    for (const key of FILTER_KEYS) this.filters[key].set([]);
+    this.search.set('');
+  }
+
+  /** Coverage banner: filter the team down to the uncovered result types. */
+  protected showGaps(): void {
+    this.clearAll();
+    this.filters.type.set(this.gaps());
+  }
+
+  protected sortBy(key: SortKey): void {
+    this.sort.toggle(key);
+  }
+
+  protected ariaSort(key: SortKey): 'ascending' | 'descending' | 'none' {
+    return this.sort.ariaSort(key);
+  }
+
+  // Inline cell edits: the row shows what the server answers (errors go to a toast).
+  protected setRole(id: string, role: TeamRole): void {
+    const m = this.store.find(id);
+    // Becoming an assessor needs result types first: saving it bare would revoke every grant.
+    if (m && role === 'Assessor' && !m.types.length) {
+      this.openPerson(m);
+      return;
+    }
+    void this.store.setRole(id, role);
+  }
+
+  protected addType(id: string, type: string): void {
+    const m = this.store.find(id);
+    if (m) void this.store.setTypes(id, [...m.types, type]);
+  }
+
+  protected removeType(id: string, type: string): void {
+    const m = this.store.find(id);
+    if (m) void this.store.setTypes(id, m.types.filter((t) => t !== type));
+  }
+
+  protected readonly loadingRemoved = signal(false);
+
+  protected async toggleRemoved(): Promise<void> {
+    if (this.loadingRemoved()) return;
+    if (!this.showRemoved() && this.store.removed() === null) {
+      this.loadingRemoved.set(true);
+      try {
+        await this.store.loadRemoved();
+      } finally {
+        this.loadingRemoved.set(false);
+      }
+    }
+    this.showRemoved.update((v) => !v);
+  }
+
+  protected reactivate(member: TeamMember): void {
+    void this.store.activate(member.id);
+  }
+
+  // Drawer
+  protected openPerson(p: TeamMember, confirmRemove = false): void {
+    // Removed people are only brought back (row menu), not edited.
+    if (!p.active) return;
+    this.drawerSession.set({ mode: 'edit', id: p.id, confirmRemove, seq: ++this.seq });
+    this.drawerOpen.set(true);
+  }
+
+  protected openInvite(): void {
+    this.drawerSession.set({ mode: 'new', id: null, confirmRemove: false, seq: ++this.seq });
+    this.drawerOpen.set(true);
+  }
+
+  protected resendInvitation(member: TeamMember): void {
+    void this.store.resendInvitation(member.id);
+  }
+}

@@ -1,0 +1,2 @@
+export const DYNAMODB_CLIENT = Symbol('DYNAMODB_CLIENT');
+export const DYNAMODB_TABLE_NAME = Symbol('DYNAMODB_TABLE_NAME');

@@ -5,6 +5,7 @@
     {
       "type": "npm",
       "script": "start",
+      "path": "client",
       "isBackground": true,
       "problemMatcher": {
         "owner": "typescript",
@@ -23,6 +24,7 @@
     {
       "type": "npm",
       "script": "test",
+      "path": "client",
       "isBackground": true,
       "problemMatcher": {
         "owner": "typescript",

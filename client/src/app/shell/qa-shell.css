@@ -1,0 +1,31 @@
+/* Design tokens come from ui/tokens/qa-tokens.css (class qa-tokens on the host). */
+:host {
+  --qa-mono: 'JetBrains Mono', ui-monospace, monospace;
+  display: flex;
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--surface);
+  color: var(--text);
+  font-family: 'Manrope', system-ui, sans-serif;
+  line-height: normal;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Active nav item: tint, 600 weight and a short centered marker on the left edge (as in Jira). */
+.qa-nav-active {
+  background: var(--tint-2);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.qa-nav-active::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 2px;
+  height: 16px;
+  border-radius: 2px;
+  background: var(--primary);
+  transform: translateY(-50%);
+}

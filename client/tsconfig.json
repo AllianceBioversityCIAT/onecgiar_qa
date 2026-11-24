@@ -1,0 +1,41 @@
+{
+  "compileOnSave": false,
+  "compilerOptions": {
+    "noImplicitOverride": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "experimentalDecorators": true,
+    "importHelpers": true,
+    "target": "ES2022",
+    "module": "preserve",
+    "paths": {
+      "@spartan/button": ["./src/app/spartan/button/src/index.ts"],
+      "@spartan/utils": ["./src/app/spartan/utils/src/index.ts"],
+      "@spartan/input": ["./src/app/spartan/input/src/index.ts"],
+      "@spartan/label": ["./src/app/spartan/label/src/index.ts"],
+      "@spartan/field": ["./src/app/spartan/field/src/index.ts"],
+      "@spartan/separator": ["./src/app/spartan/separator/src/index.ts"],
+      "@spartan/card": ["./src/app/spartan/card/src/index.ts"],
+      "@spartan/alert": ["./src/app/spartan/alert/src/index.ts"],
+      "@spartan/spinner": ["./src/app/spartan/spinner/src/index.ts"],
+      "@spartan/sonner": ["./src/app/spartan/sonner/src/index.ts"]
+    }
+  },
+  "angularCompilerOptions": {
+    "enableI18nLegacyMessageIdFormat": false,
+    "strictInjectionParameters": true,
+    "strictInputAccessModifiers": true
+  },
+  "files": [],
+  "references": [
+    {
+      "path": "./tsconfig.app.json"
+    },
+    {
+      "path": "./tsconfig.spec.json"
+    }
+  ]
+}

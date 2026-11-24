@@ -1,0 +1,2277 @@
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { MySqlDialect, getTableConfig } from 'drizzle-orm/mysql-core';
+import type { SQL } from 'drizzle-orm';
+import * as schema from './index.js';
+import { idempotencyKeys, roleAssignments, roles, users } from './index.js';
+
+// Schema metadata and the committed migration are checked against the
+// requirements (FR-1), not against each other: removing a rule from the
+// schema must fail here even after the migration is regenerated.
+// Presence is not enforcement (premise P-15): the DB behavior itself is
+// settled at the HITL step by running the inserts against a migrated DB.
+
+const migrationsDir = fileURLToPath(
+  new URL('../../../../drizzle/', import.meta.url),
+);
+
+function uniqueColumnSets(table: Parameters<typeof getTableConfig>[0]) {
+  const config = getTableConfig(table);
+  return [
+    // Column-level `.unique()`
+    ...config.columns.filter((c) => c.isUnique).map((c) => [c.name]),
+    // Table-level unique constraints and unique indexes
+    ...config.uniqueConstraints.map((u) => u.columns.map((c) => c.name)),
+    ...config.indexes
+      .filter((i) => i.config.unique)
+      .map((i) => i.config.columns.map((c) => ('name' in c ? c.name : ''))),
+  ];
+}
+
+const dialect = new MySqlDialect();
+// Renders a CHECK / generated expression exactly as the migration emits it.
+const render = (expr: SQL) => dialect.sqlToQuery(expr).sql;
+const names = (cols: ReadonlyArray<object>) =>
+  cols.map((c) => ('name' in c ? c.name : ''));
+
+describe('users schema', () => {
+  it('keeps email unique and cognito_sub unique (nullable until first login)', () => {
+    const sets = uniqueColumnSets(users);
+    expect(sets).toContainEqual(['email']);
+    expect(sets).toContainEqual(['cognito_sub']);
+    const columns = getTableConfig(users).columns;
+    expect(columns.find((c) => c.name === 'cognito_sub')?.notNull).toBe(false);
+    expect(columns.find((c) => c.name === 'email')?.notNull).toBe(true);
+  });
+
+  it('adds nickname (varchar(50), nullable, unique), invitation and invited_at (design 5)', () => {
+    const config = getTableConfig(users);
+    const col = (n: string) => config.columns.find((c) => c.name === n);
+    expect(col('nickname')?.getSQLType()).toBe('varchar(50)');
+    expect(col('nickname')?.notNull).toBe(false);
+    expect(uniqueColumnSets(users)).toContainEqual(['nickname']);
+    expect(col('invitation')?.getSQLType()).toBe(
+      "enum('none','sent','existing_account')",
+    );
+    expect(col('invitation')?.notNull).toBe(true);
+    expect(col('invitation')?.default).toBe('none');
+    expect(col('invited_at')?.getSQLType()).toBe('datetime');
+    expect(col('invited_at')?.notNull).toBe(false);
+  });
+
+  it('declares the lowercase email CHECK', () => {
+    expect(getTableConfig(users).checks.map((c) => c.name)).toContain(
+      'chk_users_email_lowercase',
+    );
+  });
+});
+
+describe('roles schema', () => {
+  it('keeps code unique', () => {
+    expect(uniqueColumnSets(roles)).toContainEqual(['code']);
+  });
+});
+
+describe('role_assignments schema', () => {
+  const config = getTableConfig(roleAssignments);
+
+  it('declares active_key as a stored generated column', () => {
+    const activeKey = config.columns.find((c) => c.name === 'active_key');
+    expect(activeKey?.generated).toBeDefined();
+    expect(activeKey?.generated?.mode).toBe('stored');
+  });
+
+  it('has a unique index on active_key only', () => {
+    expect(uniqueColumnSets(roleAssignments)).toContainEqual(['active_key']);
+  });
+
+  it('indexes (user_id, is_active)', () => {
+    const names = config.indexes.map((i) => [
+      i.config.name,
+      i.config.columns.map((c) => ('name' in c ? c.name : '')),
+    ]);
+    expect(names).toContainEqual([
+      'idx_role_assignments_user_active',
+      ['user_id', 'is_active'],
+    ]);
+  });
+
+  it('declares the single-scope and revocation CHECKs', () => {
+    expect(config.checks.map((c) => c.name)).toEqual(
+      expect.arrayContaining([
+        'chk_role_assignments_one_scope',
+        'chk_role_assignments_revocation',
+      ]),
+    );
+  });
+
+  it('references users for user, creator and revoker, and roles for the role', () => {
+    const targets = config.foreignKeys.map((fk) => {
+      const ref = fk.reference();
+      return [
+        ref.columns.map((c) => c.name)[0],
+        getTableConfig(ref.foreignTable).name,
+      ];
+    });
+    expect(targets).toEqual(
+      expect.arrayContaining([
+        ['user_id', 'users'],
+        ['role_id', 'roles'],
+        ['created_by', 'users'],
+        ['revoked_by', 'users'],
+      ]),
+    );
+  });
+});
+
+describe('user_programs schema', () => {
+  it('exists with the composite primary key (user_id, program_id) and a users FK', () => {
+    expect(schema.userPrograms).toBeDefined();
+    const config = getTableConfig(schema.userPrograms);
+    expect(config.name).toBe('user_programs');
+    expect(config.primaryKeys).toHaveLength(1);
+    expect(names(config.primaryKeys[0].columns)).toEqual([
+      'user_id',
+      'program_id',
+    ]);
+    expect(
+      config.foreignKeys.map((fk) => fk.reference().columns[0].name),
+    ).toEqual(['user_id']);
+  });
+});
+
+describe('user_program_exclusions schema', () => {
+  const get = () => {
+    expect(schema.userProgramExclusions).toBeDefined();
+    return getTableConfig(schema.userProgramExclusions);
+  };
+  const check = (name: string) => {
+    const found = get().checks.find((c) => c.name === name);
+    expect(found, `CHECK ${name}`).toBeDefined();
+    return render(found!.value);
+  };
+
+  it('exists with origin, status and the ended_* history columns', () => {
+    expect(schema.userProgramExclusions).toBeDefined();
+    const cols = Object.fromEntries(get().columns.map((c) => [c.name, c]));
+    expect(cols['origin'].getSQLType()).toBe("enum('manual','reporting')");
+    expect(cols['status'].getSQLType()).toBe(
+      "enum('active','removed','dismissed')",
+    );
+    expect(cols['status'].default).toBe('active');
+    expect(cols['reason'].getSQLType()).toBe('varchar(500)');
+    expect(cols['reporting_role'].getSQLType()).toBe('varchar(100)');
+    expect(cols['reporting_role'].notNull).toBe(false);
+    expect(cols['created_by'].notNull).toBe(false);
+    for (const n of ['ended_at', 'ended_by', 'end_reason']) {
+      expect(cols[n]?.notNull, n).toBe(false);
+    }
+  });
+
+  it('declares active_key as a stored generated column that depends on status', () => {
+    const activeKey = get().columns.find((c) => c.name === 'active_key');
+    expect(activeKey?.generated?.mode).toBe('stored');
+    const expr = render(activeKey!.generated!.as as SQL);
+    expect(expr).toContain("`status` = 'active'");
+    expect(expr).toContain('`user_id`');
+    expect(expr).toContain('`program_id`');
+    expect(expr).toContain('NULL');
+  });
+
+  it('has a unique index on active_key only', () => {
+    expect(uniqueColumnSets(schema.userProgramExclusions)).toContainEqual([
+      'active_key',
+    ]);
+  });
+
+  it('references users for user, creator and ender', () => {
+    const targets = get().foreignKeys.map((fk) => {
+      const ref = fk.reference();
+      return [ref.columns[0].name, getTableConfig(ref.foreignTable).name];
+    });
+    expect(targets).toEqual(
+      expect.arrayContaining([
+        ['user_id', 'users'],
+        ['created_by', 'users'],
+        ['ended_by', 'users'],
+      ]),
+    );
+  });
+
+  it('CHECK: a manual exclusion requires a non-empty reason', () => {
+    const expr = check('chk_user_program_exclusions_manual_reason');
+    expect(expr).toContain("`origin` <> 'manual'");
+    expect(expr).toContain('`reason` IS NOT NULL');
+    expect(expr).toMatch(/TRIM\(`reason`\) <> ''/);
+  });
+
+  it('CHECK: dismissed requires origin reporting and a non-empty end_reason', () => {
+    const expr = check('chk_user_program_exclusions_dismissed');
+    expect(expr).toContain("`status` <> 'dismissed'");
+    expect(expr).toContain("`origin` = 'reporting'");
+    expect(expr).toContain('`end_reason` IS NOT NULL');
+    expect(expr).toMatch(/TRIM\(`end_reason`\) <> ''/);
+  });
+
+  it('CHECK: ended fields are set if and only if the status is not active', () => {
+    const expr = check('chk_user_program_exclusions_ended');
+    expect(expr).toContain(
+      "`status` = 'active' AND `ended_at` IS NULL AND `ended_by` IS NULL AND `end_reason` IS NULL",
+    );
+    // ended_at is mandatory once ended; ended_by is mandatory too, except for
+    // a system end: origin reporting AND status removed (DD-12).
+    expect(expr).toContain(
+      "`status` <> 'active' AND `ended_at` IS NOT NULL AND (`ended_by` IS NOT NULL OR (`origin` = 'reporting' AND `status` = 'removed'))",
+    );
+    // A NULL ended_by must never be allowed outside that one exception.
+    expect(expr.match(/`ended_by` IS NULL/g)).toHaveLength(1);
+    expect(expr).not.toMatch(/`ended_by` IS NOT NULL OR `origin`/);
+    expect(expr).not.toContain("`origin` = 'manual'");
+    expect(expr).not.toContain("`status` = 'dismissed'");
+  });
+});
+
+describe('user_audit_events schema', () => {
+  const get = () => {
+    expect(schema.userAuditEvents).toBeDefined();
+    return getTableConfig(schema.userAuditEvents);
+  };
+
+  it('stores who, what, when and before/after, and nothing mutable', () => {
+    expect(schema.userAuditEvents).toBeDefined();
+    const cols = Object.fromEntries(get().columns.map((c) => [c.name, c]));
+    // Append-only: no updated_at / ended_* / revoked_* columns to mutate.
+    expect(Object.keys(cols).sort()).toEqual(
+      [
+        'action',
+        'actor_id',
+        'changes',
+        'created_at',
+        'id',
+        'request_id',
+        'user_id',
+      ].sort(),
+    );
+    expect(cols['changes'].getSQLType()).toBe('json');
+    expect(cols['changes'].notNull).toBe(true);
+    expect(cols['user_id'].notNull).toBe(true);
+    expect(cols['actor_id'].notNull).toBe(true);
+    expect(cols['created_at'].notNull).toBe(true);
+    expect(cols['request_id'].notNull).toBe(false);
+    expect(cols['action'].getSQLType()).toMatch(/^enum\(/);
+  });
+
+  it('covers every audited change of FR-13', () => {
+    const action = get().columns.find((c) => c.name === 'action');
+    expect(action?.enumValues).toEqual(
+      expect.arrayContaining([
+        'create',
+        'update',
+        'role_grant',
+        'role_revoke',
+        'scope_change',
+        'exclusion_add',
+        'exclusion_remove',
+        'exclusion_dismiss',
+        'deactivate',
+        'reactivate',
+        'invitation_resend',
+      ]),
+    );
+  });
+
+  it('indexes (user_id, created_at) and references users twice', () => {
+    expect(
+      get().indexes.map((i) => [i.config.name, names(i.config.columns)]),
+    ).toContainEqual([
+      'idx_user_audit_events_user_created',
+      ['user_id', 'created_at'],
+    ]);
+    expect(
+      get()
+        .foreignKeys.map((fk) => fk.reference().columns[0].name)
+        .sort(),
+    ).toEqual(['actor_id', 'user_id']);
+  });
+});
+
+describe('committed migrations', () => {
+  const files = readdirSync(migrationsDir)
+    .filter((f) => f.endsWith('.sql'))
+    .sort();
+
+  it('are exactly nine SQL files', () => {
+    expect(files).toHaveLength(9);
+  });
+
+  const sql = readFileSync(`${migrationsDir}${files[0]}`, 'utf8');
+
+  it('creates the three tables', () => {
+    for (const table of ['users', 'roles', 'role_assignments']) {
+      expect(sql).toContain(`CREATE TABLE \`${table}\``);
+    }
+  });
+
+  it('carries the unique constraints', () => {
+    expect(sql).toMatch(/UNIQUE\(`email`\)/);
+    expect(sql).toMatch(/UNIQUE\(`cognito_sub`\)/);
+    expect(sql).toMatch(/UNIQUE\(`code`\)/);
+    expect(sql).toMatch(/UNIQUE\(`active_key`\)/);
+  });
+
+  it('carries the active_key generated expression of design section 5', () => {
+    expect(sql).toContain(
+      "`active_key` varchar(128) GENERATED ALWAYS AS (IF(`is_active`, CONCAT_WS(':', `user_id`, `role_id`, COALESCE(`result_type_key`, ''), COALESCE(`program_id`, '')), NULL)) STORED",
+    );
+  });
+
+  it('carries the CHECK constraints', () => {
+    expect(sql).toMatch(
+      /CONSTRAINT `chk_users_email_lowercase` CHECK\(CAST\(`email` AS BINARY\) = CAST\(LOWER\(`email`\) AS BINARY\)\)/,
+    );
+    expect(sql).toMatch(
+      /CONSTRAINT `chk_role_assignments_one_scope` CHECK\(`result_type_key` IS NULL OR `program_id` IS NULL\)/,
+    );
+    expect(sql).toMatch(/CONSTRAINT `chk_role_assignments_revocation` CHECK\(/);
+  });
+});
+
+describe('committed migration 0001 (user management)', () => {
+  const files = readdirSync(migrationsDir)
+    .filter((f) => f.endsWith('.sql'))
+    .sort();
+  const sql = files[1]
+    ? readFileSync(`${migrationsDir}${files[1]}`, 'utf8')
+    : '';
+
+  it('is additive only: no drop, no data rewrite, only ADD on users', () => {
+    expect(files[1]).toMatch(/^0001_/);
+    expect(sql).not.toMatch(
+      /\bDROP\b|\bINSERT INTO\b|\bUPDATE `\w+` SET\b|\bDELETE FROM\b|\bTRUNCATE\b|\bMODIFY\b|\bRENAME\b/,
+    );
+    const alters = sql.match(/ALTER TABLE `users` [^;]*/g) ?? [];
+    expect(alters.length).toBeGreaterThan(0);
+    for (const a of alters) {
+      expect(a).toMatch(/ADD (`|CONSTRAINT)/);
+    }
+  });
+
+  it('adds the users columns and the nickname unique constraint', () => {
+    expect(sql).toContain('ALTER TABLE `users` ADD `nickname` varchar(50)');
+    expect(sql).toContain(
+      "ALTER TABLE `users` ADD `invitation` enum('none','sent','existing_account') DEFAULT 'none' NOT NULL",
+    );
+    expect(sql).toContain('ALTER TABLE `users` ADD `invited_at` datetime');
+    expect(sql).toContain(
+      'ALTER TABLE `users` ADD CONSTRAINT `uq_users_nickname` UNIQUE(`nickname`)',
+    );
+  });
+
+  it('creates the three tables with their keys', () => {
+    for (const t of [
+      'user_programs',
+      'user_program_exclusions',
+      'user_audit_events',
+    ]) {
+      expect(sql).toContain(`CREATE TABLE \`${t}\``);
+    }
+    expect(sql).toMatch(/PRIMARY KEY\(`user_id`,`program_id`\)/);
+    expect(sql).toMatch(/UNIQUE\(`active_key`\)/);
+    expect(sql).toContain(
+      "`active_key` varchar(64) GENERATED ALWAYS AS (IF(`status` = 'active', CONCAT_WS(':', `user_id`, `program_id`), NULL)) STORED",
+    );
+    expect(sql).toMatch(
+      /CREATE INDEX `idx_user_audit_events_user_created` ON `user_audit_events` \(`user_id`,`created_at`\)/,
+    );
+  });
+
+  it('carries the three exclusion CHECKs', () => {
+    for (const n of ['manual_reason', 'dismissed', 'ended']) {
+      expect(sql).toContain(
+        `CONSTRAINT \`chk_user_program_exclusions_${n}\` CHECK(`,
+      );
+    }
+    expect(sql).toMatch(/`status` <> 'dismissed' OR \(`origin` = 'reporting'/);
+  });
+});
+
+describe('idempotency_keys schema (users-admin-write-safety design 5)', () => {
+  const config = getTableConfig(idempotencyKeys);
+  const col = (n: string) => config.columns.find((c) => c.name === n);
+
+  it('uses (actor_id, idem_key) as the composite primary key: per admin (FR-6)', () => {
+    expect(config.primaryKeys).toHaveLength(1);
+    expect(names(config.primaryKeys[0].columns)).toEqual([
+      'actor_id',
+      'idem_key',
+    ]);
+    // No single-column PK: a key alone must never identify a row.
+    expect(config.columns.filter((c) => c.primary)).toHaveLength(0);
+  });
+
+  it('references users from actor_id', () => {
+    const fks = config.foreignKeys.map((f) => {
+      const ref = f.reference();
+      return [names(ref.columns), getTableConfig(ref.foreignTable).name];
+    });
+    expect(fks).toContainEqual([['actor_id'], 'users']);
+    expect(col('actor_id')?.notNull).toBe(true);
+    expect(col('actor_id')?.getSQLType()).toBe('int unsigned');
+  });
+
+  it('types the key, fingerprint and owner token', () => {
+    // Opaque, case-sensitive key (FR-6): ascii_bin, so keys that differ only
+    // by case never collide in the PK.
+    expect(col('idem_key')?.getSQLType()).toBe(
+      'varchar(128) CHARACTER SET ascii COLLATE ascii_bin',
+    );
+    expect(col('fingerprint')?.getSQLType()).toBe('char(64)');
+    expect(col('owner_token')?.getSQLType()).toBe('char(36)');
+    for (const n of ['idem_key', 'fingerprint', 'owner_token']) {
+      expect(col(n)?.notNull).toBe(true);
+    }
+  });
+
+  it('declares the three states (FR-2, FR-5)', () => {
+    expect(col('state')?.getSQLType()).toBe(
+      "enum('in_progress','executed','completed')",
+    );
+    expect(col('state')?.notNull).toBe(true);
+  });
+
+  it('keeps lease, route status and expiry mandatory', () => {
+    expect(col('lease_until')?.getSQLType()).toBe('datetime');
+    expect(col('lease_until')?.notNull).toBe(true);
+    expect(col('route_status')?.getSQLType()).toBe('smallint');
+    expect(col('route_status')?.notNull).toBe(true);
+    expect(col('created_at')?.notNull).toBe(true);
+    expect(col('expires_at')?.getSQLType()).toBe('datetime');
+    expect(col('expires_at')?.notNull).toBe(true);
+  });
+
+  it('leaves the answer columns nullable until the answer is stored', () => {
+    expect(col('target_user_id')?.notNull).toBe(false);
+    expect(col('response_status')?.notNull).toBe(false);
+    expect(col('response_body')?.notNull).toBe(false);
+    expect(col('response_body')?.getSQLType()).toBe('json');
+  });
+
+  it('indexes expires_at for the retention purge (NFR-5)', () => {
+    const idx = config.indexes.find((i) => !i.config.unique);
+    expect(idx).toBeDefined();
+    expect(names(idx!.config.columns)).toEqual(['expires_at']);
+  });
+});
+
+describe('committed migration 0002 (idempotency keys)', () => {
+  const files = readdirSync(migrationsDir)
+    .filter((f) => f.endsWith('.sql'))
+    .sort();
+  const sql = files[2]
+    ? readFileSync(`${migrationsDir}${files[2]}`, 'utf8')
+    : '';
+
+  it('is additive only: one new table, no change to any existing table', () => {
+    expect(files[2]).toMatch(/^0002_/);
+    // drizzle emits the FK as ALTER ... ADD CONSTRAINT on the new table; every
+    // ALTER must target idempotency_keys and only add.
+    for (const a of sql.match(/\bALTER TABLE [^;]*/g) ?? []) {
+      expect(a).toMatch(/^ALTER TABLE `idempotency_keys` ADD CONSTRAINT /);
+    }
+    expect(sql).not.toMatch(
+      /\bDROP\b|\bINSERT INTO\b|\bUPDATE `\w+` SET\b|\bDELETE FROM\b|\bTRUNCATE\b|\bMODIFY\b|\bRENAME\b/,
+    );
+    expect(sql.match(/CREATE TABLE/g) ?? []).toHaveLength(1);
+    expect(sql).toContain('CREATE TABLE `idempotency_keys`');
+  });
+
+  it('carries the composite primary key, the user FK and the expiry index', () => {
+    expect(sql).toMatch(/PRIMARY KEY\(`actor_id`,`idem_key`\)/);
+    expect(sql).toContain(
+      '`idem_key` varchar(128) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,',
+    );
+    expect(sql).toMatch(
+      /FOREIGN KEY \(`actor_id`\) REFERENCES `users`\(`id`\)/,
+    );
+    expect(sql).toMatch(
+      /CREATE INDEX `idx_idempotency_keys_expires` ON `idempotency_keys` \(`expires_at`\)/,
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// cycle-timelines (design 5): six tables, migration 0003.
+// ---------------------------------------------------------------------------
+
+type AnyTable = Parameters<typeof getTableConfig>[0];
+
+// A pin on a table that does not exist yet fails as an assertion, not as a
+// TypeError from inside drizzle.
+const tableConfig = (table: AnyTable | undefined) => {
+  expect(table, 'the table is exported by schema/index.ts').toBeDefined();
+  return getTableConfig(table!);
+};
+
+// `name -> "<sql type>[ NOT NULL]"`, compared whole so a column added, dropped
+// or retyped fails here.
+function shape(table: AnyTable) {
+  return Object.fromEntries(
+    tableConfig(table).columns.map((c) => [
+      c.name,
+      `${c.getSQLType()}${c.notNull ? ' NOT NULL' : ''}`,
+    ]),
+  );
+}
+const columnOf = (table: AnyTable, name: string) => {
+  const found = tableConfig(table).columns.find((c) => c.name === name);
+  expect(found, `column ${name}`).toBeDefined();
+  return found!;
+};
+const checkOf = (table: AnyTable, name: string) => {
+  const found = tableConfig(table).checks.find((c) => c.name === name);
+  expect(found, `CHECK ${name}`).toBeDefined();
+  return render(found!.value);
+};
+const checkNames = (table: AnyTable) =>
+  tableConfig(table)
+    .checks.map((c) => c.name)
+    .sort();
+// Every unique key of the table: constraint name -> column list.
+const uniqueKeys = (table: AnyTable) => {
+  const config = tableConfig(table);
+  return {
+    ...Object.fromEntries(
+      config.uniqueConstraints.map((u) => [u.name, names(u.columns)]),
+    ),
+    ...Object.fromEntries(
+      config.indexes
+        .filter((i) => i.config.unique)
+        .map((i) => [i.config.name, names(i.config.columns)]),
+    ),
+  };
+};
+const plainIndexes = (table: AnyTable) =>
+  Object.fromEntries(
+    tableConfig(table)
+      .indexes.filter((i) => !i.config.unique)
+      .map((i) => [i.config.name, names(i.config.columns)]),
+  );
+const foreignKeys = (table: AnyTable) =>
+  tableConfig(table)
+    .foreignKeys.map((fk) => {
+      const ref = fk.reference();
+      return `${ref.columns[0].name} -> ${tableConfig(ref.foreignTable).name}.${ref.foreignColumns[0].name}`;
+    })
+    .sort();
+const generatedSql = (table: AnyTable, name: string) => {
+  const column = columnOf(table, name);
+  expect(column.generated?.mode, `${name} is stored`).toBe('stored');
+  return render(column.generated!.as as SQL);
+};
+
+describe('cycles schema (cycle-timelines design 5, FR-1, FR-3)', () => {
+  it('has exactly these columns and types', () => {
+    expect(schema.cycles).toBeDefined();
+    expect(shape(schema.cycles)).toEqual({
+      id: 'int unsigned NOT NULL',
+      year: 'smallint unsigned NOT NULL',
+      status: "enum('draft','active','closed') NOT NULL",
+      active_key: 'tinyint',
+      created_at: 'datetime NOT NULL',
+      created_by: 'int unsigned NOT NULL',
+      activated_at: 'datetime',
+      activated_by: 'int unsigned',
+      closed_at: 'datetime',
+      closed_by: 'int unsigned',
+    });
+  });
+
+  it('starts a cycle as draft: never active by being created (FR-1)', () => {
+    expect(columnOf(schema.cycles, 'status').default).toBe('draft');
+    expect(columnOf(schema.cycles, 'status').enumValues).toEqual([
+      'draft',
+      'active',
+      'closed',
+    ]);
+    expect(columnOf(schema.cycles, 'id').primary).toBe(true);
+  });
+
+  it('keeps one cycle per year and at most one active cycle (FR-1, FR-3, NFR-3)', () => {
+    expect(uniqueKeys(schema.cycles)).toEqual({
+      uq_cycles_year: ['year'],
+      uq_cycles_active_key: ['active_key'],
+    });
+  });
+
+  it('derives active_key as 1 only while the status is active', () => {
+    expect(generatedSql(schema.cycles, 'active_key')).toBe(
+      "IF(`status` = 'active', 1, NULL)",
+    );
+  });
+
+  it('declares exactly the year and lifecycle CHECKs', () => {
+    expect(checkNames(schema.cycles)).toEqual([
+      'chk_cycles_lifecycle',
+      'chk_cycles_year',
+    ]);
+  });
+
+  it('CHECK: the year is 2020-2100 (FR-1)', () => {
+    expect(checkOf(schema.cycles, 'chk_cycles_year')).toBe(
+      '`year` BETWEEN 2020 AND 2100',
+    );
+  });
+
+  it('CHECK: draft has no lifecycle data, active is activated and not closed, closed is closed', () => {
+    expect(checkOf(schema.cycles, 'chk_cycles_lifecycle')).toBe(
+      "(`status` = 'draft' AND `activated_at` IS NULL AND `activated_by` IS NULL AND `closed_at` IS NULL AND `closed_by` IS NULL) OR (`status` = 'active' AND `activated_at` IS NOT NULL AND `activated_by` IS NOT NULL AND `closed_at` IS NULL AND `closed_by` IS NULL) OR (`status` = 'closed' AND `closed_at` IS NOT NULL AND `closed_by` IS NOT NULL)",
+    );
+  });
+
+  it('references users for the creator, the activator and the closer', () => {
+    expect(foreignKeys(schema.cycles)).toEqual([
+      'activated_by -> users.id',
+      'closed_by -> users.id',
+      'created_by -> users.id',
+    ]);
+  });
+});
+
+describe('timelines schema (design 5, FR-5, FR-6)', () => {
+  it('has exactly these columns and types', () => {
+    expect(schema.timelines).toBeDefined();
+    expect(shape(schema.timelines)).toEqual({
+      id: 'int unsigned NOT NULL',
+      cycle_id: 'int unsigned NOT NULL',
+      name: 'varchar(120) COLLATE utf8mb4_0900_ai_ci NOT NULL',
+      kind: "enum('official','additional') NOT NULL",
+      official_key: 'int unsigned',
+      all_programs: 'boolean NOT NULL',
+      all_result_types: 'boolean NOT NULL',
+      created_at: 'datetime NOT NULL',
+      created_by: 'int unsigned NOT NULL',
+      version: 'int unsigned NOT NULL',
+      updated_at: 'datetime',
+      updated_by: 'int unsigned',
+    });
+  });
+
+  it('compares the name case-insensitively: an explicit _ci collation (FR-6)', () => {
+    const type = columnOf(schema.timelines, 'name').getSQLType();
+    expect(type).toBe('varchar(120) COLLATE utf8mb4_0900_ai_ci');
+    // Neither binary nor case-sensitive: "July 2026" and "july 2026" collide.
+    expect(type).toMatch(/COLLATE utf8mb4_\w+_ci$/);
+    expect(type).not.toMatch(/_bin|_cs/);
+  });
+
+  it('names the kind enum with exactly official and additional', () => {
+    expect(columnOf(schema.timelines, 'kind').enumValues).toEqual([
+      'official',
+      'additional',
+    ]);
+  });
+
+  it('has no default on the scope flags: a missing flag is refused, never false (DD-6, FR-6)', () => {
+    for (const n of ['all_programs', 'all_result_types']) {
+      expect(columnOf(schema.timelines, n).hasDefault, n).toBe(false);
+      expect(columnOf(schema.timelines, n).notNull, n).toBe(true);
+    }
+  });
+
+  it('derives official_key as the cycle id while official, NULL for additional (FR-5, DD-3)', () => {
+    expect(generatedSql(schema.timelines, 'official_key')).toBe(
+      "IF(`kind` = 'official', `cycle_id`, NULL)",
+    );
+  });
+
+  it('keeps one name per cycle and one official per cycle (FR-5, FR-6, NFR-3)', () => {
+    expect(uniqueKeys(schema.timelines)).toEqual({
+      uq_timelines_cycle_name: ['cycle_id', 'name'],
+      uq_timelines_official_key: ['official_key'],
+    });
+  });
+
+  it('indexes cycle_id', () => {
+    expect(plainIndexes(schema.timelines)).toEqual({
+      idx_timelines_cycle: ['cycle_id'],
+    });
+  });
+
+  it('references cycles, the creator and the last editor (timeline-edit FR-10)', () => {
+    expect(foreignKeys(schema.timelines)).toEqual([
+      'created_by -> users.id',
+      'cycle_id -> cycles.id',
+      'updated_by -> users.id',
+    ]);
+  });
+
+  it('carries a version that starts at 1 for every row, existing ones included (timeline-edit FR-9, design 5)', () => {
+    const version = columnOf(schema.timelines, 'version');
+    expect(version.getSQLType()).toBe('int unsigned');
+    expect(version.notNull).toBe(true);
+    expect(version.hasDefault).toBe(true);
+    expect(version.default).toBe(1);
+  });
+
+  it('keeps the last-edit columns nullable: a never-edited timeline has neither (timeline-edit FR-10)', () => {
+    for (const n of ['updated_at', 'updated_by']) {
+      expect(columnOf(schema.timelines, n).notNull, n).toBe(false);
+      expect(columnOf(schema.timelines, n).hasDefault, n).toBe(false);
+    }
+    expect(columnOf(schema.timelines, 'updated_at').getSQLType()).toBe(
+      'datetime',
+    );
+    expect(columnOf(schema.timelines, 'updated_by').getSQLType()).toBe(
+      'int unsigned',
+    );
+  });
+
+  it('declares exactly the last-edit CHECK: updated_at and updated_by both set or both NULL (timeline-edit FR-10)', () => {
+    expect(checkNames(schema.timelines)).toEqual(['chk_timelines_updated']);
+    expect(checkOf(schema.timelines, 'chk_timelines_updated')).toBe(
+      '(`updated_at` IS NULL AND `updated_by` IS NULL) OR (`updated_at` IS NOT NULL AND `updated_by` IS NOT NULL)',
+    );
+  });
+});
+
+describe('timeline_programs and timeline_result_types schema (design 5, DD-6)', () => {
+  it('timeline_programs: (timeline_id, program_id) key, a timelines FK and no FK on the CLARISA id', () => {
+    expect(schema.timelinePrograms).toBeDefined();
+    const config = getTableConfig(schema.timelinePrograms);
+    expect(config.name).toBe('timeline_programs');
+    expect(shape(schema.timelinePrograms)).toEqual({
+      timeline_id: 'int unsigned NOT NULL',
+      program_id: 'int unsigned NOT NULL',
+    });
+    expect(config.primaryKeys).toHaveLength(1);
+    expect(names(config.primaryKeys[0].columns)).toEqual([
+      'timeline_id',
+      'program_id',
+    ]);
+    expect(foreignKeys(schema.timelinePrograms)).toEqual([
+      'timeline_id -> timelines.id',
+    ]);
+  });
+
+  it('timeline_result_types: (timeline_id, result_type_key) key, a timelines FK and no FK on the catalog key', () => {
+    expect(schema.timelineResultTypes).toBeDefined();
+    const config = getTableConfig(schema.timelineResultTypes);
+    expect(config.name).toBe('timeline_result_types');
+    expect(shape(schema.timelineResultTypes)).toEqual({
+      timeline_id: 'int unsigned NOT NULL',
+      result_type_key: 'varchar(64) NOT NULL',
+    });
+    expect(config.primaryKeys).toHaveLength(1);
+    expect(names(config.primaryKeys[0].columns)).toEqual([
+      'timeline_id',
+      'result_type_key',
+    ]);
+    expect(foreignKeys(schema.timelineResultTypes)).toEqual([
+      'timeline_id -> timelines.id',
+    ]);
+  });
+});
+
+describe('timeline_steps schema (design 5, FR-8, FR-9)', () => {
+  it('has exactly these columns and types', () => {
+    expect(schema.timelineSteps).toBeDefined();
+    expect(shape(schema.timelineSteps)).toEqual({
+      id: 'int unsigned NOT NULL',
+      timeline_id: 'int unsigned NOT NULL',
+      position: 'tinyint unsigned NOT NULL',
+      name: 'varchar(120) NOT NULL',
+      audience:
+        "enum('assessors','programs','lead_assessors','tpb','ppu') NOT NULL",
+      opens_at: 'datetime NOT NULL',
+      closes_at: 'datetime NOT NULL',
+      round: 'tinyint unsigned NOT NULL',
+      requires_load: 'boolean NOT NULL',
+    });
+  });
+
+  it('reads and writes opens_at and closes_at as Rome minutes, never a Date (DD-3, P-2)', () => {
+    for (const n of ['opens_at', 'closes_at']) {
+      const column = columnOf(schema.timelineSteps, n);
+      // A custom column: the application sees `YYYY-MM-DDTHH:mm`, the database `YYYY-MM-DD HH:mm:00`.
+      expect(column.columnType, n).toBe('MySqlCustomColumn');
+      expect(column.mapFromDriverValue('2026-11-10 14:00:00'), n).toBe(
+        '2026-11-10T14:00',
+      );
+      expect(column.mapFromDriverValue('2026-11-02 00:00:00'), n).toBe(
+        '2026-11-02T00:00',
+      );
+      expect(column.mapToDriverValue('2026-11-12T17:30'), n).toBe(
+        '2026-11-12 17:30:00',
+      );
+      expect(column.mapToDriverValue('2026-11-06T23:59'), n).toBe(
+        '2026-11-06 23:59:00',
+      );
+    }
+  });
+
+  it('lists the audiences in order (S-2, D-3)', () => {
+    expect(columnOf(schema.timelineSteps, 'audience').enumValues).toEqual([
+      'assessors',
+      'programs',
+      'lead_assessors',
+      'tpb',
+      'ppu',
+    ]);
+  });
+
+  it('keeps one step per position and one per audience in a timeline', () => {
+    expect(uniqueKeys(schema.timelineSteps)).toEqual({
+      uq_timeline_steps_position: ['timeline_id', 'position'],
+      uq_timeline_steps_audience: ['timeline_id', 'audience'],
+    });
+  });
+
+  it('declares exactly the four step CHECKs', () => {
+    expect(checkNames(schema.timelineSteps)).toEqual([
+      'chk_timeline_steps_dates',
+      'chk_timeline_steps_first_load',
+      'chk_timeline_steps_position',
+      'chk_timeline_steps_round',
+    ]);
+  });
+
+  it('CHECK: position is 1-5', () => {
+    expect(checkOf(schema.timelineSteps, 'chk_timeline_steps_position')).toBe(
+      '`position` BETWEEN 1 AND 5',
+    );
+  });
+
+  it('CHECK: a step closes strictly after it opens; the same day is valid, the same minute is not (timeline-step-times FR-3)', () => {
+    // `>`, not `>=`: with minutes, "the same moment" is the invalid case.
+    expect(checkOf(schema.timelineSteps, 'chk_timeline_steps_dates')).toBe(
+      '`closes_at` > `opens_at`',
+    );
+  });
+
+  it('CHECK: the round is at least 1', () => {
+    expect(checkOf(schema.timelineSteps, 'chk_timeline_steps_round')).toBe(
+      '`round` >= 1',
+    );
+  });
+
+  it('CHECK: the first step requires a load, refused rather than defaulted (FR-9)', () => {
+    expect(checkOf(schema.timelineSteps, 'chk_timeline_steps_first_load')).toBe(
+      '`position` <> 1 OR `requires_load`',
+    );
+    expect(columnOf(schema.timelineSteps, 'requires_load').hasDefault).toBe(
+      false,
+    );
+  });
+
+  it('references timelines', () => {
+    expect(foreignKeys(schema.timelineSteps)).toEqual([
+      'timeline_id -> timelines.id',
+    ]);
+  });
+});
+
+describe('timeline_users schema (design 5, FR-14, FR-15)', () => {
+  it('has exactly these columns and types', () => {
+    expect(schema.timelineUsers).toBeDefined();
+    expect(shape(schema.timelineUsers)).toEqual({
+      id: 'int unsigned NOT NULL',
+      timeline_id: 'int unsigned NOT NULL',
+      user_id: 'int unsigned NOT NULL',
+      role_id: 'smallint unsigned NOT NULL',
+      assigned_at: 'datetime NOT NULL',
+      assigned_by: 'int unsigned NOT NULL',
+      removed_at: 'datetime',
+      removed_by: 'int unsigned',
+      active_key: 'varchar(64)',
+    });
+  });
+
+  it('derives active_key as timeline:user:role while not removed, NULL once removed', () => {
+    expect(generatedSql(schema.timelineUsers, 'active_key')).toBe(
+      "IF(`removed_at` IS NULL, CONCAT_WS(':', `timeline_id`, `user_id`, `role_id`), NULL)",
+    );
+  });
+
+  it('keeps a single active row per (timeline, user, role); a removed row never blocks (FR-14, FR-15)', () => {
+    expect(uniqueKeys(schema.timelineUsers)).toEqual({
+      uq_timeline_users_active_key: ['active_key'],
+    });
+  });
+
+  it('indexes timeline_id', () => {
+    expect(plainIndexes(schema.timelineUsers)).toEqual({
+      idx_timeline_users_timeline: ['timeline_id'],
+    });
+  });
+
+  it('declares exactly the removal CHECK: both set or both NULL, the row is kept (FR-15)', () => {
+    expect(checkNames(schema.timelineUsers)).toEqual([
+      'chk_timeline_users_removed',
+    ]);
+    expect(checkOf(schema.timelineUsers, 'chk_timeline_users_removed')).toBe(
+      '(`removed_at` IS NULL AND `removed_by` IS NULL) OR (`removed_at` IS NOT NULL AND `removed_by` IS NOT NULL)',
+    );
+  });
+
+  it('references timelines, users (user, assigner, remover) and roles', () => {
+    expect(foreignKeys(schema.timelineUsers)).toEqual([
+      'assigned_by -> users.id',
+      'removed_by -> users.id',
+      'role_id -> roles.id',
+      'timeline_id -> timelines.id',
+      'user_id -> users.id',
+    ]);
+  });
+});
+
+describe('timeline_audit_events schema (timeline-edit design 5, DD-10, FR-10, NFR-8)', () => {
+  it('has exactly these columns and types, and nothing mutable', () => {
+    expect(schema.timelineAuditEvents).toBeDefined();
+    expect(shape(schema.timelineAuditEvents)).toEqual({
+      id: 'bigint unsigned NOT NULL',
+      timeline_id: 'int unsigned NOT NULL',
+      actor_id: 'int unsigned NOT NULL',
+      action: "enum('update','load_start','load_end') NOT NULL",
+      changes: 'json NOT NULL',
+      request_id: 'varchar(64)',
+      created_at: 'datetime NOT NULL',
+    });
+  });
+
+  it('is append-only: no column that an update, a removal or a revocation would set (FR-10)', () => {
+    const cols = tableConfig(schema.timelineAuditEvents).columns.map(
+      (c) => c.name,
+    );
+    expect(
+      cols.filter((n) => /^(updated|ended|revoked|removed|deleted)_/.test(n)),
+    ).toEqual([]);
+    expect(cols).not.toContain('version');
+  });
+
+  it('records the actions of an edit and of a load: update, load_start, load_end (step-1-loads § 5.3)', () => {
+    expect(columnOf(schema.timelineAuditEvents, 'action').enumValues).toEqual([
+      'update',
+      'load_start',
+      'load_end',
+    ]);
+  });
+
+  it('keys the event by an auto-increment bigint and stamps the time by default', () => {
+    const config = tableConfig(schema.timelineAuditEvents);
+    const id = columnOf(schema.timelineAuditEvents, 'id');
+    expect(id.primary).toBe(true);
+    expect((id as unknown as { autoIncrement: boolean }).autoIncrement).toBe(
+      true,
+    );
+    expect(columnOf(schema.timelineAuditEvents, 'created_at').hasDefault).toBe(
+      true,
+    );
+    expect(config.primaryKeys).toHaveLength(0);
+  });
+
+  it('leaves only the request id optional (an event always names its timeline, actor, change and time)', () => {
+    const notNull = Object.fromEntries(
+      tableConfig(schema.timelineAuditEvents).columns.map((c) => [
+        c.name,
+        c.notNull,
+      ]),
+    );
+    expect(notNull).toEqual({
+      id: true,
+      timeline_id: true,
+      actor_id: true,
+      action: true,
+      changes: true,
+      request_id: false,
+      created_at: true,
+    });
+  });
+
+  it('indexes (timeline_id, created_at) for the history read, with no unique key', () => {
+    expect(plainIndexes(schema.timelineAuditEvents)).toEqual({
+      idx_timeline_audit_events_timeline_created: ['timeline_id', 'created_at'],
+    });
+    expect(uniqueKeys(schema.timelineAuditEvents)).toEqual({});
+  });
+
+  it('references timelines and users (the acting admin)', () => {
+    expect(foreignKeys(schema.timelineAuditEvents)).toEqual([
+      'actor_id -> users.id',
+      'timeline_id -> timelines.id',
+    ]);
+  });
+});
+
+describe('committed migration 0003 (cycle timelines)', () => {
+  const files = readdirSync(migrationsDir)
+    .filter((f) => f.endsWith('.sql'))
+    .sort();
+  const sql = files[3]
+    ? readFileSync(`${migrationsDir}${files[3]}`, 'utf8')
+    : '';
+  const newTables = [
+    'cycles',
+    'timelines',
+    'timeline_programs',
+    'timeline_result_types',
+    'timeline_steps',
+    'timeline_users',
+  ];
+
+  it('is named 0003_cycle_timelines and registered in the journal', () => {
+    expect(files[3]).toBe('0003_cycle_timelines.sql');
+    const journal = JSON.parse(
+      readFileSync(`${migrationsDir}meta/_journal.json`, 'utf8'),
+    ) as { entries: { idx: number; tag: string }[] };
+    expect(journal.entries.map((e) => e.tag)).toEqual(
+      files.map((f) => f.replace(/\.sql$/, '')),
+    );
+  });
+
+  it('is additive only: it creates exactly the six new tables and nothing else', () => {
+    expect(sql).not.toMatch(
+      /\bDROP\b|\bINSERT INTO\b|\bUPDATE `\w+` SET\b|\bDELETE FROM\b|\bTRUNCATE\b|\bMODIFY\b|\bRENAME\b/,
+    );
+    expect(
+      [...sql.matchAll(/CREATE TABLE `(\w+)`/g)].map((m) => m[1]).sort(),
+    ).toEqual([...newTables].sort());
+    // Every ALTER adds a foreign key to a new table, and never touches an
+    // existing one (users, roles, role_assignments, ...).
+    const alters = sql.match(/\bALTER TABLE [^;]*/g) ?? [];
+    expect(alters.length).toBeGreaterThan(0);
+    for (const a of alters) {
+      expect(a).toMatch(
+        new RegExp(
+          `^ALTER TABLE \`(${newTables.join('|')})\` ADD CONSTRAINT \`\\w+\` FOREIGN KEY `,
+        ),
+      );
+    }
+    // Every CREATE INDEX is on a new table too.
+    for (const i of sql.match(/\bCREATE (?:UNIQUE )?INDEX [^;]*/g) ?? []) {
+      expect(i).toMatch(new RegExp(`ON \`(${newTables.join('|')})\` `));
+    }
+  });
+
+  it('does not create the load tables reserved for P2-3905 / P2-3906 (NFR-6)', () => {
+    expect(sql).not.toContain('timeline_loads');
+    expect(sql).not.toContain('timeline_results');
+  });
+
+  it('carries the generated keys of design 5 verbatim', () => {
+    expect(sql).toContain(
+      "`active_key` tinyint GENERATED ALWAYS AS (IF(`status` = 'active', 1, NULL)) STORED",
+    );
+    expect(sql).toContain(
+      "`official_key` int unsigned GENERATED ALWAYS AS (IF(`kind` = 'official', `cycle_id`, NULL)) STORED",
+    );
+    expect(sql).toContain(
+      "`active_key` varchar(64) GENERATED ALWAYS AS (IF(`removed_at` IS NULL, CONCAT_WS(':', `timeline_id`, `user_id`, `role_id`), NULL)) STORED",
+    );
+  });
+
+  it('carries every unique key', () => {
+    for (const u of [
+      'CONSTRAINT `uq_cycles_year` UNIQUE(`year`)',
+      'CONSTRAINT `uq_cycles_active_key` UNIQUE(`active_key`)',
+      'CONSTRAINT `uq_timelines_cycle_name` UNIQUE(`cycle_id`,`name`)',
+      'CONSTRAINT `uq_timelines_official_key` UNIQUE(`official_key`)',
+      'CONSTRAINT `uq_timeline_steps_position` UNIQUE(`timeline_id`,`position`)',
+      'CONSTRAINT `uq_timeline_steps_audience` UNIQUE(`timeline_id`,`audience`)',
+      'CONSTRAINT `uq_timeline_users_active_key` UNIQUE(`active_key`)',
+    ]) {
+      expect(sql, u).toContain(u);
+    }
+  });
+
+  it('carries every CHECK verbatim', () => {
+    for (const c of [
+      'CONSTRAINT `chk_cycles_year` CHECK(`year` BETWEEN 2020 AND 2100)',
+      "CONSTRAINT `chk_cycles_lifecycle` CHECK((`status` = 'draft' AND `activated_at` IS NULL AND `activated_by` IS NULL AND `closed_at` IS NULL AND `closed_by` IS NULL) OR (`status` = 'active' AND `activated_at` IS NOT NULL AND `activated_by` IS NOT NULL AND `closed_at` IS NULL AND `closed_by` IS NULL) OR (`status` = 'closed' AND `closed_at` IS NOT NULL AND `closed_by` IS NOT NULL))",
+      'CONSTRAINT `chk_timeline_steps_position` CHECK(`position` BETWEEN 1 AND 5)',
+      'CONSTRAINT `chk_timeline_steps_dates` CHECK(`closes_on` >= `opens_on`)',
+      'CONSTRAINT `chk_timeline_steps_round` CHECK(`round` >= 1)',
+      'CONSTRAINT `chk_timeline_steps_first_load` CHECK(`position` <> 1 OR `requires_load`)',
+      'CONSTRAINT `chk_timeline_users_removed` CHECK((`removed_at` IS NULL AND `removed_by` IS NULL) OR (`removed_at` IS NOT NULL AND `removed_by` IS NOT NULL))',
+    ]) {
+      expect(sql, c).toContain(c);
+    }
+  });
+
+  it('carries the case-insensitive name collation, the date columns and the scope flags without defaults', () => {
+    expect(sql).toContain(
+      '`name` varchar(120) COLLATE utf8mb4_0900_ai_ci NOT NULL,',
+    );
+    expect(sql).toContain('`opens_on` date NOT NULL,');
+    expect(sql).toContain('`closes_on` date NOT NULL,');
+    expect(sql).toContain('`all_programs` boolean NOT NULL,');
+    expect(sql).toContain('`all_result_types` boolean NOT NULL,');
+    expect(sql).toContain('`requires_load` boolean NOT NULL,');
+    expect(sql).toContain(
+      "`status` enum('draft','active','closed') NOT NULL DEFAULT 'draft',",
+    );
+  });
+
+  it('carries the composite keys and the two plain indexes', () => {
+    expect(sql).toMatch(
+      /CONSTRAINT `timeline_programs_timeline_id_program_id_pk` PRIMARY KEY\(`timeline_id`,`program_id`\)/,
+    );
+    expect(sql).toMatch(
+      /CONSTRAINT `timeline_result_types_timeline_id_result_type_key_pk` PRIMARY KEY\(`timeline_id`,`result_type_key`\)/,
+    );
+    expect(sql).toContain(
+      'CREATE INDEX `idx_timelines_cycle` ON `timelines` (`cycle_id`)',
+    );
+    expect(sql).toContain(
+      'CREATE INDEX `idx_timeline_users_timeline` ON `timeline_users` (`timeline_id`)',
+    );
+  });
+
+  it('gives the four entity tables an auto-increment unsigned id', () => {
+    expect(
+      sql.match(/`id` int unsigned AUTO_INCREMENT NOT NULL,/g),
+    ).toHaveLength(4);
+  });
+
+  it('carries the 13 foreign keys (3 + 2 + 1 + 1 + 1 + 5)', () => {
+    expect(sql.match(/ADD CONSTRAINT `\w+_fk` FOREIGN KEY/g)).toHaveLength(13);
+    expect(sql).toContain('FOREIGN KEY (`cycle_id`) REFERENCES `cycles`(`id`)');
+    expect(sql).toContain('FOREIGN KEY (`role_id`) REFERENCES `roles`(`id`)');
+  });
+});
+
+describe('committed migration 0004 (timeline edit)', () => {
+  const files = readdirSync(migrationsDir)
+    .filter((f) => f.endsWith('.sql'))
+    .sort();
+  const sql = files[4]
+    ? readFileSync(`${migrationsDir}${files[4]}`, 'utf8')
+    : '';
+
+  it('is named 0004_timeline_edit and registered in the journal', () => {
+    expect(files[4]).toBe('0004_timeline_edit.sql');
+    const journal = JSON.parse(
+      readFileSync(`${migrationsDir}meta/_journal.json`, 'utf8'),
+    ) as { entries: { idx: number; tag: string }[] };
+    expect(journal.entries.map((e) => e.tag)).toEqual(
+      files.map((f) => f.replace(/\.sql$/, '')),
+    );
+    expect(journal.entries.map((e) => e.idx).slice(0, 5)).toEqual([
+      0, 1, 2, 3, 4,
+    ]);
+  });
+
+  it('is additive only: ALTER TABLE ... ADD on timelines and one CREATE TABLE, no rewrite (design 5)', () => {
+    expect(sql).not.toBe('');
+    expect(sql).not.toMatch(
+      /\bDROP\b|\bINSERT INTO\b|\bUPDATE `\w+` SET\b|\bDELETE FROM\b|\bTRUNCATE\b|\bMODIFY\b|\bRENAME\b/,
+    );
+    expect(sql).not.toMatch(/\bCHANGE\b/);
+    // Every ALTER adds something, to `timelines` or to the new table.
+    const alters = sql.match(/\bALTER TABLE [^;]*/g) ?? [];
+    expect(alters.length).toBeGreaterThan(0);
+    for (const a of alters) {
+      expect(a).toMatch(
+        /^ALTER TABLE `(timelines|timeline_audit_events)` ADD (`|CONSTRAINT )/,
+      );
+    }
+    // Statements are only ALTER TABLE and CREATE TABLE (plus CREATE INDEX on
+    // the new table); nothing else can reach an existing table.
+    const statements = sql
+      .split('--> statement-breakpoint')
+      .map((x) => x.trim())
+      .filter(Boolean);
+    for (const st of statements) {
+      expect(st).toMatch(/^(ALTER TABLE|CREATE TABLE|CREATE INDEX) /);
+    }
+    expect(sql.match(/\bCREATE TABLE\b/g) ?? []).toHaveLength(1);
+    expect(sql).toContain('CREATE TABLE `timeline_audit_events`');
+    for (const i of sql.match(/\bCREATE (?:UNIQUE )?INDEX [^;]*/g) ?? []) {
+      expect(i).toMatch(/ON `timeline_audit_events` /);
+    }
+  });
+
+  it('adds exactly version, updated_at, updated_by and the last-edit CHECK to timelines', () => {
+    const onTimelines = (sql.match(/\bALTER TABLE `timelines` [^;]*/g) ?? [])
+      .map((a) => a.replace(/\s+/g, ' ').trim())
+      .sort();
+    expect(onTimelines).toEqual(
+      [
+        'ALTER TABLE `timelines` ADD `version` int unsigned DEFAULT 1 NOT NULL',
+        'ALTER TABLE `timelines` ADD `updated_at` datetime',
+        'ALTER TABLE `timelines` ADD `updated_by` int unsigned',
+        'ALTER TABLE `timelines` ADD CONSTRAINT `timelines_updated_by_users_id_fk` FOREIGN KEY (`updated_by`) REFERENCES `users`(`id`) ON DELETE no action ON UPDATE no action',
+        'ALTER TABLE `timelines` ADD CONSTRAINT `chk_timelines_updated` CHECK ((`updated_at` IS NULL AND `updated_by` IS NULL) OR (`updated_at` IS NOT NULL AND `updated_by` IS NOT NULL))',
+      ].sort(),
+    );
+  });
+
+  it('gives existing rows version 1: NOT NULL with DEFAULT 1, so no data rewrite is needed (FR-9)', () => {
+    expect(sql).toContain('`version` int unsigned DEFAULT 1 NOT NULL');
+  });
+
+  it('creates timeline_audit_events with its columns, index and two foreign keys (FR-10, NFR-8)', () => {
+    expect(sql).toContain('`id` bigint unsigned AUTO_INCREMENT NOT NULL,');
+    expect(sql).toContain("`action` enum('update') NOT NULL,");
+    expect(sql).toContain('`changes` json NOT NULL,');
+    expect(sql).toContain('`request_id` varchar(64),');
+    expect(sql).toContain(
+      '`created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP',
+    );
+    expect(sql).toContain(
+      'CREATE INDEX `idx_timeline_audit_events_timeline_created` ON `timeline_audit_events` (`timeline_id`,`created_at`)',
+    );
+    expect(sql).toContain(
+      'FOREIGN KEY (`timeline_id`) REFERENCES `timelines`(`id`)',
+    );
+    expect(sql).toContain('FOREIGN KEY (`actor_id`) REFERENCES `users`(`id`)');
+    expect(sql.match(/ADD CONSTRAINT `\w+_fk` FOREIGN KEY/g)).toHaveLength(3);
+  });
+
+  it('gives the audit table no update columns (append-only, FR-10)', () => {
+    const create =
+      sql.match(/CREATE TABLE `timeline_audit_events` \([^;]*\);/)?.[0] ?? '';
+    expect(create).not.toBe('');
+    expect(create).not.toMatch(/`(updated|ended|revoked|removed|deleted)_\w+`/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// field-configuration (design 5): five tables, migration 0005.
+// ---------------------------------------------------------------------------
+
+// Every column that an update, a removal or a revocation would set. Versions,
+// version items and audit events are append-only (FR-12, NFR-8): none of these
+// exists on them, so nothing in the schema can record a change to a row.
+const mutationColumns = (table: AnyTable) =>
+  tableConfig(table)
+    .columns.map((c) => c.name)
+    .filter((n) => /^(updated|ended|revoked|removed|deleted)_/.test(n));
+const primaryKeyOf = (table: AnyTable) =>
+  tableConfig(table).primaryKeys.map((pk) => ({
+    name: pk.getName(),
+    columns: names(pk.columns),
+  }));
+const notNullOf = (table: AnyTable) =>
+  Object.fromEntries(
+    tableConfig(table).columns.map((c) => [c.name, c.notNull]),
+  );
+
+const FLAGS_CHECK =
+  "(`is_core` = 0 AND `is_ai_input` = 0) OR `visibility` = 'assessed'";
+
+describe('field_config_drafts schema (field-configuration design 5, FR-5, FR-8, DD-10)', () => {
+  it('has exactly these columns and types', () => {
+    expect(shape(schema.fieldConfigDrafts)).toEqual({
+      cycle_id: 'int unsigned NOT NULL',
+      revision: 'int unsigned NOT NULL',
+      updated_at: 'datetime',
+      updated_by: 'int unsigned',
+    });
+  });
+
+  it('is keyed by the cycle: one draft per cycle, created on the first write (DD-10)', () => {
+    const cycle = columnOf(schema.fieldConfigDrafts, 'cycle_id');
+    expect(cycle.primary).toBe(true);
+    expect(primaryKeyOf(schema.fieldConfigDrafts)).toEqual([]);
+  });
+
+  it('starts the revision at 0 for a draft created by its first write (FR-8)', () => {
+    const revision = columnOf(schema.fieldConfigDrafts, 'revision');
+    expect(revision.hasDefault).toBe(true);
+    expect(revision.default).toBe(0);
+  });
+
+  it('keeps the last-edit columns nullable with no default: a never-edited draft has neither', () => {
+    for (const n of ['updated_at', 'updated_by']) {
+      expect(columnOf(schema.fieldConfigDrafts, n).notNull, n).toBe(false);
+      expect(columnOf(schema.fieldConfigDrafts, n).hasDefault, n).toBe(false);
+    }
+  });
+
+  it('declares exactly the last-edit CHECK: updated_at and updated_by both set or both NULL', () => {
+    expect(checkNames(schema.fieldConfigDrafts)).toEqual([
+      'chk_field_config_drafts_updated',
+    ]);
+    expect(
+      checkOf(schema.fieldConfigDrafts, 'chk_field_config_drafts_updated'),
+    ).toBe(
+      '(`updated_at` IS NULL AND `updated_by` IS NULL) OR (`updated_at` IS NOT NULL AND `updated_by` IS NOT NULL)',
+    );
+  });
+
+  it('references cycles and the last editor, and has no other key or index', () => {
+    expect(foreignKeys(schema.fieldConfigDrafts)).toEqual([
+      'cycle_id -> cycles.id',
+      'updated_by -> users.id',
+    ]);
+    expect(uniqueKeys(schema.fieldConfigDrafts)).toEqual({});
+    expect(plainIndexes(schema.fieldConfigDrafts)).toEqual({});
+  });
+});
+
+describe('field_config_draft_items schema (design 5, FR-4, FR-5)', () => {
+  it('has exactly these columns and types', () => {
+    expect(shape(schema.fieldConfigDraftItems)).toEqual({
+      cycle_id: 'int unsigned NOT NULL',
+      result_type_key: 'varchar(64) NOT NULL',
+      field_key: 'varchar(128) NOT NULL',
+      visibility: "enum('hidden','view_only','assessed') NOT NULL",
+      is_core: 'boolean NOT NULL',
+      is_ai_input: 'boolean NOT NULL',
+    });
+  });
+
+  it('is keyed by (cycle_id, result_type_key, field_key): one option set per field', () => {
+    expect(primaryKeyOf(schema.fieldConfigDraftItems)).toEqual([
+      {
+        name: 'field_config_draft_items_pk',
+        columns: ['cycle_id', 'result_type_key', 'field_key'],
+      },
+    ]);
+  });
+
+  it('has no default on the flags: a missing flag is refused, never read as false', () => {
+    for (const n of ['is_core', 'is_ai_input', 'visibility']) {
+      expect(columnOf(schema.fieldConfigDraftItems, n).hasDefault, n).toBe(
+        false,
+      );
+      expect(columnOf(schema.fieldConfigDraftItems, n).notNull, n).toBe(true);
+    }
+  });
+
+  it('names the visibility enum with exactly hidden, view_only and assessed', () => {
+    expect(
+      columnOf(schema.fieldConfigDraftItems, 'visibility').enumValues,
+    ).toEqual(['hidden', 'view_only', 'assessed']);
+  });
+
+  it('CHECK: core and AI input are possible only when assessed, so the contradiction cannot be stored (FR-4)', () => {
+    expect(checkNames(schema.fieldConfigDraftItems)).toEqual([
+      'chk_field_config_draft_items_flags',
+    ]);
+    expect(
+      checkOf(
+        schema.fieldConfigDraftItems,
+        'chk_field_config_draft_items_flags',
+      ),
+    ).toBe(FLAGS_CHECK);
+  });
+
+  it('references cycles only, with no other key or index', () => {
+    expect(foreignKeys(schema.fieldConfigDraftItems)).toEqual([
+      'cycle_id -> cycles.id',
+    ]);
+    expect(uniqueKeys(schema.fieldConfigDraftItems)).toEqual({});
+    expect(plainIndexes(schema.fieldConfigDraftItems)).toEqual({});
+  });
+});
+
+describe('field_config_versions schema (design 5, FR-8, FR-9, FR-12, DD-6)', () => {
+  it('has exactly these columns and types', () => {
+    expect(shape(schema.fieldConfigVersions)).toEqual({
+      id: 'int unsigned NOT NULL',
+      cycle_id: 'int unsigned NOT NULL',
+      number: 'smallint unsigned NOT NULL',
+      catalog_version: 'varchar(32) NOT NULL',
+      published_at: 'datetime NOT NULL',
+      published_by: 'int unsigned NOT NULL',
+      request_id: 'varchar(64)',
+    });
+  });
+
+  it('keys a version by an auto-increment unsigned id', () => {
+    const id = columnOf(schema.fieldConfigVersions, 'id');
+    expect(id.primary).toBe(true);
+    expect((id as unknown as { autoIncrement: boolean }).autoIncrement).toBe(
+      true,
+    );
+  });
+
+  it('backstops the publish race: one version number per cycle (FR-8, DD-6)', () => {
+    expect(uniqueKeys(schema.fieldConfigVersions)).toEqual({
+      uq_field_config_versions_cycle_number: ['cycle_id', 'number'],
+    });
+  });
+
+  it('indexes (cycle_id, published_at) for the latest-version read', () => {
+    expect(plainIndexes(schema.fieldConfigVersions)).toEqual({
+      idx_field_config_versions_cycle_published: ['cycle_id', 'published_at'],
+    });
+  });
+
+  it('references cycles and the publisher', () => {
+    expect(foreignKeys(schema.fieldConfigVersions)).toEqual([
+      'cycle_id -> cycles.id',
+      'published_by -> users.id',
+    ]);
+  });
+
+  it('is append-only: no update columns and no revision (FR-12)', () => {
+    expect(mutationColumns(schema.fieldConfigVersions)).toEqual([]);
+    const cols = tableConfig(schema.fieldConfigVersions).columns.map(
+      (c) => c.name,
+    );
+    expect(cols).not.toContain('revision');
+    expect(cols).not.toContain('version');
+  });
+
+  it('leaves only the request id optional', () => {
+    expect(notNullOf(schema.fieldConfigVersions)).toEqual({
+      id: true,
+      cycle_id: true,
+      number: true,
+      catalog_version: true,
+      published_at: true,
+      published_by: true,
+      request_id: false,
+    });
+    expect(tableConfig(schema.fieldConfigVersions).checks).toEqual([]);
+  });
+});
+
+describe('field_config_version_items schema (design 5, DD-2, DD-3, FR-4, FR-12)', () => {
+  it('has exactly these columns and types', () => {
+    expect(shape(schema.fieldConfigVersionItems)).toEqual({
+      version_id: 'int unsigned NOT NULL',
+      result_type_key: 'varchar(64) NOT NULL',
+      field_key: 'varchar(128) NOT NULL',
+      visibility: "enum('hidden','view_only','assessed') NOT NULL",
+      is_core: 'boolean NOT NULL',
+      is_ai_input: 'boolean NOT NULL',
+    });
+  });
+
+  it('is keyed by (version_id, result_type_key, field_key): one row per applicable field', () => {
+    expect(primaryKeyOf(schema.fieldConfigVersionItems)).toEqual([
+      {
+        name: 'field_config_version_items_pk',
+        columns: ['version_id', 'result_type_key', 'field_key'],
+      },
+    ]);
+  });
+
+  it('CHECK: core and AI input are possible only when assessed, on every published row too (FR-4, DD-3)', () => {
+    expect(checkNames(schema.fieldConfigVersionItems)).toEqual([
+      'chk_field_config_version_items_flags',
+    ]);
+    expect(
+      checkOf(
+        schema.fieldConfigVersionItems,
+        'chk_field_config_version_items_flags',
+      ),
+    ).toBe(FLAGS_CHECK);
+  });
+
+  it('references the version it belongs to, with a name inside the 64-character identifier limit', () => {
+    expect(foreignKeys(schema.fieldConfigVersionItems)).toEqual([
+      'version_id -> field_config_versions.id',
+    ]);
+    const [fk] = tableConfig(schema.fieldConfigVersionItems).foreignKeys;
+    expect(fk.getName().length).toBeLessThanOrEqual(64);
+    expect(uniqueKeys(schema.fieldConfigVersionItems)).toEqual({});
+    expect(plainIndexes(schema.fieldConfigVersionItems)).toEqual({});
+  });
+
+  it('has no default on the flags and is append-only: no update columns (FR-12)', () => {
+    for (const n of ['is_core', 'is_ai_input', 'visibility']) {
+      expect(columnOf(schema.fieldConfigVersionItems, n).hasDefault, n).toBe(
+        false,
+      );
+    }
+    expect(mutationColumns(schema.fieldConfigVersionItems)).toEqual([]);
+  });
+});
+
+describe('field_config_audit_events schema (design 5, FR-11, NFR-8)', () => {
+  it('has exactly these columns and types', () => {
+    expect(shape(schema.fieldConfigAuditEvents)).toEqual({
+      id: 'bigint unsigned NOT NULL',
+      cycle_id: 'int unsigned NOT NULL',
+      version_id: 'int unsigned NOT NULL',
+      actor_id: 'int unsigned NOT NULL',
+      action: "enum('publish') NOT NULL",
+      changes: 'json NOT NULL',
+      timelines: 'json NOT NULL',
+      request_id: 'varchar(64)',
+      created_at: 'datetime NOT NULL',
+    });
+  });
+
+  it('keys the event by an auto-increment bigint and stamps the time by default', () => {
+    const id = columnOf(schema.fieldConfigAuditEvents, 'id');
+    expect(id.primary).toBe(true);
+    expect((id as unknown as { autoIncrement: boolean }).autoIncrement).toBe(
+      true,
+    );
+    expect(
+      columnOf(schema.fieldConfigAuditEvents, 'created_at').hasDefault,
+    ).toBe(true);
+  });
+
+  it('records the one action a publication has: publish', () => {
+    expect(
+      columnOf(schema.fieldConfigAuditEvents, 'action').enumValues,
+    ).toEqual(['publish']);
+  });
+
+  it('allows exactly one record per publication: UNIQUE (version_id) (FR-11, NFR-8)', () => {
+    expect(uniqueKeys(schema.fieldConfigAuditEvents)).toEqual({
+      uq_field_config_audit_events_version: ['version_id'],
+    });
+  });
+
+  it('indexes (cycle_id, created_at) for the history read', () => {
+    expect(plainIndexes(schema.fieldConfigAuditEvents)).toEqual({
+      idx_field_config_audit_events_cycle_created: ['cycle_id', 'created_at'],
+    });
+  });
+
+  it('references the cycle, the version it records and the publisher', () => {
+    expect(foreignKeys(schema.fieldConfigAuditEvents)).toEqual([
+      'actor_id -> users.id',
+      'cycle_id -> cycles.id',
+      'version_id -> field_config_versions.id',
+    ]);
+  });
+
+  it('leaves only the request id optional: a record always names its changes and timelines', () => {
+    expect(notNullOf(schema.fieldConfigAuditEvents)).toEqual({
+      id: true,
+      cycle_id: true,
+      version_id: true,
+      actor_id: true,
+      action: true,
+      changes: true,
+      timelines: true,
+      request_id: false,
+      created_at: true,
+    });
+  });
+
+  it('is append-only: no update columns (FR-12, NFR-8)', () => {
+    expect(mutationColumns(schema.fieldConfigAuditEvents)).toEqual([]);
+    const cols = tableConfig(schema.fieldConfigAuditEvents).columns.map(
+      (c) => c.name,
+    );
+    expect(cols).not.toContain('revision');
+    expect(cols).not.toContain('version');
+  });
+});
+
+describe('committed migration 0005 (field configuration)', () => {
+  const files = readdirSync(migrationsDir)
+    .filter((f) => f.endsWith('.sql'))
+    .sort();
+  const sql = files[5]
+    ? readFileSync(`${migrationsDir}${files[5]}`, 'utf8')
+    : '';
+  const newTables = [
+    'field_config_drafts',
+    'field_config_draft_items',
+    'field_config_versions',
+    'field_config_version_items',
+    'field_config_audit_events',
+  ];
+  const statements = sql
+    .split('--> statement-breakpoint')
+    .map((x) => x.trim())
+    .filter(Boolean);
+
+  it('is named 0005_field_configuration and registered in the journal', () => {
+    expect(files[5]).toBe('0005_field_configuration.sql');
+    const journal = JSON.parse(
+      readFileSync(`${migrationsDir}meta/_journal.json`, 'utf8'),
+    ) as { entries: { idx: number; tag: string }[] };
+    expect(journal.entries.map((e) => e.tag)).toEqual(
+      files.map((f) => f.replace(/\.sql$/, '')),
+    );
+    expect(journal.entries.map((e) => e.idx).slice(0, 6)).toEqual([
+      0, 1, 2, 3, 4, 5,
+    ]);
+  });
+
+  it('is additive only: it creates exactly the five new tables and touches no existing one (design 5)', () => {
+    expect(sql).not.toBe('');
+    expect(sql).not.toMatch(
+      /\bDROP\b|\bINSERT INTO\b|\bUPDATE `\w+` SET\b|\bDELETE FROM\b|\bTRUNCATE\b|\bMODIFY\b|\bRENAME\b/,
+    );
+    expect(sql).not.toMatch(/\bCHANGE\b/);
+    expect(
+      [...sql.matchAll(/CREATE TABLE `(\w+)`/g)].map((m) => m[1]).sort(),
+    ).toEqual([...newTables].sort());
+    // Every statement is a CREATE TABLE, a CREATE INDEX or an ALTER TABLE ...
+    // ADD CONSTRAINT (the foreign keys), and each one names one of the five
+    // new tables. The CHECKs and keys are inside their CREATE TABLE.
+    const tables = newTables.join('|');
+    for (const st of statements) {
+      expect(st).toMatch(
+        new RegExp(
+          `^(CREATE TABLE \`(${tables})\` |CREATE (UNIQUE )?INDEX \`\\w+\` ON \`(${tables})\` |ALTER TABLE \`(${tables})\` ADD CONSTRAINT \`\\w+\` FOREIGN KEY )`,
+        ),
+      );
+    }
+    // Nothing else can reach an existing table: no ALTER names one.
+    for (const a of sql.match(/\bALTER TABLE `\w+`/g) ?? []) {
+      expect(a).toMatch(new RegExp(`^ALTER TABLE \`(${tables})\`$`));
+    }
+  });
+
+  it('carries the two flag CHECKs and the draft last-edit CHECK verbatim', () => {
+    expect(sql).toContain(
+      `CONSTRAINT \`chk_field_config_draft_items_flags\` CHECK(${FLAGS_CHECK})`,
+    );
+    expect(sql).toContain(
+      `CONSTRAINT \`chk_field_config_version_items_flags\` CHECK(${FLAGS_CHECK})`,
+    );
+    expect(sql).toContain(
+      'CONSTRAINT `chk_field_config_drafts_updated` CHECK((`updated_at` IS NULL AND `updated_by` IS NULL) OR (`updated_at` IS NOT NULL AND `updated_by` IS NOT NULL))',
+    );
+    expect(sql.match(/CONSTRAINT `\w+` CHECK\(/g)).toHaveLength(3);
+  });
+
+  it('carries the two unique keys and the two plain indexes', () => {
+    expect(sql).toContain(
+      'CONSTRAINT `uq_field_config_versions_cycle_number` UNIQUE(`cycle_id`,`number`)',
+    );
+    expect(sql).toContain(
+      'CONSTRAINT `uq_field_config_audit_events_version` UNIQUE(`version_id`)',
+    );
+    expect(sql.match(/\bUNIQUE\(/g)).toHaveLength(2);
+    expect(sql).toContain(
+      'CREATE INDEX `idx_field_config_versions_cycle_published` ON `field_config_versions` (`cycle_id`,`published_at`)',
+    );
+    expect(sql).toContain(
+      'CREATE INDEX `idx_field_config_audit_events_cycle_created` ON `field_config_audit_events` (`cycle_id`,`created_at`)',
+    );
+    expect(sql.match(/\bCREATE (?:UNIQUE )?INDEX\b/g)).toHaveLength(2);
+  });
+
+  it('carries the composite primary keys, the keyed tables and the column definitions', () => {
+    expect(sql).toContain(
+      'CONSTRAINT `field_config_draft_items_pk` PRIMARY KEY(`cycle_id`,`result_type_key`,`field_key`)',
+    );
+    expect(sql).toContain(
+      'CONSTRAINT `field_config_version_items_pk` PRIMARY KEY(`version_id`,`result_type_key`,`field_key`)',
+    );
+    expect(sql).toContain(
+      'CONSTRAINT `field_config_drafts_cycle_id` PRIMARY KEY(`cycle_id`)',
+    );
+    expect(sql).toContain(
+      'CONSTRAINT `field_config_versions_id` PRIMARY KEY(`id`)',
+    );
+    expect(sql).toContain(
+      'CONSTRAINT `field_config_audit_events_id` PRIMARY KEY(`id`)',
+    );
+    expect(sql).toContain('`revision` int unsigned NOT NULL DEFAULT 0,');
+    expect(sql).toContain('`number` smallint unsigned NOT NULL,');
+    expect(sql).toContain(
+      "`visibility` enum('hidden','view_only','assessed') NOT NULL,",
+    );
+    expect(sql).toContain('`is_core` boolean NOT NULL,');
+    expect(sql).toContain('`is_ai_input` boolean NOT NULL');
+    expect(sql).toContain("`action` enum('publish') NOT NULL,");
+    expect(sql).toContain('`timelines` json NOT NULL,');
+    expect(sql).toContain(
+      '`created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP',
+    );
+  });
+
+  it('carries the nine foreign keys, every one ON DELETE no action ON UPDATE no action', () => {
+    const fks = sql.match(/ADD CONSTRAINT `\w+` FOREIGN KEY [^;]*/g) ?? [];
+    expect(fks).toHaveLength(9);
+    for (const fk of fks) {
+      expect(fk).toMatch(/ON DELETE no action ON UPDATE no action$/);
+    }
+    // 2 (drafts) + 1 (draft items) + 2 (versions) + 1 (version items) + 3 (audit)
+    expect(sql.match(/REFERENCES `cycles`\(`id`\)/g)).toHaveLength(4);
+    expect(sql.match(/REFERENCES `users`\(`id`\)/g)).toHaveLength(3);
+    expect(
+      sql.match(/REFERENCES `field_config_versions`\(`id`\)/g),
+    ).toHaveLength(2);
+  });
+
+  it("keeps every identifier within MySQL's 64-character limit (a longer one is refused only when applied)", () => {
+    const identifiers = [...sql.matchAll(/`(\w+)`/g)].map((m) => m[1]);
+    expect(identifiers.length).toBeGreaterThan(0);
+    expect(identifiers.filter((i) => i.length > 64)).toEqual([]);
+  });
+
+  it('gives the append-only tables no update columns (FR-12, NFR-8)', () => {
+    for (const t of [
+      'field_config_versions',
+      'field_config_version_items',
+      'field_config_audit_events',
+    ]) {
+      const create =
+        sql.match(new RegExp(`CREATE TABLE \`${t}\` \\([^;]*\\);`))?.[0] ?? '';
+      expect(create, t).not.toBe('');
+      expect(create, t).not.toMatch(
+        /`(updated|ended|revoked|removed|deleted)_\w+`/,
+      );
+    }
+  });
+});
+
+// timeline-step-times (design 5, DD-6): migration 0006 is the one that is NOT
+// additive. It renames and retypes the two step columns and rewrites the
+// closing time of every stored step, so it carries a manual down script (NFR-3).
+describe('committed migration 0006 (timeline step times)', () => {
+  const files = readdirSync(migrationsDir)
+    .filter((f) => f.endsWith('.sql'))
+    .sort();
+  const read = (path: string) => readFileSync(path, 'utf8');
+  const statementsOf = (text: string) =>
+    text
+      .replace(/^--(?!>).*$/gm, '')
+      .split('--> statement-breakpoint')
+      .map((x) => x.trim())
+      .filter(Boolean);
+  const up = files[6] ? read(`${migrationsDir}${files[6]}`) : '';
+  const downPath = `${migrationsDir}rollback/0006_timeline_step_times.down.sql`;
+  const down = existsSync(downPath) ? read(downPath) : '';
+
+  it('is named 0006_timeline_step_times and registered in the journal as the seventh entry', () => {
+    expect(files[6]).toBe('0006_timeline_step_times.sql');
+    const journal = JSON.parse(read(`${migrationsDir}meta/_journal.json`)) as {
+      entries: { idx: number; tag: string }[];
+    };
+    expect(journal.entries.map((e) => e.tag)).toEqual(
+      files.map((f) => f.replace(/\.sql$/, '')),
+    );
+    expect(journal.entries[6]).toMatchObject({
+      idx: 6,
+      tag: '0006_timeline_step_times',
+    });
+  });
+
+  it('holds exactly the four steps of design 5, in order: drop the check, rename and retype, rewrite closes_at, add the strict check', () => {
+    expect(statementsOf(up)).toEqual([
+      'ALTER TABLE `timeline_steps` DROP CHECK `chk_timeline_steps_dates`;',
+      'ALTER TABLE `timeline_steps` CHANGE COLUMN `opens_on` `opens_at` datetime NOT NULL, CHANGE COLUMN `closes_on` `closes_at` datetime NOT NULL;',
+      "UPDATE `timeline_steps` SET `closes_at` = TIMESTAMP(DATE(`closes_at`), '23:59:00');",
+      'ALTER TABLE `timeline_steps` ADD CONSTRAINT `chk_timeline_steps_dates` CHECK (`closes_at` > `opens_at`);',
+    ]);
+  });
+
+  it('sets every stored closing time to 23:59 of its day, with no row filter (S-6, FR-11)', () => {
+    const update = statementsOf(up).find((st) => st.startsWith('UPDATE')) ?? '';
+    expect(update).toContain("'23:59:00'");
+    expect(update).not.toMatch(/\bWHERE\b/);
+    // The opening time is not touched: the type change already makes it 00:00:00.
+    expect(update).not.toContain('`opens_at`');
+  });
+
+  it('touches only timeline_steps and stays out of the audit table (FR-12: old records are not rewritten)', () => {
+    const touched = statementsOf(up).map((st) => /`(\w+)`/.exec(st)?.[1]);
+    expect(touched).toEqual(Array<string>(4).fill('timeline_steps'));
+    expect(up).not.toContain('timeline_audit_events');
+    expect(up).not.toMatch(/\bDROP TABLE\b|\bDELETE FROM\b|\bTRUNCATE\b/);
+  });
+
+  it('has a down script that reverses the four steps: drop the strict check, retype and rename back to DATE, add the old check', () => {
+    expect(statementsOf(down)).toEqual([
+      'ALTER TABLE `timeline_steps` DROP CHECK `chk_timeline_steps_dates`;',
+      'ALTER TABLE `timeline_steps` CHANGE COLUMN `opens_at` `opens_on` date NOT NULL, CHANGE COLUMN `closes_at` `closes_on` date NOT NULL;',
+      'ALTER TABLE `timeline_steps` ADD CONSTRAINT `chk_timeline_steps_dates` CHECK (`closes_on` >= `opens_on`);',
+    ]);
+  });
+
+  it('documents that the down script is lossy for times other than 00:00 and 23:59 (NFR-3)', () => {
+    expect(down).toMatch(/lossy/i);
+    expect(down).toMatch(/00:00/);
+    expect(down).toMatch(/23:59/);
+  });
+
+  it('leaves the applied migrations alone: 0003 still creates the day columns and the old check', () => {
+    const created = read(`${migrationsDir}${files[3]}`);
+    expect(created).toContain('`opens_on` date NOT NULL,');
+    expect(created).toContain(
+      'CONSTRAINT `chk_timeline_steps_dates` CHECK(`closes_on` >= `opens_on`)',
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// step-1-loads (design 5.1-5.3): timeline_loads, timeline_results and the two
+// new audit actions, migration 0007.
+// ---------------------------------------------------------------------------
+
+describe('timeline_loads schema (step-1-loads design 5.1, FR-2, FR-5, NFR-6)', () => {
+  it('has exactly these columns and types', () => {
+    expect(shape(schema.timelineLoads)).toEqual({
+      id: 'int unsigned NOT NULL',
+      cycle_id: 'int unsigned NOT NULL',
+      timeline_id: 'int unsigned NOT NULL',
+      timeline_step_id: 'int unsigned NOT NULL',
+      phase_year: 'smallint unsigned NOT NULL',
+      scope: 'json NOT NULL',
+      status: "enum('running','completed','failed') NOT NULL",
+      running_key: 'int unsigned',
+      total: 'int unsigned',
+      processed: 'int unsigned NOT NULL',
+      summary: 'json',
+      failure_reason: 'varchar(64)',
+      started_by: 'int unsigned NOT NULL',
+      started_at: 'datetime NOT NULL',
+      heartbeat_at: 'datetime NOT NULL',
+      finished_at: 'datetime',
+      request_id: 'varchar(64)',
+      round: 'tinyint unsigned NOT NULL',
+      step_position: 'tinyint unsigned NOT NULL',
+    });
+  });
+
+  it('derives running_key as the cycle id while running, NULL otherwise (FR-2, DD-2)', () => {
+    expect(generatedSql(schema.timelineLoads, 'running_key')).toBe(
+      "IF(`status` = 'running', `cycle_id`, NULL)",
+    );
+  });
+
+  it('keeps one running load per cycle with a unique key over running_key (FR-2, NFR-6)', () => {
+    expect(uniqueKeys(schema.timelineLoads)).toEqual({
+      uq_timeline_loads_running_key: ['running_key'],
+    });
+  });
+
+  it('indexes (timeline_id, id) for the list of a timeline (design 5.1)', () => {
+    expect(plainIndexes(schema.timelineLoads)).toEqual({
+      idx_timeline_loads_timeline_id: ['timeline_id', 'id'],
+    });
+  });
+
+  it('references the cycle, the timeline, the step and the starter', () => {
+    expect(foreignKeys(schema.timelineLoads)).toEqual([
+      'cycle_id -> cycles.id',
+      'started_by -> users.id',
+      'timeline_id -> timelines.id',
+      'timeline_step_id -> timeline_steps.id',
+    ]);
+  });
+
+  it('leaves total, summary, failure_reason, finished_at and request_id optional; the lease clocks have no default (DD-6)', () => {
+    const notNull = Object.fromEntries(
+      tableConfig(schema.timelineLoads).columns.map((c) => [c.name, c.notNull]),
+    );
+    expect(
+      Object.keys(notNull).filter((n) => !notNull[n] && n !== 'running_key'),
+    ).toEqual([
+      'total',
+      'summary',
+      'failure_reason',
+      'finished_at',
+      'request_id',
+    ]);
+    for (const n of ['started_at', 'heartbeat_at']) {
+      expect(columnOf(schema.timelineLoads, n).hasDefault, n).toBe(false);
+    }
+  });
+
+  // timeline-sync design 5.2, FR-2, FR-10: a load from before 0008 reads as
+  // round 1, position 1, so both defaults are 1.
+  it('records the round and the step position of the sync, both defaulting to 1 (FR-2, FR-10)', () => {
+    for (const n of ['round', 'step_position']) {
+      expect(columnOf(schema.timelineLoads, n).hasDefault, n).toBe(true);
+      expect(columnOf(schema.timelineLoads, n).default, n).toBe(1);
+    }
+  });
+
+  it('bounds the round to 1..2 and the position to 1..5 with CHECKs (design 5.2)', () => {
+    expect(checkNames(schema.timelineLoads)).toEqual([
+      'chk_timeline_loads_round',
+      'chk_timeline_loads_step_position',
+    ]);
+    expect(checkOf(schema.timelineLoads, 'chk_timeline_loads_round')).toBe(
+      '`round` IN (1, 2)',
+    );
+    expect(
+      checkOf(schema.timelineLoads, 'chk_timeline_loads_step_position'),
+    ).toBe('`step_position` BETWEEN 1 AND 5');
+  });
+});
+
+describe('timeline_results schema (step-1-loads design 5.2, FR-4, FR-5, NFR-6)', () => {
+  it('has exactly these columns and types', () => {
+    expect(shape(schema.timelineResults)).toEqual({
+      id: 'bigint unsigned NOT NULL',
+      cycle_id: 'int unsigned NOT NULL',
+      timeline_id: 'int unsigned NOT NULL',
+      load_id: 'int unsigned NOT NULL',
+      result_code: 'int unsigned NOT NULL',
+      result_id: 'int unsigned NOT NULL',
+      phase_year: 'smallint unsigned NOT NULL',
+      program_clarisa_id: 'int unsigned NOT NULL',
+      result_type_key: 'varchar(64) NOT NULL',
+      status: "enum('pending','auto_validated','not_in_qa') NOT NULL",
+      kp_group: "enum('not_in_qa','auto_checked','review')",
+      awaits_step: 'tinyint unsigned',
+      snapshot_sk: 'varchar(160) NOT NULL',
+      snapshot_hash: 'char(64) NOT NULL',
+      catalog_version: 'varchar(32) NOT NULL',
+      created_at: 'datetime NOT NULL',
+      ended_at: 'datetime',
+      end_reason:
+        "enum('timeline_closed','released_qaed','released_not_qaed','returned')",
+      active_key: 'varchar(32)',
+      entry_round: 'tinyint unsigned NOT NULL',
+      previous_membership_id: 'bigint unsigned',
+      changed_fields: 'json',
+    });
+  });
+
+  it('stores both the result code and the phase result id (FR-5)', () => {
+    expect(columnOf(schema.timelineResults, 'result_code').notNull).toBe(true);
+    expect(columnOf(schema.timelineResults, 'result_id').notNull).toBe(true);
+  });
+
+  it('derives active_key as cycle#result_code while the membership has not ended (FR-4, DD-2)', () => {
+    expect(generatedSql(schema.timelineResults, 'active_key')).toBe(
+      "IF(`ended_at` IS NULL, CONCAT(`cycle_id`, '#', `result_code`), NULL)",
+    );
+  });
+
+  it('keeps one active membership per result and cycle, and one membership per timeline, result and round (FR-5, DD-2)', () => {
+    expect(uniqueKeys(schema.timelineResults)).toEqual({
+      uq_timeline_results_active_key: ['active_key'],
+      uq_timeline_results_timeline_code_round: [
+        'timeline_id',
+        'result_code',
+        'entry_round',
+      ],
+    });
+    // The step-1 key (timeline_id, result_code) is gone: it would refuse the
+    // round-2 membership.
+    expect(Object.keys(uniqueKeys(schema.timelineResults))).not.toContain(
+      'uq_timeline_results_timeline_code',
+    );
+  });
+
+  it('stores the entry round, 1 or 2, defaulting to 1 so existing rows keep their meaning (FR-2, NFR-5)', () => {
+    const col = columnOf(schema.timelineResults, 'entry_round');
+    expect(col.notNull).toBe(true);
+    expect(col.default).toBe(1);
+    expect(
+      checkOf(schema.timelineResults, 'chk_timeline_results_entry_round'),
+    ).toBe('`entry_round` IN (1, 2)');
+  });
+
+  it('bounds changed_fields at 96 keys: the largest catalog type has 70 top-level fields (P-9, NFR-3)', () => {
+    expect(columnOf(schema.timelineResults, 'changed_fields').notNull).toBe(
+      false,
+    );
+    expect(
+      checkOf(schema.timelineResults, 'chk_timeline_results_changed_fields'),
+    ).toBe('`changed_fields` IS NULL OR JSON_LENGTH(`changed_fields`) <= 96');
+    expect(checkNames(schema.timelineResults)).toEqual([
+      'chk_timeline_results_changed_fields',
+      'chk_timeline_results_entry_round',
+    ]);
+  });
+
+  it('adds returned to the end reasons and keeps released_not_qaed, reserved (FR-6, S-7)', () => {
+    expect(schema.timelineResultEndReasons).toEqual([
+      'timeline_closed',
+      'released_qaed',
+      'released_not_qaed',
+      'returned',
+    ]);
+  });
+
+  it('leaves previous_membership_id optional: NULL means no earlier snapshot in the cycle (FR-8)', () => {
+    const col = columnOf(schema.timelineResults, 'previous_membership_id');
+    expect(col.notNull).toBe(false);
+    expect(col.hasDefault).toBe(false);
+  });
+
+  it('indexes result_code for the history of a result', () => {
+    expect(plainIndexes(schema.timelineResults)).toEqual({
+      idx_timeline_results_result_code: ['result_code'],
+    });
+  });
+
+  it('references the cycle, the timeline, the load and the earlier membership (FR-8)', () => {
+    expect(foreignKeys(schema.timelineResults)).toEqual([
+      'cycle_id -> cycles.id',
+      'load_id -> timeline_loads.id',
+      'previous_membership_id -> timeline_results.id',
+      'timeline_id -> timelines.id',
+    ]);
+  });
+});
+
+describe('committed migration 0007 (step-1 loads)', () => {
+  const files = readdirSync(migrationsDir)
+    .filter((f) => f.endsWith('.sql'))
+    .sort();
+  const sql = files[7]
+    ? readFileSync(`${migrationsDir}${files[7]}`, 'utf8')
+    : '';
+  const statements = sql
+    .split('--> statement-breakpoint')
+    .map((x) => x.trim())
+    .filter(Boolean);
+
+  it('is named 0007_timeline_loads and is the eighth journal entry', () => {
+    expect(files[7]).toBe('0007_timeline_loads.sql');
+    const journal = JSON.parse(
+      readFileSync(`${migrationsDir}meta/_journal.json`, 'utf8'),
+    ) as { entries: { idx: number; tag: string }[] };
+    expect(journal.entries.map((e) => e.tag)).toEqual(
+      files.map((f) => f.replace(/\.sql$/, '')),
+    );
+    expect(journal.entries[7]).toMatchObject({
+      idx: 7,
+      tag: '0007_timeline_loads',
+    });
+  });
+
+  it('is additive: only CREATE TABLE, CREATE INDEX, ALTER ... ADD and the MODIFY of the audit enum (NFR-3)', () => {
+    expect(sql).not.toBe('');
+    expect(sql).not.toMatch(
+      /\bDROP\b|\bINSERT INTO\b|\bUPDATE `\w+` SET\b|\bDELETE FROM\b|\bTRUNCATE\b|\bRENAME\b|\bCHANGE\b/,
+    );
+    for (const st of statements) {
+      expect(st).toMatch(
+        /^(CREATE TABLE|CREATE INDEX|ALTER TABLE `\w+` ADD CONSTRAINT|ALTER TABLE `timeline_audit_events` MODIFY COLUMN `action` )/,
+      );
+    }
+    expect(sql.match(/\bMODIFY\b/g) ?? []).toHaveLength(1);
+    expect(sql.match(/\bCREATE TABLE\b/g) ?? []).toHaveLength(2);
+  });
+
+  it('only alters its own two tables, plus the action column of the audit table', () => {
+    for (const a of sql.match(/\bALTER TABLE `\w+`/g) ?? []) {
+      expect(a).toMatch(
+        /`(timeline_loads|timeline_results|timeline_audit_events)`$/,
+      );
+    }
+    expect(sql).toContain(
+      "ALTER TABLE `timeline_audit_events` MODIFY COLUMN `action` enum('update','load_start','load_end') NOT NULL;",
+    );
+  });
+
+  it('keeps update first in the enum, so existing audit rows stay valid', () => {
+    expect(sql).toContain("enum('update','load_start','load_end')");
+  });
+
+  it('carries the running_key generated column and its unique key as SQL (FR-2, NFR-6)', () => {
+    expect(sql).toContain(
+      "`running_key` int unsigned GENERATED ALWAYS AS (IF(`status` = 'running', `cycle_id`, NULL)) STORED",
+    );
+    expect(sql).toContain(
+      'CONSTRAINT `uq_timeline_loads_running_key` UNIQUE(`running_key`)',
+    );
+  });
+
+  it('carries the active_key generated column and its unique key as SQL (FR-4, NFR-6)', () => {
+    expect(sql).toContain(
+      "`active_key` varchar(32) GENERATED ALWAYS AS (IF(`ended_at` IS NULL, CONCAT(`cycle_id`, '#', `result_code`), NULL)) STORED",
+    );
+    expect(sql).toContain(
+      'CONSTRAINT `uq_timeline_results_active_key` UNIQUE(`active_key`)',
+    );
+  });
+
+  it('carries the unique (timeline_id, result_code) over all memberships (S-5, DD-3)', () => {
+    expect(sql).toContain(
+      'CONSTRAINT `uq_timeline_results_timeline_code` UNIQUE(`timeline_id`,`result_code`)',
+    );
+  });
+
+  it('carries the two plain indexes of design 5.1 and 5.2', () => {
+    expect(sql).toContain(
+      'CREATE INDEX `idx_timeline_loads_timeline_id` ON `timeline_loads` (`timeline_id`,`id`)',
+    );
+    expect(sql).toContain(
+      'CREATE INDEX `idx_timeline_results_result_code` ON `timeline_results` (`result_code`)',
+    );
+  });
+
+  it('carries the foreign keys of both tables, none longer than 64 characters, all no action', () => {
+    const fks = sql.match(/ADD CONSTRAINT `(\w+)` FOREIGN KEY/g) ?? [];
+    expect(fks).toHaveLength(7);
+    for (const m of sql.matchAll(/CONSTRAINT `(\w+)`/g)) {
+      expect(m[1]!.length, m[1]).toBeLessThanOrEqual(64);
+    }
+    expect(sql.match(/ON DELETE no action ON UPDATE no action/g)).toHaveLength(
+      7,
+    );
+  });
+
+  it('gives neither new table a column that deletes or reopens a row (rows are never deleted)', () => {
+    expect(sql).not.toMatch(/`(deleted|removed|revoked)_\w+`/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// timeline-sync (design 5.1, 5.2, DD-2, DD-5): migration 0008. The expected SQL
+// below is written from the design, not copied from the generated file.
+// ---------------------------------------------------------------------------
+
+describe('committed migration 0008 (timeline sync rounds)', () => {
+  const files = readdirSync(migrationsDir)
+    .filter((f) => f.endsWith('.sql'))
+    .sort();
+  const read = (path: string) => readFileSync(path, 'utf8');
+  const up = files[8] ? read(`${migrationsDir}${files[8]}`) : '';
+  const statementsOf = (text: string) =>
+    text
+      .replace(/^--(?!>).*$/gm, '')
+      .split('--> statement-breakpoint')
+      .map((x) => x.trim())
+      .filter(Boolean);
+  const statements = statementsOf(up);
+  const downPath = `${migrationsDir}rollback/0008_timeline_sync_rounds.down.sql`;
+  const down = existsSync(downPath) ? read(downPath) : '';
+  // Index of the statement that contains `fragment`; fails when none does.
+  const at = (fragment: string) => {
+    const i = statements.findIndex((s) => s.includes(fragment));
+    expect(i, `a statement containing ${fragment}`).toBeGreaterThanOrEqual(0);
+    return i;
+  };
+
+  it('is named 0008_timeline_sync_rounds and is the ninth journal entry', () => {
+    expect(files[8]).toBe('0008_timeline_sync_rounds.sql');
+    const journal = JSON.parse(read(`${migrationsDir}meta/_journal.json`)) as {
+      entries: { idx: number; tag: string }[];
+    };
+    expect(journal.entries.map((e) => e.tag)).toEqual(
+      files.map((f) => f.replace(/\.sql$/, '')),
+    );
+    expect(journal.entries[8]).toMatchObject({
+      idx: 8,
+      tag: '0008_timeline_sync_rounds',
+    });
+  });
+
+  it('adds the round and the step position to timeline_loads, defaulting to 1 (design 5.2, FR-10)', () => {
+    expect(up).toMatch(
+      /ALTER TABLE `timeline_loads` ADD `round` tinyint unsigned (NOT NULL DEFAULT 1|DEFAULT 1 NOT NULL);/,
+    );
+    expect(up).toMatch(
+      /ALTER TABLE `timeline_loads` ADD `step_position` tinyint unsigned (NOT NULL DEFAULT 1|DEFAULT 1 NOT NULL);/,
+    );
+    expect(up).toMatch(
+      /ADD CONSTRAINT `chk_timeline_loads_round` CHECK ?\(`round` IN \(1, 2\)\)/,
+    );
+    expect(up).toMatch(
+      /ADD CONSTRAINT `chk_timeline_loads_step_position` CHECK ?\(`step_position` BETWEEN 1 AND 5\)/,
+    );
+  });
+
+  it('adds entry_round to timeline_results, NOT NULL, default 1, CHECK 1 or 2, so every existing row becomes round 1 (design 5.1, NFR-5)', () => {
+    expect(up).toMatch(
+      /ALTER TABLE `timeline_results` ADD `entry_round` tinyint unsigned (NOT NULL DEFAULT 1|DEFAULT 1 NOT NULL);/,
+    );
+    expect(up).toMatch(
+      /ADD CONSTRAINT `chk_timeline_results_entry_round` CHECK ?\(`entry_round` IN \(1, 2\)\)/,
+    );
+  });
+
+  it('adds previous_membership_id (NULL) as a self foreign key and changed_fields (json NULL) with a 96-key CHECK (design 5.1, P-9)', () => {
+    expect(up).toContain(
+      'ALTER TABLE `timeline_results` ADD `previous_membership_id` bigint unsigned;',
+    );
+    expect(up).toContain(
+      'ALTER TABLE `timeline_results` ADD `changed_fields` json;',
+    );
+    expect(up).toMatch(
+      /ADD CONSTRAINT `chk_timeline_results_changed_fields` CHECK ?\(`changed_fields` IS NULL OR JSON_LENGTH\(`changed_fields`\) <= 96\)/,
+    );
+    expect(up).toMatch(
+      /ADD CONSTRAINT `timeline_results_previous_membership_id_timeline_results_id_fk` FOREIGN KEY \(`previous_membership_id`\) REFERENCES `timeline_results`\(`id`\) ON DELETE no action ON UPDATE no action/,
+    );
+  });
+
+  it('adds returned to the end_reason enum at the end, keeping released_not_qaed and the order of the old values (FR-6, S-7)', () => {
+    expect(up).toContain(
+      "ALTER TABLE `timeline_results` MODIFY COLUMN `end_reason` enum('timeline_closed','released_qaed','released_not_qaed','returned');",
+    );
+  });
+
+  it('swaps the unique key: the (timeline_id, result_code, entry_round) key is added, then the old one dropped (FR-5, DD-2)', () => {
+    expect(up).toMatch(
+      /`uq_timeline_results_timeline_code_round` UNIQUE ?\(`timeline_id`,\s?`result_code`,\s?`entry_round`\)/,
+    );
+    expect(up.match(/\bDROP\b/g) ?? []).toHaveLength(1);
+    expect(up).toContain(
+      'ALTER TABLE `timeline_results` DROP INDEX `uq_timeline_results_timeline_code`;',
+    );
+    // timeline_id carries a foreign key that needs an index starting with it:
+    // dropping first would fail, or leave the table uncovered.
+    expect(
+      at('ADD CONSTRAINT `uq_timeline_results_timeline_code_round`'),
+    ).toBeLessThan(at('DROP INDEX `uq_timeline_results_timeline_code`'));
+    // The entry_round column exists before the key that names it.
+    expect(at('ADD `entry_round`')).toBeLessThan(
+      at('uq_timeline_results_timeline_code_round'),
+    );
+  });
+
+  it('keeps every row and every other key: no data statement, nothing dropped but the old unique key, no table created', () => {
+    expect(up).not.toMatch(
+      /\bINSERT INTO\b|\bUPDATE `\w+` SET\b|\bDELETE FROM\b|\bTRUNCATE\b|\bRENAME\b|\bCHANGE\b|\bCREATE TABLE\b/,
+    );
+    expect(up).not.toMatch(/active_key|idx_timeline_results_result_code/);
+    for (const a of up.match(/\bALTER TABLE `\w+`/g) ?? []) {
+      expect(a).toMatch(/`(timeline_loads|timeline_results)`$/);
+    }
+    for (const m of up.matchAll(/CONSTRAINT `(\w+)`/g)) {
+      expect(m[1]!.length, m[1]).toBeLessThanOrEqual(64);
+    }
+  });
+
+  it('leaves the applied migration 0007 alone: it still creates the step-1 key', () => {
+    expect(read(`${migrationsDir}${files[7]}`)).toContain(
+      'CONSTRAINT `uq_timeline_results_timeline_code` UNIQUE(`timeline_id`,`result_code`)',
+    );
+  });
+
+  describe('manual down script (NFR-5)', () => {
+    it('exists and is applied by a human, never by drizzle-kit', () => {
+      expect(down).not.toBe('');
+      expect(down).toMatch(/human/i);
+      expect(down).toMatch(/backup/i);
+    });
+
+    it('refuses when any (timeline_id, result_code) has two rows: a pre-check SELECT, and the old key is re-added first so the engine refuses the duplicate', () => {
+      expect(down).toMatch(
+        /SELECT[^;]*`timeline_id`,\s*`result_code`[^;]*GROUP BY `timeline_id`,\s*`result_code`[^;]*HAVING COUNT\(\*\) > 1/i,
+      );
+      const st = statementsOf(down);
+      expect(st[0]).toBe(
+        'ALTER TABLE `timeline_results` ADD CONSTRAINT `uq_timeline_results_timeline_code` UNIQUE(`timeline_id`, `result_code`);',
+      );
+    });
+
+    it('says it is lossy for the round columns and refuses while a returned row exists', () => {
+      expect(down).toMatch(/lossy/i);
+      expect(down).toMatch(/returned/);
+      expect(down).toMatch(
+        /SELECT COUNT\(\*\) FROM `?timeline_results`? WHERE `?end_reason`? = 'returned';/,
+      );
+      // The MODIFY is statement index 1: both refusals happen before anything is lost.
+      expect(statementsOf(down)[1]).toBe(
+        "ALTER TABLE `timeline_results` MODIFY COLUMN `end_reason` enum('timeline_closed','released_qaed','released_not_qaed');",
+      );
+    });
+
+    it('tells the human to delete the 0008 row of __drizzle_migrations after a rollback', () => {
+      expect(down).toMatch(/__drizzle_migrations/);
+    });
+
+    it('reverses every forward change, in an order MySQL accepts', () => {
+      const st = statementsOf(down);
+      expect(st.slice(1)).toEqual([
+        "ALTER TABLE `timeline_results` MODIFY COLUMN `end_reason` enum('timeline_closed','released_qaed','released_not_qaed');",
+        'ALTER TABLE `timeline_results` DROP FOREIGN KEY `timeline_results_previous_membership_id_timeline_results_id_fk`;',
+        'ALTER TABLE `timeline_results` DROP CHECK `chk_timeline_results_changed_fields`;',
+        'ALTER TABLE `timeline_results` DROP CHECK `chk_timeline_results_entry_round`;',
+        'ALTER TABLE `timeline_results` DROP INDEX `uq_timeline_results_timeline_code_round`;',
+        'ALTER TABLE `timeline_results` DROP COLUMN `previous_membership_id`, DROP COLUMN `changed_fields`, DROP COLUMN `entry_round`;',
+        'ALTER TABLE `timeline_loads` DROP CHECK `chk_timeline_loads_round`;',
+        'ALTER TABLE `timeline_loads` DROP CHECK `chk_timeline_loads_step_position`;',
+        'ALTER TABLE `timeline_loads` DROP COLUMN `round`, DROP COLUMN `step_position`;',
+      ]);
+    });
+  });
+});
