@@ -998,7 +998,7 @@ export class AssessmentService {
 
   /**
    * The Assessed fields of the version in force for a write, and its number:
-   * the PINNED version when the assessment row exists, the timeline's when it
+   * the PINNED version when the assessment row exists, the cycle's latest (F-012) when it
    * does not (DD-3). No version, or a type the timeline does not cover: 409
    * `ASSESSMENT_NO_FIELD_CONFIG`.
    */
@@ -2260,7 +2260,7 @@ export class AssessmentService {
    * What the AI suggestion routes read (ai-suggestions FR-4, FR-8): the same
    * scope and 404 as `open`, the membership of the latest round, and the field
    * configuration it is judged by (the pinned version once an assessment
-   * exists, else the timeline's). The caller decides what its role may see.
+   * exists, else the cycle's latest, F-012). The caller decides what its role may see.
    * A read never creates the assessment (DD-3).
    */
   async resolveForAi(
@@ -2303,22 +2303,38 @@ export class AssessmentService {
   /**
    * The items the view follows (design 7.4, DD-3, P-16). With an assessment
    * row, the items of the version it PINNED, in one statement (the membership
-   * statement already returned the version's id). With none, `effectiveFor`
-   * resolves the timeline's version (five statements). No version, or a type
+   * statement already returned the version's id). With none, `currentFor`
+   * reads the cycle's LATEST version (five statements, F-012): S-13 keeps a
+   * version only for results that already carry work. No version, or a type
    * the timeline does not cover: 409 `ASSESSMENT_NO_FIELD_CONFIG`. A timeline
    * that vanished between two reads is the same 404 as any result not seen.
    *
    * F-005 (bugfix/live-field-visibility): the cycle's latest version is read
    * alongside (two statements, in parallel) and its Hidden / View only moves are
    * laid over the kept items (`withLiveVisibility`). Assessed, Core and AI input
-   * stay as kept, so writes, which never read this, are unaffected.
+   * stay as kept, so writes, which never read this, are unaffected. Only for a
+   * pinned row: with none, the latest version is already what is read.
    */
   private async configOf(
     timeline: Pick<WorklistTimeline, 'id' | 'cycleId'>,
     membership: MembershipRecord,
   ): Promise<readonly ConfigItem[]> {
+    const pinned = membership.assessment;
+    // F-012: nobody started the result: the cycle's latest version, already
+    // current, so no overlay and no extra read.
+    if (pinned === null) {
+      return (await this.effectiveConfig(timeline, membership.resultTypeKey))
+        .items;
+    }
+    // A pinned number with no version row is a defect: no structure is guessed.
+    if (pinned.fieldConfigVersionId === null) {
+      throw new AssessmentNoFieldConfigError();
+    }
     const [kept, latest] = await Promise.all([
-      this.keptConfigOf(timeline, membership),
+      this.fieldConfig.versionItems(
+        pinned.fieldConfigVersionId,
+        membership.resultTypeKey,
+      ),
       this.fieldConfig.latestVersionItems(
         timeline.cycleId,
         membership.resultTypeKey,
@@ -2329,33 +2345,13 @@ export class AssessmentService {
       : withLiveVisibility(membership.resultTypeKey, kept, latest);
   }
 
-  /** The pinned version's items, else the timeline's (DD-3, P-16). */
-  private async keptConfigOf(
-    timeline: Pick<WorklistTimeline, 'id' | 'cycleId'>,
-    membership: MembershipRecord,
-  ): Promise<readonly ConfigItem[]> {
-    const pinned = membership.assessment;
-    if (pinned !== null) {
-      // A pinned number with no version row is a defect: no structure is guessed.
-      if (pinned.fieldConfigVersionId === null) {
-        throw new AssessmentNoFieldConfigError();
-      }
-      return await this.fieldConfig.versionItems(
-        pinned.fieldConfigVersionId,
-        membership.resultTypeKey,
-      );
-    }
-    return (await this.effectiveConfig(timeline, membership.resultTypeKey))
-      .items;
-  }
-
-  /** What the timeline resolves to now (five statements): no version, or a type it does not cover, is the 409; a vanished timeline the 404. */
+  /** The cycle's latest version for a result nobody started (F-012, `currentFor`, five statements): no version, or a type the timeline does not cover, is the 409; a vanished timeline the 404. */
   private async effectiveConfig(
     timeline: Pick<WorklistTimeline, 'id' | 'cycleId'>,
     resultTypeKey: string,
   ): Promise<EffectiveFieldConfig> {
     try {
-      return await this.fieldConfig.effectiveFor(
+      return await this.fieldConfig.currentFor(
         timeline.cycleId,
         timeline.id,
         resultTypeKey,

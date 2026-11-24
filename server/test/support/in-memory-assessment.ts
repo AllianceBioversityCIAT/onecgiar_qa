@@ -964,6 +964,24 @@ export class FakeFieldConfigEffective implements FieldConfigEffective {
     });
   }
 
+  /**
+   * The cycle's latest version (F-012): the same five statements, flags and
+   * version queue as `effectiveFor`; its items are `latestVersionItems` when a
+   * test sets them (the latest differs from what the timeline keeps), else the
+   * same `fieldConfigItems`.
+   */
+  currentFor(
+    cycleId: number,
+    timelineId: number,
+    resultTypeKey: string,
+  ): Promise<EffectiveFieldConfig> {
+    const latest = this.world.latestVersionItems[resultTypeKey];
+    return this.effectiveFor(cycleId, timelineId, resultTypeKey).then(
+      (effective) =>
+        latest === undefined ? effective : { ...effective, items: latest },
+    );
+  }
+
   versionItems(
     versionId: number,
     resultTypeKey: string,

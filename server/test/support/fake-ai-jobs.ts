@@ -106,6 +106,14 @@ export class FakeFieldConfigEffective implements FieldConfigEffective {
     };
   }
 
+  currentFor(
+    cycleId: number,
+    timelineId: number,
+    resultTypeKey: string,
+  ): Promise<EffectiveFieldConfig> {
+    return this.effectiveFor(cycleId, timelineId, resultTypeKey);
+  }
+
   async versionItems(): Promise<ConfigItem[]> {
     return [];
   }

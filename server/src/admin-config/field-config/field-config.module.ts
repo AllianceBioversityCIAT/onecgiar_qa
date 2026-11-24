@@ -54,6 +54,16 @@ export interface FieldConfigEffective {
     resultTypeKey: string,
   ): Promise<EffectiveFieldConfig>;
   /**
+   * The cycle's LATEST version for the timeline and type, started or not (F-012):
+   * same checks, errors and five statements as `effectiveFor`. What a result
+   * nobody has started reads; an assessment then pins it.
+   */
+  currentFor(
+    cycleId: number,
+    timelineId: number,
+    resultTypeKey: string,
+  ): Promise<EffectiveFieldConfig>;
+  /**
    * The items of one PUBLISHED version for one result type, in ONE statement:
    * what a consumer that already knows the version (an assessment pins it, so a
    * later publication never moves it) reads instead of `effectiveFor`, which

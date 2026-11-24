@@ -444,12 +444,40 @@ describe('F-005: Hidden / View only moves of the latest version reach a kept ver
     });
   });
 
-  it('shows as View only a field the latest version made View only in a started timeline, and never makes one Assessed', async () => {
+  it('never makes a field Assessed for a result whose assessment pinned it View only', async () => {
     const { world, service, add } = setup();
+    world.versionItems[1] = {
+      policy_change: items({ 'general.title': 'view_only' }),
+    };
+    world.latestVersionItems['policy_change'] = items({
+      'general.title': { core: true },
+    });
+    const membership = await add(5001, { 'general.title': 'T' });
+    world.assessments.push({
+      id: 70,
+      membershipId: membership.id,
+      stepPosition: 1,
+      status: 'pending',
+    });
+
+    const view = await service.open(assessorA(), 1, 5001);
+
+    expect(fieldOf(view, 'general.title')).toMatchObject({
+      mode: 'view',
+      core: false,
+    });
+  });
+});
+
+describe('F-012: a result nobody started reads the cycle LATEST version', () => {
+  it('shows Assessed and core a field only the latest version made Assessed, and View only one it made View only', async () => {
+    const { world, service, add } = setup();
+    // What the started timeline keeps.
     world.fieldConfigItems['policy_change'] = items({
       'general.description': 'hidden',
       'general.title': 'view_only',
     });
+    // The latest version, published after the timeline started.
     world.latestVersionItems['policy_change'] = items({
       'general.description': 'view_only',
       'general.title': { core: true },
@@ -458,13 +486,13 @@ describe('F-005: Hidden / View only moves of the latest version reach a kept ver
 
     const view = await service.open(assessorA(), 1, 5001);
 
+    expect(fieldOf(view, 'general.title')).toMatchObject({
+      mode: 'assessed',
+      core: true,
+    });
     expect(fieldOf(view, 'general.description')).toMatchObject({
       mode: 'view',
       value: 'D',
-    });
-    expect(fieldOf(view, 'general.title')).toMatchObject({
-      mode: 'view',
-      core: false,
     });
   });
 });
@@ -649,7 +677,7 @@ describe('DD-7: the snapshot is read through the real writer key (KZ-ingestion--
 });
 
 describe('NFR-2: a bounded number of statements', () => {
-  it('reads 10 statements with no assessment row and 8 with one, whatever the number of fields and comments', async () => {
+  it('reads 8 statements with no assessment row and 8 with one, whatever the number of fields and comments', async () => {
     const { world, service, add } = setup();
     const membership = await add(5001);
 
@@ -657,8 +685,8 @@ describe('NFR-2: a bounded number of statements', () => {
     await service.open(assessorA(), 1, 5001);
     // timelines, load probe, membership, then `effectiveFor`: the 3 of
     // `listTimelineStarts`, `listVersions` and `listVersionItems` (production);
-    // plus the latest version's items (F-005): `listVersions`, `listVersionItems`.
-    expect(world.statements).toBe(10);
+    // `currentFor` is the latest version already: no overlay read (F-012).
+    expect(world.statements).toBe(8);
 
     world.assessments.push({
       id: 70,
