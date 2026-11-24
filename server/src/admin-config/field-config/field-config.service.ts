@@ -806,6 +806,18 @@ export class FieldConfigService implements FieldConfigEffective {
   ): Promise<ConfigItem[]> {
     return this.store.listVersionItems(versionId, resultTypeKey);
   }
+
+  /** F-005: the latest version's items (two statements); `null` with no version. */
+  async latestVersionItems(
+    cycleId: number,
+    resultTypeKey: string,
+  ): Promise<ConfigItem[] | null> {
+    // Ordered by number ascending: the last row is the latest version.
+    const versions = await this.store.listVersions(cycleId);
+    const latest = versions.at(-1);
+    if (latest === undefined) return null;
+    return this.store.listVersionItems(latest.id, resultTypeKey);
+  }
 }
 
 export type { ConfigItem, FieldCatalog };

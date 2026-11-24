@@ -109,4 +109,7 @@ export class FakeFieldConfigEffective implements FieldConfigEffective {
   async versionItems(): Promise<ConfigItem[]> {
     return [];
   }
+  async latestVersionItems(): Promise<ConfigItem[] | null> {
+    return null;
+  }
 }
