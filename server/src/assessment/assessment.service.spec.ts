@@ -408,6 +408,67 @@ describe('FR-9: hidden fields never leave the service', () => {
   });
 });
 
+describe('F-005: Hidden / View only moves of the latest version reach a kept version', () => {
+  it('drops a field the latest version made Hidden from a result whose assessment pinned it View only (regression)', async () => {
+    const { world, service, add } = setup();
+    // Version 1, pinned by the assessment: the field is View only.
+    world.versionItems[1] = {
+      policy_change: items({ 'general.title': { core: true } }),
+    };
+    // The latest version, published after the timeline started: Hidden.
+    world.latestVersionItems['policy_change'] = items({
+      'general.title': { core: true },
+      'general.description': 'hidden',
+    });
+    const membership = await add(5001, {
+      'general.title': 'T',
+      'general.description': 'HIDDEN-SINCE-V2',
+    });
+    world.assessments.push({
+      id: 70,
+      membershipId: membership.id,
+      stepPosition: 1,
+      status: 'returned',
+      finishedBy: 10,
+      finishedAt: new Date('2026-03-09T08:00:00.000Z'),
+    });
+
+    const view = await service.open(assessorA(), 1, 5001);
+
+    expect(fieldOf(view, 'general.description')).toBeUndefined();
+    expect(JSON.stringify(view)).not.toContain('HIDDEN-SINCE-V2');
+    // The Assessed core field stays as pinned.
+    expect(fieldOf(view, 'general.title')).toMatchObject({
+      mode: 'assessed',
+      core: true,
+    });
+  });
+
+  it('shows as View only a field the latest version made View only in a started timeline, and never makes one Assessed', async () => {
+    const { world, service, add } = setup();
+    world.fieldConfigItems['policy_change'] = items({
+      'general.description': 'hidden',
+      'general.title': 'view_only',
+    });
+    world.latestVersionItems['policy_change'] = items({
+      'general.description': 'view_only',
+      'general.title': { core: true },
+    });
+    await add(5001, { 'general.title': 'T', 'general.description': 'D' });
+
+    const view = await service.open(assessorA(), 1, 5001);
+
+    expect(fieldOf(view, 'general.description')).toMatchObject({
+      mode: 'view',
+      value: 'D',
+    });
+    expect(fieldOf(view, 'general.title')).toMatchObject({
+      mode: 'view',
+      core: false,
+    });
+  });
+});
+
 describe('FR-1: out of scope is the same 404 as a missing code', () => {
   it('answers a byte-equal refusal for every way of not seeing a result', async () => {
     const { world, service, add } = setup();
@@ -588,15 +649,16 @@ describe('DD-7: the snapshot is read through the real writer key (KZ-ingestion--
 });
 
 describe('NFR-2: a bounded number of statements', () => {
-  it('reads 8 statements with no assessment row and 6 with one, whatever the number of fields and comments', async () => {
+  it('reads 10 statements with no assessment row and 8 with one, whatever the number of fields and comments', async () => {
     const { world, service, add } = setup();
     const membership = await add(5001);
 
     world.resetStatements();
     await service.open(assessorA(), 1, 5001);
     // timelines, load probe, membership, then `effectiveFor`: the 3 of
-    // `listTimelineStarts`, `listVersions` and `listVersionItems` (production).
-    expect(world.statements).toBe(8);
+    // `listTimelineStarts`, `listVersions` and `listVersionItems` (production);
+    // plus the latest version's items (F-005): `listVersions`, `listVersionItems`.
+    expect(world.statements).toBe(10);
 
     world.assessments.push({
       id: 70,
@@ -615,8 +677,9 @@ describe('NFR-2: a bounded number of statements', () => {
     world.resetStatements();
     await service.open(assessorA(), 1, 5001);
     // timelines, load probe, membership, the items of the PINNED version in one
-    // statement (design 7.4), then the validations and the comments.
-    expect(world.statements).toBe(6);
+    // statement (design 7.4), the latest version's items in two (F-005), then
+    // the validations and the comments.
+    expect(world.statements).toBe(8);
   });
 
   it('reads the configuration the assessment pinned, not the one the timeline resolves to now', async () => {

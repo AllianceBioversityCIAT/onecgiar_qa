@@ -349,18 +349,19 @@ describe('GET assessment view (e2e)', () => {
   });
 
   describe('NFR-2: a bounded number of statements', () => {
-    it('runs 8 statements for a result with no assessment row yet: effectiveFor is five, as in production', async () => {
+    it('runs 10 statements for a result with no assessment row yet: effectiveFor is five, as in production', async () => {
       const code = await seed(1001, { 'general.title': 'T' });
       a.world.resetStatements();
 
       const res = await a.send('get', path(code), { token: policy() });
 
       expect(res.status).toBe(200);
-      // timelines, load probe, membership, then the 5 of `effectiveFor`.
-      expect(a.world.statements).toBe(8);
+      // timelines, load probe, membership, then the 5 of `effectiveFor`, and
+      // the 2 of `latestVersionItems` (F-005).
+      expect(a.world.statements).toBe(10);
     });
 
-    it('runs 6 statements for a result with an assessment, validations and comments: the pinned version is one read', async () => {
+    it('runs 8 statements for a result with an assessment, validations and comments: the pinned version is one read', async () => {
       const code = await seed(1001, { 'general.title': 'T' });
       a.world.assessments.push({
         id: 70,
@@ -387,8 +388,9 @@ describe('GET assessment view (e2e)', () => {
       expect(res.status).toBe(200);
       // timelines, load probe, membership (with the pinned version's id), the
       // pinned version's items, validations, comments. The fake configuration
-      // counts what production runs: `effectiveFor` is five, `versionItems` one.
-      expect(a.world.statements).toBe(6);
+      // counts what production runs: `effectiveFor` is five, `versionItems` one,
+      // `latestVersionItems` two (F-005).
+      expect(a.world.statements).toBe(8);
     });
   });
 
