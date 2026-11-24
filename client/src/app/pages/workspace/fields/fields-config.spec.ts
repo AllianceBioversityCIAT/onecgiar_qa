@@ -31,4 +31,13 @@ describe('fields-config', () => {
     expect(conditional.requiredHidden).toBe(false);
     expect(conditional.conditional).toBe(true);
   });
+
+  it('a conditional field never reads "Not set yet" (F-023, testing log 23-nov)', () => {
+    const base = { key: 'k', label: 'K', isNew: false, unclassified: true, draft: { visibility: 'hidden' as const, isCore: false, isAiInput: false }, published: null };
+    const conditional = rowVm({ ...base, requirement: 'conditional' }, { state: 'hidden', core: false, ai: false }, true);
+    expect(conditional.conditional).toBe(true);
+    expect(conditional.notSet).toBe(false);
+    const optional = rowVm({ ...base, requirement: 'optional' }, { state: 'hidden', core: false, ai: false }, true);
+    expect(optional.notSet).toBe(true);
+  });
 });
