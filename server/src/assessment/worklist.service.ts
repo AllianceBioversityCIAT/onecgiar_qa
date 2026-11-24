@@ -96,8 +96,10 @@ export interface WorklistCounters {
   pending: number;
   /** `quality_assessed`, `returned_to_program` and `clarification_requested`. */
   finished: number;
-  /** Every membership of the scope under the Auto-validated hiding; filters ignored. */
+  /** Every membership of the scope, Auto-validated included (F-010); filters ignored. */
   total: number;
+  /** F-010: the Auto-validated memberships among `total` (not assessed, never pending nor finished). */
+  autoValidated: number;
 }
 
 export interface WorklistPage {
@@ -234,7 +236,7 @@ export class WorklistService {
       return {
         rows: [],
         nextCursor: null,
-        counters: { pending: 0, finished: 0, total: 0 },
+        counters: { pending: 0, finished: 0, total: 0, autoValidated: 0 },
         writable: false,
         noActiveRole: true,
       };
@@ -273,8 +275,10 @@ export class WorklistService {
       ...currentStepPositionsOf(timeline.steps),
       clarificationWindowOpen:
         audienceStepState('programs', timing) === 'in_progress',
-      // FR-4: hidden unless the status filter names it; the counters follow.
-      hideAutoValidated: !statuses.includes('auto_validated'),
+      // FR-4 as amended by F-010: listed with no status filter; a status filter
+      // that does not name it leaves it out like any other status.
+      hideAutoValidated:
+        statuses.length > 0 && !statuses.includes('auto_validated'),
     };
     const q = query.q?.trim();
     const [records, groups] = await Promise.all([
@@ -297,7 +301,8 @@ export class WorklistService {
               },
         take: limit + 1,
       }),
-      this.store.countByStatus(scope),
+      // F-010: the counters ignore the filters, Auto-validated included.
+      this.store.countByStatus({ ...scope, hideAutoValidated: false }),
     ]);
 
     const page = records.slice(0, limit);
@@ -326,6 +331,7 @@ export class WorklistService {
         pending: sum(['pending']),
         finished: sum(FINISHED_STATUSES),
         total: groups.reduce((total, group) => total + group.count, 0),
+        autoValidated: sum(['auto_validated']),
       },
       writable: access.reviewerRows.some((row) =>
         enabledReviewerRows().some(

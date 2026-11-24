@@ -92,7 +92,7 @@ export interface WorklistScope {
   roundTwoStepPositions: readonly number[];
   /** FR-19: step 2 is open, so a clarification the user wrote keeps an ended membership listed. */
   clarificationWindowOpen: boolean;
-  /** FR-4: Auto-validated is hidden unless the status filter names it; the counters follow the same flag. */
+  /** FR-4 (amended by F-010): true when a status filter is set and does not name Auto-validated; the counters always pass false. */
   hideAutoValidated: boolean;
 }
 
