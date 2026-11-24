@@ -6,6 +6,7 @@ import {
   type FieldCatalog,
 } from '../admin-config/field-config/field-config-catalog.js';
 import type { ConfigItem } from '../admin-config/field-config/field-config-diff.js';
+import { isVisible } from '../admin-config/field-config/visible-when.js';
 import type { CommentState } from '../database/drizzle/schema/assessment-comments.js';
 import type { RoundOneThreadRow } from './assessment.store.js';
 import {
@@ -214,8 +215,18 @@ export function buildAssessmentView(
 
   const fieldOf = (field: CatalogField): ViewField | null => {
     const item = items.get(field.key);
-    const mode = modeOf(item, isTocField(field.key));
-    return mode === null ? null : shape(field, mode, item?.isCore === true);
+    const toc = isTocField(field.key);
+    const mode = modeOf(item, toc);
+    if (mode === null) return null;
+    const core = item?.isCore === true;
+    // F-015: Reporting's `visible_when` on the result's values (an Impact Area
+    // component only under a Principal score). Not on the ToC group, always
+    // returned (OQ-7), nor on a core field, which Finish needs reachable.
+    const conditional = !toc && !(mode === 'assessed' && core);
+    if (conditional && !isVisible(field.visibleWhen, resultType, values)) {
+      return null;
+    }
+    return shape(field, mode, core);
   };
 
   const applicable = applicableFields(catalog, resultType);
