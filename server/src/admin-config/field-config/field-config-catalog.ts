@@ -43,7 +43,22 @@ export interface CatalogField {
    * entries hold ids (e.g. `actor_type: 1`); this is what turns them into names.
    */
   subfieldLists?: Record<string, string>;
+  /**
+   * Reporting's `visible_when`: the field is shown only when it holds on the
+   * result's values (F-015). Absent when the row has none.
+   */
+  visibleWhen?: VisibleWhen;
 }
+
+/**
+ * Reporting's condition grammar: a leaf on a field key (or `$result_type`),
+ * or `any` / `all` of conditions.
+ */
+export type VisibleWhen =
+  | { field: string; operator: 'eq'; value: unknown }
+  | { field: string; operator: 'in'; value: unknown[] }
+  | { any: VisibleWhen[] }
+  | { all: VisibleWhen[] };
 
 export interface FieldCatalog {
   catalogVersion: string;
@@ -151,6 +166,35 @@ function expandTypes(row: Json, known: string[], at: string): string[] {
 }
 
 /**
+ * A `visible_when` as Reporting writes it. A shape this grammar does not know
+ * (a new operator, say) reads as no condition: the field stays visible, and the
+ * catalog is not refused over a display rule (F-015).
+ */
+function conditionOf(raw: unknown): VisibleWhen | undefined {
+  if (!isObject(raw)) return undefined;
+  for (const key of ['any', 'all'] as const) {
+    const list = raw[key];
+    if (list === undefined) continue;
+    if (!Array.isArray(list)) return undefined;
+    const conditions = list.map(conditionOf);
+    if (conditions.some((c) => c === undefined)) return undefined;
+    const known = conditions as VisibleWhen[];
+    return key === 'any' ? { any: known } : { all: known };
+  }
+  const { field, operator, value } = raw;
+  if (typeof field !== 'string') return undefined;
+  if (operator === 'eq') return { field, operator, value };
+  if (operator === 'in' && Array.isArray(value)) {
+    return { field, operator, value };
+  }
+  return undefined;
+}
+
+const withVisibleWhen = (
+  visibleWhen: VisibleWhen | undefined,
+): { visibleWhen?: VisibleWhen } => (visibleWhen ? { visibleWhen } : {});
+
+/**
  * Reporting JSON to the field catalog (design 7.1). Top-level fields only
  * (S-1). `"*"` is expanded; section ties keep array position (the sort is
  * stable); the requirement and `isNew` follow the glossary and S-6.
@@ -208,6 +252,7 @@ export function shapeCatalog(raw: unknown): FieldCatalog {
       controlLists: controlListsOf(r, at),
       ...withSubfieldLists(subfieldListsOf(r)),
       ...(r.description === undefined ? {} : { description: r.description }),
+      ...withVisibleWhen(conditionOf(r.visible_when)),
     };
   });
 
