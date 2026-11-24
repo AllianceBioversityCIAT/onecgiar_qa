@@ -21,7 +21,7 @@ describe('evidenceEntry (F-022)', () => {
   it('drops the *_related flags, tags a private link and reads description as "Where to find it"', () => {
     expect(evidenceEntry(evidence())).toEqual({
       source: 0,
-      link: 'https://cgspace.cgiar.org/handle/1 (Private)',
+      link: 'https://cgspace.cgiar.org/handle/1\u00a0(Private)',
       file_name: null,
       where_to_find_it: 'Table 3, page 12',
     });
@@ -33,7 +33,7 @@ describe('evidenceEntry (F-022)', () => {
   });
 
   it('tags the uploaded file when there is no link, and says Private when there is neither', () => {
-    expect(evidenceEntry(evidence({ link: null, file_url: 'https://files/x.pdf' }))['file_url']).toBe('https://files/x.pdf (Private)');
+    expect(evidenceEntry(evidence({ link: null, file_url: 'https://files/x.pdf' }))['file_url']).toBe('https://files/x.pdf\u00a0(Private)');
     expect(evidenceEntry(evidence({ link: '' }))['access']).toBe('Private');
   });
 
@@ -46,13 +46,13 @@ describe('evidenceEntry (F-022)', () => {
 describe('evidence on both screens (F-022)', () => {
   it('Review reads the evidence without the flags', () => {
     expect(formatValue({ value: [evidence()], labels, notApplicable: false, subfieldLists: { source: 'evidence_sources' } })).toBe(
-      'Source: Link · Link: https://cgspace.cgiar.org/handle/1 (Private) · Where to find it: Table 3, page 12',
+      'Source: Link · Link: https://cgspace.cgiar.org/handle/1\u00a0(Private) · Where to find it: Table 3, page 12',
     );
   });
 
   it('the Science Program view reads it the same way', () => {
     expect(valueLines([evidence()], labels)).toEqual([
-      { label: null, text: 'Source: Link · Link: https://cgspace.cgiar.org/handle/1 (Private) · Where to find it: Table 3, page 12' },
+      { label: null, text: 'Source: Link · Link: https://cgspace.cgiar.org/handle/1\u00a0(Private) · Where to find it: Table 3, page 12' },
     ]);
   });
 });
