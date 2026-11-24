@@ -453,10 +453,9 @@ describe('Round-2 view of the Lead (e2e)', () => {
       expect(one.threadCalls).toBe(1);
       expect(many.threadCalls).toBe(1);
       // timelines, load probe, membership (with the previous assessment's id),
-      // the pinned version's items for the membership with no row yet (five of
-      // `effectiveFor`), the latest version's items (two, F-005), then the
-      // thread and the round-1 validations: 12.
-      expect(many.statements).toBe(12);
+      // the latest version's items for the membership with no row yet (five of
+      // `currentFor`, F-012), then the thread and the round-1 validations: 10.
+      expect(many.statements).toBe(10);
     });
   });
 
