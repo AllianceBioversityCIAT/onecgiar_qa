@@ -11,6 +11,7 @@ import {
   TOC_SECTION_KEY,
 } from '../../../core/api/assessment.models';
 import { reviewerLabel } from '../../../core/api/acting-role';
+import { evidenceEntry } from '../../../core/domain/evidence-entry';
 import { fieldLabel } from '../../../core/domain/field-label';
 import { formatDay, romeInstantLabel, todayInRome } from '../../../core/domain/rome-date';
 import { STATUS_LABELS, qaStatusPill } from '../results/qa-status';
@@ -204,11 +205,12 @@ const valueOnly = (entry: Readonly<Record<string, Json>>): Json | undefined =>
  * list: the ToC ones always, the others from the field's `subfieldLists` (e.g. "Actor type: Farmers", not "1").
  */
 function entryText(
-  entry: Json,
+  raw: Json,
   labels: FieldLabels | null,
   lists: Readonly<Record<string, string>> = SUBFIELD_LISTS,
 ): string {
-  if (!isObject(entry)) return scalarText(entry, labels, undefined, !!labels);
+  if (!isObject(raw)) return scalarText(raw, labels, undefined, !!labels);
+  const entry = evidenceEntry(raw);
   const single = valueOnly(entry);
   if (single !== undefined) return scalarText(single, labels, lists['value'], Object.hasOwn(lists, 'value'));
   return Object.entries(entry)
