@@ -113,7 +113,7 @@ describe('ResultsView on the worklist API', () => {
     });
   });
 
-  it('opens the default timeline with no status filter: Auto-validated stays hidden by the server (FR-4)', async () => {
+  it('opens the default timeline with no status filter: the server lists Auto-validated with the rest (F-010)', async () => {
     const harness = await open('/results');
     expect(api.calls).toHaveLength(1); // one load, not two (the creating navigation is skipped once)
     expect(api.last().id).toBe(29);
@@ -207,6 +207,19 @@ describe('ResultsView on the worklist API', () => {
     api.pageAnswer = () => of(page([row('1')], { counters: { pending: 4, finished: 6, total: 10 } }));
     const harness = await open('/results?status=pending');
     expect(text(harness)).toContain('4 pending · 6 finished · 10 in this timeline');
+  });
+
+  it('the total says how many of them are auto-validated, and says nothing when none is (F-010)', async () => {
+    api.pageAnswer = () => of(page([row('1')], { counters: { pending: 3, finished: 2, total: 7, autoValidated: 2 } }));
+    const harness = await open('/results');
+    expect(text(harness)).toContain('3 pending · 2 finished · 7 in this timeline, incl. 2 auto-validated');
+  });
+
+  it('no auto-validated counter (or 0) keeps the plain total', async () => {
+    api.pageAnswer = () => of(page([row('1')], { counters: { pending: 4, finished: 6, total: 10 } }));
+    const harness = await open('/results');
+    expect(text(harness)).toContain('10 in this timeline');
+    expect(text(harness)).not.toContain('auto-validated');
   });
 
   it('read-only banner when the step is not open', async () => {
