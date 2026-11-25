@@ -299,6 +299,22 @@ describe('review.mapper (API assessment view → Review view models)', () => {
       expect(h.showAssessedBy).toBe(false);
     });
 
+    it('P2-4136 AC3: the header carries the Science Program and the timeline to show them, not only the ⓘ details', () => {
+      const h = toReviewVm(viewFixture()).header;
+      expect([h.programCode, h.programName, h.timeline, h.step]).toEqual([
+        'SP05',
+        'SP05 Better Diets and Nutrition',
+        'Official timeline 2026',
+        'Step 1 · Assessment',
+      ]);
+    });
+
+    it('P2-4136: no step on the timeline reads "No step" in the header, never a blank', () => {
+      const v = viewFixture();
+      const h = toReviewVm({ ...v, header: { ...v.header, step: null } }).header;
+      expect(h.step).toBe('No step');
+    });
+
     it.each([
       ['admin_read_only', 'View only for admins'],
       ['step_upcoming', 'Step 1 · Assessment has not opened yet'],
