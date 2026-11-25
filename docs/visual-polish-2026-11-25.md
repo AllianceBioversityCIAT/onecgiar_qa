@@ -171,3 +171,35 @@ Rule: **a property is an outlined tag; a status is a neutral badge with a colour
 - **Removed the explaining parts:** the floating "Now · N%" label, the outlined open step, the check marks and the legend. The bar shows the progress by itself.
 - **The open step's name** is semibold text instead of green bold.
 - **The percentage** sits on the second line with the closing date ("88% · Closes 23 Jul…"); the right column is 12.5rem so nothing wraps. The aria-label still says the percentage.
+
+## Round 12 — Side panels (same day)
+Checked with the full mock: Load results, Step, People, Edit timeline (menu) and the Assessor panel. People was already consistent.
+- **Load results:** the blue info box became a neutral note (soft fill, grey icon, normal text). There are no blue boxes anywhere else.
+- **Step panel:** "Who can work in this step" shows its fixed value as plain text instead of a grey, disabled-looking field (design rule: fixed values read as text).
+- **Assessor panel:**
+  - Two other fixed values ("Included in the lead…", "All result types") are plain text for the same reason.
+  - In the "Blocked for conflict of interest" row, the date overlapped "Reporting" because the last column was 32px. The columns are now auto-sized.
+  - "Reporting" is an outlined tag, since it is a property.
+- **Tested:** `ng build` green; `ng test` on cycle and assessors: 14 files, 185 passed.
+
+## Round 13 — Step and Assessor panels in sections (same day)
+Juanpa: the panels read as loose text with no hierarchy. A mockup was approved, then built once. Wrappers, classes and help text only; every field, binding and condition is unchanged.
+- **Shared pattern:**
+  - Titled sections (14px semibold), separated by a hairline, each with at most one line of help (12px muted) under the title.
+  - Labels are 13px medium.
+  - Paired fields sit in two columns, stacked on phones.
+  - Every control is full width in its column; before, widths mixed 280/320px and full.
+- **Step panel:**
+  - **Step:** "Name" and "Who works in it".
+  - **Dates:** "Rome time (CET), 24-hour clock" as the section line; Opens and Closes side by side. A locked opening reads "Fixed: the step is open. You can still move its closing date."
+  - **Loads results:** a shorter explanation, and "Starts QA round N" as an outlined tag.
+  - The closed-step text and the first-step warning are unchanged.
+  - Spec: the zone text is matched without its final period.
+- **Assessor panel:**
+  - **Role:** Nickname and Role, then the permission switch (no extra "Permissions" label on it).
+  - **What they assess:** Result types and Science programs.
+  - **Conflicts of interest:** was "Blocked for conflict of interest", with the line "Programs this person can never assess."
+- **Tested:**
+  - `ng build`: green.
+  - `ng test` on cycle and assessors: 14 files, 185 passed.
+  - Playwright: open step, future step, and the assessor panel at 1440 and 390 px.
