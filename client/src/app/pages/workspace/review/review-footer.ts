@@ -33,6 +33,11 @@ export class ReviewFooter {
   readonly finishing = input(false);
   /** Why the server did not finish it (core fields still open…), shown in the confirm step. */
   readonly finishError = input('');
+  /**
+   * P2-4138: why the server would refuse Finish now ("Validate or comment this core field first: …"). While set,
+   * the confirm step names it instead of an outcome and its Finish button is off.
+   */
+  readonly finishBlocked = input('');
 
   readonly back = output();
   readonly next = output();

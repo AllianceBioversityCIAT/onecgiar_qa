@@ -159,6 +159,7 @@
               [finishTo]="page.finishTo"
               [finishing]="store.finishing()"
               [finishError]="finishError()"
+              [finishBlocked]="finishBlocked()"
               (back)="goSection(idx() - 1)"
               (next)="goSection(idx() + 1)"
               (finish)="finish()"
