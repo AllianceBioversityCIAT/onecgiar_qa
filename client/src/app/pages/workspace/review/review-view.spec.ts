@@ -711,7 +711,45 @@ describe('ReviewView on the assessment API', () => {
         await settle();
       };
 
+      /** toc.entries (core, grey) carries a comment that still stands: the server takes the finish (Returned to program). */
+      const tocCommented = (): AssessmentView => {
+        const base = viewFixture();
+        return { ...base, sections: base.sections.map((sec) => ({ ...sec, fields: sec.fields.map((f) => (f.key === 'toc.entries' ? { ...f, comments: [comment({ id: 9 })] } : f)) })) };
+      };
+
+      it('P2-4138: a grey core field with no comment: the confirm step names it, announces no outcome and offers no finish', async () => {
+        const el = await open(); // the fixture: toc.entries is core, grey and uncommented
+        await toConfirm(el);
+        const dialog = text(el.querySelector('[role="alertdialog"]')!);
+        expect(dialog).not.toContain('Returned to program');
+        expect(dialog).not.toContain('The result becomes');
+        expect(text(el.querySelector('qa-review-footer [role="alert"]')!)).toBe('Validate or comment this core field first: ToC contributions.');
+        const confirm = byName(el.querySelector('qa-review-footer')!, 'Finish assessment')!;
+        expect(confirm.disabled).toBe(true);
+        confirm.click();
+        await settle();
+        expect(api.finish).not.toHaveBeenCalled();
+      });
+
+      it('P2-4138: a grey core field with a comment: the footer announces Returned to program', async () => {
+        api.view.mockImplementation(() => of(tocCommented()));
+        const el = await open();
+        await toConfirm(el);
+        expect(text(el.querySelector('[role="alertdialog"]')!)).toContain('The result becomes Returned to program. This cannot be undone.');
+        expect(el.querySelector('qa-review-footer [role="alert"]')).toBeNull();
+      });
+
+      it('P2-4138: every core green and no comment: the footer announces Quality Assessed', async () => {
+        const base = uncommented(viewFixture());
+        const clean = { ...base, sections: base.sections.map((sec) => ({ ...sec, fields: sec.fields.map((f) => (f.core ? { ...f, validated: true } : f)) })) };
+        api.view.mockImplementation(() => of(clean));
+        const el = await open();
+        await toConfirm(el);
+        expect(text(el.querySelector('[role="alertdialog"]')!)).toContain('The result becomes Quality Assessed. This cannot be undone.');
+      });
+
       it('says what finishing does now and that it cannot be undone, then finishes with one request', async () => {
+        api.view.mockReturnValue(of(tocCommented()));
         const el = await open();
         await toConfirm(el);
         expect(text(el.querySelector('[role="alertdialog"]')!)).toContain('The result becomes Returned to program. This cannot be undone.');
@@ -735,6 +773,8 @@ describe('ReviewView on the assessment API', () => {
       });
 
       it('409 ASSESSMENT_CORE_UNCOMMENTED: names the core fields still open, by their label, and stays on the page', async () => {
+        // The page saw a comment on toc.entries; the server no longer does (withdrawn from another tab).
+        api.view.mockReturnValue(of(tocCommented()));
         api.finish.mockReturnValueOnce(refusal(409, 'ASSESSMENT_CORE_UNCOMMENTED', 'Core fields are still open.', ['toc.entries']));
         const el = await open();
         await toConfirm(el);
@@ -746,6 +786,7 @@ describe('ReviewView on the assessment API', () => {
       });
 
       it('409 ASSESSMENT_FINISHED on finish: the page shows who finished it', async () => {
+        api.view.mockReturnValue(of(tocCommented()));
         api.finish.mockReturnValueOnce(refusal(409, 'ASSESSMENT_FINISHED', 'This assessment is already finished.'));
         const el = await open();
         await toConfirm(el);

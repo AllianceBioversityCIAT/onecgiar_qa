@@ -101,10 +101,16 @@ export interface ReviewVm {
   /** Finish is offered: writable and the assessment still pending (FR-15). */
   readonly canFinish: boolean;
   /**
-   * Status the result takes if it is finished now: returned while a core field is grey, and in step 1 also
-   * while any comment still stands (`returnsOnAnyComment`); Quality Assessed otherwise.
+   * Status the result takes if it is finished now, mirroring the server's `endOnFinish`: empty while Finish would
+   * be refused (`finishBlockedBy`); returned while a core field is grey (and commented), and in step 1 also while
+   * any comment still stands (`returnsOnAnyComment`); Quality Assessed otherwise.
    */
   readonly finishTo: string;
+  /**
+   * P2-4138: labels of the core fields that are grey with no comment that still stands, in page order. The server
+   * refuses Finish while any is left (409 `ASSESSMENT_CORE_UNCOMMENTED`), so the page names them instead of an outcome.
+   */
+  readonly finishBlockedBy: readonly string[];
 }
 
 const ASSESSOR_INSTRUCTIONS =
@@ -559,6 +565,8 @@ export function toReviewVm(view: AssessmentView, writes = true): ReviewVm {
     });
   }
   const assessed = view.sections.flatMap((s) => fieldsOf(s.fields)).filter(isAssessed);
+  // The server's refusal (`endOnFinish`): a grey core field with no non-withdrawn comment.
+  const finishBlockedBy = assessed.filter((f) => f.core && !isResolved(f)).map((f) => f.label);
   return {
     header: toHeaderVm(view, canAct),
     sections,
@@ -569,11 +577,21 @@ export function toReviewVm(view: AssessmentView, writes = true): ReviewVm {
     commented: assessed.filter((f) => openComments(f).length > 0).length,
     validated: assessed.filter((f) => f.validated).length,
     canFinish: canAct && (view.assessment?.status ?? 'pending') === 'pending',
-    finishTo:
-      assessed.some((f) => f.core && !f.validated) || returnsOnAnyComment(view)
+    finishTo: finishBlockedBy.length
+      ? ''
+      : assessed.some((f) => f.core && !f.validated) || returnsOnAnyComment(view)
         ? STATUS_LABELS.returned_to_program
         : STATUS_LABELS.quality_assessed,
+    finishBlockedBy,
   };
+}
+
+/**
+ * Why Finish is refused, in the words the page uses for the 409 `ASSESSMENT_CORE_UNCOMMENTED` (one or several core
+ * field labels); empty when nothing blocks it.
+ */
+export function coreUncommentedMessage(names: readonly string[]): string {
+  return names.length ? `Validate or comment ${names.length === 1 ? 'this core field' : 'these core fields'} first: ${names.join(', ')}.` : '';
 }
 
 /** A field by key, with the name of its section (the drawer's subtitle). */

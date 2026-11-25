@@ -2,7 +2,7 @@
 import { AssessmentField, AssessmentView } from '../../../core/api/assessment.models';
 import { FieldVm } from './review-model';
 import { clarificationThread, comment, field, programResponse, viewFixture } from './review.api-fixture';
-import { findField, formatValue, pendingAnswers, pendingAnswersBanner, readOnlyBanner, returnsOnAnyComment, toCommentVm, toDrawerVm, toFieldVm, toReviewVm, withPendingAnswers, withdrawOpen } from './review.mapper';
+import { coreUncommentedMessage, findField, formatValue, pendingAnswers, pendingAnswersBanner, readOnlyBanner, returnsOnAnyComment, toCommentVm, toDrawerVm, toFieldVm, toReviewVm, withPendingAnswers, withdrawOpen } from './review.mapper';
 
 const byLabel = (fields: readonly FieldVm[], label: string): FieldVm =>
   fields.find((f) => f.label === label)!;
@@ -560,8 +560,39 @@ describe('review.mapper (API assessment view → Review view models)', () => {
     const coreGreen = (v: AssessmentView): AssessmentView => everyField(v, (f) => (f.core ? { ...f, validated: true } : f));
     const atStep = (v: AssessmentView, position: number): AssessmentView => ({ ...v, header: { ...v.header, step: { position, name: 'Step' } } });
 
-    it('Returned to program while a core field is grey', () => {
-      expect(toReviewVm(viewFixture()).finishTo).toBe('Returned to program'); // toc.entries is core and grey
+    /** toc.entries (core, grey in the fixture) with a comment that still stands. */
+    const tocCommented = (v: AssessmentView): AssessmentView =>
+      everyField(v, (f) => (f.key === 'toc.entries' ? { ...f, comments: [comment({ id: 9 })] } : f));
+
+    it('P2-4138: a grey core field with no comment is refused by the server, so no outcome is announced and the field is named', () => {
+      const page = toReviewVm(viewFixture()); // toc.entries is core, grey and has no comment
+      expect(page.finishTo).toBe('');
+      expect(page.finishBlockedBy).toEqual(['ToC contributions']);
+    });
+
+    it('P2-4138: a core field whose only comment was withdrawn still blocks it (the server reads non-withdrawn comments)', () => {
+      const withdrawn = everyField(viewFixture(), (f) =>
+        f.key === 'toc.entries' ? { ...f, comments: [comment({ id: 9, state: 'withdrawn', withdrawnAt: '2026-11-12T11:00:00.000Z' })] } : f,
+      );
+      expect(toReviewVm(withdrawn).finishBlockedBy).toEqual(['ToC contributions']);
+      expect(toReviewVm(withdrawn).finishTo).toBe('');
+    });
+
+    it('a grey core field WITH a comment that still stands is Returned to program, nothing blocks it', () => {
+      const page = toReviewVm(tocCommented(viewFixture()));
+      expect(page.finishBlockedBy).toEqual([]);
+      expect(page.finishTo).toBe('Returned to program');
+    });
+
+    it('names every blocking core field, in page order', () => {
+      const two = everyField(viewFixture(), (f) => (f.key === 'general.title' ? { ...f, validated: false } : f));
+      expect(toReviewVm(two).finishBlockedBy).toEqual(['Title of Result', 'ToC contributions']);
+    });
+
+    it('every core green and no comment at all: Quality Assessed, nothing blocks it', () => {
+      const clean = everyField(coreGreen(viewFixture()), (f) => ({ ...f, comments: [] }));
+      expect(toReviewVm(clean).finishBlockedBy).toEqual([]);
+      expect(toReviewVm(clean).finishTo).toBe('Quality Assessed');
     });
 
     it('step 1: a comment that still stands, on a field that is not core, returns it even with every core green', () => {
@@ -584,7 +615,14 @@ describe('review.mapper (API assessment view → Review view models)', () => {
 
     it('a later step counts the core fields only: every core green is Quality Assessed, comments or not', () => {
       expect(toReviewVm(atStep(coreGreen(viewFixture()), 3)).finishTo).toBe('Quality Assessed');
-      expect(toReviewVm(atStep(viewFixture(), 3)).finishTo).toBe('Returned to program'); // toc.entries still grey
+      expect(toReviewVm(atStep(tocCommented(viewFixture()), 3)).finishTo).toBe('Returned to program'); // toc.entries grey, commented
+      expect(toReviewVm(atStep(viewFixture(), 3)).finishTo).toBe(''); // toc.entries grey with no comment: refused
+    });
+
+    it('coreUncommentedMessage: the same words the page shows for the 409 ASSESSMENT_CORE_UNCOMMENTED', () => {
+      expect(coreUncommentedMessage(['Result level'])).toBe('Validate or comment this core field first: Result level.');
+      expect(coreUncommentedMessage(['Result level', 'Title of Result'])).toBe('Validate or comment these core fields first: Result level, Title of Result.');
+      expect(coreUncommentedMessage([])).toBe('');
     });
 
     it('returnsOnAnyComment: only step 1, only a comment that still stands', () => {

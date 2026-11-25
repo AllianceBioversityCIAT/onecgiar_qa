@@ -19,7 +19,7 @@ import { ALL_FIELDS, ReviewStore } from './review-store';
 import { AiReasonDialog } from './ai/ai-reason-dialog';
 import { AiReasonAsk, REVIEW_AI_PROVIDERS, ReviewAiHook } from './ai/review-ai-hook';
 import { ReviewTocSection, TocCardAction } from './review-toc-section';
-import { PendingAnswer, findField, pendingAnswers, pendingAnswersBanner, returnsOnAnyComment, toDrawerVm, withPendingAnswers, withdrawOpen } from './review.mapper';
+import { PendingAnswer, coreUncommentedMessage, findField, pendingAnswers, pendingAnswersBanner, returnsOnAnyComment, toDrawerVm, withPendingAnswers, withdrawOpen } from './review.mapper';
 
 /** The review area stacks its navigator on top below this width (container). */
 const NARROW_PX = 900;
@@ -126,6 +126,8 @@ export class ReviewView {
   protected readonly skippedCount = this.skipped.asReadonly();
   /** Why the server did not finish it (core fields still open…). */
   protected readonly finishError = signal('');
+  /** P2-4138: the core fields the server would refuse Finish for, named before the reviewer confirms. */
+  protected readonly finishBlocked = computed(() => coreUncommentedMessage(this.vm()?.finishBlockedBy ?? []));
 
   // ---- Green / grey ----
   protected readonly validating = this.store.validating;
@@ -417,7 +419,7 @@ export class ReviewView {
       // 409 ASSESSMENT_CORE_UNCOMMENTED: say which core fields, by the name the reviewer sees.
       const view = this.store.view();
       const names = outcome.coreKeys.map((key) => (view ? findField(view, key)?.field.label : null) ?? key);
-      this.finishError.set(`Validate or comment ${names.length === 1 ? 'this core field' : 'these core fields'} first: ${names.join(', ')}.`);
+      this.finishError.set(coreUncommentedMessage(names));
       return;
     }
     this.finishError.set(outcome.message);
