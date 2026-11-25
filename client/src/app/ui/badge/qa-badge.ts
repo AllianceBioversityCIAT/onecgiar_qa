@@ -52,7 +52,7 @@ export class QaBadge {
 
   protected readonly classes = computed(
     () =>
-      `inline-flex flex-none items-center gap-[5px] rounded-full font-semibold whitespace-nowrap text-(length:--fs-11) ${
+      `inline-flex flex-none items-center gap-[5px] rounded-md font-medium whitespace-nowrap text-(length:--fs-12) ${
         this.size() === 'sm' ? 'px-2 py-0.5' : 'px-[10px] py-[3px]'
       } ${TONES[this.status()]}`,
   );

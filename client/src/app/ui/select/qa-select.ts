@@ -121,11 +121,11 @@ export class QaSelectFooter {}
         <button
           brnSelectTrigger
           [attr.aria-label]="label() + ': ' + display()"
-          class="flex h-9 min-w-0 max-w-full cursor-pointer items-center gap-2 rounded-lg border-0 bg-(--surface-3) px-3 text-left text-(length:--fs-15) font-semibold text-(--text) outline-none hover:bg-(--surface-4) focus-visible:shadow-(--focus-ring) aria-expanded:bg-(--surface-4) disabled:cursor-not-allowed disabled:opacity-50 max-sm:h-10"
+          class="flex h-9 min-w-0 max-w-full cursor-pointer items-center gap-2 rounded-lg border-0 bg-(--surface-4) px-3 text-left text-(length:--fs-15) font-semibold text-(--text) outline-none hover:bg-(--surface-6) focus-visible:shadow-(--focus-ring) aria-expanded:bg-(--surface-6) disabled:cursor-not-allowed disabled:opacity-50 max-sm:h-10"
         >
           <span class="min-w-0 truncate">{{ display() }}</span>
           @if (selected()?.tag; as tag) {
-            <span class="flex-none rounded-full bg-(--surface) px-1.5 py-px text-(length:--fs-11) font-semibold text-(--text-4)">{{ tag }}</span>
+            <span class="flex-none rounded-md bg-(--surface) px-1.5 py-px text-(length:--fs-12) font-medium text-(--text-4)">{{ tag }}</span>
           }
           <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flex-none"><path d="M6 9l6 6 6-6" /></svg>
         </button>
@@ -139,7 +139,7 @@ export class QaSelectFooter {}
           >
             <span class="min-w-0 truncate">{{ display() }}</span>
             @if (selected()?.tag; as tag) {
-              <span class="flex-none rounded-full bg-(--surface-3) px-1.5 py-px text-(length:--fs-10) font-semibold text-(--text-4)">{{ tag }}</span>
+              <span class="flex-none rounded-md bg-(--surface-3) px-1.5 py-px text-(length:--fs-12) font-medium text-(--text-4)">{{ tag }}</span>
             }
             <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flex-none"><path d="M6 9l6 6 6-6" /></svg>
           </button>
@@ -154,7 +154,7 @@ export class QaSelectFooter {}
         >
           <span class="min-w-0 truncate">{{ display() }}</span>
           @if (selected()?.tag; as tag) {
-            <span class="flex-none rounded-full bg-(--surface-3) px-1.5 py-px text-(length:--fs-10) font-semibold text-(--text-4)">{{ tag }}</span>
+            <span class="flex-none rounded-md bg-(--surface-3) px-1.5 py-px text-(length:--fs-12) font-medium text-(--text-4)">{{ tag }}</span>
           }
           <svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="ml-auto flex-none"><path d="M6 9l6 6 6-6" /></svg>
         </button>
@@ -188,7 +188,7 @@ export class QaSelectFooter {}
                 @let option = row.option;
                 @let on = option.value === value();
                 @if (row.heading) {
-                  <div role="presentation" class="flex-none px-2 pt-2 pb-1 text-(length:--fs-10) font-semibold tracking-[0.08em] text-(--text-4) uppercase">
+                  <div role="presentation" class="flex-none px-2 pt-2 pb-1 text-(length:--fs-12) font-medium text-(--text-4)">
                     {{ row.heading }}
                   </div>
                 }

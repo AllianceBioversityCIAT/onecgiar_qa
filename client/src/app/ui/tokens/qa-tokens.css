@@ -1,40 +1,45 @@
 /*
+ * Direction A (Juanpa, 2026-11-25): warm grey canvas, white cards with a soft shadow, green-tinted neutrals (the old
+ * violet-tinted greys clashed with the teal), neutral navigation; green is kept for actions, links and focus.
+ *
  * QA Platform design tokens from the Claude Design mockup (light + .dark): the single source of
  * colors, font sizes and font for the app shell (host class qa-tokens) and for elements that render
  * outside it (CDK overlays: drawers, menus, selects, tooltips; standalone pages like the UI gallery).
  * Loaded globally (ViewEncapsulation.None) by QaTokensLoader; apply with class="qa-tokens".
  */
 .qa-tokens {
-  --bg:#F7F7F9;
+  --bg:#F4F5F4;
   --surface:#FFFFFF;
-  --surface-2:#FAFAFB;
-  --surface-3:#F7F7F9;
-  --surface-4:#EEEEF1;
-  --surface-5:#F3F2F7;
-  --surface-6:#DDDCE6;
-  --border:#E3E3E8;
-  --border-soft:#EEEEF1;
-  --border-strong:#D5D5DC;
-  --border-accent:#BFDCD8;
-  --text:#191524;
-  --text-2:#2B2838;
-  --text-3:#5D5872;
-  --text-4:#6B6580;
-  --text-5:#77728A;
-  --text-muted:#6E6981;
+  --surface-2:#FAFBFA;
+  --surface-3:#F4F6F5;
+  --surface-4:#E9ECEA;
+  --surface-5:#F1F3F2;
+  --surface-6:#D9DEDB;
+  --border:#E2E6E4;
+  --border-soft:#ECEFED;
+  --border-strong:#CFD5D2;
+  --border-accent:#C3D6D1;
+  --text:#15201E;
+  --text-2:#26302E;
+  --text-3:#4F5A57;
+  --text-4:#5B6663;
+  --text-5:#626D6A;
+  --text-muted:#5F6A67;
   --primary:#0F766E;
   --primary-hover:#115E59;
   --accent:#115E59;
   --accent-strong:#0C4A45;
-  --tint:#F0FBFA;
-  --tint-2:#D7F2EF;
-  --tint-3:#ADE3DD;
-  --nav-bg:#F4F8F7;
-  --shadow-pop:0 8px 24px rgba(25,21,36,.10);
-  --shadow-seg:0 1px 2px rgba(25,21,36,.06);
-  --overlay:rgba(25,21,36,.45);
+  --tint:#F1F6F4;
+  --tint-2:#E1ECE8;
+  --tint-3:#C9DDD7;
+  --nav-bg:#F4F5F4;
+  --shadow-pop:0 8px 24px rgba(16,24,22,.10), 0 1px 3px rgba(16,24,22,.06);
+  --shadow-seg:0 1px 2px rgba(16,24,22,.08);
+  /* Cards on the grey canvas: hairline border plus a soft two-layer shadow (direction A, Juanpa 2026-11-25). */
+  --shadow-card:0 1px 2px rgba(16,24,22,.05), 0 2px 8px rgba(16,24,22,.04);
+  --overlay:rgba(16,24,22,.45);
   --surface-raised:#FFFFFF;
-  --border-raised:#E3E3E8;
+  --border-raised:#E2E6E4;
   --st-editing-fg:#B45309;
   --st-editing-bg:#FEF3C7;
   --st-submitted-fg:#1D4ED8;
@@ -54,28 +59,28 @@
   --danger-strong:#B42318;
   --warning:#B45309;
   --success:#047857;
-  --chart-1:#A7DED8;
-  --chart-2:#66B3AB;
+  --chart-1:#C5D9D4;
+  --chart-2:#7FAFA6;
   --chart-3:#0F766E;
   --chart-4:#0C3A37;
-  --nav-2:#EAF2F0;
-  --nav-3:#E1ECEA;
+  --nav-2:#E9ECEA;
+  --nav-3:#E2E6E4;
   --nav-text:#0F766E;
-  --nav-fg:#17322F;
-  --nav-fg-2:#2C4B47;
-  --nav-fg-3:#5E7D79;
-  --nav-divider:#DCE7E5;
-  --nav-eyebrow:#5C7470;
-  --tint-4:#C8EBE7;
+  --nav-fg:#15201E;
+  --nav-fg-2:#3F4A47;
+  --nav-fg-3:#5B6663;
+  --nav-divider:#E2E6E4;
+  --nav-eyebrow:#5B6663;
+  --tint-4:#D5E5E0;
   --tint-text:#5FA8A1;
-  --tint-soft:#F5FCFB;
-  --band-bg:#F3FAF9;
-  --band-border:#DCEEEC;
+  --tint-soft:#F5F8F7;
+  --band-bg:#F2F6F5;
+  --band-border:#DDE7E4;
   --field-bg:#FFFFFF;
-  --seg-track:#EEEEF1;
+  --seg-track:#E9ECEA;
   --seg-active:#FFFFFF;
-  --tint-border:#D9EEEB;
-  --tint-border-2:#CBE8E4;
+  --tint-border:#D8E5E1;
+  --tint-border-2:#CCDDD8;
   --warning-dot:#FBBF24;
   --danger-soft:#FEE2E2;
   --fs:1;
@@ -98,7 +103,7 @@
   --ai-tint-3:#DDD6FE;
   --focus-ring:0 0 0 3px rgba(15,118,110,.30);
   --nav-active-shadow:0 2px 8px rgba(15,118,110,.38);
-  --qa-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --qa-mono: 'Manrope', system-ui, sans-serif;
   color: var(--text);
   font-family: 'Manrope', system-ui, sans-serif;
   line-height: normal;
@@ -150,6 +155,7 @@
   --nav-divider:#283935;
   --nav-eyebrow:#758885;
   --shadow-pop:0 8px 24px rgba(0,0,0,.48);
+  --shadow-card:0 1px 2px rgba(0,0,0,.35);
   --overlay:rgba(4,12,11,.70);
   --surface-raised:#1D2A28;
   --border-raised:#39504B;
