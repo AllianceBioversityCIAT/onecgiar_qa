@@ -52,13 +52,17 @@ interface StepDraft {
     <qa-drawer [(open)]="open" [closeGuard]="discard.guard" [title]="title()" [subtitle]="request().timeline.name" width="720px">
       @if (open()) {
         @let d = draft();
-        <div class="flex flex-col items-stretch gap-[6px]">
-          <div class="flex items-center gap-1">
-            <label for="cycle-step-name" class="text-(length:--fs-13) font-semibold text-(--text-2)">Step name</label>
-            <span aria-hidden="true" class="text-(length:--fs-13) font-semibold text-(--danger-strong)">*</span>
-            <button type="button" qaTooltip="This is what assessors read in the timeline. Describe what happens, not who does it." aria-label="More about Step name" class="flex size-4 flex-none cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-0 text-(--text-muted) outline-none hover:text-(--primary) focus-visible:shadow-(--focus-ring)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01" /></svg></button>
-          </div>
-          <input
+        <!-- Titled sections, one line of help each, fields paired in two columns (Juanpa, 2026-11-25: the panel read as
+             loose text with no hierarchy). Same fields, bindings and rules as before. -->
+        <section class="flex flex-col gap-4" aria-labelledby="cycle-step-sec-step">
+          <h3 id="cycle-step-sec-step" class="m-0 text-(length:--fs-14) font-semibold text-(--text)">Step</h3>
+          <div class="flex flex-col gap-1.5">
+            <div class="flex items-center gap-1">
+              <label for="cycle-step-name" class="text-(length:--fs-13) font-medium text-(--text-2)">Name</label>
+              <span aria-hidden="true" class="text-(length:--fs-13) font-semibold text-(--danger-strong)">*</span>
+  <button type="button" qaTooltip="This is what assessors read in the timeline. Describe what happens, not who does it." aria-label="More about Step name" class="flex size-4 flex-none cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-0 text-(--text-muted) outline-none hover:text-(--primary) focus-visible:shadow-(--focus-ring)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01" /></svg></button>
+            </div>
+  <input
             hlmInput
             id="cycle-step-name"
             type="text"
@@ -69,45 +73,47 @@ interface StepDraft {
             [attr.data-error]="!!nameError()"
             class="h-9 w-full rounded-lg border-(--border) bg-(--field-bg) px-3 py-0 text-(length:--fs-14) text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-14) dark:bg-(--field-bg)"
           />
-          @if (nameError()) {
-            <span id="cycle-step-name-err" class="text-(length:--fs-13) text-(--danger)">{{ nameError() }}</span>
-          }
-        </div>
-
-        <div class="flex flex-col items-start gap-[6px]">
-          <span id="cycle-step-who" class="text-(length:--fs-13) font-semibold text-(--text-2)">Who can work in this step</span>
-          @if (d.audience === correctionAudience) {
-            <div aria-labelledby="cycle-step-who" class="box-border w-full rounded-lg border border-(--border) bg-(--surface-3) px-3 py-[10px] text-(length:--fs-14) text-(--text)">Nobody works in QA during this step</div>
-            <div class="text-(length:--fs-13) leading-[1.5] font-normal text-pretty text-(--text-4)">Programs correct their results in the reporting tool. QA picks up the changes automatically.</div>
-          } @else if (locked() || live()) {
-            <!-- Read-only: the step is completed, or (live data) the audience is fixed once the timeline exists. -->
-            <div aria-labelledby="cycle-step-who" class="flex h-9 min-w-[280px] items-center rounded-lg border border-(--border) bg-(--surface-3) px-3 text-(length:--fs-14) text-(--text)">{{ d.audience }}</div>
-          } @else {
-            <qa-select [value]="d.audience || null" (valueChange)="patch({ audience: $event ?? '' })" [options]="audienceOptions" label="Who can work in this step" placeholder="Select who can work" class="w-[280px]" />
-          }
-        </div>
-
-        @if (locked()) {
-          <!-- Closed step: its dates are the record of the cycle, so they read as text. Its name can still change
-               (the API locks the dates only), so the footer keeps "Save step" (P2-4080). -->
-          <div class="flex flex-col items-start gap-[6px]">
-            <span id="cycle-step-dates" class="text-(length:--fs-13) font-semibold text-(--text-2)">Dates</span>
-            <span aria-labelledby="cycle-step-dates" class="font-(family-name:--qa-mono) text-(length:--fs-14) text-(--text) tabular-nums">{{ d.opens }}, {{ d.opensTime }} – {{ d.closes ? d.closes + ', ' + d.closesTime : 'no closing date' }} {{ zoneText() }}</span>
-            <span class="text-(length:--fs-13) leading-[1.5] font-normal text-pretty text-(--text-4)">This step closed{{ d.closes ? ' on ' + d.closes + ' at ' + d.closesTime : '' }} (Rome time). Its dates stay as the record of the cycle.</span>
-            @if (feedbackText(); as message) {
-              <span role="alert" class="text-(length:--fs-13) text-(--danger)">{{ message }}</span>
+            @if (nameError()) {
+              <span id="cycle-step-name-err" class="text-(length:--fs-13) text-(--danger)">{{ nameError() }}</span>
             }
           </div>
-        } @else {
-        <div class="flex flex-col items-start gap-[6px]">
-          <div class="flex flex-wrap gap-3">
-            <div class="flex flex-col gap-[6px]">
-              <span id="cycle-step-opens" class="text-(length:--fs-13) font-semibold text-(--text-2)">Opens</span>
-              @if (opensLocked()) {
-                <span class="flex h-9 items-center font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text-3) tabular-nums">{{ d.opens }}, {{ d.opensTime }}</span>
-              } @else {
-              <span class="flex gap-1.5">
-              <span class="relative flex">
+          <div class="flex flex-col items-start gap-1.5">
+            <span id="cycle-step-who" class="text-(length:--fs-13) font-medium text-(--text-2)">Who works in it</span>
+            @if (d.audience === correctionAudience) {
+              <div aria-labelledby="cycle-step-who" class="text-(length:--fs-14) text-(--text)">Nobody works in QA during this step</div>
+              <div class="text-(length:--fs-12) leading-[1.5] text-pretty text-(--text-muted)">Programs correct their results in the reporting tool; QA picks up the changes.</div>
+            } @else if (locked() || live()) {
+              <!-- Read-only (completed step, or live data): a fixed value reads as text, never as a grey field. -->
+              <div aria-labelledby="cycle-step-who" class="text-(length:--fs-14) text-(--text)">{{ d.audience }}</div>
+            } @else {
+              <qa-select [value]="d.audience || null" (valueChange)="patch({ audience: $event ?? '' })" [options]="audienceOptions" label="Who can work in this step" placeholder="Select who can work" class="w-full sm:max-w-[calc(50%-8px)]" />
+            }
+          </div>
+        </section>
+
+        <section class="flex flex-col gap-4 border-t border-(--border-soft) pt-5" aria-labelledby="cycle-step-sec-dates">
+          <div class="flex flex-col gap-0.5">
+            <h3 id="cycle-step-sec-dates" class="m-0 text-(length:--fs-14) font-semibold text-(--text)">Dates</h3>
+            <p class="m-0 text-(length:--fs-12) leading-[1.5] text-pretty text-(--text-muted)">Rome time ({{ zoneText() }}), 24-hour clock</p>
+          </div>
+          @if (locked()) {
+            <!-- Closed step: its dates are the record of the cycle, so they read as text. Its name can still change
+                 (the API locks the dates only), so the footer keeps "Save step" (P2-4080). -->
+            <div class="flex flex-col gap-1.5">
+              <span id="cycle-step-dates" class="text-(length:--fs-13) font-medium text-(--text-2)">Opens – closes</span>
+              <span aria-labelledby="cycle-step-dates" class="text-(length:--fs-14) text-(--text) tabular-nums">{{ d.opens }}, {{ d.opensTime }} – {{ d.closes ? d.closes + ', ' + d.closesTime : 'no closing date' }}</span>
+              <span class="text-(length:--fs-12) leading-[1.5] text-pretty text-(--text-muted)">Closed{{ d.closes ? ' on ' + d.closes + ' at ' + d.closesTime : '' }}. Its dates stay as the record of the cycle.</span>
+            </div>
+          } @else {
+            <div class="grid grid-cols-2 gap-4 max-sm:grid-cols-1">
+              <div class="flex min-w-0 flex-col gap-1.5">
+                <span id="cycle-step-opens" class="text-(length:--fs-13) font-medium text-(--text-2)">Opens</span>
+                @if (opensLocked()) {
+                  <span class="flex h-9 items-center text-(length:--fs-14) text-(--text) tabular-nums">{{ d.opens }}, {{ d.opensTime }}</span>
+                  <span class="text-(length:--fs-12) leading-[1.5] text-pretty text-(--text-muted)">Fixed: the step is open. You can still move its closing date.</span>
+                } @else {
+              <span class="flex min-w-0 gap-1.5">
+              <span class="relative flex min-w-0 flex-1">
                 <input
                   hlmInput
                   type="text"
@@ -117,7 +123,7 @@ interface StepDraft {
                   [attr.aria-invalid]="bad().opens ? true : null"
                   [attr.aria-describedby]="opensError() ? 'cycle-step-opens-err' : null"
                   [attr.data-error]="bad().opens"
-                  class="h-9 w-[180px] rounded-lg border-(--border) bg-(--field-bg) py-0 pr-10 pl-3 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) dark:bg-(--field-bg)"
+                  class="h-9 w-full min-w-0 rounded-lg border-(--border) bg-(--field-bg) py-0 pr-10 pl-3 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) dark:bg-(--field-bg)"
                 />
                 <qa-date-picker [value]="stepForm.opens().value()" (valueChange)="stepForm.opens().value.set($event)" label="Pick the opening date" class="absolute top-1/2 right-1 -translate-y-1/2" />
               </span>
@@ -136,13 +142,13 @@ interface StepDraft {
                 class="h-9 w-[72px] rounded-lg border-(--border) bg-(--field-bg) px-3 py-0 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) dark:bg-(--field-bg)"
               />
               </span>
-              }
-            </div>
-            <div class="flex flex-col gap-[6px]">
-              <span id="cycle-step-closes" class="text-(length:--fs-13) font-semibold text-(--text-2)">Closes</span>
-              <span class="flex gap-1.5">
-                <span class="relative flex">
-                  <input hlmInput type="text" [formField]="stepForm.closes" aria-labelledby="cycle-step-closes" placeholder="Select date" [attr.aria-invalid]="bad().closes ? true : null" [attr.aria-describedby]="opensError() ? 'cycle-step-opens-err' : null" [attr.data-error]="bad().closes" class="h-9 w-[180px] rounded-lg border-(--border) bg-(--field-bg) py-0 pr-10 pl-3 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) dark:bg-(--field-bg)" />
+                }
+              </div>
+              <div class="flex min-w-0 flex-col gap-1.5">
+                <span id="cycle-step-closes" class="text-(length:--fs-13) font-medium text-(--text-2)">Closes</span>
+              <span class="flex min-w-0 gap-1.5">
+                <span class="relative flex min-w-0 flex-1">
+                  <input hlmInput type="text" [formField]="stepForm.closes" aria-labelledby="cycle-step-closes" placeholder="Select date" [attr.aria-invalid]="bad().closes ? true : null" [attr.aria-describedby]="opensError() ? 'cycle-step-opens-err' : null" [attr.data-error]="bad().closes" class="h-9 w-full min-w-0 rounded-lg border-(--border) bg-(--field-bg) py-0 pr-10 pl-3 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) dark:bg-(--field-bg)" />
                   <qa-date-picker [value]="stepForm.closes().value()" (valueChange)="stepForm.closes().value.set($event)" label="Pick the closing date" class="absolute top-1/2 right-1 -translate-y-1/2" />
                 </span>
                 <input
@@ -160,42 +166,39 @@ interface StepDraft {
                   class="h-9 w-[72px] rounded-lg border-(--border) bg-(--field-bg) px-3 py-0 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) dark:bg-(--field-bg)"
                 />
               </span>
+              </div>
             </div>
-          </div>
-          <span class="text-(length:--fs-13) font-normal text-(--text-4)">Rome time ({{ zoneText() }}), 24-hour clock.</span>
-          @if (opensError()) {
-            <span id="cycle-step-opens-err" class="text-(length:--fs-13) text-(--danger)">{{ opensError() }}</span>
-          }
-          @if (opensLocked()) {
-            <span class="text-(length:--fs-13) leading-[1.5] font-normal text-pretty text-(--text-4)">This step is open, so its opening date and time stay. You can still move its closing date and time.</span>
+            @if (opensError()) {
+              <span id="cycle-step-opens-err" class="text-(length:--fs-13) text-(--danger)">{{ opensError() }}</span>
+            }
           }
           @if (feedbackText(); as message) {
             <span role="alert" class="text-(length:--fs-13) text-(--danger)">{{ message }}</span>
           }
-        </div>
-        }
+        </section>
 
-        <div class="flex flex-col items-stretch gap-[6px]">
-          <div class="flex min-h-[52px] items-center gap-4">
-            <div class="flex min-w-0 flex-1 flex-col gap-[2px]">
-              <span id="cycle-step-load" class="text-(length:--fs-14) font-medium text-(--text-2)">Loads results</span>
-              <span class="text-(length:--fs-13) font-normal text-pretty text-(--text-4)">Marks a step where you load results by hand with Load results: results submitted since the last load, plus anything the programs corrected.</span>
+        <section class="flex flex-col gap-4 border-t border-(--border-soft) pt-5" aria-labelledby="cycle-step-load">
+          <div class="flex items-start gap-4">
+            <div class="flex min-w-0 flex-1 flex-col gap-1">
+              <h3 id="cycle-step-load" class="m-0 text-(length:--fs-14) font-semibold text-(--text)">Loads results</h3>
+              <p class="m-0 text-(length:--fs-12) leading-[1.5] text-pretty text-(--text-muted)">You load results into this step by hand: what was submitted since the last load, plus what the programs corrected.</p>
+              @if (d.batch) {
+                <span class="mt-1 inline-flex items-center gap-1 self-start rounded-md border border-(--border) px-1.5 py-px text-(length:--fs-12) font-medium text-(--text-3)">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1zM4 22v-7" /></svg>
+                  Starts QA round {{ round() }}
+                </span>
+              }
             </div>
             @if (live()) {
-              <span class="text-(length:--fs-13) text-(--text-3)">{{ d.batch ? 'Yes' : 'No' }}</span>
+              <span class="pt-px text-(length:--fs-14) text-(--text)">{{ d.batch ? 'Yes' : 'No' }}</span>
             } @else {
               <qa-switch [checked]="d.batch" (checkedChange)="patch({ batch: $event })" aria-labelledby="cycle-step-load" />
             }
           </div>
-          @if (d.batch) {
-            <div class="-mt-[6px] flex items-center gap-1.5 text-(length:--fs-12) font-medium text-(--accent)">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1zM4 22v-7" /></svg>
-              <span>This step starts QA round {{ round() }}</span>
-            </div>
-          } @else if (first()) {
-            <div role="status" class="-mt-[6px] rounded-lg bg-(--st-editing-bg) px-3 py-2 text-(length:--fs-13) leading-[1.5] text-(--st-editing-fg)">Step 1 doesn't load results, so this timeline starts with nothing to assess.</div>
+          @if (!d.batch && first()) {
+            <div role="status" class="rounded-lg bg-(--st-editing-bg) px-3 py-2 text-(length:--fs-13) leading-[1.5] text-(--st-editing-fg)">Step 1 doesn't load results, so this timeline starts with nothing to assess.</div>
           }
-        </div>
+        </section>
 
         <!-- Live data: reopened fields and extended access have no API yet, so nothing shows (a "Coming soon"
              block read as broken, review 2026-11-10). TODO(api): reopened fields and extended access. -->

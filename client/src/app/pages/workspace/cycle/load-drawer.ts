@@ -55,9 +55,9 @@ export interface LoadDrawerNames {
             <dd class="m-0 text-(--text)">{{ t.types.length ? t.types.join(', ') : 'All result types' }}</dd>
           </dl>
         }
-        <div class="flex items-start gap-[10px] rounded-lg bg-(--st-submitted-bg) px-[14px] py-3">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--st-submitted-fg)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="mt-[2px] flex-none" aria-hidden="true"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01" /></svg>
-          <span class="text-(length:--fs-13) leading-[1.55] font-normal text-pretty text-(--st-submitted-fg)">Only submitted, pooled-funding (W1/W2) results of this cycle within the timeline's scope come in. A result can be in one timeline only. Only one load runs at a time in the cycle.</span>
+        <div class="flex items-start gap-[10px] rounded-lg bg-(--surface-5) px-[14px] py-3">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="mt-[2px] flex-none" aria-hidden="true"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01" /></svg>
+          <span class="text-(length:--fs-13) leading-[1.55] font-normal text-pretty text-(--text-2)">Only submitted, pooled-funding (W1/W2) results of this cycle within the timeline's scope come in. A result can be in one timeline only. Only one load runs at a time in the cycle.</span>
         </div>
 
         @if (selected()) {
