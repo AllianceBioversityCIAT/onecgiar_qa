@@ -55,7 +55,7 @@
           type="button"
           [attr.aria-pressed]="on"
           (click)="setStateFilter(chip.value)"
-          class="inline-flex min-h-[30px] items-center gap-[7px] rounded-full px-3 text-(length:--fs-13) font-medium whitespace-nowrap outline-none focus-visible:shadow-(--focus-ring) max-sm:min-h-10"
+          class="inline-flex min-h-[30px] items-center gap-[7px] rounded-lg px-3 text-(length:--fs-13) font-medium whitespace-nowrap outline-none focus-visible:shadow-(--focus-ring) max-sm:min-h-10"
           [class]="on ? 'bg-(--surface) text-(--text) shadow-(--shadow-seg) ring-1 ring-(--border)' : 'bg-(--surface-4) text-(--text-3) hover:bg-(--surface-6)'"
         >
           <span>{{ chip.label }}</span>
@@ -67,7 +67,7 @@
         [attr.aria-pressed]="coreOnly()"
         (click)="toggleCoreOnly()"
         title="Core and AI are properties of assessed fields, not states of their own."
-        class="inline-flex min-h-[30px] items-center gap-[7px] rounded-full px-3 text-(length:--fs-13) font-medium whitespace-nowrap outline-none focus-visible:shadow-(--focus-ring) max-sm:min-h-10"
+        class="inline-flex min-h-[30px] items-center gap-[7px] rounded-lg px-3 text-(length:--fs-13) font-medium whitespace-nowrap outline-none focus-visible:shadow-(--focus-ring) max-sm:min-h-10"
         [class]="coreOnly() ? 'bg-(--surface) text-(--text) shadow-(--shadow-seg) ring-1 ring-(--border)' : 'bg-(--surface-4) text-(--text-3) hover:bg-(--surface-6)'"
       >
         <span>Core only</span>

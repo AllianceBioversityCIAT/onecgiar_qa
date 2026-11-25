@@ -45,7 +45,7 @@ const NAME_WIDTHS = [
             >
               <qa-skeleton class="h-3.5" [class]="names[i]" />
               <div class="flex flex-wrap items-center gap-x-4 gap-y-3">
-                <qa-skeleton class="h-10 min-w-[min(100%,22rem)] flex-1 rounded-[8px]" />
+                <qa-skeleton class="h-10 min-w-[min(100%,22rem)] flex-1 rounded-lg" />
                 @for (sw of switches; track sw) {
                   <div class="flex min-h-10 items-center gap-2">
                     <qa-skeleton class="h-2.5" [class]="sw" />
@@ -64,7 +64,7 @@ const NAME_WIDTHS = [
                   <qa-skeleton class="h-2.5 w-16" />
                 }
               </div>
-              <qa-skeleton class="h-[30px] w-[198px] rounded-[8px]" />
+              <qa-skeleton class="h-[30px] w-[198px] rounded-lg" />
               <qa-skeleton class="h-[18px] w-8 justify-self-center rounded-full" />
               <qa-skeleton class="h-[18px] w-8 justify-self-center rounded-full" />
               <span></span>
