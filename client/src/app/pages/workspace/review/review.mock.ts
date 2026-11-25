@@ -79,6 +79,12 @@ export interface FieldComment {
   readonly canWithdraw?: boolean;
   /** Id of the comment in the API (the mockup's comments had none). */
   readonly id?: number;
+  /** API comments: "Step 1", the step the comment was written in (P2-3910 AC14). */
+  readonly step?: string;
+  /** API comments: the field value as the author saw it when writing (P2-3910 AC14, server DD-8). */
+  readonly valueCopy?: string;
+  /** The server kept only the start of a long value copy. */
+  readonly valueTruncated?: boolean;
 }
 
 export interface FieldState {

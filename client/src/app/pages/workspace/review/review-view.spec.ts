@@ -280,6 +280,19 @@ describe('ReviewView on the assessment API', () => {
       expect(text(thread)).toContain('Add the evidence link.');
       expect(text(thread)).not.toContain('Old remark');
     });
+
+    it('P2-4137 AC14: a comment shows its date and time (Rome), its step and the field value when it was written', async () => {
+      const el = await open();
+      byName(card(el, 'Description of Result'), 'View comments1 for Description of Result')!.click();
+      harness.detectChanges();
+      await harness.fixture.whenStable();
+      const row = document.querySelector('ol[aria-label="Comments"] > li')!;
+      expect(text(row)).toContain('mchen · Assessor');
+      expect(text(row)).toContain('Step 1');
+      expect(text(row)).toContain('12 Nov 2026, 11:15 CET');
+      const copy = row.querySelector('[data-testid="comment-value-copy"]')!;
+      expect([...copy.querySelectorAll('span')].map(text)).toEqual(['Value when commented', 'Old']);
+    });
   });
 
   describe('actions (T-20)', () => {
@@ -511,7 +524,7 @@ describe('ReviewView on the assessment API', () => {
         const items = [...document.querySelectorAll('ol[aria-label="Comments"] li')];
         expect(items.map((li) => !![...li.querySelectorAll('button')].find((b) => text(b) === 'Withdraw comment'))).toEqual([true, false]);
         // Each one says which comment it takes back (they all read "Withdraw comment").
-        anywhere('Withdraw your comment of 12 Nov 2026')!.click();
+        anywhere('Withdraw your comment of 12 Nov 2026, 11:15 CET')!.click();
         await settle();
         expect(api.withdrawComment).toHaveBeenCalledWith(1);
         expect(text(document.querySelector('ol[aria-label="Comments"]')!)).not.toContain('Add the evidence link.');
@@ -521,7 +534,7 @@ describe('ReviewView on the assessment API', () => {
         api.withdrawComment.mockReturnValueOnce(refusal(503, 'SERVICE_UNAVAILABLE', 'Try again in a moment.'));
         const el = await open();
         await openThread(el, 'View comments1 for Description of Result');
-        anywhere('Withdraw your comment of 12 Nov 2026')!.click();
+        anywhere('Withdraw your comment of 12 Nov 2026, 11:15 CET')!.click();
         await settle();
         expect(document.querySelector('#review-thread-error')?.textContent).toContain('Try again in a moment.');
         expect(text(document.querySelector('ol[aria-label="Comments"]')!)).toContain('Add the evidence link.');
