@@ -20,6 +20,7 @@ import { AiReasonDialog } from './ai/ai-reason-dialog';
 import { AiReasonAsk, REVIEW_AI_PROVIDERS, ReviewAiHook } from './ai/review-ai-hook';
 import { ReviewTocSection, TocCardAction } from './review-toc-section';
 import { PendingAnswer, findField, pendingAnswers, pendingAnswersBanner, returnsOnAnyComment, toDrawerVm, withPendingAnswers, withdrawOpen } from './review.mapper';
+import { QA_GUIDANCE } from './qa-guidance';
 
 /** The review area stacks its navigator on top below this width (container). */
 const NARROW_PX = 900;
@@ -89,6 +90,8 @@ export class ReviewView {
   });
   /** Not connected in step 1: no field is flagged by AI (DD-13). */
   protected readonly aiCount = 0;
+  /** Link to the written QA guide (F-014). */
+  protected readonly guidance = QA_GUIDANCE;
 
   /** Container narrower than 900px: the navigator stacks on top. */
   protected readonly narrow = signal(false);
