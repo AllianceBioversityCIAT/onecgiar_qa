@@ -9,7 +9,7 @@ import { AssessorLoad } from './overview.mock';
   imports: [QaButtonImports, RouterLink],
   host: { class: 'block @container' },
   template: `
-    <section aria-labelledby="overview-load-title" class="flex h-full flex-col rounded-[12px] border border-(--border) bg-(--surface) p-5">
+    <section aria-labelledby="overview-load-title" class="flex h-full flex-col rounded-[12px] border border-(--border) bg-(--surface) p-5 shadow-(--shadow-card)">
       <div class="flex items-start justify-between gap-4 pb-3">
         <div class="flex min-w-0 flex-col gap-0.5">
           <h3 id="overview-load-title" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">Assessor load</h3>

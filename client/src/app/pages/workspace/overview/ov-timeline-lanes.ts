@@ -53,7 +53,7 @@ const LABEL_CLASS: Record<LaneStepState, string> = {
   imports: [QaButtonImports, RouterLink],
   host: { class: 'block @container' },
   template: `
-    <section aria-labelledby="overview-lanes-title" class="flex flex-col overflow-hidden rounded-[12px] border border-(--border) bg-(--surface)">
+    <section aria-labelledby="overview-lanes-title" class="flex flex-col overflow-hidden rounded-[12px] border border-(--border) bg-(--surface) shadow-(--shadow-card)">
       <div class="flex items-start justify-between gap-4 px-5 pt-5 pb-4">
         <h3 id="overview-lanes-title" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">
           Progress by timeline
@@ -78,7 +78,7 @@ const LABEL_CLASS: Record<LaneStepState, string> = {
                 <span class="flex items-center gap-2 text-(length:--fs-14) font-semibold text-(--text)">
                   <span class="truncate">{{ l.name }}</span>
                   @if (l.scheduled) {
-                    <span class="flex-none rounded-full bg-(--st-submitted-bg) px-2 py-px text-(length:--fs-11) font-semibold text-(--st-submitted-fg)">Scheduled</span>
+                    <span class="qa-dot inline-flex flex-none items-center gap-1.5 rounded-md bg-(--surface-5) px-2 py-px text-(length:--fs-12) font-medium text-(--text-2) [--qa-dot:var(--st-submitted-fg)]">Scheduled</span>
                   }
                 </span>
                 <!-- Each part stays whole ("84 results" never splits); a narrow column wraps only between parts. -->

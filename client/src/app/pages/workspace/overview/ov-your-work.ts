@@ -36,7 +36,7 @@ export interface YourWorkVm {
   host: { class: 'block @container' },
   template: `
     @let d = data();
-    <section aria-labelledby="overview-work-title" class="flex flex-col gap-5 rounded-[12px] border border-(--border) bg-(--surface) p-5">
+    <section aria-labelledby="overview-work-title" class="flex flex-col gap-5 rounded-[12px] border border-(--border) bg-(--surface) p-5 shadow-(--shadow-card)">
       <div class="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
         <div class="flex min-w-0 flex-col gap-1">
           <h2 id="overview-work-title" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">Your work</h2>
