@@ -22,6 +22,7 @@ import { Toasts } from '../../../core/http/toasts';
 import { WorkspaceLayout } from '../../../shell/workspace-layout';
 import { clarificationThread, comment, field, viewFixture } from './review.api-fixture';
 import { ReviewView } from './review-view';
+import { QA_GUIDANCE } from './qa-guidance';
 
 /** The signed-in assessor: the author of the fixture's comments. */
 const ME = 1053;
@@ -189,9 +190,16 @@ describe('ReviewView on the assessment API', () => {
       expect(el.querySelector('[data-testid="review-read-only"]')).toBeNull();
     });
 
-    it('the guidance link of the mockup (a placeholder address) is gone', async () => {
+    it('links to the written QA guide in a new tab, and to no other outside address (F-014)', async () => {
       const el = await open();
-      expect([...el.querySelectorAll('a')].map((a) => a.getAttribute('href')).filter((h) => h?.startsWith('http'))).toEqual([]);
+      const outside = [...el.querySelectorAll('a')].filter((a) => a.getAttribute('href')?.startsWith('http'));
+      expect(outside.length).toBeGreaterThan(0);
+      for (const a of outside) {
+        expect(a.getAttribute('href')).toBe(QA_GUIDANCE.url);
+        expect(a.getAttribute('target')).toBe('_blank');
+        expect(a.getAttribute('rel')).toContain('noopener');
+        expect(text(a)).toContain('QA Platform guide');
+      }
     });
   });
 
