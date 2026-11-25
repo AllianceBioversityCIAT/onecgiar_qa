@@ -11,6 +11,10 @@ export interface QaMultiSelectOption {
   readonly count?: string | number;
   /** Optional group heading shown before the first option of each group (e.g. "Round 1"). */
   readonly group?: string;
+  /** Shown but not pickable (e.g. taken by another field); "Select all" skips it. */
+  readonly disabled?: boolean;
+  /** Short right-aligned note, e.g. why the option is disabled ("Lead assessor"). */
+  readonly note?: string;
 }
 
 /**
@@ -117,19 +121,23 @@ export type QaMultiSelectAppearance = 'filter' | 'field';
                 type="button"
                 role="checkbox"
                 [attr.aria-checked]="on"
+                [disabled]="option.disabled"
                 (click)="toggle(option.value)"
-                class="flex min-h-[34px] flex-none cursor-pointer items-center gap-2.5 rounded-lg border-0 bg-transparent px-2 text-left text-(length:--fs-13) text-(--text-2) outline-none hover:bg-(--surface-3) focus-visible:shadow-(--focus-ring)"
+                class="flex min-h-[34px] flex-none cursor-pointer items-center gap-2.5 rounded-lg border-0 bg-transparent px-2 text-left text-(length:--fs-13) text-(--text-2) outline-none hover:bg-(--surface-3) focus-visible:shadow-(--focus-ring) disabled:cursor-not-allowed disabled:text-(--text-4) disabled:hover:bg-transparent"
               >
                 <span
                   aria-hidden="true"
                   class="box-border flex size-4 flex-none items-center justify-center rounded border-[1.5px]"
-                  [class]="on ? 'border-(--primary) bg-(--primary)' : 'border-(--border-strong)'"
+                  [class]="on ? 'border-(--primary) bg-(--primary)' : option.disabled ? 'border-(--border) bg-(--surface-3)' : 'border-(--border-strong)'"
                 >
                   @if (on) {
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
                   }
                 </span>
                 <span class="min-w-0 flex-1 truncate">{{ option.label }}</span>
+                @if (option.note) {
+                  <span class="flex-none rounded-full bg-(--surface-3) px-1.5 py-px text-(length:--fs-11) font-semibold text-(--text-3)">{{ option.note }}</span>
+                }
                 @if (option.count !== undefined && option.count !== null) {
                   <span class="flex-none font-(family-name:--qa-mono) text-(length:--fs-12) font-semibold text-(--text-4) tabular-nums">{{ option.count }}</span>
                 }
@@ -200,6 +208,7 @@ export class QaMultiSelect {
   }
 
   protected toggle(value: string): void {
+    if (this.options().find((o) => o.value === value)?.disabled) return;
     this.value.update((current) =>
       current.includes(value) ? current.filter((v) => v !== value) : [...current, value],
     );
@@ -207,7 +216,7 @@ export class QaMultiSelect {
 
   protected readonly allVisibleSelected = computed(() => {
     const sel = this.value();
-    return this.filtered().every((o) => sel.includes(o.value));
+    return this.filtered().every((o) => o.disabled || sel.includes(o.value));
   });
   protected readonly anyVisibleSelected = computed(() => {
     const sel = this.value();
@@ -215,7 +224,7 @@ export class QaMultiSelect {
   });
 
   protected selectAllVisible(): void {
-    const visible = this.filtered().map((o) => o.value);
+    const visible = this.filtered().filter((o) => !o.disabled).map((o) => o.value);
     this.value.update((current) => [...current, ...visible.filter((v) => !current.includes(v))]);
   }
 

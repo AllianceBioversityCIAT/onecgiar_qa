@@ -6,7 +6,7 @@ import { AssessorsStore } from './assessors-store';
 import { TeamMember, fmt } from './assessors.models';
 
 /**
- * Result-types cell of the team table (Assessor role only): chips, and a popover with a searchable
+ * Result-types cell of the team table (Assessor and Lead assessor rows; led types carry a "Lead" tag): chips, and a popover with a searchable
  * checkbox list. Removing a type that still has unreviewed results asks for confirmation first.
  */
 @Component({
@@ -26,7 +26,8 @@ import { TeamMember, fmt } from './assessors.models';
         class="box-border flex min-h-8 w-full min-w-0 cursor-pointer flex-wrap @max-[640px]:min-h-10 items-center gap-1.5 rounded-lg border border-transparent bg-transparent px-2 py-1 text-left hover:border-(--border) hover:bg-(--surface) focus-visible:shadow-(--focus-ring) focus-visible:outline-none aria-expanded:border-(--border-accent) aria-expanded:bg-(--surface)"
       >
         @for (t of chips(); track t) {
-          <span [title]="t" class="max-w-full truncate rounded-full bg-(--surface-3) px-2 py-0.5 text-(length:--fs-11) font-medium text-(--text-3)">{{ t }}</span>
+          @let led = member().leadTypes.includes(t);
+          <span [title]="led ? t + ' (lead assessor)' : t" class="max-w-full truncate rounded-full px-2 py-0.5 text-(length:--fs-11) font-medium" [class]="led ? 'bg-(--tint-2) text-(--accent)' : 'bg-(--surface-3) text-(--text-3)'">{{ t }}</span>
         }
         @if (more()) {
           <span class="flex-none rounded-full bg-(--surface-3) px-2 py-0.5 text-(length:--fs-11) font-medium whitespace-nowrap text-(--text-3)">+{{ more() }}</span>
@@ -70,6 +71,9 @@ import { TeamMember, fmt } from './assessors.models';
                   }
                 </span>
                 <span class="min-w-0 flex-1 truncate text-(length:--fs-13) text-(--text-2)">{{ o.label }}</span>
+                @if (o.lead) {
+                  <span class="flex-none rounded-full bg-(--tint-2) px-1.5 py-px text-(length:--fs-10) font-semibold text-(--accent)">Lead</span>
+                }
               </button>
             } @empty {
               <div class="p-2 text-(length:--fs-13) text-(--text-3)">Nothing matches that search.</div>
@@ -101,7 +105,11 @@ export class AssessorTypesCell {
   protected readonly query = signal('');
   protected readonly confirmType = signal<string | null>(null);
 
-  protected readonly chips = computed(() => this.member().types.slice(0, 2));
+  /** Led types first, so the "Lead" scope is visible before the "+N". */
+  protected readonly chips = computed(() => {
+    const m = this.member();
+    return [...m.leadTypes, ...m.types.filter((t) => !m.leadTypes.includes(t))].slice(0, 2);
+  });
   protected readonly more = computed(() => Math.max(0, this.member().types.length - 2));
   protected readonly options = computed(() => {
     const q = this.query().trim().toLowerCase();
@@ -109,7 +117,7 @@ export class AssessorTypesCell {
     return this.store
       .typeNames()
       .filter((t) => !q || t.toLowerCase().includes(q))
-      .map((t) => ({ label: t, on: types.includes(t) }));
+      .map((t) => ({ label: t, on: types.includes(t), lead: this.member().leadTypes.includes(t) }));
   });
 
   protected unreviewed(type: string): string {
