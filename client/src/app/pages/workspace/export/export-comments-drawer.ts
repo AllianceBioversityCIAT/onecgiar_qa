@@ -139,7 +139,7 @@ const ALL_FIELD_IDS: readonly string[] = FIELD_GROUPS.flatMap((g) => g.fields.ma
         </div>
 
         <section aria-labelledby="export-columns" class="flex flex-col gap-2">
-          <h3 id="export-columns" class="m-0 text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--text-muted) uppercase">Columns in the file</h3>
+          <h3 id="export-columns" class="m-0 text-(length:--fs-12) font-medium text-(--text-muted)">Columns in the file</h3>
           <p class="m-0 text-(length:--fs-13) leading-[1.5] text-pretty text-(--text-3)">One row per comment. A field with no comments still gets a row, with its value and status.</p>
           <dl class="m-0 flex flex-col gap-2">
             @for (g of columnGroups; track g.name) {
