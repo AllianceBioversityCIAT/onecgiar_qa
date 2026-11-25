@@ -50,7 +50,7 @@ const SIGNAL_BADGE: Readonly<Record<'green' | 'amber' | 'red', QaBadgeStatus>> =
           d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"
         />
       </svg>
-      <span class="text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--ai) uppercase"
+      <span class="text-(length:--fs-12) font-medium text-(--ai)"
         >AI suggestion</span
       >
       @switch (vm().kind) {
@@ -127,7 +127,7 @@ const SIGNAL_BADGE: Readonly<Record<'green' | 'amber' | 'red', QaBadgeStatus>> =
               <div class="grid gap-3 sm:grid-cols-2" data-testid="ai-use-numbers">
                 <section class="flex min-w-0 flex-col gap-1" aria-label="Suggested by the AI">
                   <h3
-                    class="m-0 text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-3) uppercase"
+                    class="m-0 text-(length:--fs-12) font-medium text-(--text-3)"
                   >
                     Suggested by the AI
                   </h3>
@@ -156,7 +156,7 @@ const SIGNAL_BADGE: Readonly<Record<'green' | 'amber' | 'red', QaBadgeStatus>> =
                 </section>
                 <section class="flex min-w-0 flex-col gap-1" aria-label="Reported">
                   <h3
-                    class="m-0 text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-3) uppercase"
+                    class="m-0 text-(length:--fs-12) font-medium text-(--text-3)"
                   >
                     Reported
                   </h3>

@@ -13,7 +13,7 @@
         [title]="sectionTitle(s)"
         [attr.aria-label]="sectionTitle(s)"
         class="relative flex size-10 flex-none items-center justify-center rounded-[8px] font-(family-name:--qa-mono) text-(length:--fs-13) font-semibold focus-visible:shadow-(--focus-ring) focus-visible:outline-none"
-        [class]="s.active ? 'bg-(--tint-2) text-(--accent) hover:bg-(--tint-2)' : 'text-(--text-4) hover:bg-(--surface-3)'"
+        [class]="s.active ? 'bg-(--surface) text-(--text) shadow-(--shadow-seg) ring-1 ring-(--border) hover:bg-(--surface)' : 'text-(--text-4) hover:bg-(--surface-4)'"
         (click)="go.emit(i)"
       >
         {{ s.n }}
@@ -52,7 +52,7 @@
         <span class="sr-only">Result code</span>
         <span class="font-(family-name:--qa-mono) text-(length:--fs-16) font-bold whitespace-nowrap text-(--text) tabular-nums">{{ r.code }}</span>
         <qa-review-code-info [details]="r.details" />
-        <span class="inline-flex items-center gap-[5px] rounded-full px-2.5 py-[3px] text-(length:--fs-11) font-semibold whitespace-nowrap" [class]="r.statusClass">
+        <span class="inline-flex items-center gap-[5px] rounded-md px-2.5 py-[3px] text-(length:--fs-12) font-medium whitespace-nowrap" [class]="r.statusClass">
           @if (r.isAuto) {
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" /></svg>
           }
@@ -63,13 +63,13 @@
     </div>
   } @else {
   <div class="flex flex-col gap-1.5 pr-8 pl-2.5">
-    <div class="text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--text-muted) uppercase">Result code</div>
+    <div class="text-(length:--fs-12) font-medium text-(--text-muted)">Result code</div>
     <div class="flex items-center gap-1.5">
       <span class="font-(family-name:--qa-mono) text-(length:--fs-20) font-bold whitespace-nowrap text-(--text) tabular-nums">{{ r.code }}</span>
       <qa-review-code-info [details]="r.details" />
     </div>
     <div class="text-(length:--fs-13) leading-[1.35] font-normal text-(--text-3)">{{ r.type }}</div>
-    <span class="inline-flex items-center gap-[5px] self-start rounded-full px-2.5 py-[3px] text-(length:--fs-11) font-semibold whitespace-nowrap" [class]="r.statusClass">
+    <span class="inline-flex items-center gap-[5px] self-start rounded-md px-2.5 py-[3px] text-(length:--fs-12) font-medium whitespace-nowrap" [class]="r.statusClass">
       @if (r.isAuto) {
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" /></svg>
       }
@@ -83,7 +83,7 @@
   }
 
   <div class="border-b border-(--surface-4)" [class]="narrow() ? 'my-3' : 'my-4'"></div>
-  <div class="pb-2 text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--text-muted) uppercase" [class]="narrow() ? 'px-0' : 'px-2.5'" id="review-sections-label">Sections</div>
+  <div class="pb-2 text-(length:--fs-12) font-medium text-(--text-muted)" [class]="narrow() ? 'px-0' : 'px-2.5'" id="review-sections-label">Sections</div>
 
   @if (narrow()) {
     <!-- Narrow container under 42rem: a select instead of a row of section buttons -->
@@ -103,7 +103,7 @@
         type="button"
         [attr.aria-current]="s.active ? 'step' : null"
         class="flex min-h-11 flex-none items-center gap-2.5 rounded-[8px] px-2.5 text-left text-(length:--fs-14) focus-visible:shadow-(--focus-ring) focus-visible:outline-none"
-        [class]="(narrow() ? 'border whitespace-nowrap ' + (s.active ? 'border-(--tint-3) ' : 'border-(--border) ') : 'whitespace-normal ') + (s.active ? 'bg-(--tint-2) font-semibold text-(--accent) hover:bg-(--tint-2)' : 'font-medium text-(--text-2) hover:bg-(--surface-3)')"
+        [class]="(narrow() ? 'border whitespace-nowrap ' + (s.active ? 'border-(--border-strong) ' : 'border-(--border) ') : 'whitespace-normal ') + (s.active ? 'bg-(--surface) font-semibold text-(--text) shadow-(--shadow-seg) ring-1 ring-(--border) hover:bg-(--surface)' : 'font-medium text-(--text-2) hover:bg-(--surface-4)')"
         (click)="go.emit(i)"
       >
         <span class="min-w-0 leading-[1.3]">{{ s.name }}</span>
