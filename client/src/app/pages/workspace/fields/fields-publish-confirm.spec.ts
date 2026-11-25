@@ -14,9 +14,9 @@ describe('FieldsPublishConfirm', () => {
     return fixture;
   }
 
-  const note = 'Hidden and View only changes reach them now; Assessed and Core changes don';
+  const note = 'Changes reach results nobody has started; results already in review keep their version (Hidden / View only changes reach all).';
 
-  it('tells that visibility changes still reach timelines that keep their version (F-005)', async () => {
+  it('tells that changes reach results nobody started, and visibility changes reach all (F-005, F-012)', async () => {
     await render([{ id: 43, name: 'December testing batch', opensOn: null, version: 7 }]);
     expect(document.body.textContent).toContain('Keep their current version');
     expect(document.body.textContent).toContain(note);
