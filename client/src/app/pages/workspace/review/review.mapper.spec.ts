@@ -633,19 +633,43 @@ describe('review.mapper (API assessment view → Review view models)', () => {
     });
   });
 
-  it('dates are the day in Rome, not the UTC day (23:30 UTC is already the next day there)', () => {
-    expect(toCommentVm(comment({ createdAt: '2026-11-12T23:30:00.000Z' })).date).toBe(
-      toCommentVm(comment({ createdAt: '2026-11-13T09:00:00.000Z' })).date,
-    );
+  it('dates are the day and time in Rome, not UTC (23:30 UTC is already the next day there)', () => {
+    expect(toCommentVm(comment({ createdAt: '2026-11-12T23:30:00.000Z' })).date).toBe('13 Nov 2026, 00:30 CET');
+    expect(toCommentVm(comment({ createdAt: '2026-07-01T10:00:00.000Z' })).date).toBe('01 Jul 2026, 12:00 CEST');
   });
 
-  it('a comment is shown by nickname only (or "—") with its date', () => {
+  it('P2-4137 AC14: a comment carries its step and the field value as the author saw it', () => {
+    const vm = toCommentVm(comment({ stepPosition: 2, valueCopy: { value: 'Old' } }));
+    expect(vm.step).toBe('Step 2');
+    expect(vm.valueCopy).toBe('Old');
+    expect(vm.valueTruncated).toBe(false);
+  });
+
+  it('P2-4137: the value copy reads with its own labels and the field\'s subfield lists, and says when it was cut', () => {
+    const vm = toCommentVm(
+      comment({ valueCopy: { value: [{ actor_type: 7 }], labels: { actor_types: { '7': 'Farmers' } } }, valueTruncated: true }),
+      undefined,
+      { subfieldLists: { actor_type: 'actor_types' } },
+    );
+    expect(vm.valueCopy).toBe(formatValue({ value: [{ actor_type: 7 }], labels: { actor_types: { '7': 'Farmers' } }, notApplicable: false, subfieldLists: { actor_type: 'actor_types' } }));
+    expect(vm.valueCopy).toContain('Farmers');
+    expect(vm.valueTruncated).toBe(true);
+  });
+
+  it('P2-4137: the drawer rows of a field carry the value copy of each comment', () => {
+    const v = viewFixture();
+    const found = findField(v, 'general.description')!;
+    const drawer = toDrawerVm(found, 'comment');
+    expect(drawer.comments[0]).toMatchObject({ step: 'Step 1', valueCopy: 'Old', date: '12 Nov 2026, 11:15 CET' });
+  });
+
+  it('a comment is shown by nickname only (or "—") with its date and time', () => {
     expect(toCommentVm(comment())).toMatchObject({
       id: 1,
       authorId: 1053,
       who: 'mchen',
       role: 'Assessor',
-      date: '12 Nov 2026',
+      date: '12 Nov 2026, 11:15 CET',
       text: 'Add the evidence link.',
       open: true,
     });
