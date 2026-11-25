@@ -134,6 +134,14 @@ export interface ResultHeaderVm {
   readonly code: string;
   readonly title: string;
   readonly type: string;
+  /** Science Program code ("SP09"), shown in the header (P2-4136, AC3); the full name goes in `programName`. */
+  readonly programCode: string;
+  /** "SP09 Climate Action": the program's title on hover and in the ⓘ details. */
+  readonly programName: string;
+  /** Timeline name, shown under the title (P2-4136, AC3). */
+  readonly timeline: string;
+  /** "Step 1 · Assessment", or "No step" when the caller's role has none on the timeline. */
+  readonly step: string;
   readonly status: string;
   readonly statusClass: string;
   readonly isAuto: boolean;

@@ -158,6 +158,20 @@ describe('ReviewView on the assessment API', () => {
       expect(el.querySelector('h1')?.textContent).toContain('Seed systems for maize');
     });
 
+    it('P2-4136 AC3: the header shows the Science Program, the timeline and the step, not only inside the ⓘ', async () => {
+      const el = await open();
+      const meta = el.querySelector('[data-testid="review-header-meta"]')!;
+      expect(text(meta)).toContain('9890');
+      expect(text(meta)).toContain('SP05');
+      expect(text(meta)).toContain('Policy change');
+      expect(text(meta)).toContain('Pending');
+      const program = meta.querySelector('[data-testid="review-header-program"]')!;
+      expect(program.getAttribute('title')).toBe('SP05 Better Diets and Nutrition');
+      const context = el.querySelector('[data-testid="review-header-context"]')!;
+      expect(text(context)).toBe('Official timeline 2026 · Step 1 · Assessment');
+      expect(context.getAttribute('title')).toBe('Official timeline 2026 · Step 1 · Assessment');
+    });
+
     it('reads the timeline of the URL; without one it opens the default timeline', async () => {
       await open();
       expect(api.view).toHaveBeenLastCalledWith(29, 9890);
