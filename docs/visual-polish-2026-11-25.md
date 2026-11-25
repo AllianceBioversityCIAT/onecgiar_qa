@@ -151,3 +151,23 @@ Juanpa found the block still confusing: what "Indicative" and "No evidence quote
 - **Tested:**
   - `ng test` on `review/**`: 265 passed.
   - Playwright at 1440 and 390 px with three cases: a category with long reasoning (clamped, then expanded), and an amber level verdict with its source.
+
+## Round 10 — One tag system across Cycle, Assessors and Overview (same day)
+Rule: **a property is an outlined tag; a status is a neutral badge with a coloured dot; an alert is an amber band.**
+- **Properties → outlined tags:**
+  - Cycle: "Loads results", "Complementary batch", "Test", "From step N" (load drawer).
+  - Assessors: "Lead".
+- **Statuses → dot badges:**
+  - Cycle: the step's "In progress", "Waiting for results" and "No one assigned".
+  - Cycle: the timeline summary (active / waiting / future / done).
+  - Overview: "Behind pace" / "On pace".
+  - The no-assignee warning keeps an amber icon.
+- **One filled button per view:** in Cycle, "New complementary batch" is secondary; "Load results into QA" stays primary.
+- **Amber bands kept:** they are alerts, not statuses.
+- **Tested:** `ng build` green; `ng test` on `pages/workspace/**`: 40 files, 574 passed.
+
+## Round 11 — Overview "Progress by timeline" (same day)
+- **One progress line per timeline, read left to right:** finished steps are full (`--primary`), the open step fills up, and later steps are empty grey. Bars are 8px.
+- **Removed the explaining parts:** the floating "Now · N%" label, the outlined open step, the check marks and the legend. The bar shows the progress by itself.
+- **The open step's name** is semibold text instead of green bold.
+- **The percentage** sits on the second line with the closing date ("88% · Closes 23 Jul…"); the right column is 12.5rem so nothing wraps. The aria-label still says the percentage.
