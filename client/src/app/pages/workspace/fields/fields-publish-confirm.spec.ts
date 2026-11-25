@@ -14,7 +14,7 @@ describe('FieldsPublishConfirm', () => {
     return fixture;
   }
 
-  const note = 'Hidden and View only changes reach them now; Assessed and Core changes don';
+  const note = 'Hidden and View only changes reach them now; Assessed, Core and AI changes don';
 
   it('tells that visibility changes still reach timelines that keep their version (F-005)', async () => {
     await render([{ id: 43, name: 'December testing batch', opensOn: null, version: 7 }]);

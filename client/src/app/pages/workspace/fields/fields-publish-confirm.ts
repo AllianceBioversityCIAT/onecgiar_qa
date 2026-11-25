@@ -75,7 +75,7 @@ import { FieldChangeGroupVm } from './fields-config';
                 }
               </ul>
               <!-- F-005 (Juanda, 24-nov-2026): the server applies Hidden / View only live to started timelines. -->
-              <p class="m-0 text-(length:--fs-12) text-(--text-3)">Hidden and View only changes reach them now; Assessed and Core changes don't.</p>
+              <p class="m-0 text-(length:--fs-12) text-(--text-3)">Hidden and View only changes reach them now; Assessed, Core and AI changes don't.</p>
             </div>
           }
         </section>
