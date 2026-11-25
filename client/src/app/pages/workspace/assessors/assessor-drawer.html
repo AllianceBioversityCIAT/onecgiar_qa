@@ -81,9 +81,13 @@
       </div>
     }
 
-    <div class="flex flex-col items-stretch gap-1.5">
+    <!-- Titled sections, fields paired in two columns (Juanpa, 2026-11-25: the panel read as loose text). -->
+    <section class="flex flex-col gap-4" aria-labelledby="assessor-sec-role">
+    <h3 id="assessor-sec-role" class="m-0 text-(length:--fs-14) font-semibold text-(--text)">Role</h3>
+    <div class="grid grid-cols-2 gap-4 max-sm:grid-cols-1">
+    <div class="flex min-w-0 flex-col items-stretch gap-1.5">
       <div class="flex items-center gap-1">
-        <label for="assessor-drawer-nick" class="text-(length:--fs-13) font-semibold text-(--text-2)">Nickname</label>
+        <label for="assessor-drawer-nick" class="text-(length:--fs-13) font-medium text-(--text-2)">Nickname</label>
         <span aria-hidden="true" class="text-(length:--fs-13) font-semibold text-(--danger-strong)">*</span>
         <button type="button" [qaTooltip]="info.nick" aria-label="More about Nickname" class="flex size-4 flex-none cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-0 text-(--text-muted) hover:text-(--primary) focus-visible:shadow-(--focus-ring) focus-visible:outline-none"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01"></path></svg></button>
       </div>
@@ -97,29 +101,27 @@
         [attr.data-error]="showError(personForm.nick)"
         [attr.aria-invalid]="showError(personForm.nick)"
         [attr.aria-describedby]="showError(personForm.nick) ? 'assessor-drawer-nick-error' : null"
-        class="h-9 w-full rounded-lg border-(--border) bg-(--field-bg) px-3 py-0 text-(length:--fs-14) text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 md:text-(length:--fs-14) dark:bg-(--field-bg) max-w-[320px] data-[error=true]:border-(--danger)"
+        class="h-9 w-full rounded-lg border-(--border) bg-(--field-bg) px-3 py-0 text-(length:--fs-14) text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 md:text-(length:--fs-14) dark:bg-(--field-bg) data-[error=true]:border-(--danger)"
       />
       @if (showError(personForm.nick)) {
         <span id="assessor-drawer-nick-error" class="text-(length:--fs-13) text-(--danger)">{{ errorOf(personForm.nick) }}</span>
       }
     </div>
 
-    <div class="flex flex-col items-start gap-1.5">
+    <div class="flex min-w-0 flex-col items-stretch gap-1.5">
       <div class="flex items-center gap-1">
-        <span class="text-(length:--fs-13) font-semibold text-(--text-2)">Role</span>
+        <span class="text-(length:--fs-13) font-medium text-(--text-2)">Role</span>
       </div>
-      <qa-select [value]="draft().role" (valueChange)="setRole($event)" [options]="roleOptions" label="Role" panelWidth="320px" class="w-[320px] max-w-full" />
+      <qa-select [value]="draft().role" (valueChange)="setRole($event)" [options]="roleOptions" label="Role" panelWidth="320px" class="w-full" />
+    </div>
     </div>
 
     @if (draft().role === 'Assessor') {
       <div class="flex flex-col items-stretch gap-1.5">
-        <div class="flex items-center gap-1">
-          <span class="text-(length:--fs-13) font-semibold text-(--text-2)">Permissions</span>
-        </div>
-        <div class="flex min-h-[52px] items-center gap-4">
+        <div class="flex items-center gap-4">
           <div class="flex min-w-0 flex-1 flex-col gap-0.5">
             <span id="assessor-drawer-lead" class="text-(length:--fs-14) font-medium text-(--text-2)">Can edit and delete other assessors' comments</span>
-            <span id="assessor-drawer-lead-help" class="text-(length:--fs-13) font-normal text-pretty text-(--text-4)">They lead the assessment of their result types: lead assessor permissions on those types.</span>
+            <span id="assessor-drawer-lead-help" class="text-(length:--fs-12) font-normal text-pretty text-(--text-muted)">They lead the assessment of their result types: lead assessor permissions on those types.</span>
           </div>
           <qa-switch [checked]="draft().lead" (checkedChange)="patch({ lead: $event })" aria-labelledby="assessor-drawer-lead" aria-describedby="assessor-drawer-lead-help" />
         </div>
@@ -127,15 +129,19 @@
     } @else if (draft().role === 'Lead assessor') {
       <div class="flex flex-col items-stretch gap-1.5">
         <div class="flex items-center gap-1">
-          <span class="text-(length:--fs-13) font-semibold text-(--text-2)">Permissions</span>
+          <span class="text-(length:--fs-13) font-medium text-(--text-2)">Permissions</span>
         </div>
-        <div class="box-border w-full rounded-lg border border-(--border) bg-(--surface-3) px-3 py-2.5 text-(length:--fs-14) text-(--text)">Included in the lead assessor role</div>
+        <div class="text-(length:--fs-14) text-(--text)">Included in the lead assessor role</div>
       </div>
     }
+    </section>
 
-    <div class="flex flex-col gap-1.5" [class]="draft().role === 'Assessor' ? 'items-start' : 'items-stretch'">
+    <section class="flex flex-col gap-4 border-t border-(--border-soft) pt-5" aria-labelledby="assessor-sec-scope">
+    <h3 id="assessor-sec-scope" class="m-0 text-(length:--fs-14) font-semibold text-(--text)">What they assess</h3>
+    <div class="grid grid-cols-2 gap-4 max-sm:grid-cols-1">
+    <div class="flex min-w-0 flex-col items-stretch gap-1.5">
       <div class="flex items-center gap-1">
-        <span class="text-(length:--fs-13) font-semibold text-(--text-2)">Result types</span>
+        <span class="text-(length:--fs-13) font-medium text-(--text-2)">Result types</span>
         @if (draft().role === 'Assessor') {
           <button type="button" [qaTooltip]="info.types" aria-label="More about Result types" class="flex size-4 flex-none cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-0 text-(--text-muted) hover:text-(--primary) focus-visible:shadow-(--focus-ring) focus-visible:outline-none"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01"></path></svg></button>
         }
@@ -153,19 +159,19 @@
           emptyText="Nothing matches that search."
           panelWidth="320px"
           sideOffset="4"
-          class="max-[400px]:w-full"
+          class="w-full"
         />
         @if (typesError()) {
           <span class="text-(length:--fs-13) text-(--danger)" role="alert">{{ typesError() }}</span>
         }
       } @else {
-        <div class="box-border w-full rounded-lg border border-(--border) bg-(--surface-3) px-3 py-2.5 text-(length:--fs-14) text-(--text)">All result types</div>
+        <div class="text-(length:--fs-14) text-(--text)">All result types</div>
       }
     </div>
 
-    <div class="flex flex-col items-start gap-1.5">
+    <div class="flex min-w-0 flex-col items-stretch gap-1.5">
       <div class="flex items-center gap-1">
-        <span class="text-(length:--fs-13) font-semibold text-(--text-2)">Science programs</span>
+        <span class="text-(length:--fs-13) font-medium text-(--text-2)">Science programs</span>
         <button type="button" [qaTooltip]="info.programs" aria-label="More about Science programs" class="flex size-4 flex-none cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-0 text-(--text-muted) hover:text-(--primary) focus-visible:shadow-(--focus-ring) focus-visible:outline-none"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01"></path></svg></button>
       </div>
       <qa-multi-select
@@ -179,18 +185,21 @@
         emptyText="Nothing matches that search."
         panelWidth="320px"
         sideOffset="4"
-        class="max-[400px]:w-full"
+        class="w-full"
       />
       @if (programsError()) {
         <span class="text-(length:--fs-13) text-(--danger)" role="alert">{{ programsError() }}</span>
       }
     </div>
+    </div>
+    </section>
 
-    <div class="flex flex-col items-stretch gap-1.5">
+    <section class="flex flex-col gap-3 border-t border-(--border-soft) pt-5" aria-labelledby="assessor-sec-coi">
       <div class="flex items-center gap-1">
-        <span class="text-(length:--fs-13) font-semibold text-(--text-2)">Blocked for conflict of interest</span>
-        <button type="button" [qaTooltip]="info.blocked" aria-label="More about Blocked for conflict of interest" class="flex size-4 flex-none cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-0 text-(--text-muted) hover:text-(--primary) focus-visible:shadow-(--focus-ring) focus-visible:outline-none"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01"></path></svg></button>
+        <h3 id="assessor-sec-coi" class="m-0 text-(length:--fs-14) font-semibold text-(--text)">Conflicts of interest</h3>
+        <button type="button" [qaTooltip]="info.blocked" aria-label="More about Conflicts of interest" class="flex size-4 flex-none cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-0 text-(--text-muted) hover:text-(--primary) focus-visible:shadow-(--focus-ring) focus-visible:outline-none"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01"></path></svg></button>
       </div>
+      <p class="m-0 text-(length:--fs-12) leading-[1.5] text-pretty text-(--text-muted) -mt-2">Programs this person can never assess.</p>
       <div class="rounded-lg border border-(--border)">
         @for (b of draft().blocked; track $index; let i = $index) {
           <div class="border-b border-(--surface-4)">
@@ -201,7 +210,7 @@
                 <button hlmBtn qaBtn tone="danger" size="sm" type="button" (click)="removeBlock(i)">Remove</button>
               </div>
             } @else {
-              <div class="grid min-h-14 grid-cols-[minmax(0,1fr)_150px_32px] items-center gap-3 px-3.5 max-sm:grid-cols-[minmax(0,1fr)_32px]">
+              <div class="grid min-h-14 grid-cols-[minmax(0,1fr)_auto_minmax(32px,auto)] items-center gap-3 px-3.5 max-sm:grid-cols-[minmax(0,1fr)_minmax(32px,auto)]">
                 @if (b.isNew) {
                   <div class="flex min-w-0 flex-col gap-1.5 py-2.5">
                     <qa-select
@@ -235,7 +244,7 @@
                 <span class="text-right font-(family-name:--qa-mono) tabular-nums text-(length:--fs-12) font-medium text-(--text-4) max-sm:hidden">{{ b.date }}</span>
                 @if (b.origin === 'reporting') {
                   <!-- Comes from the Reporting Tool: it is dismissed with a reason, not removed here. -->
-                  <span title="Comes from the Reporting Tool" class="justify-self-end text-(length:--fs-11) font-semibold text-(--text-4)">Reporting</span>
+                  <span title="Comes from the Reporting Tool" class="justify-self-end rounded-md border border-(--border) px-1.5 py-px text-(length:--fs-12) font-medium whitespace-nowrap text-(--text-3)">Reporting</span>
                 } @else {
                 <button hlmBtn variant="ghost" type="button" (click)="blockConfirm.set(i)" [attr.aria-label]="'Remove block ' + (b.code || 'without program')" class="size-6 justify-self-end rounded-md border-0 bg-transparent p-0 text-(--text-3) hover:bg-transparent hover:text-(--danger) dark:hover:bg-transparent focus-visible:ring-0 focus-visible:shadow-(--focus-ring) focus-visible:outline-none"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"></path></svg></button>
                 }
@@ -250,7 +259,7 @@
       @if (blockError()) {
         <span class="text-(length:--fs-13) text-(--danger)" role="alert">{{ blockError() }}</span>
       }
-    </div>
+    </section>
 
     @if (person()?.otherRoles) {
       <p class="m-0 rounded-lg bg-(--surface-3) px-3.5 py-3 text-(length:--fs-13) text-(--text-2)">
