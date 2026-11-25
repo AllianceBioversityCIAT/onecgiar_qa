@@ -56,12 +56,12 @@ let nextId = 0;
             [id]="name + '-' + $index"
             [value]="option.value"
             [disabled]="!!option.disabled"
-            class="relative flex rounded-[6px] has-[input:focus-visible]:shadow-(--focus-ring)"
+            class="relative flex rounded-md has-[input:focus-visible]:shadow-(--focus-ring)"
             [class]="fill() ? 'min-w-0 flex-1' : 'flex-none'"
           >
             <label
               [for]="name + '-' + $index"
-              class="flex cursor-pointer items-center rounded-[6px] whitespace-nowrap select-none"
+              class="flex cursor-pointer items-center rounded-md whitespace-nowrap select-none"
               [class]="itemClass(option.value === value(), !!option.disabled)"
             >
               {{ option.label }}
@@ -92,7 +92,7 @@ export class QaSegmented {
 
   protected readonly trackClass = computed(() => {
     const compact = this.size() === 'compact';
-    const shape = compact ? 'gap-0.5 rounded-lg' : 'gap-[2px] rounded-[8px]';
+    const shape = compact ? 'gap-0.5 rounded-lg' : 'gap-[2px] rounded-lg';
     // Three short options fit one row on a phone; four wrap to a 2×2 grid.
     if (this.fill() && this.options().length <= 3) return `${shape} flex w-full items-center`;
     if (this.fill()) return `${shape} grid w-full grid-cols-2 @min-[23rem]:flex @min-[23rem]:items-center`;

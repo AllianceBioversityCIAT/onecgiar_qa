@@ -140,7 +140,7 @@
         </button>
         @if (userMenuOpen()) {
           <button type="button" aria-label="Close user menu" class="fixed inset-0 z-40 cursor-default" (click)="userMenuOpen.set(false)"></button>
-          <div role="menu" class="absolute top-[calc(100%+6px)] right-0 z-50 w-60 rounded-[10px] border border-(--border-raised) bg-(--surface-raised) p-1.5 shadow-(--shadow-pop)">
+          <div role="menu" class="absolute top-[calc(100%+6px)] right-0 z-50 w-60 rounded-lg border border-(--border-raised) bg-(--surface-raised) p-1.5 shadow-(--shadow-pop)">
             <p class="truncate px-2.5 py-2 text-(length:--fs-12) text-(--text-4)">{{ email() }}</p>
             <div class="my-1 h-px bg-(--border-soft)"></div>
             <button type="button" role="menuitem" class="flex h-9 w-full items-center gap-2 rounded-md px-2.5 text-left text-(length:--fs-13) font-medium text-(--text-2) hover:bg-(--surface-4)" (click)="signOut()">

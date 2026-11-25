@@ -48,10 +48,10 @@ const formatRange = (s: Date, e: Date) =>
   template: `
     <div class="relative flex h-8 items-center justify-center">
       <div brnCalendarHeader class="text-(length:--fs-14) font-semibold text-(--text)">{{ heading() }}</div>
-      <button brnCalendarPreviousButton class="absolute left-0 flex size-8 cursor-pointer items-center justify-center rounded-[8px] border-0 bg-transparent p-0 text-(--text-3) outline-none hover:bg-(--surface-3) focus-visible:shadow-(--focus-ring)">
+      <button brnCalendarPreviousButton class="absolute left-0 flex size-8 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent p-0 text-(--text-3) outline-none hover:bg-(--surface-3) focus-visible:shadow-(--focus-ring)">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6" /></svg>
       </button>
-      <button brnCalendarNextButton class="absolute right-0 flex size-8 cursor-pointer items-center justify-center rounded-[8px] border-0 bg-transparent p-0 text-(--text-3) outline-none hover:bg-(--surface-3) focus-visible:shadow-(--focus-ring)">
+      <button brnCalendarNextButton class="absolute right-0 flex size-8 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent p-0 text-(--text-3) outline-none hover:bg-(--surface-3) focus-visible:shadow-(--focus-ring)">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6" /></svg>
       </button>
     </div>
@@ -68,7 +68,7 @@ const formatRange = (s: Date, e: Date) =>
               <button
                 brnCalendarCellButton
                 [date]="date"
-                class="mx-auto flex size-9 cursor-pointer items-center justify-center rounded-[8px] border-0 bg-transparent p-0 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text-2) tabular-nums outline-none hover:bg-(--surface-3) focus-visible:shadow-(--focus-ring) data-[outside]:text-(--text-muted) data-[today]:font-bold data-[today]:text-(--accent) data-[today]:ring-1 data-[today]:ring-(--tint-border-2) data-[range-middle]:rounded-none data-[range-middle]:bg-(--tint-2) data-[range-middle]:text-(--accent) aria-selected:bg-(--primary) aria-selected:font-semibold aria-selected:text-(--surface) aria-selected:hover:bg-(--accent) data-[disabled]:cursor-default data-[disabled]:opacity-40"
+                class="mx-auto flex size-9 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent p-0 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text-2) tabular-nums outline-none hover:bg-(--surface-3) focus-visible:shadow-(--focus-ring) data-[outside]:text-(--text-muted) data-[today]:font-bold data-[today]:text-(--accent) data-[today]:ring-1 data-[today]:ring-(--tint-border-2) data-[range-middle]:rounded-none data-[range-middle]:bg-(--tint-2) data-[range-middle]:text-(--accent) aria-selected:bg-(--primary) aria-selected:font-semibold aria-selected:text-(--surface) aria-selected:hover:bg-(--accent) data-[disabled]:cursor-default data-[disabled]:opacity-40"
               >{{ date.getDate() }}</button>
             </td>
           }
@@ -107,7 +107,7 @@ class QaCalendarGrid {
         type="button"
         [disabled]="disabled()"
         [attr.aria-label]="label()"
-        class="flex size-7 cursor-pointer items-center justify-center rounded-[6px] border-0 bg-transparent p-0 text-(--text-3) outline-none hover:bg-(--surface-3) hover:text-(--accent) focus-visible:shadow-(--focus-ring) disabled:cursor-default disabled:opacity-50 aria-expanded:bg-(--tint) aria-expanded:text-(--accent)"
+        class="flex size-7 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent p-0 text-(--text-3) outline-none hover:bg-(--surface-3) hover:text-(--accent) focus-visible:shadow-(--focus-ring) disabled:cursor-default disabled:opacity-50 aria-expanded:bg-(--tint) aria-expanded:text-(--accent)"
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z" /></svg>
       </button>
