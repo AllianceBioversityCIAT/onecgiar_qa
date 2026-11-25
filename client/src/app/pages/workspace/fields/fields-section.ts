@@ -39,6 +39,7 @@ export interface FieldRowEvent<T> {
           [readOnly]="readOnly()"
           (stateChange)="stateChange.emit({ id: row.id, value: $event })"
           (coreChange)="coreChange.emit({ id: row.id, value: $event })"
+          (aiChange)="aiChange.emit({ id: row.id, value: $event })"
         />
       }
     }
@@ -55,4 +56,5 @@ export class FieldsSection {
   readonly toggle = output<void>();
   readonly stateChange = output<FieldRowEvent<FieldState>>();
   readonly coreChange = output<FieldRowEvent<boolean>>();
+  readonly aiChange = output<FieldRowEvent<boolean>>();
 }
