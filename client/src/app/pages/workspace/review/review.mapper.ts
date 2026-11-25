@@ -504,10 +504,16 @@ export function toHeaderVm(view: AssessmentView, canAct: boolean = view.writable
   const a = view.assessment;
   const ended = !!a && a.status !== 'pending';
   const assessor = reviewerLabel(a?.assessedBy);
+  const programName = `${h.program.code} ${h.program.name}`.trim();
+  const step = h.step ? `Step ${h.step.position} · ${h.step.name}` : null;
   return {
     code: String(h.resultCode),
     title: h.title ?? 'Untitled result',
     type: h.resultType.label,
+    programCode: h.program.code,
+    programName,
+    timeline: h.timeline.name,
+    step: step ?? 'No step',
     status: pill.label,
     statusClass: pill.cls,
     isAuto: h.status === 'auto_validated',
@@ -523,9 +529,9 @@ export function toHeaderVm(view: AssessmentView, canAct: boolean = view.writable
     // Comments become visible to the program only when the assessment ends (FR-14, FR-15).
     locked: canAct && !ended,
     details: [
-      { label: 'Science program', value: `${h.program.code} ${h.program.name}`.trim() },
+      { label: 'Science program', value: programName },
       { label: 'Timeline', value: h.timeline.name },
-      { label: 'Step', value: h.step ? `Step ${h.step.position} · ${h.step.name}` : '—' },
+      { label: 'Step', value: step ?? '—' },
       { label: 'Assessed by', value: ended ? assessor : '—' },
     ],
   };
