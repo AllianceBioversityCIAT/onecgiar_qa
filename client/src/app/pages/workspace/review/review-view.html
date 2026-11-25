@@ -29,6 +29,7 @@
               [resolved]="resolvedCount()"
               [total]="totalCount()"
               [aiCount]="aiCount"
+              [guidance]="guidance"
               [narrow]="narrow()"
               [rail]="layout.navigatorCollapsed()"
               (railChange)="setFocus($event)"
@@ -133,6 +134,11 @@
               @if (narrow() || compact()) {
                 <div class="mt-4 flex flex-col gap-3">
                   <div class="rounded-[8px] border border-(--border) bg-(--surface) px-[14px] py-3 text-(length:--fs-13) leading-[1.55] font-normal text-pretty text-(--text-2)">{{ h.instructions }}</div>
+                  <a hlmBtn qaBtn tone="secondary" size="sm" class="self-start" [href]="guidance.url" target="_blank" rel="noopener">
+                    <span>{{ guidance.label }}</span>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-4)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3" /></svg>
+                    <span class="sr-only">(opens in a new tab)</span>
+                  </a>
                 </div>
               }
             </div>
