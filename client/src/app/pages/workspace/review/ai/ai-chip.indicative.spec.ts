@@ -32,8 +32,8 @@ describe('indicative AI chip (contract 2.0.0)', () => {
       expect(vm.kind).toBe('available');
       if (vm.kind !== 'available') return;
       expect(vm.signal).toBe('indicative');
-      expect(vm.label).toBe('AI suggestion (indicative)');
-      expect(vm.meta).toBe('Indicative · no evidence quote');
+      expect(vm.label).toBe('Indicative');
+      expect(vm.meta).toBe('Only a suggestion');
       expect(vm.quote).toBeNull();
       expect(vm.headline).toBeNull();
       expect(vm.indicative).toEqual({ kind: 'category', suggested: 'Innovation', reported: null });
@@ -54,10 +54,10 @@ describe('indicative AI chip (contract 2.0.0)', () => {
       expect(dl).toContain('Innovation development');
     });
 
-    it('renders without colour, verdict or quote, and keeps Copy to comment', () => {
+    it('renders without colour, verdict or quote, and keeps Use as comment', () => {
       const el = render(toAiChipVm(RESULT_CATEGORY_VIEW));
       const text = el.textContent!;
-      expect(text).toContain('AI suggestion (indicative)');
+      expect(text).toContain('Only a suggestion');
       expect(text).toContain(AI_INDICATIVE_META);
       expect(text).not.toMatch(/Review|Incorrect|Looks consistent|Check/);
       expect(el.innerHTML).not.toMatch(STATUS_BADGES);
@@ -65,7 +65,7 @@ describe('indicative AI chip (contract 2.0.0)', () => {
       expect(el.querySelector('blockquote')).toBeNull();
       expect(el.querySelector('[data-testid="ai-explanation"]')!.textContent).toContain('Novelty');
       expect(
-        [...el.querySelectorAll('button')].some((b) => b.textContent!.includes('Copy to comment')),
+        [...el.querySelectorAll('button')].some((b) => b.textContent!.includes('Use as comment')),
       ).toBe(true);
     });
   });
@@ -90,7 +90,7 @@ describe('indicative AI chip (contract 2.0.0)', () => {
       expect(el.querySelector('[data-testid="ai-covers"]')!.textContent).toContain(
         'covers actors, organizations and measures',
       );
-      expect(el.textContent).toContain('Indicative · no evidence quote');
+      expect(el.textContent).toContain('Only a suggestion');
       expect(el.querySelectorAll('[data-testid="ai-suggested-row"]').length).toBe(2);
       expect(el.textContent).toContain('1,200');
       expect(el.textContent).toContain('Nothing reported.');

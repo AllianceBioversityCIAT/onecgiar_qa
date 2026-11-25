@@ -357,7 +357,7 @@ export class ReviewView {
     this.onCard(e.id, e.action);
   }
 
-  /** P2-3918 "Copy to comment": the comment box opens with the AI's text, editable; nothing is saved (AC6, AC7). */
+  /** P2-3918 "Copy to comment" (labelled "Use as comment" since 2026-11-25): the comment box opens with the AI's text, editable; nothing is saved (AC6, AC7). */
   protected onAiCopy(key: string): void {
     const text = this.ai.copy(key);
     this.openDrawer(key);

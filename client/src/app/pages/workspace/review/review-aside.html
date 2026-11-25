@@ -1,7 +1,7 @@
 @let r = result();
 @if (railOn()) {
   <!-- Collapsed rail: numbered sections, resolved fraction, AI flags -->
-  <button type="button" title="Exit focus: show the menu and sections" aria-label="Exit focus: show the menu and sections" [attr.aria-expanded]="false" class="flex size-[26px] flex-none items-center justify-center rounded-[6px] p-0 text-(--text-muted) hover:bg-(--surface-3) hover:text-(--text-3) focus-visible:shadow-(--focus-ring) focus-visible:outline-none" (click)="rail.set(false)">
+  <button type="button" title="Exit focus: show the menu and sections" aria-label="Exit focus: show the menu and sections" [attr.aria-expanded]="false" class="flex size-[26px] flex-none items-center justify-center rounded-md p-0 text-(--text-muted) hover:bg-(--surface-3) hover:text-(--text-3) focus-visible:shadow-(--focus-ring) focus-visible:outline-none" (click)="rail.set(false)">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="-scale-x-100" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3" /><path d="M9 3v18" /></svg>
   </button>
   <div class="my-2 h-px w-6 flex-none bg-(--surface-4)" aria-hidden="true"></div>
@@ -12,7 +12,7 @@
         [attr.aria-current]="s.active ? 'step' : null"
         [title]="sectionTitle(s)"
         [attr.aria-label]="sectionTitle(s)"
-        class="relative flex size-10 flex-none items-center justify-center rounded-[8px] font-(family-name:--qa-mono) text-(length:--fs-13) font-semibold focus-visible:shadow-(--focus-ring) focus-visible:outline-none"
+        class="relative flex size-10 flex-none items-center justify-center rounded-lg font-(family-name:--qa-mono) text-(length:--fs-13) font-semibold focus-visible:shadow-(--focus-ring) focus-visible:outline-none"
         [class]="s.active ? 'bg-(--surface) text-(--text) shadow-(--shadow-seg) ring-1 ring-(--border) hover:bg-(--surface)' : 'text-(--text-4) hover:bg-(--surface-4)'"
         (click)="go.emit(i)"
       >
@@ -33,14 +33,14 @@
     <span class="font-(family-name:--qa-mono) text-(length:--fs-10) font-medium text-(--text-muted) tabular-nums" aria-hidden="true">{{ total() }}</span>
   </div>
   @if (aiCount() > 0) {
-    <button type="button" [title]="aiCount() + (aiCount() === 1 ? ' field flagged by AI' : ' fields flagged by AI')" [attr.aria-label]="aiCount() + (aiCount() === 1 ? ' field flagged by AI' : ' fields flagged by AI')" class="mt-2 flex h-7 w-10 flex-none items-center justify-center gap-[3px] rounded-[8px] bg-(--ai-tint) p-0 hover:bg-(--ai-tint-2) focus-visible:shadow-(--focus-ring) focus-visible:outline-none" (click)="aiGo.emit()">
+    <button type="button" [title]="aiCount() + (aiCount() === 1 ? ' field flagged by AI' : ' fields flagged by AI')" [attr.aria-label]="aiCount() + (aiCount() === 1 ? ' field flagged by AI' : ' fields flagged by AI')" class="mt-2 flex h-7 w-10 flex-none items-center justify-center gap-[3px] rounded-lg bg-(--ai-tint) p-0 hover:bg-(--ai-tint-2) focus-visible:shadow-(--focus-ring) focus-visible:outline-none" (click)="aiGo.emit()">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--ai)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z" /></svg>
       <span class="font-(family-name:--qa-mono) text-(length:--fs-11) font-bold text-(--ai) tabular-nums" aria-hidden="true">{{ aiCount() }}</span>
     </button>
   }
 } @else {
   @if (!narrow()) {
-    <button type="button" title="Focus: collapse the menu and sections" aria-label="Focus: collapse the menu and sections" [attr.aria-expanded]="true" class="absolute top-4 right-3 z-[2] flex size-[26px] flex-none items-center justify-center rounded-[6px] p-0 text-(--text-muted) hover:bg-(--surface-3) hover:text-(--text-3) focus-visible:shadow-(--focus-ring) focus-visible:outline-none" (click)="rail.set(true)">
+    <button type="button" title="Focus: collapse the menu and sections" aria-label="Focus: collapse the menu and sections" [attr.aria-expanded]="true" class="absolute top-4 right-3 z-[2] flex size-[26px] flex-none items-center justify-center rounded-md p-0 text-(--text-muted) hover:bg-(--surface-3) hover:text-(--text-3) focus-visible:shadow-(--focus-ring) focus-visible:outline-none" (click)="rail.set(true)">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3" /><path d="M9 3v18" /></svg>
     </button>
   }
@@ -61,34 +61,20 @@
       </div>
       <div class="text-(length:--fs-12) leading-[1.45] font-normal text-pretty text-(--text-4)">{{ stepText() }}@if (r.showAssessedBy) { · Assessed by {{ r.assessor }}}</div>
     </div>
-  } @else {
-  <div class="flex flex-col gap-1.5 pr-8 pl-2.5">
-    <div class="text-(length:--fs-12) font-medium text-(--text-muted)">Result code</div>
-    <div class="flex items-center gap-1.5">
-      <span class="font-(family-name:--qa-mono) text-(length:--fs-20) font-bold whitespace-nowrap text-(--text) tabular-nums">{{ r.code }}</span>
-      <qa-review-code-info [details]="r.details" />
-    </div>
-    <div class="text-(length:--fs-13) leading-[1.35] font-normal text-(--text-3)">{{ r.type }}</div>
-    <span class="inline-flex items-center gap-[5px] self-start rounded-md px-2.5 py-[3px] text-(length:--fs-12) font-medium whitespace-nowrap" [class]="r.statusClass">
-      @if (r.isAuto) {
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" /></svg>
-      }
-      {{ r.status }}
-    </span>
-    <div [title]="stepText()" class="truncate text-(length:--fs-12) font-normal text-(--text-4)">{{ stepText() }}</div>
-    @if (r.showAssessedBy) {
-      <div class="text-(length:--fs-12) font-normal text-(--text-4)">Assessed by {{ r.assessor }}</div>
-    }
-  </div>
+  } @else if (r.showAssessedBy) {
+  <!-- Code, type, status and step are already under the result title: the panel does not repeat them (Juanpa, 2026-11-25). -->
+  <div class="pr-8 pl-2.5 text-(length:--fs-12) font-normal text-(--text-4)">Assessed by {{ r.assessor }}</div>
   }
 
+  @if (narrow() || r.showAssessedBy) {
   <div class="border-b border-(--surface-4)" [class]="narrow() ? 'my-3' : 'my-4'"></div>
+  }
   <div class="pb-2 text-(length:--fs-12) font-medium text-(--text-muted)" [class]="narrow() ? 'px-0' : 'px-2.5'" id="review-sections-label">Sections</div>
 
   @if (narrow()) {
     <!-- Narrow container under 42rem: a select instead of a row of section buttons -->
     <div class="relative @2xl:hidden">
-      <select #sectionSelect aria-labelledby="review-sections-label" class="box-border min-h-11 w-full cursor-pointer appearance-none rounded-[8px] border border-(--border) bg-(--field-bg) py-2 pr-10 pl-3 text-(length:--fs-14) font-semibold text-(--text) hover:border-(--border-strong) focus-visible:shadow-(--focus-ring) focus-visible:outline-none" (change)="go.emit(+sectionSelect.value)">
+      <select #sectionSelect aria-labelledby="review-sections-label" class="box-border min-h-11 w-full cursor-pointer appearance-none rounded-lg border border-(--border) bg-(--field-bg) py-2 pr-10 pl-3 text-(length:--fs-14) font-semibold text-(--text) hover:border-(--border-strong) focus-visible:shadow-(--focus-ring) focus-visible:outline-none" (change)="go.emit(+sectionSelect.value)">
         @for (s of sections(); track s.n; let i = $index) {
           <option [value]="i" [selected]="s.active">{{ s.n }}. {{ s.name }} · {{ s.open > 0 ? s.open + ' pending' : 'complete' }}</option>
         }
@@ -102,7 +88,7 @@
       <button
         type="button"
         [attr.aria-current]="s.active ? 'step' : null"
-        class="flex min-h-11 flex-none items-center gap-2.5 rounded-[8px] px-2.5 text-left text-(length:--fs-14) focus-visible:shadow-(--focus-ring) focus-visible:outline-none"
+        class="flex min-h-11 flex-none items-center gap-2.5 rounded-lg px-2.5 text-left text-(length:--fs-14) focus-visible:shadow-(--focus-ring) focus-visible:outline-none"
         [class]="(narrow() ? 'border whitespace-nowrap ' + (s.active ? 'border-(--border-strong) ' : 'border-(--border) ') : 'whitespace-normal ') + (s.active ? 'bg-(--surface) font-semibold text-(--text) shadow-(--shadow-seg) ring-1 ring-(--border) hover:bg-(--surface)' : 'font-medium text-(--text-2) hover:bg-(--surface-4)')"
         (click)="go.emit(i)"
       >
@@ -124,14 +110,14 @@
     }
 
     @if (aiCount() > 0) {
-      <button type="button" class="flex items-center gap-2 rounded-[8px] bg-(--ai-tint) px-2.5 py-2 text-left hover:bg-(--ai-tint-2) focus-visible:shadow-(--focus-ring) focus-visible:outline-none" [class.min-h-10]="narrow()" (click)="aiGo.emit()">
+      <button type="button" class="flex items-center gap-2 rounded-lg bg-(--ai-tint) px-2.5 py-2 text-left hover:bg-(--ai-tint-2) focus-visible:shadow-(--focus-ring) focus-visible:outline-none" [class.min-h-10]="narrow()" (click)="aiGo.emit()">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--ai)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z" /></svg>
         <span class="text-(length:--fs-12) font-medium text-(--ai)"><span class="font-(family-name:--qa-mono) font-bold tabular-nums">{{ aiCount() }}</span> {{ aiCount() === 1 ? 'field flagged by AI' : 'fields flagged by AI' }}</span>
       </button>
     }
 
     @if (!narrow()) {
-      <div class="rounded-[8px] bg-(--surface-3) px-[14px] py-3 text-(length:--fs-13) leading-[1.55] font-normal text-pretty text-(--text-2)">{{ r.instructions }}</div>
+      <div class="rounded-lg bg-(--surface-3) px-[14px] py-3 text-(length:--fs-13) leading-[1.55] font-normal text-pretty text-(--text-2)">{{ r.instructions }}</div>
       @if (guidance(); as g) {
         <a hlmBtn qaBtn tone="secondary" size="sm" [href]="g.url" target="_blank" rel="noopener">
           <span>{{ g.label }}</span>

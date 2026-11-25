@@ -6,7 +6,7 @@ import { Component, input } from '@angular/core';
  */
 @Component({
   selector: 'qa-review-instruction-note',
-  host: { class: 'flex flex-col gap-1 rounded-[8px] border border-(--border) bg-(--surface) px-3 py-2.5' },
+  host: { class: 'flex flex-col gap-1 rounded-lg border border-(--border) bg-(--surface) px-3 py-2.5' },
   template: `
     <span class="text-(length:--fs-12) font-medium text-(--text-muted)">{{ label() }}</span>
     <span class="text-(length:--fs-13) leading-[1.55] text-pretty text-(--text-2)">{{ text() }}</span>

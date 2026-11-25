@@ -3,7 +3,7 @@
     <span qaDrawerHeader="end" class="mt-0.5 rounded-md bg-(--st-rejected-bg) px-2 py-0.5 text-(length:--fs-12) font-medium whitespace-nowrap text-(--st-rejected-fg)">Highlighted</span>
   }
   @if (open() && field(); as f) {
-    <div class="rounded-[8px] bg-(--surface-3) px-3 py-2.5 text-(length:--fs-14) leading-[1.55] wrap-anywhere whitespace-pre-line text-(--text)">{{ f.value }}</div>
+    <div class="rounded-lg bg-(--surface-3) px-3 py-2.5 text-(length:--fs-14) leading-[1.55] wrap-anywhere whitespace-pre-line text-(--text)">{{ f.value }}</div>
 
     @if (f.mode !== 'instruction' && f.instruction) {
       <qa-review-instruction-note [text]="f.instruction" />
@@ -28,7 +28,7 @@
             </li>
           } @else {
             <!-- The program's answers and the author's answer to a clarification sit under the comment they belong to. -->
-            <li class="flex flex-col gap-1.5 rounded-[8px] bg-(--surface-2) px-[14px] py-3" [class]="c.role === 'Assessor' && !c.answer ? '' : 'ml-5 border-l-2 border-(--border)'">
+            <li class="flex flex-col gap-1.5 rounded-lg bg-(--surface-2) px-[14px] py-3" [class]="c.role === 'Assessor' && !c.answer ? '' : 'ml-5 border-l-2 border-(--border)'">
               <div class="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
                 <span class="text-(length:--fs-12) font-semibold text-(--text-2)">{{ c.who }} · {{ c.answer ? 'Answer' : c.role }}</span>
                 @if (c.step) {
@@ -84,7 +84,7 @@
         </div>
       } @else {
       <div class="-mb-2 flex flex-wrap items-center gap-2">
-        <button type="button" [qaMenuTrigger]="quick" (qaMenuOpened)="onQuickOpened()" class="inline-flex min-h-[30px] items-center gap-[7px] rounded-[8px] border border-dashed border-(--border-strong) px-2.5 text-(length:--fs-13) font-medium text-(--text-3) hover:border-solid hover:border-(--accent) hover:text-(--accent) focus-visible:shadow-(--focus-ring) focus-visible:outline-none">
+        <button type="button" [qaMenuTrigger]="quick" (qaMenuOpened)="onQuickOpened()" class="inline-flex min-h-[30px] items-center gap-[7px] rounded-lg border border-dashed border-(--border-strong) px-2.5 text-(length:--fs-13) font-medium text-(--text-3) hover:border-solid hover:border-(--accent) hover:text-(--accent) focus-visible:shadow-(--focus-ring) focus-visible:outline-none">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2zM8 8h8M8 12h5" /></svg>
           Quick comment
         </button>
@@ -100,7 +100,7 @@
         [placeholder]="f.mode === 'instruction' ? 'What should the third-party broker check?' : f.mode === 'note' ? 'What should the PPU change in the Reporting Tool?' : f.mode === 'clarify' ? 'Write your answer' : 'Write a comment'"
         [attr.aria-invalid]="showError() || !!serverError()"
         [attr.aria-describedby]="showError() ? 'review-comment-error' : serverError() ? 'review-comment-server-error' : null"
-        class="box-border min-h-24 w-full resize-y rounded-[8px] border bg-(--field-bg) px-3 py-2.5 text-(length:--fs-14) leading-[1.55] text-(--text) outline-none placeholder:text-(--text-muted) focus:border-(--primary)"
+        class="box-border min-h-24 w-full resize-y rounded-lg border bg-(--field-bg) px-3 py-2.5 text-(length:--fs-14) leading-[1.55] text-(--text) outline-none placeholder:text-(--text-muted) focus:border-(--primary)"
         [class]="showError() || serverError() ? 'border-(--danger)' : 'border-(--border)'"
       ></textarea>
       @if (serverError()) {
@@ -149,7 +149,7 @@
       type="search"
       aria-label="Search comments"
       placeholder="Search comments"
-      class="box-border h-8 w-full flex-none rounded-[6px] border border-(--border) bg-(--field-bg) px-2.5 text-(length:--fs-13) text-(--text) outline-none placeholder:text-(--text-muted) focus:border-(--primary)"
+      class="box-border h-8 w-full flex-none rounded-md border border-(--border) bg-(--field-bg) px-2.5 text-(length:--fs-13) text-(--text) outline-none placeholder:text-(--text-muted) focus:border-(--primary)"
       [value]="query()"
       (input)="query.set($any($event.target).value)"
       (keydown)="onSearchKeydown($event)"
