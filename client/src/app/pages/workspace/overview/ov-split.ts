@@ -15,7 +15,7 @@ export interface SplitVm {
   host: { class: 'block' },
   template: `
     @let d = data();
-    <section [attr.aria-labelledby]="headingId()" class="flex h-full flex-col gap-4 rounded-[12px] border border-(--border) bg-(--surface) p-5 shadow-(--shadow-card)">
+    <section [attr.aria-labelledby]="headingId()" class="flex h-full flex-col gap-4 rounded-xl border border-(--border) bg-(--surface) p-5 shadow-(--shadow-card)">
       <div class="flex flex-col gap-0.5">
         <h3 [id]="headingId()" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">{{ d.title }}</h3>
         <p class="m-0 text-(length:--fs-13) text-(--text-3)">{{ d.subtitle }}</p>

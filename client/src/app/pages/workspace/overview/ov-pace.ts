@@ -46,7 +46,7 @@ function yTicks(v: number): number[] {
   imports: [QaSelectImports],
   host: { class: 'block @container' },
   template: `
-    <section aria-labelledby="overview-pace-title" class="flex h-full flex-col rounded-[12px] border border-(--border) bg-(--surface) p-5 shadow-(--shadow-card)">
+    <section aria-labelledby="overview-pace-title" class="flex h-full flex-col rounded-xl border border-(--border) bg-(--surface) p-5 shadow-(--shadow-card)">
       <!-- Header: title and what it shows on the left; the block's own filter and its status on the right. -->
       <div class="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
         <div class="flex min-w-0 flex-col gap-0.5">
@@ -88,7 +88,7 @@ function yTicks(v: number): number[] {
         <div class="mt-5 flex flex-col gap-6">
           <dl class="m-0 grid grid-cols-2 gap-2 @lg:grid-cols-4">
             @for (k of v.kpis; track k.label) {
-              <div class="flex flex-col-reverse gap-0.5 rounded-[10px] bg-(--surface-5) px-3 py-2.5">
+              <div class="flex flex-col-reverse gap-0.5 rounded-lg bg-(--surface-5) px-3 py-2.5">
                 <dt class="text-(length:--fs-12) text-(--text-3)">{{ k.label }}</dt>
                 <dd class="m-0 text-(length:--fs-20) font-bold tabular-nums tracking-[-0.01em] text-(--text)">{{ k.value }}</dd>
               </div>

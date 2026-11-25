@@ -58,7 +58,7 @@ export interface CycleHeroVm {
   template: `
     <section
       aria-labelledby="overview-hero-title"
-      class="relative flex flex-col gap-6 overflow-hidden rounded-[12px] border border-(--border) bg-(--surface) p-5 shadow-(--shadow-card)"
+      class="relative flex flex-col gap-6 overflow-hidden rounded-xl border border-(--border) bg-(--surface) p-5 shadow-(--shadow-card)"
     >
       <!-- What the hero counts comes from the Overview's filters at the top of the page. -->
       <!-- One sentence: "1,330 results in QA, from 4 live timelines" (or one timeline's step). No Cycle link here: "Progress by timeline"
@@ -78,7 +78,7 @@ export interface CycleHeroVm {
         @for (r of data().rounds; track r.id) {
           <!-- White card with a grey outline like every Overview block; the rounds inside are boxes in the same style as the
                Assessment pace figures (light grey with a soft outline), so every inner box on the page reads the same. -->
-          <section [attr.aria-labelledby]="'hero-' + r.id + '-title'" class="flex flex-col gap-4 rounded-[10px] bg-(--surface-5) p-4 @2xl:p-5">
+          <section [attr.aria-labelledby]="'hero-' + r.id + '-title'" class="flex flex-col gap-4 rounded-lg bg-(--surface-5) p-4 @2xl:p-5">
             <div class="flex items-start justify-between gap-4">
               <div class="flex min-w-0 flex-col gap-[2px]">
                 <h3 [id]="'hero-' + r.id + '-title'" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">{{ r.title }}</h3>
@@ -116,7 +116,7 @@ export interface CycleHeroVm {
                             routerLink="/results"
                             [queryParams]="link(stage)"
                             [attr.aria-label]="step.name + ', ' + s.label + ': ' + s.count + ' results'"
-                            class="group flex min-h-11 items-center gap-3 rounded-[8px] px-2 py-[7px] no-underline hover:bg-(--surface-4) focus-visible:shadow-(--focus-ring) focus-visible:outline-none"
+                            class="group flex min-h-11 items-center gap-3 rounded-lg px-2 py-[7px] no-underline hover:bg-(--surface-4) focus-visible:shadow-(--focus-ring) focus-visible:outline-none"
                           >
                             <span aria-hidden="true" class="size-[10px] flex-none rounded-[3px]" [class]="s.color"></span>
                             <span class="min-w-0 flex-1 text-(length:--fs-14) font-medium text-(--text-2)">{{ s.label }}</span>
@@ -147,7 +147,7 @@ export interface CycleHeroVm {
         routerLink="/results"
         [queryParams]="link('quality-assessed')"
         [attr.aria-label]="'Quality assessed: ' + data().final.count + ' results, ' + data().final.pct + '% of results in QA'"
-        class="group -mt-3 flex min-h-11 items-center gap-3 rounded-[12px] bg-(--tint) px-4 py-3 ring-1 ring-(--tint-border) ring-inset no-underline focus-visible:shadow-(--focus-ring) focus-visible:outline-none @2xl:px-5"
+        class="group -mt-3 flex min-h-11 items-center gap-3 rounded-xl bg-(--tint) px-4 py-3 ring-1 ring-(--tint-border) ring-inset no-underline focus-visible:shadow-(--focus-ring) focus-visible:outline-none @2xl:px-5"
       >
         <span aria-hidden="true" class="flex size-5 flex-none items-center justify-center rounded-full bg-(--st-approved-fg)">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>

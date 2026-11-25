@@ -26,7 +26,7 @@ const BUCKETS = [
   imports: [RouterLink],
   host: { class: 'block @container' },
   template: `
-    <section aria-labelledby="overview-types-title" class="flex h-full flex-col rounded-[12px] border border-(--border) bg-(--surface) pt-5 shadow-(--shadow-card)">
+    <section aria-labelledby="overview-types-title" class="flex h-full flex-col rounded-xl border border-(--border) bg-(--surface) pt-5 shadow-(--shadow-card)">
       <div class="flex flex-col gap-0.5 px-5 pb-3">
         <h3 id="overview-types-title" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">Progress by result type</h3>
         <p class="m-0 text-(length:--fs-13) text-(--text-3)">Where each result type is in QA, least advanced first. Click a row to open its results.</p>

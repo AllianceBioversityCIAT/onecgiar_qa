@@ -53,7 +53,7 @@ const LABEL_CLASS: Record<LaneStepState, string> = {
   imports: [QaButtonImports, RouterLink],
   host: { class: 'block @container' },
   template: `
-    <section aria-labelledby="overview-lanes-title" class="flex flex-col overflow-hidden rounded-[12px] border border-(--border) bg-(--surface) shadow-(--shadow-card)">
+    <section aria-labelledby="overview-lanes-title" class="flex flex-col overflow-hidden rounded-xl border border-(--border) bg-(--surface) shadow-(--shadow-card)">
       <div class="flex items-start justify-between gap-4 px-5 pt-5 pb-4">
         <h3 id="overview-lanes-title" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">
           Progress by timeline

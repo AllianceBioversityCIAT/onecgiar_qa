@@ -36,7 +36,7 @@ const STATUS_CHIP: Record<TimelineStatus, string> = {
       (qaMenuOpened)="query.set('')"
       (qaMenuClosed)="scrollToSubs.set(false)"
       [attr.aria-labelledby]="labelledBy() + ' overview-timeline-value'"
-      class="box-border flex min-h-9 w-full min-w-[260px] cursor-pointer items-center gap-2 rounded-[8px] border border-(--border) bg-(--field-bg) px-3 text-left text-(length:--fs-14) font-semibold text-(--text) hover:border-(--border-strong) focus-visible:shadow-(--focus-ring) focus-visible:outline-none aria-expanded:border-(--border-strong)"
+      class="box-border flex min-h-9 w-full min-w-[260px] cursor-pointer items-center gap-2 rounded-lg border border-(--border) bg-(--field-bg) px-3 text-left text-(length:--fs-14) font-semibold text-(--text) hover:border-(--border-strong) focus-visible:shadow-(--focus-ring) focus-visible:outline-none aria-expanded:border-(--border-strong)"
     >
       <span id="overview-timeline-value" class="min-w-0 truncate">{{ selected()?.name ?? 'All timelines' }}</span>
       @if (selected(); as s) {
@@ -57,7 +57,7 @@ const STATUS_CHIP: Record<TimelineStatus, string> = {
           [value]="query()"
           (input)="onQuery($event)"
           (keydown)="onSearchKey($event)"
-          class="box-border h-8 w-full flex-none rounded-[6px] border border-(--border) bg-(--field-bg) px-[10px] text-(length:--fs-13) text-(--text) shadow-none outline-none focus-visible:border-(--primary) focus-visible:ring-0 md:text-(length:--fs-13)"
+          class="box-border h-8 w-full flex-none rounded-md border border-(--border) bg-(--field-bg) px-[10px] text-(length:--fs-13) text-(--text) shadow-none outline-none focus-visible:border-(--primary) focus-visible:ring-0 md:text-(length:--fs-13)"
         />
         <div class="relative mt-2 flex min-h-0 flex-1 flex-col gap-px overflow-y-auto [scrollbar-width:thin]">
           @if (showAll()) {

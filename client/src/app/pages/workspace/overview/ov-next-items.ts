@@ -20,7 +20,7 @@ export interface NextItemsVm {
   host: { class: 'block' },
   template: `
     @let d = data();
-    <section aria-labelledby="overview-next-title" class="flex h-full flex-col rounded-[12px] border border-(--border) bg-(--surface) pt-5 shadow-(--shadow-card)">
+    <section aria-labelledby="overview-next-title" class="flex h-full flex-col rounded-xl border border-(--border) bg-(--surface) pt-5 shadow-(--shadow-card)">
       <div class="flex flex-col gap-0.5 px-5 pb-3">
         <h3 id="overview-next-title" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">{{ d.title }}</h3>
         <p class="m-0 text-(length:--fs-13) text-(--text-3)">{{ d.subtitle }}</p>
