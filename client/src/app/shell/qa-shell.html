@@ -60,32 +60,33 @@
   </div>
 
   <nav class="flex-1 overflow-y-auto px-3 pt-1 pb-4 [scrollbar-color:var(--border-strong)_transparent] [scrollbar-width:thin]">
-    <!-- Active cycle: outlined panel on the nav background (no fill, no shadow). Green only on the dot.
+    <!-- Active cycle: plain information at the top of the nav, no box, shadow or hover, so it never reads as something to
+         click or as the selected item (Juanpa, 2026-11-25: as a white card it looked selectable). A line closes it.
          Information only, not a link (Juanpa, 2026-10-29): Cycle already has its own item in the menu.
          Real data (shell/active-cycle.ts): admins only; nothing while loading or without an active cycle. -->
     @if (activeCycle.card(); as c) {
-      <div
-        class="mb-4 flex flex-col gap-1 rounded-lg border border-(--nav-divider) px-3 py-2.5"
-        [class.lg:hidden]="collapsed()"
-      >
-        <span class="flex items-baseline justify-between gap-2">
-          <span class="truncate text-(length:--fs-14) font-semibold text-(--nav-fg)">{{ c.name }}</span>
+      <section aria-label="Active cycle" class="mb-3 flex flex-col gap-1 border-b border-(--nav-divider) px-1 pt-1 pb-4" [class.lg:hidden]="collapsed()">
+        <!-- Two lines (Juanpa, 2026-11-25): the name with its status beside it, then where the main batch is. The time of
+             day is left out (everything before the first comma): it is in Cycle, and here it pushed the line onto two rows.
+             TODO(yeck): a short line field in active-cycle.ts would be cleaner than cutting the text here. -->
+        <span class="flex items-center gap-2">
+          <span class="truncate text-(length:--fs-15) font-semibold text-(--nav-fg)">{{ c.name }}</span>
           <span class="flex flex-none items-center gap-1.5 text-(length:--fs-12) text-(--nav-fg-3)">
-            <span aria-hidden="true" class="size-1.5 rounded-full" [class]="c.status === 'Active' ? 'bg-(--success)' : 'bg-(--nav-fg-3)'"></span>{{ c.status }}
+            <span aria-hidden="true" class="size-1.5 flex-none rounded-full" [class]="c.status === 'Active' ? 'bg-(--success)' : 'bg-(--nav-fg-3)'"></span>{{ c.status }}
           </span>
         </span>
-        <span class="text-(length:--fs-12) tabular-nums text-(--nav-fg-3)">Main batch · {{ c.line }}</span>
-      </div>
+        <span class="truncate text-(length:--fs-12) tabular-nums text-(--nav-fg-3)" [title]="'Main batch · ' + c.line">Main batch · {{ c.line.split(',')[0] }}</span>
+      </section>
     }
 
-    <div class="px-1 py-2 text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--nav-eyebrow) uppercase" [class.lg:sr-only]="collapsed()">Assessment</div>
+    <div class="px-1 py-2 text-(length:--fs-12) font-medium text-(--nav-eyebrow)" [class.lg:sr-only]="collapsed()">Assessment</div>
     <div class="flex flex-col gap-0.5">
       <ng-container *ngTemplateOutlet="navLinks; context: { $implicit: assessment() }" />
     </div>
 
     @if (administration().length) {
     <div class="mx-1 mt-5 h-px bg-(--nav-divider)"></div>
-    <div class="px-1 pt-4 pb-2 text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--nav-eyebrow) uppercase" [class.lg:sr-only]="collapsed()">Administration</div>
+    <div class="px-1 pt-4 pb-2 text-(length:--fs-12) font-medium text-(--nav-eyebrow)" [class.lg:sr-only]="collapsed()">Administration</div>
     <div class="flex flex-col gap-0.5">
       <ng-container *ngTemplateOutlet="navLinks; context: { $implicit: administration() }" />
     </div>
@@ -94,7 +95,7 @@
 </aside>
 
 <div class="flex h-dvh min-w-0 flex-1 flex-col">
-  <header class="flex h-14 flex-none items-center gap-2 border-b border-(--border) bg-(--surface) px-3 sm:gap-3 sm:px-5">
+  <header class="flex h-14 flex-none items-center gap-2 border-b border-(--border) bg-(--bg) px-3 sm:gap-3 sm:px-5">
     <div class="flex items-center gap-1 sm:flex-[1_0_auto]">
       <button
         type="button"
@@ -133,7 +134,7 @@
           class="flex h-9 items-center gap-2 rounded-lg pr-2 pl-1 text-(length:--fs-14) font-medium whitespace-nowrap text-(--text) hover:bg-(--surface-4)"
           (click)="userMenuOpen.set(!userMenuOpen())"
         >
-          <span class="flex size-7 flex-none items-center justify-center rounded-full bg-(--tint-2) text-(length:--fs-11) font-semibold text-(--accent)" aria-hidden="true">{{ initials() }}</span>
+          <span class="flex size-7 flex-none items-center justify-center rounded-full bg-(--surface-4) text-(length:--fs-11) font-semibold text-(--text-2)" aria-hidden="true">{{ initials() }}</span>
           <span class="hidden md:inline" data-testid="user-email">{{ email() }}</span>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
         </button>
