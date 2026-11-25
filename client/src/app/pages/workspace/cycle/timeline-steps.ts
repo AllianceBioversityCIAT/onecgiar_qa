@@ -74,7 +74,7 @@ import { TimelineVM } from './cycle.logic';
         @for (s of t.steps; track $index) {
           <li
             [qaReveal]="$index"
-            class="relative flex min-h-[164px] min-w-0 flex-col gap-2 rounded-[10px] border p-[14px] text-left hover:border-(--border-strong) has-[[data-step-open]:focus-visible]:shadow-(--focus-ring)"
+            class="relative flex min-h-[164px] min-w-0 flex-col gap-2 rounded-lg border p-[14px] text-left hover:border-(--border-strong) has-[[data-step-open]:focus-visible]:shadow-(--focus-ring)"
             [class]="s.state === 'active' ? 'border-(--border-accent) bg-(--surface) shadow-(--shadow-card)' : 'border-transparent bg-(--surface-5)'"
             [attr.aria-current]="s.state === 'active' ? 'step' : null"
           >
@@ -99,7 +99,7 @@ import { TimelineVM } from './cycle.logic';
               [title]="s.name"
               [attr.aria-label]="'Step ' + s.n + ': ' + s.name"
               (click)="openStep.emit($index)"
-              class="cursor-pointer border-0 bg-transparent p-0 text-left outline-none after:absolute after:inset-0 after:rounded-[10px]"
+              class="cursor-pointer border-0 bg-transparent p-0 text-left outline-none after:absolute after:inset-0 after:rounded-lg"
             >
               <span class="line-clamp-3 text-(length:--fs-14) leading-[1.3] font-semibold text-pretty text-(--text)">{{ s.name }}</span>
             </button>

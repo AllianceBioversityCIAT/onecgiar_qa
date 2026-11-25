@@ -18,11 +18,11 @@ import { failureLabel, skipLabel } from './load.copy';
       @if (open() && load(); as l) {
         @let s = l.detail.summary;
         @if (l.detail.status === 'failed') {
-          <p role="alert" class="m-0 rounded-[8px] bg-(--st-editing-bg) px-[14px] py-3 text-(length:--fs-13) leading-[1.55] text-(--st-editing-fg)">{{ failure(l.detail.failureReason) }}</p>
+          <p role="alert" class="m-0 rounded-lg bg-(--st-editing-bg) px-[14px] py-3 text-(length:--fs-13) leading-[1.55] text-(--st-editing-fg)">{{ failure(l.detail.failureReason) }}</p>
         }
         <div class="grid gap-3 max-sm:grid-cols-1" [class]="totals().length === 3 ? 'grid-cols-3' : 'grid-cols-2'">
           @for (n of totals(); track n.label) {
-            <div [qaReveal]="$index" class="flex flex-col gap-1 rounded-[8px] bg-(--surface-3) px-[14px] py-3">
+            <div [qaReveal]="$index" class="flex flex-col gap-1 rounded-lg bg-(--surface-3) px-[14px] py-3">
               <span class="font-(family-name:--qa-mono) text-(length:--fs-26) font-bold text-(--text) tabular-nums">{{ fmt(n.value) }}</span>
               <span class="text-(length:--fs-13) text-(--text-3)">{{ n.label }}</span>
             </div>

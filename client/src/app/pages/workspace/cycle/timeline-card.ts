@@ -22,7 +22,7 @@ const NOW_TONE: Record<TimelineNow['tone'], string> = {
   host: { class: 'block' },
   template: `
     @let t = timeline();
-    <section class="rounded-[12px] border border-(--border) bg-(--surface) shadow-(--shadow-card)" [attr.aria-labelledby]="titleId()">
+    <section class="rounded-xl border border-(--border) bg-(--surface) shadow-(--shadow-card)" [attr.aria-labelledby]="titleId()">
       <div class="flex min-h-16 flex-wrap items-center gap-3 border-b border-(--surface-4) px-5 py-4">
         <div class="flex min-w-0 flex-[1_1_14rem] flex-col gap-[3px]">
           <div class="flex flex-wrap items-center gap-2">
@@ -33,7 +33,7 @@ const NOW_TONE: Record<TimelineNow['tone'], string> = {
                   (click)="expanded.set(!expanded())"
                   [attr.aria-expanded]="expanded()"
                   [attr.aria-controls]="stepsId()"
-                  class="-mx-1.5 -my-1 flex cursor-pointer items-center gap-1.5 rounded-[6px] border-0 bg-transparent px-1.5 py-1 text-left font-[inherit] text-inherit outline-none hover:bg-(--surface-2) focus-visible:shadow-(--focus-ring)"
+                  class="-mx-1.5 -my-1 flex cursor-pointer items-center gap-1.5 rounded-md border-0 bg-transparent px-1.5 py-1 text-left font-[inherit] text-inherit outline-none hover:bg-(--surface-2) focus-visible:shadow-(--focus-ring)"
                 >
                   <svg
                     width="16"

@@ -55,7 +55,7 @@ export interface LoadDrawerNames {
             <dd class="m-0 text-(--text)">{{ t.types.length ? t.types.join(', ') : 'All result types' }}</dd>
           </dl>
         }
-        <div class="flex items-start gap-[10px] rounded-[8px] bg-(--st-submitted-bg) px-[14px] py-3">
+        <div class="flex items-start gap-[10px] rounded-lg bg-(--st-submitted-bg) px-[14px] py-3">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--st-submitted-fg)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="mt-[2px] flex-none" aria-hidden="true"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01" /></svg>
           <span class="text-(length:--fs-13) leading-[1.55] font-normal text-pretty text-(--st-submitted-fg)">Only submitted, pooled-funding (W1/W2) results of this cycle within the timeline's scope come in. A result can be in one timeline only. Only one load runs at a time in the cycle.</span>
         </div>
@@ -69,7 +69,7 @@ export interface LoadDrawerNames {
               }
             </qa-loading>
           } @else if (previewError(); as err) {
-            <div role="alert" class="flex flex-wrap items-center gap-3 rounded-[8px] bg-(--st-editing-bg) px-[14px] py-3 text-(length:--fs-13) text-(--st-editing-fg)">
+            <div role="alert" class="flex flex-wrap items-center gap-3 rounded-lg bg-(--st-editing-bg) px-[14px] py-3 text-(length:--fs-13) text-(--st-editing-fg)">
               <span class="min-w-0 flex-1">
                 {{ err.retry ? 'We could not get the preview. ' : '' }}{{ err.message }}
                 @if (err.reference) {
@@ -97,7 +97,7 @@ export interface LoadDrawerNames {
               </p>
               }
               @if (p.window === 'closed') {
-                <p role="status" class="m-0 rounded-[8px] bg-(--st-editing-bg) px-3 py-2 text-(length:--fs-13) text-(--st-editing-fg)">{{ windowClosed }}</p>
+                <p role="status" class="m-0 rounded-lg bg-(--st-editing-bg) px-3 py-2 text-(length:--fs-13) text-(--st-editing-fg)">{{ windowClosed }}</p>
               }
               @if (p.toLoad.byProgram.length) {
                 <div class="grid gap-6 sm:grid-cols-2">
@@ -160,7 +160,7 @@ export interface LoadDrawerNames {
           }
         }
         @if (error()) {
-          <p role="alert" class="m-0 rounded-[8px] bg-(--st-editing-bg) px-3 py-2 text-(length:--fs-13) text-(--st-editing-fg)">{{ error() }}</p>
+          <p role="alert" class="m-0 rounded-lg bg-(--st-editing-bg) px-3 py-2 text-(length:--fs-13) text-(--st-editing-fg)">{{ error() }}</p>
         }
       }
       <div qaDrawerFooter class="contents">

@@ -67,7 +67,7 @@ interface StepDraft {
             [attr.aria-invalid]="nameError() ? true : null"
             [attr.aria-describedby]="nameError() ? 'cycle-step-name-err' : null"
             [attr.data-error]="!!nameError()"
-            class="h-9 w-full rounded-[8px] border-(--border) bg-(--field-bg) px-3 py-0 text-(length:--fs-14) text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-14) dark:bg-(--field-bg)"
+            class="h-9 w-full rounded-lg border-(--border) bg-(--field-bg) px-3 py-0 text-(length:--fs-14) text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-14) dark:bg-(--field-bg)"
           />
           @if (nameError()) {
             <span id="cycle-step-name-err" class="text-(length:--fs-13) text-(--danger)">{{ nameError() }}</span>
@@ -77,11 +77,11 @@ interface StepDraft {
         <div class="flex flex-col items-start gap-[6px]">
           <span id="cycle-step-who" class="text-(length:--fs-13) font-semibold text-(--text-2)">Who can work in this step</span>
           @if (d.audience === correctionAudience) {
-            <div aria-labelledby="cycle-step-who" class="box-border w-full rounded-[8px] border border-(--border) bg-(--surface-3) px-3 py-[10px] text-(length:--fs-14) text-(--text)">Nobody works in QA during this step</div>
+            <div aria-labelledby="cycle-step-who" class="box-border w-full rounded-lg border border-(--border) bg-(--surface-3) px-3 py-[10px] text-(length:--fs-14) text-(--text)">Nobody works in QA during this step</div>
             <div class="text-(length:--fs-13) leading-[1.5] font-normal text-pretty text-(--text-4)">Programs correct their results in the reporting tool. QA picks up the changes automatically.</div>
           } @else if (locked() || live()) {
             <!-- Read-only: the step is completed, or (live data) the audience is fixed once the timeline exists. -->
-            <div aria-labelledby="cycle-step-who" class="flex h-9 min-w-[280px] items-center rounded-[8px] border border-(--border) bg-(--surface-3) px-3 text-(length:--fs-14) text-(--text)">{{ d.audience }}</div>
+            <div aria-labelledby="cycle-step-who" class="flex h-9 min-w-[280px] items-center rounded-lg border border-(--border) bg-(--surface-3) px-3 text-(length:--fs-14) text-(--text)">{{ d.audience }}</div>
           } @else {
             <qa-select [value]="d.audience || null" (valueChange)="patch({ audience: $event ?? '' })" [options]="audienceOptions" label="Who can work in this step" placeholder="Select who can work" class="w-[280px]" />
           }
@@ -117,7 +117,7 @@ interface StepDraft {
                   [attr.aria-invalid]="bad().opens ? true : null"
                   [attr.aria-describedby]="opensError() ? 'cycle-step-opens-err' : null"
                   [attr.data-error]="bad().opens"
-                  class="h-9 w-[180px] rounded-[8px] border-(--border) bg-(--field-bg) py-0 pr-10 pl-3 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) dark:bg-(--field-bg)"
+                  class="h-9 w-[180px] rounded-lg border-(--border) bg-(--field-bg) py-0 pr-10 pl-3 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) dark:bg-(--field-bg)"
                 />
                 <qa-date-picker [value]="stepForm.opens().value()" (valueChange)="stepForm.opens().value.set($event)" label="Pick the opening date" class="absolute top-1/2 right-1 -translate-y-1/2" />
               </span>
@@ -133,7 +133,7 @@ interface StepDraft {
                 [attr.aria-invalid]="bad().opensTime ? true : null"
                 [attr.aria-describedby]="opensError() ? 'cycle-step-opens-err' : null"
                 [attr.data-error]="bad().opensTime"
-                class="h-9 w-[72px] rounded-[8px] border-(--border) bg-(--field-bg) px-3 py-0 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) dark:bg-(--field-bg)"
+                class="h-9 w-[72px] rounded-lg border-(--border) bg-(--field-bg) px-3 py-0 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) dark:bg-(--field-bg)"
               />
               </span>
               }
@@ -142,7 +142,7 @@ interface StepDraft {
               <span id="cycle-step-closes" class="text-(length:--fs-13) font-semibold text-(--text-2)">Closes</span>
               <span class="flex gap-1.5">
                 <span class="relative flex">
-                  <input hlmInput type="text" [formField]="stepForm.closes" aria-labelledby="cycle-step-closes" placeholder="Select date" [attr.aria-invalid]="bad().closes ? true : null" [attr.aria-describedby]="opensError() ? 'cycle-step-opens-err' : null" [attr.data-error]="bad().closes" class="h-9 w-[180px] rounded-[8px] border-(--border) bg-(--field-bg) py-0 pr-10 pl-3 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) dark:bg-(--field-bg)" />
+                  <input hlmInput type="text" [formField]="stepForm.closes" aria-labelledby="cycle-step-closes" placeholder="Select date" [attr.aria-invalid]="bad().closes ? true : null" [attr.aria-describedby]="opensError() ? 'cycle-step-opens-err' : null" [attr.data-error]="bad().closes" class="h-9 w-[180px] rounded-lg border-(--border) bg-(--field-bg) py-0 pr-10 pl-3 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) dark:bg-(--field-bg)" />
                   <qa-date-picker [value]="stepForm.closes().value()" (valueChange)="stepForm.closes().value.set($event)" label="Pick the closing date" class="absolute top-1/2 right-1 -translate-y-1/2" />
                 </span>
                 <input
@@ -157,7 +157,7 @@ interface StepDraft {
                   [attr.aria-invalid]="bad().closesTime ? true : null"
                   [attr.aria-describedby]="opensError() ? 'cycle-step-opens-err' : null"
                   [attr.data-error]="bad().closesTime"
-                  class="h-9 w-[72px] rounded-[8px] border-(--border) bg-(--field-bg) px-3 py-0 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) dark:bg-(--field-bg)"
+                  class="h-9 w-[72px] rounded-lg border-(--border) bg-(--field-bg) px-3 py-0 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) dark:bg-(--field-bg)"
                 />
               </span>
             </div>
@@ -193,7 +193,7 @@ interface StepDraft {
               <span>This step starts QA round {{ round() }}</span>
             </div>
           } @else if (first()) {
-            <div role="status" class="-mt-[6px] rounded-[8px] bg-(--st-editing-bg) px-3 py-2 text-(length:--fs-13) leading-[1.5] text-(--st-editing-fg)">Step 1 doesn't load results, so this timeline starts with nothing to assess.</div>
+            <div role="status" class="-mt-[6px] rounded-lg bg-(--st-editing-bg) px-3 py-2 text-(length:--fs-13) leading-[1.5] text-(--st-editing-fg)">Step 1 doesn't load results, so this timeline starts with nothing to assess.</div>
           }
         </div>
 
@@ -212,14 +212,14 @@ interface StepDraft {
             <span class="text-(length:--fs-13) font-semibold text-(--text-2)">Extended access</span>
             <button type="button" qaTooltip="Give specific programs more time to correct their results after this step closes for everyone else." aria-label="More about Extended access" class="flex size-4 flex-none cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-0 text-(--text-muted) outline-none hover:text-(--primary) focus-visible:shadow-(--focus-ring)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01" /></svg></button>
           </div>
-          <div class="flex flex-col rounded-[8px] border border-(--border)">
+          <div class="flex flex-col rounded-lg border border-(--border)">
             @for (a of d.access; track $index) {
               <div class="flex min-h-12 flex-wrap items-center gap-3 border-b border-(--surface-4) px-[14px] max-sm:py-2">
                 @if (a.isNew) {
-                  <input hlmInput type="text" aria-label="Program code" [value]="a.code" (input)="patchAccess($index, { code: value($event) })" placeholder="SP01" class="h-8 w-20 flex-none rounded-[8px] border-(--border) bg-(--field-bg) px-[10px] py-0 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 md:text-(length:--fs-13) dark:bg-(--field-bg)" />
+                  <input hlmInput type="text" aria-label="Program code" [value]="a.code" (input)="patchAccess($index, { code: value($event) })" placeholder="SP01" class="h-8 w-20 flex-none rounded-lg border-(--border) bg-(--field-bg) px-[10px] py-0 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 md:text-(length:--fs-13) dark:bg-(--field-bg)" />
                   <span class="min-w-0 flex-1 truncate text-(length:--fs-14) text-(--text)">{{ programName(a.code) }}</span>
                   <span class="relative flex flex-none max-sm:order-last max-sm:basis-full">
-                    <input hlmInput type="text" aria-label="Access dates" [value]="a.range" (input)="patchAccess($index, { range: value($event) })" placeholder="20 Jul – 24 Jul 2026" class="h-8 w-[220px] min-w-0 flex-none max-sm:w-full rounded-[8px] border-(--border) bg-(--field-bg) py-0 pr-9 pl-[10px] font-(family-name:--qa-mono) text-(length:--fs-12) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 md:text-(length:--fs-12) dark:bg-(--field-bg)" />
+                    <input hlmInput type="text" aria-label="Access dates" [value]="a.range" (input)="patchAccess($index, { range: value($event) })" placeholder="20 Jul – 24 Jul 2026" class="h-8 w-[220px] min-w-0 flex-none max-sm:w-full rounded-lg border-(--border) bg-(--field-bg) py-0 pr-9 pl-[10px] font-(family-name:--qa-mono) text-(length:--fs-12) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 md:text-(length:--fs-12) dark:bg-(--field-bg)" />
                     <qa-date-picker mode="range" [value]="a.range" (valueChange)="patchAccess($index, { range: $event })" label="Pick the access dates" class="absolute top-1/2 right-0.5 -translate-y-1/2" />
                   </span>
                 } @else {
@@ -227,7 +227,7 @@ interface StepDraft {
                   <span class="min-w-0 truncate text-(length:--fs-14) text-(--text)">{{ programName(a.code) }}</span>
                   <span class="ml-auto flex-none font-(family-name:--qa-mono) text-(length:--fs-12) text-(--text-4) tabular-nums">{{ a.range }}</span>
                 }
-                <button type="button" [attr.aria-label]="'Remove access for ' + (a.code || 'new program')" (click)="removeAccess($index)" class="flex size-6 flex-none cursor-pointer items-center justify-center rounded-[6px] border-0 bg-transparent p-0 text-(--text-3) outline-none hover:text-(--danger) focus-visible:shadow-(--focus-ring)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12" /></svg></button>
+                <button type="button" [attr.aria-label]="'Remove access for ' + (a.code || 'new program')" (click)="removeAccess($index)" class="flex size-6 flex-none cursor-pointer items-center justify-center rounded-md border-0 bg-transparent p-0 text-(--text-3) outline-none hover:text-(--danger) focus-visible:shadow-(--focus-ring)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12" /></svg></button>
               </div>
             }
             <div class="px-[10px] py-2">

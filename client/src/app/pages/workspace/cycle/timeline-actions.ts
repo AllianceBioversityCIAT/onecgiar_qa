@@ -30,7 +30,7 @@ import { MenuAction, TimelineVM } from './cycle.logic';
       [qaMenuTrigger]="actions"
       qaMenuAlign="end"
       [attr.aria-label]="'Actions for ' + t.name"
-      class="flex size-8 flex-none cursor-pointer items-center justify-center rounded-[8px] border border-(--border) bg-(--surface) p-0 outline-none hover:border-(--border-strong) focus-visible:shadow-(--focus-ring) max-sm:size-10"
+      class="flex size-8 flex-none cursor-pointer items-center justify-center rounded-lg border border-(--border) bg-(--surface) p-0 outline-none hover:border-(--border-strong) focus-visible:shadow-(--focus-ring) max-sm:size-10"
     >
       <svg width="16" height="16" viewBox="0 0 24 24" fill="var(--text-3)" aria-hidden="true"><path d="M5 10.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm7 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm7 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z" /></svg>
     </button>

@@ -68,7 +68,7 @@ function firstLoads(steps: StepDraftRow[]): StepDraftRow[] {
       @if (open()) {
         @let d = draft();
         @if (feedbackMessage(); as message) {
-          <div role="alert" class="rounded-[8px] bg-(--danger-bg) px-3 py-2 text-(length:--fs-13) leading-[1.5] text-(--danger)">{{ message }}</div>
+          <div role="alert" class="rounded-lg bg-(--danger-bg) px-3 py-2 text-(length:--fs-13) leading-[1.5] text-(--danger)">{{ message }}</div>
         }
         @if (!isOfficialEdit()) {
           <div class="flex flex-col items-stretch gap-[6px]">
@@ -85,7 +85,7 @@ function firstLoads(steps: StepDraftRow[]): StepDraftRow[] {
               [attr.data-error]="!!nameError()"
               [attr.aria-invalid]="nameError() ? true : null"
               [attr.aria-describedby]="nameError() ? 'cycle-tl-name-err' : null"
-              class="h-9 w-full rounded-[8px] border-(--border) bg-(--field-bg) px-3 py-0 text-(length:--fs-14) text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-14) dark:bg-(--field-bg)"
+              class="h-9 w-full rounded-lg border-(--border) bg-(--field-bg) px-3 py-0 text-(length:--fs-14) text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-14) dark:bg-(--field-bg)"
             />
             @if (nameError()) {
               <span id="cycle-tl-name-err" class="text-(length:--fs-13) text-(--danger)">{{ nameError() }}</span>
@@ -147,7 +147,7 @@ function firstLoads(steps: StepDraftRow[]): StepDraftRow[] {
             <span class="text-(length:--fs-12) font-normal text-(--text-4)">Rome time (CET / CEST), 24-hour clock</span>
           </div>
           <!-- Wide drawer: table-like grid with a sticky header. Narrow (< 48rem): each step stacks as a card row with inline labels. -->
-          <div class="rounded-[8px] border border-(--border)">
+          <div class="rounded-lg border border-(--border)">
             <div aria-hidden="true" class="sticky top-0 z-10 hidden min-h-9 grid-cols-[24px_minmax(0,1fr)_200px_200px_44px_22px] items-center gap-3 rounded-t-[8px] border-b border-(--surface-4) bg-(--surface-3) px-[14px] text-(length:--fs-12) font-medium text-(--text-muted) @3xl:grid">
               <span></span><span>Step name</span><span>Opens</span><span>Closes</span><span class="text-center">Load</span><span></span>
             </div>
@@ -168,7 +168,7 @@ function firstLoads(steps: StepDraftRow[]): StepDraftRow[] {
                   <div class="grid grid-cols-[24px_minmax(0,1fr)_minmax(0,1fr)_40px] items-center gap-x-3 gap-y-2 px-[14px] py-3 @3xl:min-h-[52px] @3xl:grid-cols-[24px_minmax(0,1fr)_200px_200px_44px_22px] @3xl:gap-y-0 @3xl:py-0">
                     <span class="font-(family-name:--qa-mono) text-(length:--fs-12) font-semibold text-(--text-muted)">{{ i + 1 }}</span>
                     <span class="col-span-2 min-w-0 @3xl:col-span-1">
-                      <input hlmInput type="text" [formField]="rf.name" [attr.aria-label]="'Step ' + (i + 1) + ' name'" [title]="row.name" placeholder="QA platform open for assessors" [attr.data-error]="tried() && !row.name.trim()" class="h-10 min-w-0 rounded-[8px] border-(--border) bg-(--field-bg) px-[10px] py-0 text-(length:--fs-13) text-ellipsis text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) @3xl:h-8 dark:bg-(--field-bg)" />
+                      <input hlmInput type="text" [formField]="rf.name" [attr.aria-label]="'Step ' + (i + 1) + ' name'" [title]="row.name" placeholder="QA platform open for assessors" [attr.data-error]="tried() && !row.name.trim()" class="h-10 min-w-0 rounded-lg border-(--border) bg-(--field-bg) px-[10px] py-0 text-(length:--fs-13) text-ellipsis text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) @3xl:h-8 dark:bg-(--field-bg)" />
                     </span>
                     <span class="col-span-2 col-start-2 flex min-w-0 flex-col gap-1 @3xl:col-span-1 @3xl:col-start-auto">
                       <span aria-hidden="true" class="text-(length:--fs-12) font-medium text-(--text-muted) @3xl:hidden">Opens</span>
@@ -177,10 +177,10 @@ function firstLoads(steps: StepDraftRow[]): StepDraftRow[] {
                       } @else {
                       <span class="flex min-w-0 gap-1.5">
                       <span class="relative flex min-w-0 flex-1">
-                        <input hlmInput type="text" [formField]="rf.start" [attr.aria-label]="'Step ' + (i + 1) + ' opens'" placeholder="Select date" [attr.data-error]="bad(i, 'start')" [attr.aria-invalid]="bad(i, 'start') || null" class="h-10 w-full min-w-0 rounded-[8px] border-(--border) bg-(--field-bg) py-0 pr-9 pl-[10px] font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) @3xl:h-8 dark:bg-(--field-bg)" />
+                        <input hlmInput type="text" [formField]="rf.start" [attr.aria-label]="'Step ' + (i + 1) + ' opens'" placeholder="Select date" [attr.data-error]="bad(i, 'start')" [attr.aria-invalid]="bad(i, 'start') || null" class="h-10 w-full min-w-0 rounded-lg border-(--border) bg-(--field-bg) py-0 pr-9 pl-[10px] font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) @3xl:h-8 dark:bg-(--field-bg)" />
                         <qa-date-picker [value]="rf.start().value()" (valueChange)="rf.start().value.set($event)" [label]="'Pick step ' + (i + 1) + ' opening date'" class="absolute top-1/2 right-1 -translate-y-1/2" />
                       </span>
-                      <input hlmInput qaTimeMask type="text" inputmode="numeric" [formField]="rf.startTime" [attr.aria-label]="'Step ' + (i + 1) + ' opening time, 24-hour, Rome'" placeholder="00:00" (blur)="tidyTime(i, 'startTime')" [attr.data-error]="bad(i, 'startTime')" [attr.aria-invalid]="bad(i, 'startTime') || null" class="h-10 w-[60px] flex-none rounded-[8px] border-(--border) bg-(--field-bg) px-[10px] py-0 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) @3xl:h-8 dark:bg-(--field-bg)" />
+                      <input hlmInput qaTimeMask type="text" inputmode="numeric" [formField]="rf.startTime" [attr.aria-label]="'Step ' + (i + 1) + ' opening time, 24-hour, Rome'" placeholder="00:00" (blur)="tidyTime(i, 'startTime')" [attr.data-error]="bad(i, 'startTime')" [attr.aria-invalid]="bad(i, 'startTime') || null" class="h-10 w-[60px] flex-none rounded-lg border-(--border) bg-(--field-bg) px-[10px] py-0 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) @3xl:h-8 dark:bg-(--field-bg)" />
                       </span>
                       }
                     </span>
@@ -191,10 +191,10 @@ function firstLoads(steps: StepDraftRow[]): StepDraftRow[] {
                       } @else {
                       <span class="flex min-w-0 gap-1.5">
                       <span class="relative flex min-w-0 flex-1">
-                        <input hlmInput type="text" [formField]="rf.end" [attr.aria-label]="'Step ' + (i + 1) + ' closes'" (blur)="fillNextOpening(i)" [placeholder]="last && !live() ? 'Optional' : 'Select date'" [attr.data-error]="bad(i, 'end')" [attr.aria-invalid]="bad(i, 'end') || null" class="h-10 w-full min-w-0 rounded-[8px] border-(--border) bg-(--field-bg) py-0 pr-9 pl-[10px] font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) @3xl:h-8 dark:bg-(--field-bg)" />
+                        <input hlmInput type="text" [formField]="rf.end" [attr.aria-label]="'Step ' + (i + 1) + ' closes'" (blur)="fillNextOpening(i)" [placeholder]="last && !live() ? 'Optional' : 'Select date'" [attr.data-error]="bad(i, 'end')" [attr.aria-invalid]="bad(i, 'end') || null" class="h-10 w-full min-w-0 rounded-lg border-(--border) bg-(--field-bg) py-0 pr-9 pl-[10px] font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) @3xl:h-8 dark:bg-(--field-bg)" />
                         <qa-date-picker [value]="rf.end().value()" (valueChange)="rf.end().value.set($event); fillNextOpening(i)" [label]="'Pick step ' + (i + 1) + ' closing date'" class="absolute top-1/2 right-1 -translate-y-1/2" />
                       </span>
-                      <input hlmInput qaTimeMask type="text" inputmode="numeric" [formField]="rf.endTime" [attr.aria-label]="'Step ' + (i + 1) + ' closing time, 24-hour, Rome'" placeholder="23:59" (blur)="tidyTime(i, 'endTime')" [attr.data-error]="bad(i, 'endTime')" [attr.aria-invalid]="bad(i, 'endTime') || null" class="h-10 w-[60px] flex-none rounded-[8px] border-(--border) bg-(--field-bg) px-[10px] py-0 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) @3xl:h-8 dark:bg-(--field-bg)" />
+                      <input hlmInput qaTimeMask type="text" inputmode="numeric" [formField]="rf.endTime" [attr.aria-label]="'Step ' + (i + 1) + ' closing time, 24-hour, Rome'" placeholder="23:59" (blur)="tidyTime(i, 'endTime')" [attr.data-error]="bad(i, 'endTime')" [attr.aria-invalid]="bad(i, 'endTime') || null" class="h-10 w-[60px] flex-none rounded-lg border-(--border) bg-(--field-bg) px-[10px] py-0 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) @3xl:h-8 dark:bg-(--field-bg)" />
                       </span>
                       }
                     </span>
@@ -208,7 +208,7 @@ function firstLoads(steps: StepDraftRow[]): StepDraftRow[] {
                     </span>
                     <span class="col-start-4 row-start-1 flex justify-end @3xl:col-start-auto @3xl:row-start-auto @3xl:block">
                       @if (i >= closedCount() && !fixedSteps()) {
-                      <button type="button" (click)="confirmRow.set(i)" [attr.aria-label]="'Remove step ' + (i + 1)" class="flex size-10 cursor-pointer items-center justify-center rounded-[6px] border-0 bg-transparent p-0 text-(--text-3) outline-none hover:text-(--danger) focus-visible:shadow-(--focus-ring) @3xl:size-[22px]"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12" /></svg></button>
+                      <button type="button" (click)="confirmRow.set(i)" [attr.aria-label]="'Remove step ' + (i + 1)" class="flex size-10 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent p-0 text-(--text-3) outline-none hover:text-(--danger) focus-visible:shadow-(--focus-ring) @3xl:size-[22px]"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12" /></svg></button>
                       }
                     </span>
                   </div>
@@ -250,7 +250,7 @@ function firstLoads(steps: StepDraftRow[]): StepDraftRow[] {
           </div>
         }
         @if (isNew() && !live()) {
-          <button type="button" role="checkbox" [attr.aria-checked]="d.runNow" (click)="patch({ runNow: !d.runNow })" class="flex w-full cursor-pointer items-start gap-[10px] rounded-[8px] border-0 bg-(--surface-3) p-[14px] text-left outline-none focus-visible:shadow-(--focus-ring)">
+          <button type="button" role="checkbox" [attr.aria-checked]="d.runNow" (click)="patch({ runNow: !d.runNow })" class="flex w-full cursor-pointer items-start gap-[10px] rounded-lg border-0 bg-(--surface-3) p-[14px] text-left outline-none focus-visible:shadow-(--focus-ring)">
             <span class="mt-[2px] flex size-4 flex-none items-center justify-center rounded-[4px] border-[1.5px]" [class]="d.runNow ? 'border-(--primary) bg-(--primary)' : 'border-(--border-strong) bg-transparent'">
               @if (d.runNow) {
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5" /></svg>
