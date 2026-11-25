@@ -1,0 +1,23 @@
+{
+  "__edb_e__": "aiSuggestion",
+  "__edb_v__": "1",
+  "createdAt": "2026-11-20T12:00:00Z",
+  "evidenceHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "explanation": "- Novelty: a new seed-certification process. - Improvement and positive change are described.",
+  "fieldKey": "general.result_type",
+  "modelId": "anthropic.claude-haiku-5-5",
+  "partialEvidence": false,
+  "pk": "RESULT#1002",
+  "promptVersion": "v1-1.0.0",
+  "quoteVerified": false,
+  "reportedValue": "innovation_development",
+  "resultCode": 1002,
+  "runId": "run-example",
+  "signal": "indicative",
+  "sk": "AI#2025#000012#00000003#0000000042#general.result_type#v1-1.0.0",
+  "snapKey": "2025#000012#00000003#0000000042",
+  "status": "available",
+  "suggestedValue": "Innovation",
+  "suggestionId": "1b2c3d4e5f60718293a4b5c6d7e8f901",
+  "valueKind": "category"
+}

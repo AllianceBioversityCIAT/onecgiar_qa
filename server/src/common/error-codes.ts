@@ -85,10 +85,15 @@ export const ERROR_CATALOG = {
     message:
       'The password change took too long or is no longer valid. Sign in again to restart it.',
   },
+  AUTH_RESET_CODE_INVALID: {
+    status: 400,
+    message:
+      'The verification code is wrong or has expired. Check the latest email we sent, or ask for a new code.',
+  },
   AUTH_PASSWORD_POLICY: {
     status: 400,
     message:
-      'The new password does not meet the password requirements. Choose a stronger password.',
+      'The new password does not meet the requirements: at least 8 characters, with an uppercase letter, a lowercase letter, a number and a symbol.',
   },
   AUTH_SESSION_MISSING: {
     status: 401,
@@ -201,7 +206,7 @@ export const ERROR_CATALOG = {
   USERS_INVITATION_NOT_APPLICABLE: {
     status: 409,
     message:
-      'An invitation can only be resent to a custom-account user, invited by QA, who has not signed in yet.',
+      'An invitation can only be sent to an active custom-account user who has no password yet, or whose sign-in account was removed. A user with a password can use "Forgot password?" on the sign-in page.',
   },
   USERS_LAST_ADMIN: {
     status: 409,
@@ -289,6 +294,11 @@ export const ERROR_CATALOG = {
     message:
       "Reporting has no QA catalog for this cycle's year, so there are no results to load.",
   },
+  // Spec assessment/ai-suggestions (FR-3): the admin AI routes say so instead of a silent no-op.
+  AI_JOBS_DISABLED: {
+    status: 409,
+    message: 'AI disabled: no queue configured.',
+  },
 
   // --- Field configuration -------------------------------------------------
   FIELD_CONFIG_CATALOG_MISSING: {
@@ -303,6 +313,131 @@ export const ERROR_CATALOG = {
   FIELD_CONFIG_NOTHING_TO_PUBLISH: {
     status: 409,
     message: 'There are no changes to publish.',
+  },
+
+  // --- Assessment (step 1) -------------------------------------------------
+  ASSESSMENT_NOT_FOUND: {
+    status: 404,
+    message: 'This result is not available to you in this timeline.',
+  },
+  ASSESSMENT_READ_ONLY: {
+    status: 403,
+    message: 'You can view this assessment but not change it.',
+  },
+  ASSESSMENT_STEP_CLOSED: {
+    status: 409,
+    message: 'This step is closed, so the assessment can no longer change.',
+  },
+  ASSESSMENT_FINISHED: {
+    status: 409,
+    message: 'This assessment is already finished and cannot change.',
+  },
+  ASSESSMENT_NO_FIELD_CONFIG: {
+    status: 409,
+    message:
+      'No field configuration applies to this result yet. Ask an admin to publish one.',
+  },
+  ASSESSMENT_CORE_UNCOMMENTED: {
+    status: 409,
+    message:
+      'Some core fields are not validated and have no comment. Validate them or comment on them before finishing.',
+  },
+  ASSESSMENT_NOT_COMMENT_AUTHOR: {
+    status: 403,
+    message: 'Only the author of a comment can withdraw it.',
+  },
+  ASSESSMENT_COMMENT_NOT_OPEN: {
+    status: 409,
+    message: 'This comment can no longer be withdrawn.',
+  },
+
+  // --- Round 2: the Lead Assessor (escalation/round-2) ----------------------
+  ASSESSMENT_FIELD_NOT_CORE: {
+    status: 409,
+    message:
+      'In round 2 you can only validate or comment on core fields. This field is for context only.',
+  },
+  ASSESSMENT_FIELD_ESCALATED: {
+    status: 409,
+    message:
+      'This field is escalated and cannot be validated. Remove the escalation first.',
+  },
+  ASSESSMENT_DECISION_INVALID: {
+    status: 409,
+    message: 'This decision cannot be set on this comment.',
+  },
+  ASSESSMENT_CORE_UNDECIDED: {
+    status: 409,
+    message:
+      'Some core fields are neither validated nor escalated. Validate them or escalate them before finishing.',
+  },
+  ASSESSMENT_CORE_COMMENT_UNDECIDED: {
+    status: 409,
+    message:
+      'A round-1 comment on these fields has no decision yet. Agree with the program or escalate it before validating the field.',
+  },
+  ASSESSMENT_COMMENT_NOT_DELETABLE: {
+    status: 409,
+    message: 'This comment cannot be deleted.',
+  },
+
+  // --- AI suggestions (ai-suggestions) -------------------------------------
+  AI_SUGGESTIONS_FORBIDDEN: {
+    status: 403,
+    message: 'AI suggestions are not available to your role.',
+  },
+  AI_SUGGESTION_NOT_FOUND: {
+    status: 404,
+    message:
+      'This AI suggestion is not available for this result. Reload the result and try again.',
+  },
+  AI_EVENT_INVALID: {
+    status: 400,
+    message:
+      'This use of the AI suggestion could not be recorded. Reload the result and try again.',
+  },
+
+  // --- Science Program view (P2-3911) --------------------------------------
+  SP_ACCESS_DISABLED: {
+    status: 503,
+    message: 'Quality Assurance is not available right now. Try again later.',
+  },
+  SP_ACCESS_KEY_INVALID: {
+    status: 401,
+    message: 'This request could not be authenticated.',
+  },
+  SP_PROGRAM_UNKNOWN: {
+    status: 400,
+    message: 'This program is not in Quality Assurance yet.',
+  },
+  SP_CODE_INVALID: {
+    status: 401,
+    message:
+      'This link has expired or was already used. Reload the page to get a new one.',
+  },
+  SP_SESSION_INVALID: {
+    status: 401,
+    message: 'Your session has expired. Reload the page to continue.',
+  },
+  SP_NOT_FOUND: {
+    status: 404,
+    message:
+      'We could not find this result. Go back to the list and try again.',
+  },
+  SP_STEP_CLOSED: {
+    status: 409,
+    message:
+      'The response period for programs is not open. You can still read the comments.',
+  },
+  SP_COMMENT_NOT_RESPONDABLE: {
+    status: 409,
+    message:
+      'This comment can no longer be answered. Reload the result to see its current state.',
+  },
+  CLARIFICATION_NOT_PENDING: {
+    status: 409,
+    message:
+      'There is no clarification waiting for an answer on this comment. Reload the result.',
   },
 } as const satisfies Record<string, { status: number; message: string }>;
 

@@ -1,4 +1,5 @@
 import { vi } from 'vitest';
+import type { AccessNotifier } from '../../src/notifications/access-notifier.service.js';
 import type { CognitoAdminClient } from '../../src/auth/cognito-admin.client.js';
 import type { User } from '../../src/database/drizzle/schema/users.js';
 import type { CatalogService } from '../../src/users/catalogs/catalog.service.js';
@@ -131,6 +132,12 @@ export interface SeedUser {
   invitation?: User['invitation'];
   /** `[role, resultTypeKey?]`; `'*'` is "all result types". */
   roles?: Array<[string, string?]>;
+  /**
+   * The custom user's Cognito account status in the fake pool; `null` = no
+   * account (removed from the pool). Default: `FORCE_CHANGE_PASSWORD` for an
+   * invited user who never signed in, else `CONFIRMED`.
+   */
+  cognito?: string | null;
 }
 
 /** The whole user-management world over the in-memory database, with every edge a spy. */
@@ -149,13 +156,18 @@ export function adminWorld() {
   const assignments = new RoleAssignmentsRepository(db.stores.assignments);
   const programs = new UserProgramsRepository(db.stores.programs);
 
+  // The shared pool: seeded custom users have an account unless the seed says
+  // otherwise; `createUser` adds one. Tests may still override the fakes.
+  const pool = new Map<string, string>();
   const cognito = {
-    getUser: vi.fn<CognitoAdminClient['getUser']>(async () => {
+    getUser: vi.fn<CognitoAdminClient['getUser']>(async (email) => {
       calls.push('cognito:getUser');
-      return null;
+      const status = pool.get(email.toLowerCase());
+      return status === undefined ? null : { status };
     }),
-    createUser: vi.fn<CognitoAdminClient['createUser']>(async () => {
+    createUser: vi.fn<CognitoAdminClient['createUser']>(async (input) => {
       calls.push('cognito:createUser');
+      pool.set(input.email.toLowerCase(), 'FORCE_CHANGE_PASSWORD');
       return 'created';
     }),
     resendInvitation: vi.fn<CognitoAdminClient['resendInvitation']>(
@@ -164,6 +176,12 @@ export function adminWorld() {
         return 'resent';
       },
     ),
+  };
+  const notifier = {
+    notify: vi.fn<AccessNotifier['notify']>(async () => {
+      calls.push('email:access');
+      return 'queued';
+    }),
   };
   const catalogs = {
     listResultTypes: vi.fn(async () => RESULT_TYPES),
@@ -208,6 +226,7 @@ export function adminWorld() {
     catalogs as unknown as CatalogService,
     cognito as unknown as CognitoAdminClient,
     cache as unknown as CurrentUserCache,
+    notifier as unknown as AccessNotifier,
   );
 
   async function seedUser(seed: SeedUser): Promise<User> {
@@ -222,6 +241,15 @@ export function adminWorld() {
     });
     if (seed.isActive === false) {
       await users.update(created.id, { isActive: false });
+    }
+    if ((seed.authSource ?? 'custom') === 'custom' && seed.cognito !== null) {
+      pool.set(
+        created.email.toLowerCase(),
+        seed.cognito ??
+          (seed.lastLoginAt == null && seed.invitation === 'sent'
+            ? 'FORCE_CHANGE_PASSWORD'
+            : 'CONFIRMED'),
+      );
     }
     for (const [roleCode, resultTypeKey] of seed.roles ?? []) {
       await assignments.create({
@@ -250,6 +278,8 @@ export function adminWorld() {
     assignments,
     programs,
     cognito,
+    pool,
+    notifier,
     catalogs,
     cache,
     unitOfWork,

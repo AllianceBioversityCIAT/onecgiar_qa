@@ -41,6 +41,21 @@ const buttonLabelled = (root: ParentNode, label: string): HTMLButtonElement | un
   Array.from(root.querySelectorAll('button')).find((b) => text(b) === label || b.getAttribute('aria-label') === label);
 
 describe('NotificationsView', () => {
+  // The list is the design prototype (notifications.mock.ts) until the notifications API exists: the page says so
+  // before the first notification, like Overview does (P2-4079).
+  it('says before the list that these notifications are sample data, in every state', async () => {
+    for (const mock of [undefined, 'loading', 'error'] as const) {
+      const f = await render(mock ? { mock } : {});
+      const note = host(f).querySelector('[data-testid="notifications-sample-data"]');
+      expect(note, `the notice (${mock ?? 'ready'})`).not.toBeNull();
+      expect(note!.getAttribute('role')).toBe('note');
+      expect(Array.from(note!.querySelectorAll('span'), text)).toEqual(['Preview · sample data', 'These notifications are examples from the design prototype, not real QA activity.']);
+      const list = host(f).querySelector('qa-notification-list')!;
+      expect(note!.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING, 'the notice comes first').toBeTruthy();
+      TestBed.resetTestingModule();
+    }
+  });
+
   // One admin gets few notifications: one list, no tabs, no filters and no "Mark all as read" (Juanpa, 2026-10-29).
   it('shows every notification in one list, newest first, with no tabs, filters or "Mark all as read"', async () => {
     const f = await render();

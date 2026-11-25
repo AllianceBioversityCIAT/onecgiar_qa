@@ -2,18 +2,20 @@ import { Component, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { OFFICIAL_TIMELINE, TIMELINES } from './cycle.mock';
 import { StepDrawer, StepRequest, StepSaveEvent } from './step-drawer';
+import type { TimelineSaveFeedback } from './timeline-drawer';
 
 const SUB = TIMELINES.find((t) => t.id !== OFFICIAL_TIMELINE.id)!;
 
 @Component({
   imports: [StepDrawer],
-  template: `<qa-cycle-step-drawer [(open)]="open" [request]="request()" [live]="true" [loadable]="loadable()" (saveStep)="sent.push($event)" (loadIntoStep)="loads = loads + 1" />`,
+  template: `<qa-cycle-step-drawer [(open)]="open" [request]="request()" [live]="true" [loadable]="loadable()" [feedback]="feedback()" (saveStep)="sent.push($event)" (loadIntoStep)="loads = loads + 1" />`,
 })
 class Host {
   readonly open = signal(true);
   readonly request = signal<StepRequest>({ timeline: SUB, isOfficial: false, index: 0 });
   readonly sent: StepSaveEvent[] = [];
   readonly loadable = signal(false);
+  readonly feedback = signal<TimelineSaveFeedback | null>(null);
   loads = 0;
 }
 
@@ -112,5 +114,64 @@ describe('StepDrawer', () => {
       (sel) => field(sel).getAttribute('data-error'),
     );
     expect(outlined).toEqual(['false', 'false', 'false', 'true']);
+  });
+
+  describe('a closed step (P2-4080)', () => {
+    // The API locks a closed step's dates only (LOCKED on opensAt / closesAt); its name can still change.
+    const CLOSED = { ...SUB, steps: SUB.steps.map((p, i) => (i === 0 ? { ...p, state: 'closed' as const } : p)) };
+    const button = (text: string) => [...document.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.trim() === text);
+
+    async function openClosed(): Promise<ComponentFixture<Host>> {
+      const fixture = TestBed.createComponent(Host);
+      fixture.componentInstance.request.set({ timeline: CLOSED, isOfficial: false, index: 0 });
+      await settle(fixture);
+      return fixture;
+    }
+
+    it('keeps its dates as text and saves a new name', async () => {
+      const fixture = await openClosed();
+      expect(document.body.textContent).toContain('Its dates stay as the record of the cycle.');
+      expect(document.querySelector('input[aria-labelledby="cycle-step-opens"]')).toBeNull();
+      expect(button('Save step')).toBeDefined();
+
+      await type(fixture, nameInput(), 'Assessors review (renamed)');
+      button('Save step')!.click();
+      await settle(fixture);
+
+      const first = CLOSED.steps[0];
+      expect(fixture.componentInstance.sent.map((e) => [e.index, e.step.name, e.step.start, e.step.end])).toEqual([[0, 'Assessors review (renamed)', first.start, first.end]]);
+    });
+
+    it('is not stopped by its stored dates, which it cannot edit and does not send', async () => {
+      const fixture = TestBed.createComponent(Host);
+      // Stored as closing after the next step opens: the date rule would flag it on a step that can still move.
+      const clash = { ...CLOSED, steps: CLOSED.steps.map((p, i) => (i === 0 ? { ...p, end: CLOSED.steps[1].start, endTime: '23:59' } : i === 1 ? { ...p, startTime: '00:00' } : p)) };
+      fixture.componentInstance.request.set({ timeline: clash, isOfficial: false, index: 0 });
+      await settle(fixture);
+
+      await type(fixture, nameInput(), 'Renamed');
+      button('Save step')!.click();
+      await settle(fixture);
+
+      expect(fixture.componentInstance.sent.map((e) => e.step.name)).toEqual(['Renamed']);
+    });
+
+    it('does not send an empty name', async () => {
+      const fixture = await openClosed();
+      await type(fixture, nameInput(), '   ');
+      button('Save step')!.click();
+      await settle(fixture);
+
+      expect(nameError()).toBe('Enter a name for the step.');
+      expect(fixture.componentInstance.sent).toEqual([]);
+    });
+
+    it('shows what the server answered when the save is refused', async () => {
+      const fixture = await openClosed();
+      fixture.componentInstance.feedback.set({ message: 'Someone else changed this timeline. We reloaded it: review it and make your change again.', fields: [] });
+      await settle(fixture);
+
+      expect(document.querySelector('[role="alert"]')?.textContent?.trim()).toBe('Someone else changed this timeline. We reloaded it: review it and make your change again.');
+    });
   });
 });

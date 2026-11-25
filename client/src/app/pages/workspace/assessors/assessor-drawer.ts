@@ -178,7 +178,7 @@ export class AssessorDrawer {
           )
         : [];
     return {
-      lead: 'Remove ' + person.name + ' from the team? They lose access to QA. You can bring them back from "Show removed people".',
+      lead: 'Remove ' + person.name + ' from the team? They lose access to QA. You can bring them back from "Removed".',
       warn: alone.length ? 'No one else assesses ' + alone.join(' or ') + '. Those results will not be reviewed until you assign someone.' : '',
       warn2: person.lead ? 'Comments they edited stay as they are, attributed to their original author.' : '',
     };

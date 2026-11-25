@@ -238,6 +238,24 @@ describe('RoleAssignmentsRepository.create — duplicate active assignment (FR-1
     expect(store.rows).toHaveLength(1);
   });
 
+  it('lets a live ADMIN hold Assessor and Lead Assessor on one result type (admin/acts-as-reviewer R5)', async () => {
+    const { repo, store } = setup();
+    await repo.create({ userId: USER, roleCode: RoleCode.ADMIN });
+    await repo.create(assessorKp);
+    await repo.create({ ...assessorKp, roleCode: RoleCode.LEAD_ASSESSOR });
+    expect(store.rows).toHaveLength(3);
+  });
+
+  it('applies the rule again once the ADMIN grant is revoked', async () => {
+    const { repo } = setup();
+    const admin = await repo.create({ userId: USER, roleCode: RoleCode.ADMIN });
+    await repo.revoke(admin.id, ACTOR);
+    await repo.create(assessorKp);
+    await expect(
+      repo.create({ ...assessorKp, roleCode: RoleCode.LEAD_ASSESSOR }),
+    ).rejects.toBeInstanceOf(RoleConflictError);
+  });
+
   it('accepts a new active assignment once the previous one was revoked', async () => {
     const { repo, store } = setup();
     const first = await repo.create(assessorKp);

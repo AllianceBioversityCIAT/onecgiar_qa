@@ -54,7 +54,10 @@ describe('notifications mock', () => {
   });
 
   // NFR-4 / FR-5: the sentence's total is what Results shows for it, for 100 % of the entries.
-  it('every total equals the paginator total of a rendered ResultsView for its list', async () => {
+  // Skipped since T-18 (17-nov-2026): Results reads the worklist API, while these notifications stay on
+  // the Results mock until P2-3913 (DD-13), so a rendered ResultsView no longer shows mock totals.
+  // Re-enable against the API when Notifications moves to it.
+  it.skip('every total equals the paginator total of a rendered ResultsView for its list', async () => {
     expect(NOTIFICATIONS.every((n) => n.total !== null)).toBe(true);
     for (const n of NOTIFICATIONS) {
       const list = comparedList(n);

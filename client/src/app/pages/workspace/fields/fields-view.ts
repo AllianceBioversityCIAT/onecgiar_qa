@@ -1,6 +1,7 @@
 import { Component, DestroyRef, ElementRef, afterNextRender, computed, effect, inject, linkedSignal, signal, viewChild } from '@angular/core';
+import { cycleShortName } from '../../../core/domain/cycle-label';
 import { FieldConfigField, FieldConfigResultType, PublishTimelines } from '../../../core/api/field-config.models';
-import { QaButtonImports, QaSelect, QaSelectOption, QaSkeleton } from '../../../ui';
+import { QaButtonImports, QaScopeCardImports, QaSelect, QaSelectOption, QaSkeleton } from '../../../ui';
 import {
   FieldChangeGroupVm,
   FieldConfig,
@@ -28,7 +29,7 @@ const COMPACT_BELOW = 900;
 @Component({
   selector: 'qa-fields-view',
   templateUrl: './fields-view.html',
-  imports: [QaButtonImports, QaSelect, QaSkeleton, FieldsColumnHeader, FieldsSection, FieldsPublishConfirm, FieldsSkeleton],
+  imports: [QaButtonImports, QaScopeCardImports, QaSelect, QaSkeleton, FieldsColumnHeader, FieldsSection, FieldsPublishConfirm, FieldsSkeleton],
   providers: [FieldsStore],
 })
 export class FieldsView {
@@ -98,10 +99,16 @@ export class FieldsView {
   protected readonly cycleOptions = computed<readonly QaSelectOption[]>(() =>
     this.store.cycles().map((c) => ({
       value: String(c.id),
-      label: c.name,
+      label: cycleShortName(c.name),
       description: c.status === 'active' ? 'Active cycle' : 'Draft cycle',
     })),
   );
+  protected readonly cycleShortName = cycleShortName;
+  /** Under the result type in the context card: its cycle, unless the cycle has its own picker at the right. */
+  protected readonly scopeMeta = computed(() => {
+    const cycle = this.store.cycle();
+    return cycle && this.cycleOptions().length <= 1 ? `Cycle ${cycleShortName(cycle.name)}` : null;
+  });
   protected readonly cycleValue = computed(() => (this.store.cycle() ? String(this.store.cycle()!.id) : null));
 
   protected readonly typeOptions = computed<readonly QaSelectOption[]>(() =>
@@ -272,6 +279,10 @@ export class FieldsView {
     this.patch(e.id, { core: e.value });
   }
 
+  protected setAi(e: FieldRowEvent<boolean>): void {
+    this.patch(e.id, { ai: e.value });
+  }
+
   protected async openConfirm(): Promise<void> {
     if (this.openingReview()) return;
     this.openingReview.set(true);
@@ -330,9 +341,6 @@ export class FieldsView {
     this.lastAction.set(null);
     if (this.filtering()) this.kept.update((ids) => new Set(ids).add(id));
     // From what applies: a Core left on while the field was not assessed never comes back by itself.
-    // The AI flag has no control any more (Juanda, 11-nov-2026): it keeps its published value, so an
-    // edit never changes it behind the admin's back nor shows a change they cannot see or undo.
-    const ai = fromOptions(field.published).ai;
-    this.store.edit(type.key, id, { ...effective(this.configOf(type.key, field)), ai, ...patch });
+    this.store.edit(type.key, id, { ...effective(this.configOf(type.key, field)), ...patch });
   }
 }

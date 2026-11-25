@@ -13,6 +13,14 @@ const REQUIRED_ENV_VARS = [
   'CLARISA_API_KEY',
 ] as const;
 
+/** The shortest `RELEASE_SWEEP_INTERVAL_MS` accepted besides 0 (off): a sweep every few ms would hammer the database. */
+export const MIN_RELEASE_SWEEP_INTERVAL_MS = 1000;
+/** The longest `RELEASE_SWEEP_INTERVAL_MS` accepted: a day. */
+export const MAX_RELEASE_SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+/** The shortest `SP_ACCESS_API_KEY` accepted (P2-3911 contract § 5). */
+export const SP_ACCESS_API_KEY_MIN_LENGTH = 32;
+
 /**
  * Parses the comma-separated `ALLOWED_ORIGINS` list. Every entry must be an
  * exact `https://` origin (no path, no trailing slash, no credentials), except
@@ -105,6 +113,74 @@ export function validateEnv(
     if (!isHttpsUrl(config[key] as string)) {
       throw new Error(`Invalid ${key}: expected an https:// URL`);
     }
+  }
+  // The notification service receives the CLARISA API key.
+  const notificationUrl = config.NOTIFICATION_API_URL;
+  if (
+    notificationUrl !== undefined &&
+    notificationUrl !== '' &&
+    !isHttpsUrl(notificationUrl as string)
+  ) {
+    throw new Error('Invalid NOTIFICATION_API_URL: expected an https:// URL');
+  }
+  const emailEnabled = config.NOTIFICATION_EMAIL_ENABLED;
+  if (
+    emailEnabled !== undefined &&
+    emailEnabled !== '' &&
+    emailEnabled !== 'true' &&
+    emailEnabled !== 'false'
+  ) {
+    throw new Error(
+      'Invalid NOTIFICATION_EMAIL_ENABLED: expected "true" or "false"',
+    );
+  }
+  // Linked from the emails: an exact origin, like ALLOWED_ORIGINS entries.
+  const appUrl = config.APP_URL;
+  if (
+    appUrl !== undefined &&
+    appUrl !== '' &&
+    !isAllowedOriginEntry(appUrl as string)
+  ) {
+    throw new Error(
+      'Invalid APP_URL: expected an exact https:// origin (or http://localhost:<port>)',
+    );
+  }
+  // Release sweep (P2-3910): whole milliseconds, 0 = off.
+  const sweepInterval = config.RELEASE_SWEEP_INTERVAL_MS;
+  if (
+    sweepInterval !== undefined &&
+    sweepInterval !== '' &&
+    (!/^\d+$/.test(String(sweepInterval as string | number)) ||
+      Number(sweepInterval) > MAX_RELEASE_SWEEP_INTERVAL_MS ||
+      (Number(sweepInterval) !== 0 &&
+        Number(sweepInterval) < MIN_RELEASE_SWEEP_INTERVAL_MS))
+  ) {
+    throw new Error(
+      `Invalid RELEASE_SWEEP_INTERVAL_MS: expected 0 (off) or whole milliseconds from ${MIN_RELEASE_SWEEP_INTERVAL_MS} to ${MAX_RELEASE_SWEEP_INTERVAL_MS}`,
+    );
+  }
+  // SP view (P2-3911): the key is a shared secret of at least 32 characters;
+  // the link template must be https:// and carry the result code.
+  const spKey = config.SP_ACCESS_API_KEY;
+  if (
+    spKey !== undefined &&
+    spKey !== '' &&
+    (spKey as string).length < SP_ACCESS_API_KEY_MIN_LENGTH
+  ) {
+    throw new Error(
+      `Invalid SP_ACCESS_API_KEY: expected at least ${SP_ACCESS_API_KEY_MIN_LENGTH} characters`,
+    );
+  }
+  const spResultUrl = config.SP_REPORTING_RESULT_URL;
+  if (
+    spResultUrl !== undefined &&
+    spResultUrl !== '' &&
+    (!isHttpsUrl(spResultUrl as string) ||
+      !(spResultUrl as string).includes('{resultCode}'))
+  ) {
+    throw new Error(
+      'Invalid SP_REPORTING_RESULT_URL: expected an https:// URL containing {resultCode}',
+    );
   }
   return config;
 }

@@ -14,6 +14,7 @@ import { TIMELINE_LOADS } from '../../src/admin-config/timelines/timeline-loads.
 import { TIMELINES_STORE } from '../../src/admin-config/timelines/timelines.store.js';
 import { TIMELINES_UNIT_OF_WORK } from '../../src/admin-config/timelines/timelines.unit-of-work.js';
 import { AppModule } from '../../src/app.module.js';
+import { withoutTitleBackfill } from './without-title-backfill.js';
 import { JWKS_CACHE } from '../../src/auth/token-verifier.service.js';
 import { configureApp } from '../../src/common/configure-app.js';
 import {
@@ -134,7 +135,9 @@ export async function buildAdminConfigApp() {
   await actor('sub-ppu', [['PPU']]);
   await actor('sub-guest', []);
 
-  const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+  const moduleRef = await withoutTitleBackfill(
+    Test.createTestingModule({ imports: [AppModule] }),
+  )
     .overrideProvider(USERS_STORE)
     .useValue(w.db.stores.users)
     .overrideProvider(ROLE_ASSIGNMENTS_STORE)

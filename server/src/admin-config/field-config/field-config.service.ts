@@ -799,6 +799,58 @@ export class FieldConfigService implements FieldConfigEffective {
       items: await this.store.listVersionItems(version.id, resultTypeKey),
     };
   }
+
+  /**
+   * F-012 (bugfix/latest-config-for-unstarted): the cycle's LATEST version for
+   * a timeline and type, whether or not the timeline started. Same checks and
+   * errors as `effectiveFor`, same five statements. The assessment module reads
+   * it for a result nobody has started: S-13 keeps a version only for results
+   * that already carry reviewer work (their assessment pins it).
+   */
+  async currentFor(
+    cycleId: number,
+    timelineId: number,
+    resultTypeKey: string,
+  ): Promise<EffectiveFieldConfig> {
+    const timelines = await this.store.listTimelineStarts(cycleId);
+    const timeline = timelines.find((t) => t.id === timelineId);
+    if (timeline === undefined) throw new TimelineNotFoundError(timelineId);
+    if (
+      !timeline.allResultTypes &&
+      !timeline.resultTypeKeys.includes(resultTypeKey)
+    ) {
+      throw new FieldConfigTypeNotInTimelineError(timelineId, resultTypeKey);
+    }
+    // Ordered by number ascending: the last row is the latest version.
+    const latest = (await this.store.listVersions(cycleId)).at(-1);
+    if (latest === undefined) throw new FieldConfigNoVersionError(timelineId);
+    return {
+      timelineId,
+      resultTypeKey,
+      version: latest.number,
+      provisional: false,
+      items: await this.store.listVersionItems(latest.id, resultTypeKey),
+    };
+  }
+
+  versionItems(
+    versionId: number,
+    resultTypeKey: string,
+  ): Promise<ConfigItem[]> {
+    return this.store.listVersionItems(versionId, resultTypeKey);
+  }
+
+  /** F-005: the latest version's items (two statements); `null` with no version. */
+  async latestVersionItems(
+    cycleId: number,
+    resultTypeKey: string,
+  ): Promise<ConfigItem[] | null> {
+    // Ordered by number ascending: the last row is the latest version.
+    const versions = await this.store.listVersions(cycleId);
+    const latest = versions.at(-1);
+    if (latest === undefined) return null;
+    return this.store.listVersionItems(latest.id, resultTypeKey);
+  }
 }
 
 export type { ConfigItem, FieldCatalog };

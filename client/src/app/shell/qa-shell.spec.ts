@@ -8,6 +8,7 @@ import { UnsentQueue } from '../core/http/unsent-queue';
 import { QaTokensLoader } from '../ui';
 import { ActiveCycle } from './active-cycle';
 import { QaShell } from './qa-shell';
+import { WorkspaceLayout } from './workspace-layout';
 
 describe('QaShell — sign out', () => {
   const session = { user: signal(null), isSignedIn: () => true, signOut: vi.fn(() => Promise.resolve()) };
@@ -40,6 +41,19 @@ describe('QaShell — sign out', () => {
 
     expect(confirm).toHaveBeenCalledWith('You have unsaved changes. Leave this page and discard them?');
     expect(session.signOut).not.toHaveBeenCalled();
+  });
+
+  it('the sidebar follows WorkspaceLayout: the review "Focus" control collapses it (DD-14)', () => {
+    const shell = create() as unknown as { collapsed(): boolean; toggleMenu(): void };
+    const layout = TestBed.inject(WorkspaceLayout);
+    expect(shell.collapsed()).toBe(false);
+
+    layout.setFocus(true);
+    expect(shell.collapsed()).toBe(true);
+
+    // The shell's own toggle writes to the same state the review page reads.
+    shell.toggleMenu();
+    expect(layout.menuCollapsed()).toBe(false);
   });
 
   it('nothing unsaved: signs out without asking', () => {

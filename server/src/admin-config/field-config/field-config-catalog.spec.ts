@@ -119,6 +119,97 @@ describe('shapeCatalog over the TEST catalog 2026.30', () => {
     ]).toEqual([54, 47, 60]);
   });
 
+  it('carries the control lists a field names: its own, then those of its subfields at any depth, without repeats (FR-11, design 7.5)', () => {
+    const lists = (key: string) =>
+      catalog.fields.find((f) => f.key === key)!.controlLists;
+    expect(lists('general.primary_program')).toEqual(['initiatives']);
+    expect(lists('general.title')).toEqual([]);
+    expect(lists('contributors.centers')).toEqual(['centers']);
+    expect(lists('partners.external_partners')).toEqual([
+      'institutions',
+      'institution_types',
+      'partner_delivery_types',
+    ]);
+    // `toc_entries` nests inside `science_programs`: its lists count.
+    expect(lists('contributors.science_programs')).toEqual([
+      'initiatives',
+      'toc_levels',
+      'toc_results',
+      'toc_results_indicators',
+    ]);
+    // A list repeated by two subfields is named once.
+    expect(lists('ipsr_step_3.complementary_components')).toEqual([
+      'readiness_levels',
+      'use_levels',
+      'evidence_sources',
+    ]);
+  });
+
+  it('maps each subfield to the control list of its ids, at any depth, and leaves the key out when no subfield names one', () => {
+    const subLists = (key: string) =>
+      catalog.fields.find((f) => f.key === key)!.subfieldLists;
+    expect(subLists('partners.external_partners')).toEqual({
+      institution: 'institutions',
+      partner_type: 'institution_types',
+      partner_role: 'partner_delivery_types',
+    });
+    expect(subLists('contributors.science_programs')).toEqual({
+      program: 'initiatives',
+      level: 'toc_levels',
+      toc_result: 'toc_results',
+      kpi: 'toc_results_indicators',
+    });
+    const fieldOf = (key: string) => catalog.fields.find((f) => f.key === key)!;
+    expect(Object.hasOwn(fieldOf('general.title'), 'subfieldLists')).toBe(
+      false,
+    );
+    // A field's own list is not a subfield's.
+    expect(
+      Object.hasOwn(fieldOf('general.primary_program'), 'subfieldLists'),
+    ).toBe(false);
+  });
+
+  it('reads a null or absent control_list as no list, on a field and on a nested subfield, never a 503', () => {
+    const raw = clone();
+    const field = (key: string) =>
+      raw.fields.find((f) => f.key === key) as Record<string, unknown> & {
+        subfields: Record<string, unknown>[];
+      };
+    field('general.primary_program').control_list = null;
+    // `program` names initiatives; null leaves the nested `toc_levels` as the only list.
+    field('contributors.science_programs').subfields[0].control_list = null;
+    const shaped = shapeCatalog(raw);
+    const lists = (key: string) =>
+      shaped.fields.find((f) => f.key === key)!.controlLists;
+    expect(lists('general.primary_program')).toEqual([]);
+    expect(lists('contributors.science_programs')).toEqual([
+      'toc_levels',
+      'toc_results',
+      'toc_results_indicators',
+    ]);
+  });
+
+  it('keeps the 503 for a control_list that is neither text nor null, and for subfields that are not a list', () => {
+    const quiet = vi
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation(() => {});
+    try {
+      for (const bad of [7, '', {}, true]) {
+        const raw = clone();
+        raw.fields[0].control_list = bad;
+        expect(() => shapeCatalog(raw)).toThrow(UpstreamUnavailableError);
+      }
+      const nested = clone();
+      nested.fields[0].subfields = { key: 'x' };
+      expect(() => shapeCatalog(nested)).toThrow(UpstreamUnavailableError);
+      const deep = clone();
+      deep.fields[0].subfields = [{ key: 'x', control_list: 5 }];
+      expect(() => shapeCatalog(deep)).toThrow(UpstreamUnavailableError);
+    } finally {
+      quiet.mockRestore();
+    }
+  });
+
   it('isNew is false when no row carries a flag', () => {
     expect(catalog.fields.every((f) => f.isNew === false)).toBe(true);
   });
@@ -159,6 +250,39 @@ describe('shapeCatalog over the TEST catalog 2026.30', () => {
     const keys = new Set(catalog.fields.map((f) => f.key));
     expect(sub.filter((k) => keys.has(k))).toEqual([]);
     expect(JSON.stringify(catalog)).not.toContain('subfields');
+  });
+});
+
+describe('shapeCatalog: visible_when (F-015)', () => {
+  const field = (catalog: ReturnType<typeof shapeCatalog>, key: string) =>
+    catalog.fields.find((f) => f.key === key)!;
+
+  it('keeps the Impact Area component rule and the any/all rules of the catalog', () => {
+    const catalog = shapeCatalog(clone());
+    expect(field(catalog, 'general.gender_impact_areas').visibleWhen).toEqual({
+      field: 'general.gender_tag',
+      operator: 'eq',
+      value: 3,
+    });
+    expect(field(catalog, 'geo.regions').visibleWhen).toHaveProperty('any');
+    expect(field(catalog, 'general.title')).not.toHaveProperty('visibleWhen');
+    expect(catalog.fields.filter((f) => f.visibleWhen).length).toBe(48);
+  });
+
+  it('reads a condition it does not know as none, never refusing the catalog', () => {
+    const raw = clone();
+    const at = raw.fields.findIndex(
+      (f) => f.key === 'general.gender_impact_areas',
+    );
+    raw.fields[at]!.visible_when = {
+      field: 'general.gender_tag',
+      operator: 'gte',
+      value: 2,
+    };
+    const catalog = shapeCatalog(raw);
+    expect(field(catalog, 'general.gender_impact_areas')).not.toHaveProperty(
+      'visibleWhen',
+    );
   });
 });
 

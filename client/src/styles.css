@@ -193,3 +193,14 @@
     transform: rotate(360deg);
   }
 }
+
+/*
+ * Toasts on a phone: the toaster pins them 20px from the bottom and ignores its `offset` there. A page with its own
+ * bottom bar (the Review footer) lifts them through `Toasts.bottomOffset`, which sets this variable on <html>.
+ * `html` in the selector: the toaster's own rule is added later with the same weight, and this one must win.
+ */
+@media (max-width: 600px) {
+  html [data-sonner-toaster][data-y-position='bottom'] {
+    bottom: var(--qa-toast-bottom-phone, 20px);
+  }
+}

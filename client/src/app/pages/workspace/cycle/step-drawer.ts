@@ -2,7 +2,7 @@ import { Component, computed, effect, input, linkedSignal, model, output, untrac
 import { FormField, form, validate } from '@angular/forms/signals';
 import { requiredText } from '../../../core/forms/text-validators';
 import { HlmInput } from '@spartan/input';
-import { QaButtonImports, QaDatePicker, QaDialogImports, QaDrawerImports, QaSegmented, QaSelect, QaSwitch, QaTooltipImports, discardGuard } from '../../../ui';
+import { QaButtonImports, QaDatePicker, QaDialogImports, QaDrawerImports, QaSegmented, QaSelect, QaSwitch, QaTimeMask, QaTooltipImports, discardGuard } from '../../../ui';
 import { AUDIENCES, CORRECTION_AUDIENCE, CycleStep, DEMO_ACCESS, PROGRAMS, ReopenMode, Timeline } from './cycle.mock';
 import { formatNumber, parseDate, stepState } from './cycle.logic';
 import { boundaryPart, stepDateIssues, toApiDay } from './cycle.mapper';
@@ -47,7 +47,7 @@ interface StepDraft {
 /** "Edit step" / "New step" drawer (every step card and every "Add step" button). */
 @Component({
   selector: 'qa-cycle-step-drawer',
-  imports: [FormField, QaButtonImports, HlmInput, QaDatePicker, QaDialogImports, QaDrawerImports, QaSegmented, QaSelect, QaSwitch, QaTooltipImports],
+  imports: [FormField, QaButtonImports, HlmInput, QaDatePicker, QaDialogImports, QaDrawerImports, QaSegmented, QaSelect, QaSwitch, QaTimeMask, QaTooltipImports],
   template: `
     <qa-drawer [(open)]="open" [closeGuard]="discard.guard" [title]="title()" [subtitle]="request().timeline.name" width="720px">
       @if (open()) {
@@ -88,11 +88,15 @@ interface StepDraft {
         </div>
 
         @if (locked()) {
-          <!-- Closed step: its dates are the record of the cycle, so they read as text. -->
+          <!-- Closed step: its dates are the record of the cycle, so they read as text. Its name can still change
+               (the API locks the dates only), so the footer keeps "Save step" (P2-4080). -->
           <div class="flex flex-col items-start gap-[6px]">
             <span id="cycle-step-dates" class="text-(length:--fs-13) font-semibold text-(--text-2)">Dates</span>
             <span aria-labelledby="cycle-step-dates" class="font-(family-name:--qa-mono) text-(length:--fs-14) text-(--text) tabular-nums">{{ d.opens }}, {{ d.opensTime }} – {{ d.closes ? d.closes + ', ' + d.closesTime : 'no closing date' }} {{ zoneText() }}</span>
             <span class="text-(length:--fs-13) leading-[1.5] font-normal text-pretty text-(--text-4)">This step closed{{ d.closes ? ' on ' + d.closes + ' at ' + d.closesTime : '' }} (Rome time). Its dates stay as the record of the cycle.</span>
+            @if (feedbackText(); as message) {
+              <span role="alert" class="text-(length:--fs-13) text-(--danger)">{{ message }}</span>
+            }
           </div>
         } @else {
         <div class="flex flex-col items-start gap-[6px]">
@@ -109,7 +113,7 @@ interface StepDraft {
                   type="text"
                   [formField]="stepForm.opens"
                   aria-labelledby="cycle-step-opens"
-                  placeholder="06 Jul 2026"
+                  placeholder="Select date"
                   [attr.aria-invalid]="bad().opens ? true : null"
                   [attr.aria-describedby]="opensError() ? 'cycle-step-opens-err' : null"
                   [attr.data-error]="bad().opens"
@@ -119,6 +123,7 @@ interface StepDraft {
               </span>
               <input
                 hlmInput
+                qaTimeMask
                 type="text"
                 inputmode="numeric"
                 [formField]="stepForm.opensTime"
@@ -137,11 +142,12 @@ interface StepDraft {
               <span id="cycle-step-closes" class="text-(length:--fs-13) font-semibold text-(--text-2)">Closes</span>
               <span class="flex gap-1.5">
                 <span class="relative flex">
-                  <input hlmInput type="text" [formField]="stepForm.closes" aria-labelledby="cycle-step-closes" placeholder="11 Jul 2026" [attr.aria-invalid]="bad().closes ? true : null" [attr.aria-describedby]="opensError() ? 'cycle-step-opens-err' : null" [attr.data-error]="bad().closes" class="h-9 w-[180px] rounded-[8px] border-(--border) bg-(--field-bg) py-0 pr-10 pl-3 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) dark:bg-(--field-bg)" />
+                  <input hlmInput type="text" [formField]="stepForm.closes" aria-labelledby="cycle-step-closes" placeholder="Select date" [attr.aria-invalid]="bad().closes ? true : null" [attr.aria-describedby]="opensError() ? 'cycle-step-opens-err' : null" [attr.data-error]="bad().closes" class="h-9 w-[180px] rounded-[8px] border-(--border) bg-(--field-bg) py-0 pr-10 pl-3 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) dark:bg-(--field-bg)" />
                   <qa-date-picker [value]="stepForm.closes().value()" (valueChange)="stepForm.closes().value.set($event)" label="Pick the closing date" class="absolute top-1/2 right-1 -translate-y-1/2" />
                 </span>
                 <input
                   hlmInput
+                  qaTimeMask
                   type="text"
                   inputmode="numeric"
                   [formField]="stepForm.closesTime"
@@ -261,9 +267,7 @@ interface StepDraft {
             <button hlmBtn qaBtn tone="secondary" type="button" (click)="loadIntoStep.emit()" [disabled]="dirty()" [attr.aria-describedby]="dirty() ? 'cycle-step-load-hint' : null" class="gap-[7px]"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M12 3v12M8 11l4 4 4-4M8 5H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-4" /></svg>Load results into this step</button>
           }
           <button hlmBtn qaBtn tone="secondary" type="button" (click)="discard.requestClose()">Cancel</button>
-          @if (!locked()) {
-            <button hlmBtn qaBtn tone="primary" type="button" (click)="save()" [loading]="saving()">{{ saving() ? 'Saving…' : isEdit() ? 'Save step' : 'Add step' }}</button>
-          }
+          <button hlmBtn qaBtn tone="primary" type="button" (click)="save()" [loading]="saving()">{{ saving() ? 'Saving…' : isEdit() ? 'Save step' : 'Add step' }}</button>
         }
       </div>
     </qa-drawer>
@@ -517,7 +521,8 @@ export class StepDrawer {
 
   protected save(): void {
     this.tried.set(true);
-    if (this.stepForm().invalid() || this.liveDateIssue()) return;
+    // A closed step shows no date inputs and sends no dates: only its name can stop the save.
+    if (this.locked() ? this.stepForm.name().invalid() : this.stepForm().invalid() || !!this.liveDateIssue()) return;
     if (this.inProgress() && this.changed()) {
       this.confirmActive.set(true);
       return;

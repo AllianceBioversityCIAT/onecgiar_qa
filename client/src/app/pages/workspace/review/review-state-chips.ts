@@ -1,7 +1,7 @@
 import { Component, input } from '@angular/core';
 import { StateChip } from './review-model';
 
-/** Field review state ("Approved", "Commented 1", "Answered", "Highlighted", "Not reviewed"). */
+/** Field review state ("Approved", "Commented 1", "Answered", "Highlighted", the TPB decision, "Changes done", "Not reviewed"). */
 @Component({
   selector: 'qa-review-state-chips',
   host: { class: 'contents' },
@@ -29,6 +29,18 @@ import { StateChip } from './review-model';
           @case ('hl') {
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1zM4 22v-7" /></svg>
             <span class="text-(length:--fs-11) font-semibold text-(--danger)">{{ chip.label }}</span>
+          }
+          @case ('agreed') {
+            <span class="size-[7px] flex-none rounded-full bg-(--text-4)" aria-hidden="true"></span>
+            <span class="text-(length:--fs-11) font-semibold text-(--text-3)">{{ chip.label }}</span>
+          }
+          @case ('changes') {
+            <span class="size-[7px] flex-none rounded-full bg-(--st-editing-fg)" aria-hidden="true"></span>
+            <span class="text-(length:--fs-11) font-semibold text-(--st-editing-fg)">{{ chip.label }}</span>
+          }
+          @case ('done') {
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--st-approved-fg)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M20 6L9 17l-5-5" /></svg>
+            <span class="text-(length:--fs-11) font-semibold text-(--st-approved-fg)">{{ chip.label }}</span>
           }
         }
       </span>

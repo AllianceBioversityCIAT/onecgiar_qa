@@ -46,6 +46,8 @@ export class TimelinePeople {
     );
   }
 
+  /** Everyone assigned to the timeline, every role. */
+  readonly users = this.assigned.asReadonly();
   readonly byRole = computed(() => assignedByRole(this.assigned()));
   readonly summary = computed(() => peopleSummary(this.assigned()));
 

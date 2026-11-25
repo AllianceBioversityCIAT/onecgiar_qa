@@ -53,6 +53,20 @@ describe('unwrap', () => {
     expect(error.code).toBe('VALIDATION_FAILED');
     expect(error.fieldMessage('email')).toBe('Bad email');
     expect(error.fieldMessage('password')).toBeNull();
+    expect(error.fieldKeys).toEqual([]);
+  });
+
+  it('bare field keys (ASSESSMENT_CORE_UNCOMMENTED) go to fieldKeys and never into fields', () => {
+    const error = new ApiError({
+      status: 409,
+      code: 'ASSESSMENT_CORE_UNCOMMENTED',
+      message: 'Core fields left',
+      fields: ['general.title'],
+    });
+    expect(error.fieldKeys).toEqual(['general.title']);
+    expect(error.fields).toEqual([]);
+    // Readers that search `fields` by `.field` keep working: no string reaches them.
+    expect(error.fields.find((f) => f.field === 'general.title')).toBeUndefined();
   });
 });
 

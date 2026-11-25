@@ -27,6 +27,17 @@ export class ReviewFooter {
   readonly resolvedCount = input(0);
   readonly commentedCount = input(0);
   readonly skipped = input(0);
+  /** Status the result takes when it is finished now: "Quality Assessed" or "Returned to program". */
+  readonly finishTo = input('');
+  /** The finish call is on its way. */
+  readonly finishing = input(false);
+  /** Why the server did not finish it (core fields still open…), shown in the confirm step. */
+  readonly finishError = input('');
+  /**
+   * P2-4138: why the server would refuse Finish now ("Validate or comment this core field first: …"). While set,
+   * the confirm step names it instead of an outcome and its Finish button is off.
+   */
+  readonly finishBlocked = input('');
 
   readonly back = output();
   readonly next = output();

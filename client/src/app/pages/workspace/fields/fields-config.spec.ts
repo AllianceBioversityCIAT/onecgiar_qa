@@ -10,6 +10,15 @@ describe('fields-config', () => {
     expect(describeChange({ state: 'assessed', core: false, ai: false }, { state: 'assessed', core: true, ai: false })).toBe('Core turned on');
   });
 
+  it('names AI changes in the change summary and the publish review (F-021)', () => {
+    const assessed = { state: 'assessed' as const, core: false, ai: false };
+    expect(describeChange(assessed, { ...assessed, ai: true })).toBe('AI helper turned on');
+    expect(describeChange({ ...assessed, ai: true }, assessed)).toBe('AI helper turned off');
+    expect(describeChange({ state: 'hidden', core: false, ai: false }, { state: 'assessed', core: true, ai: true })).toBe(
+      'Assessed, was Hidden; Core on, AI helper on',
+    );
+  });
+
   it('sends Core and AI only with an assessed field (S-14)', () => {
     expect(toEdit('t', 'f', { state: 'view_only', core: true, ai: true })).toEqual({
       resultTypeKey: 't',

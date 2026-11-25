@@ -11,7 +11,11 @@ Environment validation and typed configuration. This is the **only** place in th
 | `mysql.config.ts` | `mysqlConfig`: `DATABASE_URL`, `DATABASE_POOL_SIZE` (default 10) |
 | `openapi.config.ts` | `openApiConfig`: `enabled` — `OPENAPI_ENABLED` if set, else on unless `NODE_ENV=production` |
 | `catalogs.config.ts` | `catalogsConfig`: `REPORTING_API_URL`, `CLARISA_API_URL` and the shared `CLARISA_API_KEY` (base URLs and key of the catalog sources) |
+| `notifications.config.ts` | `notificationsConfig`: Notification Microservice base URL (`NOTIFICATION_API_URL`, default production), `enabled` (`NOTIFICATION_EMAIL_ENABLED`), `appUrl` (`APP_URL`, else the first `https://` of `ALLOWED_ORIGINS`). The service is authenticated with `CLARISA_API_KEY`, still read only in `catalogs.config.ts` |
 | `cognito-admin.config.ts` | `cognitoAdminConfig`: region, pool id and `credentials` only when both `COGNITO_ADMIN_*` keys are set (else the SDK default chain, i.e. the host's IAM role) |
+| `ai-jobs.config.ts` | `aiJobsConfig`: optional `AI_JOBS_QUEUE_URL` and `AWS_REGION` for the AI job queue (spec assessment/ai-suggestions); the SQS client uses the DynamoDB keys when set (`sqsClientConfig`), else the default chain |
+| `sp-access.config.ts` | `spAccessConfig`: optional `SP_ACCESS_API_KEY` (secret; the `x-api-key` of `POST /sp-access/codes`) and `SP_REPORTING_RESULT_URL` (the "Open in Reporting" template) of the Science Program view (P2-3911) |
+| `release.config.ts` | `releaseConfig`: `sweepIntervalMs` from `RELEASE_SWEEP_INTERVAL_MS` (default 60000; `0` = sweeper off) of the release outbox sweep (P2-3910 bug) |
 | `dynamodb.config.ts` | `dynamoDbConfig`: `AWS_REGION`, `DYNAMODB_TABLE_NAME`, optional `DYNAMODB_ENDPOINT`, and `credentials` only when both `DYNAMODB_*` keys are set (else the SDK default chain) |
 
 ## Variables
@@ -22,6 +26,7 @@ Environment validation and typed configuration. This is the **only** place in th
 | `DATABASE_POOL_SIZE` | no | default 10 |
 | `AWS_REGION`, `DYNAMODB_TABLE_NAME` | yes | e.g. `us-east-1`, `cgiar-qa-test` (TRD § 5.2: one table `cgiar-qa-{env}`, keys `pk`/`sk`) |
 | `DYNAMODB_ENDPOINT` | no | only for DynamoDB Local (`http://localhost:8000`) |
+| `AI_JOBS_QUEUE_URL` | no | the AI suggestion queue (`qa-ai-suggestions-{env}`); unset = AI jobs off, one `ai_jobs_disabled` warning at startup, AI admin routes 409 `AI_JOBS_DISABLED`. The principal that reaches DynamoDB (the `DYNAMODB_ACCESS_KEY_ID` user where set, else the host role) needs `sqs:SendMessage` on it |
 | `DYNAMODB_ACCESS_KEY_ID`, `DYNAMODB_SECRET_ACCESS_KEY` | no — both or neither | **secret**: local development only (IAM user scoped to the QA table). Absent in TEST/PROD, where the host's IAM role is used. With DynamoDB Local, any value |
 | `COGNITO_REGION`, `COGNITO_USER_POOL_ID`, `COGNITO_CLIENT_ID` | yes | the pool and QA's app client |
 | `COGNITO_CLIENT_SECRET` | yes | **secret**: local `.env` or the secret store only; never a value in `.env.example` |
@@ -30,8 +35,14 @@ Environment validation and typed configuration. This is the **only** place in th
 | `COGNITO_USER_POOL_URL` | no | user-pool API endpoint override, `https://` only |
 | `REPORTING_API_URL`, `CLARISA_API_URL` | yes | base URLs with the `/api` path, `https://` only |
 | `CLARISA_API_KEY` | yes | **secret**: local `.env` or the secret store only; sent as `x-api-key` to Reporting only |
+| `NOTIFICATION_API_URL` | no | Notification Microservice base URL, `https://` only, without `/send`; default `https://reports.prms.cgiar.org/api/email` |
+| `NOTIFICATION_EMAIL_ENABLED` | no | `true` / `false`; default `true`. e2e sets `false` |
+| `APP_URL` | no | QA web origin linked from emails (exact origin like `ALLOWED_ORIGINS` entries) |
 | `ALLOWED_ORIGINS` | yes | comma-separated exact origins; `https://` only, except `http://localhost:<port>`; no path or trailing slash |
 | `OPENAPI_ENABLED` | no | `true` / `false`; default on unless `NODE_ENV=production` (Swagger UI at `/api/v1/docs`) |
+| `SP_ACCESS_API_KEY` | no | **secret**, at least 32 characters, read only in `sp-access.config.ts` (pinned by `no-qa-tokens.spec.ts`); the same value as Reporting's `QA_SP_ACCESS_API_KEY`. Unset = SP access off, `POST /sp-access/codes` answers 503 `SP_ACCESS_DISABLED` |
+| `SP_REPORTING_RESULT_URL` | no | `https://` template containing `{resultCode}` (e.g. `https://reporting.cgiar.org/result/result-detail/{resultCode}/general-information`); unset = no "Open in Reporting" link in the SP view |
+| `RELEASE_SWEEP_INTERVAL_MS` | no | whole milliseconds between two release outbox sweeps (each pause spread ±20 %); default 60000; `0` turns the sweeper off, otherwise 1000 to 86400000. `vitest.config.e2e.ts` sets `0`: a test that needs the sweeper enables it by overriding `releaseConfig.KEY` |
 | `SEED_ADMIN_EMAIL` | no | first ADMIN for `pnpm db:seed` |
 | `PORT` | no | default 3000 |
 
@@ -39,7 +50,7 @@ Environment validation and typed configuration. This is the **only** place in th
 
 - **Adding a variable:** add it to `REQUIRED_ENV_VARS` (if required) and validate its format in `validateEnv`, expose it through a `registerAs` namespace, add it to `.env.example` (empty or a safe example — never a real secret), to `vitest.config.e2e.ts` `env` (a dummy value), and to `docs/infrastructure.md` § 6. Add a unit test that names it when missing.
 - **Consumers inject the namespace** (`@Inject(authConfig.KEY) config: ConfigType<typeof authConfig>`), never `process.env`.
-- **Secrets:** read only here, with no fallback literal: `COGNITO_CLIENT_SECRET` in `auth.config.ts`, `DYNAMODB_SECRET_ACCESS_KEY` in `dynamodb.config.ts`, `COGNITO_ADMIN_SECRET_ACCESS_KEY` in `cognito-admin.config.ts`; `CLARISA_API_KEY` in `catalogs.config.ts` (read only there, sent as `x-api-key` to Reporting). `src/auth/no-qa-tokens.spec.ts` pins the reading line of each of the three secrets and of `CLARISA_API_KEY`, and flags fallbacks, literals, logs and `process.env[...]` for the `*SECRET*` names (for `CLARISA_API_KEY` it pins the reader file and line only).
+- **Secrets:** read only here, with no fallback literal: `COGNITO_CLIENT_SECRET` in `auth.config.ts`, `DYNAMODB_SECRET_ACCESS_KEY` in `dynamodb.config.ts`, `COGNITO_ADMIN_SECRET_ACCESS_KEY` in `cognito-admin.config.ts`; `CLARISA_API_KEY` in `catalogs.config.ts` (read only there, sent as `x-api-key` to Reporting and, through `catalogsConfig`, to the Notification Microservice by `src/notifications/email.client.ts`). `src/auth/no-qa-tokens.spec.ts` pins the reading line of each of the three secrets and of `CLARISA_API_KEY`, and flags fallbacks, literals, logs and `process.env[...]` for the `*SECRET*` names (for `CLARISA_API_KEY` it pins the reader file and line only).
 - Endpoints that receive credentials must be validated as `https://`.
 
 ## Testing

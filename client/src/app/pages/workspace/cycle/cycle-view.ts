@@ -13,6 +13,7 @@ import { LoadSummaryDrawer } from './load-summary-drawer';
 import { PeopleDrawer } from './people-drawer';
 import { ProgressDrawer, StepProgress } from './progress-drawer';
 import { StepDrawer, StepRequest, StepSaveEvent } from './step-drawer';
+import { TimelineActions } from './timeline-actions';
 import { TimelineCard } from './timeline-card';
 import { TimelineDrawer, TimelineRequest, TimelineSaveEvent, TimelineSaveFeedback } from './timeline-drawer';
 import { TimelineSteps } from './timeline-steps';
@@ -35,7 +36,7 @@ const EMPTY_TIMELINE: Timeline = { id: '', name: '', kind: 'Sub-timeline', statu
  */
 @Component({
   selector: 'qa-cycle-view',
-  imports: [QaButtonImports, QaTabsImports, QaReveal, CycleSkeleton, TimelineSteps, TimelineCard, TimelineDrawer, StepDrawer, ProgressDrawer, LoadDrawer, LoadSummaryDrawer, PeopleDrawer],
+  imports: [QaButtonImports, QaTabsImports, QaReveal, CycleSkeleton, TimelineSteps, TimelineActions, TimelineCard, TimelineDrawer, StepDrawer, ProgressDrawer, LoadDrawer, LoadSummaryDrawer, PeopleDrawer],
   providers: [CycleStore, CycleLoads],
   templateUrl: './cycle-view.html',
 })

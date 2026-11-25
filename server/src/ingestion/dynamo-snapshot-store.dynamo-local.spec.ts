@@ -110,4 +110,28 @@ describe.skipIf(!enabled)('DynamoSnapshotStore against a real table', () => {
       await store.get(base, snapshotSortSuffix(snap({ loadId: 97 }))),
     ).toBeNull();
   });
+
+  it('keeps labels beside the values: the first labels win a same-hash retry, and a labels-less item reads none', async () => {
+    const first = { countries: { '170': 'Colombia', '999': null } };
+    await put(snap({ loadId: 96, labels: first }));
+    await store.put(
+      snap({
+        loadId: 96,
+        labels: { countries: { '170': 'Republic of Colombia' } },
+      }),
+    );
+    const sk = snapshotSortSuffix(snap({ loadId: 96 }));
+    expect((await store.get(base, sk))?.labels).toEqual(first);
+    await put(snap({ loadId: 95 }));
+    expect(
+      await store.get(base, snapshotSortSuffix(snap({ loadId: 95 }))),
+    ).not.toHaveProperty('labels');
+  });
+
+  it('round-trips labels above 256 KB through gzip', async () => {
+    const big = { list: { '1': randomBytes(150 * 1024).toString('hex') } };
+    await put(snap({ loadId: 94, labels: big }));
+    const sk = snapshotSortSuffix(snap({ loadId: 94 }));
+    expect((await store.get(base, sk))?.labels).toEqual(big);
+  });
 });

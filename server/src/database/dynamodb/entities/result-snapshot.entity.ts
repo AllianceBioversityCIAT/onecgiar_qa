@@ -49,6 +49,8 @@ export function createResultSnapshotEntity(
         loadedAt: { type: 'string', required: true },
         values: { type: 'string' },
         valuesGz: { type: 'any' },
+        labels: { type: 'string' },
+        labelsGz: { type: 'any' },
       },
       indexes: {
         snapshot: {
