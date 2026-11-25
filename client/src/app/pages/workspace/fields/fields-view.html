@@ -2,32 +2,36 @@
 
 <!-- View header -->
 <div class="flex flex-wrap items-start gap-4 px-8 pt-8 max-lg:px-6 max-md:px-4">
-  <div class="flex min-w-[min(100%,16rem)] flex-1 flex-col gap-1">
-    <h1 class="m-0 text-(length:--fs-26) leading-[1.2] font-bold tracking-[-0.02em] text-balance text-(--text)">Fields in QA</h1>
-    <p class="m-0 text-(length:--fs-14) font-normal text-balance text-(--text-3)">Every reporting field is listed. Hidden fields never reach an assessor.</p>
-  </div>
+  <!-- The result type being configured sets the whole table, so its picker sits next to the title: "Fields
+       [Innovation development ⌄]", same as Results and Overview (Juanpa, 2026-11-25). Its cycle opens the subtitle. -->
+  <qa-scope-title
+    class="min-w-[min(100%,16rem)] flex-1"
+    heading="Fields"
+    [subtitle]="(scopeMeta() ? scopeMeta() + ' · ' : '') + 'Hidden fields never reach an assessor.'"
+  >
+    @if (store.state() === 'ready') {
+      <qa-select
+        qaScopePicker
+        [value]="resultType()"
+        (valueChange)="selectType($event)"
+        [options]="typeOptions()"
+        label="Configuring"
+        appearance="scope"
+        panelWidth="300px"
+        class="min-w-0"
+      />
+    } @else if (store.state() === 'loading') {
+      <qa-skeleton qaScopePicker aria-hidden="true" class="h-9 w-56 max-w-full rounded-lg" />
+    }
+  </qa-scope-title>
 </div>
 
 <div data-screen-label="Fields" class="flex flex-col items-stretch gap-5 px-8 pt-6 pb-8 max-lg:px-6 max-md:px-4">
-  <!-- Scope band, same as Results and Overview (Juanpa, 2026-11-23): the result type being configured leads it (it sets
-       the whole table), the cycle is its fact (or the first control of the filter row when there are several), and the
-       state chips that depend on it sit inside (counts computed from the draft). #summaryGrid also measures the content width. -->
+  <!-- Toolbar under the title, same as Results and Overview (Juanpa, 2026-11-25): the cycle (when there are several)
+       and the state chips that depend on the result type (counts computed from the draft). #summaryGrid also measures
+       the content width. -->
   <div #summaryGrid class="flex flex-col">
-    <qa-scope-card class="-mx-8 -mt-6 px-8 max-lg:-mx-6 max-lg:px-6 max-md:-mx-4 max-md:px-4" regionLabel="Result type being configured" [meta]="scopeMeta()">
-      @if (store.state() === 'ready') {
-        <qa-select
-          qaScopePicker
-          [value]="resultType()"
-          (valueChange)="selectType($event)"
-          [options]="typeOptions()"
-          label="Configuring"
-          appearance="scope"
-          panelWidth="300px"
-          class="min-w-0 self-start"
-        />
-      } @else if (store.state() === 'loading') {
-        <qa-skeleton qaScopePicker aria-hidden="true" class="h-[52px] w-[22rem] max-w-full rounded-[10px]" />
-      }
+    <qa-scope-card regionLabel="Filters">
     @if (store.state() === 'ready') {
     <!-- With several cycles, the cycle picker opens the filter row (Juanpa, 2026-11-23: not alone at the right). -->
     <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
