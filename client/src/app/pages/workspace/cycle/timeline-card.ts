@@ -4,12 +4,12 @@ import { MenuAction, TimelineNow, TimelineVM, timelineNow } from './cycle.logic'
 import { TimelineActions } from './timeline-actions';
 import { TimelineSteps } from './timeline-steps';
 
-/** Pill colours of the one-line summary, the same as the step card's state badges. */
+/** State badge of the one-line summary: neutral with a coloured dot, like every status in the app (direction A). */
 const NOW_TONE: Record<TimelineNow['tone'], string> = {
-  active: 'bg-(--tint-2) text-(--accent)',
-  waiting: 'bg-(--st-editing-bg) text-(--st-editing-fg)',
-  future: 'bg-(--surface-3) text-(--text-3)',
-  done: 'bg-(--surface-4) text-(--text-4)',
+  active: 'qa-dot gap-1.5 bg-(--surface-5) text-(--text-2) [--qa-dot:var(--success)]',
+  waiting: 'qa-dot gap-1.5 bg-(--surface-5) text-(--text-2) [--qa-dot:var(--warning)]',
+  future: 'qa-dot gap-1.5 bg-(--surface-5) text-(--text-2) [--qa-dot:var(--text-muted)]',
+  done: 'qa-dot gap-1.5 bg-(--surface-5) text-(--text-3) [--qa-dot:var(--border-strong)]',
 };
 
 /**
@@ -54,9 +54,9 @@ const NOW_TONE: Record<TimelineNow['tone'], string> = {
             } @else {
               <h3 [id]="titleId()" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">{{ t.name }}</h3>
             }
-            <span class="rounded-md bg-(--surface-3) px-2 py-[2px] text-(length:--fs-12) font-medium whitespace-nowrap text-(--text-muted)">{{ t.kindLabel }}</span>
+            <span class="rounded-md border border-(--border) px-1.5 py-px text-(length:--fs-12) font-medium whitespace-nowrap text-(--text-3)">{{ t.kindLabel }}</span>
             @if (t.isTest) {
-              <span class="rounded-md bg-(--st-editing-bg) px-2 py-[2px] text-(length:--fs-12) font-medium whitespace-nowrap text-(--st-editing-fg)">Test</span>
+              <span class="rounded-md border border-(--border) px-1.5 py-px text-(length:--fs-12) font-medium whitespace-nowrap text-(--text-3)">Test</span>
             }
             <span class="rounded-md px-2 py-[2px] text-(length:--fs-12) font-medium whitespace-nowrap" [class]="t.statusClass">{{ t.status }}</span>
           </div>
@@ -70,7 +70,7 @@ const NOW_TONE: Record<TimelineNow['tone'], string> = {
               }
               <span class="min-w-0 font-medium">{{ now.step }}</span>
               @if (t.needsPeople) {
-                &ngsp;<span class="rounded-md bg-(--st-editing-bg) px-2 py-[2px] text-(length:--fs-12) font-medium whitespace-nowrap text-(--st-editing-fg)">No one assigned</span>
+                &ngsp;<span class="qa-dot gap-1.5 bg-(--surface-5) text-(--text-2) [--qa-dot:var(--warning)] rounded-md px-2 py-[2px] text-(length:--fs-12) font-medium whitespace-nowrap">No one assigned</span>
               }
               @if (now.when) {
                 &ngsp;<span class="font-(family-name:--qa-mono) text-(length:--fs-12) whitespace-nowrap text-(--text-3) tabular-nums">{{ now.when }}</span>

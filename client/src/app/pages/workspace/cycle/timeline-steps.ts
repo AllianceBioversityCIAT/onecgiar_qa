@@ -110,7 +110,7 @@ import { TimelineVM } from './cycle.logic';
               }
             </div>
             @if (s.hasBatch) {
-              <span class="inline-flex items-center gap-1 self-start rounded-md bg-(--tint-2) px-1.5 py-px text-(length:--fs-12) font-medium whitespace-nowrap text-(--accent)"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M12 3v12M8 11l4 4 4-4M8 5H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-4" /></svg>Loads results</span>
+              <span class="inline-flex items-center gap-1 self-start rounded-md border border-(--border) px-1.5 py-px text-(length:--fs-12) font-medium whitespace-nowrap text-(--text-3)"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M12 3v12M8 11l4 4 4-4M8 5H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-4" /></svg>Loads results</span>
             }
             <div class="mt-auto flex flex-col items-start gap-1.5 border-t border-(--surface-4) pt-[10px]">
               @switch (s.state) {
@@ -123,7 +123,7 @@ import { TimelineVM } from './cycle.logic';
                 }
                 @case ('active') {
                   @if (!s.hasProgress) {
-                    <span class="rounded-md bg-(--tint-2) px-2 py-[2px] text-(length:--fs-12) font-medium text-(--accent)">In progress</span>
+                    <span class="qa-dot gap-1.5 bg-(--surface-5) text-(--text-2) [--qa-dot:var(--success)] rounded-md px-2 py-[2px] text-(length:--fs-12) font-medium">In progress</span>
                   } @else {
                   <qa-progress [value]="s.pct" [max]="100" [attr.aria-label]="'Step ' + s.n + ' reviewed'" />
                   <span class="text-(length:--fs-12) text-(--text-3)"><span class="font-(family-name:--qa-mono) font-semibold text-(--text) tabular-nums">{{ s.reviewed }}</span> of <span class="font-(family-name:--qa-mono) font-semibold text-(--text) tabular-nums">{{ s.of }}</span> reviewed</span>
@@ -144,7 +144,7 @@ import { TimelineVM } from './cycle.logic';
                 }
                 @default {
                   @if (s.waiting) {
-                    <span class="rounded-md bg-(--st-editing-bg) px-2 py-[2px] text-(length:--fs-12) font-medium text-(--st-editing-fg)">Waiting for results</span>
+                    <span class="qa-dot gap-1.5 bg-(--surface-5) text-(--text-2) [--qa-dot:var(--warning)] rounded-md px-2 py-[2px] text-(length:--fs-12) font-medium">Waiting for results</span>
                   } @else if (s.days === 0) {
                     <span class="text-(length:--fs-12) text-(--text-muted)">Opens today at <span class="font-(family-name:--qa-mono) tabular-nums">{{ s.opensTime }}</span></span>
                   } @else {
@@ -154,8 +154,8 @@ import { TimelineVM } from './cycle.logic';
               }
               @if (s.nobody) {
                 <!-- Nobody holds this step's role in the timeline: say it where the admin looks, with the way out. -->
-                <span class="inline-flex items-center gap-1.5 rounded-md bg-(--st-editing-bg) px-2 py-[2px] text-(length:--fs-12) font-medium text-(--st-editing-fg)">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" /></svg>{{ s.nobody }}
+                <span class="inline-flex items-center gap-1.5 rounded-md bg-(--surface-5) px-2 py-[2px] text-(length:--fs-12) font-medium text-(--text-2)">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="flex-none text-(--warning)" aria-hidden="true"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" /></svg>{{ s.nobody }}
                 </span>
                 <button hlmBtn qaBtn tone="link" size="sm" flush="start" type="button" (click)="assignPeople.emit()" [attr.aria-label]="'Assign people to ' + timeline().name" class="relative z-10">Assign people</button>
               }

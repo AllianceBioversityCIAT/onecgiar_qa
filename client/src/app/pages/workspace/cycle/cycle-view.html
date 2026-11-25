@@ -88,7 +88,8 @@
         <p class="m-0 text-(length:--fs-13) font-normal text-(--text-3)">A second calendar for programs and result types running late. Each one has its own dates and loads its results when its first step opens.</p>
       </div>
       <div class="flex flex-none items-center gap-2 max-sm:w-full">
-        <button hlmBtn qaBtn tone="primary" type="button" (click)="newSubTimeline()" [disabled]="!store.canWrite()" class="gap-[7px] max-sm:flex-1">
+        <!-- Secondary: "Load results into QA" is the page's one primary action (one filled button per view). -->
+        <button hlmBtn qaBtn tone="secondary" type="button" (click)="newSubTimeline()" [disabled]="!store.canWrite()" class="gap-[7px] max-sm:flex-1">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>New complementary batch
         </button>
       </div>
