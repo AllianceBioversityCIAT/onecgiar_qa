@@ -39,7 +39,9 @@ export const FIELD_HEAD_HELP: readonly FieldHeadHelp[] = [
   {
     label: 'AI',
     align: 'center',
-    text: 'The AI helper drafts an assessment of this field for the assessor to confirm or override. It never approves a field on its own.',
+    // F-021: neutral on purpose. Since P2-3918 the AI worker does not read this flag (it suggests on every
+    // Assessed field in its contract); say what the AI does only once the server reads the flag again.
+    text: 'Marks the field as an AI input.',
   },
 ];
 
