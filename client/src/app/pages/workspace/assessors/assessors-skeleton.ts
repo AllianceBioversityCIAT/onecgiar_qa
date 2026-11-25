@@ -31,8 +31,8 @@ const NAMES = ['w-32', 'w-40', 'w-28', 'w-36', 'w-44', 'w-28', 'w-40', 'w-32', '
                 <qa-skeleton class="h-2.5 w-28" />
               </div>
             </div>
-            <div [class]="cell.role"><qa-skeleton class="h-7 w-24 rounded-[6px]" /></div>
-            <div [class]="cell.types"><qa-skeleton class="h-7 w-32 rounded-[6px]" /></div>
+            <div [class]="cell.role"><qa-skeleton class="h-7 w-24 rounded-md" /></div>
+            <div [class]="cell.types"><qa-skeleton class="h-7 w-32 rounded-md" /></div>
             <div class="flex flex-col gap-2" [class]="cell.progress">
               <qa-skeleton class="h-2.5 w-[70%]" />
               <qa-skeleton class="h-1 w-full rounded-full" />
