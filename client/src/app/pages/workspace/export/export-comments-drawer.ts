@@ -123,7 +123,7 @@ const ALL_FIELD_IDS: readonly string[] = FIELD_GROUPS.flatMap((g) => g.fields.ma
         </div>
 
         <!-- What the file will hold. TODO(api): the count comes from the export endpoint (or a count endpoint). -->
-        <div aria-live="polite" class="rounded-[8px] bg-(--surface-3) px-[14px] py-3 text-(length:--fs-13) leading-[1.55] text-(--text-2)">
+        <div aria-live="polite" class="rounded-lg bg-(--surface-3) px-[14px] py-3 text-(length:--fs-13) leading-[1.55] text-(--text-2)">
           @if (fields().length === 0) {
             Choose at least one field to export.
           } @else if (estimate().results === 0) {
