@@ -67,3 +67,17 @@
   - **Program response:** a program answered its returned results.
   - **Stage** and **Quality assessed:** these repeat Overview counts.
   - **"Mark all as read":** removed for now; each notification is read when she acts on it.
+
+## 2026-11-25 · Juanpa · Let users switch between light and dark mode
+
+- **Idea:** a switch so each person picks light or dark mode. Juanpa thinks it is a good option for users, but nobody on the team has asked for it.
+- **State today:**
+  - The dark colours come from the original mockup and exist in `ui/tokens/qa-tokens.css` (`.dark`).
+  - Nothing in the app turns them on: there is no switch and the app does not follow the system setting. So no user sees dark mode.
+  - The work on branch `jp-design/visual-polish` was checked in dark by adding the class by hand, and it reads well.
+- **Before it ships:**
+  - The sidebar logo needs a light version; Juanpa has the SVG.
+  - The search field shows a lighter box inside its frame.
+  - The login and the program screens (`pages/sp/**`) were never checked in dark.
+- **Verdict:** 🟡 the front is small: a switch in the user menu, remembered per person; the colours are mostly done. It needs a team decision first.
+- **What is needed:** Yeck and Santi decide whether dark mode enters v1. Until then the main version is light and new work is not checked in dark.
