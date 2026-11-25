@@ -33,13 +33,15 @@ const VISIBLE = 5;
 
 /** Track of each step: finished (light tint), open (outlined, filled by its progress) or not started (grey). */
 const TRACK_CLASS: Record<LaneStepState, string> = {
-  done: 'bg-(--tint-2)',
-  active: 'bg-(--tint) shadow-[inset_0_0_0_1.5px_var(--primary)]',
+  // One progress line across the steps, read left to right with no legend: done = full, open = filling, future = empty
+  // (Juanpa, 2026-11-25: the outlined open step, the checks and the legend explained what the bar should show by itself).
+  done: 'bg-(--primary)',
+  active: 'bg-(--surface-4)',
   future: 'bg-(--surface-4)',
 };
 const LABEL_CLASS: Record<LaneStepState, string> = {
   done: 'text-(--text-3)',
-  active: 'font-bold text-(--accent)',
+  active: 'font-semibold text-(--text)',
   future: 'text-(--text-muted)',
 };
 
@@ -72,7 +74,7 @@ const LABEL_CLASS: Record<LaneStepState, string> = {
               type="button"
               (click)="viewStages.emit(l.id)"
               [attr.aria-label]="l.name + (l.step ? ', step ' + l.step + ' of ' + l.steps.length + ', ' + (l.progress?.pct ?? 0) + '% done' : ', not started') + ', ' + l.whenText + ': view stages'"
-              class="grid w-full cursor-pointer grid-cols-1 items-center gap-3 border-0 bg-transparent px-5 py-3.5 text-left hover:bg-(--surface-2) focus-visible:shadow-(--focus-ring) focus-visible:outline-none @3xl:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_10.5rem] @3xl:gap-7"
+              class="grid w-full cursor-pointer grid-cols-1 items-center gap-3 border-0 bg-transparent px-5 py-3.5 text-left hover:bg-(--surface-2) focus-visible:shadow-(--focus-ring) focus-visible:outline-none @3xl:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_12.5rem] @3xl:gap-7"
             >
               <span class="flex min-w-0 flex-col gap-1">
                 <span class="flex items-center gap-2 text-(length:--fs-14) font-semibold text-(--text)">
@@ -87,19 +89,14 @@ const LABEL_CLASS: Record<LaneStepState, string> = {
                 >
               </span>
 
-              <!-- One bar: the steps of this timeline side by side, each named under it. The open one is outlined, says "Now · N%" and fills up. -->
-              <span class="flex min-w-0 gap-1.5 pt-[18px]" aria-hidden="true">
+              <!-- One bar: the steps of this timeline side by side, each named under it. Done steps are full, the open one fills up. -->
+              <span class="flex min-w-0 gap-1" aria-hidden="true">
                 @for (s of l.steps; track $index; let last = $last) {
                   <!-- The open step is a bit wider so its name fits in bold. -->
                   <span class="relative flex min-w-0 flex-col gap-1.5" [class]="s.state === 'active' ? 'flex-[1.4]' : 'flex-1'" [title]="s.title">
-                    @if (s.state === 'active') {
-                      <span class="absolute -top-[18px] text-(length:--fs-11) font-bold whitespace-nowrap text-(--accent)" [class]="last ? 'right-0' : 'left-0'">Now · {{ l.progress?.pct ?? 0 }}%</span>
-                    }
-                    <span class="relative flex h-3 items-center justify-center overflow-hidden rounded-[4px]" [class]="trackClass[s.state]">
+                    <span class="relative flex h-2 items-center justify-center overflow-hidden rounded-[3px]" [class]="trackClass[s.state]">
                       @if (s.state === 'active') {
                         <span class="absolute inset-y-0 left-0 bg-(--primary)" [style.width.%]="l.progress?.pct ?? 0"></span>
-                      } @else if (s.state === 'done') {
-                        <svg class="text-(--primary)" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>
                       }
                     </span>
                     <!-- Narrow cards only name the open step (whole name, may run past its segment); wider ones name every step.
@@ -120,19 +117,12 @@ const LABEL_CLASS: Record<LaneStepState, string> = {
                 } @else {
                   <span class="text-(length:--fs-13) text-(--text-2)">Not started</span>
                 }
-                <span class="text-(length:--fs-12) leading-[1.4] whitespace-nowrap text-(--text-muted)">{{ l.whenText }}</span>
+                <span class="text-(length:--fs-12) leading-[1.4] whitespace-nowrap text-(--text-muted)">@if (l.progress; as p) {<span class="tabular-nums">{{ p.pct }}%</span> · }{{ l.whenText }}</span>
               </span>
             </button>
           </li>
         }
       </ul>
-
-      <!-- What the three kinds of step mean (the open one fills up as its results get done). -->
-      <div class="flex flex-wrap gap-x-4 gap-y-1 border-t border-(--surface-4) px-5 py-3 text-(length:--fs-12) text-(--text-3)">
-        <span class="inline-flex items-center gap-1.5"><i class="inline-block h-2.5 w-3.5 rounded-[3px] bg-(--tint-2)"></i>Step finished</span>
-        <span class="inline-flex items-center gap-1.5"><i class="inline-block h-2.5 w-3.5 rounded-[3px] bg-[linear-gradient(90deg,var(--primary)_55%,var(--tint)_55%)] shadow-[inset_0_0_0_1.5px_var(--primary)]"></i>Open now · fills up as results get done</span>
-        <span class="inline-flex items-center gap-1.5"><i class="inline-block h-2.5 w-3.5 rounded-[3px] bg-(--surface-4)"></i>Not started</span>
-      </div>
 
       @if (lanes().length > visible) {
         <div class="flex min-h-12 items-center justify-between gap-4 border-t border-(--surface-4) bg-(--surface-2) px-5">

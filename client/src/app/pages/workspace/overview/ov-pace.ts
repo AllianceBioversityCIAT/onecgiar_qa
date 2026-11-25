@@ -72,7 +72,7 @@ function yTicks(v: number): number[] {
             />
           }
           @if (view(); as v) {
-            <span class="rounded-md px-2 py-0.5 text-(length:--fs-12) font-medium" [class]="v.behind ? 'bg-(--st-editing-bg) text-(--st-editing-fg)' : 'bg-(--st-approved-bg) text-(--st-approved-fg)'">
+            <span class="rounded-md px-2 py-0.5 text-(length:--fs-12) font-medium" [class]="v.behind ? 'qa-dot gap-1.5 bg-(--surface-5) text-(--text-2) [--qa-dot:var(--warning)]' : 'qa-dot gap-1.5 bg-(--surface-5) text-(--text-2) [--qa-dot:var(--success)]'">
               {{ v.behind ? 'Behind pace' : 'On pace' }}
             </span>
           }
