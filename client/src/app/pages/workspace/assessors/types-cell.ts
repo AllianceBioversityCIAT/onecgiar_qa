@@ -27,7 +27,7 @@ import { TeamMember, fmt } from './assessors.models';
       >
         @for (t of chips(); track t) {
           @let led = member().leadTypes.includes(t);
-          <span [title]="led ? t + ' (lead assessor)' : t" class="max-w-full truncate rounded-full px-2 py-0.5 text-(length:--fs-11) font-medium" [class]="led ? 'bg-(--tint-2) text-(--accent)' : 'bg-(--surface-3) text-(--text-3)'">{{ t }}</span>
+          <span [title]="led ? t + ' (lead assessor)' : t" class="max-w-full truncate rounded-full border px-2 py-0.5 text-(length:--fs-11)" [class]="led ? 'border-(--primary) bg-(--tint-2) font-semibold text-(--accent-strong)' : 'border-transparent bg-(--surface-3) font-medium text-(--text-3)'">@if (led) {<span class="sr-only">Lead assessor: </span><span aria-hidden="true">Lead · </span>}{{ t }}</span>
         }
         @if (more()) {
           <span class="flex-none rounded-full bg-(--surface-3) px-2 py-0.5 text-(length:--fs-11) font-medium whitespace-nowrap text-(--text-3)">+{{ more() }}</span>

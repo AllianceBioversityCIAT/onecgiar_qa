@@ -95,7 +95,10 @@ describe('AssessorDrawer result types per role (P2-4107)', () => {
     await settle(fixture);
     const pc = option('Policy change');
     expect(pc.disabled).toBe(true);
-    expect(pc.textContent).toContain('Lead assessor');
+    // The note sits on its own line under the name: the name is never truncated by it.
+    expect(pc.querySelector('[data-option-note]')?.textContent?.trim()).toBe('Lead assessor');
+    const name = [...pc.querySelectorAll('span')].find((n) => n.textContent?.trim() === 'Policy change')!;
+    expect(name.classList).not.toContain('truncate');
     pc.click();
     bulk('Select all').click();
     await settle(fixture);

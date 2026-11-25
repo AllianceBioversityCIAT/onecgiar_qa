@@ -123,20 +123,25 @@ export type QaMultiSelectAppearance = 'filter' | 'field';
                 [attr.aria-checked]="on"
                 [disabled]="option.disabled"
                 (click)="toggle(option.value)"
-                class="flex min-h-[34px] flex-none cursor-pointer items-center gap-2.5 rounded-lg border-0 bg-transparent px-2 text-left text-(length:--fs-13) text-(--text-2) outline-none hover:bg-(--surface-3) focus-visible:shadow-(--focus-ring) disabled:cursor-not-allowed disabled:text-(--text-4) disabled:hover:bg-transparent"
+                class="flex min-h-[34px] flex-none cursor-pointer items-center gap-2.5 rounded-lg border-0 bg-transparent px-2 text-left text-(length:--fs-13) text-(--text-2) outline-none hover:bg-(--surface-3) focus-visible:shadow-(--focus-ring) disabled:cursor-not-allowed disabled:text-(--text-3) disabled:hover:bg-transparent"
               >
                 <span
                   aria-hidden="true"
                   class="box-border flex size-4 flex-none items-center justify-center rounded border-[1.5px]"
-                  [class]="on ? 'border-(--primary) bg-(--primary)' : option.disabled ? 'border-(--border) bg-(--surface-3)' : 'border-(--border-strong)'"
+                  [class]="on ? 'border-(--primary) bg-(--primary)' : option.disabled ? 'border-dashed border-(--text-4) bg-(--surface-3)' : 'border-(--border-strong)'"
                 >
                   @if (on) {
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5" /></svg>
                   }
                 </span>
-                <span class="min-w-0 flex-1 truncate">{{ option.label }}</span>
                 @if (option.note) {
-                  <span class="flex-none rounded-full bg-(--surface-3) px-1.5 py-px text-(length:--fs-11) font-semibold text-(--text-3)">{{ option.note }}</span>
+                  <!-- The note goes under the name, so it never cuts it. -->
+                  <span class="flex min-w-0 flex-1 flex-col py-1">
+                    <span class="break-words">{{ option.label }}</span>
+                    <span data-option-note class="text-(length:--fs-11) font-medium text-(--text-3)">{{ option.note }}</span>
+                  </span>
+                } @else {
+                  <span class="min-w-0 flex-1 truncate">{{ option.label }}</span>
                 }
                 @if (option.count !== undefined && option.count !== null) {
                   <span class="flex-none font-(family-name:--qa-mono) text-(length:--fs-12) font-semibold text-(--text-4) tabular-nums">{{ option.count }}</span>
