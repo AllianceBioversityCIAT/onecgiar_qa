@@ -56,10 +56,10 @@
           [attr.aria-pressed]="on"
           (click)="setStateFilter(chip.value)"
           class="inline-flex min-h-[30px] items-center gap-[7px] rounded-full px-3 text-(length:--fs-13) font-medium whitespace-nowrap outline-none focus-visible:shadow-(--focus-ring) max-sm:min-h-10"
-          [class]="on ? 'bg-(--tint-2) text-(--accent)' : 'bg-(--surface-3) text-(--text-3) hover:bg-(--surface-4)'"
+          [class]="on ? 'bg-(--surface) text-(--text) shadow-(--shadow-seg) ring-1 ring-(--border)' : 'bg-(--surface-4) text-(--text-3) hover:bg-(--surface-6)'"
         >
           <span>{{ chip.label }}</span>
-          <span class="font-(family-name:--qa-mono) text-(length:--fs-12) font-semibold tabular-nums" [class]="on ? 'text-(--accent)' : 'text-(--text-muted)'">{{ chip.count }}</span>
+          <span class="font-(family-name:--qa-mono) text-(length:--fs-12) font-semibold tabular-nums" [class]="on ? 'text-(--text-3)' : 'text-(--text-muted)'">{{ chip.count }}</span>
         </button>
       }
       <button
@@ -68,10 +68,10 @@
         (click)="toggleCoreOnly()"
         title="Core and AI are properties of assessed fields, not states of their own."
         class="inline-flex min-h-[30px] items-center gap-[7px] rounded-full px-3 text-(length:--fs-13) font-medium whitespace-nowrap outline-none focus-visible:shadow-(--focus-ring) max-sm:min-h-10"
-        [class]="coreOnly() ? 'bg-(--tint-2) text-(--accent)' : 'bg-(--surface-3) text-(--text-3) hover:bg-(--surface-4)'"
+        [class]="coreOnly() ? 'bg-(--surface) text-(--text) shadow-(--shadow-seg) ring-1 ring-(--border)' : 'bg-(--surface-4) text-(--text-3) hover:bg-(--surface-6)'"
       >
         <span>Core only</span>
-        <span class="font-(family-name:--qa-mono) text-(length:--fs-12) font-semibold tabular-nums" [class]="coreOnly() ? 'text-(--accent)' : 'text-(--text-muted)'">{{ coreCount() }}</span>
+        <span class="font-(family-name:--qa-mono) text-(length:--fs-12) font-semibold tabular-nums" [class]="coreOnly() ? 'text-(--text-3)' : 'text-(--text-muted)'">{{ coreCount() }}</span>
       </button>
     </div>
     </div>
@@ -110,7 +110,7 @@
         <p class="m-0 text-(length:--fs-14) text-(--text-3)">No fields are assessed for this result type yet. Choose how each field is used in QA below.</p>
       }
       <!-- Field matrix. No own overflow: the sticky header rows stick to the view's scroll container. -->
-      <div class="relative overflow-visible rounded-xl border border-(--border) bg-(--surface)">
+      <div class="relative overflow-visible rounded-xl border border-(--border) bg-(--surface) shadow-(--shadow-card)">
         <span #stickSentinel aria-hidden="true" class="pointer-events-none absolute top-0 left-0 h-px w-px"></span>
         @if (!compact()) {
           <qa-fields-column-header [stuck]="headerStuck()" />
@@ -144,7 +144,7 @@
       </div>
       @if (notInCatalog().length > 0) {
         <section aria-labelledby="fields-not-in-catalog" class="flex flex-col gap-2">
-          <h2 id="fields-not-in-catalog" class="m-0 text-(length:--fs-13) font-semibold tracking-[0.06em] text-(--text-3) uppercase">No longer in Reporting</h2>
+          <h2 id="fields-not-in-catalog" class="m-0 text-(length:--fs-13) font-medium text-(--text-3)">No longer in Reporting</h2>
           <p class="m-0 text-(length:--fs-13) text-(--text-3)">Reporting removed these fields. Their setting is kept here for reference and is not published.</p>
           <ul class="m-0 flex list-none flex-col p-0">
             @for (f of notInCatalog(); track f.key) {
