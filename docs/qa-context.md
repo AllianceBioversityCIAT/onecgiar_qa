@@ -33,11 +33,14 @@ When a load brings results into step 1, each KP falls into one of three groups (
 - Six roles: **Admin** (QA coordination: opens and closes phases, builds batches, assigns assessors) · **Assessor** · **Lead assessor** · **Third-party broker (TPB)** · **PPU** · **Program**. There is no PCU and no Guest role. *(Santi via Yeck, 2026-11-11)*
 - The server stores them as `ADMIN`, `ASSESSOR`, `LEAD_ASSESSOR`, `TPB`, `PPU`, `PROGRAM` (`client/src/app/core/auth/auth.models.ts`).
 
-## Comments export (P2-3914)
+## Fields and comments export (P2-3914)
+- Purpose: the QA coordinator downloads the fields and comments per step and per science program to analyse the process and keep a record. Works like the Excel export of the Reporting Tool's Result Center: the user picks the fields. *(Jira P2-3914, 2026-11-23)*
 - The server builds the .xlsx (one endpoint) and checks each role's scope; the front only has the drawer and the download. *(Juanda, 2026-11-11)*
-- Filters: timeline, step, science programs, result types, QA stage, which fields, and "include withdrawn comments" (off by default). *(Juanda, 2026-11-11)*
+- Filters: timeline, step, science programs, result types, QA status, which fields (a checklist by review section, all checked at first), and "include deleted comments" (off by default). *(Juanda, 2026-11-11; Jira P2-3914 and Juanpa, 2026-11-23)*
+- For each result and field the file has: the field value, every comment on it with the reviewer's nickname, date and time and the step it was made in, the program's response (Accept, Accept with comment, Disagree or Request clarification) and its text, the field's validation status (green or grey) and the result's current QA status. Per result: code, title, science program, result type, timeline, "Assessed by". *(Jira P2-3914, 2026-11-23)*
+- Results in Editing are never exported; no scheduled or automatic exports. *(Jira P2-3914, 2026-11-23)*
 - The three "Export comments" buttons (a result's menu in Results, a timeline's menu and a step's progress drawer in Cycle) open the same drawer with that scope set. *(Juanda, 2026-11-11)*
-- One row per comment with the whole path: the result (code, title, program, type, timeline, assessed by), the comment (field, value when commented, author, date, status, withdrawn), then the program's answer, the lead's decision and comment, the TPB's decision and the PPU's "done". Only step 1 exists today; the later columns come out empty until those steps are built. *(Juanda, 2026-11-11)*
+- One row per comment with the whole path, then the lead's decision and comment, the TPB's decision and the PPU's "done". Only step 1 exists today; the later columns come out empty until those steps are built. *(Juanda, 2026-11-11)*
 - Who downloads: the QA Admin, any timeline; lead assessors, TPB and assessors, only their scope. *(Juanda, 2026-11-11)*
 - Not in the December batch. *(Juanda, 2026-11-11)*
 
@@ -60,6 +63,7 @@ Overview · Results (+ per-field detail with "AI match") · Cycle (phases + batc
 
 ## Open questions (do not assume an answer)
 - Can Program and PPU download the comments export? Not in P2-3914; Juanda to confirm with Ángel (2026-11-11).
+- Export: does a field with no comments still get its own row (value and validation status)? The drawer says so (P2-3914 asks for the value and status of each field); Juanda to confirm the file's shape (2026-11-23).
 - Only the Reporting → QA sync is modeled; the way back (PPU corrects) is missing.
 - Can a user have several roles? The mockup assumes one. Ángel (2026-11-17): a person can be lead assessor in one result type and assessor in another, never both in the same type. To confirm with Santi.
 - **Lead assessor, two versions.** Santi via Yeck (2026-11-12): looks at every commented field, marks *highlight* with an instruction, closes nothing. Ángel (2026-11-17): reviews only the **core fields**; closes the comment when they agree with the program, or escalates it as *Pending for TPB review* when they agree with the assessor; the result becomes Quality assessed by itself once all its core fields are validated; can edit or delete other assessors' comments. Which one holds? (For Yeck and Santi, 2026-11-17.)

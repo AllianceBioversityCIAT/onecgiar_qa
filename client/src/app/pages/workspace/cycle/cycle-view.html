@@ -176,6 +176,7 @@
 />
 <qa-cycle-progress-drawer [(open)]="progressOpen" [progress]="progress()" />
 <qa-cycle-people-drawer [(open)]="peopleOpen" [timeline]="peopleTimeline()" [canWrite]="store.canWrite()" (changed)="refreshAfterPeople()" />
+<qa-export-comments-drawer [(open)]="exportOpen" [preset]="exportPreset()" />
 <qa-cycle-load-drawer
   [(open)]="loadOpen"
   [request]="loadRequest()"
