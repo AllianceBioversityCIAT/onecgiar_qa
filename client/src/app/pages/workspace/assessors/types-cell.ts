@@ -26,10 +26,10 @@ import { TeamMember, fmt } from './assessors.models';
         class="box-border flex min-h-8 w-full min-w-0 cursor-pointer flex-wrap @max-[640px]:min-h-10 items-center gap-1.5 rounded-lg border border-transparent bg-transparent px-2 py-1 text-left hover:border-(--border) hover:bg-(--surface) focus-visible:shadow-(--focus-ring) focus-visible:outline-none aria-expanded:border-(--border-accent) aria-expanded:bg-(--surface)"
       >
         @for (t of chips(); track t) {
-          <span [title]="t" class="max-w-full truncate rounded-full bg-(--surface-3) px-2 py-0.5 text-(length:--fs-11) font-medium text-(--text-3)">{{ t }}</span>
+          <span [title]="t" class="max-w-full truncate rounded-md bg-(--surface-3) px-2 py-0.5 text-(length:--fs-12) font-medium text-(--text-3)">{{ t }}</span>
         }
         @if (more()) {
-          <span class="flex-none rounded-full bg-(--surface-3) px-2 py-0.5 text-(length:--fs-11) font-medium whitespace-nowrap text-(--text-3)">+{{ more() }}</span>
+          <span class="flex-none rounded-md bg-(--surface-3) px-2 py-0.5 text-(length:--fs-12) font-medium whitespace-nowrap text-(--text-3)">+{{ more() }}</span>
         }
         @if (!member().types.length) {
           <span class="text-(length:--fs-13) font-normal text-(--text-muted)">Add result types</span>

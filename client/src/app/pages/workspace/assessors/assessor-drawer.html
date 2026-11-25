@@ -1,7 +1,7 @@
 <!-- Person drawer: "Invite assessor" (new) and the edit drawer of any team member (edit). -->
 <qa-drawer [(open)]="open" [closeGuard]="closeGuard" [title]="title()" [subtitle]="subtitle()" width="720px">
   @if (!isNew() && person(); as p) {
-    <span qaDrawerHeader aria-hidden="true" class="flex size-9 items-center justify-center rounded-full bg-(--tint-2) font-(family-name:--qa-mono) text-(length:--fs-13) font-semibold text-(--accent) tabular-nums">{{ initialsOf(p.name) }}</span>
+    <span qaDrawerHeader aria-hidden="true" class="flex size-9 items-center justify-center rounded-full bg-(--surface-4) font-(family-name:--qa-mono) text-(length:--fs-13) font-semibold text-(--text-2) tabular-nums">{{ initialsOf(p.name) }}</span>
   }
   @if (session() && (isNew() || person())) {
     @if (namesEditable()) {
