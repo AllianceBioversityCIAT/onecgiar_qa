@@ -158,6 +158,12 @@ const romeDay = (iso: string): string => {
   return isNaN(at.getTime()) ? formatDay(iso.slice(0, 10)) : formatDay(todayInRome(at));
 };
 
+/**
+ * "12 Nov 2026, 11:15 CET" of an instant: the Rome day and time, the label the page already uses for instants
+ * (`romeInstantLabel`). The day alone when the text is not an instant with its offset.
+ */
+const romeStamp = (iso: string): string => romeInstantLabel(iso) ?? romeDay(iso);
+
 const isObject = (v: Json): v is Readonly<Record<string, Json>> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
 const isEmpty = (v: Json): boolean =>
@@ -612,7 +618,15 @@ export function findField(
   return null;
 }
 
-export function toCommentVm(c: AssessmentComment, reader: ThreadReader = NO_READER): ReviewCommentVm {
+/**
+ * One comment of a field's thread (P2-3910 AC14): nickname, date and time in Rome, step, and the field value as the
+ * author saw it. `field` lends its subfield lists so the copy reads like the field does.
+ */
+export function toCommentVm(
+  c: AssessmentComment,
+  reader: ThreadReader = NO_READER,
+  field: Pick<AssessmentField, 'subfieldLists'> = {},
+): ReviewCommentVm {
   return {
     id: c.id,
     authorId: c.author.id,
@@ -620,8 +634,16 @@ export function toCommentVm(c: AssessmentComment, reader: ThreadReader = NO_READ
     canWithdraw: reader.canWithdraw && c.state === 'open' && reader.me !== null && c.author.id === reader.me,
     who: reviewerLabel(c.author),
     role: 'Assessor',
-    date: romeDay(c.createdAt),
+    date: romeStamp(c.createdAt),
     text: c.body,
+    step: `Step ${c.stepPosition}`,
+    valueCopy: formatValue({
+      value: c.valueCopy?.value ?? null,
+      labels: c.valueCopy?.labels ?? null,
+      notApplicable: false,
+      subfieldLists: field.subfieldLists,
+    }),
+    valueTruncated: c.valueTruncated === true,
   };
 }
 
@@ -756,7 +778,7 @@ export function toDrawerVm(
   reader: ThreadReader = NO_READER,
   threads: CommentThreads = NO_THREADS,
 ): CommentsDrawerVm {
-  const comments = openComments(found.field).flatMap((c) => [toCommentVm(c, reader), ...toThreadRows(c, threads.get(c.id))]);
+  const comments = openComments(found.field).flatMap((c) => [toCommentVm(c, reader, found.field), ...toThreadRows(c, threads.get(c.id))]);
   const clarify = reader.canClarify === false ? null : pendingClarification(found.field, reader.me, threads);
   return {
     label: found.field.label,
