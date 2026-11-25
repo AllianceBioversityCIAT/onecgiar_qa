@@ -72,7 +72,7 @@ export interface NotificationsEmpty {
         <section>
           <h3
             data-group
-            class="m-0 flex items-center gap-2 border-b border-(--border-soft) bg-(--surface-2) px-4 py-2 text-(length:--fs-11) leading-[1.4] font-semibold tracking-[0.08em] text-(--text-3) uppercase sm:px-5"
+            class="m-0 flex items-center gap-2 border-b border-(--border-soft) bg-(--surface-2) px-4 py-2 text-(length:--fs-12) leading-[1.4] font-medium text-(--text-3) sm:px-5"
             [class.border-t]="!first"
           >
             {{ g.label }}<span data-group-count class="font-medium tracking-normal text-(--text-4) tabular-nums"
