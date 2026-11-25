@@ -12,7 +12,7 @@ let nextId = 0;
 @Component({
   selector: 'qa-cycle-load-returned',
   template: `
-    <h3 class="m-0 mb-1 text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--text-muted) uppercase">
+    <h3 class="m-0 mb-1 text-(length:--fs-12) font-medium text-(--text-muted)">
       Waiting for their program: <span class="font-(family-name:--qa-mono) tabular-nums">{{ fmt(returned().total) }}</span>
     </h3>
     <!-- Not the same number as the skip row: that one counts only what the Reporting Tool still lists (contract § 4). -->

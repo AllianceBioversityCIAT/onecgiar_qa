@@ -38,7 +38,7 @@ export interface LoadDrawerNames {
           <div class="flex items-center gap-1">
             <span class="text-(length:--fs-13) font-semibold text-(--text-2)">Timeline</span>
             @if (fromStep()) {
-              <span class="ml-1 rounded-full bg-(--tint-2) px-1.5 py-px text-(length:--fs-10) font-semibold whitespace-nowrap text-(--accent)">From step {{ fromStepNumber() }}</span>
+              <span class="ml-1 rounded-md bg-(--tint-2) px-1.5 py-px text-(length:--fs-12) font-medium whitespace-nowrap text-(--accent)">From step {{ fromStepNumber() }}</span>
             }
           </div>
           @if (options().length) {
@@ -102,7 +102,7 @@ export interface LoadDrawerNames {
               @if (p.toLoad.byProgram.length) {
                 <div class="grid gap-6 sm:grid-cols-2">
                   <div>
-                    <h3 class="m-0 mb-1 text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--text-muted) uppercase">By science program</h3>
+                    <h3 class="m-0 mb-1 text-(length:--fs-12) font-medium text-(--text-muted)">By science program</h3>
                     <ul class="m-0 flex list-none flex-col p-0">
                       @for (row of p.toLoad.byProgram; track row.programId) {
                         <li [qaReveal]="$index" class="flex min-h-9 items-center justify-between gap-3 border-b border-(--surface-4)">
@@ -113,7 +113,7 @@ export interface LoadDrawerNames {
                     </ul>
                   </div>
                   <div>
-                    <h3 class="m-0 mb-1 text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--text-muted) uppercase">By result type</h3>
+                    <h3 class="m-0 mb-1 text-(length:--fs-12) font-medium text-(--text-muted)">By result type</h3>
                     <ul class="m-0 flex list-none flex-col p-0">
                       @for (row of p.toLoad.byResultType; track row.key) {
                         <li [qaReveal]="$index" class="flex min-h-9 items-center justify-between gap-3 border-b border-(--surface-4)">
@@ -132,7 +132,7 @@ export interface LoadDrawerNames {
                 <details class="group">
                   <summary class="flex min-h-9 cursor-pointer list-none items-center gap-2 rounded-md outline-none focus-visible:shadow-(--focus-ring) [&::-webkit-details-marker]:hidden">
                     <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" class="flex-none transition-transform group-open:rotate-90"><path d="M9 6l6 6-6 6" /></svg>
-                    <h3 class="m-0 text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--text-muted) uppercase">Will be skipped</h3>
+                    <h3 class="m-0 text-(length:--fs-12) font-medium text-(--text-muted)">Will be skipped</h3>
                     <span class="ml-auto font-(family-name:--qa-mono) text-(length:--fs-13) font-semibold text-(--text-2) tabular-nums">{{ fmt(skippedTotal(p.skipped)) }}</span>
                   </summary>
                   <ul class="m-0 flex list-none flex-col p-0">

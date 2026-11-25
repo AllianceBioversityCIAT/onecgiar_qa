@@ -148,14 +148,14 @@ function firstLoads(steps: StepDraftRow[]): StepDraftRow[] {
           </div>
           <!-- Wide drawer: table-like grid with a sticky header. Narrow (< 48rem): each step stacks as a card row with inline labels. -->
           <div class="rounded-[8px] border border-(--border)">
-            <div aria-hidden="true" class="sticky top-0 z-10 hidden min-h-9 grid-cols-[24px_minmax(0,1fr)_200px_200px_44px_22px] items-center gap-3 rounded-t-[8px] border-b border-(--surface-4) bg-(--surface-3) px-[14px] text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase @3xl:grid">
+            <div aria-hidden="true" class="sticky top-0 z-10 hidden min-h-9 grid-cols-[24px_minmax(0,1fr)_200px_200px_44px_22px] items-center gap-3 rounded-t-[8px] border-b border-(--surface-4) bg-(--surface-3) px-[14px] text-(length:--fs-12) font-medium text-(--text-muted) @3xl:grid">
               <span></span><span>Step name</span><span>Opens</span><span>Closes</span><span class="text-center">Load</span><span></span>
             </div>
             @for (rf of tlForm.steps; track $index; let i = $index, last = $last) {
               @let row = rf().value();
               <!-- Round label where a round starts, named as on the Cycle card's round band (Juanpa, 2026-11-05). It follows the Loads results switches live. -->
               @if (i === 0 || rounds()[i] !== rounds()[i - 1]) {
-                <div class="px-[14px] pt-3 pb-1 text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--text-muted) uppercase">QA round {{ rounds()[i] }}</div>
+                <div class="px-[14px] pt-3 pb-1 text-(length:--fs-12) font-medium text-(--text-muted)">QA round {{ rounds()[i] }}</div>
               }
               <div [class]="last ? '' : 'border-b border-(--surface-4)'">
                 @if (confirmRow() === i) {
@@ -171,7 +171,7 @@ function firstLoads(steps: StepDraftRow[]): StepDraftRow[] {
                       <input hlmInput type="text" [formField]="rf.name" [attr.aria-label]="'Step ' + (i + 1) + ' name'" [title]="row.name" placeholder="QA platform open for assessors" [attr.data-error]="tried() && !row.name.trim()" class="h-10 min-w-0 rounded-[8px] border-(--border) bg-(--field-bg) px-[10px] py-0 text-(length:--fs-13) text-ellipsis text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) @3xl:h-8 dark:bg-(--field-bg)" />
                     </span>
                     <span class="col-span-2 col-start-2 flex min-w-0 flex-col gap-1 @3xl:col-span-1 @3xl:col-start-auto">
-                      <span aria-hidden="true" class="text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase @3xl:hidden">Opens</span>
+                      <span aria-hidden="true" class="text-(length:--fs-12) font-medium text-(--text-muted) @3xl:hidden">Opens</span>
                       @if (i < closedCount() || i === activeIndex()) {
                         <span class="flex min-h-10 items-center font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text-3) tabular-nums @3xl:min-h-8">{{ row.start }}, {{ row.startTime }}</span>
                       } @else {
@@ -185,7 +185,7 @@ function firstLoads(steps: StepDraftRow[]): StepDraftRow[] {
                       }
                     </span>
                     <span class="col-span-2 col-start-2 flex min-w-0 flex-col gap-1 @3xl:col-span-1 @3xl:col-start-auto">
-                      <span aria-hidden="true" class="text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase @3xl:hidden">Closes</span>
+                      <span aria-hidden="true" class="text-(length:--fs-12) font-medium text-(--text-muted) @3xl:hidden">Closes</span>
                       @if (i < closedCount()) {
                         <span class="flex min-h-10 items-center font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text-3) tabular-nums @3xl:min-h-8">{{ row.end ? row.end + ', ' + row.endTime : '—' }}</span>
                       } @else {

@@ -37,7 +37,7 @@ import { failureLabel, skipLabel } from './load.copy';
         @if (s.byProgram.length) {
           <div class="grid gap-6 sm:grid-cols-2">
             <div>
-              <h3 class="m-0 mb-1 text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--text-muted) uppercase">Loaded by science program</h3>
+              <h3 class="m-0 mb-1 text-(length:--fs-12) font-medium text-(--text-muted)">Loaded by science program</h3>
               <ul class="m-0 flex list-none flex-col p-0">
                 @for (row of s.byProgram; track row.programId) {
                   <li [qaReveal]="$index" class="flex min-h-9 items-center justify-between gap-3 border-b border-(--surface-4)">
@@ -48,7 +48,7 @@ import { failureLabel, skipLabel } from './load.copy';
               </ul>
             </div>
             <div>
-              <h3 class="m-0 mb-1 text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--text-muted) uppercase">Loaded by result type</h3>
+              <h3 class="m-0 mb-1 text-(length:--fs-12) font-medium text-(--text-muted)">Loaded by result type</h3>
               <ul class="m-0 flex list-none flex-col p-0">
                 @for (row of s.byResultType; track row.key) {
                   <li [qaReveal]="$index" class="flex min-h-9 items-center justify-between gap-3 border-b border-(--surface-4)">
@@ -62,7 +62,7 @@ import { failureLabel, skipLabel } from './load.copy';
         }
         @if (s.skipped.length) {
           <div>
-            <h3 class="m-0 mb-1 text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--text-muted) uppercase">Skipped</h3>
+            <h3 class="m-0 mb-1 text-(length:--fs-12) font-medium text-(--text-muted)">Skipped</h3>
             <ul class="m-0 flex list-none flex-col p-0">
               @for (row of s.skipped; track row.reason) {
                 <li class="flex min-h-9 items-center justify-between gap-3 border-b border-(--surface-4)">
