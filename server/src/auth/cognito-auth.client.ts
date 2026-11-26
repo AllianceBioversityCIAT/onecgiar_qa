@@ -14,9 +14,6 @@ import { authConfig } from '../config/auth.config.js';
 /** Timeout for every Cognito call (NFR-6). */
 export const COGNITO_TIMEOUT_MS = 10_000;
 
-/** SSO identity provider configured on the app client. */
-export const SSO_PROVIDER = 'CGIAR-AzureAD';
-
 /**
  * Hosted UI scopes. `profile` puts `given_name` / `family_name` in the SSO id
  * token; without it SSO users are stored with no name. The app client refused
@@ -225,14 +222,17 @@ export class CognitoAuthClient {
     }
   }
 
-  /** The Hosted UI authorize URL for the SSO provider. Built locally; no call. */
+  /**
+   * The Hosted UI authorize URL for the SSO provider of this environment
+   * (`COGNITO_SSO_PROVIDER`, default `CGIAR-AzureAD`). Built locally; no call.
+   */
   async providerUrl(redirectUri: string): Promise<string> {
     const url = new URL(`${this.hostedUi()}/oauth2/authorize`);
     url.searchParams.set('response_type', 'code');
     url.searchParams.set('client_id', this.config.cognito.clientId);
     url.searchParams.set('redirect_uri', redirectUri);
     url.searchParams.set('scope', SSO_SCOPES);
-    url.searchParams.set('identity_provider', SSO_PROVIDER);
+    url.searchParams.set('identity_provider', this.config.cognito.ssoProvider);
     return url.toString();
   }
 
