@@ -1,4 +1,6 @@
 // @akili-spec escalation/round-2-tpb
+import { PutItemCommand } from '@aws-sdk/client-dynamodb';
+import { assertAiSchema, toAttributeMap } from './support/ai-contract.js';
 import {
   bearer,
   buildAssessmentApp,
@@ -25,6 +27,7 @@ import {
 const CARRIED = ASSESSED[1]!; // green in round 1, uncommented, unchanged
 const SECOND = ASSESSED[2]!;
 const FIRST = ASSESSED[3]!;
+const AI_FIELD = 'general.gender_tag';
 const tpb = () => bearer('sub-tpb');
 const lead = () => bearer('sub-lead');
 const admin = () => bearer('sub-admin');
@@ -423,6 +426,71 @@ describe('the Third-Party Broker in step 4 (e2e, P2-3916)', () => {
         status: 'quality_assessed',
         assessedBy: { id: a.users.admin.id, admin: true },
       });
+    });
+  });
+
+  describe('FR-4 the AI suggestion, read-only with the copy mark', () => {
+    it('answers 200 with the suggestion views and the copied/edited mark; a TPB records no usage', async () => {
+      a = await buildAssessmentApp(IN_TPB_STEP);
+      const built = await seedTpbWorld(a, {
+        core: [FIRST, AI_FIELD],
+        escalated: [{ id: 7001, fieldKey: AI_FIELD }],
+      });
+      code = built.code;
+      const suggestionId = (1).toString(16).padStart(32, '0');
+      await a.aiDynamo.client.send(
+        new PutItemCommand({
+          TableName: 'cgiar-qa-test',
+          Item: toAttributeMap({
+            __edb_e__: 'aiSuggestion',
+            __edb_v__: '1',
+            pk: `RESULT#${code}`,
+            sk: `AI#${built.snapKey}#${AI_FIELD}#v2-1.0.0`,
+            resultCode: code,
+            snapKey: built.snapKey,
+            promptVersion: 'v2-1.0.0',
+            runId: 'load-1',
+            createdAt: '2026-11-20T12:00:00Z',
+            fieldKey: AI_FIELD,
+            suggestionId,
+            status: 'available',
+            signal: 'red',
+            suggestedValue: 0,
+            reportedValue: 2,
+            explanation: 'The evidence does not mention it.',
+            evidenceQuote: 'trained farmers',
+            evidenceSource: 'https://example.org/e.pdf',
+            evidenceSourceIndex: 0,
+            evidenceHash: 'h',
+            quoteVerified: true,
+            partialEvidence: false,
+            modelId: 'anthropic.claude-haiku-5-5',
+            unavailableReason: null,
+          }) as never,
+        }),
+      );
+      const res = await a.send(
+        'get',
+        `/timelines/1/results/${code}/ai-suggestions`,
+        { token: tpb() },
+      );
+      expect(res.status).toBe(200);
+      for (const v of res.body.data) assertAiSchema('ai-suggestion-view', v);
+      const entry = (res.body.data as Array<Record<string, unknown>>).find(
+        (v) => v.fieldKey === AI_FIELD,
+      )!;
+      expect(entry).toMatchObject({
+        status: 'available',
+        copiedByReviewer: false,
+        editedByReviewer: null,
+      });
+      const used = await a.send(
+        'post',
+        `/timelines/1/results/${code}/ai-suggestions/${suggestionId}/events`,
+        { token: tpb(), body: { action: 'shown' } },
+      );
+      expect(used.status).toBe(403);
+      expect(used.body.error.code).toBe('ASSESSMENT_READ_ONLY');
     });
   });
 
