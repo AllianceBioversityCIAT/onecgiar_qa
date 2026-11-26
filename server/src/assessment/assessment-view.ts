@@ -8,13 +8,18 @@ import {
 import type { ConfigItem } from '../admin-config/field-config/field-config-diff.js';
 import { isVisible } from '../admin-config/field-config/visible-when.js';
 import type { CommentState } from '../database/drizzle/schema/assessment-comments.js';
-import type { RoundOneThreadRow } from './assessment.store.js';
+import type {
+  EscalationThreadRow,
+  RoundOneThreadRow,
+} from './assessment.store.js';
 import {
   effectiveGreen,
   isActionable,
   isCarriedGreen,
   isDecidable,
+  isTpbDecidable,
   type DecisionChoice,
+  type TpbChoice,
 } from './round-two-rules.js';
 import { RoleCode } from '../users/permissions.js';
 import type { ClarificationView, SpResponseView } from './sp-view/sp-thread.js';
@@ -300,11 +305,24 @@ export interface ThreadItem {
   response?: SpResponseView;
   /** Every clarification request with its answer, oldest first. */
   clarifications: ClarificationView[];
-  /** The Lead's decision, when one is set. */
+  /** The reading role's decision (the Lead's, or the TPB's for a TPB), when one is set. */
   decision?: ThreadDecision;
   decidable: boolean;
-  choices: DecisionChoice[];
+  choices: Array<DecisionChoice | TpbChoice>;
+  /** TPB view only (P2-3916 FR-4): 1 for a round-1 comment, 2 for the Lead's own escalated one. */
+  round?: number;
+  /** TPB view only (P2-3916 FR-4): the Lead's decision and its reason, the context of the escalation. */
+  leadDecision?: ThreadDecision;
 }
+
+/** A thread line as `toThreadItems` reads it: the round-1 read, or the TPB's escalation read (DD-T5). */
+export type ThreadRow = RoundOneThreadRow &
+  Partial<
+    Pick<
+      EscalationThreadRow,
+      'round' | 'leadDecision' | 'leadDecisionBody' | 'leadDecidedAt'
+    >
+  >;
 
 /**
  * The Lead's own round-2 comment as the Lead reads it (T-16): the comment as
@@ -354,8 +372,14 @@ export interface RoundViewInput {
   stored: ReadonlyMap<string, boolean>;
   /** Keys green in the previous membership's step-1 assessment. */
   roundOneGreens: ReadonlySet<string>;
-  /** The thread read, ordered by field, comment, response (one statement). */
-  thread: readonly RoundOneThreadRow[];
+  /** The thread read, ordered by field, comment, response (one statement). The TPB's carries `round` and the Lead's decision (DD-T5). */
+  thread: readonly ThreadRow[];
+  /**
+   * P2-3916: the Lead's (step-3) stored validations, for a TPB. The TPB's
+   * effective green is its own mark, else the step-3 effective green (the
+   * Lead's mark, else the carried round-1 green). `undefined` for every other reader.
+   */
+  leadStored?: ReadonlyMap<string, boolean>;
   /** The caller's user id: a comment is the Lead's own when it wrote it (T-16). */
   userId: number;
   /** The live decisions of the round-2 assessment by comment id, as `thread[]` shows them (T-16). */
@@ -372,13 +396,13 @@ export interface RoundViewInput {
  * `ASSESSMENT_FIELD_ESCALATED`); an item's own escalate does not count.
  */
 export function toThreadItems(
-  rows: readonly RoundOneThreadRow[],
+  rows: readonly ThreadRow[],
   role: string | null,
   fieldOf: (key: string) => { visibility: string; isCore: boolean },
   ended = false,
   escalatedOn: (key: string) => ReadonlySet<number> = () => new Set(),
 ): Map<string, ThreadItem[]> {
-  const byComment = new Map<number, RoundOneThreadRow[]>();
+  const byComment = new Map<number, ThreadRow[]>();
   for (const row of rows) {
     const list = byComment.get(row.commentId) ?? [];
     list.push(row);
@@ -388,7 +412,7 @@ export function toThreadItems(
   for (const lines of byComment.values()) {
     const head = lines[0]!;
     const answered = lines.filter((l) => l.responseId !== null);
-    const latest = answered.reduce<RoundOneThreadRow | null>(
+    const latest = answered.reduce<ThreadRow | null>(
       (best, line) =>
         best === null || line.responseId! > best.responseId! ? line : best,
       null,
@@ -397,15 +421,24 @@ export function toThreadItems(
     const blocked = [...escalatedOn(head.fieldKey)].some(
       (id) => id !== head.commentId,
     );
-    const choices = ended
+    // P2-3916 (FR-3): a TPB decides the escalated items only; the Lead keeps its rules.
+    const choices: Array<DecisionChoice | TpbChoice> = ended
       ? []
-      : [
-          ...isDecidable(
-            { origin: 'round_one', state: head.state, deleted: false },
-            fieldOf(head.fieldKey),
-            role,
-          ),
-        ].filter((choice) => !(blocked && choice === 'agree_program'));
+      : role === RoleCode.TPB
+        ? [
+            ...isTpbDecidable(
+              { state: head.state, deleted: false },
+              fieldOf(head.fieldKey),
+              role,
+            ),
+          ]
+        : [
+            ...isDecidable(
+              { origin: 'round_one', state: head.state, deleted: false },
+              fieldOf(head.fieldKey),
+              role,
+            ),
+          ].filter((choice) => !(blocked && choice === 'agree_program'));
     const item: ThreadItem = {
       commentId: head.commentId,
       author: reviewerAuthor(
@@ -454,6 +487,17 @@ export function toThreadItems(
           }),
       decidable: choices.length > 0,
       choices,
+      // TPB read only (DD-T5): the comment's round and the Lead's decision as context.
+      ...(head.round === undefined ? {} : { round: head.round }),
+      ...(head.leadDecision === undefined || head.leadDecision === null
+        ? {}
+        : {
+            leadDecision: {
+              decision: head.leadDecision,
+              body: head.leadDecisionBody ?? null,
+              decidedAt: head.leadDecidedAt!.toISOString(),
+            },
+          }),
     };
     const list = out.get(head.fieldKey) ?? [];
     list.push(item);
@@ -474,7 +518,12 @@ export function annotateForRound(
 ): RoundView {
   const roundTwo = input.round !== 1;
   const changed = new Set(input.changedFields ?? []);
-  const commented = new Set(input.thread.map((row) => row.fieldKey));
+  // The carried-green fact reads round-1 comments only: the TPB's read also holds the Lead's own (round 2).
+  const commented = new Set(
+    input.thread
+      .filter((row) => row.round === undefined || row.round === 1)
+      .map((row) => row.fieldKey),
+  );
   const fieldsByKey = new Map<string, ViewField>();
   for (const section of view.sections) {
     for (const field of section.fields) fieldsByKey.set(field.key, field);
@@ -565,13 +614,18 @@ export function annotateForRound(
       changed: updated,
     };
     const stored = input.stored.get(field.key);
+    // P2-3916: for a TPB the step-3 effective green sits under its own mark.
+    const below =
+      input.leadStored === undefined
+        ? stored
+        : (stored ?? input.leadStored.get(field.key));
     return {
       ...field,
       comments: withOwn(field),
       updated,
       actionable,
-      effectiveValidated: effectiveGreen(stored, facts),
-      carried: isCarriedGreen(stored, facts),
+      effectiveValidated: effectiveGreen(below, facts),
+      carried: isCarriedGreen(below, facts),
       thread: threads.get(field.key) ?? [],
     };
   };

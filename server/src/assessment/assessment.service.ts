@@ -98,10 +98,12 @@ import {
   currentStepPosition,
   currentStepPositionsOf,
   enabledReviewerRows,
+  findRoleStep,
   isWithdrawWindowOpen,
   stepOfRole,
   type StepTiming,
 } from './role-steps.js';
+import type { StepAudience } from '../admin-config/timelines/default-steps.js';
 import {
   effectiveGreen,
   endRoundTwoAfterWrite,
@@ -2048,11 +2050,15 @@ export class AssessmentService {
     const catalog = await this.catalogOf(membership.cycleYear);
     const snapshot = await this.snapshotOf(membership);
 
-    const assessment = membership.assessment;
     // The caller's reviewer role at this round; `null` for ADMIN (reads, decides nothing).
     const role =
       access.reviewerRows.find((row) => row.round === membership.round)?.role ??
       null;
+    // DD-T7 (P2-3916): a reviewer reads ITS OWN step's assessment: the Lead keeps
+    // its step-3 review once the TPB starts step 4, and a TPB that has not
+    // written yet has none. The status still reads the current step (DD-3).
+    const assessment = this.ownAssessment(timeline, membership, role);
+    const tpb = membership.round !== 1 && role === RoleCode.TPB;
     // T-16: the Lead's decisions on its own round-2 comments, in the same
     // parallel read; only for the Lead in round 2 with an assessment row.
     const [validations, comments, ownDecisions] =
@@ -2068,15 +2074,31 @@ export class AssessmentService {
     // Round 2 (design 7 *Thread read*, DD-4): the previous membership's step-1
     // thread (ONE statement for any number of comments) and its validations.
     // A new round-2 membership has no previous assessment: nothing is read.
+    // P2-3916 (DD-T5): a TPB reads the escalation thread instead, over the
+    // round-1 and step-3 assessments with the Lead's decision, and the Lead's greens.
     const previous =
       membership.round === 1 ? null : membership.previousAssessmentId;
-    const [roundOneThread, roundOneValidations] =
-      previous === null
-        ? [[], []]
-        : await Promise.all([
-            this.store.findRoundOneThread(previous, RoleCode.LEAD_ASSESSOR),
-            this.store.findValidations(previous),
-          ]);
+    const lead = tpb ? membership.leadAssessment : null;
+    const [roundOneThread, roundOneValidations, leadValidations] =
+      await Promise.all([
+        tpb
+          ? this.store.findEscalationThread(
+              [previous, lead?.id ?? null].filter(
+                (id): id is number => id !== null,
+              ),
+              RoleCode.TPB,
+              RoleCode.LEAD_ASSESSOR,
+            )
+          : previous === null
+            ? Promise.resolve([])
+            : this.store.findRoundOneThread(previous, RoleCode.LEAD_ASSESSOR),
+        previous === null
+          ? Promise.resolve([])
+          : this.store.findValidations(previous),
+        lead === null
+          ? Promise.resolve(null)
+          : this.store.findValidations(lead.id),
+      ]);
     const [programs, resultTypes] = await Promise.all([
       this.catalog.listSciencePrograms(),
       this.catalog.listResultTypes(),
@@ -2117,6 +2139,13 @@ export class AssessmentService {
         roundOneValidations.filter((v) => v.validated).map((v) => v.fieldKey),
       ),
       thread: roundOneThread,
+      ...(leadValidations === null
+        ? {}
+        : {
+            leadStored: new Map(
+              leadValidations.map((v) => [v.fieldKey, v.validated]),
+            ),
+          }),
       userId: user.id,
       // T-17: whatever makes the view read-only (ended review, closed step) is a refusal of every decision.
       ended: !decision.writable || finished,
@@ -2168,13 +2197,13 @@ export class AssessmentService {
         status: statusOf({
           membershipStatus: membership.status,
           endReason: membership.endReason,
-          assessmentStatus: assessment?.status ?? null,
+          // DD-3: the status reads the CURRENT step's assessment, whoever reads it.
+          assessmentStatus: membership.assessment?.status ?? null,
           // DD-T3: the step of the current assessment (step 4 tells Pending PPU apart).
-          currentStep:
-            assessment === null
-              ? null
-              : (timeline.steps.find((s) => s.position === assessment.stepPosition)
-                  ?.audience ?? null),
+          currentStep: this.audienceAt(
+            timeline,
+            membership.assessment?.stepPosition,
+          ),
           hasClarificationThread: comments.some(
             (c) => c.state === 'clarification_requested',
           ),
@@ -2217,6 +2246,43 @@ export class AssessmentService {
           }
         : {}),
     };
+  }
+
+  /**
+   * DD-T7 (P2-3916): the assessment a reviewer's view is built from: the row of
+   * the caller's own step (the current one, or the Lead's step-3 row when the
+   * TPB has moved the result on). A reviewer whose step holds no row yet reads
+   * none. ADMIN (no role) reads the current step's row (DD-3).
+   */
+  private ownAssessment(
+    timeline: WorklistTimeline,
+    membership: MembershipRecord,
+    role: RoleCode | null,
+  ): MembershipRecord['assessment'] {
+    const row = role === null ? undefined : findRoleStep(role);
+    const own =
+      row === undefined ? undefined : stepOfRole(row, timeline.steps)?.position;
+    if (own === undefined) return membership.assessment;
+    if (membership.assessment?.stepPosition === own) {
+      return membership.assessment;
+    }
+    if (membership.leadAssessment?.stepPosition === own) {
+      return membership.leadAssessment;
+    }
+    // The caller's own step holds no row yet (a TPB before its first write).
+    return null;
+  }
+
+  /** The audience of a timeline step by position; `null` for none (DD-T3). */
+  private audienceAt(
+    timeline: Pick<WorklistTimeline, 'steps'>,
+    position: number | undefined,
+  ): StepAudience | null {
+    if (position === undefined) return null;
+    return (
+      timeline.steps.find((step) => step.position === position)?.audience ??
+      null
+    );
   }
 
   /**
