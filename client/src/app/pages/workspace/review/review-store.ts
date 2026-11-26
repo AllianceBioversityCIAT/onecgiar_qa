@@ -221,15 +221,12 @@ export class ReviewStore implements OnDestroy {
   readonly switchingRole = signal(false);
   /** The caller's user id: only their own open comments can be withdrawn (FR-13). */
   readonly me = computed(() => this.session.user()?.id ?? null);
-  /**
-   * The caller reads this round-2 view as the Lead: the Admin acting as the Lead, or (no acting role) a caller who holds
-   * the Lead role for this result type. The view does not name a non-admin caller's reviewer role (contract § 2), and a
-   * TPB also writes on a round-2 view, so the assignment tells them apart. Drives the delete and the quick comments.
-   */
+  /** The caller reads this round-2 view as the Lead (`mode`). Drives the delete and the quick comments. */
   readonly leadCaller = computed(() => this.mode() === 'lead');
   /**
-   * Who reads the page (`reviewerModeOf`): the Admin's acting role; else, on a round-2 view, the thread (a PPU's items
-   * carry `tpbDecision`, a TPB's carry `round` / `leadDecision`); else the caller's Lead assignment for the type.
+   * Who reads the page (`reviewerModeOf`): the server's `header.reviewerRole` (front contract § 9.1). On an older server
+   * without it: the Admin's acting role; else, on a round-2 view, the thread (a PPU's items carry `tpbDecision`, a TPB's
+   * carry `round` / `leadDecision`); else the caller's Lead assignment for the type.
    */
   readonly mode = computed<ReviewerMode>(() => {
     const view = this.view();

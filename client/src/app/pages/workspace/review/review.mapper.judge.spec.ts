@@ -3,6 +3,7 @@ import { roundTwoViewFixture } from './review.round2-fixture';
 import { closedPpuView, ppuItem, ppuViewFixture, tpbItem, tpbLeadOwnItem, tpbViewFixture } from './review.round2-judge-fixture';
 import { escalatedUndecidedMessage, reviewerModeOf, toReviewVm } from './review.mapper';
 import { viewFixture } from './review.api-fixture';
+import type { AssessmentView } from '../../../core/api/assessment.models';
 
 const ME = 1053;
 const fieldOf = (vm: ReturnType<typeof toReviewVm>, label: string) => vm.sections[0].fields.find((f) => f.label === label)!;
@@ -28,6 +29,32 @@ describe('reviewerModeOf: who reads a round-2 view (P2-3916, P2-3917)', () => {
     expect(reviewerModeOf(roundTwoViewFixture(), null, true)).toBe('lead');
     expect(reviewerModeOf(roundTwoViewFixture(), null, false)).toBe('assessor');
     expect(reviewerModeOf(viewFixture(), null, true)).toBe('assessor');
+  });
+
+  describe('header.reviewerRole (front contract § 9.1, DD-T11): the server says who reads the view', () => {
+    const as = (view: AssessmentView, reviewerRole: string | null): AssessmentView => ({ ...view, header: { ...view.header, reviewerRole } as AssessmentView['header'] });
+
+    it('the role wins over the thread, the Lead assignment and the acting role', () => {
+      // A Lead + TPB on a TPB-shaped thread: the server says TPB.
+      expect(reviewerModeOf(as(roundTwoViewFixture(), 'TPB'), null, true)).toBe('tpb');
+      // The thread looks like a PPU's, the server says TPB (a Lead + TPB on a pending_ppu result reads TPB).
+      expect(reviewerModeOf(as(ppuViewFixture(), 'TPB'), null, true)).toBe('tpb');
+      // A TPB-shaped thread read by a Lead + TPB while the result is still Pending: the Lead.
+      expect(reviewerModeOf(as(tpbViewFixture(), 'LEAD_ASSESSOR'), null, false)).toBe('lead');
+      expect(reviewerModeOf(as(roundTwoViewFixture(), 'PPU'), 'TPB', true)).toBe('ppu');
+      expect(reviewerModeOf(as(viewFixture(), 'ASSESSOR'), null, true)).toBe('assessor');
+    });
+
+    it('null (an Admin without Act as, or an acting role outside the round): no acting role nor Lead assignment, the thread only', () => {
+      expect(reviewerModeOf(as(roundTwoViewFixture(), null), null, true)).toBe('assessor');
+      expect(reviewerModeOf(as(roundTwoViewFixture(), null), 'LEAD_ASSESSOR', true)).toBe('assessor');
+      expect(reviewerModeOf(as(tpbViewFixture(), null), null, false)).toBe('tpb');
+    });
+
+    it('absent (an older server) or unknown: the old inference', () => {
+      expect(reviewerModeOf(roundTwoViewFixture(), null, true)).toBe('lead');
+      expect(reviewerModeOf(as(roundTwoViewFixture(), 'SOMETHING_NEW'), null, true)).toBe('lead');
+    });
   });
 });
 

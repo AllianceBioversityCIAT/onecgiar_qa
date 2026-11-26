@@ -49,13 +49,28 @@ export const OTHER_SECTION_KEY = 'other';
  */
 export type ReviewerMode = 'assessor' | 'lead' | 'tpb' | 'ppu';
 
+const MODE_OF_ROLE: Readonly<Record<ActingRole, ReviewerMode>> = { ASSESSOR: 'assessor', LEAD_ASSESSOR: 'lead', TPB: 'tpb', PPU: 'ppu' };
+
 /**
- * The reader of a view. The Admin's acting role says it. A reviewer's role is not in the view (contract § 2), so the
- * thread tells it: only a PPU's items carry `tpbDecision`, only a TPB's or a PPU's carry `round` / `leadDecision`
- * (the escalation read). A Lead's view carries neither: then `holdsLead` (the caller's Lead assignment) decides.
+ * The reader of a view. The server names it in `header.reviewerRole` (front contract § 9.1, DD-T11): the role whose
+ * step the result is at among the caller's roles, so a Lead + TPB reads an escalated result as the TPB. `null` = no
+ * role (an Admin without Act as, or an acting role outside the round): the view is read only, and the thread alone
+ * shapes it. Absent (an older server) or unknown: the old inference below.
+ *
+ * Old inference: the Admin's acting role says it; else the thread tells it: only a PPU's items carry `tpbDecision`,
+ * only a TPB's or a PPU's carry `round` / `leadDecision` (the escalation read). A Lead's view carries neither: then
+ * `holdsLead` (the caller's Lead assignment) decides.
  */
 export function reviewerModeOf(view: AssessmentView, acting: ActingRole | null, holdsLead: boolean): ReviewerMode {
-  if (acting) return acting === 'TPB' ? 'tpb' : acting === 'PPU' ? 'ppu' : acting === 'LEAD_ASSESSOR' ? 'lead' : 'assessor';
+  const role = view.header.reviewerRole;
+  if (role === null) return threadMode(view, false);
+  if (role !== undefined && Object.hasOwn(MODE_OF_ROLE, role)) return MODE_OF_ROLE[role];
+  if (acting) return MODE_OF_ROLE[acting] ?? 'assessor';
+  return threadMode(view, holdsLead);
+}
+
+/** The thread's shape: a PPU's items, a TPB's items, else the Lead's when `holdsLead`. Round 1 is the assessor's. */
+function threadMode(view: AssessmentView, holdsLead: boolean): ReviewerMode {
   if (view.round !== 2) return 'assessor';
   const items = [...view.sections.flatMap((s) => s.fields), ...view.other].flatMap((f) => f.thread ?? []);
   if (items.some((t) => t.tpbDecision !== undefined || t.choices.includes('ppu_done') || t.decision?.decision === 'ppu_done')) return 'ppu';

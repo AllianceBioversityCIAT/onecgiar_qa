@@ -52,6 +52,30 @@ describe('ReviewStore: the TPB and the PPU (P2-3916, P2-3917)', () => {
     store = TestBed.inject(ReviewStore);
   });
 
+  describe('header.reviewerRole (front contract § 9.1, DD-T11)', () => {
+    afterEach(() => user.set({ id: 30, assignments: [{ role: 'TPB' }] }));
+
+    it('a Lead + TPB on an escalated result reads it as the TPB, read only until step 4 opens: no Lead delete, no write offered', async () => {
+      user.set({ id: 30, assignments: [{ role: 'LEAD_ASSESSOR' }, { role: 'TPB' }] });
+      const base = tpbViewFixture([tpbItem({ decidable: false, choices: [] })]);
+      api.view.mockReturnValue(
+        of({ ...base, writable: false, readOnlyReason: 'step_upcoming', header: { ...base.header, status: 'pending_tpb_review', reviewerRole: 'TPB' } }),
+      );
+      await store.load('9890', '29');
+      expect(store.mode()).toBe('tpb');
+      expect(store.leadCaller()).toBe(false);
+      expect(store.vm()!.canFinish).toBe(false);
+    });
+
+    it("a Lead + TPB on a Pending PPU result reads TPB (the furthest role held), even though the thread is a PPU's", async () => {
+      user.set({ id: 30, assignments: [{ role: 'LEAD_ASSESSOR' }, { role: 'TPB' }] });
+      const base = closedPpuView();
+      api.view.mockReturnValue(of({ ...base, header: { ...base.header, reviewerRole: 'TPB' } }));
+      await store.load('9890', '29');
+      expect(store.mode()).toBe('tpb');
+    });
+  });
+
   describe('the TPB', () => {
     beforeEach(async () => {
       await store.load('9890', '29');
