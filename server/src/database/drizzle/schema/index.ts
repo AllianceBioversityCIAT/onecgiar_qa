@@ -33,3 +33,4 @@ export * from './ai-suggestion-usage.js';
 export * from './sp-access.js';
 export * from './sp-comment-responses.js';
 export * from './comment-clarification-answers.js';
+export * from './reporting-field-changes.js';

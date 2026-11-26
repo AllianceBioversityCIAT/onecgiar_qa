@@ -61,6 +61,7 @@ import type {
   QuickCommentRecord,
   RoundOneThreadRow,
   EscalationThreadRow,
+  ReportingChangeRecord,
   SavedQuickComment,
   ValidationRecord,
   ValidationWrite,
@@ -339,6 +340,12 @@ export class InMemoryAssessmentWorld {
 
   /** Statements the services issued since the last `resetStatements()`. */
   statements = 0;
+  /** P2-3917 AC6: `reporting_field_changes` rows. */
+  reportingChanges: Array<{
+    timelineResultId: number;
+    fieldKey: string;
+    detectedAt: Date;
+  }> = [];
   timelines: FakeTimeline[] = [];
   timelineUsers: FakeTimelineUser[] = [];
   memberships: FakeMembership[] = [];
@@ -922,6 +929,19 @@ export class InMemoryAssessmentStore implements AssessmentStore {
           ...row
         }) => row,
       ),
+    );
+  }
+
+  /** P2-3917 AC6: one counted statement (`buildReportingChangesQuery`). */
+  findReportingChanges(
+    timelineResultId: number,
+  ): Promise<ReportingChangeRecord[]> {
+    this.world.statements += 1;
+    return Promise.resolve(
+      this.world.reportingChanges
+        .filter((r) => r.timelineResultId === timelineResultId)
+        .sort((x, y) => x.fieldKey.localeCompare(y.fieldKey))
+        .map(({ fieldKey, detectedAt }) => ({ fieldKey, detectedAt })),
     );
   }
 
@@ -1523,6 +1543,26 @@ export class InMemoryAssessmentWriteStore implements AssessmentWriteStore {
       state: comment.state,
       deleted: (comment.deletedAt ?? null) !== null,
     });
+  }
+
+  /** P2-3917 AC6: insert-ignore, the first date stays (`buildRecordReportingChanges`). */
+  recordReportingChanges(
+    timelineResultId: number,
+    fieldKeys: readonly string[],
+    at: Date,
+  ): Promise<void> {
+    if (fieldKeys.length === 0) return Promise.resolve();
+    this.world.writeLog.push('recordReportingChanges');
+    for (const fieldKey of fieldKeys) {
+      if (
+        !this.world.reportingChanges.some(
+          (r) => r.timelineResultId === timelineResultId && r.fieldKey === fieldKey,
+        )
+      ) {
+        this.world.reportingChanges.push({ timelineResultId, fieldKey, detectedAt: at });
+      }
+    }
+    return Promise.resolve();
   }
 
   findDecisions(assessmentId: number): Promise<DecisionRecord[]> {

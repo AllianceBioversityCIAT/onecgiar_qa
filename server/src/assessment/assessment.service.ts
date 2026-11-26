@@ -1,5 +1,5 @@
 // @akili-spec assessment/step-1-assessment
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import {
   ADMIN_CONFIG_CLOCK,
   type AdminConfigClock,
@@ -94,6 +94,11 @@ import {
   type ReleaseDispatcher,
 } from './release.service.js';
 import { buildValueCopy } from './comment-value-copy.js';
+import { changedFields } from '../ingestion/load-rules.js';
+import {
+  RESULTS_FEED,
+  type ResultsFeed,
+} from '../ingestion/results-feed.port.js';
 import { DECISION_VALUES } from './dto/decide-comment.body.js';
 import {
   audienceStepState,
@@ -334,6 +339,10 @@ export class AssessmentService {
     @Inject(ASSESSMENT_UNIT_OF_WORK)
     private readonly unitOfWork: AssessmentUnitOfWork,
     @Inject(RELEASE_DISPATCHER) private readonly releases: ReleaseDispatcher,
+    /** P2-3917 AC6 (DD-P6): Reporting's current values of the PPU's case fields; absent in unit specs that build the service by hand. */
+    @Optional()
+    @Inject(RESULTS_FEED)
+    private readonly feed?: ResultsFeed,
   ) {}
 
   /**
@@ -2746,6 +2755,24 @@ export class AssessmentService {
           ? Promise.resolve(null)
           : this.store.findValidations(tpbRow.id),
       ]);
+    // P2-3917 AC6 (FR-9, DD-P6): a PPU reader compares the open cases' fields
+    // with Reporting and stores the first sighting of a change; every reader
+    // of a result that reached step 5 reads the stored dates (one statement).
+    if (
+      ppu &&
+      !membership.ended &&
+      (assessment === null || assessment.status === 'pending')
+    ) {
+      await this.checkReportingChanges(
+        membership,
+        snapshot.values,
+        roundOneThread,
+      );
+    }
+    const reportingChanges =
+      membership.round !== 1 && membership.tpbAssessment !== null
+        ? await this.store.findReportingChanges(membership.membershipId)
+        : [];
     const [programs, resultTypes] = await Promise.all([
       this.catalog.listSciencePrograms(),
       this.catalog.listResultTypes(),
@@ -2792,6 +2819,16 @@ export class AssessmentService {
         : {
             leadStored: new Map(
               leadValidations.map((v) => [v.fieldKey, v.validated]),
+            ),
+          }),
+      ...(reportingChanges.length === 0
+        ? {}
+        : {
+            reportingChanges: new Map(
+              reportingChanges.map((r) => [
+                r.fieldKey,
+                r.detectedAt.toISOString(),
+              ]),
             ),
           }),
       ...(tpbValidations === null
@@ -2932,6 +2969,56 @@ export class AssessmentService {
     }
     // The caller's own step holds no row yet (a TPB before its first write).
     return null;
+  }
+
+  /**
+   * P2-3917 AC6 (DD-P6): one `details` call to Reporting for the fields of
+   * the open PPU cases, compared with the membership's round-2 snapshot by the
+   * loader's own rule (`changedFields`, canonical JSON). The fields that
+   * differ are stored with today's date, the first date staying. Any failure
+   * is logged with ids only and skipped: the view never fails on it (NFR-4).
+   */
+  private async checkReportingChanges(
+    membership: MembershipRecord,
+    snapshotValues: Readonly<Record<string, unknown>>,
+    thread: readonly { fieldKey: string; state: CommentState }[],
+  ): Promise<void> {
+    const fields = [
+      ...new Set(
+        thread
+          .filter((row) => row.state === 'tpb_sided_assessor')
+          .map((row) => row.fieldKey),
+      ),
+    ].sort();
+    if (fields.length === 0 || this.feed === undefined) return;
+    try {
+      const details = await this.feed.details({
+        phaseYear: membership.phaseYear,
+        resultIds: [membership.resultId],
+        fieldKeys: fields,
+      });
+      const current = details.results.find(
+        (r) => r.resultId === membership.resultId,
+      );
+      if (current === undefined) return;
+      const pick = (values: Readonly<Record<string, unknown>>) =>
+        Object.fromEntries(
+          fields.filter((key) => key in values).map((key) => [key, values[key]]),
+        );
+      const changed = changedFields(
+        pick(snapshotValues),
+        pick(current.values),
+      );
+      if (changed.length === 0) return;
+      const at = wholeSecond(this.clock());
+      await this.unitOfWork.run(({ assessments }) =>
+        assessments.recordReportingChanges(membership.membershipId, changed, at),
+      );
+    } catch (error) {
+      this.logger.warn(
+        `reporting_change_check_failed membership=${membership.membershipId} ${error instanceof Error ? error.name : 'error'}`,
+      );
+    }
   }
 
   /** The audience of a timeline step by position; `null` for none (DD-T3). */

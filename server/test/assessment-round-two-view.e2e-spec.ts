@@ -537,8 +537,12 @@ describe('Round-2 view of the Lead (e2e)', () => {
           'createdAt',
           'decidable',
           'decision',
+          // TPB and PPU views (P2-3916, P2-3917): optional, absent for the Lead.
+          'leadDecision',
           'response',
+          'round',
           'state',
+          'tpbDecision',
           'valueCopy',
           'valueTruncated',
         ].sort(),

@@ -49,6 +49,7 @@ import {
 } from '../database/drizzle/schema/assessment-audit-events.js';
 import { assessmentReleases } from '../database/drizzle/schema/assessment-releases.js';
 import { quickComments } from '../database/drizzle/schema/quick-comments.js';
+import { reportingFieldChanges } from '../database/drizzle/schema/reporting-field-changes.js';
 import { isDuplicateKeyError } from '../common/idempotency/idempotency.errors.js';
 import { timelineSteps } from '../database/drizzle/schema/timeline-steps.js';
 import { timelines } from '../database/drizzle/schema/timelines.js';
@@ -271,6 +272,16 @@ export interface AssessmentStore {
     roleCode: string,
     contextRoleCode: string,
   ): Promise<EscalationThreadRow[]>;
+  /** P2-3917 AC6 (DD-P6): one statement: the fields of a membership seen changed in Reporting, with the first date. */
+  findReportingChanges(
+    timelineResultId: number,
+  ): Promise<ReportingChangeRecord[]>;
+}
+
+/** P2-3917 AC6: a case field whose Reporting value was first seen different from the snapshot on `detectedAt`. */
+export interface ReportingChangeRecord {
+  fieldKey: string;
+  detectedAt: Date;
 }
 
 /** A reusable comment text of a role (FR-12). */
@@ -532,6 +543,15 @@ export interface AssessmentWriteStore {
     from: CommentState,
     to: CommentState,
   ): Promise<boolean>;
+  /**
+   * P2-3917 AC6 (DD-P6): one statement for any number of fields; none for an
+   * empty list. `INSERT … ON DUPLICATE KEY UPDATE id = id`: the first date stays.
+   */
+  recordReportingChanges(
+    timelineResultId: number,
+    fieldKeys: readonly string[],
+    at: Date,
+  ): Promise<void>;
 }
 
 // ---- Drizzle adapter -------------------------------------------------------
@@ -1011,6 +1031,24 @@ export class DrizzleAssessmentStore implements AssessmentStore {
         asc(assessmentComments.id),
         asc(spCommentResponses.id),
       );
+  }
+
+  /** The AC6 read; public so a spec can read its SQL. */
+  buildReportingChangesQuery(timelineResultId: number) {
+    return this.db
+      .select({
+        fieldKey: reportingFieldChanges.fieldKey,
+        detectedAt: reportingFieldChanges.detectedAt,
+      })
+      .from(reportingFieldChanges)
+      .where(eq(reportingFieldChanges.timelineResultId, timelineResultId))
+      .orderBy(asc(reportingFieldChanges.fieldKey));
+  }
+
+  async findReportingChanges(
+    timelineResultId: number,
+  ): Promise<ReportingChangeRecord[]> {
+    return await this.buildReportingChangesQuery(timelineResultId);
   }
 
   async findEscalationThread(
@@ -1527,6 +1565,32 @@ export class DrizzleAssessmentWriteStore implements AssessmentWriteStore {
 
   async findDecisions(assessmentId: number): Promise<DecisionRecord[]> {
     return await this.reads.findDecisions(assessmentId);
+  }
+
+  buildRecordReportingChanges(
+    timelineResultId: number,
+    fieldKeys: readonly string[],
+    at: Date,
+  ) {
+    return this.db
+      .insert(reportingFieldChanges)
+      .values(
+        fieldKeys.map((fieldKey) => ({
+          timelineResultId,
+          fieldKey,
+          detectedAt: at,
+        })),
+      )
+      .onDuplicateKeyUpdate({ set: { id: sql`${sql.identifier('id')}` } });
+  }
+
+  async recordReportingChanges(
+    timelineResultId: number,
+    fieldKeys: readonly string[],
+    at: Date,
+  ): Promise<void> {
+    if (fieldKeys.length === 0) return;
+    await this.buildRecordReportingChanges(timelineResultId, fieldKeys, at);
   }
 
   buildUpsertDecision(write: DecisionWrite) {
