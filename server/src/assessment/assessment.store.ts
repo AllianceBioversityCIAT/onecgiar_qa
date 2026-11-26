@@ -425,7 +425,8 @@ export interface DecisionWrite {
   assessmentId: number;
   roleCode: string;
   decision: CommentDecisionKind;
-  body: string;
+  /** `null` only for `ppu_done` (the table's CHECK). */
+  body: string | null;
   actorId: number;
   /** admin/acts-as-reviewer R4: the actor is a QA Admin acting as the role. */
   asAdmin?: boolean;

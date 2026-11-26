@@ -110,7 +110,11 @@ import {
   effectiveGreen,
   endRoundTwoAfterWrite,
   endRoundTwoOnFinish,
+  isPpuDecidable,
   isTpbDecidable,
+  ppuEnds,
+  ppuFieldGreen,
+  type PpuCase,
   tpbFieldGreen,
   tpbUndecidedFields,
   type TpbItem,
@@ -183,7 +187,8 @@ export interface ValidationSummary extends AssessmentSummary {
 export interface DecisionInput {
   /** The Lead's values, or the TPB's (P2-3916); the service judges which the caller's role may set (409 `ASSESSMENT_DECISION_INVALID`). */
   decision: (typeof DECISION_VALUES)[number];
-  body: string;
+  /** `null` only for `ppu_done` (the DTO requires it for every other value). */
+  body: string | null;
 }
 
 /** The answer of a decision write (round-2 design 6): the decision as stored (`null` after a clear) and the assessment as `validate` answers it. */
@@ -401,8 +406,13 @@ export class AssessmentService {
     trace.membershipId = membership.membershipId;
     trace.actingRole = actingRoleOf(access);
     const stepPosition = decision.stepPosition;
-    // P2-3916 (FR-11, DD-T6): a TPB only decides and finishes.
-    if (decision.row.role === RoleCode.TPB) throw new AssessmentReadOnlyError();
+    // P2-3916 (FR-11, DD-T6) / P2-3917 (DD-P8): a TPB only decides and finishes; a PPU only marks Done.
+    if (
+      decision.row.role === RoleCode.TPB ||
+      decision.row.role === RoleCode.PPU
+    ) {
+      throw new AssessmentReadOnlyError();
+    }
     const held = heldAt(membership, stepPosition);
 
     // FR-16: an ended membership or assessment takes no more validations.
@@ -751,6 +761,8 @@ export class AssessmentService {
       throw new AssessmentFinishedError();
     }
 
+    // P2-3917 (DD-P2, DD-P8): the PPU has no Finish; its last Done ends the result.
+    if (decision.row.role === RoleCode.PPU) throw new AssessmentReadOnlyError();
     const tpb = membership.round !== 1 && decision.row.role === RoleCode.TPB;
     const lead = tpb ? this.escalatedLead(membership) : null;
     const { core, version } = await this.assessedOf(
@@ -990,7 +1002,9 @@ export class AssessmentService {
     } else {
       // DD-7: the deciding role's decisions become comment states now; DD-8: round 2 never makes a comment visible to the program.
       const own = decisions ?? (await assessments.findDecisions(locked.id));
-      if (context.roleCode === RoleCode.TPB) {
+      if (context.roleCode === RoleCode.PPU) {
+        await this.applyPpuDecisions(assessments, context, own);
+      } else if (context.roleCode === RoleCode.TPB) {
         await this.applyTpbDecisions(assessments, context, own);
       } else {
         await this.applyLeadDecisions(assessments, context, own);
@@ -1086,6 +1100,272 @@ export class AssessmentService {
         at: context.at,
       });
     }
+  }
+
+  /**
+   * P2-3917 (DD-7, FR-6): the end of the PPU's work writes its Done decisions
+   * as comment states: `tpb_sided_assessor` to `done`, one `comment_events` row
+   * each (actor role PPU). A decision on a deleted comment moves nothing.
+   */
+  private async applyPpuDecisions(
+    assessments: AssessmentWriteStore,
+    context: WriteContext,
+    decisions: readonly DecisionRecord[],
+  ): Promise<void> {
+    for (const d of decisions) {
+      if (!isLiveDecision(d) || d.decision !== 'ppu_done') continue;
+      if (!isTransitionAllowed(d.commentState, 'done', 'ppu')) continue;
+      const moved = await assessments.setCommentState(
+        d.commentId,
+        d.commentState,
+        'done',
+      );
+      if (!moved) continue;
+      await assessments.insertCommentEvent({
+        commentId: d.commentId,
+        actorId: context.user.id,
+        actorRole: RoleCode.PPU,
+        fromState: d.commentState,
+        toState: 'done',
+        at: context.at,
+      });
+    }
+  }
+
+  /** P2-3917 (DD-P4): the TPB's step-4 row, which must have ended `escalated` for a PPU to work on the result. */
+  private escalatedTpb(
+    membership: MembershipRecord,
+  ): NonNullable<MembershipRecord['tpbAssessment']> {
+    const tpb = membership.tpbAssessment;
+    if (tpb === null || tpb.status !== 'escalated') {
+      throw new AssessmentNotFoundError();
+    }
+    return tpb;
+  }
+
+  /**
+   * P2-3917 (FR-4, FR-6): the PPU's cases under the step-5 lock: the live
+   * `tpb_sided_assessor` comments of the round-1 assessment and of the Lead's
+   * step-3 one, each with the PPU's live decision (`null` = not Done).
+   */
+  private async ppuCases(
+    assessments: AssessmentWriteStore,
+    membership: MembershipRecord,
+    decisions: readonly DecisionRecord[],
+  ): Promise<PpuCase[]> {
+    const ids = [
+      membership.previousAssessmentId,
+      membership.leadAssessment?.id ?? null,
+    ].filter((id): id is number => id !== null);
+    const live = (
+      await Promise.all(ids.map((id) => assessments.findLiveCommentStates(id)))
+    ).flat();
+    const decided = new Map(
+      decisions.filter(isLiveDecision).map((d) => [d.commentId, d.decision]),
+    );
+    return live
+      .filter((comment) => comment.state === 'tpb_sided_assessor')
+      .map((comment) => ({
+        commentId: comment.id,
+        fieldKey: comment.fieldKey,
+        decision: decided.get(comment.id) ?? null,
+      }));
+  }
+
+  /**
+   * P2-3917 (design § 5): the step-5 effective green as a function of the
+   * PPU's stored mark: the mark, else the TPB's (step 4), else the step-3
+   * effective green. Computed, never copied (DD-4).
+   */
+  private async ppuEffectiveOf(
+    assessments: AssessmentWriteStore,
+    membership: MembershipRecord,
+    tpb: NonNullable<MembershipRecord['tpbAssessment']>,
+  ): Promise<(key: string, stored: boolean | undefined) => boolean> {
+    const lead = membership.leadAssessment;
+    const below =
+      lead === null
+        ? await this.effectiveOf(assessments, membership)
+        : await this.tpbEffectiveOf(assessments, membership, lead);
+    const tpbMarks = new Map(
+      (await assessments.findValidations(tpb.id)).map((row) => [
+        row.fieldKey,
+        row.validated,
+      ]),
+    );
+    return (key, stored) => stored ?? below(key, tpbMarks.get(key));
+  }
+
+  /**
+   * P2-3917 (FR-4 … FR-6, DD-P2, DD-P3): the PPU marks a case Done, or clears
+   * its Done, until the result ends; no date window (DD-P1). The field's step-5
+   * mark follows its cases (green once every case on it is Done). The Done that
+   * leaves no case open and every core field green ends the result Quality
+   * Assessed in this transaction (one `qaed` release). A clear never ends it.
+   */
+  private async ppuDecideAt(
+    resolved: Awaited<ReturnType<AssessmentService['resolveWrite']>>,
+    at: Date,
+    now: RomeMinute,
+    user: ReviewerCaller,
+    commentId: number,
+    input: DecisionInput | null,
+    requestId: string,
+  ): Promise<DecisionResult> {
+    const { timeline, access, membership, facts, hasLoad, decision } = resolved;
+    const stepPosition = decision.stepPosition;
+    const held = heldAt(membership, stepPosition);
+    if (membership.ended || (held !== null && held.status !== 'pending')) {
+      throw new AssessmentFinishedError();
+    }
+    const tpb = this.escalatedTpb(membership);
+    const sources = [
+      membership.previousAssessmentId,
+      membership.leadAssessment?.id ?? null,
+    ];
+
+    if (held === null && input === null) {
+      // Nothing was marked, so there is nothing to clear: no row, no transaction. The comment is still checked.
+      const found = await this.store.findCommentContext(commentId);
+      if (found === null || !sources.includes(found.assessmentId)) {
+        throw new AssessmentNotFoundError();
+      }
+      return {
+        status: 'pending',
+        assessedBy: null,
+        finishedAt: null,
+        validations: [],
+        decision: null,
+      };
+    }
+
+    const { assessed, core, version } = await this.assessedOf(
+      timeline,
+      membership,
+      held,
+      tpb,
+    );
+    const context: WriteContext = {
+      timeline,
+      access,
+      membership,
+      facts,
+      hasLoad,
+      now,
+      at,
+      stepPosition,
+      roleCode: RoleCode.PPU,
+      held,
+      version,
+      user,
+    };
+    const decidedAt = wholeSecond(at);
+    return await this.unitOfWork.run(async ({ assessments }) => {
+      const locked = await this.lockForWrite(assessments, context);
+      // Design 7 *Write path*: the comment row after the step-5 assessment lock.
+      const target = await assessments.lockDecisionTarget(commentId);
+      if (target === undefined || !sources.includes(target.assessmentId)) {
+        throw new AssessmentNotFoundError();
+      }
+      const audit = (action: 'decision_set' | 'decision_clear') =>
+        assessments.insertAudit({
+          assessmentId: locked.id,
+          actorId: user.id,
+          action,
+          fieldKeys: [target.fieldKey],
+          commentId,
+          requestId,
+          at,
+        });
+      let stored: DecisionResult['decision'] = null;
+      if (input === null) {
+        if (await assessments.deleteDecision(commentId, RoleCode.PPU)) {
+          await audit('decision_clear');
+        }
+      } else {
+        const choices = isPpuDecidable(
+          { state: target.state, deleted: target.deleted },
+          {
+            visibility: assessed.includes(target.fieldKey)
+              ? 'assessed'
+              : 'view_only',
+            isCore: core.includes(target.fieldKey),
+          },
+          RoleCode.PPU,
+        );
+        if (!(choices as readonly string[]).includes(input.decision)) {
+          throw new AssessmentDecisionInvalidError();
+        }
+        await assessments.upsertDecision({
+          commentId,
+          assessmentId: locked.id,
+          roleCode: RoleCode.PPU,
+          decision: input.decision,
+          body: input.body,
+          actorId: user.id,
+          asAdmin: actsAsAdmin(access),
+          at: decidedAt,
+        });
+        await audit('decision_set');
+        stored = {
+          decision: input.decision,
+          body: input.body,
+          decidedAt: decidedAt.toISOString(),
+        };
+      }
+      // FR-6: the field's step-5 mark follows its cases.
+      const state = new Map(
+        (await assessments.findValidations(locked.id)).map((row) => [
+          row.fieldKey,
+          row.validated,
+        ]),
+      );
+      const decisions = await assessments.findDecisions(locked.id);
+      const cases = await this.ppuCases(assessments, membership, decisions);
+      const wanted = ppuFieldGreen(
+        cases.filter((item) => item.fieldKey === target.fieldKey),
+      );
+      const green = await this.ppuEffectiveOf(assessments, membership, tpb);
+      if (
+        wanted !== null &&
+        green(target.fieldKey, state.get(target.fieldKey)) !== wanted
+      ) {
+        await assessments.upsertValidations(
+          locked.id,
+          [{ fieldKey: target.fieldKey, validated: wanted }],
+          user.id,
+          at,
+        );
+        state.set(target.fieldKey, wanted);
+      }
+      // AC7 (DD-P2): the Done that leaves no case open and the core green ends the result.
+      let end: AssessmentSummary = {
+        status: locked.status,
+        assessedBy: null,
+        finishedAt: null,
+      };
+      if (
+        input !== null &&
+        ppuEnds(
+          cases,
+          core.map((key) => green(key, state.get(key))),
+        )
+      ) {
+        end = await this.applyEnd(
+          assessments,
+          context,
+          locked,
+          'quality_assessed',
+          requestId,
+          decisions,
+        );
+      }
+      return {
+        ...end,
+        validations: this.validationRows(state),
+        decision: stored,
+      };
+    });
   }
 
   /** P2-3916 (DD-T2): the Lead's step-3 row, which must have ended `escalated` for a TPB to work on the result. */
@@ -1437,8 +1717,13 @@ export class AssessmentService {
     trace.membershipId = membership.membershipId;
     trace.actingRole = actingRoleOf(access);
     const stepPosition = decision.stepPosition;
-    // P2-3916 (FR-11, DD-T6): a TPB only decides and finishes.
-    if (decision.row.role === RoleCode.TPB) throw new AssessmentReadOnlyError();
+    // P2-3916 (FR-11, DD-T6) / P2-3917 (DD-P8): a TPB only decides and finishes; a PPU only marks Done.
+    if (
+      decision.row.role === RoleCode.TPB ||
+      decision.row.role === RoleCode.PPU
+    ) {
+      throw new AssessmentReadOnlyError();
+    }
     const held = heldAt(membership, stepPosition);
 
     // FR-16: an ended membership or assessment takes no more comments.
@@ -1652,6 +1937,18 @@ export class AssessmentService {
       await this.resolveWrite(user, timelineId, resultCode, now);
     trace.membershipId = membership.membershipId;
     trace.actingRole = actingRoleOf(access);
+    // P2-3917: the PPU marks the TPB's cases Done in step 5 (its own branch).
+    if (membership.round !== 1 && decision.row.role === RoleCode.PPU) {
+      return await this.ppuDecideAt(
+        { timeline, access, membership, facts, hasLoad, decision },
+        at,
+        now,
+        user,
+        commentId,
+        input,
+        requestId,
+      );
+    }
     // P2-3916: the TPB decides the Lead's escalations in step 4 (its own branch).
     if (membership.round !== 1 && decision.row.role === RoleCode.TPB) {
       return await this.tpbDecideAt(
@@ -2099,8 +2396,13 @@ export class AssessmentService {
     // The Lead's membership of the comment's result: the scope, the step and the end are the decision's.
     const { timeline, access, membership, facts, hasLoad, decision } =
       await this.resolveWrite(user, target.timelineId, target.resultCode, now);
-    // P2-3916 (FR-11, DD-T6): a TPB only decides and finishes.
-    if (decision.row.role === RoleCode.TPB) throw new AssessmentReadOnlyError();
+    // P2-3916 (FR-11, DD-T6) / P2-3917 (DD-P8): a TPB only decides and finishes; a PPU only marks Done.
+    if (
+      decision.row.role === RoleCode.TPB ||
+      decision.row.role === RoleCode.PPU
+    ) {
+      throw new AssessmentReadOnlyError();
+    }
     if (
       membership.round === 1 ||
       decision.row.role !== RoleCode.LEAD_ASSESSOR
