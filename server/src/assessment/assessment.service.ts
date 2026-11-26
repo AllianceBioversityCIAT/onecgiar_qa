@@ -130,6 +130,7 @@ import {
 import {
   actingRoleOf,
   actsAsAdmin,
+  effectiveRow,
   resolveAccess,
   writeDecision,
   type MembershipFacts,
@@ -155,6 +156,13 @@ export interface AssessmentHeader {
   /** The role's step; null when the timeline has none. */
   step: { position: number; name: string } | null;
   status: QaStatus | null;
+  /**
+   * DD-T11: the reviewer role this view was built for. With `X-Acting-Role`,
+   * that role (when it fits the round); otherwise the caller's role whose step
+   * the result is at (Pending → Lead, Pending for TPB review → TPB, Pending
+   * PPU / Unresolved → PPU). `null` for ADMIN without `X-Acting-Role`.
+   */
+  reviewerRole: RoleCode | null;
 }
 
 export interface AssessmentSummary {
@@ -2294,7 +2302,18 @@ export class AssessmentService {
       throw new AssessmentStepClosedError();
     }
 
-    const actorRole = access.reviewerRows[0]?.role ?? 'ADMIN';
+    // DD-T11: the caller's effective role on this membership.
+    const actorRole =
+      effectiveRow(access, {
+        resultType: membership.resultTypeKey,
+        programId: membership.programId,
+        round: membership.round,
+        status: membership.status,
+        ended: membership.ended,
+        endReason: membership.endReason,
+        leadEscalated: membership.leadAssessment?.status === 'escalated',
+        tpbEscalated: membership.tpbAssessment?.status === 'escalated',
+      })?.role ?? 'ADMIN';
     const withdrawnAt = wholeSecond(at);
     await this.unitOfWork.run(async ({ assessments }) => {
       const steps = await assessments.lockTimelineShared(timeline.id);
@@ -2699,10 +2718,20 @@ export class AssessmentService {
     const catalog = await this.catalogOf(membership.cycleYear);
     const snapshot = await this.snapshotOf(membership);
 
-    // The caller's reviewer role at this round; `null` for ADMIN (reads, decides nothing).
-    const role =
-      access.reviewerRows.find((row) => row.round === membership.round)?.role ??
-      null;
+    const facts: MembershipFacts = {
+      resultType: membership.resultTypeKey,
+      programId: membership.programId,
+      round: membership.round,
+      status: membership.status,
+      ended: membership.ended,
+      endReason: membership.endReason,
+      leadEscalated: membership.leadAssessment?.status === 'escalated',
+      tpbEscalated: membership.tpbAssessment?.status === 'escalated',
+    };
+    // DD-T11: the caller's effective reviewer role on this membership, whatever
+    // the order of its rows (a Lead who is also TPB reads as the TPB once the
+    // result reached step 4); `null` for ADMIN without `X-Acting-Role`.
+    const role = effectiveRow(access, facts)?.role ?? null;
     // DD-T7 (P2-3916): a reviewer reads ITS OWN step's assessment: the Lead keeps
     // its step-3 review once the TPB starts step 4, and a TPB that has not
     // written yet has none. The status still reads the current step (DD-3).
@@ -2792,20 +2821,7 @@ export class AssessmentService {
       validated: new Map(validations.map((v) => [v.fieldKey, v.validated])),
       comments: comments.map(toViewComment),
     });
-    const decision = writeDecision(
-      access,
-      {
-        resultType: membership.resultTypeKey,
-        programId: membership.programId,
-        round: membership.round,
-        status: membership.status,
-        ended: membership.ended,
-        endReason: membership.endReason,
-        leadEscalated: membership.leadAssessment?.status === 'escalated',
-        tpbEscalated: membership.tpbAssessment?.status === 'escalated',
-      },
-      timing,
-    );
+    const decision = writeDecision(access, facts, timing);
     // FR-16: once the assessment ended, nothing is accepted on it.
     const finished = assessment !== null && assessment.status !== 'pending';
     // Additive members over the step-1 view (FR-3, FR-4, FR-5, FR-7). ADMIN has no
@@ -2907,6 +2923,7 @@ export class AssessmentService {
             (c) => c.state === 'clarification_requested',
           ),
         }),
+        reviewerRole: role,
       },
       round: membership.round,
       sections: rounded.sections,

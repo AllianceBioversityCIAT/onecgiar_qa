@@ -76,6 +76,16 @@ export class AssessmentHeaderModel {
 
   @ApiProperty({ type: String, enum: QA_STATUSES, nullable: true })
   status!: QaStatus | null;
+
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    enum: ['ASSESSOR', 'LEAD_ASSESSOR', 'TPB', 'PPU'],
+    example: 'TPB',
+    description:
+      'The reviewer role this view was built for (DD-T11). With `X-Acting-Role`, that role when it fits the round. Otherwise the caller role whose step the result is at, among the roles the caller holds: `pending` → `LEAD_ASSESSOR`, `pending_tpb_review` → `TPB`, `pending_ppu` / `unresolved` → `PPU`; a result that ended reads the role of the step that ended it. `null` for ADMIN without `X-Acting-Role`. `assessment`, `writable`, `decidable` and `choices` follow it',
+  })
+  reviewerRole!: string | null;
 }
 
 export class AssessmentCommentAuthorModel {
@@ -163,7 +173,7 @@ export class AssessmentThreadDecisionModel {
     type: String,
     example: 'escalate',
     description:
-      'A decision: the Lead\'s `agree_program` / `escalate`, the TPB\'s `tpb_agree_program` / `tpb_agree_assessor` (P2-3916), or the PPU\'s `ppu_done` (P2-3917)',
+      "A decision: the Lead's `agree_program` / `escalate`, the TPB's `tpb_agree_program` / `tpb_agree_assessor` (P2-3916), or the PPU's `ppu_done` (P2-3917)",
   })
   decision!: string;
 
@@ -560,14 +570,14 @@ export class AssessmentViewModel {
     isArray: true,
     enum: ['ASSESSOR', 'LEAD_ASSESSOR'],
     description:
-      'ADMIN only: the roles the Admin may act as on this result with the `X-Acting-Role` header (round 1: `ASSESSOR`; round 2: `LEAD_ASSESSOR`), when the timeline has that step. Absent for any other caller',
+      'ADMIN only: the roles the Admin may act as on this result with the `X-Acting-Role` header (round 1: `ASSESSOR`; round 2: `LEAD_ASSESSOR`, `TPB`, `PPU`), when the timeline has that step. Absent for any other caller',
   })
   actingRoles?: string[];
 
   @ApiPropertyOptional({
     type: String,
     nullable: true,
-    enum: ['ASSESSOR', 'LEAD_ASSESSOR'],
+    enum: ['ASSESSOR', 'LEAD_ASSESSOR', 'TPB', 'PPU'],
     description:
       'ADMIN only: the role this view was built for (the `X-Acting-Role` header that was honored); null when the Admin reads without one, or the role does not fit this result. `writable`, `decidable` and `choices` follow it. Absent for any other caller',
   })
