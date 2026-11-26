@@ -227,6 +227,32 @@ describe('AssessmentApi', () => {
     expect(await decided).toEqual(answer);
   });
 
+  it('TPB: decide PUTs a TPB choice with its required reason (P2-3916)', async () => {
+    const decided = firstValueFrom(api.decide(29, 9890, 41, 'tpb_agree_assessor', 'The assessor is right.'));
+    const req = http.expectOne(`${API}/timelines/29/results/9890/assessment/decisions/41`);
+    expect(req.request.method).toBe('PUT');
+    expect(req.request.body).toEqual({ decision: 'tpb_agree_assessor', body: 'The assessor is right.' });
+    req.flush({ success: true, data: decisionResultFixture({ decision: { decision: 'tpb_agree_assessor', body: 'The assessor is right.', decidedAt: '2026-11-30T10:00:00.000Z' } }), meta: meta() });
+    expect((await decided).decision?.decision).toBe('tpb_agree_assessor');
+  });
+
+  it('PPU: a Done with no note leaves `body` out of the request (a blank body is a 400, P2-3917 § 5)', async () => {
+    const done = firstValueFrom(api.decide(29, 9890, 41, 'ppu_done', null));
+    const req = http.expectOne(`${API}/timelines/29/results/9890/assessment/decisions/41`);
+    expect(req.request.method).toBe('PUT');
+    expect(req.request.body).toEqual({ decision: 'ppu_done' });
+    req.flush({ success: true, data: decisionResultFixture({ status: 'quality_assessed', decision: { decision: 'ppu_done', body: null, decidedAt: '2026-12-04T10:00:00.000Z' } }), meta: meta() });
+    expect((await done).status).toBe('quality_assessed');
+  });
+
+  it('PPU: a Done with a note sends it', async () => {
+    const done = firstValueFrom(api.decide(29, 9890, 41, 'ppu_done', 'Fixed in Reporting.'));
+    const req = http.expectOne(`${API}/timelines/29/results/9890/assessment/decisions/41`);
+    expect(req.request.body).toEqual({ decision: 'ppu_done', body: 'Fixed in Reporting.' });
+    req.flush({ success: true, data: decisionResultFixture(), meta: meta() });
+    await done;
+  });
+
   it('clearDecision DELETEs the same path with no body and unwraps decision: null', async () => {
     const answer = decisionResultFixture({ decision: null, validations: [] });
     const cleared = firstValueFrom(api.clearDecision(29, 9890, 41));

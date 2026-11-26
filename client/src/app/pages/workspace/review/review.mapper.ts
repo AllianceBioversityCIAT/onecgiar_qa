@@ -8,12 +8,13 @@ import {
   FieldLabels,
   AssessmentReadOnlyReason,
   CommentState,
-  LeadDecisionKind,
+  Decision,
+  DecisionKind,
   ProgramResponseKind,
   TOC_SECTION_KEY,
   ThreadItem,
 } from '../../../core/api/assessment.models';
-import { reviewerLabel } from '../../../core/api/acting-role';
+import { ActingRole, reviewerLabel } from '../../../core/api/acting-role';
 import { evidenceEntry } from '../../../core/domain/evidence-entry';
 import { fieldLabel } from '../../../core/domain/field-label';
 import { formatDay, romeInstantLabel, todayInRome } from '../../../core/domain/rome-date';
@@ -21,6 +22,7 @@ import { STATUS_LABELS, qaStatusPill } from '../results/qa-status';
 import type { CommentsDrawerMode, CommentsDrawerVm } from './review-comments-drawer';
 import {
   CardStatusVm,
+  DecisionNoteVm,
   FieldActions,
   FieldVm,
   ResultHeaderVm,
@@ -40,6 +42,46 @@ import type { FieldComment } from './review.mock';
 
 /** "Other fields": snapshot keys the catalog does not have, read only (FR-8). */
 export const OTHER_SECTION_KEY = 'other';
+
+/**
+ * Who reads the page, which decides what it offers: the round-1 assessor, the Lead (step 3), the TPB (step 4,
+ * P2-3916) or the PPU (step 5, P2-3917).
+ */
+export type ReviewerMode = 'assessor' | 'lead' | 'tpb' | 'ppu';
+
+const MODE_OF_ROLE: Readonly<Record<ActingRole, ReviewerMode>> = { ASSESSOR: 'assessor', LEAD_ASSESSOR: 'lead', TPB: 'tpb', PPU: 'ppu' };
+
+/**
+ * The reader of a view. The server names it in `header.reviewerRole` (front contract § 9.1, DD-T11): the role whose
+ * step the result is at among the caller's roles, so a Lead + TPB reads an escalated result as the TPB. `null` = no
+ * role (an Admin without Act as, or an acting role outside the round): the view is read only, and the thread alone
+ * shapes it. Absent (an older server) or unknown: the old inference below.
+ *
+ * Old inference: the Admin's acting role says it; else the thread tells it: only a PPU's items carry `tpbDecision`,
+ * only a TPB's or a PPU's carry `round` / `leadDecision` (the escalation read). A Lead's view carries neither: then
+ * `holdsLead` (the caller's Lead assignment) decides.
+ */
+export function reviewerModeOf(view: AssessmentView, acting: ActingRole | null, holdsLead: boolean): ReviewerMode {
+  const role = view.header.reviewerRole;
+  if (role === null) return threadMode(view, false);
+  if (role !== undefined && Object.hasOwn(MODE_OF_ROLE, role)) return MODE_OF_ROLE[role];
+  if (acting) return MODE_OF_ROLE[acting] ?? 'assessor';
+  return threadMode(view, holdsLead);
+}
+
+/** The thread's shape: a PPU's items, a TPB's items, else the Lead's when `holdsLead`. Round 1 is the assessor's. */
+function threadMode(view: AssessmentView, holdsLead: boolean): ReviewerMode {
+  if (view.round !== 2) return 'assessor';
+  const items = [...view.sections.flatMap((s) => s.fields), ...view.other].flatMap((f) => f.thread ?? []);
+  if (items.some((t) => t.tpbDecision !== undefined || t.choices.includes('ppu_done') || t.decision?.decision === 'ppu_done')) return 'ppu';
+  if (items.some((t) => t.round !== undefined || t.leadDecision !== undefined || t.choices.some(isTpbKind) || (t.decision && isTpbKind(t.decision.decision))))
+    return 'tpb';
+  return holdsLead ? 'lead' : 'assessor';
+}
+
+const isTpbKind = (kind: DecisionKind): boolean => kind === 'tpb_agree_program' || kind === 'tpb_agree_assessor';
+/** The TPB and the PPU judge the escalation: no check, no comment, no delete; decisions only (P2-3916 § 2, P2-3917 § 2). */
+const isJudge = (mode: ReviewerMode): mode is 'tpb' | 'ppu' => mode === 'tpb' || mode === 'ppu';
 
 /** One comment of a thread, by nickname only (FR-11). */
 export interface ReviewCommentVm extends FieldComment {
@@ -115,8 +157,16 @@ export interface ReviewVm {
   readonly commented: number;
   /** Assessed fields that are green. */
   readonly validated: number;
-  /** Finish is offered: writable and the assessment still pending (FR-15). */
+  /** Who reads the page: the round-1 assessor, the Lead, the TPB or the PPU. */
+  readonly mode: ReviewerMode;
+  /** Finish is offered: writable and the assessment still pending (FR-15). Never for the PPU (no Finish, P2-3917). */
   readonly canFinish: boolean;
+  /** Green writes and comments are offered (Check all, the comment form): never for the TPB nor the PPU. */
+  readonly canValidate: boolean;
+  /** The page counts what is still open for the caller (the footer's "N fields need your attention"). */
+  readonly tracksOpen: boolean;
+  /** Heading of the thread block in a card. */
+  readonly threadTitle: string;
   /**
    * Status the result takes if it is finished now, mirroring the server's `endOnFinish`: empty while Finish would
    * be refused (`finishBlockedBy`); returned while a core field is grey (and commented), and in step 1 also while
@@ -137,6 +187,20 @@ const ASSESSOR_INSTRUCTIONS =
   'Review each field against the assessor guidance. Mark it as validated, or leave a comment explaining what needs to change.';
 const READ_ONLY_INSTRUCTIONS =
   'This assessment is read only for you. You can read every field and its comments.';
+/** P2-3916: the TPB decides the escalated comments only. */
+const TPB_INSTRUCTIONS =
+  'Decide each comment the Lead escalated: side with the program or with the assessor, and say why. Finish when every one is decided.';
+/** P2-3917: the PPU closes the cases; there is no Finish. */
+const PPU_INSTRUCTIONS =
+  'Close each case the TPB sided with the assessor: mark it as done once it is solved. The last one closes the result as Quality Assessed.';
+/** The thread block's heading, by reader. */
+const THREAD_TITLES: Readonly<Record<ReviewerMode, string>> = {
+  assessor: 'Round 1 comments',
+  lead: 'Round 1 comments',
+  tpb: 'Escalated comments',
+  ppu: 'Cases',
+};
+
 /** The caller may write, but the page offers no write (`writes` off in `toReviewVm`). */
 const READING_INSTRUCTIONS =
   'Read each field against the assessor guidance. You can open the comments of a field.';
@@ -336,6 +400,8 @@ const UPDATED_LABEL = 'Updated';
  */
 function chips(f: AssessmentField): StateChip[] {
   const updated: StateChip[] = f.updated ? [{ kind: 'changes', label: UPDATED_LABEL, count: 0 }] : [];
+  // P2-3917: the Reporting value moved after the Lead and the TPB judged it. TODO(design): Juanpa — borrows "changes".
+  if (f.changedInReporting) updated.push({ kind: 'changes', label: `Changed in Reporting Tool on ${romeDay(f.changedInReporting.detectedAt)}`, count: 0 });
   if (!isAssessed(f)) return updated;
   const states: StateChip[] = [
     isGreen(f)
@@ -397,6 +463,8 @@ function cardStatus(f: AssessmentField, writable: boolean, id: string = f.key): 
  * is effectively green, so an agree here may end the review.
  */
 export interface LeadContext {
+  /** Who decides on this page (the TPB and the PPU read the escalation, P2-3916 / P2-3917). Absent = the Lead. */
+  readonly mode?: 'lead' | 'tpb' | 'ppu';
   readonly decide: boolean;
   readonly othersGreen: boolean;
   /** The page offers the delete of another reviewer's comment (`deleteOpen` and writes on). */
@@ -406,10 +474,30 @@ export interface LeadContext {
 }
 const NO_LEAD: LeadContext = { decide: false, othersGreen: false };
 
-const DECISION_LABELS: Readonly<Record<LeadDecisionKind, { readonly offer: string; readonly taken: string }>> = {
+const DECISION_LABELS: Readonly<Record<DecisionKind, { readonly offer: string; readonly taken: string }>> = {
   agree_program: { offer: 'Agree with the program', taken: 'Agreed with the program' },
   escalate: { offer: 'Escalate to TPB', taken: 'Escalated to TPB' },
+  tpb_agree_program: { offer: 'Agree with the program', taken: 'Agreed with the program' },
+  tpb_agree_assessor: { offer: 'Agree with the assessor', taken: 'Agreed with the assessor' },
+  ppu_done: { offer: 'Mark as done', taken: 'Done' },
 };
+/** A kind the page knows (a newer server may send another: it is not drawn rather than guessed). */
+const known = (kind: DecisionKind): boolean => Object.hasOwn(DECISION_LABELS, kind);
+/** The Lead's ruling as a TPB or a PPU reads it. */
+const LEAD_RULINGS: Readonly<Partial<Record<DecisionKind, string>>> = {
+  escalate: 'Escalated to TPB by the Lead',
+  agree_program: 'The Lead agreed with the program',
+};
+/** The TPB's decision as a PPU reads it. */
+const TPB_RULINGS: Readonly<Partial<Record<DecisionKind, string>>> = {
+  tpb_agree_assessor: 'TPB sided with the assessor',
+  tpb_agree_program: 'TPB sided with the program',
+};
+function decisionNote(d: Decision | undefined, labels: Readonly<Partial<Record<DecisionKind, string>>>): DecisionNoteVm | null {
+  if (!d) return null;
+  return { label: labels[d.decision] ?? d.decision, text: d.body ?? '', date: romeDay(d.decidedAt) };
+}
+
 /** The program's response as the drawer names it. */
 const RESPONSE_LABELS: Readonly<Record<ProgramResponseKind, string>> = {
   accept: 'Accepted',
@@ -425,12 +513,13 @@ const holdsGrey = (t: ThreadItem): boolean => t.decision?.decision === 'escalate
 /** The round-1 thread of an actionable core field, as the card shows it. Empty anywhere else. */
 function toThreadVm(f: AssessmentField, lead: LeadContext): ThreadItemVm[] {
   if (!isAssessed(f) || !f.thread?.length) return [];
+  const mode = lead.mode ?? 'lead';
   const now = formatValue(f);
   // The Lead's own escalated comment keeps the field grey too (contract § 3.2).
   const ownEscalate = f.comments.some((c) => c.decision?.decision === 'escalate');
   return f.thread.map((t, i, all) => {
     const then = formatValue({ value: t.valueCopy.value, labels: t.valueCopy.labels ?? f.labels, notApplicable: false, subfieldLists: f.subfieldLists });
-    const choices = lead.decide && t.decidable ? t.choices.map((kind) => ({ kind, label: DECISION_LABELS[kind].offer })) : [];
+    const choices = lead.decide && t.decidable ? t.choices.filter(known).map((kind) => ({ kind, label: DECISION_LABELS[kind].offer })) : [];
     return {
       commentId: t.commentId,
       who: reviewerLabel(t.author),
@@ -446,17 +535,26 @@ function toThreadVm(f: AssessmentField, lead: LeadContext): ThreadItemVm[] {
         answer: c.answer?.body ?? null,
         answeredOn: c.answer ? romeDay(c.answer.answeredAt) : '',
       })),
-      decision: t.decision
+      decision: t.decision && known(t.decision.decision)
         ? { kind: t.decision.decision, label: DECISION_LABELS[t.decision.decision].taken, text: t.decision.body ?? '', date: romeDay(t.decision.decidedAt) }
         : null,
       choices,
       pending: t.decidable && !t.decision,
-      own: false,
+      // The TPB and the PPU read the Lead's own escalated comment as a round-2 item.
+      own: mode !== 'lead' && t.round === 2,
+      mode,
+      lead: mode === 'lead' ? null : decisionNote(t.leadDecision, LEAD_RULINGS),
+      tpb: mode === 'ppu' ? decisionNote(t.tpbDecision, TPB_RULINGS) : null,
+      noteOptional: mode === 'ppu',
       // Contract § 4.4: not one the program answered, never one's own.
-      canDelete: lead.remove === true && !t.response && t.author.id !== (lead.me ?? null),
+      canDelete: mode === 'lead' && lead.remove === true && !t.response && t.author.id !== (lead.me ?? null),
       // Announced only, the server decides: agree greens the field once nothing else on it holds it grey.
       agreeEnds:
-        lead.othersGreen && !ownEscalate && choices.some((c) => c.kind === 'agree_program') && all.every((o, j) => j === i || !holdsGrey(o)),
+        mode === 'lead' &&
+        lead.othersGreen &&
+        !ownEscalate &&
+        choices.some((c) => c.kind === 'agree_program') &&
+        all.every((o, j) => j === i || !holdsGrey(o)),
     };
   });
 }
@@ -484,6 +582,10 @@ function toOwnVm(f: AssessmentField, lead: LeadContext): ThreadItemVm[] {
       pending: false,
       agreeEnds: false,
       own: true,
+      mode: 'lead' as const,
+      lead: null,
+      tpb: null,
+      noteOptional: false,
       canDelete: false,
     }));
 }
@@ -643,6 +745,7 @@ export function toTocVm(fields: readonly AssessmentField[], writable: boolean, l
 export function readOnlyBanner(
   reason: AssessmentReadOnlyReason | null,
   view: Pick<AssessmentView, 'assessment' | 'header'> & Pick<Partial<AssessmentView>, 'actingRoles'>,
+  mode: ReviewerMode = 'assessor',
 ): string | null {
   const step = view.header.step
     ? `Step ${view.header.step.position} · ${view.header.step.name}`
@@ -665,6 +768,9 @@ export function readOnlyBanner(
     case 'finished': {
       const a = view.assessment;
       const who = reviewerLabel(a?.assessedBy);
+      // P2-3917: the last Done closed the result by itself.
+      if (mode === 'ppu' && a?.status === 'quality_assessed')
+        return `Every case is done: ${who} closed the result as Quality Assessed${a.finishedAt ? ' on ' + romeDay(a.finishedAt) : ''}.`;
       return `Finished by ${who}${a?.finishedAt ? ' on ' + romeDay(a.finishedAt) : ''}.`;
     }
     default:
@@ -672,7 +778,7 @@ export function readOnlyBanner(
   }
 }
 
-export function toHeaderVm(view: AssessmentView, canAct: boolean = view.writable): ResultHeaderVm {
+export function toHeaderVm(view: AssessmentView, canAct: boolean = view.writable, mode: ReviewerMode = 'assessor'): ResultHeaderVm {
   const h = view.header;
   const pill = qaStatusPill(h.status);
   const a = view.assessment;
@@ -695,13 +801,17 @@ export function toHeaderVm(view: AssessmentView, canAct: boolean = view.writable
     showAssessedBy: ended,
     instructions: isAutoValidated(view)
       ? AUTO_VALIDATED_INSTRUCTIONS
+      : canAct && mode === 'tpb'
+        ? TPB_INSTRUCTIONS
+        : canAct && mode === 'ppu'
+          ? PPU_INSTRUCTIONS
       : canAct
         ? ASSESSOR_INSTRUCTIONS
         : view.writable
           ? READING_INSTRUCTIONS
           : READ_ONLY_INSTRUCTIONS,
     // Comments become visible to the program only when the assessment ends (FR-14, FR-15).
-    locked: canAct && !ended,
+    locked: canAct && !ended && !isJudge(mode),
     details: [
       { label: 'Science program', value: programName },
       { label: 'Timeline', value: h.timeline.name },
@@ -722,6 +832,27 @@ function finishOutcome(view: AssessmentView, assessed: readonly AssessmentField[
   return grey || returnsOnAnyComment(view) ? STATUS_LABELS.returned_to_program : STATUS_LABELS.quality_assessed;
 }
 
+/** TPB (P2-3916 § 5): Pending PPU once any item sides with the assessor, Quality Assessed when all side with the program. */
+function tpbOutcome(fields: readonly AssessmentField[]): string {
+  const assessor = fields.some((f) => (f.thread ?? []).some((t) => t.decision?.decision === 'tpb_agree_assessor'));
+  return assessor ? STATUS_LABELS.pending_ppu : STATUS_LABELS.quality_assessed;
+}
+
+/**
+ * The items a TPB or a PPU judges. TPB: the escalated comments (also once decided or finished). PPU: the cases, the
+ * items the TPB sided with the assessor on (also once Done).
+ */
+function isCase(t: ThreadItem, mode: 'tpb' | 'ppu' | ReviewerMode): boolean {
+  if (mode === 'ppu') return t.state === 'tpb_sided_assessor' || t.state === 'done' || t.decision?.decision === 'ppu_done';
+  return t.state === 'escalated' || t.state === 'tpb_sided_program' || t.state === 'tpb_sided_assessor' || (!!t.decision && isTpbKind(t.decision.decision));
+}
+
+/** Still waiting for the caller: an escalated item with no TPB decision; a case not Done. */
+function isOpenCase(t: ThreadItem, mode: ReviewerMode): boolean {
+  if (mode === 'ppu') return t.state === 'tpb_sided_assessor' && t.decision?.decision !== 'ppu_done';
+  return t.state === 'escalated' && !t.decision;
+}
+
 /**
  * `writes` off = the page shows what the API says but offers no write button (validate, comment, finish), even to
  * a caller who may write. The banner and `writable` still say what the API said.
@@ -730,7 +861,9 @@ function finishOutcome(view: AssessmentView, assessed: readonly AssessmentField[
  * `me`: the caller's user id. `leadCaller`: the caller reads this round-2 view as the Lead (the store tells it from the
  * Admin's acting role or the caller's Lead assignment); only then is a delete offered.
  */
-export function toReviewVm(view: AssessmentView, writes = true, me: number | null = null, leadCaller = false): ReviewVm {
+export function toReviewVm(view: AssessmentView, writes = true, me: number | null = null, reader: ReviewerMode | boolean = false): ReviewVm {
+  const mode: ReviewerMode = typeof reader === 'boolean' ? (reader ? 'lead' : 'assessor') : reader;
+  const leadCaller = mode === 'lead';
   const writable = view.writable;
   // Nothing is assessed on an auto-validated result, whatever the caller may write elsewhere.
   const auto = isAutoValidated(view);
@@ -741,9 +874,21 @@ export function toReviewVm(view: AssessmentView, writes = true, me: number | nul
   const assessed = view.sections.flatMap((s) => fieldsOf(s.fields)).filter(isAssessed);
   const greyCores = assessed.filter((f) => f.core && !isGreen(f)).map((f) => f.key);
   const remove = canAct && deleteOpen(view, leadCaller);
-  // What counts as done on a field: green or commented in round 1; green or escalated in round 2 (the Lead).
-  const resolved = roundTwo ? isDecided : isResolved;
-  const lead = (f: AssessmentField): LeadContext => ({ decide: writes && !auto, othersGreen: greyCores.every((k) => k === f.key), remove, me });
+  const judge = isJudge(mode);
+  // The TPB and the PPU write no check and no comment: the cards offer nothing, the threads take the decisions.
+  const cardAct = canAct && !judge;
+  // What counts as done on a field: green or commented in round 1; green or escalated in round 2 (the Lead); for the
+  // TPB / PPU, no escalated item or case left undecided on it.
+  const resolved = judge ? (f: AssessmentField) => !(f.thread ?? []).some((t) => isOpenCase(t, mode)) : roundTwo ? isDecided : isResolved;
+  // The TPB / PPU count only the fields that carry an escalated item / a case (the others are not theirs to judge).
+  const counted = judge ? assessed.filter((f) => (f.thread ?? []).some((t) => isCase(t, mode))) : assessed;
+  const lead = (f: AssessmentField): LeadContext => ({
+    mode: judge ? mode : 'lead',
+    decide: writes && !auto,
+    othersGreen: !judge && greyCores.every((k) => k === f.key),
+    remove,
+    me,
+  });
   const sections: ReviewSectionVm[] = view.sections.map((s) => {
     const isToc = s.key === TOC_SECTION_KEY;
     const fields = fieldsOf(s.fields);
@@ -751,8 +896,8 @@ export function toReviewVm(view: AssessmentView, writes = true, me: number | nul
       key: s.key,
       name: s.label,
       isToc,
-      fields: isToc ? [] : fields.map((f) => toFieldVm(f, canAct, lead(f))),
-      toc: isToc ? toTocVm(fields, canAct, lead) : null,
+      fields: isToc ? [] : fields.map((f) => toFieldVm(f, cardAct, lead(f))),
+      toc: isToc ? toTocVm(fields, cardAct, lead) : null,
       open: fields.filter((f) => isAssessed(f) && !resolved(f)).length,
     };
   });
@@ -768,19 +913,25 @@ export function toReviewVm(view: AssessmentView, writes = true, me: number | nul
   }
   // The server's refusal (`endOnFinish`): a grey core field with no non-withdrawn comment.
   // Round 2 (contract § 4.3): `ASSESSMENT_CORE_UNDECIDED`, a grey core field with no escalate.
-  const blocked = assessed.filter((f) => f.core && !resolved(f));
+  // TPB (P2-3916 § 6): `ASSESSMENT_CORE_UNDECIDED`, an escalated item with no TPB decision. The PPU has no Finish.
+  const blocked = mode === 'ppu' ? [] : assessed.filter((f) => f.core && !resolved(f));
   const finishBlockedBy = blocked.map((f) => f.label);
+  const pending = (view.assessment?.status ?? 'pending') === 'pending';
   return {
-    header: toHeaderVm(view, canAct),
+    header: toHeaderVm(view, canAct, mode),
     sections,
     writable,
-    banner: auto ? AUTO_VALIDATED_BANNER : readOnlyBanner(view.readOnlyReason, view),
-    resolved: assessed.filter(resolved).length,
-    total: assessed.length,
-    commented: assessed.filter((f) => openComments(f).length > 0).length,
+    banner: auto ? AUTO_VALIDATED_BANNER : readOnlyBanner(view.readOnlyReason, view, mode),
+    resolved: counted.filter(resolved).length,
+    total: counted.length,
+    commented: judge ? counted.length : assessed.filter((f) => openComments(f).length > 0).length,
     validated: assessed.filter(isGreen).length,
-    canFinish: canAct && (view.assessment?.status ?? 'pending') === 'pending',
-    finishTo: finishBlockedBy.length ? '' : finishOutcome(view, assessed),
+    canFinish: canAct && pending && mode !== 'ppu',
+    mode,
+    canValidate: cardAct && pending,
+    tracksOpen: canAct && pending,
+    threadTitle: THREAD_TITLES[mode],
+    finishTo: mode === 'ppu' || finishBlockedBy.length ? '' : judge ? tpbOutcome(counted) : finishOutcome(view, assessed),
     finishBlockedBy,
     finishBlockedFields: blocked.map((f) => ({ key: f.key, label: f.label })),
   };
@@ -794,6 +945,11 @@ export function toReviewVm(view: AssessmentView, writes = true, me: number | nul
  * Round 2 (Lead): why Finish is refused, in the words the page uses for the 409 `ASSESSMENT_CORE_UNDECIDED` (contract
  * § 4.3); empty when nothing blocks it.
  */
+/** TPB (P2-3916 § 6): why Finish is refused (`ASSESSMENT_CORE_UNDECIDED`); empty when nothing blocks it. */
+export function escalatedUndecidedMessage(names: readonly string[]): string {
+  return names.length ? `Decide the escalated comments first on: ${names.join(', ')}.` : '';
+}
+
 export function coreUndecidedMessage(names: readonly string[]): string {
   return names.length ? `Validate or escalate ${names.length === 1 ? 'this core field' : 'these core fields'} first: ${names.join(', ')}.` : '';
 }

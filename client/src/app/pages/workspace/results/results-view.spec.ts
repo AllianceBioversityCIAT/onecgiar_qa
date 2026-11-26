@@ -218,10 +218,46 @@ describe('ResultsView on the worklist API', () => {
     expect(text(harness)).toContain('Pending for TPB review');
   });
 
+  it('P2-3917: a PPU worklist shows Pending PPU and Unresolved and filters by them; the counters are the server\'s', async () => {
+    // For a PPU the server counts pending_ppu and unresolved as pending (P2-3917 contract § 1).
+    api.pageAnswer = () =>
+      of(page([row('1', { status: 'pending_ppu' }), row('2', { status: 'unresolved' })], { counters: { pending: 2, finished: 0, total: 2 } }));
+    const harness = await open('/results?status=pending_ppu,unresolved');
+    expect(api.last().query.status).toEqual(['pending_ppu', 'unresolved']);
+    expect(text(harness)).toContain('2 pending · 0 finished · 2 in this timeline');
+    expect(text(harness)).toContain('Pending PPU');
+    expect(text(harness)).toContain('Unresolved');
+  });
+
   it('the total says how many of them are auto-validated, and says nothing when none is (F-010)', async () => {
     api.pageAnswer = () => of(page([row('1')], { counters: { pending: 3, finished: 2, total: 7, autoValidated: 2 } }));
     const harness = await open('/results');
     expect(text(harness)).toContain('3 pending · 2 finished · 7 in this timeline, incl. 2 auto-validated');
+  });
+
+  it('counters.byStatus (front contract § 9.2): the round-2 statuses with results show their count, unfiltered; 0 says nothing', async () => {
+    const byStatus = {
+      pending: 3,
+      returned_to_program: 0,
+      clarification_requested: 1,
+      pending_tpb_review: 2,
+      pending_ppu: 1,
+      unresolved: 0,
+      quality_assessed: 1,
+      auto_validated: 2,
+    };
+    api.pageAnswer = () => of(page([row('1')], { counters: { pending: 3, finished: 5, total: 10, autoValidated: 2, byStatus } }));
+    const harness = await open('/results?status=pending');
+    expect(text(harness)).toContain('3 pending · 5 finished · 10 in this timeline, incl. 2 auto-validated');
+    expect(text(harness)).toContain('2 pending for TPB review · 1 pending PPU');
+    expect(text(harness)).not.toContain('unresolved');
+  });
+
+  it('no byStatus (older server): no round-2 counts', async () => {
+    api.pageAnswer = () => of(page([row('1')], { counters: { pending: 4, finished: 6, total: 10 } }));
+    const harness = await open('/results');
+    expect(text(harness)).not.toContain('pending for TPB review');
+    expect(text(harness)).not.toContain('pending PPU');
   });
 
   it('no auto-validated counter (or 0) keeps the plain total', async () => {

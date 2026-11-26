@@ -9,9 +9,11 @@ import {
   AssessmentField,
   AssessmentStatus,
   AssessmentView,
+  Decision,
+  DecisionKind,
   DecisionResult,
   CommentThread,
-  LeadDecisionKind,
+  LeadDecision,
   QuickComment,
   QuickCommentRole,
   ValidationSummary,
@@ -21,7 +23,7 @@ import { AuthSession } from '../../../core/auth/auth-session';
 import { ApiError, toApiError } from '../../../core/http/api-envelope';
 import { Toasts } from '../../../core/http/toasts';
 import { reloadAfterReplay } from '../../../core/http/write-events';
-import { toReviewVm } from './review.mapper';
+import { ReviewerMode, reviewerModeOf, toReviewVm } from './review.mapper';
 
 export type ReviewLoadState = 'loading' | 'ready' | 'error';
 
@@ -108,6 +110,19 @@ const DECISION_REFUSALS: Readonly<Record<string, { readonly message: string; rea
   [ASSESSMENT_ERROR.READ_ONLY]: { message: 'You can only read this review.', reread: true },
 };
 
+/** TPB / PPU wording where the Lead's would be wrong (P2-3916 § 6, P2-3917 § 6); any other code reads as for the Lead. */
+const JUDGE_REFUSALS: Readonly<Record<'tpb' | 'ppu', Readonly<Record<string, { readonly message: string; readonly reread: boolean }>>>> = {
+  tpb: {
+    [ASSESSMENT_ERROR.STEP_CLOSED]: { message: 'The TPB step is closed, so decisions can no longer change.', reread: true },
+    [ASSESSMENT_ERROR.NOT_FOUND]: { message: 'This comment is no longer on this result. The page now shows it as it is.', reread: true },
+  },
+  ppu: {
+    [ASSESSMENT_ERROR.FINISHED]: { message: 'This result is already closed. The page now shows its final state.', reread: true },
+    [ASSESSMENT_ERROR.DECISION_INVALID]: { message: 'This comment is not an open case any more. The page now shows it as it is.', reread: true },
+    [ASSESSMENT_ERROR.NOT_FOUND]: { message: 'This comment is no longer on this result. The page now shows it as it is.', reread: true },
+  },
+};
+
 /** What a refused delete says next to its control, by `error.code` (round-2 contract § 4.4, § 7). The view is read again. */
 const DELETE_REFUSALS: Readonly<Record<string, string>> = {
   [ASSESSMENT_ERROR.COMMENT_NOT_DELETABLE]:
@@ -161,7 +176,7 @@ export class ReviewStore implements OnDestroy {
   /** The page's view models, rebuilt from the API answer only (never by hand). */
   readonly vm = computed(() => {
     const view = this.view();
-    return view ? toReviewVm(view, true, this.me(), this.leadCaller()) : null;
+    return view ? toReviewVm(view, true, this.me(), this.mode()) : null;
   });
 
   /** Field keys with a green/grey write on its way (`ALL_FIELDS` for Check all / Uncheck all). */
@@ -206,20 +221,21 @@ export class ReviewStore implements OnDestroy {
   readonly switchingRole = signal(false);
   /** The caller's user id: only their own open comments can be withdrawn (FR-13). */
   readonly me = computed(() => this.session.user()?.id ?? null);
+  /** The caller reads this round-2 view as the Lead (`mode`). Drives the delete and the quick comments. */
+  readonly leadCaller = computed(() => this.mode() === 'lead');
   /**
-   * The caller reads this round-2 view as the Lead: the Admin acting as the Lead, or (no acting role) a caller who holds
-   * the Lead role for this result type. The view does not name a non-admin caller's reviewer role (contract § 2), and a
-   * TPB also writes on a round-2 view, so the assignment tells them apart. Drives the delete and the quick comments.
+   * Who reads the page (`reviewerModeOf`): the server's `header.reviewerRole` (front contract § 9.1). On an older server
+   * without it: the Admin's acting role; else, on a round-2 view, the thread (a PPU's items carry `tpbDecision`, a TPB's
+   * carry `round` / `leadDecision`); else the caller's Lead assignment for the type.
    */
-  readonly leadCaller = computed(() => {
+  readonly mode = computed<ReviewerMode>(() => {
     const view = this.view();
-    const acting = this.actingRole();
-    if (acting) return acting === 'LEAD_ASSESSOR';
-    if (view?.round !== 2) return false;
+    if (!view) return 'assessor';
     const type = view.header.resultType.key;
-    return (this.session.user()?.assignments ?? []).some(
+    const holdsLead = (this.session.user()?.assignments ?? []).some(
       (a) => a.role === 'LEAD_ASSESSOR' && (a.resultTypeKey === undefined || a.resultTypeKey === 'all' || a.resultTypeKey === type),
     );
+    return reviewerModeOf(view, this.actingRole(), holdsLead);
   });
 
   /** Only the newest load writes its answer (a quick switch of result never shows an older one). */
@@ -315,20 +331,25 @@ export class ReviewStore implements OnDestroy {
 
   /**
    * Round 2 with an escalated core field: the actionable core fields that are neither green nor escalated, in page
-   * order. `null` when nothing is escalated (Check all goes as `all`) or in round 1.
+   * order. `null` when nothing is escalated (Check all goes as `all`) or in round 1. `named`: the escalated fields the
+   * server named in a refusal (`error.fields`, front contract § 9.3); they count as escalated whatever the view shows.
    */
-  private checkAllKeys(): readonly string[] | null {
+  private checkAllKeys(named: readonly string[] = []): readonly string[] | null {
     const view = this.view();
     if (view?.round !== 2) return null;
     const cores = view.sections.flatMap((s) => s.fields).filter((f) => f.mode === 'assessed' && f.core && f.actionable !== false);
     const escalated = (f: AssessmentField) =>
+      named.includes(f.key) ||
       (f.thread ?? []).some((t) => t.decision?.decision === 'escalate') ||
       f.comments.some((c) => c.state !== 'withdrawn' && c.decision?.decision === 'escalate');
     if (!cores.some(escalated)) return null;
     return cores.filter((f) => !(f.effectiveValidated ?? f.validated) && !escalated(f)).map((f) => f.key);
   }
 
-  /** `retryEscalated`: a Check all (`all`) refused with `ASSESSMENT_FIELD_ESCALATED` reads the view and goes once by keys. */
+  /**
+   * `retryEscalated`: a Check all (`all`) refused with `ASSESSMENT_FIELD_ESCALATED` reads the view and goes once by keys,
+   * leaving out the fields the refusal names (`error.fields`); an older server names none, and the view tells them.
+   */
   private async validate(busyKey: string, body: ValidationsBody, retryEscalated = false): Promise<boolean> {
     const at = this.target();
     const busy = this.validating();
@@ -348,7 +369,7 @@ export class ReviewStore implements OnDestroy {
       if (retryEscalated && e.code === ASSESSMENT_ERROR.FIELD_ESCALATED) {
         // Still holding the busy mark: no second tap gets in while the view is read and the keys are sent.
         await this.reload();
-        const keys = this.still(at) ? this.checkAllKeys() : null;
+        const keys = this.still(at) ? this.checkAllKeys(e.fieldKeys) : null;
         if (keys && !keys.length) {
           this.toasts.info(NOTHING_TO_CHECK);
           return false;
@@ -529,13 +550,14 @@ export class ReviewStore implements OnDestroy {
    * read again: the answer carries no `effectiveValidated` and the other comments' `choices` may have changed. When the
    * call ended the review (`status` not `pending`), the page turns read only and says so.
    */
-  async decide(commentId: number, decision: LeadDecisionKind, body: string): Promise<DecisionOutcome> {
+  async decide(commentId: number, decision: DecisionKind, body: string): Promise<DecisionOutcome> {
     const text = body.trim();
-    if (!text) return this.decisionRefused(commentId, DECISION_EMPTY);
+    // A PPU's Done takes an optional comment (P2-3917 § 5): none = no `body`. Every other decision needs one.
+    if (!text && decision !== 'ppu_done') return this.decisionRefused(commentId, DECISION_EMPTY);
     const length = [...text].length;
     if (length > MAX_DECISION)
       return this.decisionRefused(commentId, `Keep the comment within 2,000 characters (it has ${length.toLocaleString('en-US')}).`);
-    return this.writeDecision(commentId, 'decide', (at) => this.api.decide(at.timelineId, at.resultCode, commentId, decision, text));
+    return this.writeDecision(commentId, 'decide', (at) => this.api.decide(at.timelineId, at.resultCode, commentId, decision, text || null));
   }
 
   /** Clears the Lead's decision on a comment (no decision = nothing changes). The view is read again after. */
@@ -565,7 +587,7 @@ export class ReviewStore implements OnDestroy {
       const e = toApiError(error);
       if (!this.still(at)) return { ok: false, message: e.message };
       if (e.status === 400 || e.status === 413 || e.status === 422) return this.decisionRefused(commentId, e.fields[0]?.message ?? e.message);
-      const known = DECISION_REFUSALS[e.code];
+      const known = (this.mode() === 'tpb' || this.mode() === 'ppu' ? JUDGE_REFUSALS[this.mode() as 'tpb' | 'ppu'][e.code] : undefined) ?? DECISION_REFUSALS[e.code];
       // The answer never arrived (status 0): the server may have done it, so the page reads what it holds.
       if (known?.reread || e.status === 0) await this.reload();
       return this.decisionRefused(commentId, known?.message ?? e.message);
@@ -617,7 +639,7 @@ export class ReviewStore implements OnDestroy {
                   }),
                 };
               if (f.comments.some((c) => c.id === commentId && c.decidable !== undefined))
-                return { ...f, comments: f.comments.map((c) => (c.id === commentId ? { ...c, decision: result.decision } : c)) };
+                return { ...f, comments: f.comments.map((c) => (c.id === commentId ? { ...c, decision: asLeadDecision(result.decision) } : c)) };
               return f;
             }),
           })),
@@ -691,7 +713,9 @@ export class ReviewStore implements OnDestroy {
             ? `Decide the round-1 comments first on: ${names.join(', ')}.`
             : message
           : // Check all by keys still refused (another escalate landed meanwhile, contract § 4.2): one by one.
-            'A core field is escalated to TPB, so Check all cannot run. Validate the other fields one by one.',
+            names.length
+            ? `Escalated to TPB: ${names.join(', ')}. Check all cannot run; validate the other fields one by one.`
+            : 'A core field is escalated to TPB, so Check all cannot run. Validate the other fields one by one.',
       );
     }
     return true;
@@ -780,7 +804,10 @@ export class ReviewStore implements OnDestroy {
    * caller's reviewer role (only `actingRole`, for an Admin), so the Lead is told by its assignment.
    */
   private quickRole(): QuickCommentRole {
-    return this.actingRole() ?? (this.leadCaller() ? LEAD_ROLE : WRITER_ROLE);
+    const acting = this.actingRole();
+    if (acting) return acting;
+    const mode = this.mode();
+    return mode === 'tpb' ? 'TPB' : mode === 'ppu' ? 'PPU' : mode === 'lead' ? LEAD_ROLE : WRITER_ROLE;
   }
 
   private target(): Target | null {
@@ -821,9 +848,17 @@ export class ReviewStore implements OnDestroy {
       if (reread) await this.reload();
       return;
     }
+    // Read before the reload: a TPB's `escalated` is Pending PPU, a PPU's last Done closes the result (P2-3916 / P2-3917).
+    const mode = this.mode();
     await this.reload();
     if (this.state() !== 'ready') return;
-    this.toasts.success(ENDED_MESSAGES[summary.status]);
+    this.toasts.success(
+      mode === 'tpb' && summary.status === 'escalated'
+        ? 'Assessment finished: Pending PPU.'
+        : mode === 'ppu' && summary.status === 'quality_assessed'
+          ? 'Every case is done: the result is now Quality Assessed.'
+          : ENDED_MESSAGES[summary.status],
+    );
   }
 
   private patchComments(fieldKey: string, change: (list: readonly AssessmentComment[]) => readonly AssessmentComment[]): void {
@@ -902,6 +937,11 @@ function withMarks(
   const carried = row === undefined && f.carried === true;
   const green = effective?.get(f.key) ?? row ?? (carried ? (f.effectiveValidated ?? false) : false);
   return { ...f, validated, effectiveValidated: green, carried: carried && green };
+}
+
+/** Only a Lead decides its own round-2 comment (contract § 3.2): any other kind there is none. */
+function asLeadDecision(decision: Decision | null): LeadDecision | null {
+  return decision && (decision.decision === 'agree_program' || decision.decision === 'escalate') ? (decision as LeadDecision) : null;
 }
 
 /** The label of a field of the view, by key. */

@@ -1,21 +1,33 @@
 // @akili-spec escalation/round-2
 import { Component, computed, inject, input, linkedSignal, signal } from '@angular/core';
 import { FormField, form } from '@angular/forms/signals';
-import { LeadDecisionKind } from '../../../core/api/assessment.models';
+import { DecisionKind } from '../../../core/api/assessment.models';
 import { QaButtonImports } from '../../../ui';
 import { ReviewDeleteComment } from './review-delete-comment';
 import { ThreadItemVm } from './review-model';
 import { ReviewStore } from './review-store';
 
+/** The editor's question, by decision (Lead step 3, TPB step 4, PPU step 5). */
+const EDITOR_TITLES: Readonly<Record<DecisionKind, string>> = {
+  agree_program: 'Why do you agree with the program?',
+  escalate: 'Why escalate to TPB?',
+  tpb_agree_program: 'Why side with the program?',
+  tpb_agree_assessor: 'Why side with the assessor?',
+  ppu_done: 'Note (optional)',
+};
+
 /** The decision being written: on which comment, which kind. */
 interface Editing {
   readonly commentId: number;
-  readonly kind: LeadDecisionKind;
+  readonly kind: DecisionKind;
 }
 
 /**
  * Round 2 (Lead, P2-3912): the round-1 thread of a core field inside its card, and the Lead's decision on each
  * comment ("Agree with the program" / "Escalate to TPB", a comment required; "Change" and "Clear" once decided).
+ * The TPB (P2-3916) reads the escalated comments with the Lead's reason and sides with the program or the assessor
+ * (reason required); the PPU (P2-3917) reads the cases with the TPB's decision and marks each Done (note optional,
+ * "Undo" while the result is open). Same block, the words follow `item.mode`.
  * Controls follow the view model only (`choices`, which the mapper takes from the server's `decidable` / `choices`);
  * every write and its refusal live in `ReviewStore`. This component holds only the open editor and its text.
  *
@@ -46,6 +58,8 @@ export class ReviewLeadThread {
     computation: (now, previous) => (previous?.value ?? false) || now,
   });
   protected readonly pendingCount = computed(() => this.items().filter((i) => i.pending).length);
+  /** The PPU's cases are "open"; the Lead's and the TPB's comments are "to decide". */
+  protected readonly pendingWord = computed(() => (this.items()[0]?.mode === 'ppu' ? 'open' : 'to decide'));
   protected readonly errors = this.store.decisionErrors;
 
   /** "Change" pressed on a decided comment: its choices show again. */
@@ -63,7 +77,7 @@ export class ReviewLeadThread {
   /** Any decision of the page is on its way: the other controls wait (the store refuses a second write anyway). */
   protected readonly anyBusy = computed(() => this.store.deciding() !== null);
 
-  protected start(item: ThreadItemVm, kind: LeadDecisionKind): void {
+  protected start(item: ThreadItemVm, kind: DecisionKind): void {
     this.editing.set({ commentId: item.commentId, kind });
     // Changing to the same kind keeps the text the Lead wrote; another kind starts empty.
     this.draft.set({ text: item.decision?.kind === kind ? item.decision.text : '' });
@@ -101,11 +115,17 @@ export class ReviewLeadThread {
     return item.choices.length > 0 && !this.isEditing(item) && (!item.decision || this.changing() === item.commentId);
   }
 
-  protected editorTitle(kind: LeadDecisionKind): string {
-    return kind === 'agree_program' ? 'Why do you agree with the program?' : 'Why escalate to TPB?';
+  protected editorTitle(kind: DecisionKind): string {
+    return EDITOR_TITLES[kind];
   }
 
-  protected saveLabel(item: ThreadItemVm, kind: LeadDecisionKind): string {
+  protected saveLabel(item: ThreadItemVm, kind: DecisionKind): string {
+    if (kind === 'ppu_done') return 'Mark as done';
     return kind === 'agree_program' && item.agreeEnds ? 'Agree and finish' : 'Save decision';
+  }
+
+  /** The decided state reads red when it keeps the field grey (escalated, or the TPB sided with the assessor). */
+  protected againstProgram(kind: DecisionKind): boolean {
+    return kind === 'escalate' || kind === 'tpb_agree_assessor';
   }
 }

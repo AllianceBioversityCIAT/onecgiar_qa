@@ -130,12 +130,21 @@ export interface WorklistRow {
 
 export interface WorklistCounters {
   readonly pending: number;
-  /** `quality_assessed` + `returned_to_program` + `clarification_requested`, and `pending_tpb_review` (round 2). */
+  /**
+   * Counted by the server per caller role: `quality_assessed` + `returned_to_program` + `clarification_requested`, and
+   * `pending_tpb_review` for a Lead. A TPB counts `pending_tpb_review` as pending; a PPU counts `pending_ppu` and
+   * `unresolved` as pending (P2-3916 / P2-3917 contracts § 1).
+   */
   readonly finished: number;
   /** Every membership in scope, Auto-validated included (F-010, 24-nov-2026). Beyond § 6. */
   readonly total: number;
   /** How many of `total` are Auto-validated KPs (not in `pending` nor `finished`). Absent on an older server. */
   readonly autoValidated?: number;
+  /**
+   * The memberships of `total` by QA status, every status present (0 when none); the filters, the search and the page
+   * do not change it (front contract § 9.2). Absent on an older server.
+   */
+  readonly byStatus?: Readonly<Record<QaStatus, number>>;
 }
 
 export interface Worklist {
@@ -195,21 +204,32 @@ export interface AssessmentComment {
 
 // ── Round 2: the Lead's decisions and the round-1 thread (round-2 contract § 3.1, § 4.1) ──
 
-/** What a Lead decides on a comment. TPB and PPU decisions are designed only, not accepted by the server. */
+/** What a Lead decides on a comment (step 3). */
 export type LeadDecisionKind = 'agree_program' | 'escalate';
+/** What a TPB decides on an escalated comment (step 4, P2-3916 contract § 5): the reason is required. */
+export type TpbDecisionKind = 'tpb_agree_program' | 'tpb_agree_assessor';
+/** What a PPU marks on a case (step 5, P2-3917 contract § 5): Done, the comment optional. */
+export type PpuDecisionKind = 'ppu_done';
+/** Any decision the route takes; the server offers the caller's own in `choices`. */
+export type DecisionKind = LeadDecisionKind | TpbDecisionKind | PpuDecisionKind;
 
-/** Body of `PUT …/assessment/decisions/:commentId`. `body` is trimmed by the server, 1 to 2,000 characters. */
-export interface LeadDecisionBody {
-  readonly decision: LeadDecisionKind;
-  readonly body: string;
+/**
+ * Body of `PUT …/assessment/decisions/:commentId`. `body` is trimmed by the server, 1 to 2,000 characters; required
+ * for a Lead or TPB decision, optional for `ppu_done` (left out = no comment; a blank string is a 400).
+ */
+export interface DecisionBody {
+  readonly decision: DecisionKind;
+  readonly body?: string;
 }
 
-/** A Lead's decision on a comment as the server stored it (thread items, own comments, the decision answer). */
-export interface LeadDecision {
-  readonly decision: LeadDecisionKind;
+/** A decision on a comment as the server stored it (thread items, own comments, the decision answer). */
+export interface Decision<K extends DecisionKind = DecisionKind> {
+  readonly decision: K;
   readonly body: string | null;
   readonly decidedAt: string;
 }
+/** A Lead's decision (own comments, `leadDecision` of a TPB / PPU thread item). */
+export type LeadDecision = Decision<LeadDecisionKind>;
 
 /** The program's latest response inside a round-2 thread: the responder is named, never an email. */
 export interface ThreadResponse {
@@ -235,8 +255,8 @@ export interface ThreadItem {
   readonly response?: ThreadResponse;
   /** Every request with its answer, oldest first. */
   readonly clarifications: readonly CommentClarification[];
-  /** The Lead's current decision; absent when none (kept after the end). */
-  readonly decision?: LeadDecision;
+  /** The reading role's current decision (the Lead's; the TPB's for a TPB; the PPU's Done for a PPU); absent when none. */
+  readonly decision?: Decision;
   /**
    * This caller may decide it now. Already folds in the end of the review and a read-only view (`false` then): gate
    * every decision control on it alone, never combined with `writable`.
@@ -246,7 +266,13 @@ export interface ThreadItem {
    * Exactly the decisions to offer: `[]` when not decidable, always for an ADMIN and after the end; `['escalate']`
    * while ANOTHER live comment on the field carries an `escalate`. Never add `agree_program` back (409).
    */
-  readonly choices: readonly LeadDecisionKind[];
+  readonly choices: readonly DecisionKind[];
+  /** TPB and PPU views only: 1 for an assessor's round-1 comment, 2 for the Lead's own escalated one. */
+  readonly round?: 1 | 2;
+  /** TPB and PPU views only: the Lead's ruling; on an escalated item `body` is the Lead's reason. Absent when none. */
+  readonly leadDecision?: LeadDecision;
+  /** PPU view only: the TPB's decision and its justification. Absent when none. */
+  readonly tpbDecision?: Decision<TpbDecisionKind>;
 }
 
 export interface AssessmentField {
@@ -279,6 +305,11 @@ export interface AssessmentField {
   readonly carried?: boolean;
   /** The round-1 thread of a core field. Round 1: `[]`. */
   readonly thread?: readonly ThreadItem[];
+  /**
+   * P2-3917: the field's Reporting value differs from the one the Lead and the TPB judged ("Changed in Reporting Tool
+   * on <detectedAt>"). Absent otherwise, and before step 5.
+   */
+  readonly changedInReporting?: { readonly detectedAt: string };
 }
 
 /** Key of the Theory of Change section: always sent complete, whatever the field configuration (FR-9). */
@@ -308,6 +339,12 @@ export interface AssessmentView {
     readonly timeline: { readonly id: number; readonly name: string };
     readonly step: { readonly position: number; readonly name: string } | null;
     readonly status: QaStatus;
+    /**
+     * The reviewer role the view was built for (front contract § 9.1, DD-T11): the role whose step the result is at,
+     * among the caller's roles (an Admin: the acting role when it fits the round). `null` = no role (an Admin without
+     * Act as, or an acting role outside the round): read only. Absent on an older server.
+     */
+    readonly reviewerRole?: ActingRole | null;
   };
   readonly sections: readonly AssessmentSection[];
   /** Snapshot keys missing from the catalog, read only. */
@@ -342,7 +379,7 @@ export interface ValidationSummary extends AssessmentSummary {
  * (`null` after a clear). `status` tells whether the call ended the review; `effectiveValidated` is absent here.
  */
 export interface DecisionResult extends ValidationSummary {
-  readonly decision: LeadDecision | null;
+  readonly decision: Decision | null;
 }
 
 // ── Quick comments (§ 7) ────────────────────────────────────────────────────

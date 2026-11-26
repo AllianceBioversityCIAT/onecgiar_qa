@@ -34,6 +34,7 @@ const GENDER: AiSuggestionView = {
 class FakeReviewStore {
   readonly view = signal<AssessmentView | null>(null);
   readonly timelineId = signal<number | null>(null);
+  readonly mode = signal<'assessor' | 'lead' | 'tpb' | 'ppu'>('assessor');
 }
 
 function setup(views: AiSuggestionView[] = [GENDER, RESULT_CATEGORY_VIEW, USE_NUMBERS_VIEW]) {
@@ -231,6 +232,31 @@ describe('ReviewAiHook (P2-3918 plan A)', () => {
       const { hook } = await loaded();
       expect(hook.readOnlyFor('general.gender_tag')).toBe(false);
     });
+  });
+
+  it('TPB (P2-3916): a writable page is still read only for the AI, and no usage event goes out', async () => {
+    const s = setup();
+    s.review.mode.set('tpb');
+    s.review.timelineId.set(27);
+    s.review.view.set(aiView(true));
+    TestBed.tick();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(s.hook.readOnlyFor('general.gender_tag')).toBe(true);
+    expect(s.hook.chip('general.gender_tag')).not.toBeNull();
+    s.hook.shown('general.gender_tag');
+    expect(s.events).toEqual([]);
+  });
+
+  it('PPU (P2-3917): the suggestions are never read and no chip is drawn', async () => {
+    const s = setup();
+    s.review.mode.set('ppu');
+    s.review.timelineId.set(27);
+    s.review.view.set(aiView(true));
+    TestBed.tick();
+    await Promise.resolve();
+    expect(s.lists).toEqual([]);
+    expect(s.hook.chip('general.gender_tag')).toBeNull();
   });
 
   it('shown is posted once per suggestion', async () => {

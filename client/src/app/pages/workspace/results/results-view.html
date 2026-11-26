@@ -94,7 +94,7 @@
         <p class="m-0 text-(length:--fs-13) text-(--text-3) tabular-nums" aria-live="polite">
           <span class="font-semibold text-(--text-2)">{{ store.counters().pending }}</span> pending ·
           <span class="font-semibold text-(--text-2)">{{ store.counters().finished }}</span> finished ·
-          <span class="font-semibold text-(--text-2)">{{ store.counters().total }}</span> in this timeline@if (store.counters().autoValidated; as auto) {, <span class="whitespace-nowrap">incl. <span class="font-semibold text-(--text-2)">{{ auto }}</span> auto-validated</span>}
+          <span class="font-semibold text-(--text-2)">{{ store.counters().total }}</span> in this timeline@if (store.counters().autoValidated; as auto) {, <span class="whitespace-nowrap">incl. <span class="font-semibold text-(--text-2)">{{ auto }}</span> auto-validated</span>}@for (c of roundTwoCounts(); track c.key) { · <span class="whitespace-nowrap"><span class="font-semibold text-(--text-2)">{{ c.count }}</span> {{ c.label }}</span>}
         </p>
 
         @if (rows().length) {

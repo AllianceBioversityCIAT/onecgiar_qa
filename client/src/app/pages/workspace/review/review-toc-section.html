@@ -76,7 +76,7 @@
           }
           <!-- Round 2 (Lead): the round-1 thread and own comments of a ToC core field, on its first card. TODO(design): Juanpa -->
           @if (card.leadThread?.length) {
-            <qa-review-lead-thread [items]="card.leadThread!" [fieldLabel]="card.eyebrow" [open]="!!card.threadOpen" />
+            <qa-review-lead-thread [items]="card.leadThread!" [fieldLabel]="card.eyebrow" [open]="!!card.threadOpen" [title]="threadTitle()" />
           }
           @if (card.leadOwn?.length) {
             <qa-review-lead-thread [items]="card.leadOwn!" [fieldLabel]="card.eyebrow" [open]="true" title="Your comments in this round" testId="lead-own" />

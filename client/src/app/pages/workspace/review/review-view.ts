@@ -20,7 +20,7 @@ import { ALL_FIELDS, ReviewStore } from './review-store';
 import { AiReasonDialog } from './ai/ai-reason-dialog';
 import { AiReasonAsk, REVIEW_AI_PROVIDERS, ReviewAiHook } from './ai/review-ai-hook';
 import { ReviewTocSection, TocCardAction } from './review-toc-section';
-import { PendingAnswer, coreUncommentedMessage, coreUndecidedMessage, deleteOpen, findField, pendingAnswers, pendingAnswersBanner, returnsOnAnyComment, toDrawerVm, withPendingAnswers, withdrawOpen } from './review.mapper';
+import { PendingAnswer, coreUncommentedMessage, coreUndecidedMessage, deleteOpen, escalatedUndecidedMessage, findField, pendingAnswers, pendingAnswersBanner, returnsOnAnyComment, toDrawerVm, withPendingAnswers, withdrawOpen } from './review.mapper';
 import { QA_GUIDANCE } from './qa-guidance';
 
 /** The review area stacks its navigator on top below this width (container). */
@@ -140,8 +140,14 @@ export class ReviewView {
    */
   protected readonly finishBlocked = computed(() => {
     const names = this.vm()?.finishBlockedBy ?? [];
-    return this.store.view()?.round === 2 ? coreUndecidedMessage(names) : coreUncommentedMessage(names);
+    return this.undecidedMessage(names);
   });
+  /** Why Finish cannot go yet, in the reader's words: round 1 "validate or comment", the Lead "validate or escalate", the TPB "decide". */
+  private undecidedMessage(names: readonly string[]): string {
+    if (this.store.mode() === 'tpb') return escalatedUndecidedMessage(names);
+    return this.store.view()?.round === 2 ? coreUndecidedMessage(names) : coreUncommentedMessage(names);
+  }
+
   /** The fields named under the footer's reason: the server's refusal first, else the ones the page already knows. */
   protected readonly blockedFields = computed(() =>
     this.finishError() ? this.finishErrorFields() : this.finishBlocked() ? (this.vm()?.finishBlockedFields ?? []) : [],
@@ -177,8 +183,11 @@ export class ReviewView {
     validate(f.text, ({ value }) => (value().trim() ? null : requiredError({ message: 'Write a comment before adding it.' })));
   });
   protected readonly focusTick = signal(0);
-  /** The comment form shows while the caller writes on a pending assessment; otherwise the thread is read only. */
-  private readonly drawerMode = computed<CommentsDrawerMode>(() => (this.vm()?.canFinish ? 'comment' : 'read'));
+  /**
+   * The comment form shows while the caller writes on a pending assessment; otherwise the thread is read only. The TPB
+   * and the PPU never comment (403 `ASSESSMENT_READ_ONLY`).
+   */
+  private readonly drawerMode = computed<CommentsDrawerMode>(() => (this.vm()?.canValidate ? 'comment' : 'read'));
   protected readonly drawerField = computed<CommentsDrawerVm | null>(() => {
     const view = this.store.view();
     const key = this.drawerKey();
@@ -456,7 +465,13 @@ export class ReviewView {
       const fields = outcome.coreKeys.map((key) => ({ key, label: (view ? findField(view, key)?.field.label : null) ?? key }));
       const names = fields.map((f) => f.label);
       this.finishErrorFields.set(fields);
-      this.finishError.set(outcome.code === 'ASSESSMENT_CORE_UNDECIDED' ? coreUndecidedMessage(names) : coreUncommentedMessage(names));
+      this.finishError.set(
+        outcome.code === 'ASSESSMENT_CORE_UNDECIDED'
+          ? this.store.mode() === 'tpb'
+            ? escalatedUndecidedMessage(names)
+            : coreUndecidedMessage(names)
+          : coreUncommentedMessage(names),
+      );
       return;
     }
     this.finishError.set(outcome.message);

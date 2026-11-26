@@ -772,6 +772,30 @@ describe('ReviewStore actions (T-20)', () => {
         expect(toasts.error).not.toHaveBeenCalled();
       });
 
+      it('Check all refused with error.fields (front contract § 9.3): the retry leaves out the fields the server named, even if the view read again does not show them yet', async () => {
+        const greyTitle = () => withField('general.title', (f) => ({ ...f, effectiveValidated: false, carried: false }));
+        api.view.mockReturnValue(of(greyTitle()));
+        await store.load('9890', '29');
+        api.setValidations
+          .mockReturnValueOnce(refusal(409, 'ASSESSMENT_FIELD_ESCALATED', 'raw', ['general.description']))
+          .mockReturnValueOnce(of(summary({ validations: [{ fieldKey: 'general.title', validated: true }] })));
+        expect(await store.setAllValidated(true)).toBe(true);
+        expect(api.setValidations.mock.calls.map((c) => c[2])).toEqual([
+          { validated: true, all: true },
+          { validated: true, fieldKeys: ['general.title'] },
+        ]);
+        expect(toasts.error).not.toHaveBeenCalled();
+      });
+
+      it('Check all by keys still refused with error.fields: the toast names those fields and each card says why', async () => {
+        api.view.mockReturnValue(of(escalatedView()));
+        await store.load('9890', '29');
+        api.setValidations.mockReturnValueOnce(refusal(409, 'ASSESSMENT_FIELD_ESCALATED', 'raw', ['general.title']));
+        expect(await store.setAllValidated(true)).toBe(false);
+        expect(toasts.error).toHaveBeenCalledWith('Escalated to TPB: Title of Result. Check all cannot run; validate the other fields one by one.');
+        expect(store.fieldErrors().get('general.title')).toBe('This field is escalated to TPB, so it cannot be validated.');
+      });
+
       it('Uncheck all is never refused by an escalate: it stays one request for every field', async () => {
         api.view.mockReturnValue(of(escalatedView()));
         await store.load('9890', '29');

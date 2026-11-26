@@ -15,14 +15,16 @@ import type { Person } from './assessment.models';
  * interceptor adds the header only to those routes, only for the result the pick was made on.
  */
 
-/** The roles an Admin can act as today (TPB and PPU join when their steps exist). */
-export type ActingRole = 'ASSESSOR' | 'LEAD_ASSESSOR';
+/** The roles an Admin can act as: the four reviewer roles (TPB: P2-3916, PPU: P2-3917). The server offers them per result. */
+export type ActingRole = 'ASSESSOR' | 'LEAD_ASSESSOR' | 'TPB' | 'PPU';
 
 export const ACTING_ROLE_HEADER = 'X-Acting-Role';
 
 export const ACTING_ROLE_LABELS: Readonly<Record<ActingRole, string>> = {
   ASSESSOR: 'Assessor',
   LEAD_ASSESSOR: 'Lead Assessor',
+  TPB: 'TPB',
+  PPU: 'PPU',
 };
 
 export interface ActingPick {

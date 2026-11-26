@@ -9,9 +9,9 @@ import {
   AssessmentRelease,
   AssessmentView,
   CommentThread,
+  DecisionBody,
+  DecisionKind,
   DecisionResult,
-  LeadDecisionBody,
-  LeadDecisionKind,
   QuickComment,
   QuickCommentRole,
   ReleaseRetryResult,
@@ -33,7 +33,7 @@ import {
  * - validations: setting a field to the state it already has changes nothing, so a replay is safe;
  * - comment create: the server honors `Idempotency-Key` (the interceptor sends one per submit);
  * - quick comment save: the same text answers 200 with the existing entry.
- * - a Lead's decision and its clear (round 2): a PUT / DELETE on one path, the same call twice gives the same state
+ * - a decision and its clear (round 2: Lead, TPB, PPU): a PUT / DELETE on one path, the same call twice gives the same state
  *   (clearing where there is none succeeds and changes nothing), and a later write of the timeline waits behind it.
  * Finish, withdraw, the clarification answer, the release retry and deleting a comment stay
  * out (`NO_QUEUE`): a lost answer may mean it already happened (a replay would be 409 `ASSESSMENT_FINISHED` /
@@ -147,10 +147,10 @@ export class AssessmentApi {
       .pipe(unwrap<ValidationSummary>());
   }
 
-  // ── Round 2: the Lead's decisions and deletes (round-2 contract § 4) ──
+  // ── Round 2: the decisions (Lead, TPB, PPU) and the Lead's deletes (round-2 contract § 4) ──
 
   /**
-   * The Lead's decision on a comment; a second PUT replaces it. Queued for replay like the validations: the route
+   * A reviewer's decision on a comment (Lead, TPB, or a PPU's Done); a second PUT replaces it. Queued for replay like the validations: the route
    * reads no `Idempotency-Key`, but the same body twice gives the same state, so a replay is safe. The answer may end the review (`status`); it
    * carries no `effectiveValidated`, so re-read the view when every field matters.
    */
@@ -158,11 +158,13 @@ export class AssessmentApi {
     timelineId: number,
     resultCode: number,
     commentId: number,
-    decision: LeadDecisionKind,
-    body: string,
+    decision: DecisionKind,
+    body: string | null,
   ): Observable<DecisionResult> {
+    // A PPU's Done may carry no comment: `body` is then left out (a blank string is a 400).
+    const sent: DecisionBody = body === null ? { decision } : { decision, body };
     return this.http
-      .put<ApiEnvelope<DecisionResult>>(this.decisionUrl(timelineId, resultCode, commentId), { decision, body } satisfies LeadDecisionBody, {
+      .put<ApiEnvelope<DecisionResult>>(this.decisionUrl(timelineId, resultCode, commentId), sent, {
         context: this.silent(`Decide a comment of ${resultCode}`),
       })
       .pipe(unwrap<DecisionResult>());
