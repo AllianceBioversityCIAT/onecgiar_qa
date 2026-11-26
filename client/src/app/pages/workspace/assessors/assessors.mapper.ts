@@ -58,27 +58,47 @@ function typesOf(grant: RoleGrant | undefined, cat: TeamCatalogs): string[] {
 }
 
 /**
- * The one role the screen shows (design D2), most powerful first. Assessor + Lead on different types
- * collapse into "Assessor, leads them all": `otherRoles` then flags that saving would change grants.
+ * The role the screen shows, most powerful first, plus the result types of each type role
+ * (P2-4107): any ASSESSOR grant = "Assessor"; only LEAD_ASSESSOR = "Lead assessor". The two never
+ * share a type (server rule D2), so both lists are shown and edited exactly.
  */
-function roleOf(grants: readonly RoleGrant[], cat: TeamCatalogs): { role: TeamRole; lead: boolean; types: string[]; noRole: boolean } {
+function roleOf(
+  grants: readonly RoleGrant[],
+  cat: TeamCatalogs,
+): { role: TeamRole; lead: boolean; assessTypes: string[]; leadTypes: string[]; noRole: boolean } {
   const byCode = (code: string) => grants.find((g) => g.role === code);
-  if (byCode('ADMIN')) return { role: 'QA lead', lead: false, types: [], noRole: false };
+  const none = { lead: false, assessTypes: [], leadTypes: [], noRole: false };
+  if (byCode('ADMIN')) return { ...none, role: 'QA lead' };
   const lead = byCode('LEAD_ASSESSOR');
-  if (lead?.resultTypes === 'all') return { role: 'Lead assessor', lead: true, types: [], noRole: false };
   const assessor = byCode('ASSESSOR');
   if (lead || assessor) {
-    const types = [...new Set([...typesOf(lead, cat), ...typesOf(assessor, cat)])];
-    return { role: 'Assessor', lead: !!lead, types, noRole: false };
+    return {
+      role: assessor ? 'Assessor' : 'Lead assessor',
+      lead: !!lead,
+      assessTypes: typesOf(assessor, cat),
+      leadTypes: typesOf(lead, cat),
+      noRole: false,
+    };
   }
-  if (byCode('TPB')) return { role: 'Third-party broker', lead: false, types: [], noRole: false };
-  if (byCode('PPU')) return { role: 'PPU', lead: false, types: [], noRole: false };
+  if (byCode('TPB')) return { ...none, role: 'Third-party broker' };
+  if (byCode('PPU')) return { ...none, role: 'PPU' };
   // No grant at all: the form needs a role to edit, but the screen says "No role" (nothing invented).
-  return { role: 'Assessor', lead: false, types: [], noRole: true };
+  return { ...none, role: 'Assessor', noRole: true };
 }
 
-/** UI role → API grants. Never Assessor and Lead on the same type (the server answers 409). */
-export function rolesFor(role: TeamRole, lead: boolean, typeNames: readonly string[], cat: TeamCatalogs): RoleGrant[] {
+/** Catalog keys of the names; every catalog type = `'all'` (also covers types added later). */
+function scopeOf(names: readonly string[], cat: TeamCatalogs): AllOr<string> {
+  const keys = [...new Set(names.map((n) => keyOfType(n, cat)))];
+  const everyType = cat.types.length > 0 && cat.types.every((t) => keys.includes(t.key));
+  return everyType ? 'all' : keys;
+}
+
+/**
+ * UI role → API grants. Assessor and Lead assessor send one grant per role that has types, each
+ * with its own types (P2-4107). Never the same type in both (the server answers 409): a type in
+ * both lists stays on the lead side; the store refuses that case before getting here.
+ */
+export function rolesFor(role: TeamRole, assessTypes: readonly string[], leadTypes: readonly string[], cat: TeamCatalogs): RoleGrant[] {
   switch (role) {
     case 'QA lead':
       return [{ role: 'ADMIN' }];
@@ -86,17 +106,38 @@ export function rolesFor(role: TeamRole, lead: boolean, typeNames: readonly stri
       return [{ role: 'TPB' }];
     case 'PPU':
       return [{ role: 'PPU' }];
-    case 'Lead assessor':
-      return [{ role: 'LEAD_ASSESSOR', resultTypes: 'all' }];
-    case 'Assessor': {
-      const keys = [...new Set(typeNames.map((n) => keyOfType(n, cat)))];
-      if (!keys.length) return [];
-      // Lead on every type stays a list: 'all' would turn this person into the "Lead assessor" role.
-      const everyType = !lead && cat.types.length > 0 && cat.types.every((t) => keys.includes(t.key));
-      const resultTypes: AllOr<string> = everyType ? 'all' : keys;
-      return [{ role: lead ? 'LEAD_ASSESSOR' : 'ASSESSOR', resultTypes }];
+    case 'Assessor':
+    case 'Lead assessor': {
+      const assess = assessTypes.filter((t) => !leadTypes.includes(t));
+      const grants: RoleGrant[] = [];
+      if (assess.length) grants.push({ role: 'ASSESSOR', resultTypes: scopeOf(assess, cat) });
+      if (leadTypes.length) grants.push({ role: 'LEAD_ASSESSOR', resultTypes: scopeOf(leadTypes, cat) });
+      return grants;
     }
   }
+}
+
+/**
+ * Changing the role between Assessor and Lead assessor keeps the result types the person covers:
+ * they all move to the new role (P2-4107: it used to widen the scope to all types). Other roles
+ * leave the lists alone (they are not sent for global roles).
+ */
+export function typesForRole(
+  role: TeamRole,
+  assessTypes: readonly string[],
+  leadTypes: readonly string[],
+): { assessTypes: string[]; leadTypes: string[] } {
+  const all = [...new Set([...assessTypes, ...leadTypes])];
+  if (role === 'Assessor') return { assessTypes: all, leadTypes: [] };
+  if (role === 'Lead assessor') return { assessTypes: [], leadTypes: all };
+  return { assessTypes: [...assessTypes], leadTypes: [...leadTypes] };
+}
+
+/** The role the picks mean: any assessed type = Assessor; only led types = Lead assessor; none = keep. */
+export function roleForTypes(current: TeamRole, assessTypes: readonly string[], leadTypes: readonly string[]): TeamRole {
+  if (assessTypes.length) return 'Assessor';
+  if (leadTypes.length) return 'Lead assessor';
+  return current;
 }
 
 /** UI program codes ([] = all) → API (`'all'` or CLARISA ids; `[]` is invalid for the server). */
@@ -127,7 +168,7 @@ function inviteOf(u: UserSummary): InviteState {
 }
 
 export function toMember(u: UserSummary, cat: TeamCatalogs, now: number): TeamMember {
-  const { role, lead, types, noRole } = roleOf(u.roles, cat);
+  const { role, lead, assessTypes, leadTypes, noRole } = roleOf(u.roles, cat);
   const name = [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.email;
   const blocked: BlockedProgram[] = u.exclusions.map((e) => ({
     code: codeOfProgram(e.programId, cat),
@@ -145,7 +186,9 @@ export function toMember(u: UserSummary, cat: TeamCatalogs, now: number): TeamMe
     email: u.email,
     role,
     lead,
-    types,
+    types: [...new Set([...assessTypes, ...leadTypes])],
+    assessTypes,
+    leadTypes,
     prog: [],
     programs: u.programs === 'all' ? [] : u.programs.map((id) => codeOfProgram(id, cat)),
     blocked,
@@ -153,7 +196,7 @@ export function toMember(u: UserSummary, cat: TeamCatalogs, now: number): TeamMe
     invite: inviteOf(u),
     canResend: u.status === 'active' && u.accountType === 'custom' && u.invitation === 'sent' && !u.lastSignInAt,
     active: u.status === 'active',
-    otherRoles: !sameGrants(u.roles, rolesFor(role, lead, types, cat)),
+    otherRoles: !sameGrants(u.roles, rolesFor(role, assessTypes, leadTypes, cat)),
     noRole,
     namesLocked: !!u.lastSignInAt,
   };
