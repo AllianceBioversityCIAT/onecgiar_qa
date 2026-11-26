@@ -1,6 +1,6 @@
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { provideRouter, Router } from '@angular/router';
 import { AccessControl } from '../core/access/access-control';
 import { AuthSession } from '../core/auth/auth-session';
 import { UnsavedChanges } from '../core/forms/unsaved-changes';
@@ -65,5 +65,53 @@ describe('QaShell — sign out', () => {
 
     expect(confirm).not.toHaveBeenCalled();
     expect(session.signOut).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('QaShell — top-bar search', () => {
+  const create = (canRead: boolean) => {
+    TestBed.configureTestingModule({
+      providers: [
+        provideRouter([]),
+        { provide: AuthSession, useValue: { user: signal(null), isSignedIn: () => true, signOut: vi.fn() } },
+        { provide: UnsentQueue, useValue: { count: () => 0, clearMine: vi.fn() } },
+        { provide: AccessControl, useValue: { canAny: () => canRead } },
+        { provide: QaTokensLoader, useValue: {} },
+      ],
+    });
+    TestBed.overrideComponent(QaShell, { set: { template: '', providers: [{ provide: ActiveCycle, useValue: { card: signal(null), refresh: vi.fn() } }] } });
+    return TestBed.createComponent(QaShell).componentInstance as unknown as {
+      canSearch(): boolean;
+      searchResults(event: Event, box: HTMLInputElement): void;
+    };
+  };
+  const box = (value: string) => Object.assign(document.createElement('input'), { value });
+
+  it('shows only to whoever can open "Results in QA"', () => {
+    expect(create(true).canSearch()).toBe(true);
+    TestBed.resetTestingModule();
+    expect(create(false).canSearch()).toBe(false);
+  });
+
+  it('Enter opens Results searched by code or title (trimmed), without reloading the page', () => {
+    const shell = create(true);
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    const event = new Event('submit', { cancelable: true });
+
+    shell.searchResults(event, box('  2341  '));
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(navigate).toHaveBeenCalledWith(['/results'], { queryParams: { q: '2341' }, queryParamsHandling: undefined });
+  });
+
+  it('on Results it keeps the timeline and filters; an empty box clears only the search', () => {
+    const shell = create(true);
+    const router = TestBed.inject(Router);
+    vi.spyOn(router, 'url', 'get').mockReturnValue('/results?timeline=4&status=in_review&q=old');
+    const navigate = vi.spyOn(router, 'navigate').mockResolvedValue(true);
+
+    shell.searchResults(new Event('submit', { cancelable: true }), box('   '));
+
+    expect(navigate).toHaveBeenCalledWith(['/results'], { queryParams: { q: null }, queryParamsHandling: 'merge' });
   });
 });
