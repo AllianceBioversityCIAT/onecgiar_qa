@@ -218,6 +218,17 @@ describe('ResultsView on the worklist API', () => {
     expect(text(harness)).toContain('Pending for TPB review');
   });
 
+  it('P2-3917: a PPU worklist shows Pending PPU and Unresolved and filters by them; the counters are the server\'s', async () => {
+    // For a PPU the server counts pending_ppu and unresolved as pending (P2-3917 contract § 1).
+    api.pageAnswer = () =>
+      of(page([row('1', { status: 'pending_ppu' }), row('2', { status: 'unresolved' })], { counters: { pending: 2, finished: 0, total: 2 } }));
+    const harness = await open('/results?status=pending_ppu,unresolved');
+    expect(api.last().query.status).toEqual(['pending_ppu', 'unresolved']);
+    expect(text(harness)).toContain('2 pending · 0 finished · 2 in this timeline');
+    expect(text(harness)).toContain('Pending PPU');
+    expect(text(harness)).toContain('Unresolved');
+  });
+
   it('the total says how many of them are auto-validated, and says nothing when none is (F-010)', async () => {
     api.pageAnswer = () => of(page([row('1')], { counters: { pending: 3, finished: 2, total: 7, autoValidated: 2 } }));
     const harness = await open('/results');
