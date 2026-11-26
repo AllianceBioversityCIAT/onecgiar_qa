@@ -15,8 +15,10 @@ import { ReviewStateChips } from './review-state-chips';
   templateUrl: './review-field-card.html',
   host: {
     class:
-      'box-border flex flex-col items-stretch gap-2.5 rounded-[10px] border border-(--border) px-4 py-[14px] transition-colors hover:border-(--border-strong)',
+      // A row of the section card, not a card of its own: a line between fields, edge to edge (direction A, Juanpa 2026-11-25).
+      'group/field box-border -mx-6 flex flex-col items-stretch gap-2.5 border-t border-(--border-soft) px-6 py-5 first-of-type:border-t-0 first-of-type:pt-1 max-sm:-mx-4 max-sm:px-4',
     '[class]': 'toneClass()',
+    '[attr.data-view]': 'field().isView',
   },
 })
 export class ReviewFieldCard {
@@ -32,7 +34,7 @@ export class ReviewFieldCard {
 
   protected readonly toneClass = computed(() => {
     const f = this.field();
-    if (f.highlighted) return 'border-l-[3px] border-l-(--danger) bg-(--danger-bg) pl-[13px] hover:border-l-(--danger)';
+    if (f.highlighted) return 'border-l-[3px] border-l-(--danger) bg-(--danger-bg) pl-[21px] max-sm:pl-[13px]';
     return f.isHidden ? 'bg-(--surface-3)' : 'bg-(--surface)';
   });
 }

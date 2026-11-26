@@ -124,12 +124,12 @@ export class QaMenuItem {
   protected readonly toneClass = computed(() => ITEM_TONE[this.variant()] + ' ' + ITEM_SIZE[this.size()]);
 }
 
-/** Small uppercase group label inside a menu panel. size="tall" lines it up with tall items. */
+/** Small group label inside a menu panel (sentence case, direction A). size="tall" lines it up with tall items. */
 @Directive({
   selector: '[qaMenuLabel]',
   host: {
     role: 'presentation',
-    class: 'pt-2 pb-1 text-(length:--fs-10) font-semibold tracking-[0.08em] text-(--text-muted) uppercase',
+    class: 'pt-2 pb-1 text-(length:--fs-12) font-medium text-(--text-muted)',
     '[class]': "size() === 'tall' ? 'px-2' : 'px-2.5'",
   },
 })

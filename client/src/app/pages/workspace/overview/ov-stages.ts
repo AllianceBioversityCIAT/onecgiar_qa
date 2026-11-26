@@ -26,8 +26,8 @@ export interface TimelineStagesVm {
 
 const STAGE_CHIP: Record<StageStatus, string> = {
   Completed: 'bg-(--surface-3) text-(--text-muted)',
-  'In progress': 'bg-(--st-indigo-bg) text-(--st-indigo-fg)',
-  Behind: 'bg-(--st-editing-bg) text-(--st-editing-fg)',
+  'In progress': 'qa-dot gap-1.5 bg-(--surface-5) text-(--text-2) [--qa-dot:var(--success)]',
+  Behind: 'qa-dot gap-1.5 bg-(--surface-5) text-(--text-2) [--qa-dot:var(--warning)]',
   'Not started': 'bg-(--surface-3) text-(--text-muted) opacity-70',
 };
 
@@ -50,7 +50,7 @@ const STAGE_CHIP: Record<StageStatus, string> = {
                 }
                 <span class="text-(length:--fs-11) font-medium text-(--text-muted)">{{ s.dates }}</span>
               </div>
-              <span class="self-start rounded-full px-[10px] py-[3px] text-(length:--fs-11) font-semibold whitespace-nowrap" [class]="chip[s.status]">{{ s.status }}</span>
+              <span class="self-start rounded-md px-[10px] py-[3px] text-(length:--fs-12) font-medium whitespace-nowrap" [class]="chip[s.status]">{{ s.status }}</span>
 
               @if (s.progress; as p) {
                 <div class="col-start-2 col-end-[-1] flex flex-col gap-[5px]">

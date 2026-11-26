@@ -1,52 +1,31 @@
 import { Component, input } from '@angular/core';
 import { StateChip } from './review-model';
 
-/** Field review state ("Approved", "Commented 1", "Answered", "Highlighted", the TPB decision, "Changes done", "Not reviewed"). */
+/**
+ * Field review state ("Approved", "Commented 1", "Answered", "Highlighted", the TPB decision, "Changes done", "Not reviewed").
+ * Same language as every status in the app: a neutral badge whose colour is only in its dot (direction A, Juanpa
+ * 2026-11-25). Field properties (Core, View only, Context) are outlined tags instead, so state and property never mix.
+ */
 @Component({
   selector: 'qa-review-state-chips',
   host: { class: 'contents' },
   template: `
     @for (chip of states(); track chip.kind) {
-      <span class="inline-flex items-center gap-[5px]">
-        @switch (chip.kind) {
-          @case ('not') {
-            <span class="box-border size-[11px] flex-none rounded-full border-[1.5px] border-(--border-strong)" aria-hidden="true"></span>
-            <span class="text-(length:--fs-11) font-semibold text-(--text-muted)">{{ chip.label }}</span>
-          }
-          @case ('ok') {
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--st-approved-fg)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M20 6L9 17l-5-5" /></svg>
-            <span class="text-(length:--fs-11) font-semibold text-(--st-approved-fg)">{{ chip.label }}</span>
-          }
-          @case ('com') {
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--st-editing-fg)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
-            <span class="text-(length:--fs-11) font-semibold text-(--st-editing-fg)">{{ chip.label }}</span>
-            <span class="font-(family-name:--qa-mono) text-(length:--fs-11) font-bold text-(--st-editing-fg) tabular-nums">{{ chip.count }}</span>
-          }
-          @case ('ans') {
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--st-submitted-fg)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2zM8.5 10l2.5 2.5 4.5-4.5" /></svg>
-            <span class="text-(length:--fs-11) font-semibold text-(--st-submitted-fg)">{{ chip.label }}</span>
-          }
-          @case ('hl') {
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1zM4 22v-7" /></svg>
-            <span class="text-(length:--fs-11) font-semibold text-(--danger)">{{ chip.label }}</span>
-          }
-          @case ('agreed') {
-            <span class="size-[7px] flex-none rounded-full bg-(--text-4)" aria-hidden="true"></span>
-            <span class="text-(length:--fs-11) font-semibold text-(--text-3)">{{ chip.label }}</span>
-          }
-          @case ('changes') {
-            <span class="size-[7px] flex-none rounded-full bg-(--st-editing-fg)" aria-hidden="true"></span>
-            <span class="text-(length:--fs-11) font-semibold text-(--st-editing-fg)">{{ chip.label }}</span>
-          }
-          @case ('done') {
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--st-approved-fg)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M20 6L9 17l-5-5" /></svg>
-            <span class="text-(length:--fs-11) font-semibold text-(--st-approved-fg)">{{ chip.label }}</span>
-          }
+      @switch (chip.kind) {
+        @case ('not') { <span class="inline-flex items-center gap-1.5 rounded-md bg-(--surface-5) px-2 py-0.5 text-(length:--fs-12) font-medium whitespace-nowrap text-(--text-2) [--qa-dot:var(--border-strong)]"><span aria-hidden="true" class="size-1.5 flex-none rounded-full bg-(--qa-dot)"></span>{{ chip.label }}</span> }
+        @case ('ok') { <span class="inline-flex items-center gap-1.5 rounded-md bg-(--surface-5) px-2 py-0.5 text-(length:--fs-12) font-medium whitespace-nowrap text-(--text-2) [--qa-dot:var(--success)]"><span aria-hidden="true" class="size-1.5 flex-none rounded-full bg-(--qa-dot)"></span>{{ chip.label }}</span> }
+        @case ('com') {
+          <span class="inline-flex items-center gap-1.5 rounded-md bg-(--surface-5) px-2 py-0.5 text-(length:--fs-12) font-medium whitespace-nowrap text-(--text-2) [--qa-dot:var(--warning)]"><span aria-hidden="true" class="size-1.5 flex-none rounded-full bg-(--qa-dot)"></span>{{ chip.label }}<span class="tabular-nums text-(--text-3)">{{ chip.count }}</span></span>
         }
-      </span>
+        @case ('ans') { <span class="inline-flex items-center gap-1.5 rounded-md bg-(--surface-5) px-2 py-0.5 text-(length:--fs-12) font-medium whitespace-nowrap text-(--text-2) [--qa-dot:var(--st-submitted-fg)]"><span aria-hidden="true" class="size-1.5 flex-none rounded-full bg-(--qa-dot)"></span>{{ chip.label }}</span> }
+        @case ('hl') { <span class="inline-flex items-center gap-1.5 rounded-md bg-(--surface-5) px-2 py-0.5 text-(length:--fs-12) font-medium whitespace-nowrap text-(--text-2) [--qa-dot:var(--danger)]"><span aria-hidden="true" class="size-1.5 flex-none rounded-full bg-(--qa-dot)"></span>{{ chip.label }}</span> }
+        @case ('agreed') { <span class="inline-flex items-center gap-1.5 rounded-md bg-(--surface-5) px-2 py-0.5 text-(length:--fs-12) font-medium whitespace-nowrap text-(--text-2) [--qa-dot:var(--text-4)]"><span aria-hidden="true" class="size-1.5 flex-none rounded-full bg-(--qa-dot)"></span>{{ chip.label }}</span> }
+        @case ('changes') { <span class="inline-flex items-center gap-1.5 rounded-md bg-(--surface-5) px-2 py-0.5 text-(length:--fs-12) font-medium whitespace-nowrap text-(--text-2) [--qa-dot:var(--warning)]"><span aria-hidden="true" class="size-1.5 flex-none rounded-full bg-(--qa-dot)"></span>{{ chip.label }}</span> }
+        @case ('done') { <span class="inline-flex items-center gap-1.5 rounded-md bg-(--surface-5) px-2 py-0.5 text-(length:--fs-12) font-medium whitespace-nowrap text-(--text-2) [--qa-dot:var(--success)]"><span aria-hidden="true" class="size-1.5 flex-none rounded-full bg-(--qa-dot)"></span>{{ chip.label }}</span> }
+      }
     }
     @if (answeredDate()) {
-      <span class="ml-auto text-(length:--fs-11) font-normal text-(--text-4)">Updated in the reporting tool · <span class="font-(family-name:--qa-mono) font-medium tabular-nums">{{ answeredDate() }}</span></span>
+      <span class="ml-auto text-(length:--fs-12) font-normal text-(--text-4)">Updated in the reporting tool · <span class="font-medium tabular-nums">{{ answeredDate() }}</span></span>
     }
   `,
 })

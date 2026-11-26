@@ -21,23 +21,28 @@ export type QaBadgeSize = 'md' | 'sm';
  * Pending → surface-3/text-muted · In review → indigo · Awaiting response → editing (amber) ·
  * Answered → submitted (blue) · Quality assessed → approved (green). `neutral` = mockup "Automatic".
  */
+/**
+ * One neutral badge for every status, the colour only in its dot (direction A, Juanpa 2026-11-25): a table full of
+ * statuses stays calm and the dot still tells them apart. `neutral` has no dot (a plain tag such as "Official").
+ */
+const DOT = 'qa-dot gap-1.5 bg-(--surface-5) text-(--text-2)';
 const TONES: Record<QaBadgeStatus, string> = {
-  pending: 'bg-(--surface-3) text-(--text-muted)',
-  'in-review': 'bg-(--st-indigo-bg) text-(--st-indigo-fg)',
-  awaiting: 'bg-(--st-editing-bg) text-(--st-editing-fg)',
-  answered: 'bg-(--st-submitted-bg) text-(--st-submitted-fg)',
-  assessed: 'bg-(--st-approved-bg) text-(--st-approved-fg)',
-  approved: 'bg-(--st-approved-bg) text-(--st-approved-fg)',
-  rejected: 'bg-(--st-rejected-bg) text-(--st-rejected-fg)',
-  editing: 'bg-(--st-editing-bg) text-(--st-editing-fg)',
-  submitted: 'bg-(--st-submitted-bg) text-(--st-submitted-fg)',
-  indigo: 'bg-(--st-indigo-bg) text-(--st-indigo-fg)',
-  qa: 'bg-(--st-qa-bg) text-(--st-qa-fg)',
-  neutral: 'bg-(--surface-3) text-(--text-4)',
+  pending: `${DOT} [--qa-dot:var(--text-muted)]`,
+  'in-review': `${DOT} [--qa-dot:var(--st-indigo-fg)]`,
+  awaiting: `${DOT} [--qa-dot:var(--warning)]`,
+  answered: `${DOT} [--qa-dot:var(--st-submitted-fg)]`,
+  assessed: `${DOT} [--qa-dot:var(--success)]`,
+  approved: `${DOT} [--qa-dot:var(--success)]`,
+  rejected: `${DOT} [--qa-dot:var(--danger)]`,
+  editing: `${DOT} [--qa-dot:var(--warning)]`,
+  submitted: `${DOT} [--qa-dot:var(--st-submitted-fg)]`,
+  indigo: `${DOT} [--qa-dot:var(--st-indigo-fg)]`,
+  qa: `${DOT} [--qa-dot:var(--st-qa-fg)]`,
+  neutral: 'bg-(--surface-5) text-(--text-3)',
 };
 
 /**
- * Status pill. `size="md"` = table status (10px/3px padding), `size="sm"` = chips inside pickers ("Live").
+ * Status badge (neutral, coloured dot). `size="md"` = table status (10px/3px padding), `size="sm"` = chips inside pickers ("Live").
  *
  * <qa-badge status="awaiting">Awaiting response</qa-badge>
  */
@@ -52,7 +57,7 @@ export class QaBadge {
 
   protected readonly classes = computed(
     () =>
-      `inline-flex flex-none items-center gap-[5px] rounded-full font-semibold whitespace-nowrap text-(length:--fs-11) ${
+      `inline-flex flex-none items-center gap-[5px] rounded-md font-medium whitespace-nowrap text-(length:--fs-12) ${
         this.size() === 'sm' ? 'px-2 py-0.5' : 'px-[10px] py-[3px]'
       } ${TONES[this.status()]}`,
   );

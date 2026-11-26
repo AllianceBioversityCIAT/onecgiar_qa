@@ -116,7 +116,7 @@ const CELL = {
               <button
                 type="button"
                 (click)="sort.emit(col.key)"
-                class="flex h-10 w-full min-w-0 items-center gap-1 p-0 text-(length:--fs-11) font-semibold tracking-[0.06em] whitespace-nowrap uppercase hover:text-(--text-2) outline-none focus-visible:shadow-(--focus-ring)"
+                class="flex h-10 w-full min-w-0 items-center gap-1 p-0 text-(length:--fs-12) font-medium whitespace-nowrap hover:text-(--text-2) outline-none focus-visible:shadow-(--focus-ring)"
                 [class]="(col.right ? 'justify-end' : 'justify-start') + (active ? ' text-(--text-2)' : ' text-(--text-muted)')"
               >
                 <span>{{ col.label }}</span>
@@ -164,7 +164,7 @@ const CELL = {
               @if (r.updated) {
                 <span class="text-(length:--fs-11) font-medium whitespace-nowrap text-(--text-4)">Updated</span>
               }
-              <span class="inline-flex items-center rounded-full px-[10px] py-[3px] text-(length:--fs-11) font-semibold whitespace-nowrap" [class]="r.statusClass">{{ r.statusLabel }}</span>
+              <span class="inline-flex items-center rounded-md px-[10px] py-[3px] text-(length:--fs-12) font-medium whitespace-nowrap" [class]="r.statusClass">{{ r.statusLabel }}</span>
             </td>
             <!-- The row menu (export, reassign) is hidden in step 1: no action of the API needs it yet. -->
             <td aria-hidden="true" [class]="cell.menu"></td>

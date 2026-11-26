@@ -75,7 +75,7 @@ const ALL_FIELD_IDS: readonly string[] = FIELD_GROUPS.flatMap((g) => g.fields.ma
         @if (resultCode(); as code) {
           <!-- Opened from one result: that result is fixed, only fields and deleted comments are chosen (Juanpa, 2026-11-11). -->
           <div class="flex min-w-0 flex-col gap-1">
-            <span class="text-(length:--fs-13) font-semibold text-(--text-2)">Result</span>
+            <span class="text-(length:--fs-13) font-medium text-(--text-2)">Result</span>
             <span class="font-(family-name:--qa-mono) text-(length:--fs-14) font-semibold text-(--accent) tabular-nums">{{ code }}</span>
             @if (resultTitle(); as title) {
               <span class="text-(length:--fs-13) leading-[1.5] text-pretty text-(--text-3)">{{ title }}</span>
@@ -86,23 +86,23 @@ const ALL_FIELD_IDS: readonly string[] = FIELD_GROUPS.flatMap((g) => g.fields.ma
           <div class="@container">
             <div class="grid grid-cols-2 gap-x-4 gap-y-4 @max-[34rem]:grid-cols-1">
               <div class="flex min-w-0 flex-col gap-1.5">
-                <label for="export-timeline" class="text-(length:--fs-13) font-semibold text-(--text-2)">Timeline</label>
+                <label for="export-timeline" class="text-(length:--fs-13) font-medium text-(--text-2)">Timeline</label>
                 <qa-select triggerId="export-timeline" [(value)]="timeline" [options]="timelineOptions()" label="Timeline" appearance="field" searchable searchPlaceholder="Search timelines" panelWidth="320px" />
               </div>
               <div class="flex min-w-0 flex-col gap-1.5">
-                <label for="export-step" class="text-(length:--fs-13) font-semibold text-(--text-2)">Step</label>
+                <label for="export-step" class="text-(length:--fs-13) font-medium text-(--text-2)">Step</label>
                 <qa-select triggerId="export-step" [(value)]="step" [options]="stepOptions" label="Step" appearance="field" panelWidth="320px" />
               </div>
               <div class="flex min-w-0 flex-col gap-1.5">
-                <label for="export-programs" class="text-(length:--fs-13) font-semibold text-(--text-2)">Science programs</label>
+                <label for="export-programs" class="text-(length:--fs-13) font-medium text-(--text-2)">Science programs</label>
                 <qa-multi-select triggerId="export-programs" [(value)]="programs" [options]="programOptions" label="Science programs" placeholder="All programs" searchPlaceholder="Search programs" appearance="field" panelWidth="320px" />
               </div>
               <div class="flex min-w-0 flex-col gap-1.5">
-                <label for="export-types" class="text-(length:--fs-13) font-semibold text-(--text-2)">Result types</label>
+                <label for="export-types" class="text-(length:--fs-13) font-medium text-(--text-2)">Result types</label>
                 <qa-multi-select triggerId="export-types" [(value)]="types" [options]="typeOptions" label="Result types" placeholder="All result types" [searchable]="false" appearance="field" panelWidth="320px" />
               </div>
               <div class="flex min-w-0 flex-col gap-1.5">
-                <label for="export-stages" class="text-(length:--fs-13) font-semibold text-(--text-2)">QA status</label>
+                <label for="export-stages" class="text-(length:--fs-13) font-medium text-(--text-2)">QA status</label>
                 <qa-multi-select triggerId="export-stages" [(value)]="stages" [options]="stageOptions" label="QA status" placeholder="All statuses" [searchable]="false" appearance="field" panelWidth="320px" />
               </div>
             </div>
@@ -123,7 +123,7 @@ const ALL_FIELD_IDS: readonly string[] = FIELD_GROUPS.flatMap((g) => g.fields.ma
         </div>
 
         <!-- What the file will hold. TODO(api): the count comes from the export endpoint (or a count endpoint). -->
-        <div aria-live="polite" class="rounded-[8px] bg-(--surface-3) px-[14px] py-3 text-(length:--fs-13) leading-[1.55] text-(--text-2)">
+        <div aria-live="polite" class="rounded-lg bg-(--surface-3) px-[14px] py-3 text-(length:--fs-13) leading-[1.55] text-(--text-2)">
           @if (fields().length === 0) {
             Choose at least one field to export.
           } @else if (estimate().results === 0) {
@@ -139,12 +139,12 @@ const ALL_FIELD_IDS: readonly string[] = FIELD_GROUPS.flatMap((g) => g.fields.ma
         </div>
 
         <section aria-labelledby="export-columns" class="flex flex-col gap-2">
-          <h3 id="export-columns" class="m-0 text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--text-muted) uppercase">Columns in the file</h3>
+          <h3 id="export-columns" class="m-0 text-(length:--fs-12) font-medium text-(--text-muted)">Columns in the file</h3>
           <p class="m-0 text-(length:--fs-13) leading-[1.5] text-pretty text-(--text-3)">One row per comment. A field with no comments still gets a row, with its value and status.</p>
           <dl class="m-0 flex flex-col gap-2">
             @for (g of columnGroups; track g.name) {
               <div class="flex flex-col gap-[2px]">
-                <dt class="text-(length:--fs-13) font-semibold text-(--text-2)">{{ g.name }}</dt>
+                <dt class="text-(length:--fs-13) font-medium text-(--text-2)">{{ g.name }}</dt>
                 <dd class="m-0 text-(length:--fs-13) leading-[1.5] text-pretty text-(--text-3)">{{ g.columns }}</dd>
               </div>
             }

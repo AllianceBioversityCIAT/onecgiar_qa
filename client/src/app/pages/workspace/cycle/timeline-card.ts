@@ -4,12 +4,12 @@ import { MenuAction, TimelineNow, TimelineVM, timelineNow } from './cycle.logic'
 import { TimelineActions } from './timeline-actions';
 import { TimelineSteps } from './timeline-steps';
 
-/** Pill colours of the one-line summary, the same as the step card's state badges. */
+/** State badge of the one-line summary: neutral with a coloured dot, like every status in the app (direction A). */
 const NOW_TONE: Record<TimelineNow['tone'], string> = {
-  active: 'bg-(--tint-2) text-(--accent)',
-  waiting: 'bg-(--st-editing-bg) text-(--st-editing-fg)',
-  future: 'bg-(--surface-3) text-(--text-3)',
-  done: 'bg-(--surface-4) text-(--text-4)',
+  active: 'qa-dot gap-1.5 bg-(--surface-5) text-(--text-2) [--qa-dot:var(--success)]',
+  waiting: 'qa-dot gap-1.5 bg-(--surface-5) text-(--text-2) [--qa-dot:var(--warning)]',
+  future: 'qa-dot gap-1.5 bg-(--surface-5) text-(--text-2) [--qa-dot:var(--text-muted)]',
+  done: 'qa-dot gap-1.5 bg-(--surface-5) text-(--text-3) [--qa-dot:var(--border-strong)]',
 };
 
 /**
@@ -22,7 +22,7 @@ const NOW_TONE: Record<TimelineNow['tone'], string> = {
   host: { class: 'block' },
   template: `
     @let t = timeline();
-    <section class="rounded-[12px] border border-(--border) bg-(--surface)" [attr.aria-labelledby]="titleId()">
+    <section class="rounded-xl border border-(--border) bg-(--surface) shadow-(--shadow-card)" [attr.aria-labelledby]="titleId()">
       <div class="flex min-h-16 flex-wrap items-center gap-3 border-b border-(--surface-4) px-5 py-4">
         <div class="flex min-w-0 flex-[1_1_14rem] flex-col gap-[3px]">
           <div class="flex flex-wrap items-center gap-2">
@@ -33,7 +33,7 @@ const NOW_TONE: Record<TimelineNow['tone'], string> = {
                   (click)="expanded.set(!expanded())"
                   [attr.aria-expanded]="expanded()"
                   [attr.aria-controls]="stepsId()"
-                  class="-mx-1.5 -my-1 flex cursor-pointer items-center gap-1.5 rounded-[6px] border-0 bg-transparent px-1.5 py-1 text-left font-[inherit] text-inherit outline-none hover:bg-(--surface-2) focus-visible:shadow-(--focus-ring)"
+                  class="-mx-1.5 -my-1 flex cursor-pointer items-center gap-1.5 rounded-md border-0 bg-transparent px-1.5 py-1 text-left font-[inherit] text-inherit outline-none hover:bg-(--surface-2) focus-visible:shadow-(--focus-ring)"
                 >
                   <svg
                     width="16"
@@ -54,11 +54,11 @@ const NOW_TONE: Record<TimelineNow['tone'], string> = {
             } @else {
               <h3 [id]="titleId()" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">{{ t.name }}</h3>
             }
-            <span class="rounded-full bg-(--surface-3) px-2 py-[2px] text-(length:--fs-11) font-semibold whitespace-nowrap text-(--text-muted)">{{ t.kindLabel }}</span>
+            <span class="rounded-md border border-(--border) px-1.5 py-px text-(length:--fs-12) font-medium whitespace-nowrap text-(--text-3)">{{ t.kindLabel }}</span>
             @if (t.isTest) {
-              <span class="rounded-full bg-(--st-editing-bg) px-2 py-[2px] text-(length:--fs-11) font-semibold whitespace-nowrap text-(--st-editing-fg)">Test</span>
+              <span class="rounded-md border border-(--border) px-1.5 py-px text-(length:--fs-12) font-medium whitespace-nowrap text-(--text-3)">Test</span>
             }
-            <span class="rounded-full px-2 py-[2px] text-(length:--fs-11) font-semibold whitespace-nowrap" [class]="t.statusClass">{{ t.status }}</span>
+            <span class="rounded-md px-2 py-[2px] text-(length:--fs-12) font-medium whitespace-nowrap" [class]="t.statusClass">{{ t.status }}</span>
           </div>
           <div class="text-(length:--fs-13) leading-[1.5] font-normal text-(--text-3)"><span class="font-(family-name:--qa-mono) font-medium text-(--text-2) tabular-nums"><span class="whitespace-nowrap">{{ t.rangeParts[0] }}</span>&ngsp;<span class="whitespace-nowrap">{{ t.rangeParts[1] }}</span></span> · <span class="whitespace-nowrap"><span class="font-(family-name:--qa-mono) font-medium text-(--text-2) tabular-nums">{{ t.results }}</span> results</span> · {{ t.progText }} · {{ t.typeText }}</div>
           @if (collapsible() && !expanded()) {
@@ -66,11 +66,11 @@ const NOW_TONE: Record<TimelineNow['tone'], string> = {
             <p class="m-0 mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-(length:--fs-13) leading-[1.5] text-(--text-2)" data-testid="timeline-now">
               <!-- On hold, the header badge already says "Waiting for results": the line names the step only. -->
               @if (now.tone !== 'waiting') {
-                <span class="rounded-full px-2 py-[2px] text-(length:--fs-11) font-semibold whitespace-nowrap" [class]="nowTone()">{{ now.state }}</span>&ngsp;
+                <span class="rounded-md px-2 py-[2px] text-(length:--fs-12) font-medium whitespace-nowrap" [class]="nowTone()">{{ now.state }}</span>&ngsp;
               }
               <span class="min-w-0 font-medium">{{ now.step }}</span>
               @if (t.needsPeople) {
-                &ngsp;<span class="rounded-full bg-(--st-editing-bg) px-2 py-[2px] text-(length:--fs-11) font-semibold whitespace-nowrap text-(--st-editing-fg)">No one assigned</span>
+                &ngsp;<span class="qa-dot gap-1.5 bg-(--surface-5) text-(--text-2) [--qa-dot:var(--warning)] rounded-md px-2 py-[2px] text-(length:--fs-12) font-medium whitespace-nowrap">No one assigned</span>
               }
               @if (now.when) {
                 &ngsp;<span class="font-(family-name:--qa-mono) text-(length:--fs-12) whitespace-nowrap text-(--text-3) tabular-nums">{{ now.when }}</span>

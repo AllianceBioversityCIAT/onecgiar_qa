@@ -6,7 +6,7 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
 import { Toasts } from '../../../core/http/toasts';
 import { WorkspaceLayout } from '../../../shell/workspace-layout';
-import { QaButtonImports, QaDialogImports, QaDrawerImports, QaReveal } from '../../../ui';
+import { QaButtonImports, QaDialogImports, QaDrawerImports, QaReveal, QaStateCard } from '../../../ui';
 import { AdminRolePicker } from './admin-role-picker';
 import { ReviewAside } from './review-aside';
 import { ReviewCodeInfo } from './review-code-info';
@@ -39,7 +39,7 @@ const COMPACT_QUERY = '(max-width: 767.98px)';
 @Component({
   selector: 'qa-review-view',
   templateUrl: './review-view.html',
-  imports: [
+  imports: [QaStateCard, 
     QaButtonImports,
     QaDialogImports,
     QaDrawerImports,
@@ -357,7 +357,7 @@ export class ReviewView {
     this.onCard(e.id, e.action);
   }
 
-  /** P2-3918 "Copy to comment": the comment box opens with the AI's text, editable; nothing is saved (AC6, AC7). */
+  /** P2-3918 "Copy to comment" (labelled "Use as comment" since 2026-11-25): the comment box opens with the AI's text, editable; nothing is saved (AC6, AC7). */
   protected onAiCopy(key: string): void {
     const text = this.ai.copy(key);
     this.openDrawer(key);

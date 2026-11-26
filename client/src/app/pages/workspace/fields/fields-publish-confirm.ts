@@ -21,9 +21,9 @@ import { FieldChangeGroupVm } from './fields-config';
 
       @for (group of groups(); track group.typeKey) {
         <section [attr.aria-labelledby]="'fields-publish-' + $index" class="flex flex-col">
-          <h3 [id]="'fields-publish-' + $index" class="m-0 flex items-center gap-2 pt-2 pb-1 text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase">
+          <h3 [id]="'fields-publish-' + $index" class="m-0 flex items-center gap-2 pt-2 pb-1 text-(length:--fs-12) font-medium text-(--text-muted)">
             {{ group.type }}
-            <span class="rounded-full bg-(--surface-3) px-1.5 py-px font-(family-name:--qa-mono) text-(length:--fs-11) tabular-nums">{{ group.changes.length }}</span>
+            <span class="rounded-md bg-(--surface-3) px-1.5 py-px font-(family-name:--qa-mono) text-(length:--fs-12) tabular-nums">{{ group.changes.length }}</span>
           </h3>
           <ul class="m-0 flex list-none flex-col p-0">
             @for (change of group.changes; track change.id) {

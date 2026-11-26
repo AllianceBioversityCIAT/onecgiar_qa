@@ -73,12 +73,14 @@ describe('FieldsView — AI input column (F-021)', () => {
 
   const switchOf = (host: HTMLElement, label: string) => host.querySelector<HTMLElement>(`[role="switch"][aria-label="${label}"]`);
 
-  it('shows an AI switch on each field, on only for a field stored with AI input', async () => {
+  it('shows an AI switch on each assessed field, on only for a field stored with AI input; elsewhere it does not apply', async () => {
     const host = await render({ draft: assessedAi, published: assessedAi });
     const ai = switchOf(host, 'AI helper: title');
     expect(ai).not.toBeNull();
     expect(ai!.getAttribute('aria-checked')).toBe('true');
-    expect(switchOf(host, 'AI helper: year')!.getAttribute('aria-checked')).toBe('false');
+    // A field that is not Assessed shows a dash instead of a switch (2026-11-25), so "off" and "does not apply" differ.
+    expect(switchOf(host, 'AI helper: year')).toBeNull();
+    expect(host.textContent).toContain('AI helper does not apply');
   });
 
   it('turning AI on sends isAiInput true in the draft PATCH, like the Core switch', async () => {

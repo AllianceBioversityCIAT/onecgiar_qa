@@ -66,7 +66,7 @@ export function withComment(view: SpResult, comment: SpComment, counts: SpResult
           <button hlmBtn qaBtn tone="secondary" size="sm" type="button" [loading]="result.isLoading()" (click)="result.reload()">Try again</button>
         </div>
       } @else if (view(); as v) {
-        <section aria-labelledby="sp-result-title" class="flex flex-col gap-3 rounded-xl border border-(--border) bg-(--surface) px-5 py-4">
+        <section aria-labelledby="sp-result-title" class="flex flex-col gap-3 rounded-xl border border-(--border) bg-(--surface) px-5 py-4 shadow-(--shadow-card)">
           <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
             <span class="font-(family-name:--qa-mono) text-(length:--fs-13) font-semibold text-(--accent) tabular-nums">{{ v.header.resultCode }}</span>
             <qa-badge [status]="statusTone(v.header.status)">{{ statusLabel(v.header.status) }}</qa-badge>
@@ -116,7 +116,7 @@ export function withComment(view: SpResult, comment: SpComment, counts: SpResult
                   >
                     <span class="min-w-0 flex-1 truncate">{{ s.label }}</span>
                     @if (s.comments) {
-                      <span class="flex-none rounded-full bg-(--tint-2) px-1.5 font-(family-name:--qa-mono) text-(length:--fs-11) font-semibold text-(--accent) tabular-nums">
+                      <span class="flex-none rounded-md bg-(--surface-5) px-1.5 text-(length:--fs-12) font-medium text-(--text-3) tabular-nums">
                         {{ s.comments }}<span class="sr-only"> comments</span>
                       </span>
                     }
@@ -135,7 +135,7 @@ export function withComment(view: SpResult, comment: SpComment, counts: SpResult
               <section [attr.aria-labelledby]="s.anchor" class="flex flex-col gap-3">
                 <h2 [id]="s.anchor" tabindex="-1" class="m-0 text-(length:--fs-16) font-bold text-(--text) outline-none">{{ s.label }}</h2>
                 @for (f of s.fields; track f.key) {
-                  <article [qaReveal]="$index" class="flex flex-col gap-3 rounded-[10px] border bg-(--surface) px-4 py-3.5" [class]="f.comments.length ? 'border-(--border-accent)' : 'border-(--border)'">
+                  <article [qaReveal]="$index" class="flex flex-col gap-3 rounded-lg border bg-(--surface) px-4 py-3.5" [class]="f.comments.length ? 'border-(--border-accent)' : 'border-(--border)'">
                     <div class="flex flex-col gap-1">
                       <h3 class="m-0 text-(length:--fs-13) font-semibold text-(--text-3)">{{ f.label }}</h3>
                       <qa-sp-field-value [value]="f.value" [labels]="f.labels" [notApplicable]="f.notApplicable" />
@@ -154,7 +154,7 @@ export function withComment(view: SpResult, comment: SpComment, counts: SpResult
                 }
               </section>
             } @empty {
-              <p class="m-0 rounded-[10px] border border-dashed border-(--border) bg-(--surface) px-4 py-6 text-center text-(length:--fs-14) text-(--text-3)" data-testid="sp-empty">
+              <p class="m-0 rounded-lg border border-dashed border-(--border) bg-(--surface) px-4 py-6 text-center text-(length:--fs-14) text-(--text-3)" data-testid="sp-empty">
                 {{ emptyText() }}
               </p>
             }

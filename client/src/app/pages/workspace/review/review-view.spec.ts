@@ -575,12 +575,12 @@ describe('ReviewView on the assessment API', () => {
       };
       const savedEvents = () => ai.sendEvent.mock.calls.filter(([, , , e]) => e.action === 'comment_saved');
       const copy = async (el: HTMLElement) => {
-        byName(card(el, 'Description of Result'), 'Copy to comment')!.click();
+        byName(card(el, 'Description of Result'), 'Use as comment')!.click();
         await settle();
       };
       beforeEach(() => ai.list.mockReturnValue(of([suggestion])));
 
-      it('"Copy to comment" leaves the AI text in the comment box of that field and saves nothing', async () => {
+      it('"Use as comment" leaves the AI text in the comment box of that field and saves nothing', async () => {
         const el = await open();
         await copy(el);
         expect(draftBox().value).toBe(EXPLANATION);

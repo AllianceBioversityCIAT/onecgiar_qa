@@ -27,7 +27,7 @@ import { peopleSummary, personName, sectionsFor } from './timeline-people.logic'
           }
           @case ('ready') {
             @if (!canWrite()) {
-              <p role="status" class="m-0 rounded-[8px] bg-(--surface-2) px-3 py-2 text-(length:--fs-13) text-(--text-3)">The cycle is closed: assignments can no longer change.</p>
+              <p role="status" class="m-0 rounded-lg bg-(--surface-2) px-3 py-2 text-(length:--fs-13) text-(--text-3)">The cycle is closed: assignments can no longer change.</p>
             }
             @for (s of sections(); track s.role; let i = $index) {
               <section [qaReveal]="i" class="flex flex-col gap-3" [attr.aria-labelledby]="'people-' + s.role">
@@ -40,7 +40,7 @@ import { peopleSummary, personName, sectionsFor } from './timeline-people.logic'
                 </div>
 
                 @if (people.byRole()[s.role].length) {
-                  <ul class="m-0 flex list-none flex-col rounded-[10px] border border-(--border) p-0">
+                  <ul class="m-0 flex list-none flex-col rounded-lg border border-(--border) p-0">
                     @for (u of people.byRole()[s.role]; track u.assignmentId; let last = $last) {
                       <li class="flex min-h-12 items-center gap-3 px-3 py-2" [class]="last ? '' : 'border-b border-(--surface-4)'">
                         <div class="flex min-w-0 flex-1 flex-col">
@@ -69,7 +69,7 @@ import { peopleSummary, personName, sectionsFor } from './timeline-people.logic'
                     }
                   </ul>
                 } @else {
-                  <p class="m-0 rounded-[10px] border border-dashed border-(--border) px-3 py-3 text-(length:--fs-13) text-(--text-3)">No one assigned yet.</p>
+                  <p class="m-0 rounded-lg border border-dashed border-(--border) px-3 py-3 text-(length:--fs-13) text-(--text-3)">No one assigned yet.</p>
                 }
 
                 @let options = optionsFor(s.role);
@@ -120,12 +120,12 @@ import { peopleSummary, personName, sectionsFor } from './timeline-people.logic'
                 <div class="flex flex-col gap-3">
                   <qa-skeleton class="h-4 w-36" />
                   <qa-skeleton class="h-3 w-64 max-w-full" />
-                  <div class="flex flex-col rounded-[10px] border border-(--border)">
+                  <div class="flex flex-col rounded-lg border border-(--border)">
                     @for (r of skeletonPeople; track r) {
                       <div class="flex min-h-12 items-center gap-3 px-3 py-2"><qa-skeleton class="h-3.5 w-48" /><qa-skeleton class="ml-auto h-3.5 w-14" /></div>
                     }
                   </div>
-                  <qa-skeleton class="h-9 w-full rounded-[8px]" />
+                  <qa-skeleton class="h-9 w-full rounded-lg" />
                 </div>
               }
             </qa-loading>

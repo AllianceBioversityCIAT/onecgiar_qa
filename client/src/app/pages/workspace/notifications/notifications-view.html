@@ -23,7 +23,7 @@
 <!-- One list, newest first, in day groups; each notification carries its own button (Juanpa, 2026-10-29: no tabs, no
      filters, only what María Julia asked for). -->
 <div class="px-4 pt-5 pb-8 sm:px-6 lg:px-8">
-  <div class="overflow-hidden rounded-xl border border-(--border) bg-(--surface)">
+  <div class="overflow-hidden rounded-xl border border-(--border) bg-(--surface) shadow-(--shadow-card)">
     <qa-notification-list
       [items]="store.items()"
       [state]="store.state()"
