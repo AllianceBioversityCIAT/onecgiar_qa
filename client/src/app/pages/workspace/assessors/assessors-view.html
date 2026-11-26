@@ -72,10 +72,9 @@
   @if (store.state() === 'loading' || (showRemoved() && store.removed() === null)) {
     <qa-assessors-skeleton />
   } @else if (store.state() === 'error') {
-    <div class="flex max-w-[420px] flex-col items-start gap-2" role="alert">
-      <p class="m-0 text-(length:--fs-14) text-(--text-2)">The team could not load. {{ store.loadError() }}</p>
+    <qa-state-card alert heading="We couldn't load the team" [message]="'The team could not load. ' + (store.loadError() ?? '')">
       <button hlmBtn qaBtn tone="secondary" size="sm" type="button" (click)="store.load()">Try again</button>
-    </div>
+    </qa-state-card>
   } @else if (rows().length) {
     <!--
       Team table. A row opens the person drawer; role, result types and ⋯ have their own popovers.
@@ -115,9 +114,10 @@
                       <span class="max-w-full min-w-0 truncate text-(length:--fs-13) font-normal text-(--text-3)">{{ r.member.name }}</span>
                     }
                     @if (r.invited) {
-                      <span class="relative z-[1] flex-none rounded-md bg-(--st-editing-bg) px-1.5 py-px text-(length:--fs-12) font-medium text-(--st-editing-fg)">Invited</span>
+                      <!-- A status: dot badge, as everywhere else. "Has an account" is a property: outlined tag. -->
+                      <span class="relative z-[1] inline-flex flex-none items-center gap-1.5 rounded-md bg-(--surface-5) px-1.5 py-px text-(length:--fs-12) font-medium text-(--text-2) [--qa-dot:var(--warning)]"><span aria-hidden="true" class="size-1.5 flex-none rounded-full bg-(--qa-dot)"></span>Invited</span>
                     } @else if (r.hasAccount) {
-                      <span [title]="'Already had an account: no invitation email was sent'" class="relative z-[1] flex-none rounded-md bg-(--surface-4) px-1.5 py-px text-(length:--fs-12) font-medium text-(--text-3)">Has an account</span>
+                      <span [title]="'Already had an account: no invitation email was sent'" class="relative z-[1] flex-none rounded-md border border-(--border) px-1.5 py-px text-(length:--fs-12) font-medium text-(--text-3)">Has an account</span>
                     }
                     @if (!r.member.active) {
                       <span class="relative z-[1] flex-none rounded-md bg-(--surface-4) px-1.5 py-px text-(length:--fs-12) font-medium text-(--text-3)">Removed</span>
