@@ -283,3 +283,11 @@ Juanpa's rule: QA is the base, and PRMS copies its patterns.
   - "Saved Xs ago" stays next to Save draft.
 - **Section card header, right side:** "N fields left in this section", which jumps to the first missing field, or the green check when the section is complete. Moved here from the footer.
 - **Checked** on a fresh render (General information section): no page errors.
+
+## Selected section: soft grey (later the same day)
+
+- Juanpa felt the white row with a ring and a shadow looked like a button. I compared three options and applied B in both apps:
+  - selected: `--surface-5` (#F1F3F2) fill, 600 text, no border, no ring, no shadow;
+  - hover on other rows: `--surface-2`, lighter, so hover never looks selected.
+- QA: `review-aside.html`, both the full list and the collapsed numbered rail. Review specs pass (265); `ng build` green. Not seen on screen: it needs real data.
+- PRMS: the result page's sections list. Checked on a fresh render, with no page errors.
