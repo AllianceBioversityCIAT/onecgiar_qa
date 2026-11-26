@@ -1,6 +1,17 @@
 // @akili-spec assessment/step-1-assessment
 import { Inject, Injectable } from '@nestjs/common';
-import { and, asc, desc, eq, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  inArray,
+  isNull,
+  ne,
+  or,
+  sql,
+  type SQL,
+} from 'drizzle-orm';
 import { alias } from 'drizzle-orm/mysql-core';
 import { DRIZZLE } from '../database/drizzle/drizzle.constants.js';
 import type { DrizzleDB } from '../database/drizzle/drizzle.module.js';
@@ -38,13 +49,16 @@ import {
 } from '../database/drizzle/schema/assessment-audit-events.js';
 import { assessmentReleases } from '../database/drizzle/schema/assessment-releases.js';
 import { quickComments } from '../database/drizzle/schema/quick-comments.js';
+import { reportingFieldChanges } from '../database/drizzle/schema/reporting-field-changes.js';
 import { isDuplicateKeyError } from '../common/idempotency/idempotency.errors.js';
 import { timelineSteps } from '../database/drizzle/schema/timeline-steps.js';
 import { timelines } from '../database/drizzle/schema/timelines.js';
 import type { WorklistAccess } from './scope.js';
 import {
   currentStepSql,
+  leadStepSql,
   scopeCondition,
+  tpbStepSql,
   type WorklistStep,
 } from './worklist.store.js';
 
@@ -92,6 +106,29 @@ export interface MembershipRecord {
   changedFields: string[] | null;
   /** The previous membership's step-1 assessment, joined in the membership statement (round-2 DD-4); `null` when there is none. */
   previousAssessmentId: number | null;
+  /**
+   * P2-3916: the membership's assessment at its timeline's `lead_assessors`
+   * step (step 3), whatever the current step is; `null` when there is none.
+   * The TPB reads the Lead's greens, decisions and own comments through it, and
+   * pins its version (DD-T4).
+   */
+  leadAssessment: {
+    id: number;
+    status: ResultAssessmentStatus;
+    stepPosition: number;
+    fieldConfigVersion: number;
+    fieldConfigVersionId: number | null;
+    finishedAt: Date | null;
+    finishedById: number | null;
+    finishedByNickname: string | null;
+    finishedAsAdmin: boolean;
+  } | null;
+  /**
+   * P2-3917: the membership's assessment at its timeline's `tpb` step (step
+   * 4), whatever the current step is; `null` when there is none. The PPU reads
+   * the TPB's greens through it.
+   */
+  tpbAssessment: MembershipRecord['leadAssessment'];
   assessment: {
     id: number;
     status: ResultAssessmentStatus;
@@ -162,6 +199,23 @@ export interface RoundOneThreadRow {
   decidedAt: Date | null;
 }
 
+/**
+ * One line of the TPB's thread read (P2-3916 FR-4, DD-T5): a round-1 line
+ * plus the comment's round and the Lead's decision on it, which travels as the
+ * context of the escalation. `decision` is the reading role's (the TPB's).
+ */
+export interface EscalationThreadRow extends RoundOneThreadRow {
+  /** 1 for a round-1 comment, 2 for the Lead's own. */
+  round: number;
+  leadDecision: CommentDecisionKind | null;
+  leadDecisionBody: string | null;
+  leadDecidedAt: Date | null;
+  /** P2-3917 (DD-P7): the TPB's decision on the comment (the PPU's context). */
+  tpbDecision: CommentDecisionKind | null;
+  tpbDecisionBody: string | null;
+  tpbDecidedAt: Date | null;
+}
+
 /** A comment with where it lives: its assessment and membership (withdraw, and the replay reader). */
 export interface CommentContext extends CommentRecord {
   assessmentId: number;
@@ -205,6 +259,29 @@ export interface AssessmentStore {
   ): Promise<RoundOneThreadRow[]>;
   /** One statement: every decision of this assessment with its comment's field and state (the Lead's own round-2 comments, T-16). */
   findDecisions(assessmentId: number): Promise<DecisionRecord[]>;
+  /**
+   * P2-3916 (DD-T5): ONE statement for the TPB's whole thread: the live
+   * (neither withdrawn nor deleted) comments of `assessmentIds` (the round-1
+   * assessment and the Lead's step-3 one), each with its latest program
+   * response, every clarification and its answer, the decision of `roleCode`
+   * and the decision of `contextRoleCode` (the Lead's). Same order as the
+   * round-1 thread read.
+   */
+  findEscalationThread(
+    assessmentIds: readonly number[],
+    roleCode: string,
+    contextRoleCode: string,
+  ): Promise<EscalationThreadRow[]>;
+  /** P2-3917 AC6 (DD-P6): one statement: the fields of a membership seen changed in Reporting, with the first date. */
+  findReportingChanges(
+    timelineResultId: number,
+  ): Promise<ReportingChangeRecord[]>;
+}
+
+/** P2-3917 AC6: a case field whose Reporting value was first seen different from the snapshot on `detectedAt`. */
+export interface ReportingChangeRecord {
+  fieldKey: string;
+  detectedAt: Date;
 }
 
 /** A reusable comment text of a role (FR-12). */
@@ -359,7 +436,8 @@ export interface DecisionWrite {
   assessmentId: number;
   roleCode: string;
   decision: CommentDecisionKind;
-  body: string;
+  /** `null` only for `ppu_done` (the table's CHECK). */
+  body: string | null;
   actorId: number;
   /** admin/acts-as-reviewer R4: the actor is a QA Admin acting as the role. */
   asAdmin?: boolean;
@@ -465,6 +543,15 @@ export interface AssessmentWriteStore {
     from: CommentState,
     to: CommentState,
   ): Promise<boolean>;
+  /**
+   * P2-3917 AC6 (DD-P6): one statement for any number of fields; none for an
+   * empty list. `INSERT … ON DUPLICATE KEY UPDATE id = id`: the first date stays.
+   */
+  recordReportingChanges(
+    timelineResultId: number,
+    fieldKeys: readonly string[],
+    at: Date,
+  ): Promise<void>;
 }
 
 // ---- Drizzle adapter -------------------------------------------------------
@@ -475,6 +562,18 @@ const t = timelineResults;
 const a = resultAssessments;
 /** The previous membership's step-1 assessment (round-2 DD-4): its row id and its validations feed the round-2 view. */
 const prevA = alias(resultAssessments, 'prev_assessment');
+/** P2-3916: the membership's step-3 (Lead) assessment, the version it pinned and who ended it. */
+const leadA = alias(resultAssessments, 'lead_assessment');
+const leadFcv = alias(fieldConfigVersions, 'lead_fcv');
+const leadUser = alias(users, 'lead_finisher');
+/** P2-3916: the Lead's decision on a comment, read beside the TPB's in the escalation thread. */
+const contextDecision = alias(commentDecisions, 'context_decision');
+/** P2-3917: the membership's step-4 (TPB) row and its pinned version. */
+const tpbA = alias(resultAssessments, 'tpb_assessment');
+const tpbFcv = alias(fieldConfigVersions, 'tpb_fcv');
+const tpbUser = alias(users, 'tpb_finisher');
+/** P2-3917 (DD-P7): the TPB's decision, read beside the reading role's in the escalation thread. */
+const tpbDecision = alias(commentDecisions, 'tpb_decision');
 const MEMBERSHIP_TABLE = sql.identifier('timeline_results');
 const ASSESSMENT_TABLE = sql.identifier('result_assessments');
 
@@ -508,6 +607,24 @@ export class DrizzleAssessmentStore implements AssessmentStore {
           previousMembershipId: t.previousMembershipId,
           changedFields: t.changedFields,
           previousAssessmentId: prevA.id,
+          leadAssessmentId: leadA.id,
+          leadAssessmentStatus: leadA.status,
+          leadStepPosition: leadA.stepPosition,
+          leadFieldConfigVersion: leadA.fieldConfigVersion,
+          leadFieldConfigVersionId: leadFcv.id,
+          leadFinishedAt: leadA.finishedAt,
+          leadFinishedById: leadUser.id,
+          leadFinishedByNickname: leadUser.nickname,
+          leadFinishedAsAdmin: leadA.finishedAsAdmin,
+          tpbAssessmentId: tpbA.id,
+          tpbAssessmentStatus: tpbA.status,
+          tpbStepPosition: tpbA.stepPosition,
+          tpbFieldConfigVersion: tpbA.fieldConfigVersion,
+          tpbFieldConfigVersionId: tpbFcv.id,
+          tpbFinishedAt: tpbA.finishedAt,
+          tpbFinishedById: tpbUser.id,
+          tpbFinishedByNickname: tpbUser.nickname,
+          tpbFinishedAsAdmin: tpbA.finishedAsAdmin,
           assessmentId: a.id,
           assessmentStatus: a.status,
           assessmentStepPosition: a.stepPosition,
@@ -532,6 +649,35 @@ export class DrizzleAssessmentStore implements AssessmentStore {
         // assessors step (a role writes only in its own round's step), so no step
         // filter is needed and the statement binds nothing new.
         .leftJoin(prevA, eq(prevA.timelineResultId, t.previousMembershipId))
+        // P2-3916: the step-3 row, by the timeline's `lead_assessors` step (unique per timeline).
+        .leftJoin(
+          leadA,
+          and(
+            eq(leadA.timelineResultId, t.id),
+            eq(leadA.stepPosition, leadStepSql()),
+          ),
+        )
+        .leftJoin(
+          leadFcv,
+          and(
+            eq(leadFcv.cycleId, t.cycleId),
+            eq(leadFcv.number, leadA.fieldConfigVersion),
+          ),
+        )
+        .leftJoin(leadUser, eq(leadUser.id, leadA.finishedBy))
+        // P2-3917: the step-4 row, by the timeline's `tpb` step (unique per timeline).
+        .leftJoin(
+          tpbA,
+          and(eq(tpbA.timelineResultId, t.id), eq(tpbA.stepPosition, tpbStepSql())),
+        )
+        .leftJoin(
+          tpbFcv,
+          and(
+            eq(tpbFcv.cycleId, t.cycleId),
+            eq(tpbFcv.number, tpbA.fieldConfigVersion),
+          ),
+        )
+        .leftJoin(tpbUser, eq(tpbUser.id, tpbA.finishedBy))
         .leftJoin(users, eq(users.id, a.finishedBy))
         // The pinned NUMBER is the version of the membership's cycle: its row id, with no extra statement.
         .leftJoin(
@@ -578,6 +724,40 @@ export class DrizzleAssessmentStore implements AssessmentStore {
       previousMembershipId: row.previousMembershipId,
       changedFields: row.changedFields,
       previousAssessmentId: row.previousAssessmentId,
+      leadAssessment:
+        row.leadAssessmentId === null ||
+        row.leadAssessmentStatus === null ||
+        row.leadStepPosition === null ||
+        row.leadFieldConfigVersion === null
+          ? null
+          : {
+              id: row.leadAssessmentId,
+              status: row.leadAssessmentStatus,
+              stepPosition: row.leadStepPosition,
+              fieldConfigVersion: row.leadFieldConfigVersion,
+              fieldConfigVersionId: row.leadFieldConfigVersionId,
+              finishedAt: row.leadFinishedAt,
+              finishedById: row.leadFinishedById,
+              finishedByNickname: row.leadFinishedByNickname,
+              finishedAsAdmin: row.leadFinishedAsAdmin ?? false,
+            },
+      tpbAssessment:
+        row.tpbAssessmentId === null ||
+        row.tpbAssessmentStatus === null ||
+        row.tpbStepPosition === null ||
+        row.tpbFieldConfigVersion === null
+          ? null
+          : {
+              id: row.tpbAssessmentId,
+              status: row.tpbAssessmentStatus,
+              stepPosition: row.tpbStepPosition,
+              fieldConfigVersion: row.tpbFieldConfigVersion,
+              fieldConfigVersionId: row.tpbFieldConfigVersionId,
+              finishedAt: row.tpbFinishedAt,
+              finishedById: row.tpbFinishedById,
+              finishedByNickname: row.tpbFinishedByNickname,
+              finishedAsAdmin: row.tpbFinishedAsAdmin ?? false,
+            },
       assessment:
         row.assessmentId === null ||
         row.assessmentStatus === null ||
@@ -757,6 +937,131 @@ export class DrizzleAssessmentStore implements AssessmentStore {
     roleCode: string,
   ): Promise<RoundOneThreadRow[]> {
     return await this.buildRoundOneThreadQuery(assessmentId, roleCode);
+  }
+
+  /**
+   * The TPB's thread statement (DD-T5); public so a spec can read its SQL. The
+   * round-1 read over several assessments, plus the comment's round and a
+   * second decision join (the context role's, the Lead's).
+   */
+  buildEscalationThreadQuery(
+    assessmentIds: readonly number[],
+    roleCode: string,
+    contextRoleCode: string,
+  ) {
+    const latest = sql.identifier('latest_response');
+    const latestId = sql`(SELECT MAX(${latest}.${sql.identifier('id')}) FROM ${sql.identifier('sp_comment_responses')} ${latest} WHERE ${latest}.${sql.identifier('comment_id')} = ${assessmentComments.id})`;
+    return this.db
+      .select({
+        commentId: assessmentComments.id,
+        fieldKey: assessmentComments.fieldKey,
+        authorId: assessmentComments.authorId,
+        authorNickname: users.nickname,
+        authorAsAdmin: assessmentComments.actedAsAdmin,
+        body: assessmentComments.body,
+        state: assessmentComments.state,
+        round: assessmentComments.round,
+        valueCopy: assessmentComments.valueCopy,
+        valueTruncated: assessmentComments.valueTruncated,
+        createdAt: assessmentComments.createdAt,
+        responseId: spCommentResponses.id,
+        responseKind: spCommentResponses.kind,
+        responseBody: spCommentResponses.body,
+        responderName: spCommentResponses.responderName,
+        respondedAt: spCommentResponses.createdAt,
+        answerBody: commentClarificationAnswers.body,
+        answeredAt: commentClarificationAnswers.createdAt,
+        decision: commentDecisions.decision,
+        decisionBody: commentDecisions.body,
+        decidedAt: commentDecisions.decidedAt,
+        leadDecision: contextDecision.decision,
+        leadDecisionBody: contextDecision.body,
+        leadDecidedAt: contextDecision.decidedAt,
+        tpbDecision: tpbDecision.decision,
+        tpbDecisionBody: tpbDecision.body,
+        tpbDecidedAt: tpbDecision.decidedAt,
+      })
+      .from(assessmentComments)
+      .innerJoin(users, eq(users.id, assessmentComments.authorId))
+      .leftJoin(
+        spCommentResponses,
+        and(
+          eq(spCommentResponses.commentId, assessmentComments.id),
+          or(
+            eq(spCommentResponses.kind, 'request_clarification'),
+            eq(spCommentResponses.id, latestId),
+          ),
+        ),
+      )
+      .leftJoin(
+        commentClarificationAnswers,
+        eq(commentClarificationAnswers.responseId, spCommentResponses.id),
+      )
+      .leftJoin(
+        commentDecisions,
+        and(
+          eq(commentDecisions.commentId, assessmentComments.id),
+          eq(commentDecisions.roleCode, roleCode),
+        ),
+      )
+      .leftJoin(
+        contextDecision,
+        and(
+          eq(contextDecision.commentId, assessmentComments.id),
+          eq(contextDecision.roleCode, contextRoleCode),
+        ),
+      )
+      .leftJoin(
+        tpbDecision,
+        and(
+          eq(tpbDecision.commentId, assessmentComments.id),
+          eq(tpbDecision.roleCode, sql.raw("'TPB'")),
+        ),
+      )
+      .where(
+        and(
+          inArray(assessmentComments.assessmentId, [...assessmentIds]),
+          isNull(assessmentComments.withdrawnAt),
+          isNull(assessmentComments.deletedAt),
+        ),
+      )
+      .orderBy(
+        asc(assessmentComments.fieldKey),
+        asc(assessmentComments.createdAt),
+        asc(assessmentComments.id),
+        asc(spCommentResponses.id),
+      );
+  }
+
+  /** The AC6 read; public so a spec can read its SQL. */
+  buildReportingChangesQuery(timelineResultId: number) {
+    return this.db
+      .select({
+        fieldKey: reportingFieldChanges.fieldKey,
+        detectedAt: reportingFieldChanges.detectedAt,
+      })
+      .from(reportingFieldChanges)
+      .where(eq(reportingFieldChanges.timelineResultId, timelineResultId))
+      .orderBy(asc(reportingFieldChanges.fieldKey));
+  }
+
+  async findReportingChanges(
+    timelineResultId: number,
+  ): Promise<ReportingChangeRecord[]> {
+    return await this.buildReportingChangesQuery(timelineResultId);
+  }
+
+  async findEscalationThread(
+    assessmentIds: readonly number[],
+    roleCode: string,
+    contextRoleCode: string,
+  ): Promise<EscalationThreadRow[]> {
+    if (assessmentIds.length === 0) return [];
+    return await this.buildEscalationThreadQuery(
+      assessmentIds,
+      roleCode,
+      contextRoleCode,
+    );
   }
 
   /** The comment-context statement; public so a spec can read its SQL. */
@@ -1260,6 +1565,32 @@ export class DrizzleAssessmentWriteStore implements AssessmentWriteStore {
 
   async findDecisions(assessmentId: number): Promise<DecisionRecord[]> {
     return await this.reads.findDecisions(assessmentId);
+  }
+
+  buildRecordReportingChanges(
+    timelineResultId: number,
+    fieldKeys: readonly string[],
+    at: Date,
+  ) {
+    return this.db
+      .insert(reportingFieldChanges)
+      .values(
+        fieldKeys.map((fieldKey) => ({
+          timelineResultId,
+          fieldKey,
+          detectedAt: at,
+        })),
+      )
+      .onDuplicateKeyUpdate({ set: { id: sql`${sql.identifier('id')}` } });
+  }
+
+  async recordReportingChanges(
+    timelineResultId: number,
+    fieldKeys: readonly string[],
+    at: Date,
+  ): Promise<void> {
+    if (fieldKeys.length === 0) return;
+    await this.buildRecordReportingChanges(timelineResultId, fieldKeys, at);
   }
 
   buildUpsertDecision(write: DecisionWrite) {

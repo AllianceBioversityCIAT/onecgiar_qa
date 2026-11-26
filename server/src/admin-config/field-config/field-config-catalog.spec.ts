@@ -253,6 +253,39 @@ describe('shapeCatalog over the TEST catalog 2026.30', () => {
   });
 });
 
+describe('shapeCatalog: visible_when (F-015)', () => {
+  const field = (catalog: ReturnType<typeof shapeCatalog>, key: string) =>
+    catalog.fields.find((f) => f.key === key)!;
+
+  it('keeps the Impact Area component rule and the any/all rules of the catalog', () => {
+    const catalog = shapeCatalog(clone());
+    expect(field(catalog, 'general.gender_impact_areas').visibleWhen).toEqual({
+      field: 'general.gender_tag',
+      operator: 'eq',
+      value: 3,
+    });
+    expect(field(catalog, 'geo.regions').visibleWhen).toHaveProperty('any');
+    expect(field(catalog, 'general.title')).not.toHaveProperty('visibleWhen');
+    expect(catalog.fields.filter((f) => f.visibleWhen).length).toBe(48);
+  });
+
+  it('reads a condition it does not know as none, never refusing the catalog', () => {
+    const raw = clone();
+    const at = raw.fields.findIndex(
+      (f) => f.key === 'general.gender_impact_areas',
+    );
+    raw.fields[at]!.visible_when = {
+      field: 'general.gender_tag',
+      operator: 'gte',
+      value: 2,
+    };
+    const catalog = shapeCatalog(raw);
+    expect(field(catalog, 'general.gender_impact_areas')).not.toHaveProperty(
+      'visibleWhen',
+    );
+  });
+});
+
 describe('shapeCatalog on a malformed catalog', () => {
   beforeEach(() => {
     vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);

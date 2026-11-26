@@ -2,6 +2,7 @@ import type { QaBadgeStatus } from '../../ui';
 import type { QaStatus, StepState } from '../../core/api/assessment.models';
 import { formatMoment, nowInRome, splitMoment } from '../../core/domain/rome-date';
 import type { SpFieldLabels, SpResponseKind, SpStep } from '../../core/api/sp.models';
+import { evidenceEntry } from '../../core/domain/evidence-entry';
 
 /** QA status labels of the SP view (P2-3911 AC5). */
 export const SP_STATUS_LABEL: Readonly<Record<QaStatus, string>> = {
@@ -125,8 +126,9 @@ function scalarText(value: unknown, labels: SpFieldLabels | null | undefined): s
   return nestedText(value, labels);
 }
 
-function objectText(value: Record<string, unknown>, labels: SpFieldLabels | null | undefined): string {
-  return Object.entries(value)
+function objectText(value: Readonly<Record<string, unknown>>, labels: SpFieldLabels | null | undefined): string {
+  // F-022: an evidence reads without its *_related flags, with "(Private)" and "Where to find it".
+  return Object.entries(evidenceEntry(value))
     .filter(([, v]) => !isEmpty(v))
     .map(([k, v]) => `${humanize(k)}: ${Array.isArray(v) || isPlainObject(v) ? nestedText(v, labels) : scalarText(v, labels)}`)
     .join(' · ');

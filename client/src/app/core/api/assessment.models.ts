@@ -132,8 +132,10 @@ export interface WorklistCounters {
   readonly pending: number;
   /** `quality_assessed` + `returned_to_program` + `clarification_requested`, and `pending_tpb_review` (round 2). */
   readonly finished: number;
-  /** Every membership in scope (Auto-validated hidden). Beyond § 6. */
+  /** Every membership in scope, Auto-validated included (F-010, 24-nov-2026). Beyond § 6. */
   readonly total: number;
+  /** How many of `total` are Auto-validated KPs (not in `pending` nor `finished`). Absent on an older server. */
+  readonly autoValidated?: number;
 }
 
 export interface Worklist {

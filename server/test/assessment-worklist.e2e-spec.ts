@@ -178,6 +178,7 @@ describe('Worklist routes (e2e)', () => {
         pending: 3,
         finished: 0,
         total: 3,
+        autoValidated: 0,
       });
       expect(res.body.data.writable).toBe(true);
       expect(res.body.data.noActiveRole).toBe(false);

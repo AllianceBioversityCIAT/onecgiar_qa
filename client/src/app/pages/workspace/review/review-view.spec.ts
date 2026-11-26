@@ -25,6 +25,7 @@ import { WorkspaceLayout } from '../../../shell/workspace-layout';
 import { clarificationThread, comment, field, viewFixture } from './review.api-fixture';
 import { ReviewView } from './review-view';
 import { decisionResultFixture, endedRoundTwo, roundTwoViewFixture, withField, withThread } from './review.round2-fixture';
+import { QA_GUIDANCE } from './qa-guidance';
 
 /** The signed-in assessor: the author of the fixture's comments. */
 const ME = 1053;
@@ -166,6 +167,20 @@ describe('ReviewView on the assessment API', () => {
       expect(el.querySelector('h1')?.textContent).toContain('Seed systems for maize');
     });
 
+    it('P2-4136 AC3: the header shows the Science Program, the timeline and the step, not only inside the ⓘ', async () => {
+      const el = await open();
+      const meta = el.querySelector('[data-testid="review-header-meta"]')!;
+      expect(text(meta)).toContain('9890');
+      expect(text(meta)).toContain('SP05');
+      expect(text(meta)).toContain('Policy change');
+      expect(text(meta)).toContain('Pending');
+      const program = meta.querySelector('[data-testid="review-header-program"]')!;
+      expect(program.getAttribute('title')).toBe('SP05 Better Diets and Nutrition');
+      const context = el.querySelector('[data-testid="review-header-context"]')!;
+      expect(text(context)).toBe('Official timeline 2026 · Step 1 · Assessment');
+      expect(context.getAttribute('title')).toBe('Official timeline 2026 · Step 1 · Assessment');
+    });
+
     it('reads the timeline of the URL; without one it opens the default timeline', async () => {
       await open();
       expect(api.view).toHaveBeenLastCalledWith(29, 9890);
@@ -198,9 +213,16 @@ describe('ReviewView on the assessment API', () => {
       expect(el.querySelector('[data-testid="review-read-only"]')).toBeNull();
     });
 
-    it('the guidance link of the mockup (a placeholder address) is gone', async () => {
+    it('links to the written QA guide in a new tab, and to no other outside address (F-014)', async () => {
       const el = await open();
-      expect([...el.querySelectorAll('a')].map((a) => a.getAttribute('href')).filter((h) => h?.startsWith('http'))).toEqual([]);
+      const outside = [...el.querySelectorAll('a')].filter((a) => a.getAttribute('href')?.startsWith('http'));
+      expect(outside.length).toBeGreaterThan(0);
+      for (const a of outside) {
+        expect(a.getAttribute('href')).toBe(QA_GUIDANCE.url);
+        expect(a.getAttribute('target')).toBe('_blank');
+        expect(a.getAttribute('rel')).toContain('noopener');
+        expect(text(a)).toContain('QA Platform guide');
+      }
     });
   });
 
@@ -266,6 +288,19 @@ describe('ReviewView on the assessment API', () => {
       expect(text(thread)).toContain('mchen · Assessor');
       expect(text(thread)).toContain('Add the evidence link.');
       expect(text(thread)).not.toContain('Old remark');
+    });
+
+    it('P2-4137 AC14: a comment shows its date and time (Rome), its step and the field value when it was written', async () => {
+      const el = await open();
+      byName(card(el, 'Description of Result'), 'View comments1 for Description of Result')!.click();
+      harness.detectChanges();
+      await harness.fixture.whenStable();
+      const row = document.querySelector('ol[aria-label="Comments"] > li')!;
+      expect(text(row)).toContain('mchen · Assessor');
+      expect(text(row)).toContain('Step 1');
+      expect(text(row)).toContain('12 Nov 2026, 11:15 CET');
+      const copy = row.querySelector('[data-testid="comment-value-copy"]')!;
+      expect([...copy.querySelectorAll('span')].map(text)).toEqual(['Value when commented', 'Old']);
     });
   });
 
@@ -498,7 +533,7 @@ describe('ReviewView on the assessment API', () => {
         const items = [...document.querySelectorAll('ol[aria-label="Comments"] li')];
         expect(items.map((li) => !![...li.querySelectorAll('button')].find((b) => text(b) === 'Withdraw comment'))).toEqual([true, false]);
         // Each one says which comment it takes back (they all read "Withdraw comment").
-        anywhere('Withdraw your comment of 12 Nov 2026')!.click();
+        anywhere('Withdraw your comment of 12 Nov 2026, 11:15 CET')!.click();
         await settle();
         expect(api.withdrawComment).toHaveBeenCalledWith(1);
         expect(text(document.querySelector('ol[aria-label="Comments"]')!)).not.toContain('Add the evidence link.');
@@ -508,7 +543,7 @@ describe('ReviewView on the assessment API', () => {
         api.withdrawComment.mockReturnValueOnce(refusal(503, 'SERVICE_UNAVAILABLE', 'Try again in a moment.'));
         const el = await open();
         await openThread(el, 'View comments1 for Description of Result');
-        anywhere('Withdraw your comment of 12 Nov 2026')!.click();
+        anywhere('Withdraw your comment of 12 Nov 2026, 11:15 CET')!.click();
         await settle();
         expect(document.querySelector('#review-thread-error')?.textContent).toContain('Try again in a moment.');
         expect(text(document.querySelector('ol[aria-label="Comments"]')!)).toContain('Add the evidence link.');
@@ -720,7 +755,45 @@ describe('ReviewView on the assessment API', () => {
         await settle();
       };
 
+      /** toc.entries (core, grey) carries a comment that still stands: the server takes the finish (Returned to program). */
+      const tocCommented = (): AssessmentView => {
+        const base = viewFixture();
+        return { ...base, sections: base.sections.map((sec) => ({ ...sec, fields: sec.fields.map((f) => (f.key === 'toc.entries' ? { ...f, comments: [comment({ id: 9 })] } : f)) })) };
+      };
+
+      it('P2-4138: a grey core field with no comment: the confirm step names it, announces no outcome and offers no finish', async () => {
+        const el = await open(); // the fixture: toc.entries is core, grey and uncommented
+        await toConfirm(el);
+        const dialog = text(el.querySelector('[role="alertdialog"]')!);
+        expect(dialog).not.toContain('Returned to program');
+        expect(dialog).not.toContain('The result becomes');
+        expect(text(el.querySelector('qa-review-footer [role="alert"]')!)).toBe('Validate or comment this core field first: ToC contributions.');
+        const confirm = byName(el.querySelector('qa-review-footer')!, 'Finish assessment')!;
+        expect(confirm.disabled).toBe(true);
+        confirm.click();
+        await settle();
+        expect(api.finish).not.toHaveBeenCalled();
+      });
+
+      it('P2-4138: a grey core field with a comment: the footer announces Returned to program', async () => {
+        api.view.mockImplementation(() => of(tocCommented()));
+        const el = await open();
+        await toConfirm(el);
+        expect(text(el.querySelector('[role="alertdialog"]')!)).toContain('The result becomes Returned to program. This cannot be undone.');
+        expect(el.querySelector('qa-review-footer [role="alert"]')).toBeNull();
+      });
+
+      it('P2-4138: every core green and no comment: the footer announces Quality Assessed', async () => {
+        const base = uncommented(viewFixture());
+        const clean = { ...base, sections: base.sections.map((sec) => ({ ...sec, fields: sec.fields.map((f) => (f.core ? { ...f, validated: true } : f)) })) };
+        api.view.mockImplementation(() => of(clean));
+        const el = await open();
+        await toConfirm(el);
+        expect(text(el.querySelector('[role="alertdialog"]')!)).toContain('The result becomes Quality Assessed. This cannot be undone.');
+      });
+
       it('says what finishing does now and that it cannot be undone, then finishes with one request', async () => {
+        api.view.mockReturnValue(of(tocCommented()));
         const el = await open();
         await toConfirm(el);
         expect(text(el.querySelector('[role="alertdialog"]')!)).toContain('The result becomes Returned to program. This cannot be undone.');
@@ -744,6 +817,8 @@ describe('ReviewView on the assessment API', () => {
       });
 
       it('409 ASSESSMENT_CORE_UNCOMMENTED: names the core fields still open, by their label, and stays on the page', async () => {
+        // The page saw a comment on toc.entries; the server no longer does (withdrawn from another tab).
+        api.view.mockReturnValue(of(tocCommented()));
         api.finish.mockReturnValueOnce(refusal(409, 'ASSESSMENT_CORE_UNCOMMENTED', 'Core fields are still open.', ['toc.entries']));
         const el = await open();
         await toConfirm(el);
@@ -755,6 +830,7 @@ describe('ReviewView on the assessment API', () => {
       });
 
       it('409 ASSESSMENT_FINISHED on finish: the page shows who finished it', async () => {
+        api.view.mockReturnValue(of(tocCommented()));
         api.finish.mockReturnValueOnce(refusal(409, 'ASSESSMENT_FINISHED', 'This assessment is already finished.'));
         const el = await open();
         await toConfirm(el);

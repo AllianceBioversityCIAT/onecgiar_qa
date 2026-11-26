@@ -265,6 +265,36 @@ describe('buildAssessmentView: configuration (FR-9)', () => {
   });
 });
 
+describe("buildAssessmentView: Reporting's visible_when (F-015)", () => {
+  const IA = 'general.gender_impact_areas';
+  const scores = (tag: string) => ({
+    'general.gender_tag': tag,
+    [IA]: ['5', '12'],
+  });
+
+  it('shows the Impact Area components only under a Principal score (3)', () => {
+    expect(keysOf(build({ values: scores('3') }))).toContain(IA);
+    expect(keysOf(build({ values: scores('2') }))).not.toContain(IA);
+  });
+
+  it('keeps the components when the snapshot has no score (fails open)', () => {
+    expect(keysOf(build({ values: { [IA]: ['5'] } }))).toContain(IA);
+  });
+
+  it('never hides a core field, which Finish needs reachable', () => {
+    const view = build({
+      config: config({ [IA]: { visibility: 'assessed', isCore: true } }),
+      values: scores('1'),
+    });
+    expect(keysOf(view)).toContain(IA);
+  });
+
+  it('never hides a ToC field (OQ-7)', () => {
+    const view = build({ values: { 'toc.planned_result': true } });
+    expect(keysOf(view)).toEqual(expect.arrayContaining(TOC_KEYS));
+  });
+});
+
 describe('buildAssessmentView: the Theory of Change (FR-9, OQ-7)', () => {
   it('shows toc.entries read only with all 3 contributions when it is configured Hidden, and keeps another Hidden field out', () => {
     const view = build({

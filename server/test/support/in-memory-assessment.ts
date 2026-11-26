@@ -1,4 +1,5 @@
 // @akili-spec assessment/step-1-assessment
+import type { StepAudience } from '../../src/admin-config/timelines/default-steps.js';
 import type { TimelineLoads } from '../../src/admin-config/timelines/timeline-loads.js';
 import type { ResultAssessmentStatus } from '../../src/database/drizzle/schema/result-assessments.js';
 import type { CommentState } from '../../src/database/drizzle/schema/assessment-comments.js';
@@ -59,6 +60,8 @@ import type {
   NewReleaseRow,
   QuickCommentRecord,
   RoundOneThreadRow,
+  EscalationThreadRow,
+  ReportingChangeRecord,
   SavedQuickComment,
   ValidationRecord,
   ValidationWrite,
@@ -285,8 +288,64 @@ export class InMemoryAssessmentWorld {
       : mine.find((a) => a.stepPosition === position);
   }
 
+  /**
+   * P2-3916: the membership's assessment at its timeline's `lead_assessors`
+   * step, whatever the current step (the SQL twin is the `lead_assessment`
+   * join of the membership read, `leadStepSql`).
+   */
+  leadAssessment(membership: FakeMembership): FakeAssessment | undefined {
+    const position = this.timelines
+      .find((t) => t.id === membership.timelineId)
+      ?.steps.find((step) => step.audience === 'lead_assessors')?.position;
+    if (position === undefined) return undefined;
+    return this.assessments.find(
+      (a) => a.membershipId === membership.id && a.stepPosition === position,
+    );
+  }
+
+  /** P2-3917: the membership's assessment at its timeline's `tpb` step (`tpbStepSql`). */
+  tpbAssessment(membership: FakeMembership): FakeAssessment | undefined {
+    const position = this.timelines
+      .find((t) => t.id === membership.timelineId)
+      ?.steps.find((step) => step.audience === 'tpb')?.position;
+    if (position === undefined) return undefined;
+    return this.assessments.find(
+      (a) => a.membershipId === membership.id && a.stepPosition === position,
+    );
+  }
+
+  /** P2-3917 (DD-P4): the TPB's step-4 assessment ended `escalated` (`tpbEscalatedSql`). */
+  tpbEscalated(membership: FakeMembership): boolean {
+    return this.tpbAssessment(membership)?.status === 'escalated';
+  }
+
+  /** P2-3916 (DD-T2): the Lead's step-3 assessment ended `escalated` (`leadEscalatedSql`). */
+  leadEscalated(membership: FakeMembership): boolean {
+    return this.leadAssessment(membership)?.status === 'escalated';
+  }
+
+  /** P2-3916 (DD-T3): the audience of the step an assessment row belongs to (`currentStepAudienceSql`). */
+  stepAudienceOf(
+    membership: FakeMembership,
+    assessment: FakeAssessment | undefined,
+  ): StepAudience | null {
+    if (assessment === undefined) return null;
+    return (
+      this.timelines
+        .find((t) => t.id === membership.timelineId)
+        ?.steps.find((step) => step.position === assessment.stepPosition)
+        ?.audience ?? null
+    );
+  }
+
   /** Statements the services issued since the last `resetStatements()`. */
   statements = 0;
+  /** P2-3917 AC6: `reporting_field_changes` rows. */
+  reportingChanges: Array<{
+    timelineResultId: number;
+    fieldKey: string;
+    detectedAt: Date;
+  }> = [];
   timelines: FakeTimeline[] = [];
   timelineUsers: FakeTimelineUser[] = [];
   memberships: FakeMembership[] = [];
@@ -369,6 +428,12 @@ export class InMemoryAssessmentWorld {
   fieldConfigItems: Record<string, EffectiveFieldConfig['items']> = {};
   /** The items of a PINNED version, by version id then result type: what `versionItems` reads. Nothing falls back to `fieldConfigItems`. */
   versionItems: Record<number, Record<string, ConfigItem[]>> = {};
+  /**
+   * The cycle's LATEST version items by result type: what `latestVersionItems`
+   * reads (F-005). A type with none answers `null`, which production answers
+   * only for a cycle with no version: the kept items are then used as they are.
+   */
+  latestVersionItems: Record<string, ConfigItem[]> = {};
   /** Set to make `effectiveFor` throw `FieldConfigNoVersionError`. */
   noFieldConfigVersion = false;
   /** Set to make `effectiveFor` throw `TimelineNotFoundError` (the timeline vanished between two reads). */
@@ -548,6 +613,8 @@ export class InMemoryWorklistStore implements WorklistStore {
         status: m.status ?? 'pending',
         ended: m.ended ?? false,
         endReason: m.endReason ?? null,
+        leadEscalated: this.world.leadEscalated(m),
+        tpbEscalated: this.world.tpbEscalated(m),
       };
       const authoredClarification = this.world.comments.some(
         (c) =>
@@ -562,6 +629,8 @@ export class InMemoryWorklistStore implements WorklistStore {
         membershipStatus: facts.status,
         endReason: facts.endReason,
         assessmentStatus: assessment?.status ?? null,
+        currentStep: this.world.stepAudienceOf(m, assessment),
+        ppuStepClosed: scope.ppuStepClosed === true,
         hasClarificationThread:
           assessment !== undefined &&
           this.world.comments.some(
@@ -586,6 +655,8 @@ export class InMemoryWorklistStore implements WorklistStore {
         membershipStatus: facts.status,
         ended: facts.ended,
         endReason: facts.endReason,
+        leadEscalated: facts.leadEscalated === true,
+        tpbEscalated: facts.tpbEscalated === true,
         comments:
           assessment === undefined
             ? 0
@@ -691,6 +762,8 @@ export class InMemoryAssessmentStore implements AssessmentStore {
           status: m.status ?? 'pending',
           ended: m.ended ?? false,
           endReason: m.endReason ?? null,
+          leadEscalated: this.world.leadEscalated(m),
+          tpbEscalated: this.world.tpbEscalated(m),
         };
         return (
           inScope(criteria.access, facts) &&
@@ -706,6 +779,16 @@ export class InMemoryAssessmentStore implements AssessmentStore {
       assessment?.finishedBy === undefined || assessment.finishedBy === null
         ? undefined
         : this.world.users.find((u) => u.id === assessment.finishedBy);
+    const lead = this.world.leadAssessment(found);
+    const tpbRow = this.world.tpbAssessment(found);
+    const tpbFinisher =
+      tpbRow?.finishedBy === undefined || tpbRow.finishedBy === null
+        ? undefined
+        : this.world.users.find((u) => u.id === tpbRow.finishedBy);
+    const leadFinisher =
+      lead?.finishedBy === undefined || lead.finishedBy === null
+        ? undefined
+        : this.world.users.find((u) => u.id === lead.finishedBy);
     return Promise.resolve({
       membershipId: found.id,
       resultCode: found.resultCode,
@@ -728,6 +811,40 @@ export class InMemoryAssessmentStore implements AssessmentStore {
             found.previousMembershipId !== undefined &&
             x.membershipId === found.previousMembershipId,
         )?.id ?? null,
+      leadAssessment:
+        lead === undefined
+          ? null
+          : {
+              id: lead.id,
+              status: lead.status,
+              stepPosition: lead.stepPosition,
+              fieldConfigVersion: lead.fieldConfigVersion ?? 1,
+              fieldConfigVersionId:
+                lead.fieldConfigVersionId === undefined
+                  ? (lead.fieldConfigVersion ?? 1)
+                  : lead.fieldConfigVersionId,
+              finishedAt: lead.finishedAt ?? null,
+              finishedById: leadFinisher?.id ?? null,
+              finishedByNickname: leadFinisher?.nickname ?? null,
+              finishedAsAdmin: lead.finishedAsAdmin ?? false,
+            },
+      tpbAssessment:
+        tpbRow === undefined
+          ? null
+          : {
+              id: tpbRow.id,
+              status: tpbRow.status,
+              stepPosition: tpbRow.stepPosition,
+              fieldConfigVersion: tpbRow.fieldConfigVersion ?? 1,
+              fieldConfigVersionId:
+                tpbRow.fieldConfigVersionId === undefined
+                  ? (tpbRow.fieldConfigVersion ?? 1)
+                  : tpbRow.fieldConfigVersionId,
+              finishedAt: tpbRow.finishedAt ?? null,
+              finishedById: tpbFinisher?.id ?? null,
+              finishedByNickname: tpbFinisher?.nickname ?? null,
+              finishedAsAdmin: tpbRow.finishedAsAdmin ?? false,
+            },
       assessment:
         assessment === undefined
           ? null
@@ -799,9 +916,56 @@ export class InMemoryAssessmentStore implements AssessmentStore {
     roleCode: string,
   ): Promise<RoundOneThreadRow[]> {
     this.world.statements += 1;
-    const rows: RoundOneThreadRow[] = [];
+    return Promise.resolve(
+      this.threadRows([assessmentId], roleCode, null).map(
+        ({
+          round: _r,
+          leadDecision: _d,
+          leadDecisionBody: _b,
+          leadDecidedAt: _a,
+          tpbDecision: _td,
+          tpbDecisionBody: _tb,
+          tpbDecidedAt: _ta,
+          ...row
+        }) => row,
+      ),
+    );
+  }
+
+  /** P2-3917 AC6: one counted statement (`buildReportingChangesQuery`). */
+  findReportingChanges(
+    timelineResultId: number,
+  ): Promise<ReportingChangeRecord[]> {
+    this.world.statements += 1;
+    return Promise.resolve(
+      this.world.reportingChanges
+        .filter((r) => r.timelineResultId === timelineResultId)
+        .sort((x, y) => x.fieldKey.localeCompare(y.fieldKey))
+        .map(({ fieldKey, detectedAt }) => ({ fieldKey, detectedAt })),
+    );
+  }
+
+  /** P2-3916 (DD-T5): the TPB's thread, one counted statement (`buildEscalationThreadQuery`). */
+  findEscalationThread(
+    assessmentIds: readonly number[],
+    roleCode: string,
+    contextRoleCode: string,
+  ): Promise<EscalationThreadRow[]> {
+    if (assessmentIds.length === 0) return Promise.resolve([]);
+    this.world.statements += 1;
+    return Promise.resolve(
+      this.threadRows(assessmentIds, roleCode, contextRoleCode),
+    );
+  }
+
+  private threadRows(
+    assessmentIds: readonly number[],
+    roleCode: string,
+    contextRoleCode: string | null,
+  ): EscalationThreadRow[] {
+    const rows: EscalationThreadRow[] = [];
     this.world.comments.forEach((c, index) => {
-      if (c.assessmentId !== assessmentId) return;
+      if (!assessmentIds.includes(c.assessmentId)) return;
       if (c.state === 'withdrawn' || (c.deletedAt ?? null) !== null) return;
       const record = commentRecordOf(this.world, c, index);
       const own = this.world.spResponses
@@ -814,6 +978,18 @@ export class InMemoryAssessmentStore implements AssessmentStore {
       const decision = this.world.commentDecisions.find(
         (d) => d.commentId === record.id && d.roleCode === roleCode,
       );
+      const context =
+        contextRoleCode === null
+          ? undefined
+          : this.world.commentDecisions.find(
+              (d) => d.commentId === record.id && d.roleCode === contextRoleCode,
+            );
+      const tpb =
+        contextRoleCode === null
+          ? undefined
+          : this.world.commentDecisions.find(
+              (d) => d.commentId === record.id && d.roleCode === 'TPB',
+            );
       const base = {
         commentId: record.id,
         fieldKey: record.fieldKey,
@@ -831,6 +1007,17 @@ export class InMemoryAssessmentStore implements AssessmentStore {
           decision === undefined
             ? null
             : (decision.decidedAt ?? record.createdAt),
+        round: record.round,
+        leadDecision: context?.decision ?? null,
+        leadDecisionBody: context?.body ?? null,
+        leadDecidedAt:
+          context === undefined
+            ? null
+            : (context.decidedAt ?? record.createdAt),
+        tpbDecision: tpb?.decision ?? null,
+        tpbDecisionBody: tpb?.body ?? null,
+        tpbDecidedAt:
+          tpb === undefined ? null : (tpb.decidedAt ?? record.createdAt),
       };
       const lines = shown.length === 0 ? [undefined] : shown;
       for (const response of lines) {
@@ -859,7 +1046,7 @@ export class InMemoryAssessmentStore implements AssessmentStore {
         x.commentId - y.commentId ||
         (x.responseId ?? 0) - (y.responseId ?? 0),
     );
-    return Promise.resolve(rows);
+    return rows;
   }
 
   listQuickComments(roleCode: string): Promise<QuickCommentRecord[]> {
@@ -930,7 +1117,8 @@ function commentRecordOf(
  * `FieldConfigEffective` over the world, counting what production runs.
  * `effectiveFor` is FIVE statements: `listTimelineStarts` is three (the
  * timelines, their steps, their scope rows), then `listVersions` and
- * `listVersionItems`. `versionItems` is ONE (`listVersionItems`). The e2e
+ * `listVersionItems`. `versionItems` is ONE (`listVersionItems`).
+ * `latestVersionItems` is TWO (`listVersions`, `listVersionItems`). The e2e
  * statement budget (NFR-2) is therefore the real one.
  */
 export class FakeFieldConfigEffective implements FieldConfigEffective {
@@ -957,6 +1145,24 @@ export class FakeFieldConfigEffective implements FieldConfigEffective {
     });
   }
 
+  /**
+   * The cycle's latest version (F-012): the same five statements, flags and
+   * version queue as `effectiveFor`; its items are `latestVersionItems` when a
+   * test sets them (the latest differs from what the timeline keeps), else the
+   * same `fieldConfigItems`.
+   */
+  currentFor(
+    cycleId: number,
+    timelineId: number,
+    resultTypeKey: string,
+  ): Promise<EffectiveFieldConfig> {
+    const latest = this.world.latestVersionItems[resultTypeKey];
+    return this.effectiveFor(cycleId, timelineId, resultTypeKey).then(
+      (effective) =>
+        latest === undefined ? effective : { ...effective, items: latest },
+    );
+  }
+
   versionItems(
     versionId: number,
     resultTypeKey: string,
@@ -964,6 +1170,15 @@ export class FakeFieldConfigEffective implements FieldConfigEffective {
     this.world.statements += 1;
     return Promise.resolve(
       this.world.versionItems[versionId]?.[resultTypeKey] ?? [],
+    );
+  }
+  latestVersionItems(
+    _cycleId: number,
+    resultTypeKey: string,
+  ): Promise<ConfigItem[] | null> {
+    this.world.statements += 2;
+    return Promise.resolve(
+      this.world.latestVersionItems[resultTypeKey] ?? null,
     );
   }
 }
@@ -1328,6 +1543,26 @@ export class InMemoryAssessmentWriteStore implements AssessmentWriteStore {
       state: comment.state,
       deleted: (comment.deletedAt ?? null) !== null,
     });
+  }
+
+  /** P2-3917 AC6: insert-ignore, the first date stays (`buildRecordReportingChanges`). */
+  recordReportingChanges(
+    timelineResultId: number,
+    fieldKeys: readonly string[],
+    at: Date,
+  ): Promise<void> {
+    if (fieldKeys.length === 0) return Promise.resolve();
+    this.world.writeLog.push('recordReportingChanges');
+    for (const fieldKey of fieldKeys) {
+      if (
+        !this.world.reportingChanges.some(
+          (r) => r.timelineResultId === timelineResultId && r.fieldKey === fieldKey,
+        )
+      ) {
+        this.world.reportingChanges.push({ timelineResultId, fieldKey, detectedAt: at });
+      }
+    }
+    return Promise.resolve();
   }
 
   findDecisions(assessmentId: number): Promise<DecisionRecord[]> {

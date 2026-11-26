@@ -54,12 +54,32 @@ export interface FieldConfigEffective {
     resultTypeKey: string,
   ): Promise<EffectiveFieldConfig>;
   /**
+   * The cycle's LATEST version for the timeline and type, started or not (F-012):
+   * same checks, errors and five statements as `effectiveFor`. What a result
+   * nobody has started reads; an assessment then pins it.
+   */
+  currentFor(
+    cycleId: number,
+    timelineId: number,
+    resultTypeKey: string,
+  ): Promise<EffectiveFieldConfig>;
+  /**
    * The items of one PUBLISHED version for one result type, in ONE statement:
    * what a consumer that already knows the version (an assessment pins it, so a
    * later publication never moves it) reads instead of `effectiveFor`, which
    * runs five statements to find it.
    */
   versionItems(versionId: number, resultTypeKey: string): Promise<ConfigItem[]>;
+  /**
+   * The items of the cycle's LATEST published version for one result type, in
+   * TWO statements (`listVersions`, `listVersionItems`); `null` when the cycle
+   * has no version. The assessment view lays its Hidden / View only moves over
+   * the version a timeline or an assessment keeps (F-005, `withLiveVisibility`).
+   */
+  latestVersionItems(
+    cycleId: number,
+    resultTypeKey: string,
+  ): Promise<ConfigItem[] | null>;
 }
 
 /**

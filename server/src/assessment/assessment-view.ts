@@ -6,14 +6,22 @@ import {
   type FieldCatalog,
 } from '../admin-config/field-config/field-config-catalog.js';
 import type { ConfigItem } from '../admin-config/field-config/field-config-diff.js';
+import { isVisible } from '../admin-config/field-config/visible-when.js';
 import type { CommentState } from '../database/drizzle/schema/assessment-comments.js';
-import type { RoundOneThreadRow } from './assessment.store.js';
+import type {
+  EscalationThreadRow,
+  RoundOneThreadRow,
+} from './assessment.store.js';
 import {
   effectiveGreen,
   isActionable,
   isCarriedGreen,
   isDecidable,
+  isPpuDecidable,
+  isTpbDecidable,
   type DecisionChoice,
+  type PpuChoice,
+  type TpbChoice,
 } from './round-two-rules.js';
 import { RoleCode } from '../users/permissions.js';
 import type { ClarificationView, SpResponseView } from './sp-view/sp-thread.js';
@@ -214,8 +222,18 @@ export function buildAssessmentView(
 
   const fieldOf = (field: CatalogField): ViewField | null => {
     const item = items.get(field.key);
-    const mode = modeOf(item, isTocField(field.key));
-    return mode === null ? null : shape(field, mode, item?.isCore === true);
+    const toc = isTocField(field.key);
+    const mode = modeOf(item, toc);
+    if (mode === null) return null;
+    const core = item?.isCore === true;
+    // F-015: Reporting's `visible_when` on the result's values (an Impact Area
+    // component only under a Principal score). Not on the ToC group, always
+    // returned (OQ-7), nor on a core field, which Finish needs reachable.
+    const conditional = !toc && !(mode === 'assessed' && core);
+    if (conditional && !isVisible(field.visibleWhen, resultType, values)) {
+      return null;
+    }
+    return shape(field, mode, core);
   };
 
   const applicable = applicableFields(catalog, resultType);
@@ -289,11 +307,32 @@ export interface ThreadItem {
   response?: SpResponseView;
   /** Every clarification request with its answer, oldest first. */
   clarifications: ClarificationView[];
-  /** The Lead's decision, when one is set. */
+  /** The reading role's decision (the Lead's, or the TPB's for a TPB), when one is set. */
   decision?: ThreadDecision;
   decidable: boolean;
-  choices: DecisionChoice[];
+  choices: Array<DecisionChoice | TpbChoice | PpuChoice>;
+  /** TPB and PPU views (P2-3916 FR-4): 1 for a round-1 comment, 2 for the Lead's own escalated one. */
+  round?: number;
+  /** TPB and PPU views (P2-3916 FR-4): the Lead's decision and its reason, the context of the escalation. */
+  leadDecision?: ThreadDecision;
+  /** PPU view only (P2-3917 FR-3): the TPB's decision and its justification. */
+  tpbDecision?: ThreadDecision;
 }
+
+/** A thread line as `toThreadItems` reads it: the round-1 read, or the TPB's escalation read (DD-T5). */
+export type ThreadRow = RoundOneThreadRow &
+  Partial<
+    Pick<
+      EscalationThreadRow,
+      | 'round'
+      | 'leadDecision'
+      | 'leadDecisionBody'
+      | 'leadDecidedAt'
+      | 'tpbDecision'
+      | 'tpbDecisionBody'
+      | 'tpbDecidedAt'
+    >
+  >;
 
 /**
  * The Lead's own round-2 comment as the Lead reads it (T-16): the comment as
@@ -321,6 +360,8 @@ export interface RoundViewField extends Omit<ViewField, 'comments'> {
   carried: boolean;
   /** FR-4: the round-1 thread of an actionable field; empty in round 1. */
   thread: ThreadItem[];
+  /** P2-3917 AC6: present only when the field's Reporting value was seen changed after the round-2 load ("Changed in Reporting Tool on <detectedAt>"). */
+  changedInReporting?: { detectedAt: string };
 }
 
 export interface RoundViewSection extends Omit<ViewSection, 'fields'> {
@@ -343,8 +384,18 @@ export interface RoundViewInput {
   stored: ReadonlyMap<string, boolean>;
   /** Keys green in the previous membership's step-1 assessment. */
   roundOneGreens: ReadonlySet<string>;
-  /** The thread read, ordered by field, comment, response (one statement). */
-  thread: readonly RoundOneThreadRow[];
+  /** The thread read, ordered by field, comment, response (one statement). The TPB's carries `round` and the Lead's decision (DD-T5). */
+  thread: readonly ThreadRow[];
+  /**
+   * P2-3916: the Lead's (step-3) stored validations, for a TPB. The TPB's
+   * effective green is its own mark, else the step-3 effective green (the
+   * Lead's mark, else the carried round-1 green). `undefined` for every other reader.
+   */
+  leadStored?: ReadonlyMap<string, boolean>;
+  /** P2-3917: the TPB's (step-4) stored validations, for a PPU: its green sits under the PPU's own mark. */
+  tpbStored?: ReadonlyMap<string, boolean>;
+  /** P2-3917 AC6: field key -> ISO date its Reporting value was first seen changed (round 2, step 5 reached). */
+  reportingChanges?: ReadonlyMap<string, string>;
   /** The caller's user id: a comment is the Lead's own when it wrote it (T-16). */
   userId: number;
   /** The live decisions of the round-2 assessment by comment id, as `thread[]` shows them (T-16). */
@@ -361,13 +412,13 @@ export interface RoundViewInput {
  * `ASSESSMENT_FIELD_ESCALATED`); an item's own escalate does not count.
  */
 export function toThreadItems(
-  rows: readonly RoundOneThreadRow[],
+  rows: readonly ThreadRow[],
   role: string | null,
   fieldOf: (key: string) => { visibility: string; isCore: boolean },
   ended = false,
   escalatedOn: (key: string) => ReadonlySet<number> = () => new Set(),
 ): Map<string, ThreadItem[]> {
-  const byComment = new Map<number, RoundOneThreadRow[]>();
+  const byComment = new Map<number, ThreadRow[]>();
   for (const row of rows) {
     const list = byComment.get(row.commentId) ?? [];
     list.push(row);
@@ -377,7 +428,7 @@ export function toThreadItems(
   for (const lines of byComment.values()) {
     const head = lines[0]!;
     const answered = lines.filter((l) => l.responseId !== null);
-    const latest = answered.reduce<RoundOneThreadRow | null>(
+    const latest = answered.reduce<ThreadRow | null>(
       (best, line) =>
         best === null || line.responseId! > best.responseId! ? line : best,
       null,
@@ -386,15 +437,32 @@ export function toThreadItems(
     const blocked = [...escalatedOn(head.fieldKey)].some(
       (id) => id !== head.commentId,
     );
-    const choices = ended
+    // P2-3916 (FR-3): a TPB decides the escalated items only; the Lead keeps its rules.
+    const choices: Array<DecisionChoice | TpbChoice | PpuChoice> = ended
       ? []
-      : [
-          ...isDecidable(
-            { origin: 'round_one', state: head.state, deleted: false },
-            fieldOf(head.fieldKey),
-            role,
-          ),
-        ].filter((choice) => !(blocked && choice === 'agree_program'));
+      : role === RoleCode.PPU
+        ? [
+            ...isPpuDecidable(
+              { state: head.state, deleted: false },
+              fieldOf(head.fieldKey),
+              role,
+            ),
+          ]
+        : role === RoleCode.TPB
+        ? [
+            ...isTpbDecidable(
+              { state: head.state, deleted: false },
+              fieldOf(head.fieldKey),
+              role,
+            ),
+          ]
+        : [
+            ...isDecidable(
+              { origin: 'round_one', state: head.state, deleted: false },
+              fieldOf(head.fieldKey),
+              role,
+            ),
+          ].filter((choice) => !(blocked && choice === 'agree_program'));
     const item: ThreadItem = {
       commentId: head.commentId,
       author: reviewerAuthor(
@@ -443,6 +511,29 @@ export function toThreadItems(
           }),
       decidable: choices.length > 0,
       choices,
+      // TPB read only (DD-T5): the comment's round and the Lead's decision as context.
+      ...(head.round === undefined ? {} : { round: head.round }),
+      ...(head.leadDecision === undefined || head.leadDecision === null
+        ? {}
+        : {
+            leadDecision: {
+              decision: head.leadDecision,
+              body: head.leadDecisionBody ?? null,
+              decidedAt: head.leadDecidedAt!.toISOString(),
+            },
+          }),
+      // PPU read only (DD-P7): the TPB's decision and its justification.
+      ...(role !== RoleCode.PPU ||
+      head.tpbDecision === undefined ||
+      head.tpbDecision === null
+        ? {}
+        : {
+            tpbDecision: {
+              decision: head.tpbDecision,
+              body: head.tpbDecisionBody ?? null,
+              decidedAt: head.tpbDecidedAt!.toISOString(),
+            },
+          }),
     };
     const list = out.get(head.fieldKey) ?? [];
     list.push(item);
@@ -463,7 +554,12 @@ export function annotateForRound(
 ): RoundView {
   const roundTwo = input.round !== 1;
   const changed = new Set(input.changedFields ?? []);
-  const commented = new Set(input.thread.map((row) => row.fieldKey));
+  // The carried-green fact reads round-1 comments only: the TPB's read also holds the Lead's own (round 2).
+  const commented = new Set(
+    input.thread
+      .filter((row) => row.round === undefined || row.round === 1)
+      .map((row) => row.fieldKey),
+  );
   const fieldsByKey = new Map<string, ViewField>();
   for (const section of view.sections) {
     for (const field of section.fields) fieldsByKey.set(field.key, field);
@@ -554,14 +650,26 @@ export function annotateForRound(
       changed: updated,
     };
     const stored = input.stored.get(field.key);
+    // P2-3916: for a TPB the step-3 effective green sits under its own mark.
+    // P2-3917: for a PPU the step-4 mark sits under its own, then the step-3 one.
+    const below =
+      input.leadStored === undefined
+        ? stored
+        : (stored ??
+          input.tpbStored?.get(field.key) ??
+          input.leadStored.get(field.key));
+    const changedAt = input.reportingChanges?.get(field.key);
     return {
       ...field,
       comments: withOwn(field),
       updated,
       actionable,
-      effectiveValidated: effectiveGreen(stored, facts),
-      carried: isCarriedGreen(stored, facts),
+      effectiveValidated: effectiveGreen(below, facts),
+      carried: isCarriedGreen(below, facts),
       thread: threads.get(field.key) ?? [],
+      ...(changedAt === undefined
+        ? {}
+        : { changedInReporting: { detectedAt: changedAt } }),
     };
   };
 

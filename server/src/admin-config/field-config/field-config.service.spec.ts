@@ -671,6 +671,71 @@ describe('FieldConfigService.preview (FR-7, FR-13, NFR-5)', () => {
   });
 });
 
+describe('FieldConfigService.currentFor (F-012)', () => {
+  function scenario() {
+    const w = world();
+    addVersion(w, 1, '2026-09-01T09:00:00Z', [
+      item('policy_change', 'general.title', VIEW_ONLY),
+    ]);
+    addVersion(w, 2, '2026-10-10T09:00:00Z', [
+      item('policy_change', 'general.title', ASSESSED),
+    ]);
+    // Started 2026-10-01, before version 2: `effectiveFor` keeps version 1.
+    addTimeline(w, {
+      id: 1,
+      name: 'Started',
+      opensOn: '2026-10-01',
+      types: ['policy_change'],
+    });
+    addTimeline(w, {
+      id: 3,
+      name: 'Knowledge products',
+      opensOn: '2026-10-01',
+      types: ['knowledge_product'],
+    });
+    return w;
+  }
+
+  it('a started timeline answers the LATEST version, not the one it keeps', async () => {
+    const w = scenario();
+    expect((await w.service.effectiveFor(1, 1, 'policy_change')).version).toBe(
+      1,
+    );
+
+    const current = await w.service.currentFor(1, 1, 'policy_change');
+
+    expect(current).toMatchObject({
+      timelineId: 1,
+      resultTypeKey: 'policy_change',
+      version: 2,
+      provisional: false,
+    });
+    expect(current.items).toEqual([
+      item('policy_change', 'general.title', ASSESSED),
+    ]);
+  });
+
+  it('keeps the scope check: a type the timeline does not cover is refused', async () => {
+    const w = scenario();
+    await expect(
+      w.service.currentFor(1, 3, 'policy_change'),
+    ).rejects.toBeInstanceOf(FieldConfigTypeNotInTimelineError);
+  });
+
+  it('answers the no-version error for a cycle with no version, and not found for an unknown timeline', async () => {
+    const none = world();
+    addTimeline(none, { id: 1, name: 'T', opensOn: '2026-10-01' });
+    await expect(
+      none.service.currentFor(1, 1, 'policy_change'),
+    ).rejects.toBeInstanceOf(FieldConfigNoVersionError);
+
+    const w = scenario();
+    await expect(
+      w.service.currentFor(1, 99, 'policy_change'),
+    ).rejects.toBeInstanceOf(TimelineNotFoundError);
+  });
+});
+
 describe('FieldConfigService.effectiveFor (FR-10)', () => {
   function scenario() {
     const w = world();

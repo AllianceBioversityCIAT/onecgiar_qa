@@ -194,8 +194,8 @@ describe('a QA Admin acting as a reviewer role (e2e)', () => {
       expect(refused.body.error.code).toBe('ASSESSMENT_READ_ONLY');
     });
 
-    it('a role with no enabled row, or an unknown value, is 400 VALIDATION_FAILED on the header', async () => {
-      for (const value of ['TPB', 'nope']) {
+    it('a role with no reviewer row, or an unknown value, is 400 VALIDATION_FAILED on the header', async () => {
+      for (const value of ['GUEST', 'nope']) {
         const res = await a.send('get', resultPath('', code), {
           token: admin(),
           headers: as(value),

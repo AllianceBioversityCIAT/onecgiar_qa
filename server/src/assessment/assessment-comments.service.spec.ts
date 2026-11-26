@@ -267,11 +267,10 @@ describe('FR-11 Value at the time of writing: the membership snapshot, never the
     const history = await snapshots.history(5001);
     expect(history).toHaveLength(2);
     expect(
-      history.map((s) => String(s.values[TITLE])).sort((x, y) => x.localeCompare(y)),
-    ).toEqual([
-      'New title',
-      'Old title',
-    ]);
+      history
+        .map((s) => String(s.values[TITLE]))
+        .sort((x, y) => x.localeCompare(y)),
+    ).toEqual(['New title', 'Old title']);
     // The latest snapshot of the result is the round-2 one: the wrong source.
     expect(history[history.length - 1]!.values[TITLE]).toBe('New title');
   });
@@ -370,7 +369,13 @@ describe('NFR-7: a value over 64 KiB is stored cut, with the flag', () => {
   it('a small value is stored whole with the flag off', async () => {
     const { service, add, world } = setup();
     await add(5001, { [TITLE]: 'short' });
-    const comment = await service.comment(assessorA(), 1, 5001, say(TITLE), RID);
+    const comment = await service.comment(
+      assessorA(),
+      1,
+      5001,
+      say(TITLE),
+      RID,
+    );
     expect(comment.valueTruncated).toBe(false);
     expect(world.comments[0]!.valueTruncated).toBe(false);
   });
@@ -485,33 +490,36 @@ describe('FR-11 Comment on a non-assessed field', () => {
     ['a View only field', VIEW_ONLY],
     ['a Hidden field', HIDDEN],
     ['a key that is not in the catalog', 'no.such_field'],
-  ])('400 VALIDATION_FAILED on fieldKey for %s, and nothing is stored', async (_label, key) => {
-    const { service, add, world } = setup();
-    await add(5001, { [TITLE]: 'T' });
+  ])(
+    '400 VALIDATION_FAILED on fieldKey for %s, and nothing is stored',
+    async (_label, key) => {
+      const { service, add, world } = setup();
+      await add(5001, { [TITLE]: 'T' });
 
-    const refused = await refusal(
-      service.comment(assessorA(), 1, 5001, say(key), RID),
-    );
+      const refused = await refusal(
+        service.comment(assessorA(), 1, 5001, say(key), RID),
+      );
 
-    expect(refused).toEqual({
-      status: 400,
-      body: {
-        code: 'VALIDATION_FAILED',
-        message: expect.any(String),
-        fields: [
-          {
-            field: 'fieldKey',
-            code: 'INVALID',
-            message: 'This value is not valid.',
-          },
-        ],
-      },
-    });
-    // The key the caller sent is not echoed back.
-    expect(JSON.stringify(refused.body)).not.toContain(key);
-    expectNothingStored(world);
-    expect(world.transactions).toBe(0);
-  });
+      expect(refused).toEqual({
+        status: 400,
+        body: {
+          code: 'VALIDATION_FAILED',
+          message: expect.any(String),
+          fields: [
+            {
+              field: 'fieldKey',
+              code: 'INVALID',
+              message: 'This value is not valid.',
+            },
+          ],
+        },
+      });
+      // The key the caller sent is not echoed back.
+      expect(JSON.stringify(refused.body)).not.toContain(key);
+      expectNothingStored(world);
+      expect(world.transactions).toBe(0);
+    },
+  );
 
   it('judges the key by the PINNED version, not the one the timeline resolves to now', async () => {
     const { service, add, world } = setup();
@@ -535,6 +543,27 @@ describe('FR-11 Comment on a non-assessed field', () => {
     );
     expect(refused.status).toBe(400);
     expect(world.comments).toEqual([]);
+  });
+
+  it('F-012: on a result nobody started, judges the key by the cycle LATEST version, not the one the timeline keeps', async () => {
+    const { service, add, world } = setup();
+    await add(5001, { [TITLE]: 'T' });
+    // The timeline keeps a version where the title is View only; the latest made it Assessed.
+    world.fieldConfigItems['policy_change'] = items().map((i) =>
+      i.fieldKey === TITLE ? { ...i, visibility: 'view_only' as const } : i,
+    );
+    world.latestVersionItems['policy_change'] = items();
+
+    const comment = await service.comment(
+      assessorA(),
+      1,
+      5001,
+      say(TITLE),
+      RID,
+    );
+
+    expect(comment.fieldKey).toBe(TITLE);
+    expect(world.comments).toHaveLength(1);
   });
 });
 
@@ -564,7 +593,10 @@ describe('FR-2: the step window, judged by the injected clock', () => {
   it.each([
     ['before every step', BEFORE_ALL],
     ['between step 1 and step 2', BETWEEN],
-    ['while step 2 (the programs) is open: an assessor writes in step 1 only', IN_STEP_2],
+    [
+      'while step 2 (the programs) is open: an assessor writes in step 1 only',
+      IN_STEP_2,
+    ],
     ['after every step', AFTER_ALL],
   ])('409 ASSESSMENT_STEP_CLOSED %s', async (_name, at) => {
     const { service, add, world } = setup(at);
@@ -798,9 +830,7 @@ describe('design 5: the lock order, and P-17: the idempotency mark inside the tr
 
   it('replayComment of an id with no comment is a defect (the interceptor answers 503)', async () => {
     const { service } = setup();
-    await expect(service.replayComment(424242)).rejects.toThrow(
-      /no comment/,
-    );
+    await expect(service.replayComment(424242)).rejects.toThrow(/no comment/);
   });
 });
 
@@ -922,7 +952,9 @@ describe('FR-13: withdraw your own comment', () => {
 
   it('Not someone else comment: B gets 403 ASSESSMENT_NOT_COMMENT_AUTHOR and nothing changes', async () => {
     const { service, world } = await withComment();
-    expect(await refusal(service.withdraw(assessorB(), 700, RID))).toMatchObject({
+    expect(
+      await refusal(service.withdraw(assessorB(), 700, RID)),
+    ).toMatchObject({
       status: 403,
       body: { code: 'ASSESSMENT_NOT_COMMENT_AUTHOR' },
     });
@@ -998,25 +1030,34 @@ describe('FR-13: withdraw your own comment', () => {
       'accepted',
       'accepted_with_comment',
       'disagreed',
-    ] as const)('409 ASSESSMENT_COMMENT_NOT_OPEN once the program answered (%s)', async (state) => {
-      const { service, world } = await withComment();
-      world.comments[0]!.state = state;
-      expect(await refusal(service.withdraw(assessorA(), 700, RID))).toMatchObject(
-        { status: 409, body: { code: 'ASSESSMENT_COMMENT_NOT_OPEN' } },
-      );
-      expect(world.comments[0]!.state).toBe(state);
-      expect(world.commentEvents).toEqual([]);
-      expect(world.audits).toEqual([]);
-    });
+    ] as const)(
+      '409 ASSESSMENT_COMMENT_NOT_OPEN once the program answered (%s)',
+      async (state) => {
+        const { service, world } = await withComment();
+        world.comments[0]!.state = state;
+        expect(
+          await refusal(service.withdraw(assessorA(), 700, RID)),
+        ).toMatchObject({
+          status: 409,
+          body: { code: 'ASSESSMENT_COMMENT_NOT_OPEN' },
+        });
+        expect(world.comments[0]!.state).toBe(state);
+        expect(world.commentEvents).toEqual([]);
+        expect(world.audits).toEqual([]);
+      },
+    );
 
     it('a program answer that commits between the read and the lock refuses and rolls back', async () => {
       const { service, world } = await withComment();
       world.beforeLockAssessment = () => {
         world.comments[0]!.state = 'accepted';
       };
-      expect(await refusal(service.withdraw(assessorA(), 700, RID))).toMatchObject(
-        { status: 409, body: { code: 'ASSESSMENT_COMMENT_NOT_OPEN' } },
-      );
+      expect(
+        await refusal(service.withdraw(assessorA(), 700, RID)),
+      ).toMatchObject({
+        status: 409,
+        body: { code: 'ASSESSMENT_COMMENT_NOT_OPEN' },
+      });
       expect(world.comments[0]!.state).toBe('accepted');
       expect(world.commentEvents).toEqual([]);
       expect(world.audits).toEqual([]);
@@ -1029,9 +1070,12 @@ describe('FR-13: withdraw your own comment', () => {
           s.position === 1 ? { ...s, closesAt: minute('2026-11-13T09:00') } : s,
         );
       };
-      expect(await refusal(service.withdraw(assessorA(), 700, RID))).toMatchObject(
-        { status: 409, body: { code: 'ASSESSMENT_STEP_CLOSED' } },
-      );
+      expect(
+        await refusal(service.withdraw(assessorA(), 700, RID)),
+      ).toMatchObject({
+        status: 409,
+        body: { code: 'ASSESSMENT_STEP_CLOSED' },
+      });
       expect(world.comments[0]!.state).toBe('open');
     });
   });

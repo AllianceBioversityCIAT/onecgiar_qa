@@ -14,6 +14,7 @@ import {
   ThreadItem,
 } from '../../../core/api/assessment.models';
 import { reviewerLabel } from '../../../core/api/acting-role';
+import { evidenceEntry } from '../../../core/domain/evidence-entry';
 import { fieldLabel } from '../../../core/domain/field-label';
 import { formatDay, romeInstantLabel, todayInRome } from '../../../core/domain/rome-date';
 import { STATUS_LABELS, qaStatusPill } from '../results/qa-status';
@@ -104,11 +105,17 @@ export interface ReviewVm {
   /** Finish is offered: writable and the assessment still pending (FR-15). */
   readonly canFinish: boolean;
   /**
-   * Status the result takes if it is finished now: returned while a core field is grey, and in step 1 also
-   * while any comment still stands (`returnsOnAnyComment`); Quality Assessed otherwise. Round 2 (Lead): Pending for
+   * Status the result takes if it is finished now, mirroring the server's `endOnFinish`: empty while Finish would
+   * be refused (`finishBlockedBy`); returned while a core field is grey (and commented), and in step 1 also while
+   * any comment still stands (`returnsOnAnyComment`); Quality Assessed otherwise. Round 2 (Lead): Pending for
    * TPB review while a core field is effectively grey, Quality Assessed otherwise (`finishOutcome`).
    */
   readonly finishTo: string;
+  /**
+   * P2-4138: labels of the core fields that are grey with no comment that still stands, in page order. The server
+   * refuses Finish while any is left (409 `ASSESSMENT_CORE_UNCOMMENTED`), so the page names them instead of an outcome.
+   */
+  readonly finishBlockedBy: readonly string[];
 }
 
 const ASSESSOR_INSTRUCTIONS =
@@ -155,6 +162,12 @@ const romeDay = (iso: string): string => {
   const at = new Date(iso);
   return isNaN(at.getTime()) ? formatDay(iso.slice(0, 10)) : formatDay(todayInRome(at));
 };
+
+/**
+ * "12 Nov 2026, 11:15 CET" of an instant: the Rome day and time, the label the page already uses for instants
+ * (`romeInstantLabel`). The day alone when the text is not an instant with its offset.
+ */
+const romeStamp = (iso: string): string => romeInstantLabel(iso) ?? romeDay(iso);
 
 const isObject = (v: Json): v is Readonly<Record<string, Json>> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -209,11 +222,12 @@ const valueOnly = (entry: Readonly<Record<string, Json>>): Json | undefined =>
  * list: the ToC ones always, the others from the field's `subfieldLists` (e.g. "Actor type: Farmers", not "1").
  */
 function entryText(
-  entry: Json,
+  raw: Json,
   labels: FieldLabels | null,
   lists: Readonly<Record<string, string>> = SUBFIELD_LISTS,
 ): string {
-  if (!isObject(entry)) return scalarText(entry, labels, undefined, !!labels);
+  if (!isObject(raw)) return scalarText(raw, labels, undefined, !!labels);
+  const entry = evidenceEntry(raw);
   const single = valueOnly(entry);
   if (single !== undefined) return scalarText(single, labels, lists['value'], Object.hasOwn(lists, 'value'));
   return Object.entries(entry)
@@ -597,10 +611,16 @@ export function toHeaderVm(view: AssessmentView, canAct: boolean = view.writable
   const a = view.assessment;
   const ended = !!a && a.status !== 'pending';
   const assessor = reviewerLabel(a?.assessedBy);
+  const programName = `${h.program.code} ${h.program.name}`.trim();
+  const step = h.step ? `Step ${h.step.position} · ${h.step.name}` : null;
   return {
     code: String(h.resultCode),
     title: h.title ?? 'Untitled result',
     type: h.resultType.label,
+    programCode: h.program.code,
+    programName,
+    timeline: h.timeline.name,
+    step: step ?? 'No step',
     status: pill.label,
     statusClass: pill.cls,
     isAuto: h.status === 'auto_validated',
@@ -616,9 +636,9 @@ export function toHeaderVm(view: AssessmentView, canAct: boolean = view.writable
     // Comments become visible to the program only when the assessment ends (FR-14, FR-15).
     locked: canAct && !ended,
     details: [
-      { label: 'Science program', value: `${h.program.code} ${h.program.name}`.trim() },
+      { label: 'Science program', value: programName },
       { label: 'Timeline', value: h.timeline.name },
-      { label: 'Step', value: h.step ? `Step ${h.step.position} · ${h.step.name}` : '—' },
+      { label: 'Step', value: step ?? '—' },
       { label: 'Assessed by', value: ended ? assessor : '—' },
     ],
   };
@@ -672,6 +692,8 @@ export function toReviewVm(view: AssessmentView, writes = true): ReviewVm {
       open: 0,
     });
   }
+  // The server's refusal (`endOnFinish`): a grey core field with no non-withdrawn comment.
+  const finishBlockedBy = assessed.filter((f) => f.core && !isResolved(f)).map((f) => f.label);
   return {
     header: toHeaderVm(view, canAct),
     sections,
@@ -682,8 +704,17 @@ export function toReviewVm(view: AssessmentView, writes = true): ReviewVm {
     commented: assessed.filter((f) => openComments(f).length > 0).length,
     validated: assessed.filter(isGreen).length,
     canFinish: canAct && (view.assessment?.status ?? 'pending') === 'pending',
-    finishTo: finishOutcome(view, assessed),
+    finishTo: finishBlockedBy.length ? '' : finishOutcome(view, assessed),
+    finishBlockedBy,
   };
+}
+
+/**
+ * Why Finish is refused, in the words the page uses for the 409 `ASSESSMENT_CORE_UNCOMMENTED` (one or several core
+ * field labels); empty when nothing blocks it.
+ */
+export function coreUncommentedMessage(names: readonly string[]): string {
+  return names.length ? `Validate or comment ${names.length === 1 ? 'this core field' : 'these core fields'} first: ${names.join(', ')}.` : '';
 }
 
 /** A field by key, with the name of its section (the drawer's subtitle). */
@@ -698,7 +729,15 @@ export function findField(
   return null;
 }
 
-export function toCommentVm(c: AssessmentComment, reader: ThreadReader = NO_READER): ReviewCommentVm {
+/**
+ * One comment of a field's thread (P2-3910 AC14): nickname, date and time in Rome, step, and the field value as the
+ * author saw it. `field` lends its subfield lists so the copy reads like the field does.
+ */
+export function toCommentVm(
+  c: AssessmentComment,
+  reader: ThreadReader = NO_READER,
+  field: Pick<AssessmentField, 'subfieldLists'> = {},
+): ReviewCommentVm {
   return {
     id: c.id,
     authorId: c.author.id,
@@ -706,8 +745,16 @@ export function toCommentVm(c: AssessmentComment, reader: ThreadReader = NO_READ
     canWithdraw: reader.canWithdraw && c.state === 'open' && reader.me !== null && c.author.id === reader.me,
     who: reviewerLabel(c.author),
     role: 'Assessor',
-    date: romeDay(c.createdAt),
+    date: romeStamp(c.createdAt),
     text: c.body,
+    step: `Step ${c.stepPosition}`,
+    valueCopy: formatValue({
+      value: c.valueCopy?.value ?? null,
+      labels: c.valueCopy?.labels ?? null,
+      notApplicable: false,
+      subfieldLists: field.subfieldLists,
+    }),
+    valueTruncated: c.valueTruncated === true,
   };
 }
 
@@ -842,7 +889,7 @@ export function toDrawerVm(
   reader: ThreadReader = NO_READER,
   threads: CommentThreads = NO_THREADS,
 ): CommentsDrawerVm {
-  const comments = openComments(found.field).flatMap((c) => [toCommentVm(c, reader), ...toThreadRows(c, threads.get(c.id))]);
+  const comments = openComments(found.field).flatMap((c) => [toCommentVm(c, reader, found.field), ...toThreadRows(c, threads.get(c.id))]);
   const clarify = reader.canClarify === false ? null : pendingClarification(found.field, reader.me, threads);
   return {
     label: found.field.label,

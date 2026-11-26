@@ -74,6 +74,8 @@ import { FieldChangeGroupVm } from './fields-config';
                   <li>{{ t.name || 'Deleted timeline' }}<span class="text-(--text-3)"> · {{ t.version }}</span></li>
                 }
               </ul>
+              <!-- F-005 + F-012 (Juanda, 24/25-nov-2026): results nobody started take the latest version; Hidden / View only reach all. -->
+              <p class="m-0 text-(length:--fs-12) text-(--text-3)">Changes reach results nobody has started; results already in review keep their version (Hidden / View only changes reach all).</p>
             </div>
           }
         </section>

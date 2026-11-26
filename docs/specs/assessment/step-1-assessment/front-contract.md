@@ -39,12 +39,12 @@ admin/acts-as-reviewer (back lead, 2026-11-23). A QA Admin is transversal: it ca
 
 | Rule | Behavior |
 |---|---|
-| Header | `X-Acting-Role: ASSESSOR \| LEAD_ASSESSOR` on every assessment route: the view, validations, comments, withdraw, decisions, delete, finish. Send it on the read too: the view is built for that role |
+| Header | `X-Acting-Role: ASSESSOR \| LEAD_ASSESSOR \| TPB \| PPU` (TPB since P2-3916, PPU since P2-3917) on every assessment route: the view, validations, comments, withdraw, decisions, delete, finish. Send it on the read too: the view is built for that role |
 | Who | Honored only for a caller with the admin permission. Any other caller's header is ignored (a valid value) |
-| Bad value | Any other value (`TPB`, `PPU` until their rows are enabled, a typo) is 400 `VALIDATION_FAILED` with `fields: [{ field: 'X-Acting-Role', code: 'INVALID' }]`, for every caller |
+| Bad value | Any other value (`ADMIN`, `GUEST`, a typo) is 400 `VALIDATION_FAILED` with `fields: [{ field: 'X-Acting-Role', code: 'INVALID' }]`, for every caller |
 | No header | The Admin is read-only, exactly as before (`readOnlyReason: 'admin_read_only'`, 403 `ASSESSMENT_READ_ONLY` on a write) |
 | Dates | The role's step dates do not bind the Admin: it writes before the step opens and after it closes (withdraw included). The timeline must have the role's step (`no_step` otherwise) |
-| Flow | Kept. The role must fit the result's round: `ASSESSOR` on round 1, `LEAD_ASSESSOR` on round 2. A role that does not fit is read-only (`admin_read_only`, 403 `ASSESSMENT_READ_ONLY`). Auto-validated, finished and ended results stay read-only (409 `ASSESSMENT_FINISHED`) |
+| Flow | Kept. The role must fit the result's round: `ASSESSOR` on round 1, `LEAD_ASSESSOR` on round 2, `TPB` on a round-2 result the Lead escalated, `PPU` on one the TPB escalated (Pending PPU / Unresolved). A role that does not fit is read-only (`admin_read_only`, 403 `ASSESSMENT_READ_ONLY`). Auto-validated, finished and ended results stay read-only (409 `ASSESSMENT_FINISHED`) |
 | Rules | Every other rule is the role's: which fields, decisions, end rules, the release to Reporting. Of two concurrent finishes (Admin and reviewer) exactly one wins; the other gets 409 `ASSESSMENT_FINISHED` |
 | Author | What the Admin writes carries `admin: true` on its author (`Comment.author`, a round-2 `thread[]` item's `author`) and on `assessedBy` (view and worklist). Reviewers and admins see it; the program view carries no author at all, as before |
 | Scope | Every result type and program; no assignment, grant or conflict rule is needed |
@@ -63,9 +63,9 @@ Returned as `status` on worklist rows and the view header; accepted by the `stat
 | `pending` | Pending | yes |
 | `returned_to_program` | Returned to program | yes |
 | `clarification_requested` | Clarification requested | yes |
-| `pending_tpb_review` | Pending for TPB review | no (declared for later steps) |
-| `pending_ppu` | Pending PPU | no (declared for later steps) |
-| `unresolved` | Unresolved | no (declared for later steps) |
+| `pending_tpb_review` | Pending for TPB review | yes (round 2: P2-3912, P2-3916) |
+| `pending_ppu` | Pending PPU | yes (round 2, steps 4-5: P2-3916, P2-3917) |
+| `unresolved` | Unresolved | yes (round 2, step 5 closed: P2-3917) |
 | `quality_assessed` | Quality Assessed | yes |
 | `auto_validated` | Auto-validated | yes (hidden from the list unless filtered for) |
 

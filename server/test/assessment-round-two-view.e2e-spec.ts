@@ -453,8 +453,8 @@ describe('Round-2 view of the Lead (e2e)', () => {
       expect(one.threadCalls).toBe(1);
       expect(many.threadCalls).toBe(1);
       // timelines, load probe, membership (with the previous assessment's id),
-      // the pinned version's items for the membership with no row yet (five of
-      // `effectiveFor`), then the thread and the round-1 validations: 10.
+      // the latest version's items for the membership with no row yet (five of
+      // `currentFor`, F-012), then the thread and the round-1 validations: 10.
       expect(many.statements).toBe(10);
     });
   });
@@ -537,8 +537,12 @@ describe('Round-2 view of the Lead (e2e)', () => {
           'createdAt',
           'decidable',
           'decision',
+          // TPB and PPU views (P2-3916, P2-3917): optional, absent for the Lead.
+          'leadDecision',
           'response',
+          'round',
           'state',
+          'tpbDecision',
           'valueCopy',
           'valueTruncated',
         ].sort(),

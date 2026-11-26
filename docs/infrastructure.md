@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Status | Draft v0.1 |
-| Last updated | 2026-10-15 |
+| Last updated | 2026-11-26 |
 | Derives from | `docs/trd/trd.md` — **LITE tier** (ADR-001) with polyglot persistence (ADR-002) |
 | Source | Infrastructure team answer (2026-10-13), `feature/qa-ssr-lambda` branch |
 
@@ -34,6 +34,12 @@ Cloud region: AWS **us-east-1**. The API stays on its own subdomain; no extra pr
 ## 3. Deployment Strategy
 
 - **CI/CD:** GitHub → Jenkins (a GitHub workflow triggers the Jenkins job, as on `feature/qa-ssr-lambda`). Jenkinsfiles are kept local to the deploy host today.
+- **Front in PROD = static on S3 + CloudFront** (Cristian, 2026-11-26: PROD has no containers; SSR there would need a Lambda and a redirect from the infrastructure team). TEST keeps the SSR Docker image.
+  - Build: `npx ng build --configuration production,static` → upload `dist/onecgiar-qa/browser/` to the bucket. The `static` configuration only sets `outputMode: static`; the default `ng build` (used by the TEST pipelines) is unchanged.
+  - The build writes `index.csr.html` (the app shell for every route) and `login/index.html` (prerendered). There is no `index.html`.
+  - CloudFront: default root object `index.csr.html`; custom error responses 403 and 404 → `/index.csr.html` with status 200, so a reload on any inner route boots the app.
+  - Headers the Node server sets today (`client/src/server.ts`) move to a CloudFront response-headers policy: `/sp*` → `Content-Security-Policy: frame-ancestors <Reporting origins>`; every other path → `frame-ancestors 'none'` + `X-Frame-Options: DENY`.
+  - `src/environments/environment.ts` is written by the PROD job from Secrets Manager (`prod/app/frontend/onecgiar/qa`) before the build.
 - **Front SSR (Lambda option):** Docker image → ECR → SAM stack (Lambda Web Adapter + Function URL + CloudFront), `client/scripts/deploy-ecr.sh`.
 - **API:** Docker image in TEST; PM2 process in PROD. Build with `pnpm build`, run `node dist/main`.
 - **DB schema:** drizzle-kit migrations committed in `server/drizzle/`, applied by the pipeline before the new API version starts. Never hand-run SQL against shared DBs.

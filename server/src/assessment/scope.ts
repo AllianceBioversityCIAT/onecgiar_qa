@@ -9,7 +9,7 @@ import type {
 import { isLiveAssignment } from '../users/current-user.cache.js';
 import type { AuthorizationSubject } from '../users/authorization.service.js';
 import { ALL_RESULT_TYPES } from '../users/effective-scope.js';
-import type { RoleCode } from '../users/permissions.js';
+import { findRoleDefinition, RoleCode } from '../users/permissions.js';
 import {
   audienceStepState,
   enabledReviewerRows,
@@ -123,7 +123,12 @@ export function resolveAccess(
       role: row.role,
       round: row.round,
       audience: row.audience,
-      resultTypes: resultTypeSet(grants.map((grant) => grant.resultTypeKey)),
+      // P2-3916 (DD-T9): a global role (TPB) is granted with no result type, so
+      // it covers every type; its programs are still the user's program scope.
+      resultTypes:
+        findRoleDefinition(row.role)?.scopeType === 'global'
+          ? 'all'
+          : resultTypeSet(grants.map((grant) => grant.resultTypeKey)),
       programs: programSet(user),
     });
   }
@@ -183,11 +188,29 @@ export interface MembershipFacts {
   status: TimelineResultStatus;
   ended: boolean;
   endReason: TimelineResultEndReason | null;
+  /**
+   * P2-3916 (DD-T2): the membership's Lead (step-3) assessment ended
+   * `escalated`, so it reached step 4. Only the TPB row reads it; left out it
+   * is `false`, so a TPB row covers nothing.
+   */
+  leadEscalated?: boolean;
+  /**
+   * P2-3917 (DD-P4): the membership's TPB (step-4) assessment ended
+   * `escalated`, so it reached step 5. Only the PPU row reads it; left out it
+   * is `false`, so a PPU row covers nothing.
+   */
+  tpbEscalated?: boolean;
 }
 
-/** Does this reviewer row cover the membership's round, result type and program? */
+/**
+ * Does this reviewer row cover the membership's round, result type and program?
+ * A TPB row also needs the membership to have reached step 4 (`leadEscalated`,
+ * DD-T2); its SQL twin is the `EXISTS` of `reviewerRowCondition`.
+ */
 export function rowCovers(row: ReviewerRow, facts: MembershipFacts): boolean {
   if (row.round !== facts.round) return false;
+  if (row.role === RoleCode.TPB && facts.leadEscalated !== true) return false;
+  if (row.role === RoleCode.PPU && facts.tpbEscalated !== true) return false;
   const typeCovered =
     row.resultTypes === 'all' || row.resultTypes.includes(facts.resultType);
   if (!typeCovered) return false;
@@ -313,7 +336,12 @@ export function writeDecision(
     const roleStep = findRoleStep(row.role);
     const state = roleStep ? roleStepState(roleStep, timing) : null;
     if (state === null) continue;
-    if (state.state === 'in_progress' || row.byAdmin === true) {
+    // DD-P1: a role with no date window (the PPU) writes whatever the state of its step.
+    if (
+      state.state === 'in_progress' ||
+      row.byAdmin === true ||
+      roleStep?.dateBound === false
+    ) {
       return { writable: true, row, stepPosition: state.position };
     }
     refusal = stepRefusal(state.state);

@@ -57,20 +57,26 @@ describe('role-step table (design 7.1)', () => {
     ).toEqual([
       ['ASSESSOR', 'ASSESSOR_ACCESS', 'assessors', 1, true, 'write'],
       ['LEAD_ASSESSOR', 'LEAD_ACCESS', 'lead_assessors', 2, true, 'write'],
-      ['TPB', 'TPB_ACCESS', 'tpb', 2, false, 'write'],
-      ['PPU', 'PPU_ACCESS', 'ppu', 2, false, 'write'],
+      ['TPB', 'TPB_ACCESS', 'tpb', 2, true, 'write'],
+      ['PPU', 'PPU_ACCESS', 'ppu', 2, true, 'write'],
       ['ADMIN', 'ADMIN_ACCESS', null, null, true, 'read'],
     ]);
   });
 
-  // FR-1 / FR-16: the Lead row is the only one this spec enables; TPB and PPU stay designed only.
-  it('enables ASSESSOR and LEAD_ASSESSOR as writers, and leaves TPB and PPU disabled', () => {
+  // FR-1 / FR-16: P2-3912 enabled the Lead row, P2-3916 the TPB row and P2-3917 the PPU row.
+  it('enables every reviewer row, and only the PPU has no date window (P2-3917 DD-P1)', () => {
     expect(enabledReviewerRows().map((row) => row.role)).toEqual([
       'ASSESSOR',
       'LEAD_ASSESSOR',
+      'TPB',
+      'PPU',
     ]);
-    expect(findRoleStep('TPB')!.enabled).toBe(false);
-    expect(findRoleStep('PPU')!.enabled).toBe(false);
+    expect(findRoleStep('PPU')!.enabled).toBe(true);
+    expect(
+      enabledReviewerRows()
+        .filter((row) => row.dateBound === false)
+        .map((row) => row.role),
+    ).toEqual(['PPU']);
   });
 
   it('has no row for a role with no worklist (PROGRAM, GUEST)', () => {

@@ -6,8 +6,8 @@ import { RoleGrant, USERS_ERROR, UserSummary } from '../../../core/api/users.mod
 import { CLIENT_ERROR, toApiError } from '../../../core/http/api-envelope';
 import { Toasts } from '../../../core/http/toasts';
 import { reloadAfterReplay } from '../../../core/http/write-events';
-import { TeamMember, TeamRole } from './assessors.models';
-import { TeamCatalogs, accountTypeFor, programIdOf, programsFor, rolesFor, sameGrants, toMember } from './assessors.mapper';
+import { TeamMember, TeamRole, isTypeRole } from './assessors.models';
+import { TeamCatalogs, accountTypeFor, programIdOf, programsFor, rolesFor, sameGrants, toMember, typesForRole } from './assessors.mapper';
 
 export type LoadState = 'loading' | 'ready' | 'error';
 
@@ -24,8 +24,9 @@ export interface PersonInput {
   readonly email: string;
   readonly nick: string;
   readonly role: TeamRole;
-  readonly lead: boolean;
-  readonly types: readonly string[];
+  /** Result types as Assessor / as Lead assessor (P2-4107). Only sent for those two roles. */
+  readonly assessTypes: readonly string[];
+  readonly leadTypes: readonly string[];
   readonly programs: readonly string[];
   readonly blocked: readonly { readonly code: string; readonly reason: string; readonly id?: number }[];
 }
@@ -34,7 +35,8 @@ const CODE_FIELD: Readonly<Record<string, PersonField>> = {
   [USERS_ERROR.EMAIL_TAKEN]: 'email',
   [USERS_ERROR.NICKNAME_TAKEN]: 'nick',
   [USERS_ERROR.NAME_LOCKED]: 'firstName',
-  [USERS_ERROR.ROLE_CONFLICT]: 'role',
+  // Assessor and Lead assessor on one result type (server rule D2): shown under the type pickers.
+  [USERS_ERROR.ROLE_CONFLICT]: 'types',
   [USERS_ERROR.LAST_ADMIN]: 'role',
   [USERS_ERROR.EXCLUSION_EXISTS]: 'blocked',
 };
@@ -55,11 +57,24 @@ function failure(error: unknown): SaveOutcome & { ok: false } {
   return { ok: false, message: first?.message ?? e.message, field: CODE_FIELD[e.code] ?? (first ? fieldOfPath(first.field) : undefined) };
 }
 
-/** An Assessor with no result type would be saved with no role at all (every grant revoked). */
-function assessorWithoutTypes(input: PersonInput): SaveOutcome | null {
-  return input.role === 'Assessor' && !input.types.length
-    ? { ok: false, field: 'types', message: 'Pick at least one result type for an assessor.' }
+/**
+ * Result types of the two type roles, checked before any call: none at all would save the person
+ * with no role (every grant revoked); one type in both lists is refused by the server (D2).
+ */
+function typesProblem(input: PersonInput): SaveOutcome | null {
+  if (!isTypeRole(input.role)) return null;
+  if (!input.assessTypes.length && !input.leadTypes.length) {
+    return { ok: false, field: 'types', message: 'Pick at least one result type, as assessor or as lead assessor.' };
+  }
+  const both = input.assessTypes.filter((t) => input.leadTypes.includes(t));
+  return both.length
+    ? { ok: false, field: 'types', message: `${both.join(', ')} cannot be both assessed and led by the same person. Keep it in one of the two.` }
     : null;
+}
+
+/** Grants the form asks for (global roles never carry result types). */
+function grantsOf(input: PersonInput, cat: TeamCatalogs): ReturnType<typeof rolesFor> {
+  return isTypeRole(input.role) ? rolesFor(input.role, input.assessTypes, input.leadTypes, cat) : rolesFor(input.role, [], [], cat);
 }
 
 /**
@@ -169,7 +184,7 @@ export class AssessorsStore {
   private unconfirmedInvite: string | null = null;
 
   async invite(input: PersonInput): Promise<SaveOutcome> {
-    const noTypes = assessorWithoutTypes(input);
+    const noTypes = typesProblem(input);
     if (noTypes) return noTypes;
     const cat = this.catalogState();
     const blocked = input.blocked.filter((b) => b.code);
@@ -181,7 +196,7 @@ export class AssessorsStore {
           lastName: input.lastName.trim(),
           nickname: input.nick.trim(),
           accountType: accountTypeFor(input.email),
-          roles: rolesFor(input.role, input.lead, input.types, cat),
+          roles: grantsOf(input, cat),
           programs: programsFor(input.programs, cat),
           exclusions: blocked.flatMap((b) => {
             const programId = programIdOf(b.code, cat);
@@ -224,7 +239,7 @@ export class AssessorsStore {
   async edit(id: string, input: PersonInput): Promise<SaveOutcome> {
     const before = this.find(id);
     if (!before) return { ok: false, message: 'This person is no longer in the list. Reload the page.' };
-    const noTypes = assessorWithoutTypes(input);
+    const noTypes = typesProblem(input);
     if (noTypes) return noTypes;
     const cat = this.catalogState();
 
@@ -232,10 +247,7 @@ export class AssessorsStore {
     // Names change only until the first sign-in (the server answers NAME_LOCKED after it).
     const firstName = before.namesLocked ? before.firstName : input.firstName.trim();
     const lastName = before.namesLocked ? before.lastName : input.lastName.trim();
-    const sameRoles = sameGrants(
-      rolesFor(input.role, input.lead, input.role === 'Assessor' ? input.types : [], cat),
-      rolesFor(before.role, before.lead, before.types, cat),
-    );
+    const sameRoles = sameGrants(grantsOf(input, cat), rolesFor(before.role, before.assessTypes, before.leadTypes, cat));
     const kept = input.blocked.filter((b) => b.code);
     const manual = (list: readonly { code: string; reason: string }[]) =>
       list.flatMap((b) => {
@@ -265,7 +277,7 @@ export class AssessorsStore {
             ...(lastName !== before.lastName ? { lastName } : {}),
             // PUT replaces the whole role set: when the role on screen did not change, a person with
             // grants the screen cannot show (`otherRoles`) gets the server's own grants back untouched.
-            roles: sameRoles && before.otherRoles ? this.rawRoles(id) : rolesFor(input.role, input.lead, input.role === 'Assessor' ? input.types : [], cat),
+            roles: sameRoles && before.otherRoles ? this.rawRoles(id) : grantsOf(input, cat),
             programs: programsFor(input.programs, cat),
             exclusions: afterManual,
           },
@@ -279,21 +291,27 @@ export class AssessorsStore {
     }
   }
 
-  /** Assessor needs result types: the caller opens the drawer instead of revoking every grant. */
+  /**
+   * Assessor and Lead assessor need result types: without any, the caller opens the drawer instead
+   * of revoking every grant. Between those two the covered types move with the role (P2-4107: it
+   * used to widen Lead assessor to all types).
+   */
   async setRole(id: string, role: TeamRole): Promise<void> {
     const m = this.find(id);
-    if (!m || (role === 'Assessor' && !m.types.length)) return;
-    await this.inline(id, () => this.users.setRoles(Number(id), rolesFor(role, m.lead, role === 'Assessor' ? m.types : [], this.catalogState()), m.nick || m.name));
+    if (!m || (isTypeRole(role) && !m.types.length)) return;
+    const { assessTypes, leadTypes } = typesForRole(role, m.assessTypes, m.leadTypes);
+    await this.inline(id, () => this.users.setRoles(Number(id), rolesFor(role, assessTypes, leadTypes, this.catalogState()), m.nick || m.name));
   }
 
-  async setTypes(id: string, types: readonly string[]): Promise<void> {
+  /** Inline types cell: the result types of each type role (never the same type in both). */
+  async setTypes(id: string, assessTypes: readonly string[], leadTypes: readonly string[]): Promise<void> {
     const m = this.find(id);
     if (!m) return;
-    if (!types.length) {
+    if (!assessTypes.length && !leadTypes.length) {
       this.toasts.info('An assessor needs at least one result type. To take them all away, change the role or remove the person.');
       return;
     }
-    await this.inline(id, () => this.users.setRoles(Number(id), rolesFor(m.role, m.lead, types, this.catalogState()), m.nick || m.name));
+    await this.inline(id, () => this.users.setRoles(Number(id), rolesFor(m.role, assessTypes, leadTypes, this.catalogState()), m.nick || m.name));
   }
 
   async resendInvitation(id: string): Promise<void> {

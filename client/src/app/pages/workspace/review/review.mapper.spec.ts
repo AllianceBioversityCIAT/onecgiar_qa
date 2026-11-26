@@ -3,7 +3,7 @@ import { AssessmentField, AssessmentView } from '../../../core/api/assessment.mo
 import { FieldVm } from './review-model';
 import { clarificationThread, comment, field, programResponse, viewFixture } from './review.api-fixture';
 import { roundTwoViewFixture, threadItem as threadItemOf, withThread } from './review.round2-fixture';
-import { findField, formatValue, pendingAnswers, pendingAnswersBanner, readOnlyBanner, returnsOnAnyComment, toCommentVm, toDrawerVm, toFieldVm, toReviewVm, withPendingAnswers, withdrawOpen } from './review.mapper';
+import { coreUncommentedMessage, findField, formatValue, pendingAnswers, pendingAnswersBanner, readOnlyBanner, returnsOnAnyComment, toCommentVm, toDrawerVm, toFieldVm, toReviewVm, withPendingAnswers, withdrawOpen } from './review.mapper';
 
 const byLabel = (fields: readonly FieldVm[], label: string): FieldVm =>
   fields.find((f) => f.label === label)!;
@@ -300,6 +300,22 @@ describe('review.mapper (API assessment view → Review view models)', () => {
       expect(h.showAssessedBy).toBe(false);
     });
 
+    it('P2-4136 AC3: the header carries the Science Program and the timeline to show them, not only the ⓘ details', () => {
+      const h = toReviewVm(viewFixture()).header;
+      expect([h.programCode, h.programName, h.timeline, h.step]).toEqual([
+        'SP05',
+        'SP05 Better Diets and Nutrition',
+        'Official timeline 2026',
+        'Step 1 · Assessment',
+      ]);
+    });
+
+    it('P2-4136: no step on the timeline reads "No step" in the header, never a blank', () => {
+      const v = viewFixture();
+      const h = toReviewVm({ ...v, header: { ...v.header, step: null } }).header;
+      expect(h.step).toBe('No step');
+    });
+
     it.each([
       ['admin_read_only', 'View only for admins'],
       ['step_upcoming', 'Step 1 · Assessment has not opened yet'],
@@ -561,8 +577,39 @@ describe('review.mapper (API assessment view → Review view models)', () => {
     const coreGreen = (v: AssessmentView): AssessmentView => everyField(v, (f) => (f.core ? { ...f, validated: true } : f));
     const atStep = (v: AssessmentView, position: number): AssessmentView => ({ ...v, header: { ...v.header, step: { position, name: 'Step' } } });
 
-    it('Returned to program while a core field is grey', () => {
-      expect(toReviewVm(viewFixture()).finishTo).toBe('Returned to program'); // toc.entries is core and grey
+    /** toc.entries (core, grey in the fixture) with a comment that still stands. */
+    const tocCommented = (v: AssessmentView): AssessmentView =>
+      everyField(v, (f) => (f.key === 'toc.entries' ? { ...f, comments: [comment({ id: 9 })] } : f));
+
+    it('P2-4138: a grey core field with no comment is refused by the server, so no outcome is announced and the field is named', () => {
+      const page = toReviewVm(viewFixture()); // toc.entries is core, grey and has no comment
+      expect(page.finishTo).toBe('');
+      expect(page.finishBlockedBy).toEqual(['ToC contributions']);
+    });
+
+    it('P2-4138: a core field whose only comment was withdrawn still blocks it (the server reads non-withdrawn comments)', () => {
+      const withdrawn = everyField(viewFixture(), (f) =>
+        f.key === 'toc.entries' ? { ...f, comments: [comment({ id: 9, state: 'withdrawn', withdrawnAt: '2026-11-12T11:00:00.000Z' })] } : f,
+      );
+      expect(toReviewVm(withdrawn).finishBlockedBy).toEqual(['ToC contributions']);
+      expect(toReviewVm(withdrawn).finishTo).toBe('');
+    });
+
+    it('a grey core field WITH a comment that still stands is Returned to program, nothing blocks it', () => {
+      const page = toReviewVm(tocCommented(viewFixture()));
+      expect(page.finishBlockedBy).toEqual([]);
+      expect(page.finishTo).toBe('Returned to program');
+    });
+
+    it('names every blocking core field, in page order', () => {
+      const two = everyField(viewFixture(), (f) => (f.key === 'general.title' ? { ...f, validated: false } : f));
+      expect(toReviewVm(two).finishBlockedBy).toEqual(['Title of Result', 'ToC contributions']);
+    });
+
+    it('every core green and no comment at all: Quality Assessed, nothing blocks it', () => {
+      const clean = everyField(coreGreen(viewFixture()), (f) => ({ ...f, comments: [] }));
+      expect(toReviewVm(clean).finishBlockedBy).toEqual([]);
+      expect(toReviewVm(clean).finishTo).toBe('Quality Assessed');
     });
 
     it('step 1: a comment that still stands, on a field that is not core, returns it even with every core green', () => {
@@ -585,7 +632,14 @@ describe('review.mapper (API assessment view → Review view models)', () => {
 
     it('a later step counts the core fields only: every core green is Quality Assessed, comments or not', () => {
       expect(toReviewVm(atStep(coreGreen(viewFixture()), 3)).finishTo).toBe('Quality Assessed');
-      expect(toReviewVm(atStep(viewFixture(), 3)).finishTo).toBe('Returned to program'); // toc.entries still grey
+      expect(toReviewVm(atStep(tocCommented(viewFixture()), 3)).finishTo).toBe('Returned to program'); // toc.entries grey, commented
+      expect(toReviewVm(atStep(viewFixture(), 3)).finishTo).toBe(''); // toc.entries grey with no comment: refused
+    });
+
+    it('coreUncommentedMessage: the same words the page shows for the 409 ASSESSMENT_CORE_UNCOMMENTED', () => {
+      expect(coreUncommentedMessage(['Result level'])).toBe('Validate or comment this core field first: Result level.');
+      expect(coreUncommentedMessage(['Result level', 'Title of Result'])).toBe('Validate or comment these core fields first: Result level, Title of Result.');
+      expect(coreUncommentedMessage([])).toBe('');
     });
 
     it('returnsOnAnyComment: only step 1, only a comment that still stands', () => {
@@ -595,7 +649,6 @@ describe('review.mapper (API assessment view → Review view models)', () => {
       expect(returnsOnAnyComment(everyField(viewFixture(), (f) => ({ ...f, comments: f.comments.filter((c) => c.state === 'withdrawn') })))).toBe(false);
     });
   });
-
 
   describe('round 2: the Lead reads a re-submitted result (P2-3912, round-2 contract § 3, § 4.3)', () => {
     const general = (v: AssessmentView = roundTwoViewFixture()) => toReviewVm(v).sections[0].fields;
@@ -842,23 +895,49 @@ describe('review.mapper (API assessment view → Review view models)', () => {
       expect(toReviewVm(explicit)).toEqual(vm);
       const all = vm.sections.flatMap((s) => s.fields);
       expect(all.every((f) => !f.carried && !f.updated)).toBe(true);
-      expect(vm.finishTo).toBe('Returned to program');
+      // P2-4138: the fixture's ToC core field is grey with no comment, so Finish is refused (no outcome announced).
+      expect(vm.finishBlockedBy).toEqual(['ToC contributions']);
+      expect(vm.finishTo).toBe('');
     });
   });
 
-  it('dates are the day in Rome, not the UTC day (23:30 UTC is already the next day there)', () => {
-    expect(toCommentVm(comment({ createdAt: '2026-11-12T23:30:00.000Z' })).date).toBe(
-      toCommentVm(comment({ createdAt: '2026-11-13T09:00:00.000Z' })).date,
-    );
+  it('dates are the day and time in Rome, not UTC (23:30 UTC is already the next day there)', () => {
+    expect(toCommentVm(comment({ createdAt: '2026-11-12T23:30:00.000Z' })).date).toBe('13 Nov 2026, 00:30 CET');
+    expect(toCommentVm(comment({ createdAt: '2026-07-01T10:00:00.000Z' })).date).toBe('01 Jul 2026, 12:00 CEST');
   });
 
-  it('a comment is shown by nickname only (or "—") with its date', () => {
+  it('P2-4137 AC14: a comment carries its step and the field value as the author saw it', () => {
+    const vm = toCommentVm(comment({ stepPosition: 2, valueCopy: { value: 'Old' } }));
+    expect(vm.step).toBe('Step 2');
+    expect(vm.valueCopy).toBe('Old');
+    expect(vm.valueTruncated).toBe(false);
+  });
+
+  it('P2-4137: the value copy reads with its own labels and the field\'s subfield lists, and says when it was cut', () => {
+    const vm = toCommentVm(
+      comment({ valueCopy: { value: [{ actor_type: 7 }], labels: { actor_types: { '7': 'Farmers' } } }, valueTruncated: true }),
+      undefined,
+      { subfieldLists: { actor_type: 'actor_types' } },
+    );
+    expect(vm.valueCopy).toBe(formatValue({ value: [{ actor_type: 7 }], labels: { actor_types: { '7': 'Farmers' } }, notApplicable: false, subfieldLists: { actor_type: 'actor_types' } }));
+    expect(vm.valueCopy).toContain('Farmers');
+    expect(vm.valueTruncated).toBe(true);
+  });
+
+  it('P2-4137: the drawer rows of a field carry the value copy of each comment', () => {
+    const v = viewFixture();
+    const found = findField(v, 'general.description')!;
+    const drawer = toDrawerVm(found, 'comment');
+    expect(drawer.comments[0]).toMatchObject({ step: 'Step 1', valueCopy: 'Old', date: '12 Nov 2026, 11:15 CET' });
+  });
+
+  it('a comment is shown by nickname only (or "—") with its date and time', () => {
     expect(toCommentVm(comment())).toMatchObject({
       id: 1,
       authorId: 1053,
       who: 'mchen',
       role: 'Assessor',
-      date: '12 Nov 2026',
+      date: '12 Nov 2026, 11:15 CET',
       text: 'Add the evidence link.',
       open: true,
     });
