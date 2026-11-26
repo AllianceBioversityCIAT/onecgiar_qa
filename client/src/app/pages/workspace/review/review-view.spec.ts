@@ -778,6 +778,14 @@ describe('ReviewView on the assessment API', () => {
         expect(api.finish).not.toHaveBeenCalled();
       });
 
+      it('P2-4138: the named core field is a link that opens its section and puts the focus on its card', async () => {
+        const el = await open();
+        await toConfirm(el);
+        byName(el.querySelector('qa-review-footer')!, 'Go to ToC contributions')!.click();
+        await settle();
+        expect(document.activeElement?.id).toBe('review-field-toc.entries');
+      });
+
       it('P2-4138: a grey core field with a comment: the footer announces Returned to program', async () => {
         api.view.mockImplementation(() => of(tocCommented()));
         const el = await open();
@@ -1231,6 +1239,44 @@ describe('ReviewView on the assessment API', () => {
       await settle();
       expect(document.body.textContent).toContain('Finish as Quality Assessed?');
       expect(api.setValidations).not.toHaveBeenCalled();
+    });
+
+    describe('Finish for the Lead (tramo 5)', () => {
+      const escalate = { decision: 'escalate' as const, body: 'TPB.', decidedAt: '2026-11-25T11:00:00.000Z' };
+      const footer = (el: Element) => el.querySelector('qa-review-footer')!;
+
+      it('with the grey core field escalated, the confirm step says the result becomes Pending for TPB review', async () => {
+        api.view.mockReturnValue(of(withThread({ decision: escalate })));
+        const el = await open();
+        byName(el, 'Finish assessment')!.click();
+        await settle();
+        expect(text(el.querySelector('[role="alertdialog"]')!)).toContain('The result becomes Pending for TPB review. This cannot be undone.');
+      });
+
+      it('a grey core field with no escalate: the confirm step names it ("validate or escalate"), links to it and offers no finish', async () => {
+        const el = await open();
+        byName(el, 'Finish assessment')!.click();
+        await settle();
+        byName(el, 'Finish anyway')!.click();
+        await settle();
+        expect(text(footer(el).querySelector('[role="alert"]')!)).toBe('Validate or escalate this core field first: Description of Result.');
+        expect(byName(footer(el), 'Finish assessment')!.disabled).toBe(true);
+        byName(footer(el), 'Go to Description of Result')!.click();
+        await settle();
+        expect(document.activeElement?.id).toBe('review-field-general.description');
+      });
+
+      it('409 ASSESSMENT_CORE_UNDECIDED from the server: the fields it names are listed and linked', async () => {
+        api.view.mockReturnValue(of(withThread({ decision: escalate })));
+        api.finish.mockReturnValueOnce(refusal(409, 'ASSESSMENT_CORE_UNDECIDED', 'raw server text', ['general.description']));
+        const el = await open();
+        byName(el, 'Finish assessment')!.click();
+        await settle();
+        byName(footer(el), 'Finish assessment')!.click();
+        await settle();
+        expect(text(footer(el).querySelector('[role="alert"]')!)).toBe('Validate or escalate this core field first: Description of Result.');
+        expect(byName(footer(el), 'Go to Description of Result')).toBeDefined();
+      });
     });
 
     describe("the Lead's own comment and the delete (tramo 4)", () => {

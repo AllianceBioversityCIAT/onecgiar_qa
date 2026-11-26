@@ -117,6 +117,8 @@
                     </div>
                     @for (f of sec.fields; track f.id) {
                       <qa-review-field-card
+                        [attr.id]="'review-field-' + f.id"
+                        tabindex="-1"
                         [field]="f"
                         [qaReveal]="$index"
                         [busy]="validating().has(f.id) || validating().has(allKey) || (reasonBusy() && reasonAsk()?.fieldKey === f.id)"
@@ -173,6 +175,8 @@
               [finishing]="store.finishing()"
               [finishError]="finishError()"
               [finishBlocked]="finishBlocked()"
+              [blockedFields]="blockedFields()"
+              (goField)="goField($event)"
               (back)="goSection(idx() - 1)"
               (next)="goSection(idx() + 1)"
               (finish)="finish()"

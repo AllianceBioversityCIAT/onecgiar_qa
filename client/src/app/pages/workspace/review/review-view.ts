@@ -1,5 +1,5 @@
 // @akili-spec assessment/step-1-assessment
-import { Component, DestroyRef, ElementRef, afterNextRender, computed, effect, inject, linkedSignal, signal, untracked, viewChild } from '@angular/core';
+import { Component, DestroyRef, ElementRef, Injector, afterNextRender, computed, effect, inject, linkedSignal, signal, untracked, viewChild } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { form, requiredError, validate } from '@angular/forms/signals';
 import { ActivatedRoute, RouterLink } from '@angular/router';
@@ -20,7 +20,7 @@ import { ALL_FIELDS, ReviewStore } from './review-store';
 import { AiReasonDialog } from './ai/ai-reason-dialog';
 import { AiReasonAsk, REVIEW_AI_PROVIDERS, ReviewAiHook } from './ai/review-ai-hook';
 import { ReviewTocSection, TocCardAction } from './review-toc-section';
-import { PendingAnswer, coreUncommentedMessage, deleteOpen, findField, pendingAnswers, pendingAnswersBanner, returnsOnAnyComment, toDrawerVm, withPendingAnswers, withdrawOpen } from './review.mapper';
+import { PendingAnswer, coreUncommentedMessage, coreUndecidedMessage, deleteOpen, findField, pendingAnswers, pendingAnswersBanner, returnsOnAnyComment, toDrawerVm, withPendingAnswers, withdrawOpen } from './review.mapper';
 import { QA_GUIDANCE } from './qa-guidance';
 
 /** The review area stacks its navigator on top below this width (container). */
@@ -67,6 +67,7 @@ export class ReviewView {
   protected readonly ai = inject(ReviewAiHook);
   protected readonly layout = inject(WorkspaceLayout);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly injector = inject(Injector);
   private readonly toasts = inject(Toasts);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly scroller = viewChild<ElementRef<HTMLElement>>('scroller');
@@ -131,8 +132,20 @@ export class ReviewView {
   protected readonly skippedCount = this.skipped.asReadonly();
   /** Why the server did not finish it (core fields still open…). */
   protected readonly finishError = signal('');
-  /** P2-4138: the core fields the server would refuse Finish for, named before the reviewer confirms. */
-  protected readonly finishBlocked = computed(() => coreUncommentedMessage(this.vm()?.finishBlockedBy ?? []));
+  /** The fields the server named in its refusal of Finish, linked under the reason. */
+  private readonly finishErrorFields = signal<readonly { readonly key: string; readonly label: string }[]>([]);
+  /**
+   * P2-4138: the core fields the server would refuse Finish for, named before the reviewer confirms. Round 2 (Lead,
+   * tramo 5): a grey core field with no escalate (`ASSESSMENT_CORE_UNDECIDED`), so "validate or escalate".
+   */
+  protected readonly finishBlocked = computed(() => {
+    const names = this.vm()?.finishBlockedBy ?? [];
+    return this.store.view()?.round === 2 ? coreUndecidedMessage(names) : coreUncommentedMessage(names);
+  });
+  /** The fields named under the footer's reason: the server's refusal first, else the ones the page already knows. */
+  protected readonly blockedFields = computed(() =>
+    this.finishError() ? this.finishErrorFields() : this.finishBlocked() ? (this.vm()?.finishBlockedFields ?? []) : [],
+  );
 
   // ---- Green / grey ----
   protected readonly validating = this.store.validating;
@@ -425,19 +438,40 @@ export class ReviewView {
 
   protected async confirmFinish(): Promise<void> {
     this.finishError.set('');
+    this.finishErrorFields.set([]);
     const outcome = await this.store.finish();
     if (outcome.ok) {
       this.finishStep.set('none');
       return;
     }
     if (outcome.coreKeys?.length) {
-      // 409 ASSESSMENT_CORE_UNCOMMENTED: say which core fields, by the name the reviewer sees.
+      // 409 ASSESSMENT_CORE_UNCOMMENTED (round 1) / ASSESSMENT_CORE_UNDECIDED (round 2): say which core fields, by the
+      // name the reviewer sees, each one a link to its card.
       const view = this.store.view();
-      const names = outcome.coreKeys.map((key) => (view ? findField(view, key)?.field.label : null) ?? key);
-      this.finishError.set(coreUncommentedMessage(names));
+      const fields = outcome.coreKeys.map((key) => ({ key, label: (view ? findField(view, key)?.field.label : null) ?? key }));
+      const names = fields.map((f) => f.label);
+      this.finishErrorFields.set(fields);
+      this.finishError.set(outcome.code === 'ASSESSMENT_CORE_UNDECIDED' ? coreUndecidedMessage(names) : coreUncommentedMessage(names));
       return;
     }
     this.finishError.set(outcome.message);
+  }
+
+  /** A field named under the footer's reason: its section opens and the focus moves to its card. */
+  protected goField(key: string): void {
+    const view = this.store.view();
+    const i = view ? view.sections.findIndex((s) => s.fields.some((f) => f.key === key)) : -1;
+    if (i < 0) return;
+    if (i !== this.idx()) this.goSection(i);
+    afterNextRender(
+      () => {
+        const card = document.getElementById(`review-field-${key}`);
+        if (!card) return;
+        card.scrollIntoView?.({ block: 'center' });
+        card.focus({ preventScroll: true });
+      },
+      { injector: this.injector },
+    );
   }
 
   protected async addComment(): Promise<void> {

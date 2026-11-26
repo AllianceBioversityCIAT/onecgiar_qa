@@ -696,6 +696,69 @@ describe('ReviewStore actions (T-20)', () => {
       expect(store.deleteErrors().size).toBe(0);
     });
 
+    describe('Finish and Check all for the Lead (tramo 5, contract § 4.2, § 4.3)', () => {
+      const escalate = { decision: 'escalate' as const, body: 'TPB.', decidedAt: '2026-11-25T11:00:00.000Z' };
+      /** Title grey (no carry), description escalated on its round-1 comment. */
+      const escalatedView = () =>
+        withThread({ decision: escalate }, [], withField('general.title', (f) => ({ ...f, effectiveValidated: false, carried: false })));
+
+      it('409 ASSESSMENT_CORE_UNDECIDED: the undecided field keys come back and the view is read again', async () => {
+        api.finish.mockReturnValueOnce(refusal(409, 'ASSESSMENT_CORE_UNDECIDED', 'raw server text', ['general.description']));
+        const outcome = await store.finish();
+        expect(outcome).toEqual({ ok: false, message: 'raw server text', code: 'ASSESSMENT_CORE_UNDECIDED', coreKeys: ['general.description'] });
+        expect(api.view).toHaveBeenCalledTimes(1);
+        expect(toasts.error).not.toHaveBeenCalled();
+      });
+
+      it('Check all with an escalated core field sends the grey fields that are not escalated (fieldKeys), never all', async () => {
+        api.view.mockReturnValue(of(escalatedView()));
+        await store.load('9890', '29');
+        await store.setAllValidated(true);
+        expect(api.setValidations).toHaveBeenCalledTimes(1);
+        expect(api.setValidations).toHaveBeenCalledWith(29, 9890, { validated: true, fieldKeys: ['general.title'] });
+      });
+
+      it('Check all with nothing left to validate (the rest is green or escalated) sends nothing and says so', async () => {
+        api.view.mockReturnValue(of(withThread({ decision: escalate })));
+        await store.load('9890', '29');
+        expect(await store.setAllValidated(true)).toBe(false);
+        expect(api.setValidations).not.toHaveBeenCalled();
+        expect(toasts.info).toHaveBeenCalledWith('Every core field is already validated or escalated to TPB.');
+      });
+
+      it('Check all refused whole with ASSESSMENT_FIELD_ESCALATED (an escalate the page did not know): read again, then sent once with fieldKeys', async () => {
+        // The page still shows nothing escalated; the server holds the description escalated.
+        api.view.mockReturnValue(of(withField('general.title', (f) => ({ ...f, effectiveValidated: false, carried: false }))));
+        await store.load('9890', '29');
+        api.view.mockClear();
+        api.view.mockReturnValue(of(escalatedView()));
+        api.setValidations
+          .mockReturnValueOnce(refusal(409, 'ASSESSMENT_FIELD_ESCALATED', 'raw'))
+          .mockReturnValueOnce(of(summary({ validations: [{ fieldKey: 'general.title', validated: true }] })));
+        expect(await store.setAllValidated(true)).toBe(true);
+        expect(api.view).toHaveBeenCalled();
+        expect(api.setValidations.mock.calls.map((c) => c[2])).toEqual([
+          { validated: true, all: true },
+          { validated: true, fieldKeys: ['general.title'] },
+        ]);
+        expect(toasts.error).not.toHaveBeenCalled();
+      });
+
+      it('Uncheck all is never refused by an escalate: it stays one request for every field', async () => {
+        api.view.mockReturnValue(of(escalatedView()));
+        await store.load('9890', '29');
+        await store.setAllValidated(false);
+        expect(api.setValidations).toHaveBeenCalledWith(29, 9890, { validated: false, all: true });
+      });
+
+      it('round 1: Check all stays one request for every field', async () => {
+        api.view.mockReturnValue(of(viewFixture()));
+        await store.load('9890', '29');
+        await store.setAllValidated(true);
+        expect(api.setValidations).toHaveBeenCalledWith(29, 9890, { validated: true, all: true });
+      });
+    });
+
     describe("the Lead's own comment and the delete (tramo 4, contract § 3.2, § 4.4, § 4.5)", () => {
       const own = () => field('general.description').comments.find((c) => c.id === 8101)!;
 

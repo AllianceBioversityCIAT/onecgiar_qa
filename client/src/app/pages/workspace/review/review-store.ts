@@ -44,7 +44,9 @@ export type AnswerOutcome = { readonly ok: true } | { readonly ok: false; readon
  * `coreKeys`: the core fields still neither green nor commented (409 `ASSESSMENT_CORE_UNCOMMENTED`).
  * `message` is '' when the page was out of date: it was read again and the reason said in a toast.
  */
-export type FinishOutcome = { readonly ok: true } | { readonly ok: false; readonly message: string; readonly coreKeys?: readonly string[] };
+export type FinishOutcome =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly message: string; readonly code?: string; readonly coreKeys?: readonly string[] };
 /** Round 2 (Lead): a decision or its clear. A refusal's `message` is also in `decisionErrors`, next to the control. */
 export type DecisionOutcome = { readonly ok: true } | { readonly ok: false; readonly message: string };
 /** The Lead's decision write on its way: which comment, and whether it decides or clears. */
@@ -119,6 +121,9 @@ const FIELD_REFUSALS: Readonly<Record<string, string>> = {
   [ASSESSMENT_ERROR.CORE_COMMENT_UNDECIDED]: 'Decide the round-1 comments on this field first: agree with the program or escalate them.',
   [ASSESSMENT_ERROR.FIELD_ESCALATED]: 'This field is escalated to TPB, so it cannot be validated.',
 };
+
+/** Round 2: Check all found nothing to send (every core field is green or escalated). */
+const NOTHING_TO_CHECK = 'Every core field is already validated or escalated to TPB.';
 
 /** What the toast says when a write ended the assessment, by the status it ended with. */
 const ENDED_MESSAGES: Readonly<Record<Exclude<AssessmentStatus, 'pending'>, string>> = {
@@ -275,12 +280,38 @@ export class ReviewStore implements OnDestroy {
     return this.validate(fieldKey, { validated, fieldKeys: [fieldKey] });
   }
 
-  /** Check all / Uncheck all: every Assessed field of the result, in one request. */
+  /**
+   * Check all / Uncheck all: every Assessed field of the result, in one request. Round 2 (contract § 4.2): Check all is
+   * refused whole once a core field is escalated, so then it sends the grey fields that are not escalated
+   * (`fieldKeys`); a refusal for an escalate the page did not know yet reads the view again and sends those once.
+   */
   setAllValidated(validated: boolean): Promise<boolean> {
-    return this.validate(ALL_FIELDS, { validated, all: true });
+    const keys = validated ? this.checkAllKeys() : null;
+    if (keys && !keys.length) {
+      this.toasts.info(NOTHING_TO_CHECK);
+      return Promise.resolve(false);
+    }
+    const roundTwo = this.view()?.round === 2;
+    return this.validate(ALL_FIELDS, keys ? { validated, fieldKeys: keys } : { validated, all: true }, validated && roundTwo && !keys);
   }
 
-  private async validate(busyKey: string, body: ValidationsBody): Promise<boolean> {
+  /**
+   * Round 2 with an escalated core field: the actionable core fields that are neither green nor escalated, in page
+   * order. `null` when nothing is escalated (Check all goes as `all`) or in round 1.
+   */
+  private checkAllKeys(): readonly string[] | null {
+    const view = this.view();
+    if (view?.round !== 2) return null;
+    const cores = view.sections.flatMap((s) => s.fields).filter((f) => f.mode === 'assessed' && f.core && f.actionable !== false);
+    const escalated = (f: AssessmentField) =>
+      (f.thread ?? []).some((t) => t.decision?.decision === 'escalate') ||
+      f.comments.some((c) => c.state !== 'withdrawn' && c.decision?.decision === 'escalate');
+    if (!cores.some(escalated)) return null;
+    return cores.filter((f) => !(f.effectiveValidated ?? f.validated) && !escalated(f)).map((f) => f.key);
+  }
+
+  /** `retryEscalated`: a Check all (`all`) refused with `ASSESSMENT_FIELD_ESCALATED` reads the view and goes once by keys. */
+  private async validate(busyKey: string, body: ValidationsBody, retryEscalated = false): Promise<boolean> {
     const at = this.target();
     const busy = this.validating();
     // Not while a finish is on its way: its end and this answer could land in either order.
@@ -294,12 +325,31 @@ export class ReviewStore implements OnDestroy {
       await this.applySummary(summary);
       return true;
     } catch (error) {
-      if (this.still(at)) {
-        const e = toApiError(error);
-        if (this.fieldRefusal(busyKey, e)) return false;
-        await this.resync(e);
-        this.toasts.error(e.message);
+      if (!this.still(at)) return false;
+      let e = toApiError(error);
+      if (retryEscalated && e.code === ASSESSMENT_ERROR.FIELD_ESCALATED) {
+        // Still holding the busy mark: no second tap gets in while the view is read and the keys are sent.
+        await this.reload();
+        const keys = this.still(at) ? this.checkAllKeys() : null;
+        if (keys && !keys.length) {
+          this.toasts.info(NOTHING_TO_CHECK);
+          return false;
+        }
+        if (keys) {
+          try {
+            const summary = await firstValueFrom(this.api.setValidations(at.timelineId, at.resultCode, { validated: body.validated, fieldKeys: keys }));
+            if (!this.still(at)) return false;
+            await this.applySummary(summary);
+            return true;
+          } catch (again) {
+            if (!this.still(at)) return false;
+            e = toApiError(again);
+          }
+        }
       }
+      if (this.fieldRefusal(busyKey, e)) return false;
+      await this.resync(e);
+      this.toasts.error(e.message);
       return false;
     } finally {
       this.validating.update((set) => {
@@ -438,6 +488,11 @@ export class ReviewStore implements OnDestroy {
       const e = toApiError(error);
       if (!this.still(at)) return { ok: false, message: e.message };
       if (e.code === ASSESSMENT_ERROR.CORE_UNCOMMENTED) return { ok: false, message: e.message, coreKeys: e.fieldKeys };
+      if (e.code === ASSESSMENT_ERROR.CORE_UNDECIDED) {
+        // Round 2: the page thought those fields decided; read what the server holds so the cards and the footer agree.
+        await this.reload();
+        return { ok: false, message: e.message, code: e.code, coreKeys: e.fieldKeys };
+      }
       if (await this.resync(e)) {
         this.toasts.error(e.message);
         return { ok: false, message: '' };
@@ -617,7 +672,7 @@ export class ReviewStore implements OnDestroy {
           ? names.length
             ? `Decide the round-1 comments first on: ${names.join(', ')}.`
             : message
-          : // Check all once a core field is escalated (contract § 4.2); validating them one by one is tramo 5.
+          : // Check all by keys still refused (another escalate landed meanwhile, contract § 4.2): one by one.
             'A core field is escalated to TPB, so Check all cannot run. Validate the other fields one by one.',
       );
     }

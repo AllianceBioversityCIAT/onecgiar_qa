@@ -22,7 +22,7 @@
       </div>
     }
     @for (card of g.items; track card.id) {
-      <div class="box-border flex flex-col items-stretch gap-3 rounded-[10px] border border-(--border) p-4 transition-colors hover:border-(--border-strong)" [class]="cardClass(card)">
+      <div [attr.id]="'review-field-' + card.id" tabindex="-1" class="box-border flex flex-col items-stretch gap-3 rounded-[10px] border border-(--border) p-4 transition-colors hover:border-(--border-strong)" [class]="cardClass(card)">
         <div class="flex min-w-0 flex-col gap-3">
           <div class="flex flex-wrap items-center gap-2">
             <span class="text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--text-muted) uppercase">{{ card.eyebrow }}</span>

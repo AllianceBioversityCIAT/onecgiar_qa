@@ -128,6 +128,8 @@ export interface ReviewVm {
    * refuses Finish while any is left (409 `ASSESSMENT_CORE_UNCOMMENTED`), so the page names them instead of an outcome.
    */
   readonly finishBlockedBy: readonly string[];
+  /** The same fields as `finishBlockedBy`, with their keys (the footer links to each). */
+  readonly finishBlockedFields: readonly { readonly key: string; readonly label: string }[];
 }
 
 const ASSESSOR_INSTRUCTIONS =
@@ -308,6 +310,18 @@ const isAssessed = (f: AssessmentField): boolean => f.mode === 'assessed';
 const isGreen = (f: AssessmentField): boolean => f.effectiveValidated ?? f.validated;
 /** Green, or carrying an open comment (the assessor has said something on it). */
 const isResolved = (f: AssessmentField): boolean => isGreen(f) || openComments(f).length > 0;
+/**
+ * Round 2 (Lead): a live `escalate` on the field, on a round-1 comment of its thread or on the Lead's own comment
+ * (a withdrawn comment carries none). It keeps the field grey and lets Finish end `escalated` (contract § 4.3).
+ */
+const isEscalated = (f: AssessmentField): boolean =>
+  (f.thread ?? []).some((t) => t.decision?.decision === 'escalate') ||
+  f.comments.some((c) => c.state !== 'withdrawn' && c.decision?.decision === 'escalate');
+/**
+ * Round 2 (Lead): green, or escalated. A grey core field with neither is what the server refuses Finish for
+ * (`ASSESSMENT_CORE_UNDECIDED`), whatever comments it carries.
+ */
+const isDecided = (f: AssessmentField): boolean => isGreen(f) || isEscalated(f);
 /** Round 2 (Lead): the green is round 1's, unchanged, because the Lead stored nothing. */
 const isCarried = (f: AssessmentField): boolean => isAssessed(f) && isGreen(f) && f.carried === true;
 
@@ -717,6 +731,8 @@ export function toReviewVm(view: AssessmentView, writes = true, me: number | nul
   const assessed = view.sections.flatMap((s) => fieldsOf(s.fields)).filter(isAssessed);
   const greyCores = assessed.filter((f) => f.core && !isGreen(f)).map((f) => f.key);
   const remove = canAct && deleteOpen(view);
+  // What counts as done on a field: green or commented in round 1; green or escalated in round 2 (the Lead).
+  const resolved = roundTwo ? isDecided : isResolved;
   const lead = (f: AssessmentField): LeadContext => ({ decide: writes && !auto, othersGreen: greyCores.every((k) => k === f.key), remove, me });
   const sections: ReviewSectionVm[] = view.sections.map((s) => {
     const isToc = s.key === TOC_SECTION_KEY;
@@ -727,7 +743,7 @@ export function toReviewVm(view: AssessmentView, writes = true, me: number | nul
       isToc,
       fields: isToc ? [] : fields.map((f) => toFieldVm(f, canAct, lead(f))),
       toc: isToc ? toTocVm(fields, canAct) : null,
-      open: fields.filter((f) => isAssessed(f) && !isResolved(f)).length,
+      open: fields.filter((f) => isAssessed(f) && !resolved(f)).length,
     };
   });
   if (view.other.length) {
@@ -741,19 +757,22 @@ export function toReviewVm(view: AssessmentView, writes = true, me: number | nul
     });
   }
   // The server's refusal (`endOnFinish`): a grey core field with no non-withdrawn comment.
-  const finishBlockedBy = assessed.filter((f) => f.core && !isResolved(f)).map((f) => f.label);
+  // Round 2 (contract § 4.3): `ASSESSMENT_CORE_UNDECIDED`, a grey core field with no escalate.
+  const blocked = assessed.filter((f) => f.core && !resolved(f));
+  const finishBlockedBy = blocked.map((f) => f.label);
   return {
     header: toHeaderVm(view, canAct),
     sections,
     writable,
     banner: auto ? AUTO_VALIDATED_BANNER : readOnlyBanner(view.readOnlyReason, view),
-    resolved: assessed.filter(isResolved).length,
+    resolved: assessed.filter(resolved).length,
     total: assessed.length,
     commented: assessed.filter((f) => openComments(f).length > 0).length,
     validated: assessed.filter(isGreen).length,
     canFinish: canAct && (view.assessment?.status ?? 'pending') === 'pending',
     finishTo: finishBlockedBy.length ? '' : finishOutcome(view, assessed),
     finishBlockedBy,
+    finishBlockedFields: blocked.map((f) => ({ key: f.key, label: f.label })),
   };
 }
 
@@ -761,6 +780,14 @@ export function toReviewVm(view: AssessmentView, writes = true, me: number | nul
  * Why Finish is refused, in the words the page uses for the 409 `ASSESSMENT_CORE_UNCOMMENTED` (one or several core
  * field labels); empty when nothing blocks it.
  */
+/**
+ * Round 2 (Lead): why Finish is refused, in the words the page uses for the 409 `ASSESSMENT_CORE_UNDECIDED` (contract
+ * § 4.3); empty when nothing blocks it.
+ */
+export function coreUndecidedMessage(names: readonly string[]): string {
+  return names.length ? `Validate or escalate ${names.length === 1 ? 'this core field' : 'these core fields'} first: ${names.join(', ')}.` : '';
+}
+
 export function coreUncommentedMessage(names: readonly string[]): string {
   return names.length ? `Validate or comment ${names.length === 1 ? 'this core field' : 'these core fields'} first: ${names.join(', ')}.` : '';
 }

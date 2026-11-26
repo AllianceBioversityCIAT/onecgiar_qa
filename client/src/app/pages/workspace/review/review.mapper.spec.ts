@@ -3,7 +3,7 @@ import { AssessmentField, AssessmentView } from '../../../core/api/assessment.mo
 import { FieldVm } from './review-model';
 import { clarificationThread, comment, field, programResponse, viewFixture } from './review.api-fixture';
 import { roundTwoViewFixture, threadItem as threadItemOf, withThread } from './review.round2-fixture';
-import { coreUncommentedMessage, deleteOpen, findField, formatValue, pendingAnswers, pendingAnswersBanner, readOnlyBanner, returnsOnAnyComment, toCommentVm, toDrawerVm, toFieldVm, toReviewVm, withPendingAnswers, withdrawOpen } from './review.mapper';
+import { coreUncommentedMessage, coreUndecidedMessage, deleteOpen, findField, formatValue, pendingAnswers, pendingAnswersBanner, readOnlyBanner, returnsOnAnyComment, toCommentVm, toDrawerVm, toFieldVm, toReviewVm, withPendingAnswers, withdrawOpen } from './review.mapper';
 
 const byLabel = (fields: readonly FieldVm[], label: string): FieldVm =>
   fields.find((f) => f.label === label)!;
@@ -693,8 +693,9 @@ describe('review.mapper (API assessment view → Review view models)', () => {
 
     it('counts, section open and resolved read the effective green', () => {
       const vm = toReviewVm(roundTwoViewFixture());
-      // title: carried green (validated false); description: grey with the Lead's own open comment.
-      expect([vm.resolved, vm.total, vm.validated, vm.commented]).toEqual([2, 2, 1, 1]);
+      // title: carried green (validated false); description: grey with the Lead's own open comment, not escalated, so
+      // still to do (tramo 5: in round 2 only green or escalated is done, contract § 4.3).
+      expect([vm.resolved, vm.total, vm.validated, vm.commented]).toEqual([1, 2, 1, 1]);
       const noComment = withField('general.description', (f) => ({ ...f, comments: [] }));
       const vm2 = toReviewVm(noComment);
       expect(vm2.sections[0].open).toBe(1); // description only: the carried title is green
@@ -733,8 +734,58 @@ describe('review.mapper (API assessment view → Review view models)', () => {
       expect(byLabel(general(ctx), 'Title of Result').carried).toBe(false);
     });
 
-    it('finish outcome: Pending for TPB review while a core field is effectively grey', () => {
-      expect(toReviewVm(roundTwoViewFixture()).finishTo).toBe('Pending for TPB review');
+    it('finish outcome: Pending for TPB review while a core field is effectively grey (and escalated)', () => {
+      const escalated = withThread({ decision: { decision: 'escalate', body: 'TPB.', decidedAt: '2026-11-25T11:00:00.000Z' } });
+      expect(toReviewVm(escalated).finishTo).toBe('Pending for TPB review');
+    });
+
+    describe('Finish for the Lead (tramo 5, contract § 4.3)', () => {
+      const escalate = { decision: 'escalate' as const, body: 'TPB.', decidedAt: '2026-11-25T11:00:00.000Z' };
+      const ownEscalated = withField('general.description', (f) => ({
+        ...f,
+        thread: [threadItemOf({ decision: { decision: 'agree_program', body: 'Ok.', decidedAt: '2026-11-25T11:00:00.000Z' } })],
+        comments: f.comments.map((c) => ({ ...c, decision: escalate })),
+      }));
+
+      it('a grey core field with no escalate blocks Finish (ASSESSMENT_CORE_UNDECIDED), even with the Lead\'s own comment on it', () => {
+        const vm = toReviewVm(roundTwoViewFixture());
+        expect(vm.finishBlockedBy).toEqual(['Description of Result']);
+        expect(vm.finishBlockedFields).toEqual([{ key: 'general.description', label: 'Description of Result' }]);
+        expect(vm.finishTo).toBe('');
+        // Not resolved yet: it counts as open in its section and in the footer.
+        expect(vm.resolved).toBe(1);
+        expect(vm.sections[0].open).toBe(1);
+      });
+
+      it('an escalate on a round-1 comment, or on the own comment, lets Finish go to Pending for TPB review', () => {
+        for (const v of [withThread({ decision: escalate }), ownEscalated]) {
+          const vm = toReviewVm(v);
+          expect(vm.finishBlockedBy).toEqual([]);
+          expect(vm.finishTo).toBe('Pending for TPB review');
+          expect(vm.resolved).toBe(2);
+          expect(vm.sections[0].open).toBe(0);
+        }
+      });
+
+      it('a withdrawn own comment carries no escalate', () => {
+        const withdrawn = withField('general.description', (f) => ({
+          ...f,
+          comments: f.comments.map((c) => ({ ...c, state: 'withdrawn' as const, decision: escalate })),
+        }));
+        expect(toReviewVm(withdrawn).finishBlockedBy).toEqual(['Description of Result']);
+      });
+
+      it('the message names what the Lead must do: validate or escalate', () => {
+        expect(coreUndecidedMessage(['Description of Result'])).toBe('Validate or escalate this core field first: Description of Result.');
+        expect(coreUndecidedMessage(['A', 'B'])).toBe('Validate or escalate these core fields first: A, B.');
+        expect(coreUndecidedMessage([])).toBe('');
+      });
+
+      it('round 1 keeps its rule and lists the blocked fields with their keys', () => {
+        const vm = toReviewVm(viewFixture());
+        expect(vm.finishBlockedBy).toEqual(['ToC contributions']);
+        expect(vm.finishBlockedFields).toEqual([{ key: 'toc.entries', label: 'ToC contributions' }]);
+      });
     });
 
     it('finish outcome: Quality Assessed when every core field is effectively green, comments or not', () => {
