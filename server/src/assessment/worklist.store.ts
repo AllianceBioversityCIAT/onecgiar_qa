@@ -96,6 +96,8 @@ export interface WorklistScope {
   clarificationWindowOpen: boolean;
   /** FR-4 (amended by F-010): true when a status filter is set and does not name Auto-validated; the counters always pass false. */
   hideAutoValidated: boolean;
+  /** P2-3917 (DD-P5): the timeline's `ppu` step is closed (Unresolved); judged in TS once per request. Absent = false. */
+  ppuStepClosed?: boolean;
 }
 
 export interface WorklistFilters {
@@ -142,6 +144,8 @@ export interface WorklistRecord {
   endReason: TimelineResultEndReason | null;
   /** P2-3916 (DD-T2): the Lead's step-3 assessment ended `escalated` (a TPB row covers the membership). */
   leadEscalated: boolean;
+  /** P2-3917 (DD-P4): the TPB's step-4 assessment ended `escalated` (a PPU row covers the membership). */
+  tpbEscalated: boolean;
   /** Non-withdrawn comments of the assessment. */
   comments: number;
   /** P2-3911: non-withdrawn comments in `accepted`, `accepted_with_comment` or `disagreed`. */
@@ -227,15 +231,37 @@ const id = (name: string) => sql.identifier(name);
  * `lead_assessors` step, ended `escalated`. Literals only: nothing is bound.
  */
 export function leadEscalatedSql(): SQL {
-  const la = id('lead_esc');
-  const ls = id('lead_esc_step');
-  return sql`EXISTS (SELECT 1 FROM ${id('result_assessments')} ${la} INNER JOIN ${id('timeline_steps')} ${ls} ON ${ls}.${id('timeline_id')} = ${t.timelineId} AND ${ls}.${id('position')} = ${la}.${id('step_position')} WHERE ${la}.${id('timeline_result_id')} = ${t.id} AND ${ls}.${id('audience')} = ${sql.raw("'lead_assessors'")} AND ${la}.${id('status')} = ${sql.raw("'escalated'")})`;
+  return stepEscalatedSql('lead_assessors', 'lead_esc');
+}
+
+/**
+ * P2-3917 (DD-P4), the SQL twin of `MembershipFacts.tpbEscalated`: the
+ * membership's step-4 (TPB) row ended `escalated`.
+ */
+export function tpbEscalatedSql(): SQL {
+  return stepEscalatedSql('tpb', 'tpb_esc');
+}
+
+/** The membership holds a row at its timeline's `audience` step, ended `escalated`. Literals only: nothing is bound. */
+function stepEscalatedSql(
+  audience: 'lead_assessors' | 'tpb',
+  alias: string,
+): SQL {
+  const la = id(alias);
+  const ls = id(`${alias}_step`);
+  return sql`EXISTS (SELECT 1 FROM ${id('result_assessments')} ${la} INNER JOIN ${id('timeline_steps')} ${ls} ON ${ls}.${id('timeline_id')} = ${t.timelineId} AND ${ls}.${id('position')} = ${la}.${id('step_position')} WHERE ${la}.${id('timeline_result_id')} = ${t.id} AND ${ls}.${id('audience')} = ${sql.raw(`'${audience}'`)} AND ${la}.${id('status')} = ${sql.raw("'escalated'")})`;
 }
 
 /** P2-3916: the position of the membership's timeline `lead_assessors` step (unique per timeline), NULL when it has none. */
 export function leadStepSql(): SQL {
   const ls = id('lead_step');
   return sql`(SELECT ${ls}.${id('position')} FROM ${id('timeline_steps')} ${ls} WHERE ${ls}.${id('timeline_id')} = ${t.timelineId} AND ${ls}.${id('audience')} = ${sql.raw("'lead_assessors'")})`;
+}
+
+/** P2-3917: the position of the membership's timeline `tpb` step (unique per timeline), NULL when it has none. */
+export function tpbStepSql(): SQL {
+  const ls = id('tpb_step');
+  return sql`(SELECT ${ls}.${id('position')} FROM ${id('timeline_steps')} ${ls} WHERE ${ls}.${id('timeline_id')} = ${t.timelineId} AND ${ls}.${id('audience')} = ${sql.raw("'tpb'")})`;
 }
 
 /**
@@ -269,6 +295,7 @@ function reviewerRowCondition(row: ReviewerRow): SQL | undefined {
     types,
     programs,
     row.role === RoleCode.TPB ? leadEscalatedSql() : undefined,
+    row.role === RoleCode.PPU ? tpbEscalatedSql() : undefined,
   );
 }
 
@@ -359,12 +386,13 @@ export class DrizzleWorklistStore implements WorklistStore {
   }
 
   /** The QA status of the joined row: the one `CASE` of DD-4. */
-  private statusCase(): SQL {
+  private statusCase(scope: Pick<WorklistScope, 'ppuStepClosed'>): SQL {
     return statusSqlCase({
       membershipStatus: t.status,
       endReason: t.endReason,
       assessmentStatus: a.status,
       currentStep: currentStepAudienceSql(a.stepPosition),
+      ppuStepClosed: sql.raw(scope.ppuStepClosed === true ? '1' : '0'),
       hasClarificationThread: exists(
         this.db
           .select({ one: sql`1` })
@@ -418,7 +446,7 @@ export class DrizzleWorklistStore implements WorklistStore {
       eq(t.timelineId, scope.timelineId),
       this.listedCondition(scope),
       scope.hideAutoValidated
-        ? sql`COALESCE(${this.statusCase()}, '') <> 'auto_validated'`
+        ? sql`COALESCE(${this.statusCase(scope)}, '') <> 'auto_validated'`
         : undefined,
     );
   }
@@ -454,7 +482,10 @@ export class DrizzleWorklistStore implements WorklistStore {
       )})`;
   }
 
-  private sortExpression(sort: WorklistPageCriteria['sort']): SQL {
+  private sortExpression(
+    sort: WorklistPageCriteria['sort'],
+    scope: Pick<WorklistScope, 'ppuStepClosed'>,
+  ): SQL {
     switch (sort.key) {
       case 'code':
         return sql`${t.resultCode}`;
@@ -472,7 +503,7 @@ export class DrizzleWorklistStore implements WorklistStore {
       case 'assessedBy':
         return sql`COALESCE(${users.nickname}, '')`;
       case 'status':
-        return sql`COALESCE(${this.statusCase()}, '')`;
+        return sql`COALESCE(${this.statusCase(scope)}, '')`;
     }
   }
 
@@ -481,7 +512,7 @@ export class DrizzleWorklistStore implements WorklistStore {
     const q = filters.q;
     return [
       filters.statuses.length > 0
-        ? sql`${this.statusCase()} IN (${valueList(filters.statuses)})`
+        ? sql`${this.statusCase(criteria)} IN (${valueList(filters.statuses)})`
         : undefined,
       filters.programIds.length > 0
         ? inArray(t.programClarisaId, [...filters.programIds])
@@ -502,7 +533,7 @@ export class DrizzleWorklistStore implements WorklistStore {
   private keysetWhere(criteria: WorklistPageCriteria): SQL | undefined {
     const { after, sort } = criteria;
     if (after === null) return undefined;
-    const expression = this.sortExpression(sort);
+    const expression = this.sortExpression(sort, criteria);
     const beyond =
       sort.dir === 'asc'
         ? sql`${expression} > ${after.value}`
@@ -521,7 +552,7 @@ export class DrizzleWorklistStore implements WorklistStore {
 
   /** The page statement; public so a spec can read its SQL. */
   buildPageQuery(criteria: WorklistPageCriteria) {
-    const expression = this.sortExpression(criteria.sort);
+    const expression = this.sortExpression(criteria.sort, criteria);
     const order =
       criteria.sort.dir === 'asc' ? asc(expression) : desc(expression);
     return this.db
@@ -538,12 +569,13 @@ export class DrizzleWorklistStore implements WorklistStore {
         endedAt: t.endedAt,
         endReason: t.endReason,
         leadEscalated: sql<number>`${leadEscalatedSql()}`,
+        tpbEscalated: sql<number>`${tpbEscalatedSql()}`,
         comments: this.commentCount(),
         answeredBySp: this.answeredCount(),
         assessedById: users.id,
         assessedByNickname: users.nickname,
         assessedByAdmin: a.finishedAsAdmin,
-        status: sql<QaStatus | null>`${this.statusCase()}`,
+        status: sql<QaStatus | null>`${this.statusCase(criteria)}`,
         sortValue: sql<string | number>`${expression}`,
       })
       .from(t)
@@ -570,7 +602,7 @@ export class DrizzleWorklistStore implements WorklistStore {
   buildCountQuery(scope: WorklistScope) {
     return this.db
       .select({
-        status: sql<QaStatus | null>`${this.statusCase()}`.as('status_key'),
+        status: sql<QaStatus | null>`${this.statusCase(scope)}`.as('status_key'),
         count: sql<number>`COUNT(*)`,
       })
       .from(t)
@@ -600,6 +632,7 @@ export class DrizzleWorklistStore implements WorklistStore {
       ended: row.endedAt !== null,
       endReason: row.endReason,
       leadEscalated: Number(row.leadEscalated) === 1,
+      tpbEscalated: Number(row.tpbEscalated) === 1,
       comments: Number(row.comments),
       answeredBySp: Number(row.answeredBySp),
       assessedById: row.assessedById,

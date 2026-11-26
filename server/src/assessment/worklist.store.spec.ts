@@ -85,6 +85,8 @@ const expectedCase = new MySqlDialect().sqlToQuery(
     hasClarificationThread: sql.raw('THREAD'),
     // P2-3916 (DD-T3): the audience of the joined assessment's step.
     currentStep: currentStepAudienceSql(resultAssessments.stepPosition),
+    // P2-3917 (DD-P5): the scope of these statements has step 5 not closed.
+    ppuStepClosed: sql.raw('0'),
   }),
 ).sql;
 

@@ -96,6 +96,7 @@ import {
 import { buildValueCopy } from './comment-value-copy.js';
 import { DECISION_VALUES } from './dto/decide-comment.body.js';
 import {
+  audienceStepState,
   currentStepPosition,
   currentStepPositionsOf,
   enabledReviewerRows,
@@ -243,8 +244,11 @@ function heldAt(
   if (membership.assessment?.stepPosition === stepPosition) {
     return membership.assessment;
   }
-  return membership.leadAssessment?.stepPosition === stepPosition
-    ? membership.leadAssessment
+  if (membership.leadAssessment?.stepPosition === stepPosition) {
+    return membership.leadAssessment;
+  }
+  return membership.tpbAssessment?.stepPosition === stepPosition
+    ? membership.tpbAssessment
     : null;
 }
 
@@ -2317,6 +2321,7 @@ export class AssessmentService {
       ended: membership.ended,
       endReason: membership.endReason,
       leadEscalated: membership.leadAssessment?.status === 'escalated',
+      tpbEscalated: membership.tpbAssessment?.status === 'escalated',
     };
     const decision = this.assertWritable(
       writeDecision(access, facts, { steps: timeline.steps, now, hasLoad }),
@@ -2455,6 +2460,7 @@ export class AssessmentService {
         ended: membership.ended,
         endReason: membership.endReason,
         leadEscalated: membership.leadAssessment?.status === 'escalated',
+        tpbEscalated: membership.tpbAssessment?.status === 'escalated',
       },
       timing,
     );
@@ -2536,6 +2542,8 @@ export class AssessmentService {
             timeline,
             membership.assessment?.stepPosition,
           ),
+          // DD-P5: Pending PPU reads Unresolved once step 5 is closed.
+          ppuStepClosed: audienceStepState('ppu', timing) === 'closed',
           hasClarificationThread: comments.some(
             (c) => c.state === 'clarification_requested',
           ),
@@ -2600,6 +2608,10 @@ export class AssessmentService {
     }
     if (membership.leadAssessment?.stepPosition === own) {
       return membership.leadAssessment;
+    }
+    // P2-3917: the TPB keeps its step-4 review once the PPU starts step 5.
+    if (membership.tpbAssessment?.stepPosition === own) {
+      return membership.tpbAssessment;
     }
     // The caller's own step holds no row yet (a TPB before its first write).
     return null;

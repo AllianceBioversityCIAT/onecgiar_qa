@@ -4,8 +4,13 @@ import { describe, expect, it } from 'vitest';
 import { actingRoleCodes, asCaller, parseActingRole } from './acting-role.js';
 
 describe('X-Acting-Role header (admin/acts-as-reviewer)', () => {
-  it('names the enabled reviewer roles only (TPB joined with P2-3916; PPU joins when its row is enabled)', () => {
-    expect(actingRoleCodes()).toEqual(['ASSESSOR', 'LEAD_ASSESSOR', 'TPB']);
+  it('names the enabled reviewer roles only (TPB joined with P2-3916, PPU with P2-3917)', () => {
+    expect(actingRoleCodes()).toEqual([
+      'ASSESSOR',
+      'LEAD_ASSESSOR',
+      'TPB',
+      'PPU',
+    ]);
   });
 
   it('reads a role, absent or blank as no role', () => {
@@ -20,7 +25,7 @@ describe('X-Acting-Role header (admin/acts-as-reviewer)', () => {
   });
 
   it('refuses any other value with 400 VALIDATION_FAILED naming the header', () => {
-    for (const bad of ['PPU', 'ADMIN', 'assessor', 'tpb', 'X']) {
+    for (const bad of ['ADMIN', 'GUEST', 'assessor', 'ppu', 'X']) {
       let caught: unknown;
       try {
         parseActingRole(bad);

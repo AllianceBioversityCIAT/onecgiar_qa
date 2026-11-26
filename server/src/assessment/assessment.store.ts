@@ -57,6 +57,7 @@ import {
   currentStepSql,
   leadStepSql,
   scopeCondition,
+  tpbStepSql,
   type WorklistStep,
 } from './worklist.store.js';
 
@@ -121,6 +122,12 @@ export interface MembershipRecord {
     finishedByNickname: string | null;
     finishedAsAdmin: boolean;
   } | null;
+  /**
+   * P2-3917: the membership's assessment at its timeline's `tpb` step (step
+   * 4), whatever the current step is; `null` when there is none. The PPU reads
+   * the TPB's greens through it.
+   */
+  tpbAssessment: MembershipRecord['leadAssessment'];
   assessment: {
     id: number;
     status: ResultAssessmentStatus;
@@ -202,6 +209,10 @@ export interface EscalationThreadRow extends RoundOneThreadRow {
   leadDecision: CommentDecisionKind | null;
   leadDecisionBody: string | null;
   leadDecidedAt: Date | null;
+  /** P2-3917 (DD-P7): the TPB's decision on the comment (the PPU's context). */
+  tpbDecision: CommentDecisionKind | null;
+  tpbDecisionBody: string | null;
+  tpbDecidedAt: Date | null;
 }
 
 /** A comment with where it lives: its assessment and membership (withdraw, and the replay reader). */
@@ -536,6 +547,12 @@ const leadFcv = alias(fieldConfigVersions, 'lead_fcv');
 const leadUser = alias(users, 'lead_finisher');
 /** P2-3916: the Lead's decision on a comment, read beside the TPB's in the escalation thread. */
 const contextDecision = alias(commentDecisions, 'context_decision');
+/** P2-3917: the membership's step-4 (TPB) row and its pinned version. */
+const tpbA = alias(resultAssessments, 'tpb_assessment');
+const tpbFcv = alias(fieldConfigVersions, 'tpb_fcv');
+const tpbUser = alias(users, 'tpb_finisher');
+/** P2-3917 (DD-P7): the TPB's decision, read beside the reading role's in the escalation thread. */
+const tpbDecision = alias(commentDecisions, 'tpb_decision');
 const MEMBERSHIP_TABLE = sql.identifier('timeline_results');
 const ASSESSMENT_TABLE = sql.identifier('result_assessments');
 
@@ -578,6 +595,15 @@ export class DrizzleAssessmentStore implements AssessmentStore {
           leadFinishedById: leadUser.id,
           leadFinishedByNickname: leadUser.nickname,
           leadFinishedAsAdmin: leadA.finishedAsAdmin,
+          tpbAssessmentId: tpbA.id,
+          tpbAssessmentStatus: tpbA.status,
+          tpbStepPosition: tpbA.stepPosition,
+          tpbFieldConfigVersion: tpbA.fieldConfigVersion,
+          tpbFieldConfigVersionId: tpbFcv.id,
+          tpbFinishedAt: tpbA.finishedAt,
+          tpbFinishedById: tpbUser.id,
+          tpbFinishedByNickname: tpbUser.nickname,
+          tpbFinishedAsAdmin: tpbA.finishedAsAdmin,
           assessmentId: a.id,
           assessmentStatus: a.status,
           assessmentStepPosition: a.stepPosition,
@@ -618,6 +644,19 @@ export class DrizzleAssessmentStore implements AssessmentStore {
           ),
         )
         .leftJoin(leadUser, eq(leadUser.id, leadA.finishedBy))
+        // P2-3917: the step-4 row, by the timeline's `tpb` step (unique per timeline).
+        .leftJoin(
+          tpbA,
+          and(eq(tpbA.timelineResultId, t.id), eq(tpbA.stepPosition, tpbStepSql())),
+        )
+        .leftJoin(
+          tpbFcv,
+          and(
+            eq(tpbFcv.cycleId, t.cycleId),
+            eq(tpbFcv.number, tpbA.fieldConfigVersion),
+          ),
+        )
+        .leftJoin(tpbUser, eq(tpbUser.id, tpbA.finishedBy))
         .leftJoin(users, eq(users.id, a.finishedBy))
         // The pinned NUMBER is the version of the membership's cycle: its row id, with no extra statement.
         .leftJoin(
@@ -680,6 +719,23 @@ export class DrizzleAssessmentStore implements AssessmentStore {
               finishedById: row.leadFinishedById,
               finishedByNickname: row.leadFinishedByNickname,
               finishedAsAdmin: row.leadFinishedAsAdmin ?? false,
+            },
+      tpbAssessment:
+        row.tpbAssessmentId === null ||
+        row.tpbAssessmentStatus === null ||
+        row.tpbStepPosition === null ||
+        row.tpbFieldConfigVersion === null
+          ? null
+          : {
+              id: row.tpbAssessmentId,
+              status: row.tpbAssessmentStatus,
+              stepPosition: row.tpbStepPosition,
+              fieldConfigVersion: row.tpbFieldConfigVersion,
+              fieldConfigVersionId: row.tpbFieldConfigVersionId,
+              finishedAt: row.tpbFinishedAt,
+              finishedById: row.tpbFinishedById,
+              finishedByNickname: row.tpbFinishedByNickname,
+              finishedAsAdmin: row.tpbFinishedAsAdmin ?? false,
             },
       assessment:
         row.assessmentId === null ||
@@ -900,6 +956,9 @@ export class DrizzleAssessmentStore implements AssessmentStore {
         leadDecision: contextDecision.decision,
         leadDecisionBody: contextDecision.body,
         leadDecidedAt: contextDecision.decidedAt,
+        tpbDecision: tpbDecision.decision,
+        tpbDecisionBody: tpbDecision.body,
+        tpbDecidedAt: tpbDecision.decidedAt,
       })
       .from(assessmentComments)
       .innerJoin(users, eq(users.id, assessmentComments.authorId))
@@ -929,6 +988,13 @@ export class DrizzleAssessmentStore implements AssessmentStore {
         and(
           eq(contextDecision.commentId, assessmentComments.id),
           eq(contextDecision.roleCode, contextRoleCode),
+        ),
+      )
+      .leftJoin(
+        tpbDecision,
+        and(
+          eq(tpbDecision.commentId, assessmentComments.id),
+          eq(tpbDecision.roleCode, sql.raw("'TPB'")),
         ),
       )
       .where(
