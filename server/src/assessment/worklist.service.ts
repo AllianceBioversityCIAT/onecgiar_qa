@@ -1,4 +1,5 @@
 // @akili-spec assessment/step-1-assessment
+import { RoleCode } from '../users/permissions.js';
 import { pickDefaultTimeline } from './default-timeline.js';
 import { Inject, Injectable } from '@nestjs/common';
 import {
@@ -123,6 +124,18 @@ const FINISHED_STATUSES: readonly QaStatus[] = [
   'clarification_requested',
   // Round-2 FR-14: the Lead's review has ended.
   'pending_tpb_review',
+  // P2-3916: the TPB's review has ended too.
+  'pending_ppu',
+];
+
+/**
+ * P2-3916 (FR-2): a TPB's counters. Its work is the results Pending for TPB
+ * review; it has finished one once it ends Quality Assessed or Pending PPU.
+ */
+const TPB_PENDING_STATUSES: readonly QaStatus[] = ['pending_tpb_review'];
+const TPB_FINISHED_STATUSES: readonly QaStatus[] = [
+  'quality_assessed',
+  'pending_ppu',
 ];
 
 @Injectable()
@@ -306,6 +319,11 @@ export class WorklistService {
     ]);
 
     const page = records.slice(0, limit);
+    // P2-3916: a caller whose only rows are TPB rows counts its own work (an Admin keeps the general counters).
+    const tpbOnly =
+      !admin &&
+      access.reviewerRows.length > 0 &&
+      access.reviewerRows.every((row) => row.role === RoleCode.TPB);
     const last = page[page.length - 1];
     const programById = new Map(programs.map((p) => [p.id, p]));
     const typeByKey = new Map(resultTypes.map((t) => [t.key, t]));
@@ -328,8 +346,8 @@ export class WorklistService {
             })
           : null,
       counters: {
-        pending: sum(['pending']),
-        finished: sum(FINISHED_STATUSES),
+        pending: sum(tpbOnly ? TPB_PENDING_STATUSES : ['pending']),
+        finished: sum(tpbOnly ? TPB_FINISHED_STATUSES : FINISHED_STATUSES),
         total: groups.reduce((total, group) => total + group.count, 0),
         autoValidated: sum(['auto_validated']),
       },

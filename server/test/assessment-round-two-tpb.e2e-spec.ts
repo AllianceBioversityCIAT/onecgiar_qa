@@ -98,6 +98,8 @@ describe('the Third-Party Broker in step 4 (e2e, P2-3916)', () => {
         ]),
       ).toEqual([[roundTwoId, 'pending_tpb_review', null]]);
       expect(res.body.data.writable).toBe(true);
+      // The TPB's own work: Pending for TPB review is pending, not finished.
+      expect(res.body.data.counters).toMatchObject({ pending: 1, finished: 0 });
       const opened = await view();
       expect(opened).toMatchObject({ round: 2, writable: true, readOnlyReason: null });
       expect(opened.header.status).toBe('pending_tpb_review');
@@ -370,6 +372,7 @@ describe('the Third-Party Broker in step 4 (e2e, P2-3916)', () => {
       expect(listed.body.data.rows.map((r: any) => [r.membershipId, r.status])).toEqual([
         [roundTwoId, 'pending_ppu'],
       ]);
+      expect(listed.body.data.counters).toMatchObject({ pending: 0, finished: 1 });
       const adminList = await a.send('get', '/timelines/1/worklist?status=pending_ppu', {
         token: admin(),
       });
