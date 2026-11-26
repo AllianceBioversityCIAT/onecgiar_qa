@@ -6,10 +6,10 @@ name: Trigger Jenkins Job
 # DEV cutover: pushes to dev are built by qa-dev-cicd.yml and deployed by the Jenkins job qa-application-2026-dev-cd,
 # so dev is no longer in `push`. The legacy job qa-application-2026-dev can still be started manually
 # (workflow_dispatch from dev).
+# PROD cutover: pushes to main are built by qa-prod-cicd.yml and deployed by the Jenkins job qa-application-2026-prod-cd,
+# so main is no longer in `push` (no push trigger is left). The legacy job qa-application-2026-main can still be
+# started manually (workflow_dispatch from main).
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch: # Allows the workflow to be triggered manually (only from dev, staging or main)
 
 # One trigger per branch at a time; a newer push replaces a queued one.
