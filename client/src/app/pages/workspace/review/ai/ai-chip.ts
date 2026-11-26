@@ -32,7 +32,7 @@ const SIGNAL_BADGE: Readonly<Record<'green' | 'amber' | 'red', QaBadgeStatus>> =
     class:
       // Neutral like the rest of the page; the AI is named by a small marked icon, not by a purple box (Juanpa, 2026-11-25,
       // after Notion AI / Copilot / Linear: an AI hint must read as secondary to the human review).
-      'flex flex-col gap-3 rounded-lg border border-(--border) bg-(--surface-2) px-4 py-3.5',
+      'flex flex-col gap-4 rounded-lg border border-(--border) bg-(--surface-2) px-5 py-4',
     role: 'group',
     '[attr.aria-label]': '"AI suggestion: " + vm().label',
   },
@@ -51,6 +51,13 @@ const SIGNAL_BADGE: Readonly<Record<'green' | 'amber' | 'red', QaBadgeStatus>> =
                 <span class="size-1.5 flex-none rounded-full" [style.background]="d" aria-hidden="true"></span>
               }
               {{ vm().label }}
+            </span>
+          } @else {
+            <!-- Indicative fields give no verdict: a neutral badge in the same place, so every AI card has the same header
+                 (Juanpa, 2026-11-26: one card said "Check" and another nothing). -->
+            <span class="inline-flex items-center gap-1.5 rounded-md bg-(--surface-5) px-2 py-0.5 text-(length:--fs-12) font-medium whitespace-nowrap text-(--text-2)" data-testid="ai-signal-indicative">
+              <span class="size-1.5 flex-none rounded-full bg-(--border-strong)" aria-hidden="true"></span>
+              For reference
             </span>
           }
         }
@@ -94,7 +101,7 @@ const SIGNAL_BADGE: Readonly<Record<'green' | 'amber' | 'red', QaBadgeStatus>> =
     </div>
 
     <!-- Body under the title text (icon 20px + gap 8px): the answer, the reasoning, the evidence, the action. -->
-    <div class="flex flex-col gap-2 pl-7 max-sm:pl-0">
+    <div class="flex flex-col gap-3 pl-7 max-sm:pl-0">
     @switch (vm().kind) {
       @case ('available') {
         @if (headline(); as h) {
@@ -103,18 +110,27 @@ const SIGNAL_BADGE: Readonly<Record<'green' | 'amber' | 'red', QaBadgeStatus>> =
         @if (indicative(); as ind) {
           @switch (ind.kind) {
             @case ('category') {
-              <p class="m-0 text-(length:--fs-14) text-(--text-2)" data-testid="ai-category">
-                Suggested category: <span class="font-semibold text-(--text)">{{ ind.suggested }}</span>
+              <!-- The AI's value and the reported one side by side, close together, split by a thin vertical line, so they read
+                   as a pair to compare (Juanpa, 2026-11-26, proximity). -->
+              <div class="flex flex-wrap items-stretch gap-x-5 gap-y-2" data-testid="ai-category">
+                <section class="flex min-w-0 flex-col gap-1" aria-label="Suggested by the AI">
+                  <h3 class="m-0 text-(length:--fs-12) font-medium text-(--text-3)">Suggested category</h3>
+                  <p class="m-0 text-(length:--fs-14) font-semibold text-(--text)">{{ ind.suggested }}</p>
+                </section>
                 @if (ind.reported; as r) {
-                  <span class="text-(--text-3)"> · Reported: {{ r }}</span>
+                  <span class="w-px flex-none self-stretch bg-(--border)" aria-hidden="true"></span>
+                  <section class="flex min-w-0 flex-col gap-1" aria-label="Reported">
+                    <h3 class="m-0 text-(length:--fs-12) font-medium text-(--text-3)">Reported category</h3>
+                    <p class="m-0 text-(length:--fs-14) font-medium text-(--text-2)">{{ r }}</p>
+                  </section>
                 }
-              </p>
+              </div>
             }
             @case ('use_numbers') {
               <p class="m-0 text-(length:--fs-12) text-(--text-3)" data-testid="ai-covers">
                 {{ ind.covers }}
               </p>
-              <div class="grid gap-3 sm:grid-cols-2" data-testid="ai-use-numbers">
+              <div class="flex flex-col gap-3 sm:flex-row sm:items-stretch sm:gap-5" data-testid="ai-use-numbers">
                 <section class="flex min-w-0 flex-col gap-1" aria-label="Suggested by the AI">
                   <h3
                     class="m-0 text-(length:--fs-12) font-medium text-(--text-3)"
@@ -129,7 +145,7 @@ const SIGNAL_BADGE: Readonly<Record<'green' | 'amber' | 'red', QaBadgeStatus>> =
                       The evidence reports no use numbers.
                     </p>
                   } @else {
-                    <ul class="m-0 flex list-none flex-col gap-1 p-0 text-(length:--fs-13)">
+                    <ul class="m-0 flex list-none flex-col gap-1.5 p-0 text-(length:--fs-13)">
                       @for (row of ind.suggested; track $index) {
                         <li class="text-(--text-2)" data-testid="ai-suggested-row">
                           <span class="font-semibold text-(--text)">{{ fmt(row.quantity) }}</span>
@@ -144,6 +160,7 @@ const SIGNAL_BADGE: Readonly<Record<'green' | 'amber' | 'red', QaBadgeStatus>> =
                     </ul>
                   }
                 </section>
+                <span class="hidden w-px flex-none self-stretch bg-(--border) sm:block" aria-hidden="true"></span>
                 <section class="flex min-w-0 flex-col gap-1" aria-label="Reported">
                   <h3
                     class="m-0 text-(length:--fs-12) font-medium text-(--text-3)"
@@ -153,7 +170,7 @@ const SIGNAL_BADGE: Readonly<Record<'green' | 'amber' | 'red', QaBadgeStatus>> =
                   @if (ind.reported.length === 0) {
                     <p class="m-0 text-(length:--fs-13) text-(--text-3)">Nothing reported.</p>
                   } @else {
-                    <ul class="m-0 flex list-none flex-col gap-1 p-0 text-(length:--fs-13)">
+                    <ul class="m-0 flex list-none flex-col gap-1.5 p-0 text-(length:--fs-13)">
                       @for (row of ind.reported; track $index) {
                         <li class="text-(--text-2)" data-testid="ai-reported-row">
                           <span class="font-semibold text-(--text)">{{
@@ -170,24 +187,15 @@ const SIGNAL_BADGE: Readonly<Record<'green' | 'amber' | 'red', QaBadgeStatus>> =
           }
         }
         @if (!collapsible() || expanded()) {
-          <!-- pre-line: the worker writes its bullets on separate lines. Long reasoning is cut to 3 lines. -->
+          <!-- pre-line: the worker writes its bullets on separate lines. The reasoning shows in full: the "Show more" cut was
+               taken out for now (Juanpa, 2026-11-26). -->
           <p
             [id]="whyId"
             class="m-0 text-(length:--fs-13) leading-[1.55] font-normal whitespace-pre-line text-pretty text-(--text-2)"
-            [class.line-clamp-3]="longWhy() && !whyOpen()"
             data-testid="ai-explanation"
           >
             {{ explanation() }}
           </p>
-          @if (longWhy()) {
-            <button
-              type="button"
-              class="-mt-1 self-start rounded-sm p-0 text-(length:--fs-12) font-medium text-(--text-3) underline underline-offset-2 hover:text-(--text) focus-visible:shadow-(--focus-ring) focus-visible:outline-none"
-              [attr.aria-expanded]="whyOpen()"
-              [attr.aria-controls]="whyId"
-              (click)="whyOpen.set(!whyOpen())"
-            >{{ whyOpen() ? 'Show less' : 'Show more' }}</button>
-          }
         }
         @if (quote(); as q) {
           <blockquote class="m-0 border-l-2 border-(--border-strong) pl-3 text-(length:--fs-13) leading-[1.55] text-(--text-2) italic">
@@ -206,7 +214,7 @@ const SIGNAL_BADGE: Readonly<Record<'green' | 'amber' | 'red', QaBadgeStatus>> =
         }
         @if (!readOnly()) {
           <!-- The action says what it does next to it: it starts the reviewer's comment, it changes nothing by itself. -->
-          <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 border-t border-(--border-soft) pt-2.5">
+          <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-(--border-soft) pt-3">
             <button
               hlmBtn
               qaBtn
@@ -242,8 +250,6 @@ export class AiChip {
   readonly shown = output<string>();
 
   protected readonly expanded = signal(false);
-  /** Long reasoning is cut to 3 lines until "Show more" (Juanpa, 2026-11-25). */
-  protected readonly whyOpen = signal(false);
   private static seq = 0;
   private readonly uid = ++AiChip.seq;
   protected readonly whyId = `ai-why-${this.uid}`;
@@ -269,8 +275,6 @@ export class AiChip {
   protected readonly headline = computed(() => this.available()?.headline ?? null);
   protected readonly quote = computed(() => this.available()?.quote ?? null);
   protected readonly explanation = computed(() => this.available()?.explanation ?? '');
-  /** About 3 lines of the card at desktop width: longer reasoning gets "Show more". */
-  protected readonly longWhy = computed(() => this.explanation().length > 240 || this.explanation().split('\n').length > 3);
   protected readonly source = computed(() => this.available()?.source ?? null);
   protected isLink(value: string): boolean {
     return /^https?:\/\//i.test(value);

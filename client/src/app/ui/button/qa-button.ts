@@ -13,8 +13,10 @@ import { HlmButton } from '@spartan/button';
  * - `link`: goes somewhere or shows more ("Go to Assessors", "View all cycles", "+3 more").
  * - `ai`: acts on an AI suggestion: a text button in the AI purple, the lightest weight, so the hint never outranks the
  *   human actions ("Copy to comment", "Use as comment").
+ * - `ai-tonal`: the way into the AI (a panel button that opens or jumps to the AI suggestions): soft AI tint with AI
+ *   text, so the feature is easy to find without outranking the primary action (Juanpa, 2026-11-26).
  */
-export type QaButtonTone = 'primary' | 'tonal' | 'secondary' | 'danger' | 'danger-quiet' | 'link' | 'ai';
+export type QaButtonTone = 'primary' | 'tonal' | 'secondary' | 'danger' | 'danger-quiet' | 'link' | 'ai' | 'ai-tonal';
 
 /** `md`: page headers, drawer and dialog footers. `sm`: inside cards, tables and toolbars. */
 export type QaButtonSize = 'md' | 'sm';
@@ -36,6 +38,7 @@ const TONES: Record<QaButtonTone, string> = {
   'danger-quiet': 'border-(--border) bg-(--surface) font-medium text-(--danger) hover:border-(--danger) hover:bg-(--danger-bg) hover:text-(--danger)',
   link: 'border-transparent bg-transparent font-medium text-(--accent) hover:bg-(--tint) hover:text-(--accent)',
   ai: 'border-transparent bg-transparent font-medium text-(--ai) hover:bg-(--ai-tint) hover:text-(--ai-hover)',
+  'ai-tonal': 'border-transparent bg-(--ai-tint-2) font-semibold text-(--ai) hover:bg-(--ai-tint-3) hover:text-(--ai-hover)',
 };
 
 const SIZES: Record<QaButtonSize, string> = {

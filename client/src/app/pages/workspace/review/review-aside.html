@@ -102,7 +102,7 @@
     }
   </nav>
 
-  <div class="flex gap-3" [class]="narrow() ? 'mt-3 flex-row flex-wrap items-center gap-x-4 gap-y-2' : 'mt-4 flex-col pt-4'">
+  <div class="flex gap-3" [class]="narrow() ? 'mt-3 flex-row flex-wrap items-center gap-x-4 gap-y-2' : 'mt-4 flex-col border-t border-(--border-soft) pt-4'">
     @if (total() > 0) {
       <div class="text-(length:--fs-13) font-normal text-(--text-3)" aria-live="polite"><span class="font-(family-name:--qa-mono) font-semibold text-(--text-2) tabular-nums">{{ resolved() }}</span> of <span class="font-(family-name:--qa-mono) font-semibold text-(--text-2) tabular-nums">{{ total() }}</span> fields resolved</div>
     } @else {
@@ -110,15 +110,21 @@
     }
 
     @if (aiCount() > 0) {
-      <!-- The app's AI button (purple text, tint on hover), as on the AI card; no purple box (Juanpa, 2026-11-25). -->
-      <button hlmBtn qaBtn tone="ai" size="sm" flush="start" type="button" class="justify-start" [class.min-h-10]="narrow()" (click)="aiGo.emit()">
+      <!-- The way into the AI: a soft AI-tint button, full width, so this key feature is easy to find. Actions inside the AI
+           card stay text buttons (Juanpa, 2026-11-26). -->
+      <button hlmBtn qaBtn tone="ai-tonal" size="sm" type="button" class="w-full" [class.min-h-10]="narrow()" (click)="aiGo.emit()">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z" /></svg>
         <span><span class="font-semibold tabular-nums">{{ aiCount() }}</span> {{ aiCount() === 1 ? 'field flagged by AI' : 'fields flagged by AI' }}</span>
       </button>
     }
 
     @if (!narrow()) {
-      <div class="rounded-lg bg-(--surface-3) px-[14px] py-3 text-(length:--fs-13) leading-[1.55] font-normal text-pretty text-(--text-2)">{{ r.instructions }}</div>
+      <!-- Three groups split by thin lines: sections · progress and AI · what this review asks of you. The note has a label and
+           no grey box, so it reads as help, not as a loose message (Juanpa, 2026-11-26). -->
+      <div class="mt-1 flex flex-col gap-1 border-t border-(--border-soft) pt-4">
+        <span class="text-(length:--fs-12) font-medium text-(--text-muted)">About this review</span>
+        <p class="m-0 text-(length:--fs-13) leading-[1.55] font-normal text-pretty text-(--text-3)">{{ r.instructions }}</p>
+      </div>
       @if (guidance(); as g) {
         <a hlmBtn qaBtn tone="secondary" size="sm" [href]="g.url" target="_blank" rel="noopener">
           <span>{{ g.label }}</span>
