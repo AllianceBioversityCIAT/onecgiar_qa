@@ -20,7 +20,7 @@ What the front may rely on for the Lead Assessor's review of a re-submitted resu
 | ADMIN | Latest round by default (`?round=1\|2` to pick); read only | Never without `X-Acting-Role`: `choices` is then always `[]` |
 | ADMIN with `X-Acting-Role: LEAD_ASSESSOR` | As the Lead, on any result type and program; `actingRole: 'LEAD_ASSESSOR'` | As the Lead (`decidable`, `choices`, end rules), **whatever the step-3 dates** (admin/acts-as-reviewer, step-1 contract § 2.1) |
 | TPB | Built by P2-3916: `docs/specs/escalation/round-2-tpb/front-contract.md` | Decisions and Finish in step 4 |
-| PPU | Designed only, not built (section 8) | None |
+| PPU | Built by P2-3917: `docs/specs/escalation/round-2-ppu/front-contract.md` | Done on each case, no date window |
 
 `…` stands for `/timelines/:timelineId/results/:resultCode`. The write order of step-1 section 6 applies unchanged (404, 403, 409 step closed, 409 finished).
 
@@ -189,7 +189,7 @@ Also on these routes, unchanged: 400 `VALIDATION_FAILED` (body: empty, blank, ov
 
 ## 8. TPB and PPU
 
-The TPB is built by P2-3916: its contract is `docs/specs/escalation/round-2-tpb/front-contract.md` (statuses `pending_tpb_review` in step 4 and `pending_ppu`). The PPU stays designed only (`design.md` § 12); `unresolved` stays declared and unproduced. Build no PPU screen from this file.
+The TPB is built by P2-3916: its contract is `docs/specs/escalation/round-2-tpb/front-contract.md` (statuses `pending_tpb_review` in step 4 and `pending_ppu`). The PPU is built by P2-3917: `docs/specs/escalation/round-2-ppu/front-contract.md` (status `unresolved` produced there).
 
 ## 9. Checklist for the front
 

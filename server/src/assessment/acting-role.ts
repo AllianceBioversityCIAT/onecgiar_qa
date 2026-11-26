@@ -23,8 +23,7 @@ export const ACTING_ROLE_HEADER = 'X-Acting-Role';
 
 /**
  * The roles an Admin may act as: the enabled reviewer rows of the role-step
- * table (ASSESSOR, LEAD_ASSESSOR and TPB since P2-3916). PPU joins when its
- * row is enabled (P2-3917), with no change here.
+ * table: ASSESSOR, LEAD_ASSESSOR, TPB (P2-3916) and PPU (P2-3917).
  */
 export function actingRoleCodes(): readonly RoleCode[] {
   return enabledReviewerRows().map((row) => row.role);
@@ -76,7 +75,7 @@ export const ApiActingRole = () =>
       name: ACTING_ROLE_HEADER,
       required: false,
       description:
-        "QA Admin only: the reviewer role to act as on this result (`ASSESSOR` on a round-1 result, `LEAD_ASSESSOR` on a round-2 one, `TPB` on a round-2 result the Lead escalated). The Admin then reads and writes with that role's rules, whatever the step dates, and what it writes is marked as written by an Admin. Without it an Admin is read-only. Ignored for any other caller. Any other value is a 400 `VALIDATION_FAILED` naming the header.",
+        "QA Admin only: the reviewer role to act as on this result (`ASSESSOR` on a round-1 result, `LEAD_ASSESSOR` on a round-2 one, `TPB` on a round-2 result the Lead escalated, `PPU` on one the TPB escalated). The Admin then reads and writes with that role's rules, whatever the step dates, and what it writes is marked as written by an Admin. Without it an Admin is read-only. Ignored for any other caller. Any other value is a 400 `VALIDATION_FAILED` naming the header.",
       schema: { type: 'string', enum: [...actingRoleCodes()] },
     }),
   );

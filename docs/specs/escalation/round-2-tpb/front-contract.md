@@ -156,5 +156,5 @@ The worklist `status` filter accepts all three. The program (SP view) never sees
 - [ ] Quick comments use `role=TPB` (`GET` / `POST /quick-comments`).
 - [ ] The view is re-read after every decision, so the check follows `effectiveValidated`.
 - [ ] Finish reads `status: 'escalated'` as Pending PPU, and shows `error.fields` on `ASSESSMENT_CORE_UNDECIDED`.
-- [ ] The worklist shows `pending_ppu` and counts it as finished for the TPB.
+- [ ] The worklist shows `pending_ppu` and `unresolved` (P2-3917) and counts both as finished for the TPB.
 - [ ] "Act as" offers `TPB` when `actingRoles` lists it. The header `X-Acting-Role: TPB` goes on the view and every write.
