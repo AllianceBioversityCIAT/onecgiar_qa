@@ -108,6 +108,19 @@ export function validateEnv(
       throw new Error(`Invalid ${key}: expected an https:// URL`);
     }
   }
+  // The Hosted UI provider name goes into the authorize URL as is: when set,
+  // it must be a name, not blank and without spaces (Cognito names have none).
+  const ssoProvider = config.COGNITO_SSO_PROVIDER;
+  if (
+    ssoProvider !== undefined &&
+    (typeof ssoProvider !== 'string' ||
+      ssoProvider === '' ||
+      /\s/.test(ssoProvider))
+  ) {
+    throw new Error(
+      'Invalid COGNITO_SSO_PROVIDER: expected a provider name, not empty and without spaces',
+    );
+  }
   // Catalog sources (FR-11): their answers decide who may be granted what.
   for (const key of ['REPORTING_API_URL', 'CLARISA_API_URL'] as const) {
     if (!isHttpsUrl(config[key] as string)) {
