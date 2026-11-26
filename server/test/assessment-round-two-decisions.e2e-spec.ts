@@ -118,7 +118,10 @@ describe('Round-2 decisions of the Lead (e2e)', () => {
       body: { validated: true, fieldKeys: [FIRST] },
     });
     expect(refused.status).toBe(409);
-    expect(refused.body.error.code).toBe('ASSESSMENT_FIELD_ESCALATED');
+    expect(refused.body.error).toMatchObject({
+      code: 'ASSESSMENT_FIELD_ESCALATED',
+      fields: [FIRST],
+    });
     expect(a.world.validations.filter((v) => v.fieldKey === FIRST)).toEqual([]);
   });
 
@@ -179,7 +182,10 @@ describe('Round-2 decisions of the Lead (e2e)', () => {
     ]);
     const refused = await decide(7003, 'agree_program');
     expect(refused.status).toBe(409);
-    expect(refused.body.error.code).toBe('ASSESSMENT_FIELD_ESCALATED');
+    expect(refused.body.error).toMatchObject({
+      code: 'ASSESSMENT_FIELD_ESCALATED',
+      fields: [FIRST],
+    });
 
     const cleared = await a.send('delete', decisionPath(code, 7001), {
       token: lead(),

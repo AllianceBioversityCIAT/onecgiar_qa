@@ -503,8 +503,9 @@ export class AssessmentService {
       if (roundTwo && input.validated) {
         // FR-8 *Escalate*: a field carrying an `escalate` decision cannot be validated, so green + escalate stays unreachable.
         const escalated = escalatedFieldKeys(decisions);
-        if (target.some((key) => escalated.has(key))) {
-          throw new AssessmentFieldEscalatedError();
+        const refused = target.filter((key) => escalated.has(key));
+        if (refused.length > 0) {
+          throw new AssessmentFieldEscalatedError([...new Set(refused)].sort());
         }
         // FR-8 *none (undecided)* (HITL O-1): a live round-1 comment with no decision blocks the green; the whole request is refused.
         const undecided = await this.undecidedFields(
@@ -2114,7 +2115,7 @@ export class AssessmentService {
           input.decision === 'agree_program' &&
           escalatedFieldKeys(others).has(target.fieldKey)
         ) {
-          throw new AssessmentFieldEscalatedError();
+          throw new AssessmentFieldEscalatedError([target.fieldKey]);
         }
         await assessments.upsertDecision({
           commentId,
@@ -2732,29 +2733,33 @@ export class AssessmentService {
       membership.round === 1 ? null : membership.previousAssessmentId;
     const lead = tpb ? membership.leadAssessment : null;
     const tpbRow = ppu ? membership.tpbAssessment : null;
-    const [roundOneThread, roundOneValidations, leadValidations, tpbValidations] =
-      await Promise.all([
-        tpb
-          ? this.store.findEscalationThread(
-              [previous, lead?.id ?? null].filter(
-                (id): id is number => id !== null,
-              ),
-              role,
-              RoleCode.LEAD_ASSESSOR,
-            )
-          : previous === null
-            ? Promise.resolve([])
-            : this.store.findRoundOneThread(previous, RoleCode.LEAD_ASSESSOR),
-        previous === null
+    const [
+      roundOneThread,
+      roundOneValidations,
+      leadValidations,
+      tpbValidations,
+    ] = await Promise.all([
+      tpb
+        ? this.store.findEscalationThread(
+            [previous, lead?.id ?? null].filter(
+              (id): id is number => id !== null,
+            ),
+            role,
+            RoleCode.LEAD_ASSESSOR,
+          )
+        : previous === null
           ? Promise.resolve([])
-          : this.store.findValidations(previous),
-        lead === null
-          ? Promise.resolve(null)
-          : this.store.findValidations(lead.id),
-        tpbRow === null
-          ? Promise.resolve(null)
-          : this.store.findValidations(tpbRow.id),
-      ]);
+          : this.store.findRoundOneThread(previous, RoleCode.LEAD_ASSESSOR),
+      previous === null
+        ? Promise.resolve([])
+        : this.store.findValidations(previous),
+      lead === null
+        ? Promise.resolve(null)
+        : this.store.findValidations(lead.id),
+      tpbRow === null
+        ? Promise.resolve(null)
+        : this.store.findValidations(tpbRow.id),
+    ]);
     // P2-3917 AC6 (FR-9, DD-P6): a PPU reader compares the open cases' fields
     // with Reporting and stores the first sighting of a change; every reader
     // of a result that reached step 5 reads the stored dates (one statement).
@@ -3003,16 +3008,19 @@ export class AssessmentService {
       if (current === undefined) return;
       const pick = (values: Readonly<Record<string, unknown>>) =>
         Object.fromEntries(
-          fields.filter((key) => key in values).map((key) => [key, values[key]]),
+          fields
+            .filter((key) => key in values)
+            .map((key) => [key, values[key]]),
         );
-      const changed = changedFields(
-        pick(snapshotValues),
-        pick(current.values),
-      );
+      const changed = changedFields(pick(snapshotValues), pick(current.values));
       if (changed.length === 0) return;
       const at = wholeSecond(this.clock());
       await this.unitOfWork.run(({ assessments }) =>
-        assessments.recordReportingChanges(membership.membershipId, changed, at),
+        assessments.recordReportingChanges(
+          membership.membershipId,
+          changed,
+          at,
+        ),
       );
     } catch (error) {
       this.logger.warn(

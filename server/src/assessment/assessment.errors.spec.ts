@@ -27,7 +27,6 @@ describe('AssessmentCoreUncommentedError (FR-15, design 6)', () => {
 describe('round-2 refusals (round-2 FR-3, FR-17, design 6)', () => {
   it.each([
     [new AssessmentFieldNotCoreError(), 'ASSESSMENT_FIELD_NOT_CORE'],
-    [new AssessmentFieldEscalatedError(), 'ASSESSMENT_FIELD_ESCALATED'],
     [new AssessmentDecisionInvalidError(), 'ASSESSMENT_DECISION_INVALID'],
     [
       new AssessmentCommentNotDeletableError(),
@@ -48,6 +47,19 @@ describe('round-2 refusals (round-2 FR-3, FR-17, design 6)', () => {
     expect(error.getStatus()).toBe(409);
     expect(error.getResponse()).toMatchObject({
       code: 'ASSESSMENT_CORE_UNDECIDED',
+      fields: ['general.title', 'toc.outcomes'],
+    });
+  });
+
+  it('AssessmentFieldEscalatedError answers 409 and carries the escalated field keys', () => {
+    const error = new AssessmentFieldEscalatedError([
+      'general.title',
+      'toc.outcomes',
+    ]);
+    expect(error.fields).toEqual(['general.title', 'toc.outcomes']);
+    expect(error.getStatus()).toBe(409);
+    expect(error.getResponse()).toMatchObject({
+      code: 'ASSESSMENT_FIELD_ESCALATED',
       fields: ['general.title', 'toc.outcomes'],
     });
   });

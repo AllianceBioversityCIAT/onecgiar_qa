@@ -350,6 +350,29 @@ describe('toErrorBody: only catalog text reaches the client', () => {
     ).not.toHaveProperty('fields');
   });
 
+  it('forwards the field keys of ASSESSMENT_FIELD_ESCALATED, strings only', () => {
+    expect(
+      toErrorBody(
+        new ConflictException({
+          code: 'ASSESSMENT_FIELD_ESCALATED',
+          fields: ['general.title', 'toc.outcomes'],
+        }),
+      ),
+    ).toMatchObject({
+      status: 409,
+      code: 'ASSESSMENT_FIELD_ESCALATED',
+      fields: ['general.title', 'toc.outcomes'],
+    });
+    expect(
+      toErrorBody(
+        new ConflictException({
+          code: 'ASSESSMENT_FIELD_ESCALATED',
+          fields: [{ field: 'x', message: EMAIL }, 7],
+        }),
+      ),
+    ).not.toHaveProperty('fields');
+  });
+
   it('forwards only strings for ASSESSMENT_CORE_UNCOMMENTED, and never fields for another 409', () => {
     expect(
       toErrorBody(
