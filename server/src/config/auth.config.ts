@@ -1,6 +1,9 @@
 import { registerAs } from '@nestjs/config';
 import { parseAllowedOrigins } from './env.validation.js';
 
+/** The Hosted UI identity provider of DEV and TEST; PROD sets `COGNITO_SSO_PROVIDER`. */
+export const DEFAULT_SSO_PROVIDER = 'CGIAR-AzureAD';
+
 export const authConfig = registerAs('auth', () => {
   const region = process.env.COGNITO_REGION!;
   return {
@@ -14,6 +17,9 @@ export const authConfig = registerAs('auth', () => {
       userPoolUrl:
         process.env.COGNITO_USER_POOL_URL ||
         `https://cognito-idp.${region}.amazonaws.com/`,
+      // `identity_provider` of the SSO authorize URL: the provider name the
+      // app client enables (PROD: `CGIAR-Account`). Checked at startup.
+      ssoProvider: process.env.COGNITO_SSO_PROVIDER ?? DEFAULT_SSO_PROVIDER,
     },
     allowedOrigins: parseAllowedOrigins(process.env.ALLOWED_ORIGINS!),
   };
