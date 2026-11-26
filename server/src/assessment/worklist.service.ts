@@ -101,6 +101,19 @@ export interface WorklistCounters {
   total: number;
   /** F-010: the Auto-validated memberships among `total` (not assessed, never pending nor finished). */
   autoValidated: number;
+  /**
+   * The memberships of `total` by QA status, every status present (0 when
+   * none). Same scope as `total`: filters and the page do not change it.
+   */
+  byStatus: Record<QaStatus, number>;
+}
+
+/** Every QA status at 0: the empty `byStatus`. */
+export function emptyByStatus(): Record<QaStatus, number> {
+  return Object.fromEntries(QA_STATUSES.map((key) => [key, 0])) as Record<
+    QaStatus,
+    number
+  >;
 }
 
 export interface WorklistPage {
@@ -259,7 +272,13 @@ export class WorklistService {
       return {
         rows: [],
         nextCursor: null,
-        counters: { pending: 0, finished: 0, total: 0, autoValidated: 0 },
+        counters: {
+          pending: 0,
+          finished: 0,
+          total: 0,
+          autoValidated: 0,
+          byStatus: emptyByStatus(),
+        },
         writable: false,
         noActiveRole: true,
       };
@@ -379,6 +398,10 @@ export class WorklistService {
         ),
         total: groups.reduce((total, group) => total + group.count, 0),
         autoValidated: sum(['auto_validated']),
+        byStatus: groups.reduce((byStatus, group) => {
+          if (group.status !== null) byStatus[group.status] += group.count;
+          return byStatus;
+        }, emptyByStatus()),
       },
       writable: access.reviewerRows.some((row) =>
         enabledReviewerRows().some(
