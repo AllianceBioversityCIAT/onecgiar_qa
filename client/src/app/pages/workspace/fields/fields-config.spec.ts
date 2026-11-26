@@ -10,6 +10,15 @@ describe('fields-config', () => {
     expect(describeChange({ state: 'assessed', core: false, ai: false }, { state: 'assessed', core: true, ai: false })).toBe('Core turned on');
   });
 
+  it('names AI changes in the change summary and the publish review (F-021)', () => {
+    const assessed = { state: 'assessed' as const, core: false, ai: false };
+    expect(describeChange(assessed, { ...assessed, ai: true })).toBe('AI helper turned on');
+    expect(describeChange({ ...assessed, ai: true }, assessed)).toBe('AI helper turned off');
+    expect(describeChange({ state: 'hidden', core: false, ai: false }, { state: 'assessed', core: true, ai: true })).toBe(
+      'Assessed, was Hidden; Core on, AI helper on',
+    );
+  });
+
   it('sends Core and AI only with an assessed field (S-14)', () => {
     expect(toEdit('t', 'f', { state: 'view_only', core: true, ai: true })).toEqual({
       resultTypeKey: 't',
@@ -30,5 +39,14 @@ describe('fields-config', () => {
     const conditional = rowVm({ ...base, requirement: 'conditional' }, { state: 'hidden', core: false, ai: false }, true);
     expect(conditional.requiredHidden).toBe(false);
     expect(conditional.conditional).toBe(true);
+  });
+
+  it('a conditional field never reads "Not set yet" (F-023, testing log 23-nov)', () => {
+    const base = { key: 'k', label: 'K', isNew: false, unclassified: true, draft: { visibility: 'hidden' as const, isCore: false, isAiInput: false }, published: null };
+    const conditional = rowVm({ ...base, requirement: 'conditional' }, { state: 'hidden', core: false, ai: false }, true);
+    expect(conditional.conditional).toBe(true);
+    expect(conditional.notSet).toBe(false);
+    const optional = rowVm({ ...base, requirement: 'optional' }, { state: 'hidden', core: false, ai: false }, true);
+    expect(optional.notSet).toBe(true);
   });
 });

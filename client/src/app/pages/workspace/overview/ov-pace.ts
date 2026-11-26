@@ -50,7 +50,7 @@ function yTicks(v: number): number[] {
       <!-- Header: title and what it shows on the left; the block's own filter and its status on the right. -->
       <div class="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
         <div class="flex min-w-0 flex-col gap-0.5">
-          <h3 id="overview-pace-title" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">Assessment pace</h3>
+          <h3 id="overview-pace-title" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">{{ title() }}</h3>
           <!-- The timeline is picked only at the top of the page: with several open steps this shows the one most behind. -->
           @if (current(); as c) {
             <p class="m-0 text-(length:--fs-13) text-(--text-3)">
@@ -59,7 +59,8 @@ function yTicks(v: number): number[] {
           }
         </div>
         <div class="flex flex-none items-center gap-3">
-          @if (current()?.byAssessor) {
+          <!-- No options: an assessor looking at their own pace (Overview by role). -->
+          @if (current()?.byAssessor && assessorOptions().length) {
             <qa-select
               [value]="assessor()"
               (valueChange)="assessor.set($event ?? '')"
@@ -133,6 +134,8 @@ export class OvPace {
   readonly assessorOptions = input<readonly QaSelectOption[]>([]);
   /** Assessor the assessors' step is narrowed to (empty for all assessors, so the filter shows no selection); the page recomputes the series with it. */
   readonly assessor = model('');
+  /** "Assessment pace" for the admin, "Your pace" for an assessor. */
+  readonly title = input('Assessment pace');
 
   protected readonly pl = PL;
   protected readonly pr = PR;

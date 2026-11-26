@@ -1,28 +1,28 @@
-import { Component, DestroyRef, computed, contentChild, ElementRef, afterNextRender, inject, input, output, signal, viewChild } from '@angular/core';
+import { Component, DestroyRef, computed, ElementRef, afterNextRender, inject, input, output, signal, viewChild } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import type { QaStatus } from '../../../core/api/assessment.models';
 import type { SortDir } from '../../../core/list/table-sort';
-import { QaMenuImports, QaPagination, QaSelectImports, QaSelectOption } from '../../../ui';
-import { ResultStage } from './results.mock';
+import { QaLoadingImports, QaSelectImports, QaSelectOption } from '../../../ui';
 
-export type SortKey = 'code' | 'title' | 'type' | 'comments' | 'stage';
+/** Sorted on the server (worklist `sort`); the API keys of the visible columns. */
+export type SortKey = 'code' | 'title' | 'resultType' | 'comments' | 'status';
 export type { SortDir };
 
 export interface ResultRowVm {
+  /** The row's own id (the membership): one result can be listed more than once. */
+  readonly id: number;
   readonly code: string;
   readonly title: string;
-  /** Second line under the title: "SP02 · M. Chen". */
+  /** Second line under the title: "SP02 · mchen" (the nickname once someone assessed it). */
   readonly meta: string;
   readonly type: string;
-  readonly comments: readonly [number, number] | null;
-  /** Comments not published to the program yet. */
-  readonly locked: boolean;
-  /** "Round 1" / "Round 2" above the stage pill; empty once quality assessed. */
-  readonly round: string;
-  readonly stage: ResultStage;
-  /** Stage without the round: "In review", "Assessed by 2"… */
-  readonly stageLabel: string;
-  readonly stageClass: string;
-  readonly isAuto: boolean;
+  /** Open comments. */
+  readonly comments: number;
+  /** A round-2 re-entry whose fields changed since the previous round. */
+  readonly updated: boolean;
+  readonly status: QaStatus;
+  readonly statusLabel: string;
+  readonly statusClass: string;
 }
 
 interface Column {
@@ -36,9 +36,9 @@ interface Column {
 const COLUMNS: readonly Column[] = [
   { key: 'code', label: 'Code', right: false, secondary: false },
   { key: 'title', label: 'Title', right: false, secondary: false },
-  { key: 'type', label: 'Result type', right: false, secondary: true },
+  { key: 'resultType', label: 'Result type', right: false, secondary: true },
   { key: 'comments', label: 'Comments', right: true, secondary: false },
-  { key: 'stage', label: 'QA stage', right: true, secondary: false },
+  { key: 'status', label: 'Status', right: true, secondary: false },
 ];
 
 /** Options of the card-mode "Sort by" picker: value = "key:dir", same state as the header sort. */
@@ -48,12 +48,12 @@ const SORT_OPTIONS: readonly QaSelectOption[] = [
   { value: 'code:desc', label: 'Code (descending)' },
   { value: 'title:asc', label: 'Title (A–Z)' },
   { value: 'title:desc', label: 'Title (Z–A)' },
-  { value: 'type:asc', label: 'Result type (A–Z)' },
-  { value: 'type:desc', label: 'Result type (Z–A)' },
-  { value: 'comments:desc', label: 'Comments (most resolved first)' },
-  { value: 'comments:asc', label: 'Comments (least resolved first)' },
-  { value: 'stage:asc', label: 'QA stage (workflow order)' },
-  { value: 'stage:desc', label: 'QA stage (reverse order)' },
+  { value: 'resultType:asc', label: 'Result type (A–Z)' },
+  { value: 'resultType:desc', label: 'Result type (Z–A)' },
+  { value: 'comments:desc', label: 'Comments (most open first)' },
+  { value: 'comments:asc', label: 'Comments (fewest open first)' },
+  { value: 'status:asc', label: 'Status (workflow order)' },
+  { value: 'status:desc', label: 'Status (reverse order)' },
 ];
 
 /*
@@ -82,7 +82,7 @@ const CELL = {
 /** Results table: sticky sortable headers, rows that open the review page, and a ⋯ menu per row. */
 @Component({
   selector: 'qa-results-table',
-  imports: [RouterLink, QaMenuImports, QaSelectImports],
+  imports: [RouterLink, QaLoadingImports, QaSelectImports],
   // No own overflow: the sticky header row sticks to the scrolling <main> of the shell.
   host: { class: '@container relative block rounded-xl border border-(--border) bg-(--surface)' },
   template: `
@@ -133,14 +133,16 @@ const CELL = {
         </tr>
       </thead>
       <tbody class="block">
-        @for (r of rows(); track r.code; let last = $last) {
+        @for (r of rows(); track r.id; let last = $last, i = $index) {
           <tr
+            [qaReveal]="i % revealPage"
             class="relative grid items-center border-b border-(--surface-4) bg-(--surface) px-4 py-3 hover:bg-(--surface-2) @min-[640px]:min-h-[72px] @min-[640px]:px-5 @min-[640px]:py-2"
             [class]="grid + (last && !footer() ? ' rounded-b-[11px]' : '')"
           >
             <td class="flex items-center self-stretch" [class]="cell.code">
               <a
                 [routerLink]="['/results', r.code]"
+                [queryParams]="reviewParams()"
                 class="font-(family-name:--qa-mono) tabular-nums text-(length:--fs-13) font-semibold whitespace-nowrap text-(--accent) outline-none after:absolute after:inset-0 focus-visible:after:inset-ring-2 focus-visible:after:inset-ring-(--primary)"
                 [class]="last && !footer() ? 'after:rounded-b-[11px]' : ''"
               >{{ r.code }}</a>
@@ -151,53 +153,31 @@ const CELL = {
             </td>
             <td class="min-w-0 truncate text-(length:--fs-13) text-(--text-3)" [class]="cell.type">{{ r.type }}</td>
             <td class="flex items-center gap-[5px] font-(family-name:--qa-mono) tabular-nums text-(length:--fs-13) whitespace-nowrap" [class]="cell.comments">
-              @if (r.comments; as c) {
-                <span><span class="font-semibold text-(--text)">{{ c[0] }}</span><span class="text-(--text-4)"> / {{ c[1] }}</span><span class="font-sans text-(length:--fs-12) text-(--text-4) @min-[640px]:sr-only"> comments</span></span>
+              @if (r.comments) {
+                <span><span class="font-semibold text-(--text)">{{ r.comments }}</span><span class="font-sans text-(length:--fs-12) text-(--text-4) @min-[640px]:sr-only"> open {{ r.comments === 1 ? 'comment' : 'comments' }}</span></span>
               } @else {
                 <span class="text-(--text-muted) @max-[640px]:hidden">–</span>
-                <span class="font-sans text-(length:--fs-12) text-(--text-4) @min-[640px]:hidden">No comments</span>
-              }
-              @if (r.locked) {
-                <span title="Not published to the program yet" class="inline-flex"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="flex-none"><path d="M5 11h14v10H5zM8 11V7a4 4 0 0 1 8 0v4" /></svg><span class="sr-only">Not published to the program yet</span></span>
+                <span class="font-sans text-(length:--fs-12) text-(--text-4) @min-[640px]:hidden">No open comments</span>
               }
             </td>
             <td class="flex flex-col items-end gap-0.5" [class]="cell.stage">
-              @if (r.round) {
-                <span class="text-(length:--fs-11) font-medium whitespace-nowrap text-(--text-4)">{{ r.round }}</span>
+              @if (r.updated) {
+                <span class="text-(length:--fs-11) font-medium whitespace-nowrap text-(--text-4)">Updated</span>
               }
-              <span class="inline-flex items-center rounded-full px-[10px] py-[3px] text-(length:--fs-11) font-semibold whitespace-nowrap" [class]="r.stageClass">{{ r.stageLabel }}</span>
+              <span class="inline-flex items-center rounded-full px-[10px] py-[3px] text-(length:--fs-11) font-semibold whitespace-nowrap" [class]="r.statusClass">{{ r.statusLabel }}</span>
             </td>
-            <td class="relative z-10" [class]="cell.menu">
-              <button
-                type="button"
-                [qaMenuTrigger]="rowMenu"
-                [qaMenuTriggerData]="{ $implicit: r }"
-                qaMenuAlign="end"
-                [attr.aria-label]="'More actions for ' + r.code"
-                class="-mr-2 flex size-10 items-center justify-center rounded-md text-(--text-3) hover:text-(--primary) outline-none focus-visible:shadow-(--focus-ring) @min-[640px]:mr-0 @min-[640px]:size-6"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 10.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm7 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm7 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z" /></svg>
-              </button>
-            </td>
+            <!-- The row menu (export, reassign) is hidden in step 1: no action of the API needs it yet. -->
+            <td aria-hidden="true" [class]="cell.menu"></td>
           </tr>
         }
       </tbody>
     </table>
-    <!-- Optional footer inside the card (the paginator). Rows keep their bottom border above it. -->
+    <!-- Optional footer inside the card ("Load more"). Rows keep their bottom border above it. -->
     @if (footer()) {
       <div class="px-4 py-3 @min-[640px]:px-5">
         <ng-content select="[qaTableFooter]" />
       </div>
     }
-
-    <ng-template #rowMenu let-r>
-      <qa-menu-panel width="220px" [attr.aria-label]="'Actions for ' + r.code">
-        <button qaMenuItem (triggered)="exportComments.emit(r.code)">Export comments</button>
-        @if (!r.isAuto) {
-          <button qaMenuItem (triggered)="reassign.emit(r.code)">Reassign assessor</button>
-        }
-      </qa-menu-panel>
-    </ng-template>
   `,
 })
 export class ResultsTable {
@@ -209,16 +189,23 @@ export class ResultsTable {
   readonly sort = output<SortKey>();
   /** Card-mode picker: sets field and direction at once (null = default order). */
   readonly sortSet = output<{ key: SortKey; dir: SortDir } | null>();
-  readonly exportComments = output<string>();
-  readonly reassign = output<string>();
 
-  /** A paginator projected with `qaTableFooter` (squares the last row, it is no longer the card's bottom). */
-  protected readonly footer = contentChild(QaPagination);
+  /** The timeline the rows belong to: the review page reads the assessment of a result ON a timeline. */
+  readonly timelineId = input<number | null>(null);
 
+  /** Something is projected with `qaTableFooter` (squares the last row, it is no longer the card's bottom). */
+  readonly footer = input(false);
+
+  /** Rows added by "Load more" come in from the top of their own page, not after every row before them. */
+  protected readonly revealPage = 25;
   protected readonly columns = COLUMNS;
   protected readonly grid = GRID;
   protected readonly cell = CELL;
   protected readonly sortOptions = SORT_OPTIONS;
+  protected readonly reviewParams = computed(() => {
+    const timeline = this.timelineId();
+    return timeline === null ? null : { timeline };
+  });
   protected readonly sortValue = computed(() => {
     const key = this.sortKey();
     return key ? `${key}:${this.sortDir()}` : '';

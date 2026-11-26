@@ -23,9 +23,17 @@ export default defineConfig({
       REPORTING_API_URL: 'https://reporting.test.invalid/api/',
       CLARISA_API_URL: 'https://clarisa.test.invalid/api/',
       CLARISA_API_KEY: 'test-catalog-key',
+      // e2e never reaches the Notification Microservice.
+      NOTIFICATION_EMAIL_ENABLED: 'false',
       // Dummy values (both or neither): lets the OpenAPI test prove no key value leaks.
       COGNITO_ADMIN_ACCESS_KEY_ID: 'AKIATESTADMINKEY0000',
       COGNITO_ADMIN_SECRET_ACCESS_KEY: 'test-admin-secret-access-key',
+      // The release sweeper (P2-3910) stays off; a test that needs it turns it on.
+      RELEASE_SWEEP_INTERVAL_MS: '0',
+      // SP view (P2-3911): a dummy key (>= 32 characters) and link template.
+      SP_ACCESS_API_KEY: 'test-sp-access-key-0000000000000000',
+      SP_REPORTING_RESULT_URL:
+        'https://reporting.test.invalid/result/{resultCode}/general-information',
     },
   },
 });

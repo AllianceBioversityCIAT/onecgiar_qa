@@ -30,7 +30,35 @@ export interface CatalogField {
   isNew: boolean;
   /** Reporting's help text; the key is absent when the row has none. */
   description?: string;
+  /**
+   * The control lists the field names: its own `control_list`, then those of its
+   * subfields at any depth, each once, in catalog order. Reporting keys the
+   * snapshot labels by these names (FR-20), so a view reads a field's labels by
+   * them. Empty for a field that names none.
+   */
+  controlLists: string[];
+  /**
+   * Subfield key -> the control list its option ids belong to, at any depth,
+   * first occurrence wins. Absent when no subfield names a list. A list field's
+   * entries hold ids (e.g. `actor_type: 1`); this is what turns them into names.
+   */
+  subfieldLists?: Record<string, string>;
+  /**
+   * Reporting's `visible_when`: the field is shown only when it holds on the
+   * result's values (F-015). Absent when the row has none.
+   */
+  visibleWhen?: VisibleWhen;
 }
+
+/**
+ * Reporting's condition grammar: a leaf on a field key (or `$result_type`),
+ * or `any` / `all` of conditions.
+ */
+export type VisibleWhen =
+  | { field: string; operator: 'eq'; value: unknown }
+  | { field: string; operator: 'in'; value: unknown[] }
+  | { any: VisibleWhen[] }
+  | { all: VisibleWhen[] };
 
 export interface FieldCatalog {
   catalogVersion: string;
@@ -66,6 +94,63 @@ function rows(body: Json, key: string): Json[] {
   return v as Json[];
 }
 
+/**
+ * The control lists a row names: its own, then its subfields' (depth first),
+ * each once. A `null` or absent `control_list` means no list. Any other value
+ * that is not a text, or `subfields` that is not a list of rows, is malformed
+ * Reporting data (503), never skipped.
+ */
+function controlListsOf(row: Json, at: string, into: string[] = []): string[] {
+  const own = row.control_list;
+  // `null` or absent: no list. A display-only attribute must not take loads down.
+  if (own !== undefined && own !== null) {
+    if (typeof own !== 'string' || own === '') {
+      return malformed(`${at}.control_list`);
+    }
+    if (!into.includes(own)) into.push(own);
+  }
+  const subfields = row.subfields;
+  if (subfields !== undefined) {
+    if (!Array.isArray(subfields)) return malformed(`${at}.subfields`);
+    subfields.forEach((sub, i) => {
+      if (!isObject(sub)) malformed(`${at}.subfields[${i}]`);
+      controlListsOf(sub as Json, `${at}.subfields[${i}]`, into);
+    });
+  }
+  return into;
+}
+
+const withSubfieldLists = (
+  lists: Record<string, string>,
+): { subfieldLists?: Record<string, string> } =>
+  Object.keys(lists).length === 0 ? {} : { subfieldLists: lists };
+
+/**
+ * Subfield key -> control list, depth first, first occurrence wins. Only reads
+ * rows `controlListsOf` already checked, so it never throws.
+ */
+function subfieldListsOf(
+  row: Json,
+  into: Record<string, string> = {},
+): Record<string, string> {
+  const subfields = row.subfields;
+  if (!Array.isArray(subfields)) return into;
+  for (const sub of subfields as Json[]) {
+    const key = sub.key;
+    const list = sub.control_list;
+    if (
+      typeof key === 'string' &&
+      typeof list === 'string' &&
+      list !== '' &&
+      !Object.hasOwn(into, key)
+    ) {
+      into[key] = list;
+    }
+    subfieldListsOf(sub, into);
+  }
+  return into;
+}
+
 /** `["*"]` becomes every type key; any other key must be a known type. */
 function expandTypes(row: Json, known: string[], at: string): string[] {
   const v = row.result_types;
@@ -79,6 +164,35 @@ function expandTypes(row: Json, known: string[], at: string): string[] {
   }
   return v as string[];
 }
+
+/**
+ * A `visible_when` as Reporting writes it. A shape this grammar does not know
+ * (a new operator, say) reads as no condition: the field stays visible, and the
+ * catalog is not refused over a display rule (F-015).
+ */
+function conditionOf(raw: unknown): VisibleWhen | undefined {
+  if (!isObject(raw)) return undefined;
+  for (const key of ['any', 'all'] as const) {
+    const list = raw[key];
+    if (list === undefined) continue;
+    if (!Array.isArray(list)) return undefined;
+    const conditions = list.map(conditionOf);
+    if (conditions.some((c) => c === undefined)) return undefined;
+    const known = conditions as VisibleWhen[];
+    return key === 'any' ? { any: known } : { all: known };
+  }
+  const { field, operator, value } = raw;
+  if (typeof field !== 'string') return undefined;
+  if (operator === 'eq') return { field, operator, value };
+  if (operator === 'in' && Array.isArray(value)) {
+    return { field, operator, value };
+  }
+  return undefined;
+}
+
+const withVisibleWhen = (
+  visibleWhen: VisibleWhen | undefined,
+): { visibleWhen?: VisibleWhen } => (visibleWhen ? { visibleWhen } : {});
 
 /**
  * Reporting JSON to the field catalog (design 7.1). Top-level fields only
@@ -135,7 +249,10 @@ export function shapeCatalog(raw: unknown): FieldCatalog {
           ? 'conditional'
           : 'optional',
       isNew: r.is_new === true,
+      controlLists: controlListsOf(r, at),
+      ...withSubfieldLists(subfieldListsOf(r)),
       ...(r.description === undefined ? {} : { description: r.description }),
+      ...withVisibleWhen(conditionOf(r.visible_when)),
     };
   });
 

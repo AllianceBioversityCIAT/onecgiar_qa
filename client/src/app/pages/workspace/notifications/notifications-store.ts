@@ -16,6 +16,12 @@ export class NotificationsStore {
   private loaded = false;
   private pending: Promise<void> | null = null;
 
+  /**
+   * True while the list is the design prototype (`notifications.mock.ts`), not QA activity: the bell then shows no
+   * count and the page says so (2026-11-19). TODO(api): set to false in the change that makes `fetch()` call the API.
+   */
+  readonly sample: boolean = true;
+
   readonly state = this.current.asReadonly();
   /** Newest first, with their live read state. */
   readonly items = this.entries.asReadonly();

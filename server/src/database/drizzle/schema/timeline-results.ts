@@ -1,10 +1,12 @@
 // @akili-spec ingestion/step-1-loads
 // @akili-spec ingestion/timeline-sync
+// @akili-spec assessment/step-1-assessment
 import { sql } from 'drizzle-orm';
 import {
   bigint,
   char,
   check,
+  customType,
   datetime,
   index,
   int,
@@ -21,6 +23,16 @@ import {
 import { cycles } from './cycles.js';
 import { timelineLoads } from './timeline-loads.js';
 import { timelines } from './timelines.js';
+
+// The result title copied from its snapshot at load time (step-1-assessment
+// FR-24, DD-9). The collation is spelled out like `timelines.name`, so the
+// worklist LIKE scan is case-insensitive whatever the database default is.
+export const TIMELINE_RESULT_TITLE_COLLATION = 'utf8mb4_0900_ai_ci';
+const resultTitle = customType<{ data: string }>({
+  dataType() {
+    return `varchar(1000) COLLATE ${TIMELINE_RESULT_TITLE_COLLATION}`;
+  },
+});
 
 export const timelineResultStatuses = [
   'pending',
@@ -114,6 +126,9 @@ export const timelineResults = mysqlTable(
     // Catalog keys whose value changed since `previous_membership_id`: NULL
     // when there is no earlier snapshot, `[]` when nothing changed (FR-8).
     changedFields: json('changed_fields').$type<string[]>(),
+    // Added by migration 0009 (step-1-assessment FR-24); NULL for a load from
+    // before it until the backfill fills it.
+    title: resultTitle('title'),
   },
   (t) => [
     uniqueIndex('uq_timeline_results_active_key').on(t.activeKey),

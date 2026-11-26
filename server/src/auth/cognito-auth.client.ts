@@ -37,10 +37,25 @@ export type RefusalCode =
  * whether the email exists.
  */
 export class InvalidCredentialsError extends UnauthorizedException {
-  constructor(readonly code: RefusalCode = 'AUTH_INVALID_CREDENTIALS') {
+  constructor(
+    readonly code: RefusalCode = 'AUTH_INVALID_CREDENTIALS',
+    /** The sanitized Cognito error name, for the caller's decision only (never sent to the client). */
+    readonly upstreamType: string = 'unknown',
+  ) {
     super(errorBody(code));
   }
 }
+
+/** The password-reset code is wrong or expired, or nothing can be reset for that email: 400, one answer for all. */
+export class ResetCodeInvalidError extends BadRequestException {
+  constructor() {
+    super(errorBody('AUTH_RESET_CODE_INVALID'));
+  }
+}
+
+/** `ForgotPassword`: `sent` = Cognito emailed a code (or pretends to); `refused` carries the Cognito error name. */
+export type ForgotPasswordOutcome =
+  { kind: 'sent' } | { kind: 'refused'; upstreamType: string };
 
 /** The new password breaks the pool's password policy (`InvalidPasswordException`): 400. */
 export class PasswordPolicyError extends BadRequestException {
@@ -164,6 +179,50 @@ export class CognitoAuthClient {
       },
     });
     return this.tokens(body, 'RespondToAuthChallenge', refusal);
+  }
+
+  /**
+   * `ForgotPassword` (self-service recovery): Cognito emails a verification
+   * code to the account's verified email. A refusal (no such user, no password
+   * to reset yet, no verified email) is returned, not thrown, so the caller
+   * can answer the same way whatever the reason.
+   */
+  async forgotPassword(email: string): Promise<ForgotPasswordOutcome> {
+    try {
+      await this.idp('AUTH_INVALID_CREDENTIALS', 'ForgotPassword', {
+        ClientId: this.config.cognito.clientId,
+        Username: email,
+        SecretHash: this.secretHash(email),
+      });
+      return { kind: 'sent' };
+    } catch (err) {
+      if (err instanceof InvalidCredentialsError) {
+        return { kind: 'refused', upstreamType: err.upstreamType };
+      }
+      throw err;
+    }
+  }
+
+  /** `ConfirmForgotPassword`: sets the new password with the emailed code. Any refusal but the policy is one 400. */
+  async confirmForgotPassword(
+    email: string,
+    code: string,
+    newPassword: string,
+  ): Promise<void> {
+    try {
+      await this.idp('AUTH_INVALID_CREDENTIALS', 'ConfirmForgotPassword', {
+        ClientId: this.config.cognito.clientId,
+        Username: email,
+        ConfirmationCode: code,
+        Password: newPassword,
+        SecretHash: this.secretHash(email),
+      });
+    } catch (err) {
+      if (err instanceof InvalidCredentialsError) {
+        throw new ResetCodeInvalidError();
+      }
+      throw err;
+    }
   }
 
   /** The Hosted UI authorize URL for the SSO provider. Built locally; no call. */
@@ -338,7 +397,7 @@ export class CognitoAuthClient {
         );
         if (type === 'InvalidPasswordException')
           throw new PasswordPolicyError();
-        throw new InvalidCredentialsError(refusal);
+        throw new InvalidCredentialsError(refusal, type);
       }
       if (!isObject(body)) {
         this.logger.warn(`upstream_bad_body op=${op}`);

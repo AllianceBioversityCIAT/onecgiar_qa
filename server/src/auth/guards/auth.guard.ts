@@ -13,6 +13,7 @@ import {
 } from '../../users/current-user.cache.js';
 import type { AuthenticatedRequest } from '../authenticated-request.js';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator.js';
+import { SP_SESSION_KEY } from '../decorators/sp-session.metadata.js';
 import { InvalidTokenError, TokenVerifier } from '../token-verifier.service.js';
 
 /** A valid token whose owner may no longer use QA (FR-11). */
@@ -42,6 +43,8 @@ export class AuthGuard implements CanActivate {
       [context.getHandler(), context.getClass()],
     );
     if (isPublic === true) return true;
+    // A Science Program route: its own SpSessionGuard authenticates it (P2-3911).
+    if (isSpSessionRoute(this.reflector, context)) return true;
 
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     const token = bearerToken(request.headers.authorization);
@@ -57,7 +60,7 @@ export class AuthGuard implements CanActivate {
 }
 
 /** The token of `Authorization: Bearer <token>` (scheme is case-insensitive), or undefined. */
-function bearerToken(header: string | undefined): string | undefined {
+export function bearerToken(header: string | undefined): string | undefined {
   if (header === undefined) return undefined;
   const parts = header.split(' ');
   if (parts.length !== 2) return undefined;
@@ -65,4 +68,17 @@ function bearerToken(header: string | undefined): string | undefined {
   return scheme.toLowerCase() === 'bearer' && token.length > 0
     ? token
     : undefined;
+}
+
+/** True when the route carries `SP_SESSION_KEY` (set only by `SpSession()`). */
+export function isSpSessionRoute(
+  reflector: Reflector,
+  context: ExecutionContext,
+): boolean {
+  return (
+    reflector.getAllAndOverride<boolean | undefined>(SP_SESSION_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]) === true
+  );
 }

@@ -1,0 +1,460 @@
+{
+  "$defs": {
+    "UseNumberRow": {
+      "additionalProperties": false,
+      "description": "One user group of prompt 09 (Innovation Use Numbers v3), keys exactly as the prompt returns them.",
+      "properties": {
+        "geolocation": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Geolocation"
+        },
+        "men": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Men"
+        },
+        "non_youth_men": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Non Youth Men"
+        },
+        "non_youth_women": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Non Youth Women"
+        },
+        "other_quantitative_measures": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Other Quantitative Measures"
+        },
+        "quantity": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Quantity"
+        },
+        "user": {
+          "title": "User",
+          "type": "string"
+        },
+        "user_subtype": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "User Subtype"
+        },
+        "user_type": {
+          "title": "User Type",
+          "type": "string"
+        },
+        "women": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Women"
+        },
+        "youth_men": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Youth Men"
+        },
+        "youth_women": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Youth Women"
+        }
+      },
+      "required": [
+        "user",
+        "user_type",
+        "user_subtype",
+        "quantity",
+        "women",
+        "youth_women",
+        "non_youth_women",
+        "men",
+        "youth_men",
+        "non_youth_men",
+        "geolocation",
+        "other_quantitative_measures"
+      ],
+      "title": "UseNumberRow",
+      "type": "object"
+    }
+  },
+  "$id": "ai-suggestion-item.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "One stored suggestion (status available or unavailable). 'pending' is never stored.",
+  "properties": {
+    "__edb_e__": {
+      "const": "aiSuggestion",
+      "title": "Edb E",
+      "type": "string"
+    },
+    "__edb_v__": {
+      "const": "1",
+      "title": "Edb V",
+      "type": "string"
+    },
+    "coversFieldKeys": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Coversfieldkeys"
+    },
+    "createdAt": {
+      "title": "Createdat",
+      "type": "string"
+    },
+    "evidenceHash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Evidencehash"
+    },
+    "evidenceQuote": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Evidencequote"
+    },
+    "evidenceSource": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Evidencesource"
+    },
+    "evidenceSourceIndex": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Evidencesourceindex"
+    },
+    "explanation": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Explanation"
+    },
+    "fieldKey": {
+      "pattern": "^[^#]+$",
+      "title": "Fieldkey",
+      "type": "string"
+    },
+    "modelId": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Modelid"
+    },
+    "partialEvidence": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Partialevidence"
+    },
+    "pk": {
+      "pattern": "^RESULT#\\d+$",
+      "title": "Pk",
+      "type": "string"
+    },
+    "promptVersion": {
+      "pattern": "^[^#]+$",
+      "title": "Promptversion",
+      "type": "string"
+    },
+    "quoteVerified": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Quoteverified"
+    },
+    "reportedValue": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reportedvalue"
+    },
+    "resultCode": {
+      "title": "Resultcode",
+      "type": "integer"
+    },
+    "runId": {
+      "title": "Runid",
+      "type": "string"
+    },
+    "signal": {
+      "anyOf": [
+        {
+          "enum": [
+            "green",
+            "amber",
+            "red",
+            "indicative"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Signal"
+    },
+    "sk": {
+      "pattern": "^AI#.+#[^#]+#[^#]+$",
+      "title": "Sk",
+      "type": "string"
+    },
+    "snapKey": {
+      "title": "Snapkey",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "available",
+        "unavailable"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "suggestedValue": {
+      "anyOf": [
+        {
+          "maximum": 9,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "enum": [
+            "Innovation",
+            "Knowledge Product",
+            "Capacity Sharing for Development",
+            "Routine Activity",
+            "Other"
+          ],
+          "type": "string"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/UseNumberRow"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Suggestedvalue"
+    },
+    "suggestionId": {
+      "title": "Suggestionid",
+      "type": "string"
+    },
+    "unavailableReason": {
+      "anyOf": [
+        {
+          "enum": [
+            "no_readable_evidence",
+            "private_link",
+            "model_declined",
+            "invalid_output",
+            "no_criteria_for_field",
+            "no_supporting_quote",
+            "out_of_scope_funding",
+            "failed"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Unavailablereason"
+    },
+    "valueKind": {
+      "anyOf": [
+        {
+          "enum": [
+            "level",
+            "category",
+            "use_numbers"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Valuekind"
+    }
+  },
+  "required": [
+    "pk",
+    "sk",
+    "__edb_e__",
+    "__edb_v__",
+    "resultCode",
+    "snapKey",
+    "fieldKey",
+    "promptVersion",
+    "suggestionId",
+    "runId",
+    "status",
+    "createdAt"
+  ],
+  "title": "AiSuggestionItem",
+  "type": "object",
+  "x-contractVersion": "2.0.0"
+}

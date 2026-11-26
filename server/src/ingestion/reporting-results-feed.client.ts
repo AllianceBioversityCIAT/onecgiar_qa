@@ -13,6 +13,7 @@ import {
   FeedError,
   type FeedDetails,
   type FeedDetailsQuery,
+  type FeedLabels,
   type FeedIntake,
   type FeedIntakeQuery,
   type FeedListQuery,
@@ -60,6 +61,8 @@ export class ReportingResultsFeedClient implements ResultsFeed {
     const params = new URLSearchParams({ phase_year: String(query.phaseYear) });
     if (query.programIds?.length)
       params.set('program_ids', query.programIds.join(','));
+    if (query.programCodes?.length)
+      params.set('program_codes', query.programCodes.join(','));
     if (query.resultTypeKeys?.length)
       params.set('result_type_keys', query.resultTypeKeys.join(','));
     if (query.page !== undefined) params.set('page', String(query.page));
@@ -85,7 +88,12 @@ export class ReportingResultsFeedClient implements ResultsFeed {
           result_ids: query.resultIds,
           ...(query.fieldKeys ? { field_keys: query.fieldKeys } : {}),
         }),
-      parseDetails,
+      (body) =>
+        parseDetails(body, () =>
+          this.logger.warn(
+            `upstream_bad_labels source=reporting reason=${LABELS_MALFORMED}`,
+          ),
+        ),
     );
   }
 
@@ -197,18 +205,53 @@ function parsePage(body: unknown): FeedPage {
   };
 }
 
-function parseDetails(body: unknown): FeedDetails {
+/** The fixed log reason when `labels` is not the contract's shape (FR-20, NFR-5). */
+const LABELS_MALFORMED = 'labels_malformed';
+
+/**
+ * Lenient, unlike the `BadShape` parse of the rest (DD-6): `labels` is display
+ * data, so a format slip must never fail a load. `undefined` when absent; when
+ * present it is kept only if it is an object of objects whose values are
+ * strings or `null`, otherwise dropped whole and reported once through
+ * `onMalformed`. It never throws and never reads a label into a message.
+ */
+function parseLabels(
+  raw: unknown,
+  onMalformed: () => void,
+): FeedLabels | undefined {
+  if (raw === undefined) return undefined;
+  if (
+    isObject(raw) &&
+    Object.values(raw).every(
+      (list) =>
+        isObject(list) &&
+        Object.values(list).every((v) => v === null || typeof v === 'string'),
+    )
+  ) {
+    return raw as FeedLabels;
+  }
+  onMalformed();
+  return undefined;
+}
+
+function parseDetails(
+  body: unknown,
+  onLabelsMalformed: () => void,
+): FeedDetails {
   const b = obj(body);
   return {
     phase: int(b.phase),
     catalogVersion: str(b.catalog_version),
     results: arr(b.results).map((r) => {
       const o = obj(r);
+      const values = obj(o.values);
+      const labels = parseLabels(o.labels, onLabelsMalformed);
       return {
         resultId: int(o.result_id),
         resultCode: int(o.result_code),
         resultTypeKey: str(o.result_type_key),
-        values: obj(o.values),
+        values,
+        ...(labels ? { labels } : {}),
       };
     }),
     notEligible: arr(b.not_eligible).map((r) => {

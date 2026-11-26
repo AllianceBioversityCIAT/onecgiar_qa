@@ -1,0 +1,256 @@
+// @akili-spec assessment/step-1-assessment
+import { sql, type SQL, type SQLWrapper } from 'drizzle-orm';
+import type { StepAudience } from '../admin-config/timelines/default-steps.js';
+import type { ResultAssessmentStatus } from '../database/drizzle/schema/result-assessments.js';
+import type {
+  TimelineResultEndReason,
+  TimelineResultStatus,
+} from '../database/drizzle/schema/timeline-results.js';
+
+// The QA status vocabulary and its mapping (FR-5, design 7.2, DD-4). The status
+// is computed on read and never stored: the table below is the one source, and
+// `statusOf` (TS) and `statusSqlCase` (SQL) both read it, so they cannot drift.
+
+/** Every status the API may name, filters included (FR-5). */
+export const QA_STATUSES = [
+  'pending',
+  'returned_to_program',
+  'clarification_requested',
+  'pending_tpb_review',
+  'pending_ppu',
+  'unresolved',
+  'quality_assessed',
+  'auto_validated',
+] as const;
+export type QaStatus = (typeof QA_STATUSES)[number];
+
+export const QA_STATUS_LABELS: Readonly<Record<QaStatus, string>> = {
+  pending: 'Pending',
+  returned_to_program: 'Returned to program',
+  clarification_requested: 'Clarification requested',
+  pending_tpb_review: 'Pending for TPB review',
+  pending_ppu: 'Pending PPU',
+  unresolved: 'Unresolved',
+  quality_assessed: 'Quality Assessed',
+  auto_validated: 'Auto-validated',
+};
+
+/**
+ * One row of the FR-5 table. A key left out means "any". `null` inside a list
+ * is "no assessment" or "not ended". Rows are read top to bottom, first match
+ * wins.
+ */
+export interface StatusRule {
+  readonly status: QaStatus;
+  /** `timeline_results.status`. */
+  readonly membershipStatus?: readonly TimelineResultStatus[];
+  /** `timeline_results.end_reason`; `null` = the membership has not ended. */
+  readonly endReason?: readonly (TimelineResultEndReason | null)[];
+  /** `result_assessments.status` of the membership's current step (DD-3); `null` = no row. */
+  readonly assessmentStatus?: readonly (ResultAssessmentStatus | null)[];
+  /** Whether any comment thread of the assessment is `clarification_requested`. */
+  readonly clarificationThread?: boolean;
+  /**
+   * The audience of the step the current assessment belongs to (escalation/round-2-tpb DD-T3).
+   * A row that names it never matches an input without it (`undefined` or `null`).
+   */
+  readonly currentStep?: readonly StepAudience[];
+  /**
+   * P2-3917 (DD-P5): the timeline's `ppu` step is closed. A row that names it
+   * never matches an input that leaves it out.
+   */
+  readonly ppuStepClosed?: boolean;
+}
+
+/** FR-5, row by row, in the order of the requirement's table. */
+export const STATUS_RULES: readonly StatusRule[] = [
+  { status: 'auto_validated', membershipStatus: ['auto_validated'] },
+  // P2-3916 (DD-T3): the TPB's step-4 assessment. While it is open the result is
+  // still Pending for TPB review; ended `escalated` it waits for the PPU. These
+  // come first: the generic `pending` and `pending_tpb_review` rows would catch them.
+  {
+    status: 'pending_tpb_review',
+    currentStep: ['tpb'],
+    assessmentStatus: ['pending'],
+  },
+  // P2-3917 (FR-8, DD-P5): Pending PPU while step 5 is closed is Unresolved,
+  // before and after the PPU's first Done. First, so the Pending PPU rows never catch it.
+  {
+    status: 'unresolved',
+    currentStep: ['tpb'],
+    assessmentStatus: ['escalated'],
+    ppuStepClosed: true,
+  },
+  {
+    status: 'unresolved',
+    currentStep: ['ppu'],
+    assessmentStatus: ['pending'],
+    ppuStepClosed: true,
+  },
+  {
+    status: 'pending_ppu',
+    currentStep: ['tpb'],
+    assessmentStatus: ['escalated'],
+  },
+  // P2-3917: the PPU's step-5 row is open (it has marked a case Done, not all).
+  {
+    status: 'pending_ppu',
+    currentStep: ['ppu'],
+    assessmentStatus: ['pending'],
+  },
+  {
+    status: 'pending',
+    membershipStatus: ['pending'],
+    assessmentStatus: [null, 'pending'],
+  },
+  {
+    status: 'clarification_requested',
+    membershipStatus: ['pending'],
+    endReason: [null, 'returned'],
+    assessmentStatus: ['returned'],
+    clarificationThread: true,
+  },
+  {
+    status: 'returned_to_program',
+    membershipStatus: ['pending'],
+    endReason: [null, 'returned'],
+    assessmentStatus: ['returned'],
+    clarificationThread: false,
+  },
+  // FR-14: the Lead's assessment of a round-2 membership ended `escalated`.
+  { status: 'pending_tpb_review', assessmentStatus: ['escalated'] },
+  { status: 'quality_assessed', assessmentStatus: ['quality_assessed'] },
+];
+
+/** What the status reads: the same inputs in TS and in SQL (design 7.2). */
+export interface StatusInputs {
+  membershipStatus: TimelineResultStatus;
+  endReason: TimelineResultEndReason | null;
+  assessmentStatus: ResultAssessmentStatus | null;
+  hasClarificationThread: boolean;
+  /** The audience of the current assessment's step (DD-T3); left out by readers that never see a round-2 step (the SP view). */
+  currentStep?: StepAudience | null;
+  /** The timeline's `ppu` step is closed (DD-P5); left out by readers that never see step 5 (the SP view). */
+  ppuStepClosed?: boolean;
+}
+
+function holds<T>(allowed: readonly T[] | undefined, value: T): boolean {
+  return allowed === undefined || allowed.includes(value);
+}
+
+/**
+ * The QA status of a membership, or `null` when no row of the table matches
+ * (a membership that is not in QA has no status; the worklist never lists it).
+ */
+export function statusOf(inputs: StatusInputs): QaStatus | null {
+  const rule = STATUS_RULES.find(
+    (row) =>
+      holds(row.membershipStatus, inputs.membershipStatus) &&
+      holds(row.endReason, inputs.endReason) &&
+      holds(row.assessmentStatus, inputs.assessmentStatus) &&
+      (row.clarificationThread === undefined ||
+        row.clarificationThread === inputs.hasClarificationThread) &&
+      (row.currentStep === undefined ||
+        (inputs.currentStep != null &&
+          row.currentStep.includes(inputs.currentStep))) &&
+      (row.ppuStepClosed === undefined ||
+        row.ppuStepClosed === (inputs.ppuStepClosed ?? null)),
+  );
+  return rule?.status ?? null;
+}
+
+/**
+ * The column expressions `statusSqlCase` reads, bound by the worklist query
+ * (T-7). `hasClarificationThread` is any expression that is 1 or 0 (an
+ * `EXISTS (...)`), the others are nullable columns of the joined row.
+ */
+export interface StatusSqlColumns {
+  membershipStatus: SQLWrapper;
+  endReason: SQLWrapper;
+  assessmentStatus: SQLWrapper;
+  hasClarificationThread: SQLWrapper;
+  /** The audience of the current assessment's step, or NULL (DD-T3). Left out: no row that names a step matches. */
+  currentStep?: SQLWrapper;
+  /** 1 or 0: the timeline's `ppu` step is closed (DD-P5). Left out: no row that names it matches. */
+  ppuStepClosed?: SQLWrapper;
+}
+
+// The literals come from the closed constants above, never from a request, so
+// they are written into the text instead of bound; this guard keeps it so.
+function literal(value: string): SQL {
+  if (!/^[a-z_]+$/.test(value)) {
+    throw new Error(`status literal out of alphabet: ${value}`);
+  }
+  return sql.raw(`'${value}'`);
+}
+
+function listCondition(
+  column: SQLWrapper,
+  allowed: readonly (string | null)[],
+): SQL {
+  const values = allowed.filter((value): value is string => value !== null);
+  const parts: SQL[] = [];
+  if (allowed.includes(null)) parts.push(sql`${column} IS NULL`);
+  if (values.length === 1) {
+    parts.push(sql`${column} = ${literal(values[0])}`);
+  } else if (values.length > 1) {
+    parts.push(
+      sql`${column} IN (${sql.join(values.map(literal), sql.raw(', '))})`,
+    );
+  }
+  return parts.length === 1
+    ? parts[0]
+    : sql`(${sql.join(parts, sql.raw(' OR '))})`;
+}
+
+function ruleCondition(rule: StatusRule, columns: StatusSqlColumns): SQL {
+  const conditions: SQL[] = [];
+  if (rule.membershipStatus) {
+    conditions.push(
+      listCondition(columns.membershipStatus, rule.membershipStatus),
+    );
+  }
+  if (rule.endReason) {
+    conditions.push(listCondition(columns.endReason, rule.endReason));
+  }
+  if (rule.assessmentStatus) {
+    conditions.push(
+      listCondition(columns.assessmentStatus, rule.assessmentStatus),
+    );
+  }
+  if (rule.clarificationThread !== undefined) {
+    conditions.push(
+      sql`${columns.hasClarificationThread} = ${sql.raw(rule.clarificationThread ? '1' : '0')}`,
+    );
+  }
+  if (rule.ppuStepClosed !== undefined) {
+    conditions.push(
+      columns.ppuStepClosed === undefined
+        ? sql.raw('1 = 0')
+        : sql`${columns.ppuStepClosed} = ${sql.raw(rule.ppuStepClosed ? '1' : '0')}`,
+    );
+  }
+  if (rule.currentStep) {
+    conditions.push(
+      columns.currentStep === undefined
+        ? sql.raw('1 = 0')
+        : listCondition(columns.currentStep, rule.currentStep),
+    );
+  }
+  return conditions.length === 0
+    ? sql.raw('TRUE')
+    : sql.join(conditions, sql.raw(' AND '));
+}
+
+/**
+ * The SQL `CASE` of the same table `statusOf` reads (DD-4): filter, count and
+ * sort in the database with the status the view shows. No row matching gives
+ * NULL, like `statusOf`.
+ */
+export function statusSqlCase(columns: StatusSqlColumns): SQL {
+  const branches = STATUS_RULES.map(
+    (rule) =>
+      sql`WHEN ${ruleCondition(rule, columns)} THEN ${literal(rule.status)}`,
+  );
+  return sql`CASE ${sql.join(branches, sql.raw(' '))} ELSE NULL END`;
+}

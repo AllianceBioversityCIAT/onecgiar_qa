@@ -5,8 +5,10 @@ type Av = Record<string, Record<string, unknown>>;
 
 /**
  * A DynamoDBClient whose HTTP layer is an in-memory table keyed by pk/sk.
- * It answers PutItem (with `attribute_not_exists`), GetItem and Query
- * (`pk = :pk AND begins_with(sk, :sk)`), so ElectroDB's real requests run.
+ * It answers PutItem (with `attribute_not_exists`), GetItem, Query
+ * (`pk = :pk AND begins_with(sk, :sk)`) and the `SET` UpdateItem of
+ * `DynamoAiRunStore` (plain `SET a = :a` and `if_not_exists(a, :a)`), so
+ * ElectroDB's real requests run.
  */
 export function createFakeDynamoClient(): {
   client: DynamoDBClient;
@@ -32,6 +34,8 @@ export function createFakeDynamoClient(): {
         Key?: Av;
         ConditionExpression?: string;
         ExpressionAttributeValues?: Av;
+        ExpressionAttributeNames?: Record<string, string>;
+        UpdateExpression?: string;
       };
       if (op === 'PutItem') {
         const key = `${s(input.Item!.pk)}|${s(input.Item!.sk)}`;
@@ -55,11 +59,32 @@ export function createFakeDynamoClient(): {
           s(v),
         );
         const pk = vals.find((v) => v.startsWith('RESULT#'))!;
-        const prefix = vals.find((v) => v.startsWith('SNAP#'))!;
+        const prefix = vals.find(
+          (v) => v.startsWith('SNAP#') || v.startsWith('AI#'),
+        )!;
         const rows = [...items.values()]
           .filter((i) => s(i.pk) === pk && s(i.sk).startsWith(prefix))
           .sort((a, b) => (s(a.sk) < s(b.sk) ? -1 : 1));
         return Promise.resolve(reply(200, { Items: rows, Count: rows.length }));
+      }
+      if (op === 'UpdateItem') {
+        const key = `${s(input.Key!.pk)}|${s(input.Key!.sk)}`;
+        const item: Av = { ...(items.get(key) ?? input.Key!) };
+        const names = input.ExpressionAttributeNames ?? {};
+        const values = input.ExpressionAttributeValues ?? {};
+        const body = input.UpdateExpression!.replace(/^SET\s+/, '');
+        for (const part of body.split(/,\s*(?![^(]*\))/)) {
+          const [lhs, rhs] = part.split('=').map((x) => x.trim());
+          const attr = names[lhs] ?? lhs;
+          const guarded = /^if_not_exists\(([^,]+),\s*([^)]+)\)$/.exec(rhs);
+          if (guarded) {
+            if (item[attr] === undefined) item[attr] = values[guarded[2]];
+          } else {
+            item[attr] = values[rhs];
+          }
+        }
+        items.set(key, item);
+        return Promise.resolve(reply(200, {}));
       }
       return Promise.resolve(
         reply(400, { __type: 'ValidationException', message: op }),

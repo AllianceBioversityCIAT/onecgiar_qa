@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { CycleStep, Timeline } from './cycle.mock';
-import { isStepInForce, loadTargets, officialRelative, parseDate, stepInForce, stepRound, timelineNow, timelineVM } from './cycle.logic';
+import { isStepInForce, loadTargets, nextOpening, officialRelative, parseDate, stepInForce, stepRound, timelineNow, timelineVM } from './cycle.logic';
 import { TimelineSteps } from './timeline-steps';
 
 // 3 Nov 2026, 10:00 in Rome (CET, UTC+1).
@@ -71,6 +71,31 @@ describe('cycle.logic', () => {
       expect(cards[1]).toContain('Waiting for results');
       expect(cards[1]).not.toContain('Opens today');
       expect(cards[3]).toContain('Opens today at 15:00');
+    });
+  });
+
+  // P2-4104: knowledge products are assessed in step 1 like every other result (P2-3905); no result type "joins" at a later step.
+  describe('timelineVM — a later step that loads results', () => {
+    const LOADS_AT_STEP_3 = timeline('Live', [
+      { ...step('Assess', '28 Oct 2026', '30 Oct 2026'), batch: true },
+      step('Programs respond', '31 Oct 2026', '02 Nov 2026'),
+      { ...step('Lead assessor', '03 Nov 2026', '05 Nov 2026'), batch: true },
+    ]);
+
+    it('says "Loads results" and names no result type as joining there', () => {
+      const fixture = TestBed.createComponent(TimelineSteps);
+      fixture.componentRef.setInput('timeline', timelineVM(LOADS_AT_STEP_3));
+      fixture.detectChanges();
+      const cards = [...(fixture.nativeElement as HTMLElement).querySelectorAll('li')].map((li) => li.textContent ?? '');
+
+      expect(cards[2]).toContain('Loads results');
+      expect(cards.join(' ')).not.toMatch(/join here/i);
+      expect(cards.join(' ')).not.toMatch(/knowledge product/i);
+    });
+
+    it('the same when the timeline is limited to knowledge products', () => {
+      const onlyKp: Timeline = { ...LOADS_AT_STEP_3, types: ['Knowledge product'] };
+      expect(JSON.stringify(timelineVM(onlyKp).steps)).not.toMatch(/join here/i);
     });
   });
 
@@ -184,6 +209,14 @@ describe('cycle.logic', () => {
       ]);
       expect(timelineVM(t, true).menu.find((m) => m.action === 'add-results')?.label).toBe('Load results into QA round 2');
     });
+
+    it('on hold, the load leaves the menu and goes to the card button, with the same name', () => {
+      const t = timeline('Waiting for results', [step('Assess', '10 Nov 2026', '12 Nov 2026')]);
+      const vm = timelineVM(t, true);
+      expect(vm.waitingLoad).toBe(true);
+      expect(vm.loadLabel).toBe('Load results into QA round 1');
+      expect(vm.menu.some((m) => m.action === 'add-results')).toBe(false);
+    });
   });
 
   describe('timelineNow — one line for a collapsed complementary batch', () => {
@@ -278,5 +311,22 @@ describe('cycle.logic', () => {
       expect(parseDate('29 Feb 2028')?.getDate()).toBe(29);
       expect(parseDate('06 Jul 2026')?.getMonth()).toBe(6);
     });
+  });
+});
+
+describe('nextOpening', () => {
+  it('opens the next step the minute after the close', () => {
+    expect(nextOpening('06 Jul 2026', '10:00')).toEqual({ start: '06 Jul 2026', startTime: '10:01' });
+  });
+
+  it('rolls 23:59 into 00:00 of the next day, across months and years', () => {
+    expect(nextOpening('11 Jul 2026', '23:59')).toEqual({ start: '12 Jul 2026', startTime: '00:00' });
+    expect(nextOpening('31 Dec 2026', '23:59')).toEqual({ start: '01 Jan 2027', startTime: '00:00' });
+  });
+
+  it('is null while the close is incomplete', () => {
+    expect(nextOpening('', '23:59')).toBeNull();
+    expect(nextOpening('31 Feb 2026', '23:59')).toBeNull();
+    expect(nextOpening('06 Jul 2026', '9')).toBeNull();
   });
 });

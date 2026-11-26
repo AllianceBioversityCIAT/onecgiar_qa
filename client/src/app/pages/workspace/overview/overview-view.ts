@@ -1,10 +1,33 @@
+import { RoleName } from '../../../core/auth/auth.models';
 import { Component, computed, inject, signal } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { ActivatedRoute, Router } from '@angular/router';
+import { map } from 'rxjs';
 import { AuthSession } from '../../../core/auth/auth-session';
 import { OvAssessorLoad } from './ov-assessor-load';
+import { NextItemsVm, OvNextItems } from './ov-next-items';
+import { OvRanked, RankedVm } from './ov-ranked';
+import { OvSplit, SplitVm } from './ov-split';
+import { OvYourWork, YourWorkVm } from './ov-your-work';
+import {
+  LEAD_BY_PROGRAM,
+  LEAD_QUEUE,
+  LEAD_TOP_FIELDS,
+  ME_ASSESSOR,
+  MY_COMMENT_OUTCOMES,
+  MY_TOP_FIELDS,
+  OVERVIEW_ROLES,
+  OverviewRole,
+  PPU_NEXT_SHOWN,
+  PPU_QUEUE,
+  QueueItem,
+  TPB_NEXT,
+  TPB_QUEUE,
+} from './overview-roles.mock';
 import { CycleHeroVm, OvCycleHero, RoundVm } from './ov-cycle-hero';
 import { OvPace, PaceVm } from './ov-pace';
 import { PROGRAMS, PROGRAM_CODES, QaResult, QaStage, RESULTS, RESULT_TYPES, qaStage } from '../results/results.mock';
-import { QaButtonImports, QaMultiSelect, QaSelectImports, QaSelectOption } from '../../../ui';
+import { QaButtonImports, QaMultiSelect, QaScopeCardImports, QaSelectImports, QaSelectOption } from '../../../ui';
 import { OvStages, StageStatus, TimelineStagesVm } from './ov-stages';
 import { OvTimelineLanes, TimelineLaneVm } from './ov-timeline-lanes';
 import { OvTypeProgress, TypeProgressVm } from './ov-type-progress';
@@ -124,15 +147,67 @@ function scopeText(b: Timeline): string {
   return 'All programs';
 }
 
-/** "Overview" view of the QA Platform (QA lead): a dashboard where each block answers one question of the QA admin. */
+/** "Progress by result type" rows: Round 1, Round 2 and quality assessed per type, least advanced first. */
+function typeRows(list: readonly QaResult[]): TypeProgressVm[] {
+  const by = new Map<string, { r1: number; r2: number; qa: number }>();
+  for (const r of list) {
+    const s = qaStage(r)!;
+    const row = by.get(r.type) ?? { r1: 0, r2: 0, qa: 0 };
+    if (s === 'quality-assessed') row.qa++;
+    else if (s.startsWith('r1-')) row.r1++;
+    else row.r2++;
+    by.set(r.type, row);
+  }
+  return [...by.entries()]
+    .map(([type, c]) => {
+      const total = c.r1 + c.r2 + c.qa;
+      return { type, ...c, total: fmt(total), qaText: fmt(c.qa), pct: Math.round((c.qa / (total || 1)) * 100) };
+    })
+    .sort((a, b) => a.pct - b.pct);
+}
+
+/** The assessor's own results under assessment (TODO(api): the user's assignments). */
+const MINE: readonly QaResult[] = IN_QA.filter((r) => r.assessor === ME_ASSESSOR);
+
+/** Overview of each assigned role; a PROGRAM user has no Overview of their own here. */
+const ROLE_OF: Readonly<Record<RoleName, OverviewRole | null>> = {
+  ADMIN: 'admin',
+  ASSESSOR: 'assessor',
+  LEAD_ASSESSOR: 'lead',
+  TPB: 'tpb',
+  PPU: 'ppu',
+  PROGRAM: null,
+};
+
+/**
+ * Overview of the QA Platform. The QA admin (María Julia) gets the dashboard where each block answers one of her
+ * questions; the assessor, lead assessor, TPB and PPU get "Your work" and a few figures of their own.
+ */
 @Component({
   selector: 'qa-overview-view',
-  imports: [QaButtonImports, QaSelectImports, QaMultiSelect, OvCycleHero, OvTimelineLanes, OvStages, OvPace, OvTypeProgress, OvAssessorLoad],
+  imports: [
+    QaButtonImports,
+    QaScopeCardImports,
+    QaSelectImports,
+    QaMultiSelect,
+    OvCycleHero,
+    OvTimelineLanes,
+    OvStages,
+    OvPace,
+    OvTypeProgress,
+    OvAssessorLoad,
+    OvYourWork,
+    OvSplit,
+    OvRanked,
+    OvNextItems,
+  ],
   templateUrl: './overview-view.html',
   host: { class: 'block' },
 })
 export class OverviewView {
   private readonly session = inject(AuthSession);
+  private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
 
   /** Page title: greets the signed-in user by first name, or plainly when the profile has none. */
   protected readonly greeting = computed(() => {
@@ -140,25 +215,43 @@ export class OverviewView {
     return name ? `Welcome back, ${name}` : 'Welcome back';
   });
 
+  // ---------- Role (Juanpa, 2026-11-11) ----------
+  private readonly routeRole = toSignal(this.route.queryParamMap.pipe(map((p) => p.get('as'))), { initialValue: null });
   /**
-   * Line under the greeting, for every live timeline (not only the official one):
-   * "4 live timelines · the next step closes in **4 days** (23 Jul)".
+   * Who the Overview is for. The QA admin keeps the full dashboard; the assessor, lead assessor, TPB and PPU see
+   * "Your work" and a few figures of their own. Design preview: picked with "Viewing as" (?as=assessor|lead|tpb|ppu).
+   * TODO(api): take it from the signed-in user's assignments; keep the menu only for people with several roles.
    */
-  protected readonly context = computed(() => {
-    const live = this.timelines.filter((b) => b.status === 'Live');
-    if (!live.length) return null;
-    const head = `${live.length} live ${live.length === 1 ? 'timeline' : 'timelines'} · `;
-    const next = live
-      .map((b) => timelineInfo(b))
-      .filter((i) => i.when === 'closes')
-      .map((i) => ({ days: daysFromToday(i.phase.end || i.phase.start), date: i.date }))
-      .sort((a, b) => a.days - b.days)[0];
-    if (!next) return { lead: head + 'no step open', key: '', tail: '' };
-    // The number of days (or "today") is the part worth a glance; it is the only bold bit.
-    return next.days <= 0
-      ? { lead: head + 'the next step closes ', key: 'today', tail: '' }
-      : { lead: head + 'the next step closes in ', key: `${next.days} ${next.days === 1 ? 'day' : 'days'}`, tail: ` (${next.date})` };
+  /**
+   * The Overviews the signed-in user may see: one per role they hold (23-nov demo: an assessor must not see the
+   * admin's figures). Several roles → "Viewing as" picks among them; one role → no menu.
+   */
+  protected readonly roleOptions = computed<readonly QaSelectOption[]>(() => {
+    const held = new Set((this.session.user()?.assignments ?? []).map((a) => ROLE_OF[a.role]));
+    const own = OVERVIEW_ROLES.filter((r) => held.has(r.value));
+    return own.length ? own : OVERVIEW_ROLES.filter((r) => r.value === 'assessor');
   });
+  /** The user's own first role (admin first), unless the URL picks another role they hold (?as=…). */
+  protected readonly role = computed<OverviewRole>(() => {
+    const own = this.roleOptions();
+    return (own.find((r) => r.value === this.routeRole()) ?? own[0]).value as OverviewRole;
+  });
+
+  protected setRole(value: string | null): void {
+    this.clearAll();
+    this.timeline.set('all');
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { as: value && value !== this.roleOptions()[0]?.value ? value : null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
+
+  /** The admin follows the whole of QA; every other role, what needs them. */
+  protected readonly subtitle = computed(() =>
+    this.role() === 'admin' ? 'Here’s how QA is going today.' : 'Here’s what needs you today.',
+  );
 
   // ---------- Timelines ----------
   /** Timelines that are not closed: official first, then live by closing date, then scheduled. */
@@ -193,6 +286,19 @@ export class OverviewView {
       count: fmt(b.results),
     })),
   ];
+  /** Under the timeline in the context card. */
+  protected readonly scopeMeta = computed(() => {
+    const id = this.timeline();
+    if (id === 'all') return `All ${this.live.length} live timelines of the active cycle`;
+    const b = this.live.find((t) => t.id === id);
+    return b ? `${isOfficial(b) ? 'Main batch' : 'Complementary batch'} · Live` : null;
+  });
+  /** Big number at the right of the context card: the results of the chosen timeline(s). */
+  protected readonly scopeCount = computed(() => {
+    const count = this.timelineOptions.find((o) => o.value === this.timeline())?.count;
+    return count === undefined ? null : String(count);
+  });
+
   protected readonly programOptions = PROGRAM_CODES.map((c) => ({ value: c, label: `${c} ${PROGRAMS[c]}` }));
   protected readonly typeOptions = RESULT_TYPES.map((t) => ({ value: t, label: t }));
 
@@ -377,8 +483,14 @@ export class OverviewView {
   });
 
   /** One entry per open step with history: behind pace first, soonest close first (the first one is shown by default). */
-  protected readonly pace = computed<PaceVm[]>(() =>
-    PACE.flatMap((s) => {
+  protected readonly pace = computed<PaceVm[]>(() => this.paceSeries(this.assessorShare(), false));
+
+  /**
+   * Pace series of the open steps the page shows. `assessorShare` narrows the assessors' step to one assessor;
+   * `onlyAssessorsStep` keeps that step alone (an assessor's own pace).
+   */
+  private paceSeries(assessorShare: number, onlyAssessorsStep: boolean): PaceVm[] {
+    return PACE.flatMap((s) => {
       const b = this.shown().find((t) => t.id === s.timelineId);
       if (!b) return [];
       const info = timelineInfo(b);
@@ -387,8 +499,9 @@ export class OverviewView {
       if (info.when !== 'closes' || !start || !end || info.state.kind !== 'active') return [];
       const span = Math.round((end.getTime() - start.getTime()) / 864e5);
       const byAssessor = info.phase.name === PHASE_NAMES[0];
+      if (onlyAssessorsStep && !byAssessor) return [];
       // The filters narrow the step to a share of its results (and of one assessor's, in the assessors' step).
-      const f = (this.shares().get(b.id) ?? 1) * (byAssessor ? this.assessorShare() : 1);
+      const f = (this.shares().get(b.id) ?? 1) * (byAssessor ? assessorShare : 1);
       const target = Math.round(info.state.of * f);
       if (target <= 0) return [];
       return [{
@@ -411,27 +524,11 @@ export class OverviewView {
         return { p, behind: p.done[today] + perDay * daysLeft < p.target, daysLeft };
       })
       .sort((a, b) => Number(b.behind) - Number(a.behind) || a.daysLeft - b.daysLeft)
-      .map(({ p }) => p),
-  );
+      .map(({ p }) => p);
+  }
 
   // ---------- Progress by result type ----------
-  protected readonly typeProgress = computed<TypeProgressVm[]>(() => {
-    const by = new Map<string, { r1: number; r2: number; qa: number }>();
-    for (const r of this.inView()) {
-      const s = qaStage(r)!;
-      const row = by.get(r.type) ?? { r1: 0, r2: 0, qa: 0 };
-      if (s === 'quality-assessed') row.qa++;
-      else if (s.startsWith('r1-')) row.r1++;
-      else row.r2++;
-      by.set(r.type, row);
-    }
-    return [...by.entries()]
-      .map(([type, c]) => {
-        const total = c.r1 + c.r2 + c.qa;
-        return { type, ...c, total: fmt(total), qaText: fmt(c.qa), pct: Math.round((c.qa / (total || 1)) * 100) };
-      })
-      .sort((a, b) => a.pct - b.pct);
-  });
+  protected readonly typeProgress = computed<TypeProgressVm[]>(() => typeRows(this.inView()));
 
   // ---------- Assessor load ----------
   /** Timelines whose open step is the assessors' step: the only ones the assessor load counts. */
@@ -449,6 +546,197 @@ export class OverviewView {
     const names = this.inAssessorsStep(this.shown()).map((b) => b.name);
     return names.length ? `Timelines in the assessors' step: ${names.join(', ')}` : 'No timeline in these filters is in the assessors’ step';
   });
+
+  // ---------- Overview by role: what needs each reviewing role (Juanpa, 2026-11-11) ----------
+  /**
+   * The step a role works in: the open one if any timeline has it open ("Closes 23 Jul (4 days left)"), else the next
+   * one to open ("Opens 29 Jul"). `i` is the step's index in PHASE_NAMES.
+   */
+  private roleStep(i: number): { readonly step: string; readonly when: string; readonly urgent: boolean } {
+    const name = PHASE_NAMES[i];
+    const short = PHASE_SHORT[name];
+    // Open now, soonest close first. With several, the block counts them all and names how many.
+    const open = this.live
+      .flatMap((b) => b.phases.filter((p) => p.name === name && phaseState(p, b).kind === 'active').map((p) => ({ b, p })))
+      .sort((x, y) => daysFromToday(x.p.end) - daysFromToday(y.p.end));
+    if (open.length) {
+      const { b, p } = open[0];
+      const days = daysFromToday(p.end);
+      const where = open.length === 1 ? b.name : `${open.length} timelines`;
+      const first = open.length === 1 ? 'Closes' : `${b.name} closes`;
+      return { step: `${short} · ${where}`, when: `${first} ${shortDate(p.end)} (${daysLeftText(days)})`, urgent: days <= 3 };
+    }
+    const next = this.live
+      .flatMap((b) => b.phases.filter((p) => p.name === name && phaseState(p, b).kind === 'future').map((p) => ({ b, p })))
+      .sort((x, y) => daysFromToday(x.p.start) - daysFromToday(y.p.start))[0];
+    return next
+      ? { step: `${short} · ${next.b.name}`, when: `Opens ${shortDate(next.p.start)}`, urgent: false }
+      : { step: short, when: 'No open timeline uses this step', urgent: false };
+  }
+
+  protected readonly yourWork = computed<YourWorkVm | null>(() => {
+    switch (this.role()) {
+      case 'assessor': {
+        // Only the timelines whose assessors' step is open, the same ones "Your pace" counts.
+        const mine = this.mineInStep();
+        const by = (stage: QaStage) => mine.filter((r) => qaStage(r) === stage).length;
+        // Totals from the same series as "Your pace", so both blocks agree; the rows split them like the results do.
+        const series = this.myPace();
+        const of = series.reduce((n, s) => n + s.target, 0);
+        const done = series.reduce((n, s) => n + (s.done[s.done.length - 1] ?? 0), 0);
+        const left = Math.max(0, of - done);
+        const waiting = by('r1-pending') + by('r1-review');
+        const pending = waiting ? Math.round((left * by('r1-pending')) / waiting) : 0;
+        const review = left - pending;
+        const answered = mine.filter((r) => r.status === 'Answered').length;
+        const next = mine.find((r) => qaStage(r) === 'r1-review') ?? mine.find((r) => qaStage(r) === 'r1-pending');
+        const results = (q: Record<string, string>) => ({ path: ['/results'], query: { assessor: ME_ASSESSOR, ...q } });
+        return {
+          count: fmt(pending + review),
+          noun: pending + review === 1 ? 'result to assess' : 'results to assess',
+          ...this.roleStep(0),
+          progress: { done, of, label: 'assessed' },
+          rows: [
+            { label: 'Pending', count: fmt(pending), link: results({ stage: 'r1-pending' }) },
+            { label: 'In review', count: fmt(review), link: results({ stage: 'r1-review' }) },
+            { label: 'Answered by the program', count: fmt(answered), link: results({ status: 'Answered' }) },
+          ],
+          action: next
+            ? { label: 'Continue reviewing', link: { path: ['/results', next.code] } }
+            : { label: 'Open your results', link: results({}) },
+        };
+      }
+      case 'lead':
+        return {
+          count: fmt(LEAD_QUEUE.commented),
+          noun: 'commented fields to look at',
+          ...this.roleStep(2),
+          // No final step: the lead highlights only the fields they see fit (Santi via Yeck, 2026-11-12).
+          progress: null,
+          rows: [
+            { label: 'Rejected by the program', count: fmt(LEAD_QUEUE.rejected), link: null },
+            { label: 'Marked as highlight', count: fmt(LEAD_QUEUE.highlighted), link: null },
+            { label: 'Programs with rejections', count: fmt(LEAD_BY_PROGRAM.length), link: null },
+          ],
+          action: { label: 'Start with the first one', link: { path: ['/results', 'QA-2026-0841'], query: { as: 'lead' } } },
+        };
+      case 'tpb': {
+        const decided = TPB_QUEUE.agreed + TPB_QUEUE.changes;
+        return {
+          count: fmt(TPB_QUEUE.toDecide),
+          noun: TPB_QUEUE.toDecide === 1 ? 'highlighted field to decide' : 'highlighted fields to decide',
+          ...this.roleStep(3),
+          progress: { done: decided, of: decided + TPB_QUEUE.toDecide, label: 'decided' },
+          rows: [
+            { label: 'To decide', count: fmt(TPB_QUEUE.toDecide), link: null },
+            { label: 'Agreed with program', count: fmt(TPB_QUEUE.agreed), link: null },
+            { label: 'Required changes', count: fmt(TPB_QUEUE.changes), link: null },
+          ],
+          action: { label: 'Decide the next one', link: { path: ['/results', TPB_NEXT[0].code], query: { as: 'tpb' } } },
+        };
+      }
+      case 'ppu': {
+        const open = this.ppuOpen();
+        const done = PPU_QUEUE.length - open.length;
+        const updated = open.filter((i) => i.reporting === 'updated').length;
+        const next = open[0];
+        return {
+          count: fmt(open.length),
+          noun: open.length === 1 ? 'change to apply in the Reporting Tool' : 'changes to apply in the Reporting Tool',
+          ...this.roleStep(4),
+          progress: { done, of: PPU_QUEUE.length, label: 'done' },
+          // QA tells whether the program already changed the field; only the PPU closes it (Ángel, 2026-11-17).
+          rows: [
+            { label: 'Updated in the Reporting Tool', count: fmt(updated), link: null },
+            { label: 'Not updated yet', count: fmt(open.length - updated), link: null },
+            { label: 'Done', count: fmt(done), link: null },
+          ],
+          action: next
+            ? { label: 'Apply the next one', link: { path: ['/results', next.code], query: { as: 'ppu' } } }
+            : { label: 'Open the results', link: { path: ['/results'] } },
+        };
+      }
+      default:
+        return null;
+    }
+  });
+
+  /** Names of the live timelines whose open step is the assessors' step. */
+  private readonly assessorsStepNames = computed(() => new Set(this.inAssessorsStep(this.live).map((b) => b.name)));
+  /** The assessor's results in those timelines. */
+  private readonly mineInStep = computed(() => MINE.filter((r) => this.assessorsStepNames().has(r.batch)));
+
+  /** Assessor: their own pace in the assessors' step (their share of its results). TODO(api): their daily history. */
+  protected readonly myPace = computed<PaceVm[]>(() => {
+    const all = IN_QA.filter((r) => this.assessorsStepNames().has(r.batch)).length;
+    return this.paceSeries(all ? this.mineInStep().length / all : 0, true);
+  });
+  /** Assessor: their results by type (each assessor works on some result types). */
+  protected readonly myTypes = typeRows(MINE);
+  protected readonly myQuery = { assessor: ME_ASSESSOR };
+
+  protected readonly myComments: SplitVm = {
+    title: 'What happened to your comments',
+    subtitle: 'How the science programs answered the comments you left in this cycle.',
+    segments: [
+      { label: 'Accepted by the program', n: MY_COMMENT_OUTCOMES.accepted, cls: 'bg-(--primary)' },
+      { label: 'Rejected by the program', n: MY_COMMENT_OUTCOMES.rejected, cls: 'bg-(--st-editing-fg)' },
+      { label: 'No answer yet', n: MY_COMMENT_OUTCOMES.waiting, cls: 'bg-(--surface-4)' },
+    ],
+  };
+
+  protected readonly myFields: RankedVm = {
+    title: 'Most discussed fields',
+    subtitle: 'Fields where you left the most comments in this cycle.',
+    rows: MY_TOP_FIELDS.map((f) => ({ label: f.label, n: f.n })),
+  };
+
+  protected readonly leadPrograms: RankedVm = {
+    title: 'Rejections by program',
+    subtitle: 'Comments each science program rejected. Start where there are more.',
+    rows: LEAD_BY_PROGRAM.map((p) => ({ code: p.code, label: PROGRAMS[p.code] ?? '', n: p.n })),
+  };
+  protected readonly leadFields: RankedVm = {
+    title: 'Most discussed fields',
+    subtitle: 'Fields whose comments get rejected most. The guidance for them may need to be clearer.',
+    rows: LEAD_TOP_FIELDS.map((f) => ({ label: f.label, n: f.n })),
+  };
+
+  protected readonly tpbDecisions: SplitVm = {
+    title: 'Your decisions',
+    subtitle: 'How you decided the highlighted fields so far.',
+    segments: [
+      { label: 'Agreed with program', n: TPB_QUEUE.agreed, cls: 'bg-(--text-4)' },
+      { label: 'Required changes', n: TPB_QUEUE.changes, cls: 'bg-(--st-editing-fg)' },
+    ],
+  };
+  protected readonly tpbNext: NextItemsVm = {
+    title: 'Next to decide',
+    subtitle: 'Highlighted fields, oldest first. Each one opens with your buttons.',
+    noteLabel: 'Lead assessor’s instruction',
+    items: TPB_NEXT,
+    role: 'tpb',
+  };
+  /** PPU: changes closed with "Mark when done" in this preview. TODO(api): the PPU's "done" in the review data. */
+  private readonly ppuDone = signal<ReadonlySet<string>>(new Set());
+  private readonly ppuOpen = computed(() => PPU_QUEUE.filter((i) => !this.ppuDone().has(i.code + i.field)));
+  /** Screen readers hear each change closed from the list. */
+  protected readonly ppuAnnounce = signal('');
+
+  protected readonly ppuNext = computed<NextItemsVm>(() => ({
+    title: 'Next changes to apply',
+    subtitle: 'The ones the program already updated in the Reporting Tool come first: check them and mark them as done.',
+    noteLabel: 'Third-party broker’s note',
+    items: this.ppuOpen().slice(0, PPU_NEXT_SHOWN),
+    role: 'ppu',
+  }));
+
+  /** PPU: close a change the program already updated, from the Overview list. */
+  protected markDone(item: QueueItem): void {
+    this.ppuDone.update((s) => new Set(s).add(item.code + item.field));
+    this.ppuAnnounce.set(`${item.code} ${item.field} marked as done.`);
+  }
+
   // ---------- Actions ----------
   /** A row in "Progress by timeline": open its stages pop-up. */
   protected openStages(id: string): void {

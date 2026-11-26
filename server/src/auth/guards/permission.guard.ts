@@ -12,6 +12,7 @@ import type { Permission } from '../../users/permissions.js';
 import { AuthorizationService } from '../../users/authorization.service.js';
 import type { AuthenticatedRequest } from '../authenticated-request.js';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator.js';
+import { SP_SESSION_KEY } from '../decorators/sp-session.metadata.js';
 import { READ_ACCESS_KEY } from '../decorators/read-access.decorator.js';
 import { REQUIRE_PERMISSION_KEY } from '../decorators/require-permission.decorator.js';
 
@@ -42,6 +43,15 @@ export class PermissionGuard implements CanActivate {
     if (
       this.reflector.getAllAndOverride<boolean | undefined>(
         IS_PUBLIC_KEY,
+        targets,
+      ) === true
+    ) {
+      return true;
+    }
+    // A Science Program route: authorized by its SP session and scope (P2-3911).
+    if (
+      this.reflector.getAllAndOverride<boolean | undefined>(
+        SP_SESSION_KEY,
         targets,
       ) === true
     ) {

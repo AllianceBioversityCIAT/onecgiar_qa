@@ -2,6 +2,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { AppModule } from '../src/app.module.js';
+import { withoutTitleBackfill } from './support/without-title-backfill.js';
 import { CognitoAdminClient } from '../src/auth/cognito-admin.client.js';
 import { JWKS_CACHE } from '../src/auth/token-verifier.service.js';
 import { configureApp } from '../src/common/configure-app.js';
@@ -107,7 +108,9 @@ async function build() {
     roleCode: 'ADMIN',
     resultTypeKey: null,
   });
-  const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+  const moduleRef = await withoutTitleBackfill(
+    Test.createTestingModule({ imports: [AppModule] }),
+  )
     .overrideProvider(USERS_STORE)
     .useValue(w.db.stores.users)
     .overrideProvider(ROLE_ASSIGNMENTS_STORE)

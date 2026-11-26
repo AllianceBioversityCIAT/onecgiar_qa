@@ -11,8 +11,10 @@ import { nowInRome } from '../../../core/domain/rome-date';
 import { LoadDrawer, LoadDrawerNames, RunRequest } from './load-drawer';
 import { LoadSummaryDrawer } from './load-summary-drawer';
 import { PeopleDrawer } from './people-drawer';
+import { ExportCommentsDrawer, ExportCommentsPreset } from '../export/export-comments-drawer';
 import { ProgressDrawer, StepProgress } from './progress-drawer';
 import { StepDrawer, StepRequest, StepSaveEvent } from './step-drawer';
+import { TimelineActions } from './timeline-actions';
 import { TimelineCard } from './timeline-card';
 import { TimelineDrawer, TimelineRequest, TimelineSaveEvent, TimelineSaveFeedback } from './timeline-drawer';
 import { TimelineSteps } from './timeline-steps';
@@ -35,7 +37,7 @@ const EMPTY_TIMELINE: Timeline = { id: '', name: '', kind: 'Sub-timeline', statu
  */
 @Component({
   selector: 'qa-cycle-view',
-  imports: [QaButtonImports, QaTabsImports, QaReveal, CycleSkeleton, TimelineSteps, TimelineCard, TimelineDrawer, StepDrawer, ProgressDrawer, LoadDrawer, LoadSummaryDrawer, PeopleDrawer],
+  imports: [QaButtonImports, QaTabsImports, QaReveal, CycleSkeleton, TimelineSteps, TimelineActions, TimelineCard, TimelineDrawer, StepDrawer, ProgressDrawer, LoadDrawer, LoadSummaryDrawer, PeopleDrawer, ExportCommentsDrawer],
   providers: [CycleStore, CycleLoads],
   templateUrl: './cycle-view.html',
 })
@@ -83,6 +85,9 @@ export class CycleView implements OnInit {
   protected readonly peopleOpen = signal(false);
   /** Timeline whose people the drawer shows (kept after closing so the drawer can animate out). */
   protected readonly peopleTimeline = signal<Timeline | null>(null);
+  /** Export of fields and comments (P2-3914), opened from a timeline's menu with that timeline set. */
+  protected readonly exportOpen = signal(false);
+  protected readonly exportPreset = signal<ExportCommentsPreset>({});
   protected readonly loadOpen = signal(false);
   protected readonly loadRequest = signal<RunRequest>({ timelineId: null, fromStep: false });
   protected readonly loadError = signal<string | null>(null);
@@ -288,7 +293,9 @@ export class CycleView implements OnInit {
         this.openPeople(id);
         break;
       case 'export':
-        // TODO(api): export the comments of this timeline (.xlsx).
+        // TODO(api): the drawer's Download calls the P2-3914 endpoint.
+        this.exportPreset.set({ timelineId: t.id, timelineName: t.name });
+        this.exportOpen.set(true);
         break;
       case 'clear-test':
         // No API yet: the menu shows it greyed out ("Coming soon").

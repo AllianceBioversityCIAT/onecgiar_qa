@@ -4,10 +4,10 @@ import { HlmInputImports } from '@spartan/input';
 import { emailText, requiredText } from '../../../core/forms/text-validators';
 import { UnsavedChanges } from '../../../core/forms/unsaved-changes';
 import { submission } from '../../../core/http/submission';
-import { QaButtonImports, QaDrawerCloseGuard, QaDrawerImports, QaMultiSelect, QaMultiSelectOption, QaSelect, QaSelectOption, QaSwitch, QaTooltipImports } from '../../../ui';
+import { QaButtonImports, QaDrawerCloseGuard, QaDrawerImports, QaMultiSelect, QaMultiSelectOption, QaSelect, QaSelectOption, QaTooltipImports } from '../../../ui';
 import { AssessorsStore, PersonField, PersonInput, SaveOutcome } from './assessors-store';
-import { accountTypeFor, dateLabel } from './assessors.mapper';
-import { BlockedProgram, ROLE_OPTIONS, TeamMember, TeamRole, fmt, initials } from './assessors.models';
+import { accountTypeFor, dateLabel, roleForTypes, typesForRole } from './assessors.mapper';
+import { BlockedProgram, ROLE_OPTIONS, TeamMember, TeamRole, fmt, initials, isTypeRole } from './assessors.models';
 
 /** What the drawer is showing: the invite form, or one team member (optionally on the remove step). */
 export interface DrawerSession {
@@ -34,8 +34,9 @@ export interface PersonDraft {
   email: string;
   nick: string;
   role: TeamRole;
-  lead: boolean;
-  types: readonly string[];
+  /** Result types as Assessor and as Lead assessor (P2-4107): never the same type in both. */
+  assessTypes: readonly string[];
+  leadTypes: readonly string[];
   programs: readonly string[];
   blocked: readonly BlockDraft[];
 }
@@ -43,12 +44,13 @@ export interface PersonDraft {
 const INFO = {
   nick: 'How this person appears in tables and in comment threads. Short is better.',
   types: 'Results of these types are shared among their assessors when results are loaded. You can move a single result later from the Results table.',
+  leadTypes: 'On these types they also highlight core fields for correction and can edit and delete other assessors\' comments. A type is either assessed or led by one person, never both.',
   programs: 'Leave this open unless this person should only assess certain programs.',
   blocked: 'Programs this person has worked with. They cannot be assigned to them, and the block stays until you remove it.',
 };
 
 function emptyDraft(): PersonDraft {
-  return { firstName: '', lastName: '', email: '', nick: '', role: 'Assessor', lead: false, types: [], programs: [], blocked: [] };
+  return { firstName: '', lastName: '', email: '', nick: '', role: 'Assessor', assessTypes: [], leadTypes: [], programs: [], blocked: [] };
 }
 
 function draftOf(p: TeamMember): PersonDraft {
@@ -58,8 +60,8 @@ function draftOf(p: TeamMember): PersonDraft {
     email: '',
     nick: p.nick,
     role: p.role,
-    lead: p.lead,
-    types: [...p.types],
+    assessTypes: [...p.assessTypes],
+    leadTypes: [...p.leadTypes],
     programs: [...p.programs],
     blocked: p.blocked.map((b) => ({ ...b, isNew: false })),
   };
@@ -71,7 +73,7 @@ function draftOf(p: TeamMember): PersonDraft {
  */
 @Component({
   selector: 'qa-assessor-drawer',
-  imports: [FormField, QaButtonImports, HlmInputImports, QaDrawerImports, QaSelect, QaSwitch, QaTooltipImports, QaMultiSelect],
+  imports: [FormField, QaButtonImports, HlmInputImports, QaDrawerImports, QaSelect, QaTooltipImports, QaMultiSelect],
   templateUrl: './assessor-drawer.html',
 })
 export class AssessorDrawer {
@@ -138,9 +140,14 @@ export class AssessorDrawer {
     label: r.role,
     description: r.description,
   }));
-  protected readonly typeOptions = computed<readonly QaMultiSelectOption[]>(() =>
-    this.store.typeNames().map((t) => ({ value: t, label: t })),
-  );
+  /** Result types of each type role: a type taken by the other role is shown disabled with its name. */
+  protected readonly isTypeRole = computed(() => isTypeRole(this.draft().role));
+  protected readonly assessOptions = computed<readonly QaMultiSelectOption[]>(() => this.typeOptionsBesides(this.draft().leadTypes, 'Lead assessor'));
+  protected readonly leadOptions = computed<readonly QaMultiSelectOption[]>(() => this.typeOptionsBesides(this.draft().assessTypes, 'Assessor'));
+
+  private typeOptionsBesides(taken: readonly string[], takenBy: string): QaMultiSelectOption[] {
+    return this.store.typeNames().map((t) => (taken.includes(t) ? { value: t, label: t, disabled: true, note: takenBy } : { value: t, label: t }));
+  }
   private readonly blockedCodes = computed(() => this.draft().blocked.filter((b) => b.code).map((b) => b.code));
   protected readonly programOptions = computed<readonly QaMultiSelectOption[]>(() =>
     this.store
@@ -172,13 +179,13 @@ export class AssessorDrawer {
     if (!person) return null;
     const team = this.team();
     const alone =
-      person.role === 'Assessor' && person.act !== 'never'
+      isTypeRole(person.role) && person.act !== 'never'
         ? person.types.filter(
-            (t) => !team.some((p) => p.id !== person.id && p.role === 'Assessor' && p.act !== 'never' && p.types.includes(t)),
+            (t) => !team.some((p) => p.id !== person.id && isTypeRole(p.role) && p.act !== 'never' && p.types.includes(t)),
           )
         : [];
     return {
-      lead: 'Remove ' + person.name + ' from the team? They lose access to QA. You can bring them back from "Show removed people".',
+      lead: 'Remove ' + person.name + ' from the team? They lose access to QA. You can bring them back from "Removed".',
       warn: alone.length ? 'No one else assesses ' + alone.join(' or ') + '. Those results will not be reviewed until you assign someone.' : '',
       warn2: person.lead ? 'Comments they edited stay as they are, attributed to their original author.' : '',
     };
@@ -243,16 +250,30 @@ export class AssessorDrawer {
     this.clearServerError();
   }
 
+  /** Between Assessor and Lead assessor the covered types move with the role; nothing widens (P2-4107). */
   protected setRole(value: string | null): void {
-    if (value) this.patch({ role: value as TeamRole });
+    if (!value) return;
+    const role = value as TeamRole;
+    const d = this.draft();
+    const moved = isTypeRole(d.role) && isTypeRole(role) ? typesForRole(role, d.assessTypes, d.leadTypes) : {};
+    this.patch({ role, ...moved });
   }
 
   protected setPrograms(programs: readonly string[]): void {
     this.patch({ programs });
   }
 
-  protected setTypes(types: readonly string[]): void {
-    this.patch({ types });
+  /** A pick never lands in both lists; the role follows the picks (only led types = Lead assessor). */
+  protected setAssessTypes(types: readonly string[]): void {
+    const d = this.draft();
+    const assessTypes = types.filter((t) => !d.leadTypes.includes(t));
+    this.patch({ assessTypes, role: roleForTypes(d.role, assessTypes, d.leadTypes) });
+  }
+
+  protected setLeadTypes(types: readonly string[]): void {
+    const d = this.draft();
+    const leadTypes = types.filter((t) => !d.assessTypes.includes(t));
+    this.patch({ leadTypes, role: roleForTypes(d.role, d.assessTypes, leadTypes) });
   }
 
   // Conflict-of-interest blocks
@@ -344,8 +365,8 @@ export class AssessorDrawer {
       email: d.email,
       nick: d.nick,
       role: d.role,
-      lead: d.role === 'Assessor' && d.lead,
-      types: d.role === 'Assessor' ? d.types : [],
+      assessTypes: isTypeRole(d.role) ? d.assessTypes : [],
+      leadTypes: isTypeRole(d.role) ? d.leadTypes : [],
       programs: d.programs,
       blocked: d.blocked.map((b) => ({ code: b.code, reason: b.reason, id: b.id })),
     };

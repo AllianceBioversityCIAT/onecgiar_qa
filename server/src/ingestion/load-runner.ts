@@ -1,5 +1,6 @@
 // @akili-spec ingestion/step-1-loads
 // @akili-spec ingestion/timeline-sync
+// @akili-spec assessment/step-1-assessment
 import { createHash } from 'node:crypto';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import {
@@ -19,6 +20,11 @@ import type {
 } from '../database/drizzle/schema/timeline-loads.js';
 import { UpstreamStatusError } from '../users/catalogs/catalog-http.js';
 import { UpstreamUnavailableError } from '../users/catalogs/catalogs.errors.js';
+import {
+  AI_ENQUEUE,
+  AiTally,
+  type AiEnqueuePort,
+} from './ai-enqueue.service.js';
 import { listEveryPage } from './feed-paging.js';
 import {
   KP_RULES,
@@ -29,8 +35,10 @@ import {
   canonicalJson,
   changedFields,
   skipVerdict,
+  SNAPSHOT_SK_PREFIX,
+  snapshotKeyOf,
+  titleOf,
   type LoadSummary,
-  type ReturnedNotResubmitted,
   type TakeVerdict,
 } from './load-rules.js';
 import type { LoadRunnerPort } from './loads.service.js';
@@ -109,14 +117,9 @@ interface Run {
   catalogRefreshed: boolean;
   /** The KPs a completed load would release, collected only while the release is on. */
   releasable: Array<{ resultId: number; outcome: ReleaseOutcome }>;
+  /** The AI jobs counted so far (spec assessment/ai-suggestions, FR-2). */
+  ai: AiTally;
 }
-
-/** The membership column keeps the whole sort key; the snapshot store is read by the part after it (`snapshotSortSuffix`). */
-const SNAPSHOT_SK_PREFIX = 'SNAP#';
-const snapshotKeyOf = (snapshotSk: string): string =>
-  snapshotSk.startsWith(SNAPSHOT_SK_PREFIX)
-    ? snapshotSk.slice(SNAPSHOT_SK_PREFIX.length)
-    : snapshotSk;
 
 /** A take of the verdict: what the lot does with a result that was not skipped. */
 type Take = TakeVerdict<CycleMembershipRow>;
@@ -167,6 +170,10 @@ export class LoadRunner implements LoadRunnerPort {
     @Optional()
     @Inject(KP_RELEASE_SETTING)
     releaseKp?: boolean,
+    // Spec assessment/ai-suggestions FR-2: absent in the specs that build the runner by hand.
+    @Optional()
+    @Inject(AI_ENQUEUE)
+    private readonly ai?: AiEnqueuePort,
   ) {
     this.releaseKp = releaseKp ?? KP_RELEASE_ENABLED;
   }
@@ -201,6 +208,7 @@ export class LoadRunner implements LoadRunnerPort {
         catalogVersion: '',
         catalogRefreshed: false,
         releasable: [],
+        ai: new AiTally(),
       };
       run = started;
       // The heartbeat is renewed apart from the lots (FR-9): the listing and
@@ -262,16 +270,14 @@ export class LoadRunner implements LoadRunnerPort {
 
     // Design 7.3 step 3: with the KP release off, `release` is never called.
     if (this.releaseKp) await this.release(run);
-    // Design 7.3 step 7: one query, from QA's own rows (DD-7).
-    const returnedNotResubmitted = await this.store(load.id, () =>
-      this.loads.countReturnedNotResubmitted(load.timelineId),
-    );
+    // Design 7.3 step 7: the end counts the returned results itself, from QA's
+    // own rows and inside its transaction (DD-7; step-1-assessment FR-24,
+    // design 7.8): a count read here, before it, could be stale at the commit.
     const ended = await this.store(load.id, () =>
       this.unitOfWork.end({
         loadId: load.id,
         status: 'completed',
         now: this.clock(),
-        returnedNotResubmitted,
       }),
     );
     if (ended.kind !== 'ended') return this.lose(run);
@@ -408,7 +414,7 @@ export class LoadRunner implements LoadRunnerPort {
     const planned = detailed.map(({ item, result, take }) => {
       const classification = this.classify(take, result);
       const hash = hashValues(result.values);
-      const snapshotSk = `SNAP#${snapshotSortSuffix({
+      const snapshotSk = `${SNAPSHOT_SK_PREFIX}${snapshotSortSuffix({
         phaseYear: load.phaseYear,
         cycleId: load.cycleId,
         timelineId: load.timelineId,
@@ -427,6 +433,7 @@ export class LoadRunner implements LoadRunnerPort {
         hash,
         loadedAt,
         values: result.values,
+        ...(result.labels ? { labels: result.labels } : {}),
       };
       const membership: LotMembership = {
         resultCode: item.resultCode,
@@ -443,6 +450,7 @@ export class LoadRunner implements LoadRunnerPort {
         previousMembershipId: take.previous?.id ?? null,
         // Filled below, once the comparison is done (null without a previous).
         changedFields: null,
+        title: titleOf(result.values),
       };
       return { snapshot, membership, previous: take.previous };
     });
@@ -465,6 +473,19 @@ export class LoadRunner implements LoadRunnerPort {
       });
     });
     if (recorded.kind !== 'recorded') return this.lose(run);
+
+    // Spec assessment/ai-suggestions FR-2, DD-2: the AI jobs of the memberships
+    // this lot inserted, once they exist. Never throws (NFR-1).
+    if (this.ai !== undefined) {
+      const inserted = new Set(recorded.insertedCodes);
+      await this.ai.enqueueLot(
+        load,
+        planned
+          .map(({ membership }) => membership)
+          .filter((membership) => inserted.has(membership.resultCode)),
+        run.ai,
+      );
+    }
 
     if (this.releaseKp) {
       const inserted = new Set(recorded.insertedCodes);
@@ -660,24 +681,14 @@ export class LoadRunner implements LoadRunnerPort {
     // A run that learned its load is not running must not end it again.
     if (run?.lost) return;
     try {
-      // Design 7.3 step 7: counted at a failed end too, when the store answers.
-      let returnedNotResubmitted: ReturnedNotResubmitted | undefined;
-      if (run) {
-        try {
-          returnedNotResubmitted = await this.store(loadId, () =>
-            this.loads.countReturnedNotResubmitted(run.load.timelineId),
-          );
-        } catch {
-          // The failure that ends the load is the one the load keeps.
-        }
-      }
+      // Design 7.3 step 7: the end counts at a failed end too, in its own
+      // transaction (step-1-assessment FR-24).
       const ended = await this.store(loadId, () =>
         this.unitOfWork.end({
           loadId,
           status: 'failed',
           failureReason: reason,
           now: this.clock(),
-          ...(returnedNotResubmitted ? { returnedNotResubmitted } : {}),
         }),
       );
       if (ended.kind !== 'ended') this.log('warn', loadId, 'load_not_running');

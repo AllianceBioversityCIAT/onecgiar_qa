@@ -1,6 +1,7 @@
 import { Component, ElementRef, afterRenderEffect, computed, input, model, output, viewChild } from '@angular/core';
-import { QaButtonImports, QaMenuImports } from '../../../ui';
+import { QaButtonImports } from '../../../ui';
 import { MenuAction, TimelineNow, TimelineVM, timelineNow } from './cycle.logic';
+import { TimelineActions } from './timeline-actions';
 import { TimelineSteps } from './timeline-steps';
 
 /** Pill colours of the one-line summary, the same as the step card's state badges. */
@@ -17,7 +18,7 @@ const NOW_TONE: Record<TimelineNow['tone'], string> = {
  */
 @Component({
   selector: 'qa-cycle-timeline-card',
-  imports: [QaButtonImports, QaMenuImports, TimelineSteps],
+  imports: [QaButtonImports, TimelineActions, TimelineSteps],
   host: { class: 'block' },
   template: `
     @let t = timeline();
@@ -78,38 +79,13 @@ const NOW_TONE: Record<TimelineNow['tone'], string> = {
           }
         </div>
         @if (t.canEdit) {
-          <div class="flex flex-none items-center gap-2 max-sm:w-full">
-            @if (t.waitingLoad) {
-              <!-- On hold with nothing loaded: the way out sits on the card, not only in the "…" menu. -->
-              <button hlmBtn qaBtn tone="secondary" type="button" (click)="menuAction.emit('add-results')" [attr.aria-label]="'Load results into ' + t.name" class="gap-[7px] max-sm:flex-1">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M8 11l4 4 4-4M8 5H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-4" /></svg>Load results
+          <qa-cycle-timeline-actions [timeline]="t" [stepsShown]="!collapsible() || expanded()" (action)="menuAction.emit($event)">
+            @if (canAddStep()) {
+              <button hlmBtn qaBtn tone="secondary" type="button" (click)="addStep.emit()" class="gap-[7px] max-sm:flex-1">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>Add step
               </button>
             }
-            @if (canAddStep()) {
-            <button hlmBtn qaBtn tone="secondary" type="button" (click)="addStep.emit()" class="gap-[7px] max-sm:flex-1">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>Add step
-            </button>
-            }
-            <button
-              type="button"
-              [qaMenuTrigger]="actions"
-              qaMenuAlign="end"
-              [attr.aria-label]="'Actions for ' + t.name"
-              class="flex size-8 flex-none cursor-pointer items-center max-sm:size-10 justify-center rounded-[8px] border border-(--border) bg-(--surface) p-0 outline-none hover:border-(--border-strong) focus-visible:shadow-(--focus-ring)"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="var(--text-3)" aria-hidden="true"><path d="M5 10.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm7 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm7 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z" /></svg>
-            </button>
-            <ng-template #actions>
-              <qa-menu-panel width="220px" [attr.aria-label]="t.name + ' actions'">
-                <!-- Actions without an API yet are left out (greyed "Coming soon" items read as broken, review 2026-11-10). -->
-                @for (item of t.menu; track item.action) {
-                  @if (!item.soon) {
-                    <button qaMenuItem [variant]="item.danger ? 'danger' : 'default'" (triggered)="menuAction.emit(item.action)">{{ item.label }}</button>
-                  }
-                }
-              </qa-menu-panel>
-            </ng-template>
-          </div>
+          </qa-cycle-timeline-actions>
         }
       </div>
       @if (confirmClose()) {

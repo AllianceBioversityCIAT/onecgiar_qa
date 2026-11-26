@@ -1,6 +1,5 @@
 import { Component, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { QaButtonImports } from '../../../ui';
 import { QaStage } from '../results/results.mock';
 
 export interface RoundStageVm {
@@ -54,7 +53,7 @@ export interface CycleHeroVm {
  */
 @Component({
   selector: 'qa-ov-cycle-hero',
-  imports: [QaButtonImports, RouterLink],
+  imports: [RouterLink],
   host: { class: 'block @container' },
   template: `
     <section
@@ -62,7 +61,8 @@ export interface CycleHeroVm {
       class="relative flex flex-col gap-6 overflow-hidden rounded-[12px] border border-(--border) bg-(--surface) p-5"
     >
       <!-- What the hero counts comes from the Overview's filters at the top of the page. -->
-      <!-- One sentence: "1,330 results in QA, from 4 live timelines" (or one timeline's step), with the cycle link on the same line (wraps under it on narrow cards). -->
+      <!-- One sentence: "1,330 results in QA, from 4 live timelines" (or one timeline's step). No Cycle link here: "Progress by timeline"
+           has the page's only "Open Cycle" (Juanpa, 2026-11-11), and the counts below open Results. -->
       <div class="flex flex-wrap items-baseline justify-between gap-x-8 gap-y-1">
         <h2 id="overview-hero-title" class="m-0 flex flex-wrap items-baseline gap-x-3">
           <span class="text-[2rem] leading-[1.05] font-bold tracking-[-0.02em] tabular-nums text-(--text) @2xl:text-[2.75rem]">{{ data().total }}</span>
@@ -70,7 +70,6 @@ export interface CycleHeroVm {
             >results in QA<span class="font-normal text-(--text-3)">{{ data().detail }}</span></span
           >
         </h2>
-        <a hlmBtn qaBtn tone="link" size="sm" routerLink="/cycle" class="-ml-2.5 @2xl:-mr-2.5 @2xl:ml-0">See the full cycle</a>
       </div>
 
       <!-- Round 1 and Round 2 side by side (stacked on narrow screens). Inside each round, its steps; inside each step,

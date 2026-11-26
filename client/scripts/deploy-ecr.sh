@@ -59,7 +59,7 @@ if [ "${IMAGE_TAG}" = "latest" ]; then
 fi
 
 TAGS=(
-  "Project=${PROJECT_NAME}"
+  "Project=${PROJECT_NAME}-${ENVIRONMENT}"
   "Environment=${ENVIRONMENT}"
   "ManagedBy=CloudFormation"
 )

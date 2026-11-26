@@ -13,6 +13,9 @@ export const OPENAPI_JSON_PATH = `${OPENAPI_PATH}/openapi.json`;
 /** Security scheme names, used by the controllers' decorators. */
 export const ACCESS_TOKEN_SCHEME = 'access-token';
 export const SESSION_COOKIE_SCHEME = 'session-cookie';
+/** The SP view (P2-3911): the opaque SP session bearer, and Reporting's machine key. */
+export const SP_SESSION_SCHEME = 'sp-session';
+export const SP_ACCESS_KEY_SCHEME = 'sp-access-key';
 
 /** The OpenAPI document of every controller route (global prefix included). */
 export function buildOpenApiDocument(
@@ -51,6 +54,25 @@ export function buildOpenApiDocument(
           'httpOnly refresh cookie set by login (Path=/api/v1/auth/session); sent by the browser',
       },
       SESSION_COOKIE_SCHEME,
+    )
+    .addBearerAuth(
+      {
+        type: 'http',
+        scheme: 'bearer',
+        description:
+          'Science Program session token from POST /sp-access/session (opaque, 8 h); only the /sp routes accept it',
+      },
+      SP_SESSION_SCHEME,
+    )
+    .addApiKey(
+      {
+        type: 'apiKey',
+        in: 'header',
+        name: 'x-api-key',
+        description:
+          'Server-to-server key of the Reporting back (SP_ACCESS_API_KEY); POST /sp-access/codes only',
+      },
+      SP_ACCESS_KEY_SCHEME,
     )
     .build();
   return SwaggerModule.createDocument(app, config);

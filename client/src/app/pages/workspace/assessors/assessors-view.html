@@ -39,9 +39,7 @@
           emptyText="Nothing matches that search."
         />
       }
-      <button hlmBtn qaBtn tone="link" size="sm" type="button" [attr.aria-pressed]="showRemoved()" [loading]="loadingRemoved()" (click)="toggleRemoved()">
-        {{ showRemoved() ? 'Show the team' : 'Show removed people' }}
-      </button>
+      <qa-segmented [value]="view()" (valueChange)="selectView($event)" [options]="viewOptions()" size="compact" aria-label="People shown" />
     </div>
 
     @if (applied().length) {
@@ -71,7 +69,7 @@
       <button hlmBtn qaBtn tone="secondary" size="sm" type="button" (click)="store.load()">Try again</button>
     </div>
   }
-  @if (store.state() === 'loading') {
+  @if (store.state() === 'loading' || (showRemoved() && store.removed() === null)) {
     <qa-assessors-skeleton />
   } @else if (store.state() === 'error') {
     <div class="flex max-w-[420px] flex-col items-start gap-2" role="alert">
@@ -136,7 +134,7 @@
                   <span class="px-2 text-(length:--fs-13) font-medium text-(--text-3)">{{ r.member.noRole ? 'No role' : r.member.role }}</span>
                 }
               </td>
-              @if (r.member.role === 'Assessor') {
+              @if (r.member.role === 'Assessor' || r.member.role === 'Lead assessor') {
                 <td class="relative z-[1] min-w-0 p-0" [class]="cell.types">
                   @if (r.member.active) {
                     <qa-assessor-types-cell [member]="r.member" [busy]="store.isBusy(r.member.id)" (addType)="addType(r.member.id, $event)" (removeType)="removeType(r.member.id, $event)" />

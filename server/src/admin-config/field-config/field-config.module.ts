@@ -53,14 +53,42 @@ export interface FieldConfigEffective {
     timelineId: number,
     resultTypeKey: string,
   ): Promise<EffectiveFieldConfig>;
+  /**
+   * The cycle's LATEST version for the timeline and type, started or not (F-012):
+   * same checks, errors and five statements as `effectiveFor`. What a result
+   * nobody has started reads; an assessment then pins it.
+   */
+  currentFor(
+    cycleId: number,
+    timelineId: number,
+    resultTypeKey: string,
+  ): Promise<EffectiveFieldConfig>;
+  /**
+   * The items of one PUBLISHED version for one result type, in ONE statement:
+   * what a consumer that already knows the version (an assessment pins it, so a
+   * later publication never moves it) reads instead of `effectiveFor`, which
+   * runs five statements to find it.
+   */
+  versionItems(versionId: number, resultTypeKey: string): Promise<ConfigItem[]>;
+  /**
+   * The items of the cycle's LATEST published version for one result type, in
+   * TWO statements (`listVersions`, `listVersionItems`); `null` when the cycle
+   * has no version. The assessment view lays its Hidden / View only moves over
+   * the version a timeline or an assessment keeps (F-005, `withLiveVisibility`).
+   */
+  latestVersionItems(
+    cycleId: number,
+    resultTypeKey: string,
+  ): Promise<ConfigItem[] | null>;
 }
 
 /**
  * Field configuration per cycle (design 3, 4). `ConfigModule` is global, but the
  * catalog config is registered per module, as `UsersModule` does (P-6).
- * `AdminConfigModule` imports it. The one export is the effective-configuration
- * port (FR-10). Its own Nest module so the replay reader below answers a
- * publication (DD-9); the cycles and timelines modules bind theirs.
+ * `AdminConfigModule` imports it. The exports are the effective-configuration
+ * port (FR-10) and the catalog source, shared with assessment (one cache). Its
+ * own Nest module so the replay reader below answers a publication (DD-9); the
+ * cycles and timelines modules bind theirs.
  */
 @Module({
   imports: [DrizzleModule, ConfigModule.forFeature(catalogsConfig)],
@@ -92,6 +120,6 @@ export interface FieldConfigEffective {
     },
     { provide: FIELD_CONFIG_EFFECTIVE, useExisting: FieldConfigService },
   ],
-  exports: [FIELD_CONFIG_EFFECTIVE],
+  exports: [FIELD_CONFIG_EFFECTIVE, FIELD_CATALOG_SOURCE],
 })
 export class FieldConfigModule {}

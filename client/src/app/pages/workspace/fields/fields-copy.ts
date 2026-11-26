@@ -26,7 +26,7 @@ export const FIELD_HEAD_HELP: readonly FieldHeadHelp[] = [
     align: 'start',
     items: [
       { label: 'Hidden', text: 'The assessor does not see the field.' },
-      { label: 'View only', text: 'The assessor sees it as context. No comments, not core.' },
+      { label: 'View only', text: 'The assessor sees it as context. No comments, no AI, not core.' },
       { label: 'Assessed', text: 'The assessor approves it or leaves a comment.' },
     ],
     note: 'Assessors can comment on any field that is assessed. They never comment on a view only field.',
@@ -36,9 +36,22 @@ export const FIELD_HEAD_HELP: readonly FieldHeadHelp[] = [
     align: 'center',
     text: 'Comments on core fields go up for a second review: first to the TPB, then to the PPU.',
   },
+  {
+    label: 'AI',
+    align: 'center',
+    // F-021: neutral on purpose. Since P2-3918 the AI worker does not read this flag (it suggests on every
+    // Assessed field in its contract); say what the AI does only once the server reads the flag again.
+    text: 'Marks the field as an AI input.',
+  },
 ];
 
 export const REQUIRED_HIDDEN_HELP =
   'This field is required in the reporting tool but not assessed in QA, so no assessor will check it.';
 
 export const CONDITIONAL_HELP = 'Required in the reporting tool only in some cases.';
+
+/** Why the Core switch is off: only an Assessed field can be core (23-nov demo). */
+export const CORE_NEEDS_ASSESSED = 'Set the field to Assessed to mark it as core.';
+
+/** Why the AI switch is off: only an Assessed field can be an AI input (server rule NOT_ASSESSED). */
+export const AI_NEEDS_ASSESSED = 'Set the field to Assessed to mark it as an AI input.';

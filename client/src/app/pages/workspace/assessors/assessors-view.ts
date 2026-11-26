@@ -2,12 +2,12 @@ import { NgTemplateOutlet } from '@angular/common';
 import { Component, ElementRef, computed, effect, inject, signal, viewChild } from '@angular/core';
 import { HlmInputImports } from '@spartan/input';
 import { TableSort } from '../../../core/list/table-sort';
-import { QaButtonImports, QaMenuImports, QaMultiSelect, QaMultiSelectOption, QaReveal } from '../../../ui';
+import { QaButtonImports, QaMenuImports, QaMultiSelect, QaMultiSelectOption, QaReveal, QaSegmented, QaSegmentedOption } from '../../../ui';
 import { AssessorsSkeleton } from './assessors-skeleton';
 import { AssessorDrawer, DrawerSession } from './assessor-drawer';
 import { AssessorsStore } from './assessors-store';
 import { CELL } from './assessors-table';
-import { ACTIVITY_LABELS, ROLE_OPTIONS, TeamMember, TeamRole, fmt, initials } from './assessors.models';
+import { ACTIVITY_LABELS, ROLE_OPTIONS, TeamMember, TeamRole, fmt, initials, isTypeRole } from './assessors.models';
 import { AssessorRoleCell } from './role-cell';
 import { AssessorTypesCell } from './types-cell';
 
@@ -40,12 +40,12 @@ const reviewedOf = (p: TeamMember) => p.prog.reduce((a, e) => a + e.reviewed, 0)
 @Component({
   selector: 'qa-assessors-view',
   templateUrl: './assessors-view.html',
-  imports: [NgTemplateOutlet, QaButtonImports, QaReveal, AssessorsSkeleton, HlmInputImports, QaMenuImports, QaMultiSelect, AssessorDrawer, AssessorRoleCell, AssessorTypesCell],
+  imports: [NgTemplateOutlet, QaButtonImports, QaReveal, QaSegmented, AssessorsSkeleton, HlmInputImports, QaMenuImports, QaMultiSelect, AssessorDrawer, AssessorRoleCell, AssessorTypesCell],
   providers: [AssessorsStore],
 })
 export class AssessorsView {
   protected readonly store = inject(AssessorsStore);
-  /** Active team, or the removed people while "Show removed people" is on. */
+  /** Active team, or the removed people while "Removed" is chosen. */
   protected readonly showRemoved = signal(false);
   protected readonly team = computed(() => (this.showRemoved() ? (this.store.removed() ?? []) : this.store.team()));
 
@@ -112,7 +112,7 @@ export class AssessorsView {
   /** Result types no one who has signed in assesses. */
   protected readonly gaps = computed(() => {
     const team = this.store.team();
-    const covered = (t: string) => team.some((p) => p.role === 'Assessor' && p.act !== 'never' && p.types.includes(t));
+    const covered = (t: string) => team.some((p) => isTypeRole(p.role) && p.act !== 'never' && p.types.includes(t));
     return this.store.typeNames().filter((t) => !covered(t));
   });
 
@@ -137,7 +137,7 @@ export class AssessorsView {
       (p) =>
         (!q || p.name.toLowerCase().includes(q) || p.email.toLowerCase().includes(q) || p.nick.toLowerCase().includes(q)) &&
         (!role.length || role.includes(p.role)) &&
-        (!type.length || (p.role === 'Assessor' && p.types.some((t) => type.includes(t)))) &&
+        (!type.length || (isTypeRole(p.role) && p.types.some((t) => type.includes(t)))) &&
         (!activity.length || activity.includes(ACTIVITY_LABELS[p.act])) &&
         (!perm.length || perm.every((x) => (x === 'Lead assessor' ? p.lead || p.role === 'Lead assessor' : p.blocked.length > 0))) &&
         (!prog.length ||
@@ -153,7 +153,7 @@ export class AssessorsView {
         case 'role':
           return p.role;
         case 'types':
-          return p.role === 'Assessor' ? (p.types[0] ?? '~') : '~~';
+          return isTypeRole(p.role) ? (p.types[0] ?? '~') : '~~';
         case 'progress': {
           const a = assignedOf(p);
           return a ? reviewedOf(p) / a : -1;
@@ -217,37 +217,53 @@ export class AssessorsView {
   // Inline cell edits: the row shows what the server answers (errors go to a toast).
   protected setRole(id: string, role: TeamRole): void {
     const m = this.store.find(id);
-    // Becoming an assessor needs result types first: saving it bare would revoke every grant.
-    if (m && role === 'Assessor' && !m.types.length) {
+    // Assessor / Lead assessor need result types first: saving it bare would revoke every grant.
+    if (m && isTypeRole(role) && !m.types.length) {
       this.openPerson(m);
       return;
     }
     void this.store.setRole(id, role);
   }
 
+  /** A type added from the list goes to the row's role (Lead assessor rows lead it, others assess it). */
   protected addType(id: string, type: string): void {
     const m = this.store.find(id);
-    if (m) void this.store.setTypes(id, [...m.types, type]);
+    if (!m) return;
+    if (m.role === 'Lead assessor') void this.store.setTypes(id, m.assessTypes, [...m.leadTypes, type]);
+    else void this.store.setTypes(id, [...m.assessTypes, type], m.leadTypes);
   }
 
   protected removeType(id: string, type: string): void {
     const m = this.store.find(id);
-    if (m) void this.store.setTypes(id, m.types.filter((t) => t !== type));
+    if (m) void this.store.setTypes(id, m.assessTypes.filter((t) => t !== type), m.leadTypes.filter((t) => t !== type));
   }
 
   protected readonly loadingRemoved = signal(false);
 
-  protected async toggleRemoved(): Promise<void> {
-    if (this.loadingRemoved()) return;
-    if (!this.showRemoved() && this.store.removed() === null) {
-      this.loadingRemoved.set(true);
-      try {
-        await this.store.loadRemoved();
-      } finally {
-        this.loadingRemoved.set(false);
-      }
+  /**
+   * "[ Team 24 | Removed ]": always visible, the chosen side marked. Counts only when known (the removed list
+   * loads on demand, so it has no number until it is opened once).
+   */
+  protected readonly view = computed(() => (this.showRemoved() ? 'removed' : 'team'));
+  protected readonly viewOptions = computed<readonly QaSegmentedOption[]>(() => [
+    { value: 'team', label: 'Team', count: this.store.state() === 'ready' ? this.store.team().length : undefined },
+    // Until the team is in, the switch waits (the error and loading states belong to the team list).
+    { value: 'removed', label: 'Removed', count: this.store.removed()?.length, disabled: this.store.state() !== 'ready' },
+  ]);
+
+  /** Switches the list; the removed people load the first time (skeleton meanwhile, back to the team if it fails). */
+  protected async selectView(value: string | null): Promise<void> {
+    const removed = value === 'removed';
+    if (removed === this.showRemoved()) return;
+    this.showRemoved.set(removed);
+    if (!removed || this.store.removed() !== null || this.loadingRemoved()) return;
+    this.loadingRemoved.set(true);
+    try {
+      await this.store.loadRemoved();
+    } finally {
+      this.loadingRemoved.set(false);
     }
-    this.showRemoved.update((v) => !v);
+    if (this.store.removed() === null) this.showRemoved.set(false);
   }
 
   protected reactivate(member: TeamMember): void {

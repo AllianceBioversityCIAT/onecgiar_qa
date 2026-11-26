@@ -2,7 +2,16 @@ import { Component, DestroyRef, ElementRef, computed, effect, inject, input, mod
 import { FieldTree, FormField } from '@angular/forms/signals';
 import { UnsavedChanges } from '../../../core/forms/unsaved-changes';
 import { QaButtonImports, QaDrawerCloseGuard, QaDrawerImports, QaMenuImports } from '../../../ui';
-import { FieldComment, QUICK_COMMENTS } from './review.mock';
+import { ReviewInstructionNote } from './review-instruction-note';
+import { FieldComment } from './review.mock';
+
+/**
+ * What the form at the bottom does: the assessor adds a comment, the lead assessor writes the instruction for the
+ * third-party broker (and marks the field as highlight), the TPB writes the note for the PPU with "Required changes",
+ * and otherwise the TPB and the PPU only read. `clarify`: the author of a comment answers the clarification the
+ * program requested on it (P2-3911), which works on an assessment that is otherwise read only.
+ */
+export type CommentsDrawerMode = 'comment' | 'instruction' | 'note' | 'read' | 'clarify';
 
 export interface CommentsDrawerVm {
   readonly label: string;
@@ -10,12 +19,35 @@ export interface CommentsDrawerVm {
   readonly value: string;
   readonly highlighted: boolean;
   readonly comments: readonly FieldComment[];
+  readonly mode: CommentsDrawerMode;
+  /** Lead assessor's instruction, shown above the thread while the field is highlighted (read modes). */
+  readonly instruction: string;
+  /** Third-party broker's note for the PPU, shown above the thread after "Required changes". */
+  readonly ppuNote: string;
+  /** The assessor's comment that can still be withdrawn (the program has not answered it), or -1. */
+  readonly withdrawIndex: number;
+  /** The clarification the caller has to answer on this field (mode `clarify`), or null. */
+  readonly clarify?: { readonly commentId: number; readonly question: string } | null;
+}
+
+const REPLY_LABELS: Readonly<Record<NonNullable<FieldComment['reply']>, string>> = {
+  accepted: 'Accepted',
+  rejected: 'Rejected',
+  accepted_with_comment: 'Accepted with comment',
+  disagreed: 'Disagreed',
+  clarification: 'Requested clarification',
+};
+
+/** A text saved for the whole role (FR-12). */
+export interface QuickCommentVm {
+  readonly id: number;
+  readonly text: string;
 }
 
 /** 480px drawer with the comment thread of one field, quick comments and the comment form. */
 @Component({
   selector: 'qa-review-comments-drawer',
-  imports: [FormField, QaButtonImports, QaDrawerImports, QaMenuImports],
+  imports: [FormField, QaButtonImports, QaDrawerImports, QaMenuImports, ReviewInstructionNote],
   templateUrl: './review-comments-drawer.html',
   host: { class: 'contents' },
 })
@@ -28,9 +60,28 @@ export class ReviewCommentsDrawer {
   readonly showError = input(false);
   /** Bumped by the view to move focus back to the textarea (open, quick comment, failed submit). */
   readonly focusTick = input(0);
+  /** Texts the role saved, newest first. */
+  readonly quickComments = input<readonly QuickCommentVm[]>([]);
+  /** The comment is on its way: the button spins and a second tap does nothing. */
+  readonly adding = input(false);
+  /** Id of the comment being withdrawn. */
+  readonly withdrawingId = input<number | null>(null);
+  /** Why a withdraw did not go through, shown above the thread (a toast would sit behind this drawer). */
+  readonly threadError = input('');
+  readonly savingQuick = input(false);
+  /** The text in the box is already a quick comment of the role. */
+  readonly quickSaved = input(false);
+  /** What the server said about the text (too long…), shown under the box. */
+  readonly serverError = input('');
 
   readonly add = output();
   readonly quickPick = output<string>();
+  /** Save the draft as a quick comment of the role. */
+  readonly saveQuick = output();
+  /** Index of the comment the assessor withdraws (the mockup's comments, which have no id). */
+  readonly withdraw = output<number>();
+  /** Id of the comment the author withdraws. */
+  readonly withdrawId = output<number>();
 
   protected readonly query = signal('');
   /** "Discard what you wrote?" step, asked before Esc / overlay / X close a drawer with a draft. */
@@ -48,11 +99,20 @@ export class ReviewCommentsDrawer {
     this.confirmDiscard.set(true);
     return false;
   };
-  protected readonly groups = computed(() => {
+  protected readonly matches = computed(() => {
     const q = this.query().trim().toLowerCase();
-    const list = QUICK_COMMENTS.filter((c) => !q || c.text.toLowerCase().includes(q) || c.cat.toLowerCase().includes(q));
-    return [...new Set(list.map((c) => c.cat))].map((cat) => ({ cat, items: list.filter((c) => c.cat === cat) }));
+    return this.quickComments().filter((c) => !q || c.text.toLowerCase().includes(q));
   });
+  protected readonly hasDraft = computed(() => !!this.text()().value().trim());
+
+  protected replyLabel(reply: NonNullable<FieldComment['reply']>): string {
+    return REPLY_LABELS[reply];
+  }
+
+  /** Accepted reads as done; a rejection, a disagreement or a question still asks something of the assessor. */
+  protected replyTone(reply: NonNullable<FieldComment['reply']>): string {
+    return reply === 'accepted' || reply === 'accepted_with_comment' ? 'text-(--st-submitted-fg)' : 'text-(--st-editing-fg)';
+  }
 
   private readonly textarea = viewChild<ElementRef<HTMLTextAreaElement>>('draftBox');
   private readonly search = viewChild<ElementRef<HTMLInputElement>>('qcSearch');

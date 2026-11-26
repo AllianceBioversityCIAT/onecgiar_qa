@@ -43,7 +43,8 @@ export interface QaSelectOption {
  * - `filter`: filter chip of the Results toolbar ("QA round" + count chip), as qa-multi-select.
  * - `inline`: picker inside a line of text, no box ("Viewing All timelines ⌄"); `label` is the muted lead-in.
  */
-export type QaSelectAppearance = 'default' | 'field' | 'filter' | 'inline';
+/** `scope`: the big value-only picker inside `qa-scope-card` (timeline, result type). */
+export type QaSelectAppearance = 'default' | 'field' | 'filter' | 'inline' | 'scope';
 
 /** Row marker: check at the end (default) or a radio at the start (single-choice filters). */
 export type QaSelectIndicator = 'check' | 'radio';
@@ -102,13 +103,35 @@ export class QaSelectFooter {}
           brnSelectTrigger
           [attr.aria-label]="hasValue() ? label() + ', ' + display() : label()"
           class="flex h-9 max-sm:h-10 cursor-pointer items-center gap-[7px] rounded-lg border bg-(--field-bg) px-3 text-(length:--fs-14) font-medium whitespace-nowrap text-(--text-2) outline-none hover:border-(--border-strong) focus-visible:shadow-(--focus-ring) disabled:cursor-not-allowed disabled:opacity-50"
-          [class]="hasValue() ? 'border-(--border-accent)' : 'border-(--border)'"
+          [class]="hasValue() && !showValue() ? 'border-(--border-accent)' : 'border-(--border)'"
         >
           <span>{{ label() }}</span>
-          @if (hasValue()) {
+          @if (showValue() && hasValue()) {
+            <!-- A choice that is always made (Fields' cycle): the value instead of the "1" count. -->
+            <span class="font-semibold text-(--text)">{{ display() }}</span>
+          } @else if (hasValue()) {
             <span aria-hidden="true" class="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-(--tint-2) px-[5px] font-(family-name:--qa-mono) text-(length:--fs-11) font-semibold text-(--accent) tabular-nums">1</span>
           }
           <svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flex-none"><path d="M6 9l6 6 6-6" /></svg>
+        </button>
+      } @else if (appearance() === 'scope') {
+        <!-- The lead control of qa-scope-card's row: taller and wider than the filters next to it, its label inside in the
+             accent colour, and an accent border, so it reads as what the filters depend on (Juanpa, 2026-11-23). -->
+        <button
+          brnSelectTrigger
+          [attr.aria-label]="label() + ': ' + display()"
+          class="flex h-[52px] w-[22rem] min-w-0 max-w-full cursor-pointer items-center gap-3 rounded-[10px] border border-(--border-accent) bg-(--field-bg) px-3.5 text-left shadow-[0_1px_2px_rgb(0_0_0/0.05)] outline-none hover:border-(--accent) focus-visible:shadow-(--focus-ring) disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <span class="flex min-w-0 flex-1 flex-col gap-1">
+            <span class="text-(length:--fs-11) leading-none font-semibold tracking-[0.06em] text-(--accent) uppercase">{{ label() }}</span>
+            <span class="flex min-w-0 items-center gap-2">
+              <span class="min-w-0 truncate text-(length:--fs-16) leading-[1.2] font-bold text-(--text)">{{ display() }}</span>
+              @if (selected()?.tag; as tag) {
+                <span class="flex-none rounded-full bg-(--surface-3) px-1.5 py-px text-(length:--fs-10) font-semibold text-(--text-4)">{{ tag }}</span>
+              }
+            </span>
+          </span>
+          <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flex-none"><path d="M6 9l6 6 6-6" /></svg>
         </button>
       } @else if (appearance() === 'inline') {
         <span class="flex min-w-0 items-center gap-1.5 text-(length:--fs-14) text-(--text-3)">
@@ -245,6 +268,8 @@ export class QaSelect {
   /** Semibold trigger text, as the page-level "All timelines" picker. */
   readonly emphasis = input<boolean, BooleanInput>(false, { transform: booleanAttribute });
   readonly appearance = input<QaSelectAppearance>('default');
+  /** `filter` only: show the chosen value after the label ("Cycle 2026") instead of a "1", for a choice that is always made. */
+  readonly showValue = input<boolean, BooleanInput>(false, { transform: booleanAttribute });
   readonly indicator = input<QaSelectIndicator>('check');
   /** Search box on top of the list (filters by label and description). */
   readonly searchable = input<boolean, BooleanInput>(false, { transform: booleanAttribute });

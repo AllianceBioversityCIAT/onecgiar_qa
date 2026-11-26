@@ -10,15 +10,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { Router } from '@angular/router';
-import {
-  FieldTree,
-  FormField,
-  form,
-  minLength,
-  required,
-  submit,
-  validate,
-} from '@angular/forms/signals';
+import { FieldTree, FormField, form, required, submit, validate } from '@angular/forms/signals';
 import { HlmButton } from '@spartan/button';
 import { HlmFieldImports } from '@spartan/field';
 import { HlmInput } from '@spartan/input';
@@ -28,50 +20,56 @@ import { emailText, requiredText } from '../../core/forms/text-validators';
 import { AUTH_ERROR, isChallenge } from '../../core/auth/auth.models';
 import { DeepLink } from '../../core/auth/deep-link';
 import { ApiError, toApiError } from '../../core/http/api-envelope';
+import { LOGIN_FIELD_STYLES } from './login-field.styles';
+import { PasswordRecovery } from './password-recovery';
+import { PASSWORD_RULES_MESSAGE, meetsPasswordPolicy } from './password-policy';
+import { PasswordRequirements } from './password-requirements';
+import { PasswordToggle } from './password-toggle';
 import { ResultPreview } from './result-preview';
+
+export const PASSWORD_CHANGED_NOTICE = 'Your password was changed. Sign in with your new password.';
 
 @Component({
   selector: 'app-login',
-  imports: [FormField, HlmButton, HlmFieldImports, HlmInput, HlmSpinner, ResultPreview],
+  imports: [
+    FormField,
+    HlmButton,
+    HlmFieldImports,
+    HlmInput,
+    HlmSpinner,
+    PasswordRecovery,
+    PasswordRequirements,
+    PasswordToggle,
+    ResultPreview,
+  ],
   templateUrl: './login.html',
-  styles: `
-    /* Spartan tokens re-pointed to the active palette inside the dark form panel. */
-    .on-dark {
-      --foreground: var(--qa-on-dark);
-      --muted-foreground: var(--qa-muted-on-dark);
-      --input: transparent;
-      --ring: var(--qa-primary-soft);
-      --destructive: var(--qa-danger);
-    }
-    .filled {
-      height: 2.875rem;
-      border-radius: 0.75rem;
-      border-color: transparent;
-      background: var(--qa-field);
-      color: var(--qa-on-dark);
-      padding-inline: 0.875rem;
-      box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.25);
-    }
-    .filled[data-show-error='true'] {
-      box-shadow:
-        inset 0 1px 2px rgb(0 0 0 / 0.25),
-        0 0 0 1.5px var(--qa-danger);
-    }
-    @media (prefers-reduced-motion: no-preference) {
-      .reveal {
-        animation: reveal 280ms cubic-bezier(0.22, 1, 0.36, 1);
+  styles: [
+    LOGIN_FIELD_STYLES,
+    `
+      /* Spartan tokens re-pointed to the active palette inside the dark form panel. */
+      .on-dark {
+        --foreground: var(--qa-on-dark);
+        --muted-foreground: var(--qa-muted-on-dark);
+        --input: transparent;
+        --ring: var(--qa-primary-soft);
+        --destructive: var(--qa-danger);
       }
-      @keyframes reveal {
-        from {
-          opacity: 0;
-          translate: 0 -0.5rem;
+      @media (prefers-reduced-motion: no-preference) {
+        .reveal {
+          animation: reveal 280ms cubic-bezier(0.22, 1, 0.36, 1);
+        }
+        @keyframes reveal {
+          from {
+            opacity: 0;
+            translate: 0 -0.5rem;
+          }
+        }
+        .drift {
+          transition: translate 900ms cubic-bezier(0.22, 1, 0.36, 1);
         }
       }
-      .drift {
-        transition: translate 900ms cubic-bezier(0.22, 1, 0.36, 1);
-      }
-    }
-  `,
+    `,
+  ],
 })
 export class LoginPage {
   private readonly session = inject(AuthSession);
@@ -107,6 +105,13 @@ export class LoginPage {
    */
   protected readonly passwordSignIn = signal(false);
   private readonly emailInput = viewChild<ElementRef<HTMLInputElement>>('emailInput');
+  private readonly passwordInput = viewChild<ElementRef<HTMLInputElement>>('passwordInput');
+  private readonly forgotButton = viewChild<ElementRef<HTMLButtonElement>>('forgotButton');
+
+  /** Custom users who forgot their password: the recovery view replaces the sign-in form. */
+  protected readonly recovering = signal(false);
+  /** Polite confirmation shown above the sign-in form (e.g. after a password reset). */
+  protected readonly notice = signal<string | null>(null);
 
   /** Pointer offset (-0.5..0.5) for the slow parallax of the matte background shapes. */
   protected readonly pointer = signal({ x: 0, y: 0 });
@@ -121,10 +126,14 @@ export class LoginPage {
   protected readonly passwordModel = signal({ newPassword: '', confirm: '' });
   protected readonly passwordForm = form(this.passwordModel, (fields) => {
     required(fields.newPassword, { message: 'Enter a new password.' });
-    minLength(fields.newPassword, 8, { message: 'Use at least 8 characters.' });
+    validate(fields.newPassword, ({ value }) =>
+      value() && !meetsPasswordPolicy(value().trim())
+        ? { kind: 'policy', message: PASSWORD_RULES_MESSAGE }
+        : null,
+    );
     required(fields.confirm, { message: 'Repeat the new password.' });
     validate(fields.confirm, ({ value, valueOf }) =>
-      value() && value() !== valueOf(fields.newPassword)
+      value() && value().trim() !== valueOf(fields.newPassword).trim()
         ? { kind: 'mismatch', message: 'The passwords do not match.' }
         : null,
     );
@@ -140,6 +149,30 @@ export class LoginPage {
   protected showPasswordSignIn(): void {
     this.passwordSignIn.set(true);
     afterNextRender(() => this.emailInput()?.nativeElement.focus(), { injector: this.injector });
+  }
+
+  protected startRecovery(): void {
+    this.failure.set(null);
+    this.notice.set(null);
+    this.recovering.set(true);
+  }
+
+  /** The password was reset: back to the sign-in form with the email filled in. */
+  protected onRecoveryDone(email: string): void {
+    this.leaveRecovery(email);
+    this.notice.set(PASSWORD_CHANGED_NOTICE);
+    afterNextRender(() => this.passwordInput()?.nativeElement.focus(), { injector: this.injector });
+  }
+
+  protected onRecoveryBack(email: string): void {
+    this.leaveRecovery(email);
+    afterNextRender(() => this.forgotButton()?.nativeElement.focus(), { injector: this.injector });
+  }
+
+  private leaveRecovery(email: string): void {
+    this.recovering.set(false);
+    this.passwordSignIn.set(true);
+    this.loginForm().reset({ email: email || this.model().email, password: '' });
   }
 
   protected trackPointer(event: PointerEvent): void {
@@ -164,9 +197,15 @@ export class LoginPage {
     event.preventDefault();
     if (this.locked()) return;
     this.failure.set(null);
+    this.notice.set(null);
     await submit(this.loginForm, async () => {
       try {
-        const result = await this.session.signIn({ ...this.model(), email: this.model().email.trim() });
+        // Pasted credentials often carry a space; Cognito never accepts one at either end.
+        const { email, password } = this.model();
+        const result = await this.session.signIn({
+          email: email.trim(),
+          password: password.trim(),
+        });
         if (!isChallenge(result)) await this.go();
       } catch (error) {
         this.fail(error);
@@ -181,7 +220,7 @@ export class LoginPage {
     this.failure.set(null);
     await submit(this.passwordForm, async () => {
       try {
-        await this.session.completeNewPassword(this.passwordModel().newPassword);
+        await this.session.completeNewPassword(this.passwordModel().newPassword.trim());
         await this.go();
       } catch (error) {
         this.fail(error);

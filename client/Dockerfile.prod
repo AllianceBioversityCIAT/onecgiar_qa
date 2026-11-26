@@ -1,0 +1,40 @@
+# syntax=docker/dockerfile:1.7
+#
+# OneCGIAR QA front, PROD: Angular SSR image for AWS Lambda (client/infrastructure/template.yaml).
+# Build context: client/. The original client/Dockerfile (TEST server, Docker) is not changed.
+#
+#   docker build --file Dockerfile.prod -t qa-client-prod .
+#
+# Differences with client/Dockerfile:
+#   * production configuration (src/environments/environment.ts; CI writes it from the PROD frontend secret).
+#   * AWS Lambda Web Adapter as a Lambda extension: it starts the same Node SSR server (server.mjs) and turns each
+#     Lambda invocation (Function URL) into an HTTP request to it. No code change in the app.
+#   * no tini, no HEALTHCHECK and no USER: Lambda manages the process, ignores HEALTHCHECK and runs the container
+#     with its own non-root user (the files below are world-readable).
+# NG_ALLOWED_HOSTS is set by the CloudFormation template (Function URL hosts), never in the image.
+
+ARG NODE_VERSION=24-alpine
+
+# ---- build: ng build --configuration production -> dist/onecgiar-qa/{browser,server} ----
+FROM node:${NODE_VERSION} AS build
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --no-audit --no-fund
+COPY . .
+RUN npx ng build --configuration production
+
+# ---- runtime: Node SSR server behind the Lambda Web Adapter ----
+FROM node:${NODE_VERSION} AS runtime
+# Lambda Web Adapter 0.9.1, pinned by digest (immutable).
+COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:0.9.1@sha256:46d6625e68cbbdd2efab4a20245977664513f13ffef47915b000d431adcea0b4 /lambda-adapter /opt/extensions/lambda-adapter
+# Readiness path: a static file, answered by express.static before the Angular host check (as the original HEALTHCHECK).
+ENV NODE_ENV=production \
+    PORT=4000 \
+    AWS_LWA_PORT=4000 \
+    AWS_LWA_READINESS_CHECK_PATH=/favicon.ico \
+    NG_TRUST_PROXY_HEADERS=x-forwarded-for,x-forwarded-proto,x-forwarded-port
+WORKDIR /app
+# The Angular builder bundles express and @angular/ssr into server.mjs: no node_modules needed.
+COPY --from=build /app/dist/onecgiar-qa ./dist/onecgiar-qa
+CMD ["node", "dist/onecgiar-qa/server/server.mjs"]

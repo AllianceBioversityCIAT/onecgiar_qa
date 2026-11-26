@@ -13,6 +13,7 @@ import { DrizzleQueryError } from 'drizzle-orm';
 import type { Request } from 'express';
 import request from 'supertest';
 import { AppModule } from '../src/app.module.js';
+import { withoutTitleBackfill } from './support/without-title-backfill.js';
 import {
   ADMISSION_UNIT_OF_WORK,
   AdmissionService,
@@ -254,9 +255,9 @@ async function buildWorld(): Promise<World> {
     run: (work) => work({ users, assignments }),
   };
 
-  const moduleRef = await Test.createTestingModule({
-    imports: [AppModule, BodyProbeModule],
-  })
+  const moduleRef = await withoutTitleBackfill(
+    Test.createTestingModule({ imports: [AppModule, BodyProbeModule] }),
+  )
     .overrideProvider(CognitoAuthClient)
     .useValue(client)
     .overrideProvider(USERS_STORE)
