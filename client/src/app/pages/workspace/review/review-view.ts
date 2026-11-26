@@ -188,7 +188,7 @@ export class ReviewView {
     return toDrawerVm(
       found,
       mode,
-      { me: this.store.me(), canWithdraw: withdrawOpen(view), canClarify: !this.store.clarifyClosed(), canDelete: deleteOpen(view) },
+      { me: this.store.me(), canWithdraw: withdrawOpen(view), canClarify: !this.store.clarifyClosed(), canDelete: deleteOpen(view, this.store.leadCaller()) },
       this.store.threads(),
     );
   });
@@ -374,6 +374,11 @@ export class ReviewView {
     // ASSESSMENT_CORE_COMMENT_UNDECIDED): the write is sent as is and the refusal shows on the card, no confirmation.
     const undecided = (key: string) => cores.some((f) => f.key === key && f.thread?.some((t) => t.decidable && !t.decision));
     if (key !== ALL_FIELDS && undecided(key)) return false;
+    // Round 2: an escalated core field stays grey whatever is validated, so no green write can end the review.
+    const escalated = (f: (typeof cores)[number]) =>
+      (f.thread ?? []).some((t) => t.decision?.decision === 'escalate') ||
+      f.comments.some((c) => c.state !== 'withdrawn' && c.decision?.decision === 'escalate');
+    if (cores.some(escalated)) return false;
     // The effective green (round 2: a green carried from round 1 counts; round 1: equals `validated`).
     return cores.length > 0 && cores.every((f) => (f.effectiveValidated ?? f.validated) || key === ALL_FIELDS || f.key === key);
   }

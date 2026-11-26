@@ -1312,6 +1312,15 @@ describe('ReviewView on the assessment API', () => {
       const escalate = { decision: 'escalate' as const, body: 'TPB.', decidedAt: '2026-11-25T11:00:00.000Z' };
       const footer = (el: Element) => el.querySelector('qa-review-footer')!;
 
+      it('Check all with an escalated core field never asks "Finish as Quality Assessed?" (it cannot end the review)', async () => {
+        api.view.mockReturnValue(of(withThread({ decision: escalate }, [], withField('general.title', (f) => ({ ...f, effectiveValidated: false, carried: false })))));
+        const el = await open();
+        byName(el, 'Check all')!.click();
+        await settle();
+        expect(document.body.textContent).not.toContain('Finish as Quality Assessed?');
+        expect(api.setValidations).toHaveBeenCalledWith(29, 9890, { validated: true, fieldKeys: ['general.title'] });
+      });
+
       it('with the grey core field escalated, the confirm step says the result becomes Pending for TPB review', async () => {
         api.view.mockReturnValue(of(withThread({ decision: escalate })));
         const el = await open();
@@ -1355,7 +1364,7 @@ describe('ReviewView on the assessment API', () => {
       const unanswered = () => withThread({ state: 'open', response: undefined });
 
       beforeEach(() => {
-        TestBed.overrideProvider(AuthSession, { useValue: { user: signal({ id: LEAD }) } });
+        TestBed.overrideProvider(AuthSession, { useValue: { user: signal({ id: LEAD, assignments: [{ role: 'LEAD_ASSESSOR', resultTypeKey: 'policy_change' }] }) } });
       });
 
       it("the Lead's own comment sits in the card with only \"Escalate to TPB\"; Save sends the decision on that comment", async () => {
@@ -1438,6 +1447,14 @@ describe('ReviewView on the assessment API', () => {
         await settle();
         expect(text(t().querySelector('[role="alert"]')!)).toContain('This comment can no longer be deleted');
         expect(toasts.error).not.toHaveBeenCalled();
+      });
+
+      it('a round-2 reader without the Lead role (a TPB) sees no Delete', async () => {
+        TestBed.overrideProvider(AuthSession, { useValue: { user: signal({ id: 20, assignments: [{ role: 'TPB' }] }) } });
+        api.view.mockReturnValue(of(unanswered()));
+        const el = await open();
+        const t = card(el, 'Description of Result').querySelector('[data-testid="lead-thread"]')!;
+        expect(byName(t, 'Delete the comment by mchen')).toBeUndefined();
       });
 
       it('an answered round-1 comment offers no Delete', async () => {

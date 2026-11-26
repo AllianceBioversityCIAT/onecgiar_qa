@@ -72,11 +72,12 @@ export function withdrawOpen(view: Pick<AssessmentView, 'writable' | 'readOnlyRe
 }
 
 /**
- * Round 2 (Lead): another reviewer's comment can be deleted while the Lead writes on the review (contract § 4.4). The
+ * Round 2 (Lead): another reviewer's comment can be deleted while the Lead writes on the review (contract § 4.4).
+ * `lead`: the caller reads as the Lead (a TPB also writes on a round-2 view, and the server refuses its delete). The
  * server also refuses the Lead's own comment and one the program answered; the comment-level rule is the mapper's.
  */
-export function deleteOpen(view: Pick<AssessmentView, 'writable'> & Pick<Partial<AssessmentView>, 'round'>): boolean {
-  return view.round === 2 && view.writable;
+export function deleteOpen(view: Pick<AssessmentView, 'writable'> & Pick<Partial<AssessmentView>, 'round'>, lead: boolean): boolean {
+  return lead && view.round === 2 && view.writable;
 }
 
 export interface TocVm {
@@ -366,7 +367,8 @@ function actions(f: AssessmentField, writable: boolean): FieldActions | null {
   if (!writable) return count > 0 ? base : null;
   return {
     ...base,
-    approve: !isGreen(f),
+    // Round 2: an escalated field cannot turn green (409 ASSESSMENT_FIELD_ESCALATED); the Lead clears the escalate first.
+    approve: !isGreen(f) && !isEscalated(f),
     undo: isGreen(f) ? 'approval' : null,
     secondary: true,
     secondaryLabel: count > 0 ? 'View comments' : 'Add comment',
@@ -724,7 +726,11 @@ function finishOutcome(view: AssessmentView, assessed: readonly AssessmentField[
  * `writes` off = the page shows what the API says but offers no write button (validate, comment, finish), even to
  * a caller who may write. The banner and `writable` still say what the API said.
  */
-export function toReviewVm(view: AssessmentView, writes = true, me: number | null = null): ReviewVm {
+/**
+ * `me`: the caller's user id. `leadCaller`: the caller reads this round-2 view as the Lead (the store tells it from the
+ * Admin's acting role or the caller's Lead assignment); only then is a delete offered.
+ */
+export function toReviewVm(view: AssessmentView, writes = true, me: number | null = null, leadCaller = false): ReviewVm {
   const writable = view.writable;
   // Nothing is assessed on an auto-validated result, whatever the caller may write elsewhere.
   const auto = isAutoValidated(view);
@@ -734,7 +740,7 @@ export function toReviewVm(view: AssessmentView, writes = true, me: number | nul
     auto ? fields.map(asContext) : roundTwo ? fields.map(leadContext) : fields;
   const assessed = view.sections.flatMap((s) => fieldsOf(s.fields)).filter(isAssessed);
   const greyCores = assessed.filter((f) => f.core && !isGreen(f)).map((f) => f.key);
-  const remove = canAct && deleteOpen(view);
+  const remove = canAct && deleteOpen(view, leadCaller);
   // What counts as done on a field: green or commented in round 1; green or escalated in round 2 (the Lead).
   const resolved = roundTwo ? isDecided : isResolved;
   const lead = (f: AssessmentField): LeadContext => ({ decide: writes && !auto, othersGreen: greyCores.every((k) => k === f.key), remove, me });

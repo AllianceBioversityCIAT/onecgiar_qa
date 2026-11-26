@@ -856,7 +856,7 @@ describe('review.mapper (API assessment view → Review view models)', () => {
     describe("the Lead's own comment and the delete (tramo 4, contract § 3.2, § 4.4)", () => {
       const LEAD = 14;
       const description = (v: AssessmentView = roundTwoViewFixture(), writes = true) =>
-        byLabel(toReviewVm(v, writes, LEAD).sections[0].fields, 'Description of Result');
+        byLabel(toReviewVm(v, writes, LEAD, true).sections[0].fields, 'Description of Result');
       const escalation = { decision: 'escalate' as const, body: 'Mine to escalate.', decidedAt: '2026-11-25T11:00:00.000Z' };
       const ownWith = (over: Partial<AssessmentView['sections'][number]['fields'][number]['comments'][number]>, view?: AssessmentView) =>
         withField('general.description', (f) => ({ ...f, comments: f.comments.map((c) => (c.id === 8101 ? { ...c, ...over } : c)) }), view);
@@ -901,6 +901,19 @@ describe('review.mapper (API assessment view → Review view models)', () => {
         expect(description(other).leadOwn).toEqual([]);
       });
 
+      it('a round-2 reader who is not the Lead (a TPB) gets no Delete on the thread', () => {
+        const unanswered = withThread({ state: 'open', response: undefined });
+        expect(byLabel(toReviewVm(unanswered, true, LEAD, false).sections[0].fields, 'Description of Result').leadThread[0].canDelete).toBe(false);
+      });
+
+      it('an escalated field offers no Approve (the server refuses its green, ASSESSMENT_FIELD_ESCALATED); clearing it brings Approve back', () => {
+        const escalated = description(withThread({ decision: escalation }));
+        expect(escalated.actions?.approve).toBe(false);
+        expect(escalated.actions?.secondary).toBe(true);
+        expect(description().actions?.approve).toBe(true);
+        expect(description(ownWith({ decision: escalation })).actions?.approve).toBe(false);
+      });
+
       it('a round-1 comment the program never answered can be deleted while the Lead writes; an answered one cannot', () => {
         expect(description().leadThread[0].canDelete).toBe(false); // answered (Disagreed)
         const unanswered = withThread({ state: 'open', response: undefined });
@@ -918,7 +931,7 @@ describe('review.mapper (API assessment view → Review view models)', () => {
           comments: [...f.comments, comment({ id: 8200, fieldKey: 'general.description', author: { id: 15, nickname: 'leo' }, stepPosition: 3, round: 2 })],
         }));
         const found = findField(view, 'general.description')!;
-        const reader = { me: LEAD, canWithdraw: withdrawOpen(view), canDelete: deleteOpen(view) };
+        const reader = { me: LEAD, canWithdraw: withdrawOpen(view), canDelete: deleteOpen(view, true) };
         const drawer = toDrawerVm(found, 'comment', reader);
         const byId = (id: number) => drawer.comments.find((c) => (c as { id?: number }).id === id) as { canDelete?: boolean; canWithdraw?: boolean };
         expect(byId(8200).canDelete).toBe(true);
@@ -928,9 +941,11 @@ describe('review.mapper (API assessment view → Review view models)', () => {
       });
 
       it('deleteOpen: only a writable round-2 view; round 1 and a finished round 2 delete nothing', () => {
-        expect(deleteOpen(roundTwoViewFixture())).toBe(true);
-        expect(deleteOpen(roundTwoViewFixture({ writable: false, readOnlyReason: 'finished' }))).toBe(false);
-        expect(deleteOpen(viewFixture())).toBe(false);
+        expect(deleteOpen(roundTwoViewFixture(), true)).toBe(true);
+        expect(deleteOpen(roundTwoViewFixture({ writable: false, readOnlyReason: 'finished' }), true)).toBe(false);
+        expect(deleteOpen(viewFixture(), true)).toBe(false);
+        // A round-2 reader that is not the Lead (a TPB writes in step 4) deletes nothing (the server answers 403).
+        expect(deleteOpen(roundTwoViewFixture(), false)).toBe(false);
       });
 
       it('round 2 withdraws only while the Lead writes (after the end the server refuses it); round 1 keeps its rule', () => {

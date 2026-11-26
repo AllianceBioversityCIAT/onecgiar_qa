@@ -161,7 +161,7 @@ export class ReviewStore implements OnDestroy {
   /** The page's view models, rebuilt from the API answer only (never by hand). */
   readonly vm = computed(() => {
     const view = this.view();
-    return view ? toReviewVm(view, true, this.me()) : null;
+    return view ? toReviewVm(view, true, this.me(), this.leadCaller()) : null;
   });
 
   /** Field keys with a green/grey write on its way (`ALL_FIELDS` for Check all / Uncheck all). */
@@ -206,6 +206,21 @@ export class ReviewStore implements OnDestroy {
   readonly switchingRole = signal(false);
   /** The caller's user id: only their own open comments can be withdrawn (FR-13). */
   readonly me = computed(() => this.session.user()?.id ?? null);
+  /**
+   * The caller reads this round-2 view as the Lead: the Admin acting as the Lead, or (no acting role) a caller who holds
+   * the Lead role for this result type. The view does not name a non-admin caller's reviewer role (contract § 2), and a
+   * TPB also writes on a round-2 view, so the assignment tells them apart. Drives the delete and the quick comments.
+   */
+  readonly leadCaller = computed(() => {
+    const view = this.view();
+    const acting = this.actingRole();
+    if (acting) return acting === 'LEAD_ASSESSOR';
+    if (view?.round !== 2) return false;
+    const type = view.header.resultType.key;
+    return (this.session.user()?.assignments ?? []).some(
+      (a) => a.role === 'LEAD_ASSESSOR' && (a.resultTypeKey === undefined || a.resultTypeKey === 'all' || a.resultTypeKey === type),
+    );
+  });
 
   /** Only the newest load writes its answer (a quick switch of result never shows an older one). */
   private seq = 0;
@@ -765,15 +780,7 @@ export class ReviewStore implements OnDestroy {
    * caller's reviewer role (only `actingRole`, for an Admin), so the Lead is told by its assignment.
    */
   private quickRole(): QuickCommentRole {
-    const acting = this.actingRole();
-    if (acting) return acting;
-    const view = this.view();
-    if (view?.round !== 2) return WRITER_ROLE;
-    const type = view.header.resultType.key;
-    const lead = (this.session.user()?.assignments ?? []).some(
-      (a) => a.role === 'LEAD_ASSESSOR' && (a.resultTypeKey === undefined || a.resultTypeKey === 'all' || a.resultTypeKey === type),
-    );
-    return lead ? LEAD_ROLE : WRITER_ROLE;
+    return this.actingRole() ?? (this.leadCaller() ? LEAD_ROLE : WRITER_ROLE);
   }
 
   private target(): Target | null {
