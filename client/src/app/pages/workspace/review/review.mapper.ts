@@ -462,8 +462,8 @@ const NO_LEAD: LeadContext = { decide: false, othersGreen: false };
 const DECISION_LABELS: Readonly<Record<DecisionKind, { readonly offer: string; readonly taken: string }>> = {
   agree_program: { offer: 'Agree with the program', taken: 'Agreed with the program' },
   escalate: { offer: 'Escalate to TPB', taken: 'Escalated to TPB' },
-  tpb_agree_program: { offer: 'Side with the program', taken: 'Sided with the program' },
-  tpb_agree_assessor: { offer: 'Side with the assessor', taken: 'Sided with the assessor' },
+  tpb_agree_program: { offer: 'Agree with the program', taken: 'Agreed with the program' },
+  tpb_agree_assessor: { offer: 'Agree with the assessor', taken: 'Agreed with the assessor' },
   ppu_done: { offer: 'Mark as done', taken: 'Done' },
 };
 /** A kind the page knows (a newer server may send another: it is not drawn rather than guessed). */

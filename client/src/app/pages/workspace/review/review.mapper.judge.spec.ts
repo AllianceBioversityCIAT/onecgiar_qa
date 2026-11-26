@@ -54,8 +54,8 @@ describe('toReviewVm for the TPB (P2-3916, step 4)', () => {
     expect(assessor.lead).toEqual({ label: 'Escalated to TPB by the Lead', text: 'TPB should check the evidence.', date: '25 Nov 2026' });
     expect(assessor.tpb).toBeNull();
     expect(assessor.choices).toEqual([
-      { kind: 'tpb_agree_program', label: 'Side with the program' },
-      { kind: 'tpb_agree_assessor', label: 'Side with the assessor' },
+      { kind: 'tpb_agree_program', label: 'Agree with the program' },
+      { kind: 'tpb_agree_assessor', label: 'Agree with the assessor' },
     ]);
     expect(assessor.noteOptional).toBe(false);
     expect(assessor.pending).toBe(true);
@@ -85,7 +85,7 @@ describe('toReviewVm for the TPB (P2-3916, step 4)', () => {
     const oneAssessor = vm(tpbViewFixture([tpbItem({ decision: tpbProgram }), tpbLeadOwnItem({ decision: tpbAssessor })]));
     expect(oneAssessor.finishTo).toBe('Pending PPU');
     const decided = fieldOf(oneAssessor, 'Description of Result').leadThread[1];
-    expect(decided.decision).toEqual({ kind: 'tpb_agree_assessor', label: 'Sided with the assessor', text: 'The assessor is right.', date: '30 Nov 2026' });
+    expect(decided.decision).toEqual({ kind: 'tpb_agree_assessor', label: 'Agreed with the assessor', text: 'The assessor is right.', date: '30 Nov 2026' });
     expect(decided.pending).toBe(false);
   });
 

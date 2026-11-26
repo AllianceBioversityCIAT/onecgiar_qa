@@ -117,15 +117,15 @@ describe('ReviewView for the TPB and the PPU (P2-3916, P2-3917)', () => {
       expect(text(t)).toContain('Escalated to TPB by the Lead');
       expect(text(t)).toContain('TPB should check the evidence.');
       expect(text(t)).toContain('lea · Lead assessor');
-      expect(byName(t, 'Side with the program')).toBeDefined();
-      expect(byName(t, 'Side with the assessor')).toBeDefined();
+      expect(byName(t, 'Agree with the program')).toBeDefined();
+      expect(byName(t, 'Agree with the assessor')).toBeDefined();
     });
 
     it('a reason is required; Save sends the TPB decision with it, spinning while on its way (one write)', async () => {
       const slow = new Subject<DecisionResult>();
       api.decide.mockReturnValueOnce(slow);
       const el = await open();
-      byName(thread(el), 'Side with the assessor')!.click();
+      byName(thread(el), 'Agree with the assessor')!.click();
       harness.detectChanges();
       expect(text(thread(el))).toContain('Why side with the assessor?');
       byName(thread(el), 'Save decision')!.click();
