@@ -11,11 +11,13 @@
   -webkit-font-smoothing: antialiased;
 }
 
-/* Active nav item: a white raised row on the grey canvas, dark text (direction A, Juanpa 2026-11-25). It replaced a
-   mint fill with a green marker on the left, which read as a generic template. */
+/* Active nav item: a flat shaded row, one step darker than hover, with dark text and no shadow (Juanpa, 2026-11-26:
+   the white raised row read as a card, not as a selected option). Before that it was a mint fill with a green marker. */
 .qa-nav-active {
-  background: var(--surface);
+  background: var(--nav-active-bg);
   color: var(--nav-fg);
   font-weight: 600;
-  box-shadow: var(--shadow-seg), 0 0 0 1px var(--border);
+}
+.qa-nav-active:hover {
+  background: var(--nav-active-bg);
 }
