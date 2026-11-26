@@ -136,7 +136,7 @@ interface LoadedResults {
             <p class="m-0 text-(length:--fs-14) text-(--text-3)">This program has no results in this timeline.</p>
           }
         } @else {
-          <div class="overflow-x-auto rounded-xl border border-(--border) bg-(--surface)" [attr.aria-busy]="results.isLoading() || null">
+          <div class="overflow-x-auto rounded-xl border border-(--border) bg-(--surface) shadow-(--shadow-card)" [attr.aria-busy]="results.isLoading() || null">
             <!-- Reporting frames this page 870–1000 px wide on a 1024–1440 px screen. Seven one-line columns need
                  1015 px, which cut "Export comments" at the right edge. Below xl the table is compact: the type goes
                  under the title and the headers may take two lines; from xl up it is the full table. -->
@@ -145,7 +145,7 @@ interface LoadedResults {
               <thead class="bg-(--surface-3)">
                 <tr class="border-b border-(--border)">
                   @for (h of headers; track h) {
-                    <th scope="col" [class.max-xl:hidden]="h === 'Type'" class="h-10 px-4 text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) xl:whitespace-nowrap uppercase first:pl-5 last:pr-5">
+                    <th scope="col" [class.max-xl:hidden]="h === 'Type'" [class.max-md:hidden]="h === 'Assessor comments' || h === 'Answered by SP' || h === 'QA status' || h === 'Actions'" class="h-10 px-4 text-(length:--fs-12) font-medium text-(--text-muted) xl:whitespace-nowrap first:pl-5 last:pr-5">
                       {{ h }}
                     </th>
                   }
@@ -163,23 +163,26 @@ interface LoadedResults {
                       >{{ r.resultCode }}</a>
                     </td>
                     <td class="min-w-[160px] max-w-[420px] px-4 py-3 align-middle">
-                      <span class="flex min-w-0 items-center gap-2">
+                      <span class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
                         <span class="min-w-0 text-(length:--fs-14) text-pretty text-(--text)">{{ r.title || 'Untitled result' }}</span>
                         @if (r.updated) {
                           <qa-badge status="submitted" size="sm">Updated</qa-badge>
                         }
                       </span>
+                      <!-- Phones keep three columns (code, title, status): the counts move under the title (Juanpa, 2026-11-25). -->
                       <span data-testid="sp-row-type" class="mt-1 block text-(length:--fs-12) text-(--text-3) xl:hidden">{{ r.resultType.label }}</span>
+                      <span class="block text-(length:--fs-12) text-(--text-3) tabular-nums md:hidden">{{ r.answered }} of {{ r.comments }} answered</span>
+                      <span class="mt-1.5 block md:hidden"><qa-badge [status]="statusTone(r.status)">{{ statusLabel(r.status) }}</qa-badge></span>
                     </td>
                     <td class="px-4 py-3 align-middle text-(length:--fs-13) text-(--text-3) max-xl:hidden">{{ r.resultType.label }}</td>
-                    <td class="px-4 py-3 text-right align-middle font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums">{{ r.comments }}</td>
-                    <td class="px-4 py-3 text-right align-middle font-(family-name:--qa-mono) text-(length:--fs-13) whitespace-nowrap tabular-nums">
+                    <td class="px-4 py-3 text-right align-middle text-(length:--fs-13) text-(--text) tabular-nums max-md:hidden">{{ r.comments }}</td>
+                    <td class="px-4 py-3 text-right align-middle text-(length:--fs-13) whitespace-nowrap tabular-nums max-md:hidden">
                       <span class="font-semibold text-(--text)">{{ r.answered }}</span><span class="text-(--text-4)"> / {{ r.comments }}</span>
                     </td>
-                    <td class="px-4 py-3 align-middle">
+                    <td class="px-4 py-3 align-middle max-md:hidden">
                       <qa-badge [status]="statusTone(r.status)">{{ statusLabel(r.status) }}</qa-badge>
                     </td>
-                    <td class="relative z-10 py-3 pr-5 pl-4 text-right align-middle">
+                    <td class="relative z-10 py-3 pr-5 pl-4 text-right align-middle max-md:hidden">
                       <button
                         hlmBtn
                         qaBtn

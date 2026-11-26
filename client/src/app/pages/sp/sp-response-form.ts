@@ -34,7 +34,7 @@ const NEEDS_TEXT_MESSAGE: Readonly<Record<Exclude<SpResponseKind, 'accept'>, str
   template: `
     <form class="flex flex-col gap-3" (submit)="$event.preventDefault(); submit()" novalidate>
       <fieldset #kindGroup class="m-0 flex flex-col gap-2 border-0 p-0" [attr.aria-describedby]="kindError() ? ids.kindError : null">
-        <legend class="mb-1 p-0 text-(length:--fs-13) font-semibold text-(--text-2)">Your response</legend>
+        <legend class="mb-1 p-0 text-(length:--fs-13) font-medium text-(--text-2)">Your response</legend>
         <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
           @for (o of options; track o.kind) {
             @let on = f.kind().value() === o.kind;
@@ -63,7 +63,7 @@ const NEEDS_TEXT_MESSAGE: Readonly<Record<Exclude<SpResponseKind, 'accept'>, str
 
       @if (needsText()) {
         <div class="flex flex-col gap-1.5">
-          <label [for]="ids.body" class="text-(length:--fs-13) font-semibold text-(--text-2)">{{ bodyLabel() }}</label>
+          <label [for]="ids.body" class="text-(length:--fs-13) font-medium text-(--text-2)">{{ bodyLabel() }}</label>
           <textarea
             #bodyBox
             [id]="ids.body"
