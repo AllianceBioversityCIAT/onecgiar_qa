@@ -78,6 +78,9 @@
                 }
               ],
               "outputHashing": "all"
+            },
+            "static": {
+              "outputMode": "static"
             }
           },
           "defaultConfiguration": "production"
