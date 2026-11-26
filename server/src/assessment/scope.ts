@@ -9,7 +9,7 @@ import type {
 import { isLiveAssignment } from '../users/current-user.cache.js';
 import type { AuthorizationSubject } from '../users/authorization.service.js';
 import { ALL_RESULT_TYPES } from '../users/effective-scope.js';
-import { RoleCode } from '../users/permissions.js';
+import { findRoleDefinition, RoleCode } from '../users/permissions.js';
 import {
   audienceStepState,
   enabledReviewerRows,
@@ -123,7 +123,12 @@ export function resolveAccess(
       role: row.role,
       round: row.round,
       audience: row.audience,
-      resultTypes: resultTypeSet(grants.map((grant) => grant.resultTypeKey)),
+      // P2-3916 (DD-T9): a global role (TPB) is granted with no result type, so
+      // it covers every type; its programs are still the user's program scope.
+      resultTypes:
+        findRoleDefinition(row.role)?.scopeType === 'global'
+          ? 'all'
+          : resultTypeSet(grants.map((grant) => grant.resultTypeKey)),
       programs: programSet(user),
     });
   }

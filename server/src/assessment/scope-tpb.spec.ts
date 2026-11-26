@@ -87,18 +87,18 @@ const membership = (change: Partial<MembershipFacts> = {}): MembershipFacts => (
   ...change,
 });
 
-/** A TPB granted for `policy_change`, program scope {1}, assigned to the timeline. */
-const tpb = accessOf(user([grant('TPB', 'policy_change')], [1]), ['TPB']);
+/** A TPB (a global role: no result type on its grant), program scope {1}, assigned to the timeline. */
+const tpb = accessOf(user([grant('TPB', null)], [1]), ['TPB']);
 
 describe('the TPB row (FR-2)', () => {
-  it('is one round-2 row of the tpb step, with the grant types and the program scope', () => {
+  it('is one round-2 row of the tpb step, every result type (global role, DD-T9) and the program scope', () => {
     expect(tpb).toEqual({
       reviewerRows: [
         {
           role: 'TPB',
           round: 2,
           audience: 'tpb',
-          resultTypes: ['policy_change'],
+          resultTypes: 'all',
           programs: { mode: 'in', ids: [1] },
         },
       ],
@@ -123,7 +123,7 @@ describe('a TPB covers what reached step 4 (DD-T2)', () => {
     ['the Lead has not ended it', { leadEscalated: false }, false],
     ['the fact left out', { leadEscalated: undefined }, false],
     ['a round-1 membership', { round: 1 }, false],
-    ['another result type', { resultType: 'innovation_use' }, false],
+    ['any result type (global role)', { resultType: 'innovation_use' }, true],
     ['another program', { programId: 2 }, false],
   ])('%s', (_name, change, expected) => {
     expect(rowCovers(row, membership(change))).toBe(expected);
