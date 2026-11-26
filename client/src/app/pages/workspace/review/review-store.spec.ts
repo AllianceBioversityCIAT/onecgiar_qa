@@ -696,6 +696,34 @@ describe('ReviewStore actions (T-20)', () => {
       expect(store.deleteErrors().size).toBe(0);
     });
 
+    describe('quick comments of the Lead (tramo 6)', () => {
+      it("a round-2 view read by a user who holds the Lead role uses the Lead's list, to read and to save", async () => {
+        const session = TestBed.inject(AuthSession) as unknown as { user: ReturnType<typeof signal<unknown>> };
+        session.user.set({ id: 14, assignments: [{ role: 'LEAD_ASSESSOR', resultTypeKey: 'policy_change' }, { role: 'ASSESSOR', resultTypeKey: 'policy_change' }] });
+        await store.loadQuickComments();
+        expect(api.quickComments).toHaveBeenCalledWith('LEAD_ASSESSOR');
+        await store.saveQuickComment('Escalate: the evidence is missing.');
+        expect(api.saveQuickComment).toHaveBeenCalledWith('LEAD_ASSESSOR', 'Escalate: the evidence is missing.');
+      });
+
+      it('the Lead role of another result type does not count: the assessors list', async () => {
+        const session = TestBed.inject(AuthSession) as unknown as { user: ReturnType<typeof signal<unknown>> };
+        session.user.set({ id: 14, assignments: [{ role: 'LEAD_ASSESSOR', resultTypeKey: 'innovation_development' }] });
+        await store.loadQuickComments();
+        expect(api.quickComments).toHaveBeenCalledWith('ASSESSOR');
+      });
+
+      it('opening a result read as another role reads that role\'s list again', async () => {
+        const session = TestBed.inject(AuthSession) as unknown as { user: ReturnType<typeof signal<unknown>> };
+        session.user.set({ id: 14, assignments: [{ role: 'LEAD_ASSESSOR', resultTypeKey: 'all' }] });
+        await store.loadQuickComments();
+        api.view.mockReturnValue(of(viewFixture()));
+        await store.load('9891', '29');
+        await store.loadQuickComments();
+        expect(api.quickComments.mock.calls.map((c) => c[0])).toEqual(['LEAD_ASSESSOR', 'ASSESSOR']);
+      });
+    });
+
     describe('Finish and Check all for the Lead (tramo 5, contract § 4.2, § 4.3)', () => {
       const escalate = { decision: 'escalate' as const, body: 'TPB.', decidedAt: '2026-11-25T11:00:00.000Z' };
       /** Title grey (no carry), description escalated on its round-1 comment. */

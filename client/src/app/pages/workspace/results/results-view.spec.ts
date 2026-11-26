@@ -209,6 +209,15 @@ describe('ResultsView on the worklist API', () => {
     expect(text(harness)).toContain('4 pending · 6 finished · 10 in this timeline');
   });
 
+  it('P2-3912: a Lead review that ended escalated reads "Pending for TPB review" and counts as finished (round-2 contract § 5)', async () => {
+    // The server counts pending_tpb_review in `finished`; the row shows its own status pill.
+    api.pageAnswer = () =>
+      of(page([row('1', { status: 'pending_tpb_review', updated: true })], { counters: { pending: 0, finished: 1, total: 1 } }));
+    const harness = await open('/results');
+    expect(text(harness)).toContain('0 pending · 1 finished · 1 in this timeline');
+    expect(text(harness)).toContain('Pending for TPB review');
+  });
+
   it('the total says how many of them are auto-validated, and says nothing when none is (F-010)', async () => {
     api.pageAnswer = () => of(page([row('1')], { counters: { pending: 3, finished: 2, total: 7, autoValidated: 2 } }));
     const harness = await open('/results');

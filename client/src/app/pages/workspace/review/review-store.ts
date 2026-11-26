@@ -64,8 +64,10 @@ const NO_TIMELINE: ReviewError = {
   message: 'You are not assigned to any timeline yet, so there is no assessment to open.',
 };
 
-/** Only assessors write in step 1, so the quick comments are the assessors' list. */
+/** Step 1 (round 1): only assessors write, so the quick comments are the assessors' list. */
 const WRITER_ROLE: QuickCommentRole = 'ASSESSOR';
+/** Round 2: the Lead's list (FR-12). */
+const LEAD_ROLE: QuickCommentRole = 'LEAD_ASSESSOR';
 
 /** Busy key of Check all / Uncheck all (never a field key: those are `section.name`). */
 export const ALL_FIELDS = '*';
@@ -211,7 +213,8 @@ export class ReviewStore implements OnDestroy {
   private overlapped = false;
   /** Only the newest read of the program's responses is painted (two re-reads may be on their way at once). */
   private threadsSeq = 0;
-  private quickLoaded = false;
+  /** The role whose list was read (null = none yet); another role reads its own list. */
+  private quickLoaded: QuickCommentRole | null = null;
 
   constructor() {
     // A write of this assessment the unsent queue sent later: show what the server holds now, in place.
@@ -694,15 +697,18 @@ export class ReviewStore implements OnDestroy {
 
   /** Read once per page, when the comment form first opens. A caller with no grant of the role has no list. */
   async loadQuickComments(): Promise<void> {
-    if (this.quickLoaded) return;
-    this.quickLoaded = true;
+    const role = this.quickRole();
+    if (this.quickLoaded === role) return;
+    if (this.quickLoaded !== null) this.quickComments.set([]);
+    this.quickLoaded = role;
     try {
-      const list = await firstValueFrom(this.api.quickComments(this.quickRole()));
+      const list = await firstValueFrom(this.api.quickComments(role));
+      if (this.quickLoaded !== role) return;
       // A text saved while the list was on its way stays on top.
       this.quickComments.update((mine) => [...mine.filter((q) => !list.some((l) => l.id === q.id)), ...list]);
     } catch (error) {
       // 403 = no live grant of the role (an admin): nothing to show. Anything else may work on the next open.
-      if (toApiError(error).status !== 403) this.quickLoaded = false;
+      if (toApiError(error).status !== 403 && this.quickLoaded === role) this.quickLoaded = null;
     }
   }
 
@@ -738,7 +744,7 @@ export class ReviewStore implements OnDestroy {
     if (!at || this.switchingRole() || role === this.actingRole()) return;
     if (role !== null && !this.actingRoles().includes(role)) return;
     this.acting.set(at.timelineId, at.resultCode, role);
-    this.quickLoaded = false;
+    this.quickLoaded = null;
     this.quickComments.set([]);
     this.switchingRole.set(true);
     try {
@@ -753,9 +759,21 @@ export class ReviewStore implements OnDestroy {
     this.acting.clear();
   }
 
-  /** The quick comments of the role the caller writes as: the Admin's picked role, else the assessors' list. */
+  /**
+   * The quick comments of the role the caller writes as: the Admin's picked role; else, on a round-2 view, the Lead's
+   * list when the caller holds the Lead role for this result type; else the assessors' list. The view does not name the
+   * caller's reviewer role (only `actingRole`, for an Admin), so the Lead is told by its assignment.
+   */
   private quickRole(): QuickCommentRole {
-    return this.actingRole() ?? WRITER_ROLE;
+    const acting = this.actingRole();
+    if (acting) return acting;
+    const view = this.view();
+    if (view?.round !== 2) return WRITER_ROLE;
+    const type = view.header.resultType.key;
+    const lead = (this.session.user()?.assignments ?? []).some(
+      (a) => a.role === 'LEAD_ASSESSOR' && (a.resultTypeKey === undefined || a.resultTypeKey === 'all' || a.resultTypeKey === type),
+    );
+    return lead ? LEAD_ROLE : WRITER_ROLE;
   }
 
   private target(): Target | null {
