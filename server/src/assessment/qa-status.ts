@@ -55,6 +55,11 @@ export interface StatusRule {
    * A row that names it never matches an input without it (`undefined` or `null`).
    */
   readonly currentStep?: readonly StepAudience[];
+  /**
+   * P2-3917 (DD-P5): the timeline's `ppu` step is closed. A row that names it
+   * never matches an input that leaves it out.
+   */
+  readonly ppuStepClosed?: boolean;
 }
 
 /** FR-5, row by row, in the order of the requirement's table. */
@@ -68,10 +73,30 @@ export const STATUS_RULES: readonly StatusRule[] = [
     currentStep: ['tpb'],
     assessmentStatus: ['pending'],
   },
+  // P2-3917 (FR-8, DD-P5): Pending PPU while step 5 is closed is Unresolved,
+  // before and after the PPU's first Done. First, so the Pending PPU rows never catch it.
+  {
+    status: 'unresolved',
+    currentStep: ['tpb'],
+    assessmentStatus: ['escalated'],
+    ppuStepClosed: true,
+  },
+  {
+    status: 'unresolved',
+    currentStep: ['ppu'],
+    assessmentStatus: ['pending'],
+    ppuStepClosed: true,
+  },
   {
     status: 'pending_ppu',
     currentStep: ['tpb'],
     assessmentStatus: ['escalated'],
+  },
+  // P2-3917: the PPU's step-5 row is open (it has marked a case Done, not all).
+  {
+    status: 'pending_ppu',
+    currentStep: ['ppu'],
+    assessmentStatus: ['pending'],
   },
   {
     status: 'pending',
@@ -105,6 +130,8 @@ export interface StatusInputs {
   hasClarificationThread: boolean;
   /** The audience of the current assessment's step (DD-T3); left out by readers that never see a round-2 step (the SP view). */
   currentStep?: StepAudience | null;
+  /** The timeline's `ppu` step is closed (DD-P5); left out by readers that never see step 5 (the SP view). */
+  ppuStepClosed?: boolean;
 }
 
 function holds<T>(allowed: readonly T[] | undefined, value: T): boolean {
@@ -125,7 +152,9 @@ export function statusOf(inputs: StatusInputs): QaStatus | null {
         row.clarificationThread === inputs.hasClarificationThread) &&
       (row.currentStep === undefined ||
         (inputs.currentStep != null &&
-          row.currentStep.includes(inputs.currentStep))),
+          row.currentStep.includes(inputs.currentStep))) &&
+      (row.ppuStepClosed === undefined ||
+        row.ppuStepClosed === (inputs.ppuStepClosed ?? null)),
   );
   return rule?.status ?? null;
 }
@@ -142,6 +171,8 @@ export interface StatusSqlColumns {
   hasClarificationThread: SQLWrapper;
   /** The audience of the current assessment's step, or NULL (DD-T3). Left out: no row that names a step matches. */
   currentStep?: SQLWrapper;
+  /** 1 or 0: the timeline's `ppu` step is closed (DD-P5). Left out: no row that names it matches. */
+  ppuStepClosed?: SQLWrapper;
 }
 
 // The literals come from the closed constants above, never from a request, so
@@ -190,6 +221,13 @@ function ruleCondition(rule: StatusRule, columns: StatusSqlColumns): SQL {
   if (rule.clarificationThread !== undefined) {
     conditions.push(
       sql`${columns.hasClarificationThread} = ${sql.raw(rule.clarificationThread ? '1' : '0')}`,
+    );
+  }
+  if (rule.ppuStepClosed !== undefined) {
+    conditions.push(
+      columns.ppuStepClosed === undefined
+        ? sql.raw('1 = 0')
+        : sql`${columns.ppuStepClosed} = ${sql.raw(rule.ppuStepClosed ? '1' : '0')}`,
     );
   }
   if (rule.currentStep) {
