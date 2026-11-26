@@ -317,6 +317,15 @@ export async function buildAssessmentApp(
   const programScope = (userId: number, programIds: number[]) =>
     w.programs.replaceScope(userId, programIds);
 
+  /** Grants a user one more role (DD-T11: a person holding two reviewer roles) before their first request. */
+  const grant = async (
+    userId: number,
+    roleCode: string,
+    resultTypeKey: string | null = null,
+  ) => {
+    await w.assignments.create({ userId, roleCode, resultTypeKey });
+  };
+
   const setClock = (next: Date) => {
     current = next;
   };
@@ -375,6 +384,7 @@ export async function buildAssessmentApp(
     users,
     send,
     programScope,
+    grant,
     snapshots,
     feed,
     catalogSource,

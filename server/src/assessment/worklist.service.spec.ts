@@ -14,7 +14,11 @@ import {
   type FakeMembership,
 } from '../../test/support/in-memory-assessment.js';
 import { WorklistService, type WorklistQuery } from './worklist.service.js';
-import type { WorklistSortKey } from './worklist.store.js';
+import type {
+  WorklistScope,
+  WorklistSortKey,
+  WorklistStatusCount,
+} from './worklist.store.js';
 
 const MARCH = new Date('2026-03-10T10:00:00Z'); // step 1 (assessors) open
 const APRIL = new Date('2026-04-10T10:00:00Z'); // step 2 (programs) open
@@ -70,6 +74,18 @@ function userOf(
 const assessorA = () =>
   userOf(10, [assignment('ASSESSOR', 'policy_change')], [1]);
 const admin = () => userOf(99, [assignment('ADMIN', null)]);
+
+/** `counters.byStatus` with every status at 0. */
+const NO_STATUS = {
+  pending: 0,
+  returned_to_program: 0,
+  clarification_requested: 0,
+  pending_tpb_review: 0,
+  pending_ppu: 0,
+  unresolved: 0,
+  quality_assessed: 0,
+  auto_validated: 0,
+};
 
 function setup(now: Date = MARCH) {
   const world = new InMemoryAssessmentWorld();
@@ -248,6 +264,7 @@ describe('FR-1: scope by role row', () => {
       finished: 0,
       total: 0,
       autoValidated: 0,
+      byStatus: NO_STATUS,
     });
   });
 });
@@ -359,7 +376,13 @@ describe('FR-4: filters and search', () => {
 
   it('F-010: lists Auto-validated by default, filters it like any status, and counts it apart whatever the filter', async () => {
     const { service } = tenPendingThreeAuto();
-    const counters = { pending: 10, finished: 0, total: 13, autoValidated: 3 };
+    const counters = {
+      pending: 10,
+      finished: 0,
+      total: 13,
+      autoValidated: 3,
+      byStatus: { ...NO_STATUS, pending: 10, auto_validated: 3 },
+    };
 
     const page = await service.list(assessorA(), 1);
     expect(page.rows).toHaveLength(13);
@@ -1153,6 +1176,12 @@ describe('Round 2: the Lead worklist and the current step', () => {
       finished: 2,
       total: 3,
       autoValidated: 0,
+      byStatus: {
+        ...NO_STATUS,
+        pending: 1,
+        pending_tpb_review: 1,
+        returned_to_program: 1,
+      },
     });
   });
 
@@ -1168,5 +1197,78 @@ describe('Round 2: the Lead worklist and the current step', () => {
     });
     const page = await service.list(lead(), 1);
     expect(page.rows.map((row) => row.status)).toEqual(['pending_tpb_review']);
+  });
+});
+
+describe('counters.byStatus (round-2 contract adjustments)', () => {
+  /** The store's grouped count, as the SQL answers it; `null` is a membership with no QA status. */
+  function withGroups(groups: WorklistStatusCount[]) {
+    const ctx = setup();
+    const store = new InMemoryWorklistStore(ctx.world);
+    const asked: WorklistScope[] = [];
+    store.countByStatus = (scope) => {
+      asked.push(scope);
+      return Promise.resolve(groups);
+    };
+    const catalog = {
+      listSciencePrograms: () => Promise.resolve(PROGRAMS),
+      listResultTypes: () => Promise.resolve(RESULT_TYPES),
+    } as unknown as CatalogService;
+    const service = new WorklistService(
+      store,
+      new InMemoryTimelineLoads(ctx.world),
+      catalog,
+      new AuthorizationService(),
+      () => MARCH,
+    );
+    return { service, asked };
+  }
+
+  it('counts every status of the scope, round-2 statuses and Auto-validated included, 0 for the absent ones', async () => {
+    const { service } = withGroups([
+      { status: 'pending', count: 4 },
+      { status: 'pending_tpb_review', count: 2 },
+      { status: 'pending_ppu', count: 1 },
+      { status: 'unresolved', count: 3 },
+      { status: 'auto_validated', count: 5 },
+      { status: null, count: 1 },
+    ]);
+
+    const page = await service.list(admin(), 1);
+
+    expect(page.counters.byStatus).toEqual({
+      pending: 4,
+      returned_to_program: 0,
+      clarification_requested: 0,
+      pending_tpb_review: 2,
+      pending_ppu: 1,
+      unresolved: 3,
+      quality_assessed: 0,
+      auto_validated: 5,
+    });
+    // The other members do not change: a status-less membership still counts in `total` only.
+    expect(page.counters).toMatchObject({ total: 16, autoValidated: 5 });
+  });
+
+  it('ignores the filters, like the totals: a status filter still counts every status', async () => {
+    const { service, asked } = withGroups([
+      { status: 'pending', count: 4 },
+      { status: 'auto_validated', count: 2 },
+    ]);
+
+    const page = await service.list(admin(), 1, {
+      statuses: ['pending_ppu'],
+      programIds: [1],
+      q: 'nothing',
+    });
+
+    expect(page.counters.byStatus).toEqual({
+      ...NO_STATUS,
+      pending: 4,
+      auto_validated: 2,
+    });
+    expect(asked).toHaveLength(1);
+    expect(asked[0]).toMatchObject({ hideAutoValidated: false });
+    expect(asked[0]).not.toHaveProperty('filters');
   });
 });

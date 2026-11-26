@@ -130,6 +130,7 @@ import {
 import {
   actingRoleOf,
   actsAsAdmin,
+  effectiveRow,
   resolveAccess,
   writeDecision,
   type MembershipFacts,
@@ -146,6 +147,20 @@ import {
 /** Why the caller cannot write: the T-3 reasons, plus the end of the assessment (FR-16). */
 export type AssessmentReadOnlyReason = ReadOnlyReason | 'finished';
 
+/** The scope facts of a membership (scope rules, DD-T11 `effectiveRow`): one builder for the view, the writes and the AI route. */
+export function membershipFacts(membership: MembershipRecord): MembershipFacts {
+  return {
+    resultType: membership.resultTypeKey,
+    programId: membership.programId,
+    round: membership.round,
+    status: membership.status,
+    ended: membership.ended,
+    endReason: membership.endReason,
+    leadEscalated: membership.leadAssessment?.status === 'escalated',
+    tpbEscalated: membership.tpbAssessment?.status === 'escalated',
+  };
+}
+
 export interface AssessmentHeader {
   resultCode: number;
   title: string | null;
@@ -155,6 +170,13 @@ export interface AssessmentHeader {
   /** The role's step; null when the timeline has none. */
   step: { position: number; name: string } | null;
   status: QaStatus | null;
+  /**
+   * DD-T11: the reviewer role this view was built for. With `X-Acting-Role`,
+   * that role (when it fits the round); otherwise the caller's role whose step
+   * the result is at (Pending → Lead, Pending for TPB review → TPB, Pending
+   * PPU / Unresolved → PPU). `null` for ADMIN without `X-Acting-Role`.
+   */
+  reviewerRole: RoleCode | null;
 }
 
 export interface AssessmentSummary {
@@ -503,8 +525,9 @@ export class AssessmentService {
       if (roundTwo && input.validated) {
         // FR-8 *Escalate*: a field carrying an `escalate` decision cannot be validated, so green + escalate stays unreachable.
         const escalated = escalatedFieldKeys(decisions);
-        if (target.some((key) => escalated.has(key))) {
-          throw new AssessmentFieldEscalatedError();
+        const refused = target.filter((key) => escalated.has(key));
+        if (refused.length > 0) {
+          throw new AssessmentFieldEscalatedError([...new Set(refused)].sort());
         }
         // FR-8 *none (undecided)* (HITL O-1): a live round-1 comment with no decision blocks the green; the whole request is refused.
         const undecided = await this.undecidedFields(
@@ -2114,7 +2137,7 @@ export class AssessmentService {
           input.decision === 'agree_program' &&
           escalatedFieldKeys(others).has(target.fieldKey)
         ) {
-          throw new AssessmentFieldEscalatedError();
+          throw new AssessmentFieldEscalatedError([target.fieldKey]);
         }
         await assessments.upsertDecision({
           commentId,
@@ -2293,7 +2316,9 @@ export class AssessmentService {
       throw new AssessmentStepClosedError();
     }
 
-    const actorRole = access.reviewerRows[0]?.role ?? 'ADMIN';
+    // DD-T11: the caller's effective role on this membership.
+    const actorRole =
+      effectiveRow(access, membershipFacts(membership))?.role ?? 'ADMIN';
     const withdrawnAt = wholeSecond(at);
     await this.unitOfWork.run(async ({ assessments }) => {
       const steps = await assessments.lockTimelineShared(timeline.id);
@@ -2624,16 +2649,7 @@ export class AssessmentService {
     });
     if (membership === null) throw new AssessmentNotFoundError();
     const hasLoad = (await this.loads.withLoad([timeline.id])).has(timeline.id);
-    const facts = {
-      resultType: membership.resultTypeKey,
-      programId: membership.programId,
-      round: membership.round,
-      status: membership.status,
-      ended: membership.ended,
-      endReason: membership.endReason,
-      leadEscalated: membership.leadAssessment?.status === 'escalated',
-      tpbEscalated: membership.tpbAssessment?.status === 'escalated',
-    };
+    const facts = membershipFacts(membership);
     const decision = this.assertWritable(
       writeDecision(access, facts, { steps: timeline.steps, now, hasLoad }),
     );
@@ -2698,10 +2714,11 @@ export class AssessmentService {
     const catalog = await this.catalogOf(membership.cycleYear);
     const snapshot = await this.snapshotOf(membership);
 
-    // The caller's reviewer role at this round; `null` for ADMIN (reads, decides nothing).
-    const role =
-      access.reviewerRows.find((row) => row.round === membership.round)?.role ??
-      null;
+    const facts = membershipFacts(membership);
+    // DD-T11: the caller's effective reviewer role on this membership, whatever
+    // the order of its rows (a Lead who is also TPB reads as the TPB once the
+    // result reached step 4); `null` for ADMIN without `X-Acting-Role`.
+    const role = effectiveRow(access, facts)?.role ?? null;
     // DD-T7 (P2-3916): a reviewer reads ITS OWN step's assessment: the Lead keeps
     // its step-3 review once the TPB starts step 4, and a TPB that has not
     // written yet has none. The status still reads the current step (DD-3).
@@ -2732,29 +2749,33 @@ export class AssessmentService {
       membership.round === 1 ? null : membership.previousAssessmentId;
     const lead = tpb ? membership.leadAssessment : null;
     const tpbRow = ppu ? membership.tpbAssessment : null;
-    const [roundOneThread, roundOneValidations, leadValidations, tpbValidations] =
-      await Promise.all([
-        tpb
-          ? this.store.findEscalationThread(
-              [previous, lead?.id ?? null].filter(
-                (id): id is number => id !== null,
-              ),
-              role,
-              RoleCode.LEAD_ASSESSOR,
-            )
-          : previous === null
-            ? Promise.resolve([])
-            : this.store.findRoundOneThread(previous, RoleCode.LEAD_ASSESSOR),
-        previous === null
+    const [
+      roundOneThread,
+      roundOneValidations,
+      leadValidations,
+      tpbValidations,
+    ] = await Promise.all([
+      tpb
+        ? this.store.findEscalationThread(
+            [previous, lead?.id ?? null].filter(
+              (id): id is number => id !== null,
+            ),
+            role,
+            RoleCode.LEAD_ASSESSOR,
+          )
+        : previous === null
           ? Promise.resolve([])
-          : this.store.findValidations(previous),
-        lead === null
-          ? Promise.resolve(null)
-          : this.store.findValidations(lead.id),
-        tpbRow === null
-          ? Promise.resolve(null)
-          : this.store.findValidations(tpbRow.id),
-      ]);
+          : this.store.findRoundOneThread(previous, RoleCode.LEAD_ASSESSOR),
+      previous === null
+        ? Promise.resolve([])
+        : this.store.findValidations(previous),
+      lead === null
+        ? Promise.resolve(null)
+        : this.store.findValidations(lead.id),
+      tpbRow === null
+        ? Promise.resolve(null)
+        : this.store.findValidations(tpbRow.id),
+    ]);
     // P2-3917 AC6 (FR-9, DD-P6): a PPU reader compares the open cases' fields
     // with Reporting and stores the first sighting of a change; every reader
     // of a result that reached step 5 reads the stored dates (one statement).
@@ -2787,20 +2808,7 @@ export class AssessmentService {
       validated: new Map(validations.map((v) => [v.fieldKey, v.validated])),
       comments: comments.map(toViewComment),
     });
-    const decision = writeDecision(
-      access,
-      {
-        resultType: membership.resultTypeKey,
-        programId: membership.programId,
-        round: membership.round,
-        status: membership.status,
-        ended: membership.ended,
-        endReason: membership.endReason,
-        leadEscalated: membership.leadAssessment?.status === 'escalated',
-        tpbEscalated: membership.tpbAssessment?.status === 'escalated',
-      },
-      timing,
-    );
+    const decision = writeDecision(access, facts, timing);
     // FR-16: once the assessment ended, nothing is accepted on it.
     const finished = assessment !== null && assessment.status !== 'pending';
     // Additive members over the step-1 view (FR-3, FR-4, FR-5, FR-7). ADMIN has no
@@ -2902,6 +2910,7 @@ export class AssessmentService {
             (c) => c.state === 'clarification_requested',
           ),
         }),
+        reviewerRole: role,
       },
       round: membership.round,
       sections: rounded.sections,
@@ -3003,16 +3012,19 @@ export class AssessmentService {
       if (current === undefined) return;
       const pick = (values: Readonly<Record<string, unknown>>) =>
         Object.fromEntries(
-          fields.filter((key) => key in values).map((key) => [key, values[key]]),
+          fields
+            .filter((key) => key in values)
+            .map((key) => [key, values[key]]),
         );
-      const changed = changedFields(
-        pick(snapshotValues),
-        pick(current.values),
-      );
+      const changed = changedFields(pick(snapshotValues), pick(current.values));
       if (changed.length === 0) return;
       const at = wholeSecond(this.clock());
       await this.unitOfWork.run(({ assessments }) =>
-        assessments.recordReportingChanges(membership.membershipId, changed, at),
+        assessments.recordReportingChanges(
+          membership.membershipId,
+          changed,
+          at,
+        ),
       );
     } catch (error) {
       this.logger.warn(
