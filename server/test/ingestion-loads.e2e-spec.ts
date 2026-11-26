@@ -189,6 +189,26 @@ describe('Step-1 loads routes (e2e)', () => {
       );
     }
 
+    it('P2-4128: the guards answer before the required key: no token is 401, an Assessor is 403', async () => {
+      scriptFeed(w.feed, { total: 3 });
+      const before = nothingRan();
+
+      expectError(
+        await w.send('post', '/timelines/11/loads', { token: null, key: null }),
+        401,
+        'AUTH_TOKEN_INVALID',
+      );
+      expectError(
+        await w.send('post', '/timelines/11/loads', {
+          token: bearer('sub-assessor'),
+          key: null,
+        }),
+        403,
+        'AUTH_PERMISSION_DENIED',
+      );
+      expect(nothingRan()).toEqual(before);
+    });
+
     it('an ADMIN gets through every route', async () => {
       scriptFeed(w.feed, { total: 3 });
       const preview = await w.send('get', '/timelines/11/loads/preview');
@@ -421,6 +441,38 @@ describe('Step-1 loads routes (e2e)', () => {
       expect(
         w.world.auditEvents.filter((e) => e.action === 'load_start'),
       ).toHaveLength(1);
+    });
+
+    it('P2-4128: without Idempotency-Key it is 400 VALIDATION_FAILED naming the header, and nothing is written (no load, no key reserved)', async () => {
+      scriptFeed(w.feed, { total: 3 });
+      const before = nothingRan();
+      const keyWrites = w.idempotency.writes;
+
+      const res = await w.send('post', '/timelines/11/loads', { key: null });
+
+      expectError(res, 400, 'VALIDATION_FAILED');
+      expect(res.body.error.fields).toEqual([
+        {
+          field: 'Idempotency-Key',
+          code: 'REQUIRED',
+          message: 'This field is required.',
+        },
+      ]);
+      expect(nothingRan()).toEqual(before);
+      expect(w.loadsWorld.loads).toHaveLength(0);
+      expect(w.idempotency.writes).toBe(keyWrites);
+    });
+
+    it('P2-4128: with Idempotency-Key the start is 202', async () => {
+      scriptFeed(w.feed, { total: 3 });
+      holdRunner();
+
+      const res = await w.send('post', '/timelines/11/loads', {
+        key: 'start-1',
+      });
+
+      expect(res.status).toBe(202);
+      expect(w.loadsWorld.loads).toHaveLength(1);
     });
 
     it('the same key with another timeline is 422 IDEMPOTENCY_KEY_REUSED', async () => {
@@ -925,6 +977,26 @@ describe('Step-1 loads routes (e2e)', () => {
           'returnedNotResubmitted',
         ]),
       );
+    });
+
+    it('P2-4128: the start documents Idempotency-Key as required; POST /cycles keeps it optional', () => {
+      type Operation = {
+        parameters?: Array<{ name: string; in: string; required?: boolean }>;
+      };
+      const paths = (
+        buildOpenApiDocument(w.app) as unknown as {
+          paths: Record<string, Record<string, Operation>>;
+        }
+      ).paths;
+      const keyOf = (path: string) =>
+        paths[path]!['post']!.parameters!.find(
+          (p) => p.in === 'header' && p.name === 'Idempotency-Key',
+        );
+
+      expect(keyOf('/api/v1/timelines/{id}/loads')).toMatchObject({
+        required: true,
+      });
+      expect(keyOf('/api/v1/cycles')).toMatchObject({ required: false });
     });
   });
 

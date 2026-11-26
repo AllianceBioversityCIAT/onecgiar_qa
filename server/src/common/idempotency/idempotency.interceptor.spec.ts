@@ -16,6 +16,7 @@ import {
   UnprocessableEntityException,
   UseGuards,
 } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
 import { DrizzleQueryError } from 'drizzle-orm';
 import { defer, from, lastValueFrom } from 'rxjs';
@@ -37,6 +38,7 @@ import {
 } from './idempotency.context.js';
 import { IdempotencyFenceLostError } from './idempotency.errors.js';
 import {
+  IDEMPOTENCY_KEY_REQUIRED,
   IDEMPOTENCY_REPLAY_READER,
   IdempotencyInterceptor,
 } from './idempotency.interceptor.js';
@@ -81,7 +83,14 @@ interface Sent {
   request: object;
 }
 
-function world() {
+/** A route handler, with `@Idempotent({ required: true })` metadata when asked. */
+function routeHandler(required: boolean): () => void {
+  const handler = () => undefined;
+  if (required) Reflect.defineMetadata(IDEMPOTENCY_KEY_REQUIRED, true, handler);
+  return handler;
+}
+
+function world({ required = false }: { required?: boolean } = {}) {
   const clock = new FakeClock();
   const store = new InMemoryIdempotencyStore(clock.now);
   const reader = {
@@ -89,7 +98,13 @@ function world() {
       Promise.resolve(FRESH),
     ),
   };
-  const interceptor = new IdempotencyInterceptor(store, clock.now, reader);
+  const interceptor = new IdempotencyInterceptor(
+    store,
+    clock.now,
+    reader,
+    new Reflector(),
+  );
+  const route = routeHandler(required);
 
   async function send(call: Call, handler: Handler): Promise<Sent> {
     const headers: Record<string, string> = {};
@@ -120,6 +135,8 @@ function world() {
         getRequest: () => req,
         getResponse: () => response,
       }),
+      getHandler: () => route,
+      getClass: () => Object,
     } as unknown as ExecutionContext;
     const next: CallHandler = {
       handle: () => defer(() => from(Promise.resolve(handler(req)))),
@@ -190,6 +207,52 @@ describe('IdempotencyInterceptor decision table', () => {
       expect(w.store.peek(ACTOR, KEY)).toBeUndefined();
       expect(idempotencyHandleOf(first.request)).toBeUndefined();
       expect(first.response.headers['idempotency-replayed']).toBeUndefined();
+    });
+  });
+
+  describe('P2-4128: a route that requires the key', () => {
+    it('no header: 400 VALIDATION_FAILED naming Idempotency-Key, nothing runs or is reserved', async () => {
+      const w = world({ required: true });
+      const handler = returns(DATA);
+
+      const sent = await w.send({ key: undefined }, handler);
+
+      expect(statusOf(sent.error)).toBe(400);
+      expect(toErrorBody(sent.error)).toMatchObject({
+        status: 400,
+        code: 'VALIDATION_FAILED',
+        fields: [
+          {
+            field: 'Idempotency-Key',
+            code: 'REQUIRED',
+            message: 'This field is required.',
+          },
+        ],
+      });
+      expect(handler).not.toHaveBeenCalled();
+      expect(w.store.writes).toBe(0);
+    });
+
+    it('with a key: runs once and a repeat replays the first answer', async () => {
+      const w = world({ required: true });
+      const handler = returns(DATA);
+
+      const first = await w.send({ routeStatus: 202 }, handler);
+      const replay = await w.send({ routeStatus: 202 }, handler);
+
+      expect(first.data).toEqual(DATA);
+      expect(replay.data).toEqual(DATA);
+      expect(replay.response.statusCode).toBe(202);
+      expect(replay.response.headers['idempotency-replayed']).toBe('true');
+      expect(handler).toHaveBeenCalledTimes(1);
+    });
+
+    it('a malformed key is still the FR-6 400, not REQUIRED', async () => {
+      const w = world({ required: true });
+      const sent = await w.send({ key: 'a/b' }, returns(DATA));
+      expect(toErrorBody(sent.error)).toMatchObject({
+        fields: [{ field: 'Idempotency-Key', code: 'INVALID' }],
+      });
     });
   });
 
@@ -891,6 +954,21 @@ class ThingsController {
     executions.count++;
     return {};
   }
+
+  @Post('required')
+  @Idempotent({ required: true })
+  required() {
+    executions.count++;
+    return { id: 10 };
+  }
+
+  @Post('required-denied')
+  @UseGuards(denyGuard)
+  @Idempotent({ required: true })
+  requiredDenied() {
+    executions.count++;
+    return {};
+  }
 }
 
 describe('IdempotencyInterceptor in the Nest pipeline', () => {
@@ -925,6 +1003,40 @@ describe('IdempotencyInterceptor in the Nest pipeline', () => {
   afterEach(async () => {
     await app?.close();
     app = undefined;
+  });
+
+  it('P2-4128: a required route without the header is a 400 on Idempotency-Key; an optional one still runs without it', async () => {
+    const { store, server } = await boot();
+
+    const refused = await request(server).post('/things/required').send({});
+    expect(refused.status).toBe(400);
+    expect(refused.body.error).toMatchObject({
+      code: 'VALIDATION_FAILED',
+      fields: [{ field: 'Idempotency-Key', code: 'REQUIRED' }],
+    });
+    expect(executions.count).toBe(0);
+    expect(store.writes).toBe(0);
+
+    const optional = await request(server).post('/things').send({ a: 1 });
+    expect(optional.status).toBe(201);
+    expect(optional.body.data).toMatchObject({ keyed: false });
+
+    const keyed = await request(server)
+      .post('/things/required')
+      .set('Idempotency-Key', KEY)
+      .send({});
+    expect(keyed.status).toBe(201);
+    expect(executions.count).toBe(2);
+  });
+
+  it('P2-4128: the guard still answers first on a required route without the header', async () => {
+    const { store, server } = await boot();
+
+    const res = await request(server).post('/things/required-denied').send({});
+
+    expect(res.status).toBe(403);
+    expect(executions.count).toBe(0);
+    expect(store.writes).toBe(0);
   });
 
   it('401/403 never reach it: a refused request reserves nothing (FR-6, P-1)', async () => {

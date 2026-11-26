@@ -384,17 +384,29 @@ export async function buildIngestionApp(
   configureApp(app);
   await app.init();
 
-  /** One request; `key` adds an `Idempotency-Key`, `token: null` sends no credentials. */
+  /**
+   * One request; `key` adds an `Idempotency-Key`, `token: null` sends no
+   * credentials. The start of a load requires the key (P2-4128), so a
+   * `POST /timelines/:id/loads` without `key` gets a fresh one; `key: null`
+   * sends none.
+   */
+  let autoKeys = 0;
   const send = (
     method: 'get' | 'post',
     path: string,
-    options: { token?: string | null; key?: string; body?: object } = {},
+    options: { token?: string | null; key?: string | null; body?: object } = {},
   ) => {
     const call = request(app.getHttpServer())[method](`/api/v1${path}`);
     const token =
       options.token === undefined ? bearer('sub-admin') : options.token;
     if (token !== null) call.set('Authorization', token);
-    if (options.key !== undefined) call.set('Idempotency-Key', options.key);
+    const key =
+      options.key === undefined &&
+      method === 'post' &&
+      /^\/timelines\/[^/]+\/loads$/.test(path)
+        ? `auto-start-${++autoKeys}`
+        : options.key;
+    if (key !== undefined && key !== null) call.set('Idempotency-Key', key);
     return options.body === undefined ? call : call.send(options.body);
   };
 

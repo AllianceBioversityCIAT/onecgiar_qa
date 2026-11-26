@@ -188,6 +188,14 @@ describe('Cycles routes (e2e)', () => {
   // --- FR-1: create -----------------------------------------------------------
 
   describe('FR-1: POST /cycles', () => {
+    it('P2-4128 left this route alone: without Idempotency-Key the create still runs (FR-10, the header stays optional)', async () => {
+      const res = await w.send('post', '/cycles', { body: { year: 2035 } });
+
+      expect(res.status).toBe(201);
+      expect(res.headers['idempotency-replayed']).toBeUndefined();
+      expect(w.world.cycles.some((c) => c.year === 2035)).toBe(true);
+    });
+
     it('creates a draft cycle: 201, the display name, no timelines, and who and when are stored', async () => {
       const res = await w.send('post', '/cycles', { body: { year: 2027 } });
 
