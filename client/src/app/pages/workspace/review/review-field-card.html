@@ -73,6 +73,8 @@
   @if (aiChip(); as chip) {
     <qa-ai-chip [vm]="chip" [readOnly]="aiReadOnly()" (shown)="aiShown.emit()" (copyToComment)="aiCopy.emit()" />
   }
+  <!-- Round 2 (Lead): the round-1 thread of a core field, projected by the page (qa-review-lead-thread). -->
+  <ng-content />
 </div>
 @if (f.actions; as actions) {
   <qa-review-card-actions
@@ -81,4 +83,8 @@
     [busy]="busy()"
     (act)="act.emit($event)"
   />
+}
+@if (error()) {
+  <!-- Why the last green write on this field was refused (e.g. a round-1 comment still undecided). TODO(design): Juanpa -->
+  <p role="alert" class="m-0 text-(length:--fs-12) leading-[1.45] text-(--danger)">{{ error() }}</p>
 }

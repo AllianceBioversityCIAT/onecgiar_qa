@@ -22,7 +22,8 @@
       </div>
     }
     @for (card of g.items; track card.id) {
-      <div class="box-border flex flex-col items-stretch gap-3 rounded-lg border border-(--border) p-4 transition-colors hover:border-(--border-strong)" [class]="cardClass(card)">
+      <div [attr.id]="'review-field-' + card.id" tabindex="-1" class="box-border flex flex-col items-stretch gap-3 rounded-lg border border-(--border) p-4 transition-colors hover:border-(--border-strong)" [class]="cardClass(card)">
+
         <div class="flex min-w-0 flex-col gap-3">
           <div class="flex flex-wrap items-center gap-2">
             <span class="text-(length:--fs-12) font-medium text-(--text-muted)">{{ card.eyebrow }}</span>
@@ -73,6 +74,13 @@
               (useAsComment)="act.emit({ id: card.id, action: 'ai-use' })"
             />
           }
+          <!-- Round 2 (Lead): the round-1 thread and own comments of a ToC core field, on its first card. TODO(design): Juanpa -->
+          @if (card.leadThread?.length) {
+            <qa-review-lead-thread [items]="card.leadThread!" [fieldLabel]="card.eyebrow" [open]="!!card.threadOpen" />
+          }
+          @if (card.leadOwn?.length) {
+            <qa-review-lead-thread [items]="card.leadOwn!" [fieldLabel]="card.eyebrow" [open]="true" title="Your comments in this round" testId="lead-own" />
+          }
         </div>
         @if (card.actions; as actions) {
           <qa-review-card-actions
@@ -81,6 +89,10 @@
             [busy]="busyKeys().has(card.id) || busyKeys().has('*')"
             (act)="act.emit({ id: card.id, action: $event })"
           />
+        }
+        @if (errors().get(card.id); as error) {
+          <!-- Why the last green write on this field was refused (e.g. a round-1 comment still undecided). TODO(design): Juanpa -->
+          <p role="alert" class="m-0 text-(length:--fs-12) leading-[1.45] text-(--danger)">{{ error }}</p>
         }
       </div>
     }

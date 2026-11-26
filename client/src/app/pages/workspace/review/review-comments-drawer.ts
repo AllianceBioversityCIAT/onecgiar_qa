@@ -2,6 +2,7 @@ import { Component, DestroyRef, ElementRef, computed, effect, inject, input, mod
 import { FieldTree, FormField } from '@angular/forms/signals';
 import { UnsavedChanges } from '../../../core/forms/unsaved-changes';
 import { QaButtonImports, QaDrawerCloseGuard, QaDrawerImports, QaMenuImports } from '../../../ui';
+import { ReviewDeleteComment } from './review-delete-comment';
 import { ReviewInstructionNote } from './review-instruction-note';
 import { FieldComment } from './review.mock';
 
@@ -47,7 +48,7 @@ export interface QuickCommentVm {
 /** 480px drawer with the comment thread of one field, quick comments and the comment form. */
 @Component({
   selector: 'qa-review-comments-drawer',
-  imports: [FormField, QaButtonImports, QaDrawerImports, QaMenuImports, ReviewInstructionNote],
+  imports: [FormField, QaButtonImports, QaDrawerImports, QaMenuImports, ReviewDeleteComment, ReviewInstructionNote],
   templateUrl: './review-comments-drawer.html',
   host: { class: 'contents' },
 })

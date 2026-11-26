@@ -11,6 +11,8 @@ import {
   AssessmentComment,
   AssessmentView,
   CommentThread,
+  DecisionResult,
+  LeadDecisionKind,
   QuickComment,
   ValidationSummary,
   ValidationsBody,
@@ -22,6 +24,7 @@ import { Toasts } from '../../../core/http/toasts';
 import { WorkspaceLayout } from '../../../shell/workspace-layout';
 import { clarificationThread, comment, field, viewFixture } from './review.api-fixture';
 import { ReviewView } from './review-view';
+import { decisionResultFixture, endedRoundTwo, roundTwoViewFixture, threadItem, withField, withThread } from './review.round2-fixture';
 import { QA_GUIDANCE } from './qa-guidance';
 
 /** The signed-in assessor: the author of the fixture's comments. */
@@ -61,6 +64,15 @@ class FakeApi {
   programResponses = vi.fn<(timelineId: number, code: number) => Observable<readonly CommentThread[]>>(() => of([]));
   answerClarification = vi.fn<(commentId: number, body: string) => Observable<CommentThread>>((commentId) =>
     of(clarificationThread({ commentId, state: 'open' })),
+  );
+  decide = vi.fn<(timelineId: number, code: number, commentId: number, decision: LeadDecisionKind, body: string) => Observable<DecisionResult>>(() =>
+    of(decisionResultFixture()),
+  );
+  clearDecision = vi.fn<(timelineId: number, code: number, commentId: number) => Observable<DecisionResult>>(() =>
+    of(decisionResultFixture({ decision: null, validations: [] })),
+  );
+  deleteComment = vi.fn<(commentId: number) => Observable<AssessmentComment>>((id) =>
+    of(comment({ id, deletedAt: '2026-11-25T11:30:00.000Z', deletedBy: 14 })),
   );
 }
 
@@ -766,6 +778,14 @@ describe('ReviewView on the assessment API', () => {
         expect(api.finish).not.toHaveBeenCalled();
       });
 
+      it('P2-4138: the named core field is a link that opens its section and puts the focus on its card', async () => {
+        const el = await open();
+        await toConfirm(el);
+        byName(el.querySelector('qa-review-footer')!, 'Go to ToC contributions')!.click();
+        await settle();
+        expect(document.activeElement?.id).toBe('review-field-toc.entries');
+      });
+
       it('P2-4138: a grey core field with a comment: the footer announces Returned to program', async () => {
         api.view.mockImplementation(() => of(tocCommented()));
         const el = await open();
@@ -1060,6 +1080,410 @@ describe('ReviewView on the assessment API', () => {
       byName(el, 'View comments1 for Description of Result')!.click();
       await settle();
       expect(document.querySelector('#review-thread-error')?.textContent).toContain("The program's responses could not be loaded.");
+    });
+  });
+
+  describe('round 2: the Lead decides in the card (P2-3912 tramo 3)', () => {
+    const thread = (el: Element) => card(el, 'Description of Result').querySelector('[data-testid="lead-thread"]') as HTMLDetailsElement | null;
+    const inThread = (el: Element, name: string) => {
+      const t = thread(el);
+      return t ? buttons(t).find((b) => (b.getAttribute('aria-label') ?? text(b)) === name) : undefined;
+    };
+    const decisionBox = () => document.querySelector<HTMLTextAreaElement>('#lead-decision-41');
+    const write = (value: string) => {
+      const box = decisionBox()!;
+      box.value = value;
+      box.dispatchEvent(new Event('input'));
+      harness.detectChanges();
+    };
+
+    beforeEach(() => api.view.mockReturnValue(of(roundTwoViewFixture())));
+
+    it('the round-1 thread sits in the core field card, open, with the comment, the program answer and the choices', async () => {
+      const el = await open();
+      const t = thread(el)!;
+      expect(t).not.toBeNull();
+      expect(t.open).toBe(true);
+      expect(text(t)).toContain('The description does not match the evidence.');
+      expect(text(t)).toContain('Pepa Program · Program');
+      expect(text(t)).toContain('Disagreed');
+      expect(text(t)).toContain('Old description');
+      expect(inThread(el, 'Agree with the program')).toBeDefined();
+      expect(inThread(el, 'Escalate to TPB')).toBeDefined();
+      // Not on the carried-green title, nor on the context field.
+      expect(card(el, 'Title of Result').querySelector('[data-testid="lead-thread"]')).toBeNull();
+    });
+
+    it('a decision needs a comment: an empty Save sends nothing and says why next to the control', async () => {
+      const el = await open();
+      inThread(el, 'Escalate to TPB')!.click();
+      harness.detectChanges();
+      expect(text(thread(el)!)).toContain('Why escalate to TPB?');
+      inThread(el, 'Save decision')!.click();
+      await settle();
+      expect(api.decide).not.toHaveBeenCalled();
+      expect(text(thread(el)!.querySelector('[role="alert"]')!)).toBe('Write a comment before saving the decision.');
+    });
+
+    it('Save sends the decision; while on its way it spins and a second tap does nothing; then the view is read again', async () => {
+      const slow = new Subject<DecisionResult>();
+      api.decide.mockReturnValueOnce(slow);
+      const el = await open();
+      inThread(el, 'Escalate to TPB')!.click();
+      harness.detectChanges();
+      write('TPB should check the evidence.');
+      const save = inThread(el, 'Save decision')!;
+      save.click();
+      harness.detectChanges();
+      expect(save.getAttribute('aria-busy')).toBe('true');
+      save.click();
+      api.view.mockReturnValueOnce(
+        of(withThread({ decision: { decision: 'escalate', body: 'TPB should check the evidence.', decidedAt: '2026-11-25T11:00:00.000Z' } })),
+      );
+      slow.next(decisionResultFixture({ decision: { decision: 'escalate', body: 'TPB should check the evidence.', decidedAt: '2026-11-25T11:00:00.000Z' }, validations: [] }));
+      slow.complete();
+      await settle();
+      await settle();
+      expect(api.decide).toHaveBeenCalledTimes(1);
+      expect(api.decide).toHaveBeenCalledWith(29, 9890, 41, 'escalate', 'TPB should check the evidence.');
+      expect(api.view).toHaveBeenCalledTimes(2);
+      expect(text(thread(el)!.querySelector('[data-testid="lead-decision"]')!)).toContain('Escalated to TPB');
+      expect(decisionBox()).toBeNull();
+    });
+
+    it('a decided comment shows Change and Clear; Clear sends the DELETE', async () => {
+      api.view.mockReturnValue(of(withThread({ decision: { decision: 'agree_program', body: 'Fine.', decidedAt: '2026-11-25T11:00:00.000Z' } })));
+      const el = await open();
+      expect(inThread(el, 'Agree with the program')).toBeUndefined();
+      inThread(el, 'Change')!.click();
+      harness.detectChanges();
+      expect(inThread(el, 'Escalate to TPB')).toBeDefined();
+      inThread(el, 'Cancel')!.click();
+      harness.detectChanges();
+      inThread(el, 'Clear')!.click();
+      await settle();
+      expect(api.clearDecision).toHaveBeenCalledWith(29, 9890, 41);
+    });
+
+    it('Change to the same decision keeps the text the Lead wrote', async () => {
+      api.view.mockReturnValue(of(withThread({ decision: { decision: 'agree_program', body: 'Fine.', decidedAt: '2026-11-25T11:00:00.000Z' } })));
+      const el = await open();
+      inThread(el, 'Change')!.click();
+      harness.detectChanges();
+      inThread(el, 'Agree with the program')!.click();
+      harness.detectChanges();
+      await harness.fixture.whenStable();
+      expect(decisionBox()!.value).toBe('Fine.');
+    });
+
+    it('a refusal shows the message for its code next to the control, not in a toast', async () => {
+      api.decide.mockReturnValueOnce(throwError(() => new ApiError({ status: 409, code: 'ASSESSMENT_FIELD_ESCALATED', message: 'raw server text' })));
+      const el = await open();
+      inThread(el, 'Agree with the program')!.click();
+      harness.detectChanges();
+      write('The program is right.');
+      inThread(el, 'Agree and finish')!.click();
+      await settle();
+      expect(text(thread(el)!.querySelector('[role="alert"]')!)).toContain('Another comment on this field is escalated to TPB');
+      expect(toasts.error).not.toHaveBeenCalled();
+    });
+
+    it('an agree that would finish the review says so and its button reads "Agree and finish"', async () => {
+      const el = await open();
+      inThread(el, 'Agree with the program')!.click();
+      harness.detectChanges();
+      expect(inThread(el, 'Agree and finish')).toBeDefined();
+      expect(text(thread(el)!)).toContain('the review finishes as Quality Assessed');
+    });
+
+    it('the decision that ends the review leaves the page read only (no more controls)', async () => {
+      api.decide.mockReturnValueOnce(
+        of(decisionResultFixture({ status: 'quality_assessed', assessedBy: { id: 14, nickname: 'lea' }, finishedAt: '2026-11-25T12:00:00.000Z' })),
+      );
+      const el = await open();
+      api.view.mockReturnValue(of(withThread({ decidable: false, choices: [], decision: { decision: 'agree_program', body: 'Right.', decidedAt: '2026-11-25T11:00:00.000Z' } }, [], endedRoundTwo('quality_assessed'))));
+      inThread(el, 'Agree with the program')!.click();
+      harness.detectChanges();
+      write('Right.');
+      inThread(el, 'Agree and finish')!.click();
+      await settle();
+      expect(toasts.success).toHaveBeenCalledWith('Assessment finished: Quality Assessed.');
+      expect(inThread(el, 'Change')).toBeUndefined();
+      expect(inThread(el, 'Clear')).toBeUndefined();
+      expect(text(el.querySelector('[data-testid="review-read-only"]')!)).toContain('Finished by lea');
+    });
+
+    it('not decidable (an admin reading): the thread shows, no control', async () => {
+      api.view.mockReturnValue(of(withThread({ decidable: false, choices: [] }, [], roundTwoViewFixture({ writable: false, readOnlyReason: 'admin_read_only' }))));
+      const el = await open();
+      expect(thread(el)).not.toBeNull();
+      expect(buttons(thread(el)!).map(text)).toEqual([]);
+    });
+
+    it('Approve refused with ASSESSMENT_CORE_COMMENT_UNDECIDED: the reason under the field, no toast', async () => {
+      api.setValidations.mockReturnValueOnce(
+        throwError(() => new ApiError({ status: 409, code: 'ASSESSMENT_CORE_COMMENT_UNDECIDED', message: 'raw', fields: ['general.description'] })),
+      );
+      const el = await open();
+      byName(el, 'Approve Description of Result')!.click();
+      await settle();
+      expect(text(card(el, 'Description of Result'))).toContain('Decide the round-1 comments on this field first');
+      expect(toasts.error).not.toHaveBeenCalled();
+    });
+
+    it('the confirmation before a green write that ends the review reads the effective green (a carried green counts)', async () => {
+      // Title is carried green (validated false): validating the description is the write that ends the review.
+      api.view.mockReturnValue(of(withField('general.description', (f) => ({ ...f, thread: [], comments: [] }))));
+      const el = await open();
+      byName(el, 'Approve Description of Result')!.click();
+      await settle();
+      expect(document.body.textContent).toContain('Finish as Quality Assessed?');
+      expect(api.setValidations).not.toHaveBeenCalled();
+    });
+
+    it('Approve on a ToC core field refused with ASSESSMENT_CORE_COMMENT_UNDECIDED: the reason shows on its card, no toast', async () => {
+      const toc = viewFixture().sections.find((s) => s.key === 'theory_of_change')!;
+      api.view.mockReturnValue(
+        of(
+          roundTwoViewFixture({
+            sections: [
+              ...roundTwoViewFixture().sections,
+              {
+                ...toc,
+                fields: toc.fields.map((f) =>
+                  f.key === 'toc.entries'
+                    ? { ...f, actionable: true, effectiveValidated: false, carried: false, updated: false, thread: [threadItem({ commentId: 61 })] }
+                    : { ...f, actionable: false, thread: [] },
+                ),
+              },
+            ],
+          }),
+        ),
+      );
+      api.setValidations.mockReturnValueOnce(refusal(409, 'ASSESSMENT_CORE_COMMENT_UNDECIDED', 'raw', ['toc.entries']));
+      const el = await open();
+      byName(el, 'Next →')!.click();
+      await settle();
+      const tocCard = el.querySelector('[id="review-field-toc.entries"]')!;
+      buttons(tocCard).find((b) => (b.getAttribute('aria-label') ?? '').startsWith('Approve'))!.click();
+      await settle();
+      expect(text(tocCard)).toContain('Decide the round-1 comments on this field first');
+      expect(toasts.error).not.toHaveBeenCalled();
+    });
+
+    it('a ToC core field shows its round-1 thread and the decisions on its first card', async () => {
+      const toc = viewFixture().sections.find((s) => s.key === 'theory_of_change')!;
+      api.view.mockReturnValue(
+        of(
+          roundTwoViewFixture({
+            sections: [
+              ...roundTwoViewFixture().sections,
+              {
+                ...toc,
+                fields: toc.fields.map((f) =>
+                  f.key === 'toc.entries'
+                    ? { ...f, actionable: true, effectiveValidated: false, carried: false, updated: false, thread: [threadItem({ commentId: 61, body: 'The KPI is not the right one.' })] }
+                    : { ...f, actionable: false, thread: [] },
+                ),
+              },
+            ],
+          }),
+        ),
+      );
+      const el = await open();
+      byName(el, 'Next →')!.click();
+      await settle();
+      const tocCard = el.querySelector('[id="review-field-toc.entries"]')!;
+      const t = tocCard.querySelector('[data-testid="lead-thread"]')!;
+      expect(t).not.toBeNull();
+      expect(text(t)).toContain('The KPI is not the right one.');
+      byName(t, 'Escalate to TPB')!.click();
+      harness.detectChanges();
+      const box = document.querySelector<HTMLTextAreaElement>('#lead-decision-61')!;
+      box.value = 'TPB should check the KPI.';
+      box.dispatchEvent(new Event('input'));
+      harness.detectChanges();
+      byName(t, 'Save decision')!.click();
+      await settle();
+      expect(api.decide).toHaveBeenCalledWith(29, 9890, 61, 'escalate', 'TPB should check the KPI.');
+    });
+
+    describe('Finish for the Lead (tramo 5)', () => {
+      const escalate = { decision: 'escalate' as const, body: 'TPB.', decidedAt: '2026-11-25T11:00:00.000Z' };
+      const footer = (el: Element) => el.querySelector('qa-review-footer')!;
+
+      it('Check all with an escalated core field never asks "Finish as Quality Assessed?" (it cannot end the review)', async () => {
+        api.view.mockReturnValue(of(withThread({ decision: escalate }, [], withField('general.title', (f) => ({ ...f, effectiveValidated: false, carried: false })))));
+        const el = await open();
+        byName(el, 'Check all')!.click();
+        await settle();
+        expect(document.body.textContent).not.toContain('Finish as Quality Assessed?');
+        expect(api.setValidations).toHaveBeenCalledWith(29, 9890, { validated: true, fieldKeys: ['general.title'] });
+      });
+
+      it('with the grey core field escalated, the confirm step says the result becomes Pending for TPB review', async () => {
+        api.view.mockReturnValue(of(withThread({ decision: escalate })));
+        const el = await open();
+        byName(el, 'Finish assessment')!.click();
+        await settle();
+        expect(text(el.querySelector('[role="alertdialog"]')!)).toContain('The result becomes Pending for TPB review. This cannot be undone.');
+      });
+
+      it('a grey core field with no escalate: the confirm step names it ("validate or escalate"), links to it and offers no finish', async () => {
+        const el = await open();
+        byName(el, 'Finish assessment')!.click();
+        await settle();
+        byName(el, 'Finish anyway')!.click();
+        await settle();
+        expect(text(footer(el).querySelector('[role="alert"]')!)).toBe('Validate or escalate this core field first: Description of Result.');
+        expect(byName(footer(el), 'Finish assessment')!.disabled).toBe(true);
+        byName(footer(el), 'Go to Description of Result')!.click();
+        await settle();
+        expect(document.activeElement?.id).toBe('review-field-general.description');
+      });
+
+      it('409 ASSESSMENT_CORE_UNDECIDED from the server: the fields it names are listed and linked', async () => {
+        api.view.mockReturnValue(of(withThread({ decision: escalate })));
+        api.finish.mockReturnValueOnce(refusal(409, 'ASSESSMENT_CORE_UNDECIDED', 'raw server text', ['general.description']));
+        const el = await open();
+        byName(el, 'Finish assessment')!.click();
+        await settle();
+        byName(footer(el), 'Finish assessment')!.click();
+        await settle();
+        expect(text(footer(el).querySelector('[role="alert"]')!)).toBe('Validate or escalate this core field first: Description of Result.');
+        expect(byName(footer(el), 'Go to Description of Result')).toBeDefined();
+      });
+    });
+
+    describe("the Lead's own comment and the delete (tramo 4)", () => {
+      /** The signed-in Lead (author of the fixture's own round-2 comment 8101). */
+      const LEAD = 14;
+      const ownBlock = (el: Element) => card(el, 'Description of Result').querySelector('[data-testid="lead-own"]') as HTMLElement | null;
+      const inBlock = (block: Element | null, name: string) =>
+        block ? buttons(block).find((b) => (b.getAttribute('aria-label') ?? text(b)) === name) : undefined;
+      const unanswered = () => withThread({ state: 'open', response: undefined });
+
+      beforeEach(() => {
+        TestBed.overrideProvider(AuthSession, { useValue: { user: signal({ id: LEAD, assignments: [{ role: 'LEAD_ASSESSOR', resultTypeKey: 'policy_change' }] }) } });
+      });
+
+      it("the Lead's own comment sits in the card with only \"Escalate to TPB\"; Save sends the decision on that comment", async () => {
+        const el = await open();
+        const block = ownBlock(el)!;
+        expect(block).not.toBeNull();
+        expect(text(block)).toContain('The core field is still wrong.');
+        expect(inBlock(block, 'Agree with the program')).toBeUndefined();
+        inBlock(block, 'Escalate to TPB')!.click();
+        harness.detectChanges();
+        const box = document.querySelector<HTMLTextAreaElement>('#lead-decision-8101')!;
+        box.value = 'Escalating my own finding.';
+        box.dispatchEvent(new Event('input'));
+        harness.detectChanges();
+        inBlock(ownBlock(el), 'Save decision')!.click();
+        await settle();
+        expect(api.decide).toHaveBeenCalledWith(29, 9890, 8101, 'escalate', 'Escalating my own finding.');
+      });
+
+      it('after a reload the own escalate reads "Escalated to TPB", with Change and Clear', async () => {
+        api.view.mockReturnValue(
+          of(
+            withField('general.description', (f) => ({
+              ...f,
+              comments: f.comments.map((c) => ({ ...c, decision: { decision: 'escalate' as const, body: 'Mine.', decidedAt: '2026-11-25T11:00:00.000Z' } })),
+            })),
+          ),
+        );
+        const el = await open();
+        expect(text(ownBlock(el)!.querySelector('[data-testid="lead-decision"]')!)).toContain('Escalated to TPB');
+        expect(inBlock(ownBlock(el), 'Clear')).toBeDefined();
+      });
+
+      it('Delete on a round-1 comment the program never answered asks first; Cancel sends nothing', async () => {
+        api.view.mockReturnValue(of(unanswered()));
+        const el = await open();
+        const t = card(el, 'Description of Result').querySelector('[data-testid="lead-thread"]')!;
+        expect(byName(t, 'Delete the comment by mchen')).toBeDefined();
+        byName(t, 'Delete the comment by mchen')!.click();
+        harness.detectChanges();
+        expect(text(t)).toContain('Delete this comment by mchen?');
+        byName(t, 'Cancel')!.click();
+        harness.detectChanges();
+        expect(api.deleteComment).not.toHaveBeenCalled();
+        expect(text(t)).not.toContain('Delete this comment by mchen?');
+      });
+
+      it('confirming sends one POST (it spins, a second tap does nothing), then the view is read again', async () => {
+        api.view.mockReturnValue(of(unanswered()));
+        const slow = new Subject<AssessmentComment>();
+        api.deleteComment.mockReturnValueOnce(slow);
+        const el = await open();
+        const t = () => card(el, 'Description of Result').querySelector('[data-testid="lead-thread"]')!;
+        byName(t(), 'Delete the comment by mchen')!.click();
+        harness.detectChanges();
+        const confirm = byName(t(), 'Delete comment')!;
+        confirm.click();
+        harness.detectChanges();
+        expect(confirm.getAttribute('aria-busy')).toBe('true');
+        confirm.click();
+        api.view.mockReturnValue(of(withField('general.description', (f) => ({ ...f, thread: [] }))));
+        slow.next(comment({ id: 41 }));
+        slow.complete();
+        await settle();
+        await settle();
+        expect(api.deleteComment).toHaveBeenCalledTimes(1);
+        expect(api.deleteComment).toHaveBeenCalledWith(41);
+        expect(api.view).toHaveBeenCalledTimes(2);
+        expect(card(el, 'Description of Result').querySelector('[data-testid="lead-thread"]')).toBeNull();
+      });
+
+      it('a refused delete says why next to the control, by code, not in a toast', async () => {
+        api.view.mockReturnValue(of(unanswered()));
+        api.deleteComment.mockReturnValueOnce(refusal(409, 'ASSESSMENT_COMMENT_NOT_DELETABLE', 'raw server text'));
+        const el = await open();
+        const t = () => card(el, 'Description of Result').querySelector('[data-testid="lead-thread"]')!;
+        byName(t(), 'Delete the comment by mchen')!.click();
+        harness.detectChanges();
+        byName(t(), 'Delete comment')!.click();
+        await settle();
+        expect(text(t().querySelector('[role="alert"]')!)).toContain('This comment can no longer be deleted');
+        expect(toasts.error).not.toHaveBeenCalled();
+      });
+
+      it('a round-2 reader without the Lead role (a TPB) sees no Delete', async () => {
+        TestBed.overrideProvider(AuthSession, { useValue: { user: signal({ id: 20, assignments: [{ role: 'TPB' }] }) } });
+        api.view.mockReturnValue(of(unanswered()));
+        const el = await open();
+        const t = card(el, 'Description of Result').querySelector('[data-testid="lead-thread"]')!;
+        expect(byName(t, 'Delete the comment by mchen')).toBeUndefined();
+      });
+
+      it('an answered round-1 comment offers no Delete', async () => {
+        const el = await open();
+        const t = card(el, 'Description of Result').querySelector('[data-testid="lead-thread"]')!;
+        expect(byName(t, 'Delete the comment by mchen')).toBeUndefined();
+      });
+
+      it("in the drawer another Lead's comment offers Delete with its confirmation; one's own offers Withdraw", async () => {
+        api.view.mockReturnValue(
+          of(
+            withField('general.description', (f) => ({
+              ...f,
+              comments: [...f.comments, comment({ id: 8200, fieldKey: 'general.description', author: { id: 15, nickname: 'leo' }, body: 'Another Lead.', stepPosition: 3, round: 2 })],
+            })),
+          ),
+        );
+        const el = await open();
+        buttons(card(el, 'Description of Result')).find((b) => text(b).startsWith('View comments'))!.click();
+        await settle();
+        expect(anywhere('Delete the comment by leo')).toBeDefined();
+        expect(anywhere('Delete the comment by lea')).toBeUndefined();
+        expect([...document.querySelectorAll('button')].some((b) => text(b) === 'Withdraw comment')).toBe(true);
+        anywhere('Delete the comment by leo')!.click();
+        harness.detectChanges();
+        anywhere('Delete comment')!.click();
+        await settle();
+        expect(api.deleteComment).toHaveBeenCalledWith(8200);
+      });
     });
   });
 

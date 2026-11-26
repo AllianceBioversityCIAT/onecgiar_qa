@@ -109,6 +109,7 @@
                       [title]="sec.name"
                       [requiredReview]="toc.assessed > 0"
                       [busyKeys]="validating()"
+                      [errors]="store.fieldErrors()"
                       (act)="onTocCard($event)"
                     />
                   } @else {
@@ -117,15 +118,26 @@
                     </div>
                     @for (f of sec.fields; track f.id) {
                       <qa-review-field-card
+                        [attr.id]="'review-field-' + f.id"
+                        tabindex="-1"
                         [field]="f"
                         [qaReveal]="$index"
                         [busy]="validating().has(f.id) || validating().has(allKey) || (reasonBusy() && reasonAsk()?.fieldKey === f.id)"
                         [aiChip]="ai.chip(f.id)"
-                        [aiReadOnly]="ai.readOnly()"
+                        [aiReadOnly]="ai.readOnlyFor(f.id)"
                         (act)="onCard(f.id, $event)"
                         (aiShown)="ai.shown(f.id)"
                         (aiCopy)="onAiCopy(f.id)"
-                      />
+                        [error]="store.fieldErrors().get(f.id) ?? ''"
+                      >
+                        @if (f.leadThread.length) {
+                          <qa-review-lead-thread [items]="f.leadThread" [fieldLabel]="f.label" [open]="f.threadOpen" />
+                        }
+                        @if (f.leadOwn.length) {
+                          <!-- Round 2 (tramo 4): the Lead's own comments, to escalate. TODO(design): Juanpa -->
+                          <qa-review-lead-thread [items]="f.leadOwn" [fieldLabel]="f.label" [open]="true" title="Your comments in this round" testId="lead-own" />
+                        }
+                      </qa-review-field-card>
                     } @empty {
                       <p class="m-0 text-(length:--fs-13) text-(--text-4)">No fields in this section.</p>
                     }
@@ -164,6 +176,8 @@
               [finishing]="store.finishing()"
               [finishError]="finishError()"
               [finishBlocked]="finishBlocked()"
+              [blockedFields]="blockedFields()"
+              (goField)="goField($event)"
               (back)="goSection(idx() - 1)"
               (next)="goSection(idx() + 1)"
               (finish)="finish()"

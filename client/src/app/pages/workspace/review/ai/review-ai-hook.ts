@@ -36,6 +36,19 @@ export class ReviewAiHook {
   /** TPB and ADMIN read the suggestion; only a writable page offers "Copy to comment". */
   readonly readOnly = computed(() => !(this.review.view()?.writable ?? false));
 
+  /**
+   * Read only for one field: the page's rule, and in round 2 a field that is not actionable (not core) is context for
+   * the Lead, which can neither comment nor validate it (`ASSESSMENT_FIELD_NOT_CORE`), so no "Copy to comment".
+   */
+  readOnlyFor(fieldKey: string): boolean {
+    return this.readOnly() || !this.actionable(fieldKey);
+  }
+
+  /** Round 2: only an `actionable` field takes a write (contract § 3). Round 1: every field as sent. */
+  private actionable(fieldKey: string): boolean {
+    return this.review.view()?.round !== 2 || this.fields().get(fieldKey)?.actionable !== false;
+  }
+
   private readonly fields = computed<ReadonlyMap<string, AssessmentField>>(() => {
     const view = this.review.view();
     const map = new Map<string, AssessmentField>();
@@ -97,7 +110,8 @@ export class ReviewAiHook {
     if (this.readOnly()) return null;
     for (const field of this.fields().values()) {
       if (key !== ALL && field.key !== key) continue;
-      if (field.mode !== 'assessed' || field.validated || this.reasonGiven.has(field.key)) continue;
+      // Already green (round 2: a carried green counts, `effectiveValidated`): nothing to validate, nothing to ask.
+      if (field.mode !== 'assessed' || !this.actionable(field.key) || (field.effectiveValidated ?? field.validated) || this.reasonGiven.has(field.key)) continue;
       const reportedLevel = levelOf(field.value);
       const ai = this.ai.availableView(field.key);
       if (!needsReason(field.key, reportedLevel, ai) || ai?.valueKind !== 'level') continue;

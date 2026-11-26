@@ -7,8 +7,11 @@ import {
   CommentThread,
   FieldLabels,
   AssessmentReadOnlyReason,
+  CommentState,
+  LeadDecisionKind,
   ProgramResponseKind,
   TOC_SECTION_KEY,
+  ThreadItem,
 } from '../../../core/api/assessment.models';
 import { reviewerLabel } from '../../../core/api/acting-role';
 import { evidenceEntry } from '../../../core/domain/evidence-entry';
@@ -24,6 +27,7 @@ import {
   StateChip,
   TocCardVm,
   TocGroupVm,
+  ThreadItemVm,
   TocLinkVm,
 } from './review-model';
 import type { FieldComment } from './review.mock';
@@ -43,6 +47,7 @@ export interface ReviewCommentVm extends FieldComment {
   readonly authorId: number;
   readonly open: boolean;
   readonly canWithdraw: boolean;
+  readonly canDelete: boolean;
 }
 
 /** Who reads the thread: the caller's user id, and whether their step still lets them take a comment back. */
@@ -51,6 +56,8 @@ export interface ThreadReader {
   readonly canWithdraw: boolean;
   /** False once the server said the programs step is closed: the clarification form is not offered (P2-3911). */
   readonly canClarify?: boolean;
+  /** Round 2 (Lead): another reviewer's open comment may be deleted (`deleteOpen`). */
+  readonly canDelete?: boolean;
 }
 
 const NO_READER: ThreadReader = { me: null, canWithdraw: false };
@@ -59,8 +66,18 @@ const NO_READER: ThreadReader = { me: null, canWithdraw: false };
  * A comment can be taken back while the caller writes on the assessment, and also after it ended (the server allows
  * it while step 1 or 2 is open, FR-13). Any other read-only reason (admin, step closed, no step) offers nothing.
  */
-export function withdrawOpen(view: Pick<AssessmentView, 'writable' | 'readOnlyReason'>): boolean {
-  return view.writable || view.readOnlyReason === 'finished';
+export function withdrawOpen(view: Pick<AssessmentView, 'writable' | 'readOnlyReason'> & Pick<Partial<AssessmentView>, 'round'>): boolean {
+  // Round 2: after the Lead's end the server refuses it (an escalated comment is no longer open; contract § 4.5).
+  return view.writable || (view.readOnlyReason === 'finished' && view.round !== 2);
+}
+
+/**
+ * Round 2 (Lead): another reviewer's comment can be deleted while the Lead writes on the review (contract § 4.4).
+ * `lead`: the caller reads as the Lead (a TPB also writes on a round-2 view, and the server refuses its delete). The
+ * server also refuses the Lead's own comment and one the program answered; the comment-level rule is the mapper's.
+ */
+export function deleteOpen(view: Pick<AssessmentView, 'writable'> & Pick<Partial<AssessmentView>, 'round'>, lead: boolean): boolean {
+  return lead && view.round === 2 && view.writable;
 }
 
 export interface TocVm {
@@ -103,7 +120,8 @@ export interface ReviewVm {
   /**
    * Status the result takes if it is finished now, mirroring the server's `endOnFinish`: empty while Finish would
    * be refused (`finishBlockedBy`); returned while a core field is grey (and commented), and in step 1 also while
-   * any comment still stands (`returnsOnAnyComment`); Quality Assessed otherwise.
+   * any comment still stands (`returnsOnAnyComment`); Quality Assessed otherwise. Round 2 (Lead): Pending for
+   * TPB review while a core field is effectively grey, Quality Assessed otherwise (`finishOutcome`).
    */
   readonly finishTo: string;
   /**
@@ -111,6 +129,8 @@ export interface ReviewVm {
    * refuses Finish while any is left (409 `ASSESSMENT_CORE_UNCOMMENTED`), so the page names them instead of an outcome.
    */
   readonly finishBlockedBy: readonly string[];
+  /** The same fields as `finishBlockedBy`, with their keys (the footer links to each). */
+  readonly finishBlockedFields: readonly { readonly key: string; readonly label: string }[];
 }
 
 const ASSESSOR_INSTRUCTIONS =
@@ -263,6 +283,14 @@ const isAutoValidated = (view: Pick<AssessmentView, 'header'>): boolean =>
  */
 const asContext = (f: AssessmentField): AssessmentField => ({ ...f, mode: 'view', validated: false });
 
+/**
+ * Round 2 (Lead): only an `actionable` field (an Assessed core field) takes a check, a comment or a decision; any
+ * other field is context, drawn like a field the configuration does not assess (round-2 contract § 1, § 3).
+ * Round 1, or `actionable` absent: the field as sent. `thread`, `decidable` and `choices` are not read here.
+ */
+const leadContext = (f: AssessmentField): AssessmentField =>
+  f.actionable === false ? { ...f, mode: 'view' } : f;
+
 const openComments = (f: AssessmentField): readonly AssessmentComment[] =>
   f.comments.filter((c) => c.state !== 'withdrawn');
 /**
@@ -275,17 +303,47 @@ export function returnsOnAnyComment(view: AssessmentView): boolean {
   return [...view.sections.flatMap((s) => s.fields), ...view.other].some((f) => openComments(f).length > 0);
 }
 const isAssessed = (f: AssessmentField): boolean => f.mode === 'assessed';
+/**
+ * The green mark of a field (round-2 contract § 3): the stored mark, else the green carried from round 1. A round-1
+ * view sends `effectiveValidated` equal to `validated`, or not at all (step-1 server): then the stored mark.
+ * `validated` itself stays the stored row; every check, count and finish outcome of the page reads this.
+ */
+const isGreen = (f: AssessmentField): boolean => f.effectiveValidated ?? f.validated;
 /** Green, or carrying an open comment (the assessor has said something on it). */
-const isResolved = (f: AssessmentField): boolean => f.validated || openComments(f).length > 0;
+const isResolved = (f: AssessmentField): boolean => isGreen(f) || openComments(f).length > 0;
+/**
+ * Round 2 (Lead): a live `escalate` on the field, on a round-1 comment of its thread or on the Lead's own comment
+ * (a withdrawn comment carries none). It keeps the field grey and lets Finish end `escalated` (contract § 4.3).
+ */
+const isEscalated = (f: AssessmentField): boolean =>
+  (f.thread ?? []).some((t) => t.decision?.decision === 'escalate') ||
+  f.comments.some((c) => c.state !== 'withdrawn' && c.decision?.decision === 'escalate');
+/**
+ * Round 2 (Lead): green, or escalated. A grey core field with neither is what the server refuses Finish for
+ * (`ASSESSMENT_CORE_UNDECIDED`), whatever comments it carries.
+ */
+const isDecided = (f: AssessmentField): boolean => isGreen(f) || isEscalated(f);
+/** Round 2 (Lead): the green is round 1's, unchanged, because the Lead stored nothing. */
+const isCarried = (f: AssessmentField): boolean => isAssessed(f) && isGreen(f) && f.carried === true;
 
-/** The green/grey mark (FR-9, FR-23: icon and accessible name, never color alone) and the comment count. */
+const CARRIED_LABEL = 'Green in round 1, unchanged';
+const UPDATED_LABEL = 'Updated';
+
+/**
+ * The green/grey mark (FR-9, FR-23: icon and accessible name, never color alone) and the comment count. Round 2 adds,
+ * with existing chip styles only, the carried-green hint and "Updated" (changed since round 1).
+ * TODO(design): both round-2 chips borrow the `agreed` / `changes` looks until Juanpa designs them.
+ */
 function chips(f: AssessmentField): StateChip[] {
-  if (!isAssessed(f)) return [];
+  const updated: StateChip[] = f.updated ? [{ kind: 'changes', label: UPDATED_LABEL, count: 0 }] : [];
+  if (!isAssessed(f)) return updated;
   const states: StateChip[] = [
-    f.validated
+    isGreen(f)
       ? { kind: 'ok', label: 'Validated', count: 0 }
       : { kind: 'not', label: 'Not validated', count: 0 },
   ];
+  if (isCarried(f)) states.push({ kind: 'agreed', label: CARRIED_LABEL, count: 0 });
+  states.push(...updated);
   const open = openComments(f).length;
   if (open) states.push({ kind: 'com', label: 'Commented', count: open });
   return states;
@@ -309,8 +367,9 @@ function actions(f: AssessmentField, writable: boolean): FieldActions | null {
   if (!writable) return count > 0 ? base : null;
   return {
     ...base,
-    approve: !f.validated,
-    undo: f.validated ? 'approval' : null,
+    // Round 2: an escalated field cannot turn green (409 ASSESSMENT_FIELD_ESCALATED); the Lead clears the escalate first.
+    approve: !isGreen(f) && !isEscalated(f),
+    undo: isGreen(f) ? 'approval' : null,
     secondary: true,
     secondaryLabel: count > 0 ? 'View comments' : 'Add comment',
   };
@@ -330,7 +389,107 @@ function cardStatus(f: AssessmentField, writable: boolean, id: string = f.key): 
   };
 }
 
-export function toFieldVm(f: AssessmentField, writable: boolean): FieldVm {
+// ---------- Round 2: the round-1 thread and the Lead's decisions (round-2 contract § 3.1, § 4.1) ----------
+
+/**
+ * What the page lets the Lead do on the threads. `decide`: the page offers writes at all (the controls then follow
+ * each item's `decidable` / `choices` alone, never `writable`: contract § 3.1). `othersGreen`: every other core field
+ * is effectively green, so an agree here may end the review.
+ */
+export interface LeadContext {
+  readonly decide: boolean;
+  readonly othersGreen: boolean;
+  /** The page offers the delete of another reviewer's comment (`deleteOpen` and writes on). */
+  readonly remove?: boolean;
+  /** The caller's user id: one's own comment is withdrawn, never deleted. */
+  readonly me?: number | null;
+}
+const NO_LEAD: LeadContext = { decide: false, othersGreen: false };
+
+const DECISION_LABELS: Readonly<Record<LeadDecisionKind, { readonly offer: string; readonly taken: string }>> = {
+  agree_program: { offer: 'Agree with the program', taken: 'Agreed with the program' },
+  escalate: { offer: 'Escalate to TPB', taken: 'Escalated to TPB' },
+};
+/** The program's response as the drawer names it. */
+const RESPONSE_LABELS: Readonly<Record<ProgramResponseKind, string>> = {
+  accept: 'Accepted',
+  accept_with_comment: 'Accepted with comment',
+  disagree: 'Disagreed',
+  request_clarification: 'Requested clarification',
+};
+/** Round-1 states a Lead decides (contract § 3.1). */
+const TO_DECIDE: ReadonlySet<CommentState> = new Set<CommentState>(['disagreed', 'open', 'clarification_requested']);
+/** A comment that keeps its field grey: escalated, or still waiting for a decision (contract § 4.1, § 4.2). */
+const holdsGrey = (t: ThreadItem): boolean => t.decision?.decision === 'escalate' || (!t.decision && TO_DECIDE.has(t.state));
+
+/** The round-1 thread of an actionable core field, as the card shows it. Empty anywhere else. */
+function toThreadVm(f: AssessmentField, lead: LeadContext): ThreadItemVm[] {
+  if (!isAssessed(f) || !f.thread?.length) return [];
+  const now = formatValue(f);
+  // The Lead's own escalated comment keeps the field grey too (contract § 3.2).
+  const ownEscalate = f.comments.some((c) => c.decision?.decision === 'escalate');
+  return f.thread.map((t, i, all) => {
+    const then = formatValue({ value: t.valueCopy.value, labels: t.valueCopy.labels ?? f.labels, notApplicable: false, subfieldLists: f.subfieldLists });
+    const choices = lead.decide && t.decidable ? t.choices.map((kind) => ({ kind, label: DECISION_LABELS[kind].offer })) : [];
+    return {
+      commentId: t.commentId,
+      who: reviewerLabel(t.author),
+      date: romeDay(t.createdAt),
+      text: t.body,
+      valueThen: then === now ? null : t.valueTruncated ? `${then}…` : then,
+      response: t.response
+        ? { who: t.response.respondedBy.name, label: RESPONSE_LABELS[t.response.kind], date: romeDay(t.response.respondedAt), text: t.response.body ?? '' }
+        : null,
+      clarifications: t.clarifications.map((c) => ({
+        question: c.question,
+        askedOn: romeDay(c.requestedAt),
+        answer: c.answer?.body ?? null,
+        answeredOn: c.answer ? romeDay(c.answer.answeredAt) : '',
+      })),
+      decision: t.decision
+        ? { kind: t.decision.decision, label: DECISION_LABELS[t.decision.decision].taken, text: t.decision.body ?? '', date: romeDay(t.decision.decidedAt) }
+        : null,
+      choices,
+      pending: t.decidable && !t.decision,
+      own: false,
+      // Contract § 4.4: not one the program answered, never one's own.
+      canDelete: lead.remove === true && !t.response && t.author.id !== (lead.me ?? null),
+      // Announced only, the server decides: agree greens the field once nothing else on it holds it grey.
+      agreeEnds:
+        lead.othersGreen && !ownEscalate && choices.some((c) => c.kind === 'agree_program') && all.every((o, j) => j === i || !holdsGrey(o)),
+    };
+  });
+}
+
+/**
+ * The Lead's own live round-2 comments of an actionable field (contract § 3.2): the comments that carry the own-comment
+ * keys (`decidable` present), withdrawn ones left out. Only "Escalate to TPB" (exactly `choices`); no program response.
+ */
+function toOwnVm(f: AssessmentField, lead: LeadContext): ThreadItemVm[] {
+  if (!isAssessed(f)) return [];
+  return f.comments
+    .filter((c) => c.decidable !== undefined && c.state !== 'withdrawn')
+    .map((c) => ({
+      commentId: c.id,
+      who: reviewerLabel(c.author),
+      date: romeDay(c.createdAt),
+      text: c.body,
+      valueThen: null,
+      response: null,
+      clarifications: [],
+      decision: c.decision
+        ? { kind: c.decision.decision, label: DECISION_LABELS[c.decision.decision].taken, text: c.decision.body ?? '', date: romeDay(c.decision.decidedAt) }
+        : null,
+      choices: lead.decide && c.decidable ? (c.choices ?? []).map((kind) => ({ kind, label: DECISION_LABELS[kind].offer })) : [],
+      pending: false,
+      agreeEnds: false,
+      own: true,
+      canDelete: false,
+    }));
+}
+
+export function toFieldVm(f: AssessmentField, writable: boolean, lead: LeadContext = NO_LEAD): FieldVm {
+  const leadThread = toThreadVm(f, lead);
   return {
     ...cardStatus(f, writable),
     label: fieldLabel(f.key, f.label),
@@ -343,6 +502,11 @@ export function toFieldVm(f: AssessmentField, writable: boolean): FieldVm {
     before: null,
     scale: null,
     iaGroupStart: false,
+    carried: isCarried(f),
+    updated: f.updated === true,
+    leadThread,
+    leadOwn: toOwnVm(f, lead),
+    threadOpen: leadThread.some((t) => t.pending),
   };
 }
 
@@ -404,14 +568,18 @@ function answerCard(f: AssessmentField, status: CardStatusVm): TocCardVm {
  * contribution, `contributors.science_programs` one group per contributing program. A field's mark and buttons sit
  * on its first card (`id` = the field key); its other cards read `key#n`.
  */
-export function toTocVm(fields: readonly AssessmentField[], writable: boolean): TocVm {
+export function toTocVm(fields: readonly AssessmentField[], writable: boolean, lead?: (f: AssessmentField) => LeadContext): TocVm {
   const main: TocCardVm[] = [];
   const programGroups: TocGroupVm[] = [];
   let count = 0;
   for (const f of fields) {
+    // Round 2 (Lead): the field's round-1 thread and own comments go on its first card, as on a field card.
+    const context = lead?.(f) ?? NO_LEAD;
+    const leadThread = toThreadVm(f, context);
+    const thread = { leadThread, leadOwn: toOwnVm(f, context), threadOpen: leadThread.some((t) => t.pending) };
     const status = (i: number) =>
       i === 0
-        ? cardStatus(f, writable)
+        ? { ...cardStatus(f, writable), ...thread }
         : { ...cardStatus(f, false, `${f.key}#${i}`), states: [], actions: null };
     const listed =
       !f.notApplicable && Array.isArray(f.value) && f.value.every(isObject)
@@ -464,7 +632,7 @@ export function toTocVm(fields: readonly AssessmentField[], writable: boolean): 
     groups,
     count,
     programs: Math.max(programGroups.length, count > 0 ? 1 : 0),
-    reviewed: fields.filter((f) => isAssessed(f) && f.validated).length,
+    reviewed: fields.filter((f) => isAssessed(f) && isGreen(f)).length,
     assessed: fields.filter(isAssessed).length,
   };
 }
@@ -544,16 +712,38 @@ export function toHeaderVm(view: AssessmentView, canAct: boolean = view.writable
 }
 
 /**
+ * The status Finish would give now. Round 1: returned while a core field is grey or any comment stands. Round 2
+ * (contract § 4.3): Quality Assessed when no core field is effectively grey, else escalated, which the result shows
+ * as Pending for TPB review (a grey core field with no escalate is refused by the server, not announced here).
+ */
+function finishOutcome(view: AssessmentView, assessed: readonly AssessmentField[]): string {
+  const grey = assessed.some((f) => f.core && !isGreen(f));
+  if (view.round === 2) return grey ? STATUS_LABELS.pending_tpb_review : STATUS_LABELS.quality_assessed;
+  return grey || returnsOnAnyComment(view) ? STATUS_LABELS.returned_to_program : STATUS_LABELS.quality_assessed;
+}
+
+/**
  * `writes` off = the page shows what the API says but offers no write button (validate, comment, finish), even to
  * a caller who may write. The banner and `writable` still say what the API said.
  */
-export function toReviewVm(view: AssessmentView, writes = true): ReviewVm {
+/**
+ * `me`: the caller's user id. `leadCaller`: the caller reads this round-2 view as the Lead (the store tells it from the
+ * Admin's acting role or the caller's Lead assignment); only then is a delete offered.
+ */
+export function toReviewVm(view: AssessmentView, writes = true, me: number | null = null, leadCaller = false): ReviewVm {
   const writable = view.writable;
   // Nothing is assessed on an auto-validated result, whatever the caller may write elsewhere.
   const auto = isAutoValidated(view);
   const canAct = writable && writes && !auto;
+  const roundTwo = view.round === 2;
   const fieldsOf = (fields: readonly AssessmentField[]): readonly AssessmentField[] =>
-    auto ? fields.map(asContext) : fields;
+    auto ? fields.map(asContext) : roundTwo ? fields.map(leadContext) : fields;
+  const assessed = view.sections.flatMap((s) => fieldsOf(s.fields)).filter(isAssessed);
+  const greyCores = assessed.filter((f) => f.core && !isGreen(f)).map((f) => f.key);
+  const remove = canAct && deleteOpen(view, leadCaller);
+  // What counts as done on a field: green or commented in round 1; green or escalated in round 2 (the Lead).
+  const resolved = roundTwo ? isDecided : isResolved;
+  const lead = (f: AssessmentField): LeadContext => ({ decide: writes && !auto, othersGreen: greyCores.every((k) => k === f.key), remove, me });
   const sections: ReviewSectionVm[] = view.sections.map((s) => {
     const isToc = s.key === TOC_SECTION_KEY;
     const fields = fieldsOf(s.fields);
@@ -561,9 +751,9 @@ export function toReviewVm(view: AssessmentView, writes = true): ReviewVm {
       key: s.key,
       name: s.label,
       isToc,
-      fields: isToc ? [] : fields.map((f) => toFieldVm(f, canAct)),
-      toc: isToc ? toTocVm(fields, canAct) : null,
-      open: fields.filter((f) => isAssessed(f) && !isResolved(f)).length,
+      fields: isToc ? [] : fields.map((f) => toFieldVm(f, canAct, lead(f))),
+      toc: isToc ? toTocVm(fields, canAct, lead) : null,
+      open: fields.filter((f) => isAssessed(f) && !resolved(f)).length,
     };
   });
   if (view.other.length) {
@@ -576,25 +766,23 @@ export function toReviewVm(view: AssessmentView, writes = true): ReviewVm {
       open: 0,
     });
   }
-  const assessed = view.sections.flatMap((s) => fieldsOf(s.fields)).filter(isAssessed);
   // The server's refusal (`endOnFinish`): a grey core field with no non-withdrawn comment.
-  const finishBlockedBy = assessed.filter((f) => f.core && !isResolved(f)).map((f) => f.label);
+  // Round 2 (contract § 4.3): `ASSESSMENT_CORE_UNDECIDED`, a grey core field with no escalate.
+  const blocked = assessed.filter((f) => f.core && !resolved(f));
+  const finishBlockedBy = blocked.map((f) => f.label);
   return {
     header: toHeaderVm(view, canAct),
     sections,
     writable,
     banner: auto ? AUTO_VALIDATED_BANNER : readOnlyBanner(view.readOnlyReason, view),
-    resolved: assessed.filter(isResolved).length,
+    resolved: assessed.filter(resolved).length,
     total: assessed.length,
     commented: assessed.filter((f) => openComments(f).length > 0).length,
-    validated: assessed.filter((f) => f.validated).length,
+    validated: assessed.filter(isGreen).length,
     canFinish: canAct && (view.assessment?.status ?? 'pending') === 'pending',
-    finishTo: finishBlockedBy.length
-      ? ''
-      : assessed.some((f) => f.core && !f.validated) || returnsOnAnyComment(view)
-        ? STATUS_LABELS.returned_to_program
-        : STATUS_LABELS.quality_assessed,
+    finishTo: finishBlockedBy.length ? '' : finishOutcome(view, assessed),
     finishBlockedBy,
+    finishBlockedFields: blocked.map((f) => ({ key: f.key, label: f.label })),
   };
 }
 
@@ -602,6 +790,14 @@ export function toReviewVm(view: AssessmentView, writes = true): ReviewVm {
  * Why Finish is refused, in the words the page uses for the 409 `ASSESSMENT_CORE_UNCOMMENTED` (one or several core
  * field labels); empty when nothing blocks it.
  */
+/**
+ * Round 2 (Lead): why Finish is refused, in the words the page uses for the 409 `ASSESSMENT_CORE_UNDECIDED` (contract
+ * § 4.3); empty when nothing blocks it.
+ */
+export function coreUndecidedMessage(names: readonly string[]): string {
+  return names.length ? `Validate or escalate ${names.length === 1 ? 'this core field' : 'these core fields'} first: ${names.join(', ')}.` : '';
+}
+
 export function coreUncommentedMessage(names: readonly string[]): string {
   return names.length ? `Validate or comment ${names.length === 1 ? 'this core field' : 'these core fields'} first: ${names.join(', ')}.` : '';
 }
@@ -632,6 +828,8 @@ export function toCommentVm(
     authorId: c.author.id,
     open: c.state === 'open',
     canWithdraw: reader.canWithdraw && c.state === 'open' && reader.me !== null && c.author.id === reader.me,
+    // Round 2 (Lead): another reviewer's open comment (contract § 4.4); the program never sees round-2 comments.
+    canDelete: reader.canDelete === true && c.state === 'open' && reader.me !== null && c.author.id !== reader.me,
     who: reviewerLabel(c.author),
     role: 'Assessor',
     date: romeStamp(c.createdAt),

@@ -67,6 +67,10 @@
                   <button hlmBtn qaBtn tone="link" size="sm" flush="start" type="button" [attr.aria-label]="'Withdraw your comment of ' + c.date" [loading]="c.id !== undefined && withdrawingId() === c.id" (click)="c.id !== undefined ? withdrawId.emit(c.id) : withdraw.emit($index)">Withdraw comment</button>
                 </div>
               }
+              @if (c.canDelete && c.id !== undefined) {
+                <!-- Round 2 (Lead, tramo 4): another reviewer's comment. TODO(design): Juanpa -->
+                <qa-review-delete-comment [commentId]="c.id" [who]="c.who" />
+              }
             </li>
           }
         }
