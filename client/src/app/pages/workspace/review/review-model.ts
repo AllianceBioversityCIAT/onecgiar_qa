@@ -1,4 +1,5 @@
 // View models and pure helpers for the Review page. One page for every reviewing role; only the buttons change.
+import type { DecisionKind } from '../../../core/api/assessment.models';
 import {
   AiMatch,
   FieldDef,
@@ -116,7 +117,7 @@ export interface FieldVm extends CardStatusVm {
 
 /** A decision the Lead may take on a comment ("Agree with the program", "Escalate to TPB"). */
 export interface DecisionChoiceVm {
-  readonly kind: 'agree_program' | 'escalate';
+  readonly kind: DecisionKind;
   readonly label: string;
 }
 
@@ -145,7 +146,7 @@ export interface ThreadItemVm {
   }[];
   /** The Lead's current decision, or null. */
   readonly decision: {
-    readonly kind: 'agree_program' | 'escalate';
+    readonly kind: DecisionKind;
     readonly label: string;
     readonly text: string;
     readonly date: string;

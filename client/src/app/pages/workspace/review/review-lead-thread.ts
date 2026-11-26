@@ -1,7 +1,7 @@
 // @akili-spec escalation/round-2
 import { Component, computed, inject, input, linkedSignal, signal } from '@angular/core';
 import { FormField, form } from '@angular/forms/signals';
-import { LeadDecisionKind } from '../../../core/api/assessment.models';
+import { DecisionKind } from '../../../core/api/assessment.models';
 import { QaButtonImports } from '../../../ui';
 import { ReviewDeleteComment } from './review-delete-comment';
 import { ThreadItemVm } from './review-model';
@@ -10,7 +10,7 @@ import { ReviewStore } from './review-store';
 /** The decision being written: on which comment, which kind. */
 interface Editing {
   readonly commentId: number;
-  readonly kind: LeadDecisionKind;
+  readonly kind: DecisionKind;
 }
 
 /**
@@ -63,7 +63,7 @@ export class ReviewLeadThread {
   /** Any decision of the page is on its way: the other controls wait (the store refuses a second write anyway). */
   protected readonly anyBusy = computed(() => this.store.deciding() !== null);
 
-  protected start(item: ThreadItemVm, kind: LeadDecisionKind): void {
+  protected start(item: ThreadItemVm, kind: DecisionKind): void {
     this.editing.set({ commentId: item.commentId, kind });
     // Changing to the same kind keeps the text the Lead wrote; another kind starts empty.
     this.draft.set({ text: item.decision?.kind === kind ? item.decision.text : '' });
@@ -101,11 +101,11 @@ export class ReviewLeadThread {
     return item.choices.length > 0 && !this.isEditing(item) && (!item.decision || this.changing() === item.commentId);
   }
 
-  protected editorTitle(kind: LeadDecisionKind): string {
+  protected editorTitle(kind: DecisionKind): string {
     return kind === 'agree_program' ? 'Why do you agree with the program?' : 'Why escalate to TPB?';
   }
 
-  protected saveLabel(item: ThreadItemVm, kind: LeadDecisionKind): string {
+  protected saveLabel(item: ThreadItemVm, kind: DecisionKind): string {
     return kind === 'agree_program' && item.agreeEnds ? 'Agree and finish' : 'Save decision';
   }
 }

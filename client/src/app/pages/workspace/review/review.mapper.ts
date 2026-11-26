@@ -8,7 +8,7 @@ import {
   FieldLabels,
   AssessmentReadOnlyReason,
   CommentState,
-  LeadDecisionKind,
+  DecisionKind,
   ProgramResponseKind,
   TOC_SECTION_KEY,
   ThreadItem,
@@ -406,9 +406,12 @@ export interface LeadContext {
 }
 const NO_LEAD: LeadContext = { decide: false, othersGreen: false };
 
-const DECISION_LABELS: Readonly<Record<LeadDecisionKind, { readonly offer: string; readonly taken: string }>> = {
+const DECISION_LABELS: Readonly<Record<DecisionKind, { readonly offer: string; readonly taken: string }>> = {
   agree_program: { offer: 'Agree with the program', taken: 'Agreed with the program' },
   escalate: { offer: 'Escalate to TPB', taken: 'Escalated to TPB' },
+  tpb_agree_program: { offer: 'Side with the program', taken: 'Sided with the program' },
+  tpb_agree_assessor: { offer: 'Side with the assessor', taken: 'Sided with the assessor' },
+  ppu_done: { offer: 'Mark as done', taken: 'Done' },
 };
 /** The program's response as the drawer names it. */
 const RESPONSE_LABELS: Readonly<Record<ProgramResponseKind, string>> = {

@@ -9,9 +9,11 @@ import {
   AssessmentField,
   AssessmentStatus,
   AssessmentView,
+  Decision,
+  DecisionKind,
   DecisionResult,
   CommentThread,
-  LeadDecisionKind,
+  LeadDecision,
   QuickComment,
   QuickCommentRole,
   ValidationSummary,
@@ -529,7 +531,7 @@ export class ReviewStore implements OnDestroy {
    * read again: the answer carries no `effectiveValidated` and the other comments' `choices` may have changed. When the
    * call ended the review (`status` not `pending`), the page turns read only and says so.
    */
-  async decide(commentId: number, decision: LeadDecisionKind, body: string): Promise<DecisionOutcome> {
+  async decide(commentId: number, decision: DecisionKind, body: string): Promise<DecisionOutcome> {
     const text = body.trim();
     if (!text) return this.decisionRefused(commentId, DECISION_EMPTY);
     const length = [...text].length;
@@ -617,7 +619,7 @@ export class ReviewStore implements OnDestroy {
                   }),
                 };
               if (f.comments.some((c) => c.id === commentId && c.decidable !== undefined))
-                return { ...f, comments: f.comments.map((c) => (c.id === commentId ? { ...c, decision: result.decision } : c)) };
+                return { ...f, comments: f.comments.map((c) => (c.id === commentId ? { ...c, decision: asLeadDecision(result.decision) } : c)) };
               return f;
             }),
           })),
@@ -902,6 +904,11 @@ function withMarks(
   const carried = row === undefined && f.carried === true;
   const green = effective?.get(f.key) ?? row ?? (carried ? (f.effectiveValidated ?? false) : false);
   return { ...f, validated, effectiveValidated: green, carried: carried && green };
+}
+
+/** Only a Lead decides its own round-2 comment (contract § 3.2): any other kind there is none. */
+function asLeadDecision(decision: Decision | null): LeadDecision | null {
+  return decision && (decision.decision === 'agree_program' || decision.decision === 'escalate') ? (decision as LeadDecision) : null;
 }
 
 /** The label of a field of the view, by key. */
