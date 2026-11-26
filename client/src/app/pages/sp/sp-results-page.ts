@@ -173,6 +173,22 @@ interface LoadedResults {
                       <span data-testid="sp-row-type" class="mt-1 block text-(length:--fs-12) text-(--text-3) xl:hidden">{{ r.resultType.label }}</span>
                       <span class="block text-(length:--fs-12) text-(--text-3) tabular-nums md:hidden">{{ r.answered }} of {{ r.comments }} answered</span>
                       <span class="mt-1.5 block md:hidden"><qa-badge [status]="statusTone(r.status)">{{ statusLabel(r.status) }}</qa-badge></span>
+                      <!-- Phones hide the Actions column, so the export goes under the status (same action, above the row link). -->
+                      <span class="relative z-10 mt-1 block md:hidden">
+                        <button
+                          hlmBtn
+                          qaBtn
+                          tone="link"
+                          size="sm"
+                          flush="start"
+                          type="button"
+                          data-testid="sp-row-export-phone"
+                          [loading]="exporting() === r.resultCode"
+                          [disabled]="r.comments === 0 || (exporting() !== null && exporting() !== r.resultCode)"
+                          [attr.aria-label]="'Export comments of result ' + r.resultCode"
+                          (click)="exportComments(r)"
+                        >Export comments</button>
+                      </span>
                     </td>
                     <td class="px-4 py-3 align-middle text-(length:--fs-13) text-(--text-3) max-xl:hidden">{{ r.resultType.label }}</td>
                     <td class="px-4 py-3 text-right align-middle text-(length:--fs-13) text-(--text) tabular-nums max-md:hidden">{{ r.comments }}</td>
