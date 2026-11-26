@@ -203,3 +203,152 @@ Juanpa: the panels read as loose text with no hierarchy. A mockup was approved, 
   - `ng build`: green.
   - `ng test` on cycle and assessors: 14 files, 185 passed.
   - Playwright: open step, future step, and the assessor panel at 1440 and 390 px.
+
+## Round 14 — Edit timeline and comments panels (same day)
+- **Edit timeline:**
+  - "Steps" is a 14px section title, with "Rome time (CET / CEST), 24-hour clock" under it, as in the Step panel. Before, the zone text sat at the right of the title.
+  - The notes under the table ("Loading is manual…", "Closed steps keep…") are 12px muted help, so they no longer compete with the table.
+- **Comments panel:**
+  - Labelled parts in reading order: "Current value", "Comments N", and a "New comment" label above the composer, with a hairline before it.
+  - The value box uses the soft fill of the rest of the app.
+  - "Quick comment" lost its dashed border; it is a solid secondary-style button like every other.
+- **Tested:** `ng build` green; `ng test` on review and cycle: 24 files, 416 passed.
+
+## Round 15 — Final pass (same day)
+- **Edit timeline:** a fixed date (open step's opening, or a closed step's dates) has an info button with a tooltip saying why: "This step is open, so its opening date and time cannot change. You can still move its closing date." or "This step has closed: its dates stay as the record of the cycle."
+- **Notifications:**
+  - The type badge ("Step complete", "Slow program") is the neutral dot badge; the round icon keeps its tint.
+  - The active "Notifications" button in the top bar is the white raised style of the nav, instead of mint.
+  - The spec now checks the dot colour.
+- **Checked and already consistent:** the Fields publish dialog, the menus and the People panel.
+- **Tested:**
+  - `ng build`: green (only the old initial-bundle budget warning).
+  - Full `ng test`: 83 files, 873 passed, 1 skipped.
+
+## Summary of the whole polish
+**System (applies everywhere):**
+- Grey canvas, white cards with a soft shadow, neutral sidebar.
+- Green only for actions, links, focus and progress.
+- Three button weights: filled primary, one per view; tonal for an item's main action; white secondary. AI actions are purple text buttons.
+- A property is an outlined tag, a status is a neutral badge with a coloured dot, and an alert is an amber band.
+- Radius scale 6 / 8 / 12. Sentence case, no spaced uppercase. Numbers in the app font.
+- Panels use titled sections with one line of help, fields in two columns, and fixed values as text (with a "why" where useful).
+
+**Screens done:** Overview, Results (title + scope), Review (rows, states, AI card, comments panel), Cycle (steps, cards, Step / Edit timeline / Load / People panels), Fields, Assessors (+ panel), Notifications, export drawer, sidebar and top bar.
+
+**Not touched (open):**
+- Login: it has its own branch, `jp-design/login-font`, waiting for Yeck.
+- The program screens (`pages/sp/**`): done in round 16.
+- The Overview greeting for non-admin roles: done in round 16.
+- A dark-mode switch (logged in `docs/ideas.md`).
+- The old initial-bundle budget warning.
+- `results-view.ts` `totalText` and `overview-view.ts` `scopeCount` are unused (left for Yeck).
+
+## Round 16 — Everything that was left (same day)
+Juanpa asked for the standard on every screen and role, not only the admin views. Covered now:
+- **System-wide:**
+  - `qa-badge` is the neutral dot badge (status colour only in the dot; `neutral` is a plain tag). This changes every badge in the program screens, the AI chip and the UI gallery; `ui-kit.spec` was updated.
+  - New `qa-state-card` (`ui/state`): one white card with a title, one line and actions. It is used for load errors and empty states in Results, Assessors, Fields, Review and Cycle, which showed four different styles before.
+  - Manrope loads in `index.html`, so the program screens and Forbidden use the app font; before, only the shell loaded it.
+  - Field labels are 13px medium in every panel (23 labels were semibold).
+- **Overview, other roles** (checked as assessor, lead assessor, TPB and PPU with a temporary local multi-role design account, reverted before saving):
+  - Every role sees "Overview" as the page title; the generic "Welcome back, <name>" greeting is gone.
+  - In PPU, "Mark when done" is tonal (the item's main action), and "Updated in the Reporting Tool" / "Not updated yet" are dot badges.
+- **Program screens (`pages/sp`)**, checked with `.playwright-mcp/mock-sp.js`:
+  - Statuses are dot badges.
+  - The cards have the soft shadow; the nested QA comment card is a soft fill with no shadow.
+  - The count is a neutral badge and the 5 uppercase labels are now sentence case.
+  - On phones the list keeps code and title; the type, the answered count and the status go under the title, so there is no sideways scroll.
+- **Forbidden:**
+  - Grey canvas, a white card with a lock mark, app font, and the app's primary button.
+  - Before it had the login's dark green, a pill button and a different font.
+- **Panels:**
+  - "New complementary batch" has a "Batch" section: Name, then Science programs and Result types side by side.
+  - Its leftover help text is 12px muted.
+- **Top bar:** the user menu was checked; the active bell icon is dark text instead of accent green.
+- **Phone pass at 390px:** Overview, Results, Review, Cycle (and Step panel), Fields, Assessors, Notifications, Forbidden and the program screens. No sideways scroll.
+- **Tested:**
+  - `ng build`: green.
+  - Full `ng test`: 83 files, 873 passed, 1 skipped.
+
+## Round 17 — Fields: Core and AI columns (same day)
+
+- **Problem (Juanpa):** in the Core and AI columns you could not tell a switch that is off from one that does not apply (fields set to Hidden or View only). Both looked like a grey switch.
+- **Change:** three clear states.
+  - On: green switch.
+  - Off: grey switch, which you can still turn on.
+  - Does not apply: a muted "—" instead of the switch. The existing tooltip says why ("Set the field to Assessed to mark it as core"), and screen readers hear "Core does not apply: only Assessed fields can have it".
+- Read-only view (closed cycle) still shows the switches as they were.
+- **Tested:**
+  - `ng build`: green.
+  - Fields tests: 4 files, 22 passed (the AI test now expects the "does not apply" text instead of a disabled switch).
+  - Checked on screen at 1440px, including the tooltip.
+
+## Round 18 — Sidebar one tone darker (same day)
+
+- **Why (Juanpa):** the sidebar had the same grey as the page, so it did not read as a sidebar. PRMS will share this system with its own brand colour, so the separation cannot come from a brand tint (the soft-green sidebar was tried before and rejected).
+- **Change:** sidebar `--nav-bg` #F4F5F4 → #ECEFED, with a hairline on its right edge (`--nav-divider` #DCE1DE). Hover `--nav-2` → #E2E6E4 so it still shows on the darker grey. The selected item stays a white raised pill.
+- PRMS would use the same neutrals; its brand colour goes only in the logo, primary button, links, focus, selected icon, current step and charts.
+- **Tested:** sidebar colour read from the page (rgb 236, 239, 237); checked on Results and Cycle at 1440px. Text on the sidebar keeps AA contrast. Dark mode not touched (no switch yet).
+
+## Round 19 — Green QA logo (same day)
+
+- **Why (Juanpa):** QA and PRMS Reporting share the PRMS mark. Recolouring the whole mark per product felt unprofessional, so the master brand stays one neutral colour and only the product name carries the product colour (QA green; Reporting would be purple).
+- **Change:** new `client/public/logo-prms-qa.svg` from Juanpa's final file: mark and "PRMS" in near-black #0D0D16 (his final pick, after a dark plum #271A28), "quality assurance" in #0F766E (`--primary`), 728×82, shown at 178×20 px. His matching Reporting logo uses the same near-black with "reporting" in #45348C (kept for the PRMS work, not in this repo). A first try with the whole mark in green was dropped the same day. The sidebar uses it instead of `logo-prms-qa.png` (the PNG stays in `public/`, unused by the shell).
+- His export was 1.8 MB because the mark is a 3091×4096 picture used as a mask. The mark was cropped to its visible part and scaled to 290×246 (still about 12× its size on screen). The file is now 75 KB; the words are vector paths.
+- **Tested:** the logo loads in the sidebar at 174×20 px and was checked on screen at 1440px.
+
+## Round 20 — Sidebar hierarchy: bigger logo, cycle at the bottom (same day)
+
+- **Why (Juanpa):** the top of the sidebar felt squeezed and flat: a small logo next to the collapse button, then the cycle text, then the menu. His reference: a bank app with the brand on top, the menu, and an information block at the bottom.
+- **Changes (`shell/qa-shell.html`, layout only, same handlers):**
+  - Logo 24 px tall on desktop (was 20), with the row to itself. On phones it stays 20 px, because the close button shares the row. Collapsed, only the PRMS mark shows.
+  - The desktop collapse button moved to the start of the top bar, before Back and Forward (as in Claude and Jira). Same `toggleMenu()`, labels and `aria-expanded`; added `aria-controls`.
+  - The active cycle moved to the bottom of the sidebar as a soft grey panel (no border, shadow or hover, so it does not look clickable), with a calendar icon. Lines: name + status, "Main batch · Step 1 of 5", "Closes 05 Dec". Still information only and admins only.
+- **Tested:** `ng build` green; shell tests 3 files passed; checked at 1440px (open and collapsed) and 390px (menu open, no sideways scroll).
+
+## Round 21 — Room for the logo, a fuller cycle panel (same day)
+
+- **Why (Juanpa):** the logo sat against the top edge, and the cycle block at the bottom looked too timid.
+- **Logo:** 24 px of room above and 20 px below, and 20 px from the left edge (was 16 / 16 / 16).
+- **Cycle panel:** new `shell/cycle-panel.ts` (`qa-cycle-panel`), used by the shell. It shows:
+  - the name, with the status on the right;
+  - "Main batch · Step 1 of 5", with a bar of one segment per step (done = green, current = light green, upcoming = grey);
+  - a clock and the full closing time, "Closes 05 Dec, 18:00 CET".
+- **No new data:** everything comes from the card line that `shell/active-cycle.ts` already builds, read by `cyclePanelView()`. Lines without a step ("Waiting for results", "No main batch yet") show as text with no bar; "All N steps completed" fills the bar.
+- **Tested:**
+  - `ng build`: passes, with the same initial-bundle budget warning as before.
+  - Shell tests: 4 files passed (new `cycle-panel.spec.ts`).
+  - Checked at 1440px and 390px; no sideways scroll.
+
+## Round 22 — Page scope dropdown (same day, undone)
+
+- A white control with border and shadow was tried for the big dropdown next to each page title, because the grey fill could read as disabled. Juanpa preferred the grey container, so it was put back exactly as it was (`ui/select/qa-select.ts` has no change).
+
+## Round 23 — Final review before upload (same day)
+
+- **How:**
+  - A read-only code scan against the direction-A rules: tokens, radius 6/8/12, dot badges, sentence case, `qaBtn`, font sizes and weights, state cards, English text, no `ngClass`/`ngStyle`/inline style.
+  - Captures of every screen at 1440px and 390px.
+- **Fixed:**
+  - **Status badges with their own colours → dot badges:**
+    - "Invited" in Assessors (amber dot); "Has an account" is now an outlined tag.
+    - "Highlighted" in the comments panel (red dot, same as on the field card).
+    - "Possible mismatch" / "Looks consistent" in the AI note.
+  - **"N fields flagged by AI"** in the review side panel was a hand-made purple box; it is now the app's AI button (`qaBtn tone="ai"`).
+  - **Notification batch tag:** a rounded pill at 11px → outlined tag at 12px, like Cycle's tags.
+  - **Loading placeholders:** shaped like pills → the radius of what they stand in for (badges 6px, Fields filter chips 8px).
+  - **Fonts:** JetBrains Mono no longer downloaded (`--qa-mono` points to Manrope; shell and UI gallery).
+  - **Phone, Review header:** the status and its ⓘ stay together, so the icon no longer wraps alone onto a line.
+  - **Phone, Cycle:** the "…" menu stays beside the batch title. It took a row of its own because `timeline-actions` was full width on phones; it is now full width only when it also holds a button.
+- **Checked and kept:**
+  - Page and card titles are bold and panel section titles (14px) are semibold: a deliberate hierarchy, not an inconsistency.
+  - Chart bars at 3px radius are chart marks.
+  - The 11px inner radius of table headers matches their 12px card.
+- **Not done (needs its own work):**
+  - The login and password screens still use the older style system: raw sizes, pill buttons, raw shadows, a mono font. Pending on `jp-design/login-font`.
+  - About 10 empty states (Cycle "No active cycle", People panel, Notifications, program screens) are hand-built cards that look close to `qa-state-card` but don't use it.
+- **Tested:**
+  - `ng build`: passes (same initial-bundle budget warning as before).
+  - Full `ng test`: 84 files, 876 passed, 1 skipped.
+  - Checked on screen at 1440px and 390px.
