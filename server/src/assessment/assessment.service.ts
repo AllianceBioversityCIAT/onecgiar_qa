@@ -2395,7 +2395,11 @@ export class AssessmentService {
     // its step-3 review once the TPB starts step 4, and a TPB that has not
     // written yet has none. The status still reads the current step (DD-3).
     const assessment = this.ownAssessment(timeline, membership, role);
-    const tpb = membership.round !== 1 && role === RoleCode.TPB;
+    // P2-3916 / P2-3917: the TPB and the PPU read the escalation thread and the earlier steps' greens.
+    const tpb =
+      membership.round !== 1 &&
+      (role === RoleCode.TPB || role === RoleCode.PPU);
+    const ppu = membership.round !== 1 && role === RoleCode.PPU;
     // T-16: the Lead's decisions on its own round-2 comments, in the same
     // parallel read; only for the Lead in round 2 with an assessment row.
     const [validations, comments, ownDecisions] =
@@ -2416,14 +2420,15 @@ export class AssessmentService {
     const previous =
       membership.round === 1 ? null : membership.previousAssessmentId;
     const lead = tpb ? membership.leadAssessment : null;
-    const [roundOneThread, roundOneValidations, leadValidations] =
+    const tpbRow = ppu ? membership.tpbAssessment : null;
+    const [roundOneThread, roundOneValidations, leadValidations, tpbValidations] =
       await Promise.all([
         tpb
           ? this.store.findEscalationThread(
               [previous, lead?.id ?? null].filter(
                 (id): id is number => id !== null,
               ),
-              RoleCode.TPB,
+              role,
               RoleCode.LEAD_ASSESSOR,
             )
           : previous === null
@@ -2435,6 +2440,9 @@ export class AssessmentService {
         lead === null
           ? Promise.resolve(null)
           : this.store.findValidations(lead.id),
+        tpbRow === null
+          ? Promise.resolve(null)
+          : this.store.findValidations(tpbRow.id),
       ]);
     const [programs, resultTypes] = await Promise.all([
       this.catalog.listSciencePrograms(),
@@ -2482,6 +2490,13 @@ export class AssessmentService {
         : {
             leadStored: new Map(
               leadValidations.map((v) => [v.fieldKey, v.validated]),
+            ),
+          }),
+      ...(tpbValidations === null
+        ? {}
+        : {
+            tpbStored: new Map(
+              tpbValidations.map((v) => [v.fieldKey, v.validated]),
             ),
           }),
       userId: user.id,
