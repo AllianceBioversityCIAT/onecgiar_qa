@@ -34,6 +34,8 @@ export class ReviewTocSection {
   readonly busyKeys = input<ReadonlySet<string>>(new Set());
   /** Why the last green write on a field was refused, by field key (shown on the field's first card). */
   readonly errors = input<ReadonlyMap<string, string>>(new Map());
+  /** Heading of a card's thread block (round 1 for the Lead, the escalated comments for the TPB, the cases for the PPU). */
+  readonly threadTitle = input('Round 1 comments');
   readonly act = output<TocCardAction>();
 
   protected readonly tip = TOC_TIP;

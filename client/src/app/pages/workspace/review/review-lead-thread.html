@@ -7,7 +7,7 @@
     <span class="font-(family-name:--qa-mono) text-(length:--fs-12) font-bold text-(--text-3) tabular-nums">{{ items().length }}</span>
     @if (pendingCount() > 0) {
       <!-- TODO(design): Juanpa — "to decide" counter, borrows the "Commented" colour. -->
-      <span class="ml-auto text-(length:--fs-11) font-semibold text-(--st-editing-fg)">{{ pendingCount() }} to decide</span>
+      <span class="ml-auto text-(length:--fs-11) font-semibold text-(--st-editing-fg)">{{ pendingCount() }} {{ pendingWord() }}</span>
     }
   </summary>
 
@@ -54,12 +54,27 @@
           </div>
         }
 
-        <!-- The Lead's decision -->
+        <!-- TPB / PPU: what the earlier steps decided (P2-3916 FR-4, P2-3917 AC3). TODO(design): Juanpa — borrows the decided frame. -->
+        @for (note of [item.lead, item.tpb]; track $index) {
+          @if (note) {
+            <div class="flex flex-col gap-1 rounded-[6px] border border-(--border) bg-(--surface-3) px-2.5 py-2" data-testid="earlier-decision">
+              <div class="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                <span class="text-(length:--fs-12) font-semibold text-(--text-2)">{{ note.label }}</span>
+                <span class="ml-auto flex-none font-(family-name:--qa-mono) text-(length:--fs-11) font-normal text-(--text-4) tabular-nums">{{ note.date }}</span>
+              </div>
+              @if (note.text) {
+                <div class="text-(length:--fs-13) leading-[1.5] text-pretty wrap-anywhere whitespace-pre-line text-(--text-2)">{{ note.text }}</div>
+              }
+            </div>
+          }
+        }
+
+        <!-- The reader's decision (Lead, TPB or PPU) -->
         @if (item.decision; as d) {
           <!-- TODO(design): Juanpa — decided state, borrows the AI note frame. -->
           <div class="flex flex-col gap-1 rounded-[6px] border border-(--border) bg-(--surface-3) px-2.5 py-2" data-testid="lead-decision">
             <div class="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-              <span class="text-(length:--fs-12) font-semibold" [class]="d.kind === 'escalate' ? 'text-(--danger)' : 'text-(--st-approved-fg)'">{{ d.label }}</span>
+              <span class="text-(length:--fs-12) font-semibold" [class]="againstProgram(d.kind) ? 'text-(--danger)' : 'text-(--st-approved-fg)'">{{ d.label }}</span>
               <span class="ml-auto flex-none font-(family-name:--qa-mono) text-(length:--fs-11) font-normal text-(--text-4) tabular-nums">{{ d.date }}</span>
             </div>
             @if (d.text) {
@@ -67,8 +82,13 @@
             }
             @if (item.choices.length && !isEditing(item) && changing() !== id) {
               <div class="flex flex-wrap items-center gap-2 pt-1">
-                <button hlmBtn qaBtn tone="secondary" size="sm" type="button" [attr.aria-describedby]="'lead-thread-text-' + id" [disabled]="anyBusy()" (click)="change(item)">Change</button>
-                <button hlmBtn qaBtn tone="link" size="sm" type="button" [attr.aria-describedby]="'lead-thread-text-' + id" [loading]="busy(id, 'clear')" [disabled]="anyBusy()" (click)="clear(item)">Clear</button>
+                @if (item.mode === 'ppu') {
+                  <!-- P2-3917: a Done is undone while the result is open (DELETE). -->
+                  <button hlmBtn qaBtn tone="secondary" size="sm" type="button" [attr.aria-describedby]="'lead-thread-text-' + id" [loading]="busy(id, 'clear')" [disabled]="anyBusy()" (click)="clear(item)">Undo</button>
+                } @else {
+                  <button hlmBtn qaBtn tone="secondary" size="sm" type="button" [attr.aria-describedby]="'lead-thread-text-' + id" [disabled]="anyBusy()" (click)="change(item)">Change</button>
+                  <button hlmBtn qaBtn tone="link" size="sm" type="button" [attr.aria-describedby]="'lead-thread-text-' + id" [loading]="busy(id, 'clear')" [disabled]="anyBusy()" (click)="clear(item)">Clear</button>
+                }
               </div>
             }
           </div>
@@ -77,7 +97,7 @@
         @if (showChoices(item)) {
           <div class="flex flex-wrap items-center gap-2" role="group" [attr.aria-label]="'Decision on the comment by ' + item.who">
             @for (c of item.choices; track c.kind) {
-              <button hlmBtn qaBtn [tone]="c.kind === 'escalate' ? 'secondary' : 'primary'" size="sm" type="button" [attr.aria-describedby]="'lead-thread-text-' + id" [disabled]="anyBusy()" (click)="start(item, c.kind)">{{ c.label }}</button>
+              <button hlmBtn qaBtn [tone]="againstProgram(c.kind) ? 'secondary' : 'primary'" size="sm" type="button" [attr.aria-describedby]="'lead-thread-text-' + id" [disabled]="anyBusy()" (click)="start(item, c.kind)">{{ c.label }}</button>
             }
             @if (changing() === id) {
               <button hlmBtn qaBtn tone="link" size="sm" type="button" (click)="cancel()">Cancel</button>
@@ -92,7 +112,7 @@
               <textarea
                 [id]="'lead-decision-' + id"
                 [formField]="draftForm.text"
-                placeholder="Write a comment (required)"
+                [placeholder]="item.noteOptional ? 'Add a note for this case (optional)' : 'Write a comment (required)'"
                 [attr.aria-invalid]="!!errors().get(id)"
                 [attr.aria-describedby]="errors().get(id) ? 'lead-decision-error-' + id : 'lead-decision-count-' + id"
                 class="box-border min-h-20 w-full resize-y rounded-[8px] border bg-(--field-bg) px-3 py-2.5 text-(length:--fs-14) leading-[1.55] text-(--text) outline-none placeholder:text-(--text-muted) focus:border-(--primary)"
