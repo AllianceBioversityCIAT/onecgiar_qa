@@ -79,13 +79,25 @@
       <div class="flex min-h-10 items-center gap-2" [class.opacity-55]="r.dim">
         <span aria-hidden="true" class="text-(length:--fs-12) font-medium text-(--text-muted)">Core</span>
         <span class="inline-flex rounded-full outline-none focus-visible:shadow-(--focus-ring)" [qaTooltip]="coreHelp" [qaTooltipDisabled]="r.active || readOnly()" [attr.tabindex]="r.active || readOnly() ? null : 0">
+          @if (r.active || readOnly()) {
           <qa-switch [checked]="r.effective.core" (checkedChange)="coreChange.emit($event)" [disabled]="readOnly() || !r.active" [aria-label]="'Core: ' + r.name" />
+          } @else {
+            <!-- Not applicable (the field is not Assessed): a dash, not a switch, so it never reads as "off" (Juanpa, 2026-11-25). The tooltip says why. -->
+            <span class="flex h-5 w-9 items-center justify-center text-(length:--fs-14) text-(--text-muted)" aria-hidden="true">—</span>
+            <span class="sr-only">Core does not apply: only Assessed fields can have it</span>
+          }
         </span>
       </div>
       <div class="flex min-h-10 items-center gap-2" [class.opacity-55]="r.dim">
         <span aria-hidden="true" class="text-(length:--fs-12) font-medium text-(--text-muted)">AI</span>
         <span class="inline-flex rounded-full outline-none focus-visible:shadow-(--focus-ring)" [qaTooltip]="aiHelp" [qaTooltipDisabled]="r.active || readOnly()" [attr.tabindex]="r.active || readOnly() ? null : 0">
+          @if (r.active || readOnly()) {
           <qa-switch [checked]="r.effective.ai" (checkedChange)="aiChange.emit($event)" [disabled]="readOnly() || !r.active" [aria-label]="'AI helper: ' + r.name" />
+          } @else {
+            <!-- Not applicable (the field is not Assessed): a dash, not a switch, so it never reads as "off" (Juanpa, 2026-11-25). The tooltip says why. -->
+            <span class="flex h-5 w-9 items-center justify-center text-(length:--fs-14) text-(--text-muted)" aria-hidden="true">—</span>
+            <span class="sr-only">AI helper does not apply: only Assessed fields can have it</span>
+          }
         </span>
       </div>
     </div>
@@ -100,12 +112,24 @@
     <ng-container [ngTemplateOutlet]="segmented" />
     <div class="flex justify-center" [class.opacity-55]="r.dim">
       <span class="inline-flex rounded-full outline-none focus-visible:shadow-(--focus-ring)" [qaTooltip]="coreHelp" [qaTooltipDisabled]="r.active || readOnly()" [attr.tabindex]="r.active || readOnly() ? null : 0">
-        <qa-switch [checked]="r.effective.core" (checkedChange)="coreChange.emit($event)" [disabled]="readOnly() || !r.active" [aria-label]="'Core: ' + r.name" />
+        @if (r.active || readOnly()) {
+          <qa-switch [checked]="r.effective.core" (checkedChange)="coreChange.emit($event)" [disabled]="readOnly() || !r.active" [aria-label]="'Core: ' + r.name" />
+          } @else {
+            <!-- Not applicable (the field is not Assessed): a dash, not a switch, so it never reads as "off" (Juanpa, 2026-11-25). The tooltip says why. -->
+            <span class="flex h-5 w-9 items-center justify-center text-(length:--fs-14) text-(--text-muted)" aria-hidden="true">—</span>
+            <span class="sr-only">Core does not apply: only Assessed fields can have it</span>
+          }
       </span>
     </div>
     <div class="flex justify-center" [class.opacity-55]="r.dim">
       <span class="inline-flex rounded-full outline-none focus-visible:shadow-(--focus-ring)" [qaTooltip]="aiHelp" [qaTooltipDisabled]="r.active || readOnly()" [attr.tabindex]="r.active || readOnly() ? null : 0">
-        <qa-switch [checked]="r.effective.ai" (checkedChange)="aiChange.emit($event)" [disabled]="readOnly() || !r.active" [aria-label]="'AI helper: ' + r.name" />
+        @if (r.active || readOnly()) {
+          <qa-switch [checked]="r.effective.ai" (checkedChange)="aiChange.emit($event)" [disabled]="readOnly() || !r.active" [aria-label]="'AI helper: ' + r.name" />
+          } @else {
+            <!-- Not applicable (the field is not Assessed): a dash, not a switch, so it never reads as "off" (Juanpa, 2026-11-25). The tooltip says why. -->
+            <span class="flex h-5 w-9 items-center justify-center text-(length:--fs-14) text-(--text-muted)" aria-hidden="true">—</span>
+            <span class="sr-only">AI helper does not apply: only Assessed fields can have it</span>
+          }
       </span>
     </div>
     <div class="flex">

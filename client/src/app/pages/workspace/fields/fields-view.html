@@ -78,9 +78,9 @@
     } @else if (store.state() === 'loading') {
     <div aria-hidden="true" class="flex flex-wrap items-center gap-2">
       @for (w of chipWidths; track $index) {
-        <qa-skeleton class="h-[30px] rounded-full" [class]="w" />
+        <qa-skeleton class="h-[30px] rounded-lg" [class]="w" />
       }
-      <qa-skeleton class="h-[30px] w-[86px] rounded-full" />
+      <qa-skeleton class="h-[30px] w-[86px] rounded-lg" />
     </div>
     }
     </qa-scope-card>
@@ -91,16 +91,17 @@
       <qa-fields-skeleton [compact]="compact()" />
     }
     @case ('no-cycle') {
-      <p class="m-0 text-(length:--fs-14) text-(--text-3)">There is no open cycle. Create or activate one in Cycle to configure its fields.</p>
+      <qa-state-card heading="No open cycle" message="There is no open cycle. Create or activate one in Cycle to configure its fields.">
+        <a hlmBtn qaBtn tone="secondary" size="sm" routerLink="/cycle">Go to Cycle</a>
+      </qa-state-card>
     }
     @case ('no-catalog') {
-      <p class="m-0 text-(length:--fs-14) text-(--text-3)">No Reporting catalog exists for this cycle's year.</p>
+      <qa-state-card heading="No Reporting catalog" message="No Reporting catalog exists for this cycle's year." />
     }
     @case ('error') {
-      <div role="alert" class="flex flex-wrap items-center gap-2">
-        <p class="m-0 text-(length:--fs-14) text-(--text-3)">{{ store.loadError() || 'The fields could not be loaded.' }}</p>
+      <qa-state-card alert heading="We couldn't load the fields" [message]="store.loadError() || 'The fields could not be loaded.'">
         <button hlmBtn qaBtn tone="secondary" size="sm" type="button" (click)="retry()">Try again</button>
-      </div>
+      </qa-state-card>
     }
     @case ('ready') {
       @if (readOnly()) {
