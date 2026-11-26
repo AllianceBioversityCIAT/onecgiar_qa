@@ -119,11 +119,18 @@ describe('Lead escalates, TPB sides with the assessor, PPU closes (e2e, P2-3917)
     await toPendingPpu();
     a.setClock(IN_PPU_STEP);
 
-    const listed = await a.send('get', '/timelines/1/worklist', { token: ppu() });
-    expect(listed.body.data.rows.map((r: any) => [r.membershipId, r.status])).toEqual([
-      [roundTwoId, 'pending_ppu'],
-    ]);
-    const opened = (await a.send('get', resultPath('', code), { token: ppu() })).body.data;
+    const listed = await a.send('get', '/timelines/1/worklist', {
+      token: ppu(),
+    });
+    expect(
+      listed.body.data.rows.map((r: any) => [r.membershipId, r.status]),
+    ).toEqual([[roundTwoId, 'pending_ppu']]);
+    expect(listed.body.data.counters.byStatus).toMatchObject({
+      pending_ppu: 1,
+      unresolved: 0,
+    });
+    const opened = (await a.send('get', resultPath('', code), { token: ppu() }))
+      .body.data;
     const items = opened.sections
       .flatMap((s: any) => s.fields)
       .flatMap((f: any) => f.thread)
@@ -139,10 +146,15 @@ describe('Lead escalates, TPB sides with the assessor, PPU closes (e2e, P2-3917)
     expect(done.status).toBe(200);
     expect(done.body.data.status).toBe('quality_assessed');
     expect(a.world.releases).toHaveLength(1);
-    expect(a.world.releases[0]).toMatchObject({ timelineResultId: roundTwoId, outcome: 'qaed' });
+    expect(a.world.releases[0]).toMatchObject({
+      timelineResultId: roundTwoId,
+      outcome: 'qaed',
+    });
     await vi.waitFor(() => expect(roundTwo().endReason).toBe('released_qaed'));
     expect(
-      a.world.comments.filter((c) => (c.id ?? 0) >= 7001).map((c) => [c.id, c.state]),
+      a.world.comments
+        .filter((c) => (c.id ?? 0) >= 7001)
+        .map((c) => [c.id, c.state]),
     ).toEqual([
       [7001, 'done'],
       [7002, 'tpb_sided_program'],
@@ -156,12 +168,33 @@ describe('Lead escalates, TPB sides with the assessor, PPU closes (e2e, P2-3917)
     a.setClock(AFTER_PPU_STEP);
 
     expect(await statusFor(ppu())).toBe('unresolved');
-    const adminList = await a.send('get', '/timelines/1/worklist?status=unresolved', {
-      token: admin(),
+    const adminList = await a.send(
+      'get',
+      '/timelines/1/worklist?status=unresolved',
+      {
+        token: admin(),
+      },
+    );
+    expect(adminList.body.data.rows.map((r: any) => r.membershipId)).toEqual([
+      roundTwoId,
+    ]);
+    // byStatus ignores the status filter, like the totals.
+    expect(adminList.body.data.counters.byStatus).toMatchObject({
+      pending_ppu: 0,
+      unresolved: 1,
     });
-    expect(adminList.body.data.rows.map((r: any) => r.membershipId)).toEqual([roundTwoId]);
-    const ppuList = await a.send('get', '/timelines/1/worklist', { token: ppu() });
-    expect(ppuList.body.data.counters).toMatchObject({ pending: 1, finished: 0 });
+    expect(
+      Object.values(
+        adminList.body.data.counters.byStatus as Record<string, number>,
+      ).reduce((sum, n) => sum + n, 0),
+    ).toBe(adminList.body.data.counters.total);
+    const ppuList = await a.send('get', '/timelines/1/worklist', {
+      token: ppu(),
+    });
+    expect(ppuList.body.data.counters).toMatchObject({
+      pending: 1,
+      finished: 0,
+    });
     expect(a.world.releases).toEqual([]);
 
     // No date window: the Done is accepted after step 5 closed.

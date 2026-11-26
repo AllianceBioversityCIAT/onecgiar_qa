@@ -236,6 +236,48 @@ function coveringRows(
   return access.reviewerRows.filter((row) => rowCovers(row, facts));
 }
 
+/** Step order of a reviewer role in the role-step table (ASSESSOR < LEAD_ASSESSOR < TPB < PPU). */
+function stepOrder(role: RoleCode): number {
+  return ROLE_STEPS.findIndex((row) => row.role === role);
+}
+
+/** The covering row of the furthest step: the step the membership reached, among the caller's roles. */
+function furthestRow(rows: readonly ReviewerRow[]): ReviewerRow | undefined {
+  return rows.reduce<ReviewerRow | undefined>(
+    (best, row) =>
+      best === undefined || stepOrder(row.role) > stepOrder(best.role)
+        ? row
+        : best,
+    undefined,
+  );
+}
+
+/**
+ * DD-T11 (round-2 contract adjustments): the one reviewer row the caller works
+ * with on this membership, whatever the order of its rows. The view
+ * (`header.reviewerRole`), the assessment it reads, and every decision and
+ * finish use this row.
+ *
+ * - A QA Admin acting as a role (`X-Acting-Role`): that row, when it fits the
+ *   membership's round; else none (read-only).
+ * - Anyone else: among the rows that cover the membership, the one of the
+ *   furthest step. A TPB row covers only once the Lead escalated and a PPU row
+ *   only once the TPB escalated, so this is the role whose step the result is
+ *   at: Pending → Lead, Pending for TPB review → TPB, Pending PPU or Unresolved
+ *   → PPU, among the roles the person holds.
+ * - A QA Admin without `X-Acting-Role`, or a row that covers nothing: none.
+ */
+export function effectiveRow(
+  access: WorklistAccess,
+  facts: MembershipFacts,
+): ReviewerRow | undefined {
+  const acting = access.reviewerRows.find((row) => row.byAdmin === true);
+  if (acting !== undefined) {
+    return acting.round === facts.round ? acting : undefined;
+  }
+  return furthestRow(coveringRows(access, facts));
+}
+
 /**
  * Is the membership inside the caller's scope at all (FR-1)? A reviewer row
  * needs a covered round, type and program and a `pending` or `auto_validated`
@@ -329,24 +371,21 @@ export function writeDecision(
   if (facts.status === 'auto_validated') {
     return { writable: false, reason: 'auto_validated' };
   }
-  // One enabled row per role, and ASSESSOR is the only enabled writer today;
-  // a later story with several covering rows picks the one whose step is open.
-  let refusal: ReadOnlyReason = 'no_step';
-  for (const row of rows) {
-    const roleStep = findRoleStep(row.role);
-    const state = roleStep ? roleStepState(roleStep, timing) : null;
-    if (state === null) continue;
-    // DD-P1: a role with no date window (the PPU) writes whatever the state of its step.
-    if (
-      state.state === 'in_progress' ||
-      row.byAdmin === true ||
-      roleStep?.dateBound === false
-    ) {
-      return { writable: true, row, stepPosition: state.position };
-    }
-    refusal = stepRefusal(state.state);
+  // DD-T11: the effective row alone writes, whatever the order of the rows
+  // (a Lead who is also TPB writes as the TPB once the result reached step 4).
+  const row = furthestRow(rows)!;
+  const roleStep = findRoleStep(row.role);
+  const state = roleStep ? roleStepState(roleStep, timing) : null;
+  if (state === null) return { writable: false, reason: 'no_step' };
+  // DD-P1: a role with no date window (the PPU) writes whatever the state of its step.
+  if (
+    state.state === 'in_progress' ||
+    row.byAdmin === true ||
+    roleStep?.dateBound === false
+  ) {
+    return { writable: true, row, stepPosition: state.position };
   }
-  return { writable: false, reason: refusal };
+  return { writable: false, reason: stepRefusal(state.state) };
 }
 
 function stepRefusal(state: TimelineStepState): ReadOnlyReason {

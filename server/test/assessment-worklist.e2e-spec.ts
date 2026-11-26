@@ -179,6 +179,16 @@ describe('Worklist routes (e2e)', () => {
         finished: 0,
         total: 3,
         autoValidated: 0,
+        byStatus: {
+          pending: 3,
+          returned_to_program: 0,
+          clarification_requested: 0,
+          pending_tpb_review: 0,
+          pending_ppu: 0,
+          unresolved: 0,
+          quality_assessed: 0,
+          auto_validated: 0,
+        },
       });
       expect(res.body.data.writable).toBe(true);
       expect(res.body.data.noActiveRole).toBe(false);
