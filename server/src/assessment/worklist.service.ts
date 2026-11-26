@@ -422,6 +422,7 @@ export class WorklistService {
         status: record.membershipStatus,
         ended: record.ended,
         endReason: record.endReason,
+        leadEscalated: record.leadEscalated,
       },
       timing,
     );

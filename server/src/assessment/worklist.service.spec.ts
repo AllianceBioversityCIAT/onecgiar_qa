@@ -228,16 +228,16 @@ describe('FR-1: scope by role row', () => {
     expect(codes(all)).not.toContain(3);
   });
 
-  // P2-3912 enabled the Lead row, so the disabled-role case is pinned on TPB (FR-16).
-  it('A role with no active row (TPB only): empty 200 that says so, never an error and never step-1 results', async () => {
+  // P2-3912 enabled the Lead row and P2-3916 the TPB row, so the disabled-role case is pinned on PPU (FR-16).
+  it('A role with no active row (PPU only): empty 200 that says so, never an error and never step-1 results', async () => {
     const { world, service } = setup();
     world.timelineUsers.push({
       timelineId: 1,
       userId: 11,
-      roleCode: 'TPB',
+      roleCode: 'PPU',
     });
     world.memberships.push(membership({ resultCode: 1 }));
-    const lead = userOf(11, [assignment('TPB', null)]);
+    const lead = userOf(11, [assignment('PPU', null)]);
 
     const page = await service.list(lead, 1);
 
@@ -998,9 +998,9 @@ describe('options (FR-4: filter options inside the scope)', () => {
     world.timelineUsers.push({
       timelineId: 1,
       userId: 10,
-      roleCode: 'TPB',
+      roleCode: 'PPU',
     });
-    const user = userOf(10, [assignment('TPB', '*')]);
+    const user = userOf(10, [assignment('PPU', '*')]);
     expect(await service.options(user, 1)).toEqual({
       programs: [],
       resultTypes: [],

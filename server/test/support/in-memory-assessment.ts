@@ -1,4 +1,5 @@
 // @akili-spec assessment/step-1-assessment
+import type { StepAudience } from '../../src/admin-config/timelines/default-steps.js';
 import type { TimelineLoads } from '../../src/admin-config/timelines/timeline-loads.js';
 import type { ResultAssessmentStatus } from '../../src/database/drizzle/schema/result-assessments.js';
 import type { CommentState } from '../../src/database/drizzle/schema/assessment-comments.js';
@@ -285,6 +286,40 @@ export class InMemoryAssessmentWorld {
       : mine.find((a) => a.stepPosition === position);
   }
 
+  /**
+   * P2-3916: the membership's assessment at its timeline's `lead_assessors`
+   * step, whatever the current step (the SQL twin is the `lead_assessment`
+   * join of the membership read, `leadStepSql`).
+   */
+  leadAssessment(membership: FakeMembership): FakeAssessment | undefined {
+    const position = this.timelines
+      .find((t) => t.id === membership.timelineId)
+      ?.steps.find((step) => step.audience === 'lead_assessors')?.position;
+    if (position === undefined) return undefined;
+    return this.assessments.find(
+      (a) => a.membershipId === membership.id && a.stepPosition === position,
+    );
+  }
+
+  /** P2-3916 (DD-T2): the Lead's step-3 assessment ended `escalated` (`leadEscalatedSql`). */
+  leadEscalated(membership: FakeMembership): boolean {
+    return this.leadAssessment(membership)?.status === 'escalated';
+  }
+
+  /** P2-3916 (DD-T3): the audience of the step an assessment row belongs to (`currentStepAudienceSql`). */
+  stepAudienceOf(
+    membership: FakeMembership,
+    assessment: FakeAssessment | undefined,
+  ): StepAudience | null {
+    if (assessment === undefined) return null;
+    return (
+      this.timelines
+        .find((t) => t.id === membership.timelineId)
+        ?.steps.find((step) => step.position === assessment.stepPosition)
+        ?.audience ?? null
+    );
+  }
+
   /** Statements the services issued since the last `resetStatements()`. */
   statements = 0;
   timelines: FakeTimeline[] = [];
@@ -554,6 +589,7 @@ export class InMemoryWorklistStore implements WorklistStore {
         status: m.status ?? 'pending',
         ended: m.ended ?? false,
         endReason: m.endReason ?? null,
+        leadEscalated: this.world.leadEscalated(m),
       };
       const authoredClarification = this.world.comments.some(
         (c) =>
@@ -568,6 +604,7 @@ export class InMemoryWorklistStore implements WorklistStore {
         membershipStatus: facts.status,
         endReason: facts.endReason,
         assessmentStatus: assessment?.status ?? null,
+        currentStep: this.world.stepAudienceOf(m, assessment),
         hasClarificationThread:
           assessment !== undefined &&
           this.world.comments.some(
@@ -592,6 +629,7 @@ export class InMemoryWorklistStore implements WorklistStore {
         membershipStatus: facts.status,
         ended: facts.ended,
         endReason: facts.endReason,
+        leadEscalated: facts.leadEscalated === true,
         comments:
           assessment === undefined
             ? 0
@@ -697,6 +735,7 @@ export class InMemoryAssessmentStore implements AssessmentStore {
           status: m.status ?? 'pending',
           ended: m.ended ?? false,
           endReason: m.endReason ?? null,
+          leadEscalated: this.world.leadEscalated(m),
         };
         return (
           inScope(criteria.access, facts) &&
@@ -712,6 +751,11 @@ export class InMemoryAssessmentStore implements AssessmentStore {
       assessment?.finishedBy === undefined || assessment.finishedBy === null
         ? undefined
         : this.world.users.find((u) => u.id === assessment.finishedBy);
+    const lead = this.world.leadAssessment(found);
+    const leadFinisher =
+      lead?.finishedBy === undefined || lead.finishedBy === null
+        ? undefined
+        : this.world.users.find((u) => u.id === lead.finishedBy);
     return Promise.resolve({
       membershipId: found.id,
       resultCode: found.resultCode,
@@ -734,6 +778,23 @@ export class InMemoryAssessmentStore implements AssessmentStore {
             found.previousMembershipId !== undefined &&
             x.membershipId === found.previousMembershipId,
         )?.id ?? null,
+      leadAssessment:
+        lead === undefined
+          ? null
+          : {
+              id: lead.id,
+              status: lead.status,
+              stepPosition: lead.stepPosition,
+              fieldConfigVersion: lead.fieldConfigVersion ?? 1,
+              fieldConfigVersionId:
+                lead.fieldConfigVersionId === undefined
+                  ? (lead.fieldConfigVersion ?? 1)
+                  : lead.fieldConfigVersionId,
+              finishedAt: lead.finishedAt ?? null,
+              finishedById: leadFinisher?.id ?? null,
+              finishedByNickname: leadFinisher?.nickname ?? null,
+              finishedAsAdmin: lead.finishedAsAdmin ?? false,
+            },
       assessment:
         assessment === undefined
           ? null

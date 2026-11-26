@@ -9,7 +9,7 @@ import type {
 import { isLiveAssignment } from '../users/current-user.cache.js';
 import type { AuthorizationSubject } from '../users/authorization.service.js';
 import { ALL_RESULT_TYPES } from '../users/effective-scope.js';
-import type { RoleCode } from '../users/permissions.js';
+import { RoleCode } from '../users/permissions.js';
 import {
   audienceStepState,
   enabledReviewerRows,
@@ -183,11 +183,22 @@ export interface MembershipFacts {
   status: TimelineResultStatus;
   ended: boolean;
   endReason: TimelineResultEndReason | null;
+  /**
+   * P2-3916 (DD-T2): the membership's Lead (step-3) assessment ended
+   * `escalated`, so it reached step 4. Only the TPB row reads it; left out it
+   * is `false`, so a TPB row covers nothing.
+   */
+  leadEscalated?: boolean;
 }
 
-/** Does this reviewer row cover the membership's round, result type and program? */
+/**
+ * Does this reviewer row cover the membership's round, result type and program?
+ * A TPB row also needs the membership to have reached step 4 (`leadEscalated`,
+ * DD-T2); its SQL twin is the `EXISTS` of `reviewerRowCondition`.
+ */
 export function rowCovers(row: ReviewerRow, facts: MembershipFacts): boolean {
   if (row.round !== facts.round) return false;
+  if (row.role === RoleCode.TPB && facts.leadEscalated !== true) return false;
   const typeCovered =
     row.resultTypes === 'all' || row.resultTypes.includes(facts.resultType);
   if (!typeCovered) return false;

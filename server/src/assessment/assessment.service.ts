@@ -1982,6 +1982,7 @@ export class AssessmentService {
       status: membership.status,
       ended: membership.ended,
       endReason: membership.endReason,
+      leadEscalated: membership.leadAssessment?.status === 'escalated',
     };
     const decision = this.assertWritable(
       writeDecision(access, facts, { steps: timeline.steps, now, hasLoad }),
@@ -2099,6 +2100,7 @@ export class AssessmentService {
         status: membership.status,
         ended: membership.ended,
         endReason: membership.endReason,
+        leadEscalated: membership.leadAssessment?.status === 'escalated',
       },
       timing,
     );
@@ -2167,6 +2169,12 @@ export class AssessmentService {
           membershipStatus: membership.status,
           endReason: membership.endReason,
           assessmentStatus: assessment?.status ?? null,
+          // DD-T3: the step of the current assessment (step 4 tells Pending PPU apart).
+          currentStep:
+            assessment === null
+              ? null
+              : (timeline.steps.find((s) => s.position === assessment.stepPosition)
+                  ?.audience ?? null),
           hasClarificationThread: comments.some(
             (c) => c.state === 'clarification_requested',
           ),

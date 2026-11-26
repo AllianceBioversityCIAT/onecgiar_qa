@@ -44,6 +44,7 @@ import { timelines } from '../database/drizzle/schema/timelines.js';
 import type { WorklistAccess } from './scope.js';
 import {
   currentStepSql,
+  leadStepSql,
   scopeCondition,
   type WorklistStep,
 } from './worklist.store.js';
@@ -92,6 +93,23 @@ export interface MembershipRecord {
   changedFields: string[] | null;
   /** The previous membership's step-1 assessment, joined in the membership statement (round-2 DD-4); `null` when there is none. */
   previousAssessmentId: number | null;
+  /**
+   * P2-3916: the membership's assessment at its timeline's `lead_assessors`
+   * step (step 3), whatever the current step is; `null` when there is none.
+   * The TPB reads the Lead's greens, decisions and own comments through it, and
+   * pins its version (DD-T4).
+   */
+  leadAssessment: {
+    id: number;
+    status: ResultAssessmentStatus;
+    stepPosition: number;
+    fieldConfigVersion: number;
+    fieldConfigVersionId: number | null;
+    finishedAt: Date | null;
+    finishedById: number | null;
+    finishedByNickname: string | null;
+    finishedAsAdmin: boolean;
+  } | null;
   assessment: {
     id: number;
     status: ResultAssessmentStatus;
@@ -475,6 +493,10 @@ const t = timelineResults;
 const a = resultAssessments;
 /** The previous membership's step-1 assessment (round-2 DD-4): its row id and its validations feed the round-2 view. */
 const prevA = alias(resultAssessments, 'prev_assessment');
+/** P2-3916: the membership's step-3 (Lead) assessment, the version it pinned and who ended it. */
+const leadA = alias(resultAssessments, 'lead_assessment');
+const leadFcv = alias(fieldConfigVersions, 'lead_fcv');
+const leadUser = alias(users, 'lead_finisher');
 const MEMBERSHIP_TABLE = sql.identifier('timeline_results');
 const ASSESSMENT_TABLE = sql.identifier('result_assessments');
 
@@ -508,6 +530,15 @@ export class DrizzleAssessmentStore implements AssessmentStore {
           previousMembershipId: t.previousMembershipId,
           changedFields: t.changedFields,
           previousAssessmentId: prevA.id,
+          leadAssessmentId: leadA.id,
+          leadAssessmentStatus: leadA.status,
+          leadStepPosition: leadA.stepPosition,
+          leadFieldConfigVersion: leadA.fieldConfigVersion,
+          leadFieldConfigVersionId: leadFcv.id,
+          leadFinishedAt: leadA.finishedAt,
+          leadFinishedById: leadUser.id,
+          leadFinishedByNickname: leadUser.nickname,
+          leadFinishedAsAdmin: leadA.finishedAsAdmin,
           assessmentId: a.id,
           assessmentStatus: a.status,
           assessmentStepPosition: a.stepPosition,
@@ -532,6 +563,22 @@ export class DrizzleAssessmentStore implements AssessmentStore {
         // assessors step (a role writes only in its own round's step), so no step
         // filter is needed and the statement binds nothing new.
         .leftJoin(prevA, eq(prevA.timelineResultId, t.previousMembershipId))
+        // P2-3916: the step-3 row, by the timeline's `lead_assessors` step (unique per timeline).
+        .leftJoin(
+          leadA,
+          and(
+            eq(leadA.timelineResultId, t.id),
+            eq(leadA.stepPosition, leadStepSql()),
+          ),
+        )
+        .leftJoin(
+          leadFcv,
+          and(
+            eq(leadFcv.cycleId, t.cycleId),
+            eq(leadFcv.number, leadA.fieldConfigVersion),
+          ),
+        )
+        .leftJoin(leadUser, eq(leadUser.id, leadA.finishedBy))
         .leftJoin(users, eq(users.id, a.finishedBy))
         // The pinned NUMBER is the version of the membership's cycle: its row id, with no extra statement.
         .leftJoin(
@@ -578,6 +625,23 @@ export class DrizzleAssessmentStore implements AssessmentStore {
       previousMembershipId: row.previousMembershipId,
       changedFields: row.changedFields,
       previousAssessmentId: row.previousAssessmentId,
+      leadAssessment:
+        row.leadAssessmentId === null ||
+        row.leadAssessmentStatus === null ||
+        row.leadStepPosition === null ||
+        row.leadFieldConfigVersion === null
+          ? null
+          : {
+              id: row.leadAssessmentId,
+              status: row.leadAssessmentStatus,
+              stepPosition: row.leadStepPosition,
+              fieldConfigVersion: row.leadFieldConfigVersion,
+              fieldConfigVersionId: row.leadFieldConfigVersionId,
+              finishedAt: row.leadFinishedAt,
+              finishedById: row.leadFinishedById,
+              finishedByNickname: row.leadFinishedByNickname,
+              finishedAsAdmin: row.leadFinishedAsAdmin ?? false,
+            },
       assessment:
         row.assessmentId === null ||
         row.assessmentStatus === null ||

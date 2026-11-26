@@ -14,6 +14,7 @@ import {
   or,
   sql,
   type SQL,
+  type SQLWrapper,
 } from 'drizzle-orm';
 import type { TimelineViewStep } from '../admin-config/timelines/timeline-view.js';
 import { DRIZZLE } from '../database/drizzle/drizzle.constants.js';
@@ -35,6 +36,7 @@ import {
 } from '../database/drizzle/schema/timelines.js';
 import { users } from '../database/drizzle/schema/users.js';
 import { statusSqlCase, type QaStatus } from './qa-status.js';
+import { RoleCode } from '../users/permissions.js';
 import type { CurrentStepPositions } from './role-steps.js';
 import type { ReviewerRow, WorklistAccess } from './scope.js';
 
@@ -138,6 +140,8 @@ export interface WorklistRecord {
   membershipStatus: TimelineResultStatus;
   ended: boolean;
   endReason: TimelineResultEndReason | null;
+  /** P2-3916 (DD-T2): the Lead's step-3 assessment ended `escalated` (a TPB row covers the membership). */
+  leadEscalated: boolean;
   /** Non-withdrawn comments of the assessment. */
   comments: number;
   /** P2-3911: non-withdrawn comments in `accepted`, `accepted_with_comment` or `disagreed`. */
@@ -215,6 +219,34 @@ export function currentStepSql(steps: CurrentStepPositions): SQL {
   return sql`CASE WHEN ${t.entryRound} <= 1 THEN ${steps.assessmentStepPosition ?? 0} ELSE COALESCE(${held}, ${first}) END`;
 }
 
+const id = (name: string) => sql.identifier(name);
+
+/**
+ * P2-3916 (DD-T2), the SQL twin of `MembershipFacts.leadEscalated`: the
+ * membership holds a `result_assessments` row at its timeline's
+ * `lead_assessors` step, ended `escalated`. Literals only: nothing is bound.
+ */
+export function leadEscalatedSql(): SQL {
+  const la = id('lead_esc');
+  const ls = id('lead_esc_step');
+  return sql`EXISTS (SELECT 1 FROM ${id('result_assessments')} ${la} INNER JOIN ${id('timeline_steps')} ${ls} ON ${ls}.${id('timeline_id')} = ${t.timelineId} AND ${ls}.${id('position')} = ${la}.${id('step_position')} WHERE ${la}.${id('timeline_result_id')} = ${t.id} AND ${ls}.${id('audience')} = ${sql.raw("'lead_assessors'")} AND ${la}.${id('status')} = ${sql.raw("'escalated'")})`;
+}
+
+/** P2-3916: the position of the membership's timeline `lead_assessors` step (unique per timeline), NULL when it has none. */
+export function leadStepSql(): SQL {
+  const ls = id('lead_step');
+  return sql`(SELECT ${ls}.${id('position')} FROM ${id('timeline_steps')} ${ls} WHERE ${ls}.${id('timeline_id')} = ${t.timelineId} AND ${ls}.${id('audience')} = ${sql.raw("'lead_assessors'")})`;
+}
+
+/**
+ * P2-3916 (DD-T3): the audience of the step the joined assessment row belongs
+ * to, NULL when there is no row: the fifth input of `statusSqlCase`.
+ */
+export function currentStepAudienceSql(stepPosition: SQLWrapper): SQL {
+  const cs = id('cur_step');
+  return sql`(SELECT ${cs}.${id('audience')} FROM ${id('timeline_steps')} ${cs} WHERE ${cs}.${id('timeline_id')} = ${t.timelineId} AND ${cs}.${id('position')} = ${stepPosition})`;
+}
+
 /** One reviewer row as SQL, the same test as `rowCovers` plus the reviewed statuses (`scope.ts`). */
 function reviewerRowCondition(row: ReviewerRow): SQL | undefined {
   const types =
@@ -236,6 +268,7 @@ function reviewerRowCondition(row: ReviewerRow): SQL | undefined {
     inArray(t.status, ['pending', 'auto_validated']),
     types,
     programs,
+    row.role === RoleCode.TPB ? leadEscalatedSql() : undefined,
   );
 }
 
@@ -331,6 +364,7 @@ export class DrizzleWorklistStore implements WorklistStore {
       membershipStatus: t.status,
       endReason: t.endReason,
       assessmentStatus: a.status,
+      currentStep: currentStepAudienceSql(a.stepPosition),
       hasClarificationThread: exists(
         this.db
           .select({ one: sql`1` })
@@ -503,6 +537,7 @@ export class DrizzleWorklistStore implements WorklistStore {
         membershipStatus: t.status,
         endedAt: t.endedAt,
         endReason: t.endReason,
+        leadEscalated: sql<number>`${leadEscalatedSql()}`,
         comments: this.commentCount(),
         answeredBySp: this.answeredCount(),
         assessedById: users.id,
@@ -564,6 +599,7 @@ export class DrizzleWorklistStore implements WorklistStore {
       membershipStatus: row.membershipStatus,
       ended: row.endedAt !== null,
       endReason: row.endReason,
+      leadEscalated: Number(row.leadEscalated) === 1,
       comments: Number(row.comments),
       answeredBySp: Number(row.answeredBySp),
       assessedById: row.assessedById,
