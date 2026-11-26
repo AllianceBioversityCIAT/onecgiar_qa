@@ -44,7 +44,7 @@ const TITLES = ['w-[70%]', 'w-[55%]', 'w-[80%]', 'w-[62%]', 'w-[48%]', 'w-[75%]'
             </div>
             <qa-skeleton class="hidden h-3 w-28 @min-[896px]:block" />
             <qa-skeleton class="hidden h-3 w-5 justify-self-end @min-[640px]:block" />
-            <qa-skeleton class="col-start-2 row-start-1 h-5 w-20 justify-self-end rounded-full @min-[640px]:col-start-auto @min-[640px]:row-start-auto" />
+            <qa-skeleton class="col-start-2 row-start-1 h-5 w-20 justify-self-end rounded-md @min-[640px]:col-start-auto @min-[640px]:row-start-auto" />
           </div>
         }
       </div>

@@ -23,15 +23,12 @@
 
 <div class="flex flex-col items-stretch gap-5 px-4 pt-5 pb-8 sm:px-6 lg:px-8">
   <ng-template #loadError>
-    <div class="flex max-w-[420px] flex-col items-start gap-2" role="alert">
-      <p class="m-0 text-(length:--fs-14) text-(--text-2)">The results could not load. {{ store.error() }}</p>
-      <div class="flex flex-wrap items-center gap-3">
-        <button hlmBtn qaBtn tone="secondary" size="sm" type="button" (click)="store.load()">Try again</button>
-        @if (hasFilters()) {
-          <button hlmBtn qaBtn tone="link" size="sm" type="button" (click)="clearAll()">Clear filters</button>
-        }
-      </div>
-    </div>
+    <qa-state-card alert heading="We couldn't load the results" [message]="'The results could not load. ' + (store.error() ?? '')">
+      <button hlmBtn qaBtn tone="secondary" size="sm" type="button" (click)="store.load()">Try again</button>
+      @if (hasFilters()) {
+        <button hlmBtn qaBtn tone="link" size="sm" type="button" (click)="clearAll()">Clear filters</button>
+      }
+    </qa-state-card>
   </ng-template>
 
   @if (store.state() === 'loading') {
@@ -40,7 +37,7 @@
     @if (store.state() === 'error') {
       <ng-container [ngTemplateOutlet]="loadError" />
     } @else {
-      <p class="m-0 text-(length:--fs-14) text-(--text-3)">You are not assigned to any QA timeline yet.</p>
+      <qa-state-card heading="No timelines yet" message="You are not assigned to any QA timeline yet." />
     }
   } @else {
     <!-- The search and menus that depend on the timeline in the title, right on the table they filter. -->
@@ -85,14 +82,13 @@
       }
 
       @if (store.noActiveRole()) {
-        <p class="m-0 text-(length:--fs-14) text-(--text-3)">You are on this timeline, but none of your roles has results to assess in it.</p>
+        <qa-state-card heading="Nothing to assess here" message="You are on this timeline, but none of your roles has results to assess in it." />
       } @else if (store.counters().total === 0 && !hasFilters()) {
-        <div class="flex flex-col items-start gap-2">
-          <p class="m-0 text-(length:--fs-14) text-(--text-3)">No results have entered QA in this timeline yet.</p>
+        <qa-state-card heading="No results yet" message="No results have entered QA in this timeline yet.">
           @if (isAdmin()) {
-            <a hlmBtn qaBtn tone="link" size="sm" flush="start" routerLink="/cycle">Go to Cycle</a>
+            <a hlmBtn qaBtn tone="secondary" size="sm" routerLink="/cycle">Go to Cycle</a>
           }
-        </div>
+        </qa-state-card>
       } @else {
         <!-- Counters ignore the filters: they describe the whole timeline in the caller's scope. -->
         <p class="m-0 text-(length:--fs-13) text-(--text-3) tabular-nums" aria-live="polite">
