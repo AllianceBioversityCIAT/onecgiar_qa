@@ -1,5 +1,5 @@
 // @akili-spec assessment/step-1-assessment
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import {
   ADMIN_CONFIG_CLOCK,
   type AdminConfigClock,
@@ -94,18 +94,35 @@ import {
   type ReleaseDispatcher,
 } from './release.service.js';
 import { buildValueCopy } from './comment-value-copy.js';
+import { changedFields } from '../ingestion/load-rules.js';
 import {
+  RESULTS_FEED,
+  type ResultsFeed,
+} from '../ingestion/results-feed.port.js';
+import { DECISION_VALUES } from './dto/decide-comment.body.js';
+import {
+  audienceStepState,
   currentStepPosition,
   currentStepPositionsOf,
   enabledReviewerRows,
+  findRoleStep,
   isWithdrawWindowOpen,
   stepOfRole,
   type StepTiming,
 } from './role-steps.js';
+import type { StepAudience } from '../admin-config/timelines/default-steps.js';
 import {
   effectiveGreen,
   endRoundTwoAfterWrite,
   endRoundTwoOnFinish,
+  isPpuDecidable,
+  isTpbDecidable,
+  ppuEnds,
+  ppuFieldGreen,
+  type PpuCase,
+  tpbFieldGreen,
+  tpbUndecidedFields,
+  type TpbItem,
   isActionable,
   isDecidable,
   undecidedCommentFields,
@@ -173,8 +190,10 @@ export interface ValidationSummary extends AssessmentSummary {
 
 /** The request of `PUT …/assessment/decisions/:commentId` (round-2 FR-8): the choice and its text, already trimmed and length-checked by the DTO. */
 export interface DecisionInput {
-  decision: 'agree_program' | 'escalate';
-  body: string;
+  /** The Lead's values, or the TPB's (P2-3916); the service judges which the caller's role may set (409 `ASSESSMENT_DECISION_INVALID`). */
+  decision: (typeof DECISION_VALUES)[number];
+  /** `null` only for `ppu_done` (the DTO requires it for every other value). */
+  body: string | null;
 }
 
 /** The answer of a decision write (round-2 design 6): the decision as stored (`null` after a clear) and the assessment as `validate` answers it. */
@@ -221,6 +240,27 @@ const toViewComment = (row: CommentRecord): ViewComment => ({
   createdAt: row.createdAt.toISOString(),
   withdrawnAt: row.withdrawnAt === null ? null : row.withdrawnAt.toISOString(),
 });
+
+/**
+ * The assessment row of the caller's step as the first read saw it, `null`
+ * when there is none. The membership read carries the current step's row and
+ * the Lead's step-3 row (P2-3916): once the TPB opened step 4, a Lead write
+ * still finds its own ended row here and is refused 409 `ASSESSMENT_FINISHED`.
+ */
+function heldAt(
+  membership: MembershipRecord,
+  stepPosition: number,
+): MembershipRecord['assessment'] {
+  if (membership.assessment?.stepPosition === stepPosition) {
+    return membership.assessment;
+  }
+  if (membership.leadAssessment?.stepPosition === stepPosition) {
+    return membership.leadAssessment;
+  }
+  return membership.tpbAssessment?.stepPosition === stepPosition
+    ? membership.tpbAssessment
+    : null;
+}
 
 /** A datetime column keeps whole seconds, so a stamp is cut to them: what an answer says is then what a re-read gives. */
 const wholeSecond = (at: Date): Date =>
@@ -299,6 +339,10 @@ export class AssessmentService {
     @Inject(ASSESSMENT_UNIT_OF_WORK)
     private readonly unitOfWork: AssessmentUnitOfWork,
     @Inject(RELEASE_DISPATCHER) private readonly releases: ReleaseDispatcher,
+    /** P2-3917 AC6 (DD-P6): Reporting's current values of the PPU's case fields; absent in unit specs that build the service by hand. */
+    @Optional()
+    @Inject(RESULTS_FEED)
+    private readonly feed?: ResultsFeed,
   ) {}
 
   /**
@@ -371,10 +415,14 @@ export class AssessmentService {
     trace.membershipId = membership.membershipId;
     trace.actingRole = actingRoleOf(access);
     const stepPosition = decision.stepPosition;
-    const held =
-      membership.assessment?.stepPosition === stepPosition
-        ? membership.assessment
-        : null;
+    // P2-3916 (FR-11, DD-T6) / P2-3917 (DD-P8): a TPB only decides and finishes; a PPU only marks Done.
+    if (
+      decision.row.role === RoleCode.TPB ||
+      decision.row.role === RoleCode.PPU
+    ) {
+      throw new AssessmentReadOnlyError();
+    }
+    const held = heldAt(membership, stepPosition);
 
     // FR-16: an ended membership or assessment takes no more validations.
     if (membership.ended || (held !== null && held.status !== 'pending')) {
@@ -715,17 +763,23 @@ export class AssessmentService {
     trace.membershipId = membership.membershipId;
     trace.actingRole = actingRoleOf(access);
     const stepPosition = decision.stepPosition;
-    const held =
-      membership.assessment?.stepPosition === stepPosition
-        ? membership.assessment
-        : null;
+    const held = heldAt(membership, stepPosition);
 
     // FR-16: an ended membership or assessment takes no finish.
     if (membership.ended || (held !== null && held.status !== 'pending')) {
       throw new AssessmentFinishedError();
     }
 
-    const { core, version } = await this.assessedOf(timeline, membership, held);
+    // P2-3917 (DD-P2, DD-P8): the PPU has no Finish; its last Done ends the result.
+    if (decision.row.role === RoleCode.PPU) throw new AssessmentReadOnlyError();
+    const tpb = membership.round !== 1 && decision.row.role === RoleCode.TPB;
+    const lead = tpb ? this.escalatedLead(membership) : null;
+    const { core, version } = await this.assessedOf(
+      timeline,
+      membership,
+      held,
+      lead,
+    );
     const context: WriteContext = {
       timeline,
       access,
@@ -748,6 +802,46 @@ export class AssessmentService {
           row.validated,
         ]),
       );
+      if (lead !== null) {
+        // P2-3916 (FR-8, DD-T1): every escalated item decided, then the round-2 end mapping
+        // with "escalated" read as "has a tpb_agree_assessor". Comments are not read otherwise.
+        const decisions = await assessments.findDecisions(locked.id);
+        const items = await this.tpbItems(
+          assessments,
+          membership,
+          lead,
+          decisions,
+        );
+        const undecided = tpbUndecidedFields(items);
+        if (undecided.length > 0) {
+          throw new AssessmentCoreUndecidedError(undecided);
+        }
+        const green = await this.tpbEffectiveOf(assessments, membership, lead);
+        const withAssessor = new Set(
+          items
+            .filter((item) => item.decision === 'tpb_agree_assessor')
+            .map((item) => item.fieldKey),
+        );
+        const outcome = endRoundTwoOnFinish(
+          core.map((key) => ({
+            key,
+            effectiveGreen: green(key, state.get(key)),
+            escalated: withAssessor.has(key),
+          })),
+        );
+        if (typeof outcome === 'object') {
+          throw new AssessmentCoreUndecidedError([...outcome.fieldKeys]);
+        }
+        const end = await this.applyEnd(
+          assessments,
+          context,
+          locked,
+          outcome,
+          requestId,
+          decisions,
+        );
+        return { ...end, validations: this.validationRows(state) };
+      }
       if (membership.round !== 1) {
         // Round 2 (FR-11, FR-12, FR-13, DD-5): effective greens (stored ?? carried)
         // and the live `escalate` decisions; comments are never read. It never returns.
@@ -915,12 +1009,15 @@ export class AssessmentService {
     if (membership.round === 1) {
       await assessments.markCommentsVisible(locked.id, finishedAt);
     } else {
-      // DD-7: the Lead's decisions become comment states now; DD-8: round 2 never makes a comment visible to the program.
-      await this.applyLeadDecisions(
-        assessments,
-        context,
-        decisions ?? (await assessments.findDecisions(locked.id)),
-      );
+      // DD-7: the deciding role's decisions become comment states now; DD-8: round 2 never makes a comment visible to the program.
+      const own = decisions ?? (await assessments.findDecisions(locked.id));
+      if (context.roleCode === RoleCode.PPU) {
+        await this.applyPpuDecisions(assessments, context, own);
+      } else if (context.roleCode === RoleCode.TPB) {
+        await this.applyTpbDecisions(assessments, context, own);
+      } else {
+        await this.applyLeadDecisions(assessments, context, own);
+      }
     }
     await assessments.insertAudit({
       assessmentId: locked.id,
@@ -975,6 +1072,526 @@ export class AssessmentService {
   }
 
   /**
+   * P2-3916 (DD-7, FR-6, FR-7): the end of the TPB's review writes its
+   * decisions as comment states: `tpb_agree_program` closes the comment as
+   * `tpb_sided_program`, `tpb_agree_assessor` moves it to `tpb_sided_assessor`
+   * (the PPU case), from `escalated`, one `comment_events` row each (actor role
+   * TPB). A decision on a deleted comment moves nothing.
+   */
+  private async applyTpbDecisions(
+    assessments: AssessmentWriteStore,
+    context: WriteContext,
+    decisions: readonly DecisionRecord[],
+  ): Promise<void> {
+    for (const d of decisions) {
+      if (!isLiveDecision(d)) continue;
+      const to: CommentState | null =
+        d.decision === 'tpb_agree_program'
+          ? 'tpb_sided_program'
+          : d.decision === 'tpb_agree_assessor'
+            ? 'tpb_sided_assessor'
+            : null;
+      if (to === null || !isTransitionAllowed(d.commentState, to, 'tpb')) {
+        continue;
+      }
+      const moved = await assessments.setCommentState(
+        d.commentId,
+        d.commentState,
+        to,
+      );
+      if (!moved) continue;
+      await assessments.insertCommentEvent({
+        commentId: d.commentId,
+        actorId: context.user.id,
+        actorRole: RoleCode.TPB,
+        fromState: d.commentState,
+        toState: to,
+        at: context.at,
+      });
+    }
+  }
+
+  /**
+   * P2-3917 (DD-7, FR-6): the end of the PPU's work writes its Done decisions
+   * as comment states: `tpb_sided_assessor` to `done`, one `comment_events` row
+   * each (actor role PPU). A decision on a deleted comment moves nothing.
+   */
+  private async applyPpuDecisions(
+    assessments: AssessmentWriteStore,
+    context: WriteContext,
+    decisions: readonly DecisionRecord[],
+  ): Promise<void> {
+    for (const d of decisions) {
+      if (!isLiveDecision(d) || d.decision !== 'ppu_done') continue;
+      if (!isTransitionAllowed(d.commentState, 'done', 'ppu')) continue;
+      const moved = await assessments.setCommentState(
+        d.commentId,
+        d.commentState,
+        'done',
+      );
+      if (!moved) continue;
+      await assessments.insertCommentEvent({
+        commentId: d.commentId,
+        actorId: context.user.id,
+        actorRole: RoleCode.PPU,
+        fromState: d.commentState,
+        toState: 'done',
+        at: context.at,
+      });
+    }
+  }
+
+  /** P2-3917 (DD-P4): the TPB's step-4 row, which must have ended `escalated` for a PPU to work on the result. */
+  private escalatedTpb(
+    membership: MembershipRecord,
+  ): NonNullable<MembershipRecord['tpbAssessment']> {
+    const tpb = membership.tpbAssessment;
+    if (tpb === null || tpb.status !== 'escalated') {
+      throw new AssessmentNotFoundError();
+    }
+    return tpb;
+  }
+
+  /**
+   * P2-3917 (FR-4, FR-6): the PPU's cases under the step-5 lock: the live
+   * `tpb_sided_assessor` comments of the round-1 assessment and of the Lead's
+   * step-3 one, each with the PPU's live decision (`null` = not Done).
+   */
+  private async ppuCases(
+    assessments: AssessmentWriteStore,
+    membership: MembershipRecord,
+    decisions: readonly DecisionRecord[],
+  ): Promise<PpuCase[]> {
+    const ids = [
+      membership.previousAssessmentId,
+      membership.leadAssessment?.id ?? null,
+    ].filter((id): id is number => id !== null);
+    const live = (
+      await Promise.all(ids.map((id) => assessments.findLiveCommentStates(id)))
+    ).flat();
+    const decided = new Map(
+      decisions.filter(isLiveDecision).map((d) => [d.commentId, d.decision]),
+    );
+    return live
+      .filter((comment) => comment.state === 'tpb_sided_assessor')
+      .map((comment) => ({
+        commentId: comment.id,
+        fieldKey: comment.fieldKey,
+        decision: decided.get(comment.id) ?? null,
+      }));
+  }
+
+  /**
+   * P2-3917 (design § 5): the step-5 effective green as a function of the
+   * PPU's stored mark: the mark, else the TPB's (step 4), else the step-3
+   * effective green. Computed, never copied (DD-4).
+   */
+  private async ppuEffectiveOf(
+    assessments: AssessmentWriteStore,
+    membership: MembershipRecord,
+    tpb: NonNullable<MembershipRecord['tpbAssessment']>,
+  ): Promise<(key: string, stored: boolean | undefined) => boolean> {
+    const lead = membership.leadAssessment;
+    const below =
+      lead === null
+        ? await this.effectiveOf(assessments, membership)
+        : await this.tpbEffectiveOf(assessments, membership, lead);
+    const tpbMarks = new Map(
+      (await assessments.findValidations(tpb.id)).map((row) => [
+        row.fieldKey,
+        row.validated,
+      ]),
+    );
+    return (key, stored) => stored ?? below(key, tpbMarks.get(key));
+  }
+
+  /**
+   * P2-3917 (FR-4 … FR-6, DD-P2, DD-P3): the PPU marks a case Done, or clears
+   * its Done, until the result ends; no date window (DD-P1). The field's step-5
+   * mark follows its cases (green once every case on it is Done). The Done that
+   * leaves no case open and every core field green ends the result Quality
+   * Assessed in this transaction (one `qaed` release). A clear never ends it.
+   */
+  private async ppuDecideAt(
+    resolved: Awaited<ReturnType<AssessmentService['resolveWrite']>>,
+    at: Date,
+    now: RomeMinute,
+    user: ReviewerCaller,
+    commentId: number,
+    input: DecisionInput | null,
+    requestId: string,
+  ): Promise<DecisionResult> {
+    const { timeline, access, membership, facts, hasLoad, decision } = resolved;
+    const stepPosition = decision.stepPosition;
+    const held = heldAt(membership, stepPosition);
+    if (membership.ended || (held !== null && held.status !== 'pending')) {
+      throw new AssessmentFinishedError();
+    }
+    const tpb = this.escalatedTpb(membership);
+    const sources = [
+      membership.previousAssessmentId,
+      membership.leadAssessment?.id ?? null,
+    ];
+
+    if (held === null && input === null) {
+      // Nothing was marked, so there is nothing to clear: no row, no transaction. The comment is still checked.
+      const found = await this.store.findCommentContext(commentId);
+      if (found === null || !sources.includes(found.assessmentId)) {
+        throw new AssessmentNotFoundError();
+      }
+      return {
+        status: 'pending',
+        assessedBy: null,
+        finishedAt: null,
+        validations: [],
+        decision: null,
+      };
+    }
+
+    const { assessed, core, version } = await this.assessedOf(
+      timeline,
+      membership,
+      held,
+      tpb,
+    );
+    const context: WriteContext = {
+      timeline,
+      access,
+      membership,
+      facts,
+      hasLoad,
+      now,
+      at,
+      stepPosition,
+      roleCode: RoleCode.PPU,
+      held,
+      version,
+      user,
+    };
+    const decidedAt = wholeSecond(at);
+    return await this.unitOfWork.run(async ({ assessments }) => {
+      const locked = await this.lockForWrite(assessments, context);
+      // Design 7 *Write path*: the comment row after the step-5 assessment lock.
+      const target = await assessments.lockDecisionTarget(commentId);
+      if (target === undefined || !sources.includes(target.assessmentId)) {
+        throw new AssessmentNotFoundError();
+      }
+      const audit = (action: 'decision_set' | 'decision_clear') =>
+        assessments.insertAudit({
+          assessmentId: locked.id,
+          actorId: user.id,
+          action,
+          fieldKeys: [target.fieldKey],
+          commentId,
+          requestId,
+          at,
+        });
+      let stored: DecisionResult['decision'] = null;
+      if (input === null) {
+        if (await assessments.deleteDecision(commentId, RoleCode.PPU)) {
+          await audit('decision_clear');
+        }
+      } else {
+        const choices = isPpuDecidable(
+          { state: target.state, deleted: target.deleted },
+          {
+            visibility: assessed.includes(target.fieldKey)
+              ? 'assessed'
+              : 'view_only',
+            isCore: core.includes(target.fieldKey),
+          },
+          RoleCode.PPU,
+        );
+        if (!(choices as readonly string[]).includes(input.decision)) {
+          throw new AssessmentDecisionInvalidError();
+        }
+        await assessments.upsertDecision({
+          commentId,
+          assessmentId: locked.id,
+          roleCode: RoleCode.PPU,
+          decision: input.decision,
+          body: input.body,
+          actorId: user.id,
+          asAdmin: actsAsAdmin(access),
+          at: decidedAt,
+        });
+        await audit('decision_set');
+        stored = {
+          decision: input.decision,
+          body: input.body,
+          decidedAt: decidedAt.toISOString(),
+        };
+      }
+      // FR-6: the field's step-5 mark follows its cases.
+      const state = new Map(
+        (await assessments.findValidations(locked.id)).map((row) => [
+          row.fieldKey,
+          row.validated,
+        ]),
+      );
+      const decisions = await assessments.findDecisions(locked.id);
+      const cases = await this.ppuCases(assessments, membership, decisions);
+      const wanted = ppuFieldGreen(
+        cases.filter((item) => item.fieldKey === target.fieldKey),
+      );
+      const green = await this.ppuEffectiveOf(assessments, membership, tpb);
+      if (
+        wanted !== null &&
+        green(target.fieldKey, state.get(target.fieldKey)) !== wanted
+      ) {
+        await assessments.upsertValidations(
+          locked.id,
+          [{ fieldKey: target.fieldKey, validated: wanted }],
+          user.id,
+          at,
+        );
+        state.set(target.fieldKey, wanted);
+      }
+      // AC7 (DD-P2): the Done that leaves no case open and the core green ends the result.
+      let end: AssessmentSummary = {
+        status: locked.status,
+        assessedBy: null,
+        finishedAt: null,
+      };
+      if (
+        input !== null &&
+        ppuEnds(
+          cases,
+          core.map((key) => green(key, state.get(key))),
+        )
+      ) {
+        end = await this.applyEnd(
+          assessments,
+          context,
+          locked,
+          'quality_assessed',
+          requestId,
+          decisions,
+        );
+      }
+      return {
+        ...end,
+        validations: this.validationRows(state),
+        decision: stored,
+      };
+    });
+  }
+
+  /** P2-3916 (DD-T2): the Lead's step-3 row, which must have ended `escalated` for a TPB to work on the result. */
+  private escalatedLead(
+    membership: MembershipRecord,
+  ): NonNullable<MembershipRecord['leadAssessment']> {
+    const lead = membership.leadAssessment;
+    // The scope already requires it; a miss is the same 404 as a result out of scope.
+    if (lead === null || lead.status !== 'escalated') {
+      throw new AssessmentNotFoundError();
+    }
+    return lead;
+  }
+
+  /**
+   * P2-3916 (FR-3, FR-6): the escalated items of the result, under the step-4
+   * lock: the live `escalated` comments of the round-1 assessment and of the
+   * Lead's step-3 one, each with the TPB's live decision (`null` = none).
+   */
+  private async tpbItems(
+    assessments: AssessmentWriteStore,
+    membership: MembershipRecord,
+    lead: NonNullable<MembershipRecord['leadAssessment']>,
+    decisions: readonly DecisionRecord[],
+  ): Promise<TpbItem[]> {
+    const ids = [membership.previousAssessmentId, lead.id].filter(
+      (id): id is number => id !== null,
+    );
+    const live = (
+      await Promise.all(ids.map((id) => assessments.findLiveCommentStates(id)))
+    ).flat();
+    const decided = new Map(
+      decisions.filter(isLiveDecision).map((d) => [d.commentId, d.decision]),
+    );
+    return live
+      .filter((comment) => comment.state === 'escalated')
+      .map((comment) => ({
+        commentId: comment.id,
+        fieldKey: comment.fieldKey,
+        decision: decided.get(comment.id) ?? null,
+      }));
+  }
+
+  /**
+   * P2-3916 (design § 6): the step-4 effective green as a function of the
+   * TPB's stored mark: the mark, else the step-3 effective green (the Lead's
+   * mark, else the carried round-1 green). Computed, never copied (DD-4).
+   */
+  private async tpbEffectiveOf(
+    assessments: AssessmentWriteStore,
+    membership: MembershipRecord,
+    lead: NonNullable<MembershipRecord['leadAssessment']>,
+  ): Promise<(key: string, stored: boolean | undefined) => boolean> {
+    const carried = await this.effectiveOf(assessments, membership);
+    const leadMarks = new Map(
+      (await assessments.findValidations(lead.id)).map((row) => [
+        row.fieldKey,
+        row.validated,
+      ]),
+    );
+    return (key, stored) => stored ?? carried(key, leadMarks.get(key));
+  }
+
+  /**
+   * P2-3916 (FR-5, FR-6, FR-7, DD-T1, DD-T8): a TPB sets or clears its decision
+   * on one escalated comment, until its review ends. The field's step-4 green
+   * follows its escalated items: green once every one sides with the program.
+   * A decision never ends the review (only Finish does). Comment states change
+   * at the end (DD-7).
+   */
+  private async tpbDecideAt(
+    resolved: Awaited<ReturnType<AssessmentService['resolveWrite']>>,
+    at: Date,
+    now: RomeMinute,
+    user: ReviewerCaller,
+    commentId: number,
+    input: DecisionInput | null,
+    requestId: string,
+  ): Promise<DecisionResult> {
+    const { timeline, access, membership, facts, hasLoad, decision } = resolved;
+    const stepPosition = decision.stepPosition;
+    const held = heldAt(membership, stepPosition);
+    if (membership.ended || (held !== null && held.status !== 'pending')) {
+      throw new AssessmentFinishedError();
+    }
+    const lead = this.escalatedLead(membership);
+    const sources = [membership.previousAssessmentId, lead.id];
+
+    if (held === null && input === null) {
+      // Nothing was decided, so there is nothing to clear: no row, no transaction. The comment is still checked.
+      const found = await this.store.findCommentContext(commentId);
+      if (found === null || !sources.includes(found.assessmentId)) {
+        throw new AssessmentNotFoundError();
+      }
+      return {
+        status: 'pending',
+        assessedBy: null,
+        finishedAt: null,
+        validations: [],
+        decision: null,
+      };
+    }
+
+    const { assessed, core, version } = await this.assessedOf(
+      timeline,
+      membership,
+      held,
+      lead,
+    );
+    const context: WriteContext = {
+      timeline,
+      access,
+      membership,
+      facts,
+      hasLoad,
+      now,
+      at,
+      stepPosition,
+      roleCode: RoleCode.TPB,
+      held,
+      version,
+      user,
+    };
+    const decidedAt = wholeSecond(at);
+    return await this.unitOfWork.run(async ({ assessments }) => {
+      const locked = await this.lockForWrite(assessments, context);
+      // Design 7 *Write path*: the comment row after the step-4 assessment lock.
+      const target = await assessments.lockDecisionTarget(commentId);
+      if (target === undefined || !sources.includes(target.assessmentId)) {
+        throw new AssessmentNotFoundError();
+      }
+      const audit = (action: 'decision_set' | 'decision_clear') =>
+        assessments.insertAudit({
+          assessmentId: locked.id,
+          actorId: user.id,
+          action,
+          fieldKeys: [target.fieldKey],
+          commentId,
+          requestId,
+          at,
+        });
+      let stored: DecisionResult['decision'] = null;
+      if (input === null) {
+        if (await assessments.deleteDecision(commentId, RoleCode.TPB)) {
+          await audit('decision_clear');
+        }
+      } else {
+        const choices = isTpbDecidable(
+          { state: target.state, deleted: target.deleted },
+          {
+            visibility: assessed.includes(target.fieldKey)
+              ? 'assessed'
+              : 'view_only',
+            isCore: core.includes(target.fieldKey),
+          },
+          RoleCode.TPB,
+        );
+        if (!(choices as readonly string[]).includes(input.decision)) {
+          throw new AssessmentDecisionInvalidError();
+        }
+        await assessments.upsertDecision({
+          commentId,
+          assessmentId: locked.id,
+          roleCode: RoleCode.TPB,
+          decision: input.decision,
+          body: input.body,
+          actorId: user.id,
+          asAdmin: actsAsAdmin(access),
+          at: decidedAt,
+        });
+        await audit('decision_set');
+        stored = {
+          decision: input.decision,
+          body: input.body,
+          decidedAt: decidedAt.toISOString(),
+        };
+      }
+      // FR-6, DD-T8: the field's step-4 mark follows its escalated items.
+      const state = new Map(
+        (await assessments.findValidations(locked.id)).map((row) => [
+          row.fieldKey,
+          row.validated,
+        ]),
+      );
+      const items = await this.tpbItems(
+        assessments,
+        membership,
+        lead,
+        await assessments.findDecisions(locked.id),
+      );
+      const wanted = tpbFieldGreen(
+        items.filter((item) => item.fieldKey === target.fieldKey),
+      );
+      const green = await this.tpbEffectiveOf(assessments, membership, lead);
+      if (
+        wanted !== null &&
+        green(target.fieldKey, state.get(target.fieldKey)) !== wanted
+      ) {
+        await assessments.upsertValidations(
+          locked.id,
+          [{ fieldKey: target.fieldKey, validated: wanted }],
+          user.id,
+          at,
+        );
+        state.set(target.fieldKey, wanted);
+      }
+      return {
+        status: locked.status,
+        assessedBy: null,
+        finishedAt: null,
+        validations: this.validationRows(state),
+        decision: stored,
+      };
+    });
+  }
+
+  /**
    * Runs a write once more when it found, under the lock, another pinned
    * version than it judged by. A second mismatch is 503 `SERVICE_UNAVAILABLE`
    * (`AssessmentBusyError`), retryable and with nothing written, never an
@@ -1006,18 +1623,21 @@ export class AssessmentService {
     timeline: WorklistTimeline,
     membership: MembershipRecord,
     held: MembershipRecord['assessment'],
+    /** P2-3916 (DD-T4): with no row yet, pin this row's version (the Lead's, for a TPB) instead of the cycle's latest. */
+    pinnedBy: MembershipRecord['assessment'] = null,
   ): Promise<{ assessed: string[]; core: string[]; version: number }> {
     let items: readonly ConfigItem[];
     let version: number;
-    if (held !== null) {
-      if (held.fieldConfigVersionId === null) {
+    const pinned = held ?? pinnedBy;
+    if (pinned !== null) {
+      if (pinned.fieldConfigVersionId === null) {
         throw new AssessmentNoFieldConfigError();
       }
       items = await this.fieldConfig.versionItems(
-        held.fieldConfigVersionId,
+        pinned.fieldConfigVersionId,
         membership.resultTypeKey,
       );
-      version = held.fieldConfigVersion;
+      version = pinned.fieldConfigVersion;
     } else {
       const effective = await this.effectiveConfig(
         timeline,
@@ -1106,10 +1726,14 @@ export class AssessmentService {
     trace.membershipId = membership.membershipId;
     trace.actingRole = actingRoleOf(access);
     const stepPosition = decision.stepPosition;
-    const held =
-      membership.assessment?.stepPosition === stepPosition
-        ? membership.assessment
-        : null;
+    // P2-3916 (FR-11, DD-T6) / P2-3917 (DD-P8): a TPB only decides and finishes; a PPU only marks Done.
+    if (
+      decision.row.role === RoleCode.TPB ||
+      decision.row.role === RoleCode.PPU
+    ) {
+      throw new AssessmentReadOnlyError();
+    }
+    const held = heldAt(membership, stepPosition);
 
     // FR-16: an ended membership or assessment takes no more comments.
     if (membership.ended || (held !== null && held.status !== 'pending')) {
@@ -1322,6 +1946,30 @@ export class AssessmentService {
       await this.resolveWrite(user, timelineId, resultCode, now);
     trace.membershipId = membership.membershipId;
     trace.actingRole = actingRoleOf(access);
+    // P2-3917: the PPU marks the TPB's cases Done in step 5 (its own branch).
+    if (membership.round !== 1 && decision.row.role === RoleCode.PPU) {
+      return await this.ppuDecideAt(
+        { timeline, access, membership, facts, hasLoad, decision },
+        at,
+        now,
+        user,
+        commentId,
+        input,
+        requestId,
+      );
+    }
+    // P2-3916: the TPB decides the Lead's escalations in step 4 (its own branch).
+    if (membership.round !== 1 && decision.row.role === RoleCode.TPB) {
+      return await this.tpbDecideAt(
+        { timeline, access, membership, facts, hasLoad, decision },
+        at,
+        now,
+        user,
+        commentId,
+        input,
+        requestId,
+      );
+    }
     // Only a Lead decides, and only in round 2: for any other caller the route is not there.
     if (
       membership.round === 1 ||
@@ -1330,10 +1978,7 @@ export class AssessmentService {
       throw new AssessmentNotFoundError();
     }
     const stepPosition = decision.stepPosition;
-    const held =
-      membership.assessment?.stepPosition === stepPosition
-        ? membership.assessment
-        : null;
+    const held = heldAt(membership, stepPosition);
 
     // FR-16: an ended membership or assessment takes no more decisions.
     if (membership.ended || (held !== null && held.status !== 'pending')) {
@@ -1460,7 +2105,7 @@ export class AssessmentService {
           },
           RoleCode.LEAD_ASSESSOR,
         );
-        if (!choices.includes(input.decision)) {
+        if (!(choices as readonly string[]).includes(input.decision)) {
           throw new AssessmentDecisionInvalidError();
         }
         const others = onField.filter((d) => d.commentId !== commentId);
@@ -1760,6 +2405,13 @@ export class AssessmentService {
     // The Lead's membership of the comment's result: the scope, the step and the end are the decision's.
     const { timeline, access, membership, facts, hasLoad, decision } =
       await this.resolveWrite(user, target.timelineId, target.resultCode, now);
+    // P2-3916 (FR-11, DD-T6) / P2-3917 (DD-P8): a TPB only decides and finishes; a PPU only marks Done.
+    if (
+      decision.row.role === RoleCode.TPB ||
+      decision.row.role === RoleCode.PPU
+    ) {
+      throw new AssessmentReadOnlyError();
+    }
     if (
       membership.round === 1 ||
       decision.row.role !== RoleCode.LEAD_ASSESSOR
@@ -1770,10 +2422,7 @@ export class AssessmentService {
     trace.membershipId = membership.membershipId;
     trace.actingRole = actingRoleOf(access);
     const stepPosition = decision.stepPosition;
-    const held =
-      membership.assessment?.stepPosition === stepPosition
-        ? membership.assessment
-        : null;
+    const held = heldAt(membership, stepPosition);
     if (membership.ended || (held !== null && held.status !== 'pending')) {
       throw new AssessmentFinishedError();
     }
@@ -1982,6 +2631,8 @@ export class AssessmentService {
       status: membership.status,
       ended: membership.ended,
       endReason: membership.endReason,
+      leadEscalated: membership.leadAssessment?.status === 'escalated',
+      tpbEscalated: membership.tpbAssessment?.status === 'escalated',
     };
     const decision = this.assertWritable(
       writeDecision(access, facts, { steps: timeline.steps, now, hasLoad }),
@@ -2047,11 +2698,19 @@ export class AssessmentService {
     const catalog = await this.catalogOf(membership.cycleYear);
     const snapshot = await this.snapshotOf(membership);
 
-    const assessment = membership.assessment;
     // The caller's reviewer role at this round; `null` for ADMIN (reads, decides nothing).
     const role =
       access.reviewerRows.find((row) => row.round === membership.round)?.role ??
       null;
+    // DD-T7 (P2-3916): a reviewer reads ITS OWN step's assessment: the Lead keeps
+    // its step-3 review once the TPB starts step 4, and a TPB that has not
+    // written yet has none. The status still reads the current step (DD-3).
+    const assessment = this.ownAssessment(timeline, membership, role);
+    // P2-3916 / P2-3917: the TPB and the PPU read the escalation thread and the earlier steps' greens.
+    const tpb =
+      membership.round !== 1 &&
+      (role === RoleCode.TPB || role === RoleCode.PPU);
+    const ppu = membership.round !== 1 && role === RoleCode.PPU;
     // T-16: the Lead's decisions on its own round-2 comments, in the same
     // parallel read; only for the Lead in round 2 with an assessment row.
     const [validations, comments, ownDecisions] =
@@ -2067,15 +2726,53 @@ export class AssessmentService {
     // Round 2 (design 7 *Thread read*, DD-4): the previous membership's step-1
     // thread (ONE statement for any number of comments) and its validations.
     // A new round-2 membership has no previous assessment: nothing is read.
+    // P2-3916 (DD-T5): a TPB reads the escalation thread instead, over the
+    // round-1 and step-3 assessments with the Lead's decision, and the Lead's greens.
     const previous =
       membership.round === 1 ? null : membership.previousAssessmentId;
-    const [roundOneThread, roundOneValidations] =
-      previous === null
-        ? [[], []]
-        : await Promise.all([
-            this.store.findRoundOneThread(previous, RoleCode.LEAD_ASSESSOR),
-            this.store.findValidations(previous),
-          ]);
+    const lead = tpb ? membership.leadAssessment : null;
+    const tpbRow = ppu ? membership.tpbAssessment : null;
+    const [roundOneThread, roundOneValidations, leadValidations, tpbValidations] =
+      await Promise.all([
+        tpb
+          ? this.store.findEscalationThread(
+              [previous, lead?.id ?? null].filter(
+                (id): id is number => id !== null,
+              ),
+              role,
+              RoleCode.LEAD_ASSESSOR,
+            )
+          : previous === null
+            ? Promise.resolve([])
+            : this.store.findRoundOneThread(previous, RoleCode.LEAD_ASSESSOR),
+        previous === null
+          ? Promise.resolve([])
+          : this.store.findValidations(previous),
+        lead === null
+          ? Promise.resolve(null)
+          : this.store.findValidations(lead.id),
+        tpbRow === null
+          ? Promise.resolve(null)
+          : this.store.findValidations(tpbRow.id),
+      ]);
+    // P2-3917 AC6 (FR-9, DD-P6): a PPU reader compares the open cases' fields
+    // with Reporting and stores the first sighting of a change; every reader
+    // of a result that reached step 5 reads the stored dates (one statement).
+    if (
+      ppu &&
+      !membership.ended &&
+      (assessment === null || assessment.status === 'pending')
+    ) {
+      await this.checkReportingChanges(
+        membership,
+        snapshot.values,
+        roundOneThread,
+      );
+    }
+    const reportingChanges =
+      membership.round !== 1 && membership.tpbAssessment !== null
+        ? await this.store.findReportingChanges(membership.membershipId)
+        : [];
     const [programs, resultTypes] = await Promise.all([
       this.catalog.listSciencePrograms(),
       this.catalog.listResultTypes(),
@@ -2099,6 +2796,8 @@ export class AssessmentService {
         status: membership.status,
         ended: membership.ended,
         endReason: membership.endReason,
+        leadEscalated: membership.leadAssessment?.status === 'escalated',
+        tpbEscalated: membership.tpbAssessment?.status === 'escalated',
       },
       timing,
     );
@@ -2115,6 +2814,30 @@ export class AssessmentService {
         roundOneValidations.filter((v) => v.validated).map((v) => v.fieldKey),
       ),
       thread: roundOneThread,
+      ...(leadValidations === null
+        ? {}
+        : {
+            leadStored: new Map(
+              leadValidations.map((v) => [v.fieldKey, v.validated]),
+            ),
+          }),
+      ...(reportingChanges.length === 0
+        ? {}
+        : {
+            reportingChanges: new Map(
+              reportingChanges.map((r) => [
+                r.fieldKey,
+                r.detectedAt.toISOString(),
+              ]),
+            ),
+          }),
+      ...(tpbValidations === null
+        ? {}
+        : {
+            tpbStored: new Map(
+              tpbValidations.map((v) => [v.fieldKey, v.validated]),
+            ),
+          }),
       userId: user.id,
       // T-17: whatever makes the view read-only (ended review, closed step) is a refusal of every decision.
       ended: !decision.writable || finished,
@@ -2166,7 +2889,15 @@ export class AssessmentService {
         status: statusOf({
           membershipStatus: membership.status,
           endReason: membership.endReason,
-          assessmentStatus: assessment?.status ?? null,
+          // DD-3: the status reads the CURRENT step's assessment, whoever reads it.
+          assessmentStatus: membership.assessment?.status ?? null,
+          // DD-T3: the step of the current assessment (step 4 tells Pending PPU apart).
+          currentStep: this.audienceAt(
+            timeline,
+            membership.assessment?.stepPosition,
+          ),
+          // DD-P5: Pending PPU reads Unresolved once step 5 is closed.
+          ppuStepClosed: audienceStepState('ppu', timing) === 'closed',
           hasClarificationThread: comments.some(
             (c) => c.state === 'clarification_requested',
           ),
@@ -2209,6 +2940,97 @@ export class AssessmentService {
           }
         : {}),
     };
+  }
+
+  /**
+   * DD-T7 (P2-3916): the assessment a reviewer's view is built from: the row of
+   * the caller's own step (the current one, or the Lead's step-3 row when the
+   * TPB has moved the result on). A reviewer whose step holds no row yet reads
+   * none. ADMIN (no role) reads the current step's row (DD-3).
+   */
+  private ownAssessment(
+    timeline: WorklistTimeline,
+    membership: MembershipRecord,
+    role: RoleCode | null,
+  ): MembershipRecord['assessment'] {
+    const row = role === null ? undefined : findRoleStep(role);
+    const own =
+      row === undefined ? undefined : stepOfRole(row, timeline.steps)?.position;
+    if (own === undefined) return membership.assessment;
+    if (membership.assessment?.stepPosition === own) {
+      return membership.assessment;
+    }
+    if (membership.leadAssessment?.stepPosition === own) {
+      return membership.leadAssessment;
+    }
+    // P2-3917: the TPB keeps its step-4 review once the PPU starts step 5.
+    if (membership.tpbAssessment?.stepPosition === own) {
+      return membership.tpbAssessment;
+    }
+    // The caller's own step holds no row yet (a TPB before its first write).
+    return null;
+  }
+
+  /**
+   * P2-3917 AC6 (DD-P6): one `details` call to Reporting for the fields of
+   * the open PPU cases, compared with the membership's round-2 snapshot by the
+   * loader's own rule (`changedFields`, canonical JSON). The fields that
+   * differ are stored with today's date, the first date staying. Any failure
+   * is logged with ids only and skipped: the view never fails on it (NFR-4).
+   */
+  private async checkReportingChanges(
+    membership: MembershipRecord,
+    snapshotValues: Readonly<Record<string, unknown>>,
+    thread: readonly { fieldKey: string; state: CommentState }[],
+  ): Promise<void> {
+    const fields = [
+      ...new Set(
+        thread
+          .filter((row) => row.state === 'tpb_sided_assessor')
+          .map((row) => row.fieldKey),
+      ),
+    ].sort();
+    if (fields.length === 0 || this.feed === undefined) return;
+    try {
+      const details = await this.feed.details({
+        phaseYear: membership.phaseYear,
+        resultIds: [membership.resultId],
+        fieldKeys: fields,
+      });
+      const current = details.results.find(
+        (r) => r.resultId === membership.resultId,
+      );
+      if (current === undefined) return;
+      const pick = (values: Readonly<Record<string, unknown>>) =>
+        Object.fromEntries(
+          fields.filter((key) => key in values).map((key) => [key, values[key]]),
+        );
+      const changed = changedFields(
+        pick(snapshotValues),
+        pick(current.values),
+      );
+      if (changed.length === 0) return;
+      const at = wholeSecond(this.clock());
+      await this.unitOfWork.run(({ assessments }) =>
+        assessments.recordReportingChanges(membership.membershipId, changed, at),
+      );
+    } catch (error) {
+      this.logger.warn(
+        `reporting_change_check_failed membership=${membership.membershipId} ${error instanceof Error ? error.name : 'error'}`,
+      );
+    }
+  }
+
+  /** The audience of a timeline step by position; `null` for none (DD-T3). */
+  private audienceAt(
+    timeline: Pick<WorklistTimeline, 'steps'>,
+    position: number | undefined,
+  ): StepAudience | null {
+    if (position === undefined) return null;
+    return (
+      timeline.steps.find((step) => step.position === position)?.audience ??
+      null
+    );
   }
 
   /**

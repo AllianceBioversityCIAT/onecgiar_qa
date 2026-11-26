@@ -106,11 +106,11 @@ describe('statusOf (FR-5 table)', () => {
     );
   });
 
-  it('produces pending_tpb_review (FR-14) and still not the statuses of later stories, which stay filter values (FR-5)', () => {
+  it('produces every round-2 status: pending_tpb_review (FR-14), pending_ppu (P2-3916) and unresolved (P2-3917)', () => {
     const produced = new Set(STATUS_RULES.map((rule) => rule.status));
     expect(produced.has('pending_tpb_review')).toBe(true);
-    expect(produced.has('pending_ppu')).toBe(false);
-    expect(produced.has('unresolved')).toBe(false);
+    expect(produced.has('pending_ppu')).toBe(true);
+    expect(produced.has('unresolved')).toBe(true);
     expect([...QA_STATUSES]).toEqual([
       'pending',
       'returned_to_program',
@@ -137,6 +137,73 @@ describe('statusOf (FR-5 table)', () => {
   });
 });
 
+describe('status in step 4 (P2-3916 FR-9, DD-T3)', () => {
+  const round2 = {
+    membershipStatus: 'pending' as const,
+    endReason: null,
+    hasClarificationThread: false,
+  };
+
+  it.each<[string, Partial<StatusInputs>, QaStatus | null]>([
+    [
+      'the Lead ended escalated, no TPB row',
+      { assessmentStatus: 'escalated', currentStep: 'lead_assessors' },
+      'pending_tpb_review',
+    ],
+    [
+      'the TPB row is open',
+      { assessmentStatus: 'pending', currentStep: 'tpb' },
+      'pending_tpb_review',
+    ],
+    [
+      'the TPB ended escalated',
+      { assessmentStatus: 'escalated', currentStep: 'tpb' },
+      'pending_ppu',
+    ],
+    [
+      'the TPB ended Quality Assessed',
+      { assessmentStatus: 'quality_assessed', currentStep: 'tpb' },
+      'quality_assessed',
+    ],
+    [
+      'the Lead row is open',
+      { assessmentStatus: 'pending', currentStep: 'lead_assessors' },
+      'pending',
+    ],
+    [
+      'a reader that does not pass the step (SP view) never reads Pending PPU',
+      { assessmentStatus: 'escalated' },
+      'pending_tpb_review',
+    ],
+  ])('%s', (_name, inputs, expected) => {
+    expect(statusOf({ ...round2, assessmentStatus: null, ...inputs })).toBe(
+      expected,
+    );
+  });
+});
+
+describe('status in step 5 (P2-3917 FR-8, DD-P5)', () => {
+  const round2 = {
+    membershipStatus: 'pending' as const,
+    endReason: null,
+    hasClarificationThread: false,
+  };
+
+  it.each<[string, Partial<StatusInputs>, QaStatus | null]>([
+    ['TPB ended escalated, step 5 open', { assessmentStatus: 'escalated', currentStep: 'tpb', ppuStepClosed: false }, 'pending_ppu'],
+    ['TPB ended escalated, step 5 closed', { assessmentStatus: 'escalated', currentStep: 'tpb', ppuStepClosed: true }, 'unresolved'],
+    ['PPU row open, step 5 open', { assessmentStatus: 'pending', currentStep: 'ppu', ppuStepClosed: false }, 'pending_ppu'],
+    ['PPU row open, step 5 closed', { assessmentStatus: 'pending', currentStep: 'ppu', ppuStepClosed: true }, 'unresolved'],
+    ['PPU ended Quality Assessed, step 5 closed', { assessmentStatus: 'quality_assessed', currentStep: 'ppu', ppuStepClosed: true }, 'quality_assessed'],
+    ['a reader that leaves the closed step out never reads Unresolved', { assessmentStatus: 'escalated', currentStep: 'tpb' }, 'pending_ppu'],
+    ['the Lead escalated, step 5 closed: still Pending for TPB review', { assessmentStatus: 'escalated', currentStep: 'lead_assessors', ppuStepClosed: true }, 'pending_tpb_review'],
+  ])('%s', (_name, inputs, expected) => {
+    expect(statusOf({ ...round2, assessmentStatus: null, ...inputs })).toBe(
+      expected,
+    );
+  });
+});
+
 describe('statusSqlCase (DD-4: one table, two readers)', () => {
   const dialect = new MySqlDialect();
   const text = dialect.sqlToQuery(
@@ -145,6 +212,8 @@ describe('statusSqlCase (DD-4: one table, two readers)', () => {
       endReason: sql.raw('m_end'),
       assessmentStatus: sql.raw('a_status'),
       hasClarificationThread: sql.raw('thread'),
+      currentStep: sql.raw('a_step'),
+      ppuStepClosed: sql.raw('p_closed'),
     }),
   );
 
@@ -152,6 +221,11 @@ describe('statusSqlCase (DD-4: one table, two readers)', () => {
     // Hand-written from the requirement's table, one WHEN per row, in order.
     expect(text.sql).toBe(
       "CASE WHEN m_status = 'auto_validated' THEN 'auto_validated' " +
+        "WHEN a_status = 'pending' AND a_step = 'tpb' THEN 'pending_tpb_review' " +
+        "WHEN a_status = 'escalated' AND p_closed = 1 AND a_step = 'tpb' THEN 'unresolved' " +
+        "WHEN a_status = 'pending' AND p_closed = 1 AND a_step = 'ppu' THEN 'unresolved' " +
+        "WHEN a_status = 'escalated' AND a_step = 'tpb' THEN 'pending_ppu' " +
+        "WHEN a_status = 'pending' AND a_step = 'ppu' THEN 'pending_ppu' " +
         "WHEN m_status = 'pending' AND (a_status IS NULL OR a_status = 'pending') THEN 'pending' " +
         "WHEN m_status = 'pending' AND (m_end IS NULL OR m_end = 'returned') AND a_status = 'returned' AND thread = 1 THEN 'clarification_requested' " +
         "WHEN m_status = 'pending' AND (m_end IS NULL OR m_end = 'returned') AND a_status = 'returned' AND thread = 0 THEN 'returned_to_program' " +
@@ -173,6 +247,20 @@ describe('statusSqlCase (DD-4: one table, two readers)', () => {
     expect(bound.sql).toContain("`tr`.`status` = 'auto_validated'");
     expect(bound.sql).toContain('EXISTS (SELECT 1) = 1');
     expect(bound.params).toEqual([]);
+  });
+
+  it('never matches a step row when the step column is left out', () => {
+    const without = dialect.sqlToQuery(
+      statusSqlCase({
+        membershipStatus: sql.raw('m_status'),
+        endReason: sql.raw('m_end'),
+        assessmentStatus: sql.raw('a_status'),
+        hasClarificationThread: sql.raw('thread'),
+      }),
+    );
+    expect(without.sql).toContain(
+      "WHEN a_status = 'escalated' AND 1 = 0 THEN 'pending_ppu'",
+    );
   });
 
   // The same text read as a program: every combination of the four inputs
@@ -209,6 +297,8 @@ describe('statusSqlCase (DD-4: one table, two readers)', () => {
       m_end: inputs.endReason,
       a_status: inputs.assessmentStatus,
       thread: inputs.hasClarificationThread ? 1 : 0,
+      a_step: inputs.currentStep ?? null,
+      p_closed: inputs.ppuStepClosed ? 1 : 0,
     };
     return (
       rows.find((row) => conditionHolds(row.condition, env))?.status ?? null
@@ -231,26 +321,33 @@ describe('statusSqlCase (DD-4: one table, two readers)', () => {
       'returned',
       'escalated',
     ] as const;
+    const steps = [null, 'assessors', 'lead_assessors', 'tpb', 'ppu'] as const;
     let compared = 0;
     for (const membershipStatus of memberships) {
       for (const endReason of ends) {
         for (const assessmentStatus of assessments) {
           for (const hasClarificationThread of [false, true]) {
-            const inputs = {
-              membershipStatus,
-              endReason,
-              assessmentStatus,
-              hasClarificationThread,
-            };
-            expect(evaluate(inputs), JSON.stringify(inputs)).toBe(
-              statusOf(inputs),
-            );
-            compared += 1;
+            for (const currentStep of steps) {
+              for (const ppuStepClosed of [false, true]) {
+                const inputs = {
+                  membershipStatus,
+                  endReason,
+                  assessmentStatus,
+                  hasClarificationThread,
+                  currentStep,
+                  ppuStepClosed,
+                };
+                expect(evaluate(inputs), JSON.stringify(inputs)).toBe(
+                  statusOf(inputs),
+                );
+                compared += 1;
+              }
+            }
           }
         }
       }
     }
-    expect(compared).toBe(150);
-    expect(rows).toHaveLength(6);
+    expect(compared).toBe(1500);
+    expect(rows).toHaveLength(11);
   });
 });

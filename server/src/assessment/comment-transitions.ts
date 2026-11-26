@@ -6,8 +6,8 @@ import type { CommentState } from '../database/drizzle/schema/assessment-comment
 // which of them a route may write. P2-3911 made the program responses and the
 // clarification answer reachable; it added no comment state.
 
-/** `author` = the user who wrote the comment; `program` = a Science Program user; `lead` = a Lead Assessor (round 2). */
-export type TransitionActor = 'author' | 'program' | 'lead';
+/** `author` = the user who wrote the comment; `program` = a Science Program user; `lead` = a Lead Assessor (round 2); `tpb` = a Third-Party Broker (round 2, step 4); `ppu` = the PPU (round 2, step 5). */
+export type TransitionActor = 'author' | 'program' | 'lead' | 'tpb' | 'ppu';
 
 export interface CommentTransition {
   /** `null` = the comment does not exist yet. */
@@ -80,6 +80,12 @@ export const COMMENT_TRANSITIONS: readonly CommentTransition[] = [
     by: 'lead',
     reachable: true,
   })),
+  // Round 2, step 4 (escalation/round-2-tpb, DD-7): written when the TPB's
+  // review ends, from `escalated` only. `tpb_sided_assessor` is the PPU case.
+  { from: 'escalated', to: 'tpb_sided_program', by: 'tpb', reachable: true },
+  { from: 'escalated', to: 'tpb_sided_assessor', by: 'tpb', reachable: true },
+  // Round 2, step 5 (escalation/round-2-ppu, DD-7): the PPU's Done closes the case when the result ends.
+  { from: 'tpb_sided_assessor', to: 'done', by: 'ppu', reachable: true },
 ];
 
 /** The declared transition, reachable or not; `undefined` when the table has none. */

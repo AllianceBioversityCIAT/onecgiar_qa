@@ -60,7 +60,7 @@ A Lead Assessor reviews a re-submitted (round-2) membership in step 3. Contract:
 
 | Piece | Rule |
 |---|---|
-| Lead row | `ROLE_STEPS` `LEAD_ASSESSOR`: enabled, `round: 2`, step `lead_assessors`. TPB and PPU rows stay disabled: designed only (`design.md` § 12) |
+| Lead row | `ROLE_STEPS` `LEAD_ASSESSOR`: enabled, `round: 2`, step `lead_assessors`. The TPB row is enabled by P2-3916 and the PPU row by P2-3917 (next sections) |
 | Current step (DD-3) | A round-1 membership reads the `assessors` assessment; a round-2 one reads its latest assessment among steps 3 to 5, else step 3. `qa-status.ts`, `statusSqlCase` and the worklist join use that one rule |
 | Core only | Only Assessed **core** fields take a validation, comment or decision (`isActionable`); else 409 `ASSESSMENT_FIELD_NOT_CORE`. Check all covers core fields and is refused whole while one is escalated |
 | Carried green (DD-4) | Computed, never copied: stored row, else round-1 green with no round-1 comment and not in `changed_fields` (`effectiveGreen`) |
@@ -74,9 +74,45 @@ A Lead Assessor reviews a re-submitted (round-2) membership in step 3. Contract:
 | Logging | New `loggedWrite` actions `decide`, `decision_clear`, `delete` (ids only); audit actions `decision_set`, `decision_clear`, `comment_delete`, `end_escalated` |
 | Tests | `test/assessment-round-two-*.e2e-spec.ts` over the shared fixture `test/support/round-two-fixture.ts` (real `runRealLoad`, never hand-built keys); `assessment-round-two-flow.e2e-spec.ts` is the whole path |
 
+## Round 2: the TPB (P2-3916, spec `escalation/round-2-tpb`)
+
+In step 4 the Third-Party Broker settles each comment the Lead escalated. Contract: `docs/specs/escalation/round-2-tpb/front-contract.md`. **No migration**: `0013` already declared every value.
+
+| Piece | Rule |
+|---|---|
+| TPB row | `ROLE_STEPS` `TPB`: enabled, `round: 2`, step `tpb`. TPB is a **global** role (no result type on its grant): its row covers every type, and the user's program scope still applies (DD-T9) |
+| Scope (DD-T2) | A TPB row covers a membership only when its Lead (step-3) assessment ended `escalated`: `MembershipFacts.leadEscalated` in `rowCovers`, `leadEscalatedSql()` in `reviewerRowCondition`. A finished result stays listed (OQ-2). Writes only while step 4 is open (an Admin acting as TPB: any date) |
+| Membership read | `leadAssessment` (the step-3 row by the timeline's `lead_assessors` step, `leadStepSql()`), whatever the current step. `heldAt` finds the caller's own row in it, so a Lead write after the TPB started is still `ASSESSMENT_FINISHED` |
+| Own step (DD-T7) | The view of a reviewer reads ITS OWN step's assessment (`ownAssessment`): the Lead keeps its step-3 review after the TPB starts, and a TPB with no write yet reads none. The header status still reads the current step (DD-3) |
+| Status (DD-T3) | `statusOf` / `statusSqlCase` take a fifth input, `currentStep` (the audience of the current assessment's step; `currentStepAudienceSql`). `tpb` + `pending` is Pending for TPB review; `tpb` + `escalated` is Pending PPU. A reader that leaves it out (the SP view) never matches those rows |
+| Items | Live `escalated` comments of the round-1 assessment and of the Lead's step-3 one (`isTpbDecidable`). The view reads them in ONE statement (`findEscalationThread`, two decision joins: the TPB's `decision`, the Lead's `leadDecision`) plus `round` |
+| Decisions | `PUT …/decisions/:commentId` with `tpb_agree_program` / `tpb_agree_assessor` (reason 1-2,000), stored with `role_code = 'TPB'` on the step-4 row (created on the first write, pinning the **Lead's** version, DD-T4). Changeable or cleared until the end. A Lead value is 409 `ASSESSMENT_DECISION_INVALID` for a TPB, and a TPB value for a Lead |
+| Field green (DD-T8) | After each decision or clear the field's step-4 mark is set to `tpbFieldGreen`: green once EVERY escalated item on it sides with the program. Step-4 effective green: own mark, else the step-3 effective green (the Lead's mark, else the carried round-1 green) |
+| End (DD-T1) | **Finish only**: no decision ends the review. Every escalated item needs a decision (`ASSESSMENT_CORE_UNDECIDED` with `fields`). Then `endRoundTwoOnFinish` with "escalated" = has a `tpb_agree_assessor`: all green is `quality_assessed` + one `qaed` release; else `escalated` (Pending PPU), no release. `applyTpbDecisions` writes `tpb_sided_program` / `tpb_sided_assessor` from `escalated` (actor `tpb`, `comment_events.actor_role = 'TPB'`) |
+| Refusals | A TPB's validation, comment or delete is 403 `ASSESSMENT_READ_ONLY` (DD-T6). It records no AI usage (403) |
+| Worklist counters | A caller whose only rows are TPB rows counts `pending_tpb_review` as pending and `quality_assessed` / `pending_ppu` / `unresolved` as finished. `pending_ppu` and `unresolved` are finished for everyone else too, but the PPU |
+| Tests | `scope-tpb.spec.ts`, `round-two-tpb-rules.spec.ts`, `assessment-view-tpb.spec.ts`, `assessment.store-tpb.spec.ts`; e2e `test/assessment-round-two-tpb.e2e-spec.ts` (fixture `seedTpbWorld`) and `assessment-round-two-tpb-flow.e2e-spec.ts` (the Lead over HTTP, then the TPB) |
+
+## Round 2: the PPU (P2-3917, spec `escalation/round-2-ppu`)
+
+In step 5 the PPU closes the TPB's cases (comments the TPB decided `tpb_agree_assessor`). Contract: `docs/specs/escalation/round-2-ppu/front-contract.md`. Migration `0015_reporting_field_changes` (down script in `drizzle/rollback/`), for AC6 only.
+
+| Piece | Rule |
+|---|---|
+| PPU row | `ROLE_STEPS` `PPU`: enabled, `round: 2`, step `ppu`, **`dateBound: false`** (DD-P1): `writeDecision` makes it writable whatever the state of step 5, as long as the timeline has the step. Global role: every type, the user's program scope (DD-T9) |
+| Scope (DD-P4) | A PPU row covers a membership only when its TPB (step-4) row ended `escalated`: `MembershipFacts.tpbEscalated` in `rowCovers`, `tpbEscalatedSql()` in `reviewerRowCondition`. The membership read carries `tpbAssessment` (`tpbStepSql()`); `heldAt` and `ownAssessment` look there too (the TPB keeps its own view after the PPU starts) |
+| Status (DD-P5) | Sixth input `ppuStepClosed` (the timeline's `ppu` step is closed): TS from `audienceStepState`, SQL as a per-timeline literal (`WorklistScope.ppuStepClosed`). `unresolved` = (tpb+`escalated` or ppu+`pending`) and closed; `pending_ppu` = the same, not closed. A reader that leaves it out never reads Unresolved |
+| Items | Live `tpb_sided_assessor` comments of the round-1 and step-3 assessments (`isPpuDecidable`, choice `ppu_done`). The escalation thread adds the TPB's decision (`tpbDecision`, PPU view only, DD-P7) |
+| Done (DD-P2, DD-P3) | `PUT …/decisions/:commentId` `{ decision: 'ppu_done', body? }` (body optional, `ValidateIf` in the DTO; stored `NULL`). The step-5 row pins the TPB's version. The field's step-5 mark = every case on it Done (`ppuFieldGreen`). The Done that leaves no case open and every core field green (`ppuEnds`) ends `quality_assessed` in the same transaction: one `qaed`, `applyPpuDecisions` (`tpb_sided_assessor → done`, actor `ppu`, event role `PPU`). `DELETE` clears a Done until the end; a clear never ends. No Finish |
+| Step-5 green | Own mark, else the TPB's, else the Lead's, else the carried round-1 green (`ppuEffectiveOf`) |
+| AC6 (DD-P6) | `open()` for a PPU reader on an open result: one `RESULTS_FEED.details` for the open cases' fields, compared with the snapshot by `changedFields` (the loader's rule); changed fields go to `reporting_field_changes` (insert-ignore: the first date stays). This GET writes that one table (an exception to "a read never writes"). Every round-2 reader of a result that reached step 5 reads the dates (`changedInReporting`, one statement). Any failure: `reporting_change_check_failed` warn (ids only), view unharmed. `RESULTS_FEED` is `@Optional()` in the service (unit specs build it by hand) |
+| Refusals (DD-P8) | A PPU's Finish, validation, comment and delete are 403 `ASSESSMENT_READ_ONLY`; the AI is 403 (unchanged) |
+| Counters | PPU-only callers: `pending_ppu` and `unresolved` pending, `quality_assessed` finished |
+| Tests | `round-two-ppu-rules.spec.ts`, `scope-ppu.spec.ts`, `assessment-view-ppu.spec.ts`, `assessment.store-ppu.spec.ts`; e2e `assessment-round-two-ppu.e2e-spec.ts` (fixture `seedPpuWorld`), `-ppu-reporting` (AC6), `-ppu-flow` (Lead → TPB → PPU over HTTP, and Unresolved then Done) |
+
 ## The QA Admin acting as a reviewer (spec `admin/acts-as-reviewer`, 2026-11-23)
 
-A QA Admin is transversal: with the `X-Acting-Role` header it works on any result **as** `ASSESSOR` or `LEAD_ASSESSOR` (the enabled reviewer rows; TPB and PPU join when their rows are enabled). Contract: step-1 `front-contract.md` § 2.1. Migration `0014_admin_acts_as_reviewer` (down script in `drizzle/rollback/`).
+A QA Admin is transversal: with the `X-Acting-Role` header it works on any result **as** `ASSESSOR`, `LEAD_ASSESSOR`, `TPB` or `PPU` (the enabled reviewer rows). Contract: step-1 `front-contract.md` § 2.1. Migration `0014_admin_acts_as_reviewer` (down script in `drizzle/rollback/`).
 
 | Piece | Rule |
 |---|---|

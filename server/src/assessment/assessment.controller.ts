@@ -222,7 +222,7 @@ export class AssessmentController {
       params.timelineId,
       params.resultCode,
       params.commentId,
-      { decision: body.decision, body: body.body },
+      { decision: body.decision, body: body.body ?? null },
       requestIdOf(request),
     );
   }

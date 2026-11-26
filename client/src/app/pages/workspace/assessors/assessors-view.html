@@ -134,7 +134,7 @@
                   <span class="px-2 text-(length:--fs-13) font-medium text-(--text-3)">{{ r.member.noRole ? 'No role' : r.member.role }}</span>
                 }
               </td>
-              @if (r.member.role === 'Assessor') {
+              @if (r.member.role === 'Assessor' || r.member.role === 'Lead assessor') {
                 <td class="relative z-[1] min-w-0 p-0" [class]="cell.types">
                   @if (r.member.active) {
                     <qa-assessor-types-cell [member]="r.member" [busy]="store.isBusy(r.member.id)" (addType)="addType(r.member.id, $event)" (removeType)="removeType(r.member.id, $event)" />

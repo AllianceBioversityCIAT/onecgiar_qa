@@ -24,6 +24,12 @@ export interface RoleStepRow {
   readonly enabled: boolean;
   /** ADMIN reads everything and writes nothing through this row (DD-2). */
   readonly access: 'write' | 'read';
+  /**
+   * P2-3917 (DD-P1): `false` for a role with no date window (the PPU): it
+   * writes whatever the state of its step, as long as the timeline has the
+   * step. Absent = bound to its step's dates.
+   */
+  readonly dateBound?: boolean;
 }
 
 export const ROLE_STEPS: readonly RoleStepRow[] = [
@@ -48,7 +54,8 @@ export const ROLE_STEPS: readonly RoleStepRow[] = [
     permission: Permission.TPB_ACCESS,
     audience: 'tpb',
     round: 2,
-    enabled: false,
+    // P2-3916: the TPB decides the Lead's escalations in step 4 (escalation/round-2-tpb).
+    enabled: true,
     access: 'write',
   },
   {
@@ -56,8 +63,10 @@ export const ROLE_STEPS: readonly RoleStepRow[] = [
     permission: Permission.PPU_ACCESS,
     audience: 'ppu',
     round: 2,
-    enabled: false,
+    // P2-3917: the PPU closes the TPB's cases in step 5, with no date window (escalation/round-2-ppu).
+    enabled: true,
     access: 'write',
+    dateBound: false,
   },
   {
     role: RoleCode.ADMIN,
@@ -74,7 +83,7 @@ export function findRoleStep(role: string): RoleStepRow | undefined {
   return ROLE_STEPS.find((row) => row.role === role);
 }
 
-/** The rows that give a worklist with write rights today: ASSESSOR and LEAD_ASSESSOR; TPB and PPU stay designed only (round-2 FR-16). */
+/** The rows that give a worklist with write rights: ASSESSOR, LEAD_ASSESSOR, TPB (P2-3916) and PPU (P2-3917). */
 export function enabledReviewerRows(): readonly RoleStepRow[] {
   return ROLE_STEPS.filter((row) => row.enabled && row.access === 'write');
 }

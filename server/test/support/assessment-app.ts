@@ -211,6 +211,8 @@ export async function buildAssessmentApp(
     ),
     // A Lead Assessor of policy change (round 2, P2-3912). Appended last so no earlier id moves.
     lead: await actor('sub-lead', [['LEAD_ASSESSOR', 'policy_change']], 'Lena'),
+    // The PPU (round 2, step 5, P2-3917): a global role. Appended last so no earlier id moves.
+    ppu: await actor('sub-ppu', [['PPU']], 'Paz'),
   };
 
   const builder = withoutTitleBackfill(

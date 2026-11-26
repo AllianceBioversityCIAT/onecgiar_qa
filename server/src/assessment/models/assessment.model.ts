@@ -162,7 +162,8 @@ export class AssessmentThreadDecisionModel {
   @ApiProperty({
     type: String,
     example: 'escalate',
-    description: "The Lead's current decision: `agree_program` or `escalate`",
+    description:
+      'A decision: the Lead\'s `agree_program` / `escalate`, the TPB\'s `tpb_agree_program` / `tpb_agree_assessor` (P2-3916), or the PPU\'s `ppu_done` (P2-3917)',
   })
   decision!: string;
 
@@ -215,9 +216,32 @@ export class AssessmentThreadItemModel {
 
   @ApiPropertyOptional({
     type: AssessmentThreadDecisionModel,
-    description: "The Lead's current decision; absent when none is set",
+    description:
+      "The reading role's current decision (the Lead's, the TPB's for a TPB, the PPU's Done for a PPU); absent when none is set",
   })
   decision?: AssessmentThreadDecisionModel;
+
+  @ApiPropertyOptional({
+    type: Number,
+    enum: [1, 2],
+    description:
+      "TPB and PPU views only (P2-3916, P2-3917): 1 for an assessor's round-1 comment, 2 for the Lead's own comment. Absent for the Lead",
+  })
+  round?: number;
+
+  @ApiPropertyOptional({
+    type: AssessmentThreadDecisionModel,
+    description:
+      "TPB and PPU views only: the Lead's decision on the comment and its reason (on an escalated comment, the Lead's escalation comment). Absent when the Lead set none",
+  })
+  leadDecision?: AssessmentThreadDecisionModel;
+
+  @ApiPropertyOptional({
+    type: AssessmentThreadDecisionModel,
+    description:
+      "PPU view only (P2-3917): the TPB's decision on the comment and its justification. Absent when the TPB set none",
+  })
+  tpbDecision?: AssessmentThreadDecisionModel;
 
   @ApiProperty({
     type: Boolean,
@@ -228,11 +252,28 @@ export class AssessmentThreadItemModel {
 
   @ApiProperty({
     type: [String],
-    enum: ['agree_program', 'escalate'],
+    enum: [
+      'agree_program',
+      'escalate',
+      'tpb_agree_program',
+      'tpb_agree_assessor',
+      'ppu_done',
+    ],
     description:
-      'The decisions the caller may set; empty for ADMIN, for a comment that is not decidable and always once the review ended (`decision` is kept). `agree_program` is left out while another live comment on the same field carries an `escalate`',
+      'The decisions the caller may set; empty for ADMIN, for a comment that is not decidable and always once the review ended (`decision` is kept). Lead: `agree_program` / `escalate` (`agree_program` is left out while another live comment on the same field carries an `escalate`). TPB, on an escalated comment: `tpb_agree_program` / `tpb_agree_assessor`. PPU, on a case: `ppu_done`',
   })
   choices!: string[];
+}
+
+/** P2-3917 AC6: when a field's Reporting value was first seen changed. */
+export class AssessmentReportingChangeModel {
+  @ApiProperty({
+    type: String,
+    format: 'date-time',
+    description:
+      'The first time the PPU view saw the Reporting value differ from the value the Lead and the TPB judged (the round-2 snapshot)',
+  })
+  detectedAt!: string;
 }
 
 /** The Lead's own round-2 comment (round 2, Lead only): the comment plus the members of a `thread[]` item (T-16). */
@@ -348,6 +389,13 @@ export class AssessmentFieldModel {
     description: 'The catalog has the field and the snapshot has no key for it',
   })
   notApplicable!: boolean;
+
+  @ApiPropertyOptional({
+    type: AssessmentReportingChangeModel,
+    description:
+      'Round 2, once the result reached step 5 (P2-3917 AC6): present only when the field changed in the Reporting Tool after the round-2 load. Show "Changed in Reporting Tool on <detectedAt>"',
+  })
+  changedInReporting?: AssessmentReportingChangeModel;
 
   @ApiProperty({
     type: Boolean,

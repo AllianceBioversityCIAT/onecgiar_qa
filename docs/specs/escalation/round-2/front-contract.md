@@ -19,7 +19,8 @@ What the front may rely on for the Lead Assessor's review of a re-submitted resu
 | ASSESSOR | Round 1 only | Unchanged |
 | ADMIN | Latest round by default (`?round=1\|2` to pick); read only | Never without `X-Acting-Role`: `choices` is then always `[]` |
 | ADMIN with `X-Acting-Role: LEAD_ASSESSOR` | As the Lead, on any result type and program; `actingRole: 'LEAD_ASSESSOR'` | As the Lead (`decidable`, `choices`, end rules), **whatever the step-3 dates** (admin/acts-as-reviewer, step-1 contract § 2.1) |
-| TPB, PPU | Designed only, not built (section 8) | None |
+| TPB | Built by P2-3916: `docs/specs/escalation/round-2-tpb/front-contract.md` | Decisions and Finish in step 4 |
+| PPU | Built by P2-3917: `docs/specs/escalation/round-2-ppu/front-contract.md` | Done on each case, no date window |
 
 `…` stands for `/timelines/:timelineId/results/:resultCode`. The write order of step-1 section 6 applies unchanged (404, 403, 409 step closed, 409 finished).
 
@@ -186,9 +187,9 @@ New in round 2 (all 409). The step-1 codes keep their meaning; see its section 9
 
 Also on these routes, unchanged: 400 `VALIDATION_FAILED` (body: empty, blank, over 2,000 characters, unknown decision), `MALFORMED_JSON`; 401; 403 `ASSESSMENT_READ_ONLY`; 404 `ASSESSMENT_NOT_FOUND` (a comment of another result is the same 404 as a missing one); 409 `ASSESSMENT_STEP_CLOSED`, `ASSESSMENT_FINISHED`, `ASSESSMENT_NO_FIELD_CONFIG`; 413 `PAYLOAD_TOO_LARGE`; 503 `SERVICE_UNAVAILABLE`.
 
-## 8. TPB and PPU: designed only
+## 8. TPB and PPU
 
-Nothing for TPB or PPU is built in this spec. The design (`design.md` § 12) adds a role row, decision kinds, status rows and end rules; no new table. The only visible trace today is the status `pending_tpb_review`; `pending_ppu` and `unresolved` stay declared and unproduced. Build no TPB or PPU screen from this file.
+The TPB is built by P2-3916: its contract is `docs/specs/escalation/round-2-tpb/front-contract.md` (statuses `pending_tpb_review` in step 4 and `pending_ppu`). The PPU is built by P2-3917: `docs/specs/escalation/round-2-ppu/front-contract.md` (status `unresolved` produced there).
 
 ## 9. Checklist for the front
 
