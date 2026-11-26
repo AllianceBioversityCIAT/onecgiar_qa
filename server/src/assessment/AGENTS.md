@@ -118,7 +118,7 @@ In step 5 the PPU closes the TPB's cases (comments the TPB decided `tpb_agree_as
 | `header.reviewerRole` | The effective role, `null` for ADMIN without `X-Acting-Role` (or a role that does not fit the round) |
 | `counters.byStatus` | Every QA status → count, from the same `countByStatus` read as `total` (filters ignored, Auto-validated included). A `null` status group counts in `total` only. Built from `emptyByStatus()` |
 | `ASSESSMENT_FIELD_ESCALATED` | Carries `fields` (sorted escalated keys the request named; the comment's field on an agree). The global filter forwards them as `error.fields` |
-| Not changed | The AI route still picks its audience from the role list (`aiAudienceOf`), not from `effectiveRow`: a Lead who is also TPB gets the Lead's AI mode on a `pending_tpb_review` result |
+| AI route | `aiAudienceOf(access, membershipFacts(membership))` reads only the effective role: a Lead who is also TPB gets the TPB mode (copy mark, no usage events) on a `pending_tpb_review` result. Without `facts` it keeps the old role-list rule (role-list callers only) |
 
 ## The QA Admin acting as a reviewer (spec `admin/acts-as-reviewer`, 2026-11-23)
 

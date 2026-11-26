@@ -33,10 +33,17 @@
 
 | # | Finding | Action |
 |---|---|---|
-| F-1 | The AI route picks its audience from the role list (`aiAudienceOf`: Lead before TPB), not from the effective role. A Lead who is also TPB gets the Lead's AI mode on a `pending_tpb_review` result | Not changed (outside the brief). Noted in `AGENTS.md`; a one-line change if wanted (`aiAudienceOf` over `effectiveRow`) |
+| F-1 | The AI route picked its audience from the role list (`aiAudienceOf`: Lead before TPB), not from the effective role. A Lead who is also TPB got the Lead's AI mode on a `pending_tpb_review` result | Fixed in the second pass (back lead, 2026-11-26): see § Second pass |
 | F-2 | The OpenAPI `actingRole` enum listed only `ASSESSOR` and `LEAD_ASSESSOR` since P2-3916 | Widened to the four reviewer roles with `reviewerRole` |
-| F-3 | Behavior change for a person with two round-2 roles: on an escalated result while step 3 is still open, the Lead row used to be writable (on an ended review, so every write was 409 `ASSESSMENT_FINISHED`); now the view is `step_upcoming` until step 4 opens | Intended by DD-T11 (one role per result) |
+| F-3 | Behavior change for a person with two round-2 roles: on an escalated result while step 3 is still open, the Lead row used to be writable (on an ended review, so every write was 409 `ASSESSMENT_FINISHED`); now the view is `step_upcoming` until step 4 opens | Approved by the back lead, 2026-11-26; written in DD-T11 |
 | F-4 | `sp-response.service.ts` still takes `reviewerRows[0]` as the audit role of a clarification answer | Not changed: it is the round-1 assessor flow, where a caller has a single reviewer row |
+
+## Second pass (back lead review, 2026-11-26)
+
+| # | Request | Change | Evidence |
+|---|---|---|---|
+| 1 | The AI route uses the effective role | `aiAudienceOf(access, facts?)`: with the membership's facts only `effectiveRow`'s role counts. `AiSuggestionsService.list` / `record` pass `membershipFacts(context.membership)`. `membershipFacts` (exported from `assessment.service.ts`) replaces the three inline fact builders | `ai-suggestions-rules.spec.ts` (+2: Lead + TPB → `tpb` on `pending_tpb_review`, `reviewer` Lead on `pending`, both row orders; ADMIN with no effective role → `admin`). `assessment-round-two-effective-role.e2e-spec.ts` (+1): the Lead + TPB gets the copy mark and a 403 `ASSESSMENT_READ_ONLY` on a usage event. Red on the first-pass service (`1 failed`), green with the fix |
+| 2 | Lead + TPB read-only `step_upcoming` until step 4 opens | Approved; written in DD-T11 as the back lead's decision of 2026-11-26 | `design.md` § 7 |
 
 ## Gate (in `server/`, 2026-11-26)
 
@@ -44,7 +51,7 @@
 |---|---|
 | `pnpm lint` | exit 0, no findings |
 | `pnpm build` | exit 0 |
-| `pnpm test` | Test Files 133 passed, 1 skipped (134); Tests 4436 passed, 6 skipped (4442) |
-| e2e | Test Files 46 passed (46); Tests 1385 passed (1385). Run as `vitest run --config ./vitest.config.e2e.ts --maxWorkers=2` over all 46 `test/*.e2e-spec.ts` (the same config and files as `pnpm test:e2e`): the local RAM guard blocked the default-worker `pnpm test:e2e` (needs 4.5 GB free) |
+| `pnpm test` | Test Files 133 passed, 1 skipped (134); Tests 4438 passed, 6 skipped (4444) (second pass) |
+| e2e | Test Files 46 passed (46); Tests 1386 passed (1386) (second pass). Run as `vitest run --config ./vitest.config.e2e.ts --maxWorkers=2` over all 46 `test/*.e2e-spec.ts` (the same config and files as `pnpm test:e2e`): the local RAM guard blocked the default-worker `pnpm test:e2e` (needs 4.5 GB free) |
 | `client: npx ng build` | OK (team rule; the client is not touched) |
 | `tsc --noEmit` | 25 errors, all pre-existing in spec / test-support files (baseline unchanged) |
