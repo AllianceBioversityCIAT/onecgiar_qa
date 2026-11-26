@@ -76,9 +76,9 @@ export interface CycleHeroVm {
            its statuses. A row opens Results filtered by that status when Results has that filter. -->
       <div class="-mt-1 grid grid-cols-1 gap-3 @3xl:grid-cols-2">
         @for (r of data().rounds; track r.id) {
-          <!-- White card with a grey outline like every Overview block; the rounds inside are boxes in the same style as the
-               Assessment pace figures (light grey with a soft outline), so every inner box on the page reads the same. -->
-          <section [attr.aria-labelledby]="'hero-' + r.id + '-title'" class="flex flex-col gap-4 rounded-lg bg-(--surface-5) p-4 @2xl:p-5">
+          <!-- White card with a grey outline like every Overview block; the rounds inside are outlined boxes with no fill, like the
+               Assessment pace figures (2026-11-26: no grey fill inside cards), so every inner box on the page reads the same. -->
+          <section [attr.aria-labelledby]="'hero-' + r.id + '-title'" class="flex flex-col gap-4 rounded-lg border border-(--border) p-4 @2xl:p-5">
             <div class="flex items-start justify-between gap-4">
               <div class="flex min-w-0 flex-col gap-[2px]">
                 <h3 [id]="'hero-' + r.id + '-title'" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">{{ r.title }}</h3>

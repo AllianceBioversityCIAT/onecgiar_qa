@@ -88,7 +88,7 @@ function yTicks(v: number): number[] {
         <div class="mt-5 flex flex-col gap-6">
           <dl class="m-0 grid grid-cols-2 gap-2 @lg:grid-cols-4">
             @for (k of v.kpis; track k.label) {
-              <div class="flex flex-col-reverse gap-0.5 rounded-lg bg-(--surface-5) px-3 py-2.5">
+              <div class="flex flex-col-reverse gap-0.5 rounded-lg border border-(--border) px-3 py-2.5">
                 <dt class="text-(length:--fs-12) text-(--text-3)">{{ k.label }}</dt>
                 <dd class="m-0 text-(length:--fs-20) font-bold tabular-nums tracking-[-0.01em] text-(--text)">{{ k.value }}</dd>
               </div>
