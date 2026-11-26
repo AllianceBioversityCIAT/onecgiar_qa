@@ -46,3 +46,15 @@ The one-line logo (24 px) left no room for the collapse button, so the button ha
 
 - The sign-in page (`client/src/app/pages/login/login.html`, last changed by Juanda and Yeck) still shows its own one-line logo with the old purple mark. Changing it would be a visual-only change in a dev-owned file. Not done yet.
 - QA change not yet committed or pushed.
+
+## Selected sidebar item (later the same day)
+
+Juanpa felt the white raised row with a shadow looked like a card, not like a selected option. He pointed to Claude's own sidebar, where the selected item is a flat shade.
+
+- **QA:**
+  - new token `--nav-active-bg`: #D4DBD8 in light mode, one step darker than hover (#E2E6E4); #243432 in dark mode;
+  - `.qa-nav-active` (`shell/qa-shell.css`) uses that token with `--nav-fg` at weight 600: no white background, no shadow, no border;
+  - hover over the selected item does not change it;
+  - checked on desktop, expanded and collapsed; `ng build` is green.
+- **PRMS (the copy in Claude Design):** the same flat #D4DBD8 row, no shadow, in every sidebar group and in the collapsed sidebar. Dark mode uses #33303F.
+- **Not committed yet.**
