@@ -979,6 +979,10 @@ describe('review.mapper (API assessment view → Review view models)', () => {
             pending: true,
             agreeEnds: true,
             own: false,
+            mode: 'lead',
+            lead: null,
+            tpb: null,
+            noteOptional: false,
             canDelete: false,
           },
         ]);

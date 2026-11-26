@@ -121,6 +121,13 @@ export interface DecisionChoiceVm {
   readonly label: string;
 }
 
+/** An earlier step's decision shown as context on a thread item (TPB / PPU). */
+export interface DecisionNoteVm {
+  readonly label: string;
+  readonly text: string;
+  readonly date: string;
+}
+
 /** One round-1 comment as the Lead reads it in the card (round-2 contract § 3.1). */
 export interface ThreadItemVm {
   readonly commentId: number;
@@ -162,6 +169,14 @@ export interface ThreadItemVm {
   readonly agreeEnds: boolean;
   /** The Lead's own round-2 comment (contract § 3.2): no program response, only "Escalate to TPB". */
   readonly own: boolean;
+  /** Who decides it on this page: the Lead (step 3), the TPB (step 4) or the PPU (step 5). Drives the editor's words. */
+  readonly mode: 'lead' | 'tpb' | 'ppu';
+  /** TPB and PPU: the Lead's ruling on the comment (its escalation and reason), or null. */
+  readonly lead: DecisionNoteVm | null;
+  /** PPU: the TPB's decision and its justification, or null. */
+  readonly tpb: DecisionNoteVm | null;
+  /** PPU: the comment of a Done is optional (Lead and TPB decisions need one). */
+  readonly noteOptional: boolean;
   /** The Lead may delete it (another reviewer's comment the program never answered, while the Lead writes). */
   readonly canDelete: boolean;
 }
