@@ -34,6 +34,7 @@ const GENDER: AiSuggestionView = {
 class FakeReviewStore {
   readonly view = signal<AssessmentView | null>(null);
   readonly timelineId = signal<number | null>(null);
+  readonly mode = signal<'assessor' | 'lead' | 'tpb' | 'ppu'>('assessor');
 }
 
 function setup(views: AiSuggestionView[] = [GENDER, RESULT_CATEGORY_VIEW, USE_NUMBERS_VIEW]) {
@@ -160,6 +161,102 @@ describe('ReviewAiHook (P2-3918 plan A)', () => {
     expect(hook.copy('general.gender_tag')).toContain('The evidence does not mention gender.');
     hook.copy('general.gender_tag');
     expect(events).toEqual([{ action: 'copied' }]);
+  });
+
+  it('round 2: no reason is asked on an IRL already green, carried green included (reads effectiveValidated)', async () => {
+    const IRL = 'innovation_dev.readiness_level';
+    const irl: AiSuggestionView = { ...GENDER, fieldKey: IRL, suggestionId: 's-irl', suggestedValue: 3 };
+    const s = setup([irl]);
+    const view = (effective: boolean) =>
+      viewFixture({
+        round: 2,
+        sections: [{ key: 'general_information', label: 'General information', fields: [field({ key: IRL, label: 'Readiness level', type: 'number', core: true, value: 6, validated: false, effectiveValidated: effective, carried: effective })] }],
+      });
+    s.review.timelineId.set(27);
+    s.review.view.set(view(true));
+    TestBed.tick();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(s.hook.reasonAsk(IRL)).toBeNull();
+    expect(s.hook.reasonAsk('*')).toBeNull();
+    // The same field grey still asks (the check is the green, not the field).
+    s.review.view.set(view(false));
+    TestBed.tick();
+    expect(s.hook.reasonAsk(IRL)).not.toBeNull();
+  });
+
+  describe('round 2: the Lead (P2-3912 tramo 6)', () => {
+    const IRL = 'innovation_dev.readiness_level';
+    const irl: AiSuggestionView = { ...GENDER, fieldKey: IRL, suggestionId: 's-irl', suggestedValue: 3 };
+    /** Gender tag core (actionable), the IRL Assessed but not core: context only for the Lead. */
+    const leadView = () =>
+      viewFixture({
+        round: 2,
+        writable: true,
+        sections: [
+          {
+            key: 'general_information',
+            label: 'General information',
+            fields: [
+              field({ key: 'general.gender_tag', label: 'Gender tag', core: true, value: 1, actionable: true, effectiveValidated: false }),
+              field({ key: IRL, label: 'Readiness level', type: 'number', core: false, value: 6, actionable: false, effectiveValidated: false }),
+            ],
+          },
+        ],
+      });
+    const leadLoaded = async () => {
+      const s = setup([GENDER, irl]);
+      s.review.timelineId.set(27);
+      s.review.view.set(leadView());
+      TestBed.tick();
+      await Promise.resolve();
+      await Promise.resolve();
+      return s;
+    };
+
+    it('a core field keeps its chip with "Copy to comment"; a context field shows its chip read only', async () => {
+      const { hook } = await leadLoaded();
+      expect(hook.chip('general.gender_tag')).toMatchObject({ kind: 'available' });
+      expect(hook.readOnlyFor('general.gender_tag')).toBe(false);
+      expect(hook.chip(IRL)).not.toBeNull();
+      expect(hook.readOnlyFor(IRL)).toBe(true);
+    });
+
+    it('no reason is asked for a context field: it is never validated (Check all covers core fields only)', async () => {
+      const { hook } = await leadLoaded();
+      expect(hook.reasonAsk(IRL)).toBeNull();
+      expect(hook.reasonAsk('*')).toBeNull();
+    });
+
+    it('round 1: every field follows the page (readOnlyFor = readOnly)', async () => {
+      const { hook } = await loaded();
+      expect(hook.readOnlyFor('general.gender_tag')).toBe(false);
+    });
+  });
+
+  it('TPB (P2-3916): a writable page is still read only for the AI, and no usage event goes out', async () => {
+    const s = setup();
+    s.review.mode.set('tpb');
+    s.review.timelineId.set(27);
+    s.review.view.set(aiView(true));
+    TestBed.tick();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(s.hook.readOnlyFor('general.gender_tag')).toBe(true);
+    expect(s.hook.chip('general.gender_tag')).not.toBeNull();
+    s.hook.shown('general.gender_tag');
+    expect(s.events).toEqual([]);
+  });
+
+  it('PPU (P2-3917): the suggestions are never read and no chip is drawn', async () => {
+    const s = setup();
+    s.review.mode.set('ppu');
+    s.review.timelineId.set(27);
+    s.review.view.set(aiView(true));
+    TestBed.tick();
+    await Promise.resolve();
+    expect(s.lists).toEqual([]);
+    expect(s.hook.chip('general.gender_tag')).toBeNull();
   });
 
   it('shown is posted once per suggestion', async () => {

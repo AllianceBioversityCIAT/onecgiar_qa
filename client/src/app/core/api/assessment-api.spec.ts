@@ -7,6 +7,7 @@ import { ApiError } from '../http/api-envelope';
 import { NO_QUEUE, SILENT_ERRORS, UNSENT_LABEL } from '../http/request-context';
 import { AssessmentApi } from './assessment-api';
 import { ASSESSMENT_ERROR } from './assessment.models';
+import { decisionResultFixture, roundTwoViewFixture } from '../../pages/workspace/review/review.round2-fixture';
 
 const API = 'https://api.test/api/v1';
 const meta = (nextCursor?: string | null) => ({
@@ -196,5 +197,127 @@ describe('AssessmentApi', () => {
     expect(req.request.body).toEqual({ body: 'The link in the evidence section.' });
     expect(req.request.context.get(NO_QUEUE)).toBe(true);
     req.flush({ success: true, data: {}, meta: meta() });
+  });
+  // ── Round 2 (Lead Assessor, P2-3912) ──
+
+  it('view hands back a round-2 view untouched: round, per-field flags, thread and the Lead\'s own comment keys', async () => {
+    const fixture = roundTwoViewFixture();
+    const read = firstValueFrom(api.view(29, 9890));
+    http.expectOne((r) => r.url === `${API}/timelines/29/results/9890/assessment`).flush({ success: true, data: fixture, meta: meta() });
+    const view = await read;
+    expect(view).toEqual(fixture);
+    expect(view.round).toBe(2);
+    const [carried, updated] = view.sections[0].fields;
+    expect(carried.effectiveValidated && carried.carried).toBe(true);
+    expect(updated.thread?.[0].choices).toEqual(['agree_program', 'escalate']);
+    expect(updated.comments[0].choices).toEqual(['escalate']);
+  });
+
+  it('decide PUTs the decision and its text on the comment path and unwraps the decision result', async () => {
+    const answer = decisionResultFixture();
+    const decided = firstValueFrom(api.decide(29, 9890, 41, 'agree_program', 'The program is right.'));
+    const req = http.expectOne(`${API}/timelines/29/results/9890/assessment/decisions/41`);
+    expect(req.request.method).toBe('PUT');
+    expect(req.request.body).toEqual({ decision: 'agree_program', body: 'The program is right.' });
+    expect(req.request.context.get(SILENT_ERRORS)).toBe(true);
+    expect(req.request.context.get(UNSENT_LABEL)).toBeTruthy();
+    // A PUT: sent twice it gives the same state, so the Unsent list may replay it.
+    expect(req.request.context.get(NO_QUEUE)).toBe(false);
+    req.flush({ success: true, data: answer, meta: meta() });
+    expect(await decided).toEqual(answer);
+  });
+
+  it('TPB: decide PUTs a TPB choice with its required reason (P2-3916)', async () => {
+    const decided = firstValueFrom(api.decide(29, 9890, 41, 'tpb_agree_assessor', 'The assessor is right.'));
+    const req = http.expectOne(`${API}/timelines/29/results/9890/assessment/decisions/41`);
+    expect(req.request.method).toBe('PUT');
+    expect(req.request.body).toEqual({ decision: 'tpb_agree_assessor', body: 'The assessor is right.' });
+    req.flush({ success: true, data: decisionResultFixture({ decision: { decision: 'tpb_agree_assessor', body: 'The assessor is right.', decidedAt: '2026-11-30T10:00:00.000Z' } }), meta: meta() });
+    expect((await decided).decision?.decision).toBe('tpb_agree_assessor');
+  });
+
+  it('PPU: a Done with no note leaves `body` out of the request (a blank body is a 400, P2-3917 § 5)', async () => {
+    const done = firstValueFrom(api.decide(29, 9890, 41, 'ppu_done', null));
+    const req = http.expectOne(`${API}/timelines/29/results/9890/assessment/decisions/41`);
+    expect(req.request.method).toBe('PUT');
+    expect(req.request.body).toEqual({ decision: 'ppu_done' });
+    req.flush({ success: true, data: decisionResultFixture({ status: 'quality_assessed', decision: { decision: 'ppu_done', body: null, decidedAt: '2026-12-04T10:00:00.000Z' } }), meta: meta() });
+    expect((await done).status).toBe('quality_assessed');
+  });
+
+  it('PPU: a Done with a note sends it', async () => {
+    const done = firstValueFrom(api.decide(29, 9890, 41, 'ppu_done', 'Fixed in Reporting.'));
+    const req = http.expectOne(`${API}/timelines/29/results/9890/assessment/decisions/41`);
+    expect(req.request.body).toEqual({ decision: 'ppu_done', body: 'Fixed in Reporting.' });
+    req.flush({ success: true, data: decisionResultFixture(), meta: meta() });
+    await done;
+  });
+
+  it('clearDecision DELETEs the same path with no body and unwraps decision: null', async () => {
+    const answer = decisionResultFixture({ decision: null, validations: [] });
+    const cleared = firstValueFrom(api.clearDecision(29, 9890, 41));
+    const req = http.expectOne(`${API}/timelines/29/results/9890/assessment/decisions/41`);
+    expect(req.request.method).toBe('DELETE');
+    expect(req.request.body).toBeNull();
+    expect(req.request.context.get(SILENT_ERRORS)).toBe(true);
+    // Clearing where there is none changes nothing: a replay is safe, like the decision itself.
+    expect(req.request.context.get(NO_QUEUE)).toBe(false);
+    req.flush({ success: true, data: answer, meta: meta() });
+    expect((await cleared).decision).toBeNull();
+  });
+
+  it('deleteComment POSTs to the delete path with no body and never goes to the unsent queue (a second delete is a 409)', async () => {
+    const deleted = firstValueFrom(api.deleteComment(41));
+    const req = http.expectOne(`${API}/assessment-comments/41/delete`);
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toBeNull();
+    expect(req.request.context.get(SILENT_ERRORS)).toBe(true);
+    expect(req.request.context.get(NO_QUEUE)).toBe(true);
+    req.flush({
+      success: true,
+      data: { id: 41, state: 'disagreed', deletedAt: '2026-11-25T12:00:00.000Z', deletedBy: 14 },
+      meta: meta(),
+    });
+    expect(await deleted).toMatchObject({ id: 41, deletedAt: '2026-11-25T12:00:00.000Z', deletedBy: 14 });
+  });
+
+  it('a round-2 finish refused with undecided core fields exposes their keys on fieldKeys', async () => {
+    const finish = firstValueFrom(api.finish(29, 9890));
+    http.expectOne(`${API}/timelines/29/results/9890/assessment/finish`).flush(
+      {
+        success: false,
+        error: {
+          status: 409,
+          code: ASSESSMENT_ERROR.CORE_UNDECIDED,
+          message: 'Decide every grey core field first.',
+          fields: ['general.description'],
+        },
+        meta: meta(),
+      },
+      { status: 409, statusText: 'Conflict' },
+    );
+    const error = (await finish.catch((e: unknown) => e)) as ApiError;
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error.code).toBe('ASSESSMENT_CORE_UNDECIDED');
+    expect(error.fieldKeys).toEqual(['general.description']);
+    expect(error.fields).toEqual([]);
+  });
+
+  it('the round-2 error codes are the exact server strings', () => {
+    expect([
+      ASSESSMENT_ERROR.FIELD_NOT_CORE,
+      ASSESSMENT_ERROR.FIELD_ESCALATED,
+      ASSESSMENT_ERROR.CORE_COMMENT_UNDECIDED,
+      ASSESSMENT_ERROR.DECISION_INVALID,
+      ASSESSMENT_ERROR.CORE_UNDECIDED,
+      ASSESSMENT_ERROR.COMMENT_NOT_DELETABLE,
+    ]).toEqual([
+      'ASSESSMENT_FIELD_NOT_CORE',
+      'ASSESSMENT_FIELD_ESCALATED',
+      'ASSESSMENT_CORE_COMMENT_UNDECIDED',
+      'ASSESSMENT_DECISION_INVALID',
+      'ASSESSMENT_CORE_UNDECIDED',
+      'ASSESSMENT_COMMENT_NOT_DELETABLE',
+    ]);
   });
 });

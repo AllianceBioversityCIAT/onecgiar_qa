@@ -1,5 +1,5 @@
 // @akili-spec assessment/step-1-assessment
-import { Component, DestroyRef, ElementRef, afterNextRender, computed, effect, inject, linkedSignal, signal, untracked, viewChild } from '@angular/core';
+import { Component, DestroyRef, ElementRef, Injector, afterNextRender, computed, effect, inject, linkedSignal, signal, untracked, viewChild } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { form, requiredError, validate } from '@angular/forms/signals';
 import { ActivatedRoute, RouterLink } from '@angular/router';
@@ -12,6 +12,7 @@ import { ReviewAside } from './review-aside';
 import { ReviewCodeInfo } from './review-code-info';
 import { CommentsDrawerMode, CommentsDrawerVm, ReviewCommentsDrawer } from './review-comments-drawer';
 import { ReviewFieldCard } from './review-field-card';
+import { ReviewLeadThread } from './review-lead-thread';
 import { FooterMode, ReviewFooter } from './review-footer';
 import { CardAction, SectionNavVm } from './review-model';
 import { ReviewSkeleton } from './review-skeleton';
@@ -19,7 +20,7 @@ import { ALL_FIELDS, ReviewStore } from './review-store';
 import { AiReasonDialog } from './ai/ai-reason-dialog';
 import { AiReasonAsk, REVIEW_AI_PROVIDERS, ReviewAiHook } from './ai/review-ai-hook';
 import { ReviewTocSection, TocCardAction } from './review-toc-section';
-import { PendingAnswer, coreUncommentedMessage, findField, pendingAnswers, pendingAnswersBanner, returnsOnAnyComment, toDrawerVm, withPendingAnswers, withdrawOpen } from './review.mapper';
+import { PendingAnswer, coreUncommentedMessage, coreUndecidedMessage, deleteOpen, escalatedUndecidedMessage, findField, pendingAnswers, pendingAnswersBanner, returnsOnAnyComment, toDrawerVm, withPendingAnswers, withdrawOpen } from './review.mapper';
 import { QA_GUIDANCE } from './qa-guidance';
 
 /** The review area stacks its navigator on top below this width (container). */
@@ -49,6 +50,7 @@ const COMPACT_QUERY = '(max-width: 767.98px)';
     ReviewCodeInfo,
     ReviewCommentsDrawer,
     ReviewFieldCard,
+    ReviewLeadThread,
     ReviewFooter,
     ReviewSkeleton,
     ReviewTocSection,
@@ -65,6 +67,7 @@ export class ReviewView {
   protected readonly ai = inject(ReviewAiHook);
   protected readonly layout = inject(WorkspaceLayout);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly injector = inject(Injector);
   private readonly toasts = inject(Toasts);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly scroller = viewChild<ElementRef<HTMLElement>>('scroller');
@@ -129,8 +132,26 @@ export class ReviewView {
   protected readonly skippedCount = this.skipped.asReadonly();
   /** Why the server did not finish it (core fields still open…). */
   protected readonly finishError = signal('');
-  /** P2-4138: the core fields the server would refuse Finish for, named before the reviewer confirms. */
-  protected readonly finishBlocked = computed(() => coreUncommentedMessage(this.vm()?.finishBlockedBy ?? []));
+  /** The fields the server named in its refusal of Finish, linked under the reason. */
+  private readonly finishErrorFields = signal<readonly { readonly key: string; readonly label: string }[]>([]);
+  /**
+   * P2-4138: the core fields the server would refuse Finish for, named before the reviewer confirms. Round 2 (Lead,
+   * tramo 5): a grey core field with no escalate (`ASSESSMENT_CORE_UNDECIDED`), so "validate or escalate".
+   */
+  protected readonly finishBlocked = computed(() => {
+    const names = this.vm()?.finishBlockedBy ?? [];
+    return this.undecidedMessage(names);
+  });
+  /** Why Finish cannot go yet, in the reader's words: round 1 "validate or comment", the Lead "validate or escalate", the TPB "decide". */
+  private undecidedMessage(names: readonly string[]): string {
+    if (this.store.mode() === 'tpb') return escalatedUndecidedMessage(names);
+    return this.store.view()?.round === 2 ? coreUndecidedMessage(names) : coreUncommentedMessage(names);
+  }
+
+  /** The fields named under the footer's reason: the server's refusal first, else the ones the page already knows. */
+  protected readonly blockedFields = computed(() =>
+    this.finishError() ? this.finishErrorFields() : this.finishBlocked() ? (this.vm()?.finishBlockedFields ?? []) : [],
+  );
 
   // ---- Green / grey ----
   protected readonly validating = this.store.validating;
@@ -162,15 +183,23 @@ export class ReviewView {
     validate(f.text, ({ value }) => (value().trim() ? null : requiredError({ message: 'Write a comment before adding it.' })));
   });
   protected readonly focusTick = signal(0);
-  /** The comment form shows while the caller writes on a pending assessment; otherwise the thread is read only. */
-  private readonly drawerMode = computed<CommentsDrawerMode>(() => (this.vm()?.canFinish ? 'comment' : 'read'));
+  /**
+   * The comment form shows while the caller writes on a pending assessment; otherwise the thread is read only. The TPB
+   * and the PPU never comment (403 `ASSESSMENT_READ_ONLY`).
+   */
+  private readonly drawerMode = computed<CommentsDrawerMode>(() => (this.vm()?.canValidate ? 'comment' : 'read'));
   protected readonly drawerField = computed<CommentsDrawerVm | null>(() => {
     const view = this.store.view();
     const key = this.drawerKey();
     const found = view && key ? findField(view, key) : null;
     if (!view || !found) return null;
     const mode = found.field.mode === 'assessed' ? this.drawerMode() : 'read';
-    return toDrawerVm(found, mode, { me: this.store.me(), canWithdraw: withdrawOpen(view), canClarify: !this.store.clarifyClosed() }, this.store.threads());
+    return toDrawerVm(
+      found,
+      mode,
+      { me: this.store.me(), canWithdraw: withdrawOpen(view), canClarify: !this.store.clarifyClosed(), canDelete: deleteOpen(view, this.store.leadCaller()) },
+      this.store.threads(),
+    );
   });
   protected readonly quickComments = computed(() => this.store.quickComments().map((q) => ({ id: q.id, text: q.body })));
   /** Add was tried with an empty box. */
@@ -350,7 +379,17 @@ export class ReviewView {
     const view = this.store.view();
     if (view && returnsOnAnyComment(view)) return false;
     const cores = (view?.sections ?? []).flatMap((s) => s.fields).filter((f) => f.mode === 'assessed' && f.core);
-    return cores.length > 0 && cores.every((f) => f.validated || key === ALL_FIELDS || f.key === key);
+    // Round 2: a field with a round-1 comment still waiting for the Lead's decision cannot turn green (409
+    // ASSESSMENT_CORE_COMMENT_UNDECIDED): the write is sent as is and the refusal shows on the card, no confirmation.
+    const undecided = (key: string) => cores.some((f) => f.key === key && f.thread?.some((t) => t.decidable && !t.decision));
+    if (key !== ALL_FIELDS && undecided(key)) return false;
+    // Round 2: an escalated core field stays grey whatever is validated, so no green write can end the review.
+    const escalated = (f: (typeof cores)[number]) =>
+      (f.thread ?? []).some((t) => t.decision?.decision === 'escalate') ||
+      f.comments.some((c) => c.state !== 'withdrawn' && c.decision?.decision === 'escalate');
+    if (cores.some(escalated)) return false;
+    // The effective green (round 2: a green carried from round 1 counts; round 1: equals `validated`).
+    return cores.length > 0 && cores.every((f) => (f.effectiveValidated ?? f.validated) || key === ALL_FIELDS || f.key === key);
   }
 
   protected onTocCard(e: TocCardAction): void {
@@ -413,19 +452,46 @@ export class ReviewView {
 
   protected async confirmFinish(): Promise<void> {
     this.finishError.set('');
+    this.finishErrorFields.set([]);
     const outcome = await this.store.finish();
     if (outcome.ok) {
       this.finishStep.set('none');
       return;
     }
     if (outcome.coreKeys?.length) {
-      // 409 ASSESSMENT_CORE_UNCOMMENTED: say which core fields, by the name the reviewer sees.
+      // 409 ASSESSMENT_CORE_UNCOMMENTED (round 1) / ASSESSMENT_CORE_UNDECIDED (round 2): say which core fields, by the
+      // name the reviewer sees, each one a link to its card.
       const view = this.store.view();
-      const names = outcome.coreKeys.map((key) => (view ? findField(view, key)?.field.label : null) ?? key);
-      this.finishError.set(coreUncommentedMessage(names));
+      const fields = outcome.coreKeys.map((key) => ({ key, label: (view ? findField(view, key)?.field.label : null) ?? key }));
+      const names = fields.map((f) => f.label);
+      this.finishErrorFields.set(fields);
+      this.finishError.set(
+        outcome.code === 'ASSESSMENT_CORE_UNDECIDED'
+          ? this.store.mode() === 'tpb'
+            ? escalatedUndecidedMessage(names)
+            : coreUndecidedMessage(names)
+          : coreUncommentedMessage(names),
+      );
       return;
     }
     this.finishError.set(outcome.message);
+  }
+
+  /** A field named under the footer's reason: its section opens and the focus moves to its card. */
+  protected goField(key: string): void {
+    const view = this.store.view();
+    const i = view ? view.sections.findIndex((s) => s.fields.some((f) => f.key === key)) : -1;
+    if (i < 0) return;
+    if (i !== this.idx()) this.goSection(i);
+    afterNextRender(
+      () => {
+        const card = document.getElementById(`review-field-${key}`);
+        if (!card) return;
+        card.scrollIntoView?.({ block: 'center' });
+        card.focus({ preventScroll: true });
+      },
+      { injector: this.injector },
+    );
   }
 
   protected async addComment(): Promise<void> {

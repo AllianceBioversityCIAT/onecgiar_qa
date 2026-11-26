@@ -3,7 +3,7 @@ import { HttpTestingController, provideHttpClientTesting } from '@angular/common
 import { TestBed } from '@angular/core/testing';
 import { firstValueFrom } from 'rxjs';
 import { APP_CONFIG } from '../config/app-config';
-import { ACTING_ROLE_HEADER, ActingRoleState, actingRoleFor, actingRoleInterceptor, reviewerLabel } from './acting-role';
+import { ACTING_ROLE_HEADER, ACTING_ROLE_LABELS, ActingRoleState, actingRoleFor, actingRoleInterceptor, reviewerLabel } from './acting-role';
 import { AssessmentApi } from './assessment-api';
 
 const API = 'https://api.test/api/v1';
@@ -22,6 +22,12 @@ describe('actingRoleFor', () => {
     }
     expect(actingRoleFor(`${API}/timelines/3/results/9891/assessment`, pick)).toBeNull();
     expect(actingRoleFor(`${API}/timelines/4/results/9890/assessment`, pick)).toBeNull();
+  });
+
+  it('TPB and PPU are roles the Admin can act as, with their names (P2-3916, P2-3917)', () => {
+    expect(ACTING_ROLE_LABELS).toEqual({ ASSESSOR: 'Assessor', LEAD_ASSESSOR: 'Lead Assessor', TPB: 'TPB', PPU: 'PPU' });
+    expect(actingRoleFor(`${API}/timelines/3/results/9890/assessment/decisions/7`, { ...pick, role: 'TPB' })).toBe('TPB');
+    expect(actingRoleFor(`${API}/timelines/3/results/9890/assessment`, { ...pick, role: 'PPU' })).toBe('PPU');
   });
 
   it('covers withdraw, delete and quick comments', () => {

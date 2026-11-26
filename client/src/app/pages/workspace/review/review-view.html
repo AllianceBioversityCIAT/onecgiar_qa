@@ -82,8 +82,8 @@
                   </div>
                   <p class="m-0 mt-1 text-(length:--fs-12) leading-[1.45] font-normal text-pretty wrap-anywhere text-(--text-4)" [title]="h.timeline + ' · ' + h.step" data-testid="review-header-context">{{ h.timeline }} · {{ h.step }}</p>
                 </div>
-                @if (page.canFinish && page.total > 0) {
-                  <!-- Every Assessed field of the result in one request (FR-10). -->
+                @if (page.canValidate && page.total > 0) {
+                  <!-- Every Assessed field of the result in one request (FR-10). Never for the TPB nor the PPU. -->
                   <div class="flex flex-none items-center gap-2">
                     <button hlmBtn qaBtn tone="secondary" size="sm" type="button" [loading]="validating().has(allKey)" [disabled]="validating().size > 0" (click)="toggleAll()">{{ allGreen() ? 'Uncheck all' : 'Check all' }}</button>
                   </div>
@@ -109,6 +109,8 @@
                       [title]="sec.name"
                       [requiredReview]="toc.assessed > 0"
                       [busyKeys]="validating()"
+                      [errors]="store.fieldErrors()"
+                      [threadTitle]="page.threadTitle"
                       (act)="onTocCard($event)"
                     />
                   } @else {
@@ -117,15 +119,26 @@
                     </div>
                     @for (f of sec.fields; track f.id) {
                       <qa-review-field-card
+                        [attr.id]="'review-field-' + f.id"
+                        tabindex="-1"
                         [field]="f"
                         [qaReveal]="$index"
                         [busy]="validating().has(f.id) || validating().has(allKey) || (reasonBusy() && reasonAsk()?.fieldKey === f.id)"
                         [aiChip]="ai.chip(f.id)"
-                        [aiReadOnly]="ai.readOnly()"
+                        [aiReadOnly]="ai.readOnlyFor(f.id)"
                         (act)="onCard(f.id, $event)"
                         (aiShown)="ai.shown(f.id)"
                         (aiCopy)="onAiCopy(f.id)"
-                      />
+                        [error]="store.fieldErrors().get(f.id) ?? ''"
+                      >
+                        @if (f.leadThread.length) {
+                          <qa-review-lead-thread [items]="f.leadThread" [fieldLabel]="f.label" [open]="f.threadOpen" [title]="page.threadTitle" />
+                        }
+                        @if (f.leadOwn.length) {
+                          <!-- Round 2 (tramo 4): the Lead's own comments, to escalate. TODO(design): Juanpa -->
+                          <qa-review-lead-thread [items]="f.leadOwn" [fieldLabel]="f.label" [open]="true" title="Your comments in this round" testId="lead-own" />
+                        }
+                      </qa-review-field-card>
                     } @empty {
                       <p class="m-0 text-(length:--fs-13) text-(--text-4)">No fields in this section.</p>
                     }
@@ -153,7 +166,7 @@
               [mode]="footerMode()"
               [sectionNum]="idx() + 1"
               [sectionTotal]="sections().length || 1"
-              [openCount]="page.canFinish ? openCount() : 0"
+              [openCount]="page.tracksOpen ? openCount() : 0"
               [canFinish]="page.canFinish"
               [warnCount]="openCount()"
               [warnText]="warnText()"
@@ -164,6 +177,8 @@
               [finishing]="store.finishing()"
               [finishError]="finishError()"
               [finishBlocked]="finishBlocked()"
+              [blockedFields]="blockedFields()"
+              (goField)="goField($event)"
               (back)="goSection(idx() - 1)"
               (next)="goSection(idx() + 1)"
               (finish)="finish()"

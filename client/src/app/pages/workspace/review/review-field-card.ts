@@ -25,6 +25,8 @@ export class ReviewFieldCard {
   readonly field = input.required<FieldVm>();
   /** The green/grey write of this field is on its way. */
   readonly busy = input(false);
+  /** Why the last green write on this field was refused, shown under its buttons ('' = none). */
+  readonly error = input('');
   readonly act = output<CardAction>();
   /** P2-3918: the AI suggestion of this field (null = none), read only for TPB / ADMIN. */
   readonly aiChip = input<AiChipVm | null>(null);

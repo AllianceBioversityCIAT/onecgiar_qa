@@ -21,6 +21,13 @@ describe('AdminRolePicker (admin/acts-as-reviewer)', () => {
     expect(el.querySelector('[data-testid="admin-acting-note"]')).toBeNull();
   });
 
+  it('offers TPB and PPU when the result admits them (P2-3916, P2-3917)', () => {
+    const { el } = render(['TPB', 'PPU'], 'PPU');
+    const labels = [...el.querySelectorAll('label')].map((l) => l.textContent?.trim());
+    expect(labels).toEqual(['Read only', 'TPB', 'PPU']);
+    expect(el.querySelector('[data-testid="admin-acting-note"]')?.textContent).toContain('acting as PPU');
+  });
+
   it('says which role the Admin acts as', () => {
     const { el } = render(['ASSESSOR'], 'ASSESSOR');
     expect(el.querySelector('[data-testid="admin-acting-note"]')?.textContent).toContain('acting as Assessor');

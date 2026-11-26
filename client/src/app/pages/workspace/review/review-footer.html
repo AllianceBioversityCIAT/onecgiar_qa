@@ -7,6 +7,14 @@
       <span id="review-finish-text" class="text-(length:--fs-13) leading-[1.5] font-normal text-pretty text-(--text-2)">Finish this assessment? <span class="font-(family-name:--qa-mono) font-semibold text-(--text)">{{ resolvedCount() }}</span> {{ resolvedCount() === 1 ? 'field' : 'fields' }} reviewed, <span class="font-(family-name:--qa-mono) font-semibold text-(--text)">{{ commentedCount() }}</span> with comments.@if (!finishBlocked()) { The result becomes <span class="font-semibold text-(--text)">{{ finishTo() }}</span>. This cannot be undone.}</span>
       @if (finishError() || finishBlocked(); as reason) {
         <span class="text-(length:--fs-13) leading-[1.5] font-medium text-pretty text-(--danger)" role="alert">{{ reason }}</span>
+        @if (blockedFields().length) {
+          <!-- TODO(design): Juanpa — links to the fields that block Finish (provisional: link buttons in one row). -->
+          <span class="flex flex-wrap items-center gap-x-3 gap-y-0.5">
+            @for (f of blockedFields(); track f.key) {
+              <button hlmBtn qaBtn tone="link" size="sm" flush="start" type="button" [attr.aria-label]="'Go to ' + f.label" (click)="goField.emit(f.key)">{{ f.label }}</button>
+            }
+          </span>
+        }
       }
     </div>
     <div class="flex flex-none items-center gap-2.5">

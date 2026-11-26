@@ -38,6 +38,8 @@ export class ReviewFooter {
    * the confirm step names it instead of an outcome and its Finish button is off.
    */
   readonly finishBlocked = input('');
+  /** The fields named by `finishBlocked` or `finishError`, each a link to its card (P2-4138, round 2 tramo 5). */
+  readonly blockedFields = input<readonly { readonly key: string; readonly label: string }[]>([]);
 
   readonly back = output();
   readonly next = output();
@@ -46,4 +48,6 @@ export class ReviewFooter {
   readonly finishAnyway = output();
   readonly keepWorking = output();
   readonly confirmFinish = output();
+  /** Go to the card of a field named in the reason (its key). */
+  readonly goField = output<string>();
 }
