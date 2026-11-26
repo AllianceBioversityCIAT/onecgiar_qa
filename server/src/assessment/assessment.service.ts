@@ -147,6 +147,20 @@ import {
 /** Why the caller cannot write: the T-3 reasons, plus the end of the assessment (FR-16). */
 export type AssessmentReadOnlyReason = ReadOnlyReason | 'finished';
 
+/** The scope facts of a membership (scope rules, DD-T11 `effectiveRow`): one builder for the view, the writes and the AI route. */
+export function membershipFacts(membership: MembershipRecord): MembershipFacts {
+  return {
+    resultType: membership.resultTypeKey,
+    programId: membership.programId,
+    round: membership.round,
+    status: membership.status,
+    ended: membership.ended,
+    endReason: membership.endReason,
+    leadEscalated: membership.leadAssessment?.status === 'escalated',
+    tpbEscalated: membership.tpbAssessment?.status === 'escalated',
+  };
+}
+
 export interface AssessmentHeader {
   resultCode: number;
   title: string | null;
@@ -2304,16 +2318,7 @@ export class AssessmentService {
 
     // DD-T11: the caller's effective role on this membership.
     const actorRole =
-      effectiveRow(access, {
-        resultType: membership.resultTypeKey,
-        programId: membership.programId,
-        round: membership.round,
-        status: membership.status,
-        ended: membership.ended,
-        endReason: membership.endReason,
-        leadEscalated: membership.leadAssessment?.status === 'escalated',
-        tpbEscalated: membership.tpbAssessment?.status === 'escalated',
-      })?.role ?? 'ADMIN';
+      effectiveRow(access, membershipFacts(membership))?.role ?? 'ADMIN';
     const withdrawnAt = wholeSecond(at);
     await this.unitOfWork.run(async ({ assessments }) => {
       const steps = await assessments.lockTimelineShared(timeline.id);
@@ -2644,16 +2649,7 @@ export class AssessmentService {
     });
     if (membership === null) throw new AssessmentNotFoundError();
     const hasLoad = (await this.loads.withLoad([timeline.id])).has(timeline.id);
-    const facts = {
-      resultType: membership.resultTypeKey,
-      programId: membership.programId,
-      round: membership.round,
-      status: membership.status,
-      ended: membership.ended,
-      endReason: membership.endReason,
-      leadEscalated: membership.leadAssessment?.status === 'escalated',
-      tpbEscalated: membership.tpbAssessment?.status === 'escalated',
-    };
+    const facts = membershipFacts(membership);
     const decision = this.assertWritable(
       writeDecision(access, facts, { steps: timeline.steps, now, hasLoad }),
     );
@@ -2718,16 +2714,7 @@ export class AssessmentService {
     const catalog = await this.catalogOf(membership.cycleYear);
     const snapshot = await this.snapshotOf(membership);
 
-    const facts: MembershipFacts = {
-      resultType: membership.resultTypeKey,
-      programId: membership.programId,
-      round: membership.round,
-      status: membership.status,
-      ended: membership.ended,
-      endReason: membership.endReason,
-      leadEscalated: membership.leadAssessment?.status === 'escalated',
-      tpbEscalated: membership.tpbAssessment?.status === 'escalated',
-    };
+    const facts = membershipFacts(membership);
     // DD-T11: the caller's effective reviewer role on this membership, whatever
     // the order of its rows (a Lead who is also TPB reads as the TPB once the
     // result reached step 4); `null` for ADMIN without `X-Acting-Role`.

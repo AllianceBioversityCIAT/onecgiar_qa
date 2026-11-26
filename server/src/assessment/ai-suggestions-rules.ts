@@ -6,7 +6,11 @@ import {
 } from '../ai-suggestions/ai-config.js';
 import type { AiValueKind } from '../ai-suggestions/production-contract.js';
 import { RoleCode } from '../users/permissions.js';
-import type { WorklistAccess } from './scope.js';
+import {
+  effectiveRow,
+  type MembershipFacts,
+  type WorklistAccess,
+} from './scope.js';
 
 // Pure rules of the AI suggestion routes (ai-suggestions FR-4, FR-5, FR-8,
 // FR-9): who sees what, the view of a stored item, and what an event must
@@ -31,8 +35,20 @@ export type AiAudience =
   | { kind: 'forbidden' }
   | { kind: 'none' };
 
-export function aiAudienceOf(access: WorklistAccess): AiAudience {
-  const roles = access.reviewerRows.map((row) => row.role);
+export function aiAudienceOf(
+  access: WorklistAccess,
+  facts?: MembershipFacts,
+): AiAudience {
+  // DD-T11: on a membership, only the caller's effective role counts (a Lead
+  // who is also TPB gets the TPB mode once the result is pending_tpb_review).
+  const effective =
+    facts === undefined ? undefined : effectiveRow(access, facts);
+  const roles =
+    facts === undefined
+      ? access.reviewerRows.map((row) => row.role)
+      : effective === undefined
+        ? []
+        : [effective.role];
   const reviewer = roles.find(
     (role) => role === RoleCode.ASSESSOR || role === RoleCode.LEAD_ASSESSOR,
   );

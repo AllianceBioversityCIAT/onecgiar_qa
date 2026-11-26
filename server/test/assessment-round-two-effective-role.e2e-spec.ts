@@ -1,4 +1,6 @@
 // @akili-spec escalation/round-2-tpb
+import { PutItemCommand } from '@aws-sdk/client-dynamodb';
+import { toAttributeMap } from './support/ai-contract.js';
 import {
   bearer,
   buildAssessmentApp,
@@ -22,6 +24,7 @@ import {
 
 const CARRIED = ASSESSED[1]!;
 const SECOND = ASSESSED[2]!;
+const AI_FIELD = 'general.gender_tag';
 const FIRST = ASSESSED[3]!;
 const lead = () => bearer('sub-lead');
 const admin = () => bearer('sub-admin');
@@ -176,6 +179,74 @@ describe('Effective reviewer role of a Lead who is also TPB (e2e, DD-T11)', () =
         'TPB',
       );
       expect((await open(admin())).header.reviewerRole).toBeNull();
+    });
+  });
+  describe('the AI route follows the effective role', () => {
+    it('a Lead who is also TPB gets the TPB AI mode on a pending_tpb_review result: the copy mark, and no usage event', async () => {
+      a = await buildAssessmentApp(IN_TPB_STEP);
+      const built = await seedTpbWorld(a, {
+        core: [FIRST, AI_FIELD],
+        escalated: [{ id: 7001, fieldKey: AI_FIELD }],
+      });
+      code = built.code;
+      await alsoTpb();
+      const suggestionId = (1).toString(16).padStart(32, '0');
+      await a.aiDynamo.client.send(
+        new PutItemCommand({
+          TableName: 'cgiar-qa-test',
+          Item: toAttributeMap({
+            __edb_e__: 'aiSuggestion',
+            __edb_v__: '1',
+            pk: `RESULT#${code}`,
+            sk: `AI#${built.snapKey}#${AI_FIELD}#v2-1.0.0`,
+            resultCode: code,
+            snapKey: built.snapKey,
+            promptVersion: 'v2-1.0.0',
+            runId: 'load-1',
+            createdAt: '2026-11-20T12:00:00Z',
+            fieldKey: AI_FIELD,
+            suggestionId,
+            status: 'available',
+            signal: 'red',
+            suggestedValue: 0,
+            reportedValue: 2,
+            explanation: 'The evidence does not mention it.',
+            evidenceQuote: 'trained farmers',
+            evidenceSource: 'https://example.org/e.pdf',
+            evidenceSourceIndex: 0,
+            evidenceHash: 'h',
+            quoteVerified: true,
+            partialEvidence: false,
+            modelId: 'anthropic.claude-haiku-5-5',
+            unavailableReason: null,
+          }) as never,
+        }),
+      );
+
+      const res = await a.send(
+        'get',
+        `/timelines/1/results/${code}/ai-suggestions`,
+        { token: lead() },
+      );
+      expect(res.status).toBe(200);
+      // The TPB mode carries the reviewer's copy mark (the Lead's mode does not).
+      expect(
+        (res.body.data as Array<Record<string, unknown>>).find(
+          (v) => v.fieldKey === AI_FIELD,
+        ),
+      ).toMatchObject({
+        status: 'available',
+        copiedByReviewer: false,
+        editedByReviewer: null,
+      });
+      // A TPB reads; only a reviewer's use measures the AI.
+      const used = await a.send(
+        'post',
+        `/timelines/1/results/${code}/ai-suggestions/${suggestionId}/events`,
+        { token: lead(), body: { action: 'shown' } },
+      );
+      expect(used.status).toBe(403);
+      expect(used.body.error.code).toBe('ASSESSMENT_READ_ONLY');
     });
   });
 });
