@@ -38,7 +38,7 @@ const BTN_PRIMARY =
   ],
   host: { class: 'qa-tokens block min-h-dvh bg-(--bg) px-4 py-8 sm:px-8' },
   template: `
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400..800&family=JetBrains+Mono:wght@400..700&display=swap" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400..800&display=swap" />
     <div class="mx-auto flex max-w-[1040px] flex-col gap-6">
       <header class="flex flex-col gap-1">
         <h1 class="m-0 text-(length:--fs-26) leading-[1.2] font-bold tracking-[-0.02em] text-(--text)">UI kit</h1>
