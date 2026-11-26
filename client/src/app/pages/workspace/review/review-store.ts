@@ -331,20 +331,25 @@ export class ReviewStore implements OnDestroy {
 
   /**
    * Round 2 with an escalated core field: the actionable core fields that are neither green nor escalated, in page
-   * order. `null` when nothing is escalated (Check all goes as `all`) or in round 1.
+   * order. `null` when nothing is escalated (Check all goes as `all`) or in round 1. `named`: the escalated fields the
+   * server named in a refusal (`error.fields`, front contract § 9.3); they count as escalated whatever the view shows.
    */
-  private checkAllKeys(): readonly string[] | null {
+  private checkAllKeys(named: readonly string[] = []): readonly string[] | null {
     const view = this.view();
     if (view?.round !== 2) return null;
     const cores = view.sections.flatMap((s) => s.fields).filter((f) => f.mode === 'assessed' && f.core && f.actionable !== false);
     const escalated = (f: AssessmentField) =>
+      named.includes(f.key) ||
       (f.thread ?? []).some((t) => t.decision?.decision === 'escalate') ||
       f.comments.some((c) => c.state !== 'withdrawn' && c.decision?.decision === 'escalate');
     if (!cores.some(escalated)) return null;
     return cores.filter((f) => !(f.effectiveValidated ?? f.validated) && !escalated(f)).map((f) => f.key);
   }
 
-  /** `retryEscalated`: a Check all (`all`) refused with `ASSESSMENT_FIELD_ESCALATED` reads the view and goes once by keys. */
+  /**
+   * `retryEscalated`: a Check all (`all`) refused with `ASSESSMENT_FIELD_ESCALATED` reads the view and goes once by keys,
+   * leaving out the fields the refusal names (`error.fields`); an older server names none, and the view tells them.
+   */
   private async validate(busyKey: string, body: ValidationsBody, retryEscalated = false): Promise<boolean> {
     const at = this.target();
     const busy = this.validating();
@@ -364,7 +369,7 @@ export class ReviewStore implements OnDestroy {
       if (retryEscalated && e.code === ASSESSMENT_ERROR.FIELD_ESCALATED) {
         // Still holding the busy mark: no second tap gets in while the view is read and the keys are sent.
         await this.reload();
-        const keys = this.still(at) ? this.checkAllKeys() : null;
+        const keys = this.still(at) ? this.checkAllKeys(e.fieldKeys) : null;
         if (keys && !keys.length) {
           this.toasts.info(NOTHING_TO_CHECK);
           return false;
@@ -708,7 +713,9 @@ export class ReviewStore implements OnDestroy {
             ? `Decide the round-1 comments first on: ${names.join(', ')}.`
             : message
           : // Check all by keys still refused (another escalate landed meanwhile, contract § 4.2): one by one.
-            'A core field is escalated to TPB, so Check all cannot run. Validate the other fields one by one.',
+            names.length
+            ? `Escalated to TPB: ${names.join(', ')}. Check all cannot run; validate the other fields one by one.`
+            : 'A core field is escalated to TPB, so Check all cannot run. Validate the other fields one by one.',
       );
     }
     return true;
