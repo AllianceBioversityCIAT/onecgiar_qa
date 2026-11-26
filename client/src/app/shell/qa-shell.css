@@ -11,11 +11,12 @@
   -webkit-font-smoothing: antialiased;
 }
 
-/* Active nav item: a flat shaded row, one step darker than hover, with dark text and no shadow (Juanpa, 2026-11-26:
-   the white raised row read as a card, not as a selected option). Before that it was a mint fill with a green marker. */
+/* Active nav item: a soft brand tint with the text and icon in the brand colour, flat, no shadow and no side marker
+   (Juanpa, 2026-11-26: the white raised row read as a card, and a dark grey shade with black text looked heavy).
+   Hover stays neutral grey, so the selected row is the only coloured one. */
 .qa-nav-active {
   background: var(--nav-active-bg);
-  color: var(--nav-fg);
+  color: var(--nav-text);
   font-weight: 600;
 }
 .qa-nav-active:hover {

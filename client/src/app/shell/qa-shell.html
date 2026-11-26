@@ -93,7 +93,7 @@
 
 <div class="flex h-dvh min-w-0 flex-1 flex-col">
   <header class="flex h-14 flex-none items-center gap-2 border-b border-(--border) bg-(--bg) px-3 sm:gap-3 sm:px-5">
-    <div class="flex items-center gap-1 sm:flex-[1_0_auto]">
+    <div class="flex items-center gap-1 sm:flex-none">
       <button
         type="button"
         aria-label="Open menu"
@@ -112,10 +112,17 @@
       </button>
     </div>
 
-    <!-- Search is out until Results reads the API (it did nothing: Enter changed nothing). TODO(api): search results by code or title. -->
-    <span class="min-w-0 flex-1" aria-hidden="true"></span>
+    <!-- Search box, the same as PRMS Reporting's top bar. Visual only for now: Juanpa agreed it with Yeck on 2026-11-26,
+         after Yeck had taken out the earlier box because it did nothing. TODO(api): search results by code or title. -->
+    <div class="hidden min-w-0 flex-1 sm:ml-3 sm:flex">
+      <label class="flex h-9 w-full max-w-[520px] items-center gap-2 rounded-lg border border-(--border) bg-(--surface) px-3 text-(--text-3) focus-within:shadow-(--focus-ring)">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+        <input type="search" placeholder="Search" aria-label="Search" class="min-w-0 flex-1 border-0 bg-transparent p-0 text-(length:--fs-14) text-(--text) outline-none placeholder:text-(--text-muted)" />
+      </label>
+    </div>
+    <span class="min-w-0 flex-1 sm:hidden" aria-hidden="true"></span>
 
-    <div class="flex items-center justify-end gap-1 sm:flex-[1_0_auto]">
+    <div class="flex items-center justify-end gap-1 sm:flex-none">
       <qa-notifications-bell />
       <qa-unsent-center />
       <!-- A thin line between the top bar's actions and the user menu, as in PRMS (Juanpa, 2026-10-29). Only for admins,
@@ -131,7 +138,7 @@
           class="flex h-9 items-center gap-2 rounded-lg pr-2 pl-1 text-(length:--fs-14) font-medium whitespace-nowrap text-(--text) hover:bg-(--surface-4)"
           (click)="userMenuOpen.set(!userMenuOpen())"
         >
-          <span class="flex size-7 flex-none items-center justify-center rounded-full bg-(--surface-4) text-(length:--fs-11) font-semibold text-(--text-2)" aria-hidden="true">{{ initials() }}</span>
+          <span class="flex size-7 flex-none items-center justify-center rounded-full bg-(--tint-2) text-(length:--fs-12) font-semibold text-(--nav-text)" aria-hidden="true">{{ initials() }}</span>
           <span class="hidden md:inline" data-testid="user-email">{{ email() }}</span>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
         </button>
