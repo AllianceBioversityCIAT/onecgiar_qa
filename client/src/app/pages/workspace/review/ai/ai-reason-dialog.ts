@@ -27,7 +27,7 @@ import { AI_REASON_MAX, reasonError } from './ai-reason';
       [subtitle]="subtitle()"
       width="480px"
     >
-      <label for="ai-reason" class="text-(length:--fs-13) font-semibold text-(--text-2)"
+      <label for="ai-reason" class="text-(length:--fs-13) font-medium text-(--text-2)"
         >Reason (one line)</label
       >
       <input
@@ -43,7 +43,7 @@ import { AI_REASON_MAX, reasonError } from './ai-reason';
         [attr.aria-describedby]="
           failure() || (touched() && error()) ? 'ai-reason-err' : 'ai-reason-count'
         "
-        class="h-9 w-full rounded-[8px] border-(--border) bg-(--field-bg) px-3 py-0 text-(length:--fs-14) text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 md:text-(length:--fs-14) dark:bg-(--field-bg)"
+        class="h-9 w-full rounded-lg border-(--border) bg-(--field-bg) px-3 py-0 text-(length:--fs-14) text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 md:text-(length:--fs-14) dark:bg-(--field-bg)"
         placeholder="e.g. The annex reports a second pilot in Uganda"
       />
       <div class="flex items-center justify-between gap-3">

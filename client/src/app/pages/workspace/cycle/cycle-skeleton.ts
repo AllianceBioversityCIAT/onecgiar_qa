@@ -14,7 +14,7 @@ const STEPS = skeletonRows(5);
   host: { class: 'block' },
   template: `
     <qa-loading label="Loading the cycle" class="flex flex-col gap-6">
-      <section class="rounded-[12px] border border-(--border) bg-(--surface)">
+      <section class="rounded-xl border border-(--border) bg-(--surface)">
         <div
           class="flex min-h-16 flex-wrap items-center gap-3 border-b border-(--surface-4) px-5 py-4"
         >
@@ -22,7 +22,7 @@ const STEPS = skeletonRows(5);
             <qa-skeleton class="h-4 w-48" />
             <qa-skeleton class="h-3 w-72 max-w-full" />
           </div>
-          <qa-skeleton class="h-9 w-[124px] rounded-[8px] max-sm:w-full" />
+          <qa-skeleton class="h-9 w-[124px] rounded-lg max-sm:w-full" />
         </div>
         <div class="p-5 @container">
           <div class="mb-[6px] hidden h-6 grid-cols-5 gap-3 @min-[1000px]:grid">
@@ -39,7 +39,7 @@ const STEPS = skeletonRows(5);
           >
             @for (i of steps; track i) {
               <div
-                class="flex min-h-[164px] flex-col gap-2.5 rounded-[10px] border border-(--border) bg-(--surface-2) p-[14px]"
+                class="flex min-h-[164px] flex-col gap-2.5 rounded-lg border border-(--border) bg-(--surface-2) p-[14px]"
               >
                 <qa-skeleton class="h-2.5 w-12" />
                 <qa-skeleton class="h-3.5 w-[85%]" />
@@ -57,13 +57,13 @@ const STEPS = skeletonRows(5);
             <qa-skeleton class="h-5 w-36" />
             <qa-skeleton class="h-3 w-[min(100%,32rem)]" />
           </div>
-          <qa-skeleton class="h-9 w-[150px] rounded-[8px] max-sm:w-full" />
+          <qa-skeleton class="h-9 w-[150px] rounded-lg max-sm:w-full" />
         </div>
         <div class="mb-4 flex gap-5 border-b border-(--border) pb-2.5">
           <qa-skeleton class="h-3.5 w-14" />
           <qa-skeleton class="h-3.5 w-16" />
         </div>
-        <div class="h-[220px] rounded-[12px] border border-(--border) bg-(--surface) p-5">
+        <div class="h-[220px] rounded-xl border border-(--border) bg-(--surface) p-5">
           <qa-skeleton class="h-4 w-56" />
           <qa-skeleton class="mt-2 h-3 w-80 max-w-full" />
         </div>

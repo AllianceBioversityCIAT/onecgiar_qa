@@ -45,7 +45,7 @@
     @if (applied().length) {
       <div class="flex flex-wrap items-center gap-2">
         @for (c of applied(); track c.key) {
-          <span class="inline-flex h-7 max-w-[380px] items-center gap-1.5 rounded-full bg-(--tint) pr-1.5 pl-2.5 text-(length:--fs-12) font-medium text-(--accent)">
+          <span class="inline-flex h-7 max-w-[380px] items-center gap-1.5 rounded-md bg-(--tint) pr-1.5 pl-2.5 text-(length:--fs-12) font-medium text-(--accent)">
             <span class="flex-none font-semibold">{{ c.label }}</span>
             <span class="min-w-0 truncate">{{ c.values }}</span>
             <button type="button" (click)="clearFilter(c.key)" [attr.aria-label]="'Remove ' + c.label + ' filter'" class="flex size-[18px] flex-none cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-0 text-(--accent) hover:bg-(--tint-3) focus-visible:shadow-(--focus-ring) focus-visible:outline-none"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"></path></svg></button>
@@ -72,16 +72,15 @@
   @if (store.state() === 'loading' || (showRemoved() && store.removed() === null)) {
     <qa-assessors-skeleton />
   } @else if (store.state() === 'error') {
-    <div class="flex max-w-[420px] flex-col items-start gap-2" role="alert">
-      <p class="m-0 text-(length:--fs-14) text-(--text-2)">The team could not load. {{ store.loadError() }}</p>
+    <qa-state-card alert heading="We couldn't load the team" [message]="'The team could not load. ' + (store.loadError() ?? '')">
       <button hlmBtn qaBtn tone="secondary" size="sm" type="button" (click)="store.load()">Try again</button>
-    </div>
+    </qa-state-card>
   } @else if (rows().length) {
     <!--
       Team table. A row opens the person drawer; role, result types and ⋯ have their own popovers.
       No own overflow: the sticky header sticks to the shell's scrolling <main>. Layout per container width: see CELL in the .ts.
     -->
-    <div class="@container relative rounded-xl border border-(--border) bg-(--surface)">
+    <div class="@container relative rounded-xl border border-(--border) bg-(--surface) shadow-(--shadow-card)">
       <span #stickSentinel aria-hidden="true" class="pointer-events-none absolute top-0 left-0 h-px w-px"></span>
       <table class="block w-full">
         <caption class="sr-only">Assessment team</caption>
@@ -107,7 +106,7 @@
           @for (r of rows(); track r.member.id; let first = $first; let last = $last) {
             <tr [qaReveal]="$index" [class]="cell.row + (last ? ' rounded-b-[11px]' : ' border-b border-(--surface-4)') + (first ? ' @max-[640px]:rounded-t-[11px]' : '')">
               <td class="flex min-w-0 items-center gap-2.5 p-0" [class]="cell.person">
-                <span aria-hidden="true" class="flex size-7 flex-none items-center justify-center rounded-full bg-(--tint-2) font-(family-name:--qa-mono) tabular-nums text-(length:--fs-11) font-semibold text-(--accent)">{{ r.initials }}</span>
+                <span aria-hidden="true" class="flex size-7 flex-none items-center justify-center rounded-full bg-(--surface-4) font-(family-name:--qa-mono) tabular-nums text-(length:--fs-11) font-semibold text-(--text-2)">{{ r.initials }}</span>
                 <div class="flex min-w-0 flex-col gap-px">
                   <div [title]="r.title" class="flex min-w-0 flex-wrap items-center gap-x-[7px]">
                     <button type="button" (click)="openPerson(r.member)" [attr.aria-label]="'Edit assignment of ' + (r.member.nick || r.member.name)" class="max-w-full min-w-0 cursor-pointer truncate rounded-sm border-0 bg-transparent p-0 text-left text-(length:--fs-14) font-semibold text-(--text) no-underline outline-none after:absolute after:inset-0 after:content-[''] focus-visible:after:shadow-(--focus-ring)">{{ r.member.nick || r.member.name }}</button>
@@ -115,12 +114,13 @@
                       <span class="max-w-full min-w-0 truncate text-(length:--fs-13) font-normal text-(--text-3)">{{ r.member.name }}</span>
                     }
                     @if (r.invited) {
-                      <span class="relative z-[1] flex-none rounded-full bg-(--st-editing-bg) px-1.5 py-px text-(length:--fs-10) font-semibold text-(--st-editing-fg)">Invited</span>
+                      <!-- A status: dot badge, as everywhere else. "Has an account" is a property: outlined tag. -->
+                      <span class="relative z-[1] inline-flex flex-none items-center gap-1.5 rounded-md bg-(--surface-5) px-1.5 py-px text-(length:--fs-12) font-medium text-(--text-2) [--qa-dot:var(--warning)]"><span aria-hidden="true" class="size-1.5 flex-none rounded-full bg-(--qa-dot)"></span>Invited</span>
                     } @else if (r.hasAccount) {
-                      <span [title]="'Already had an account: no invitation email was sent'" class="relative z-[1] flex-none rounded-full bg-(--surface-4) px-1.5 py-px text-(length:--fs-10) font-semibold text-(--text-3)">Has an account</span>
+                      <span [title]="'Already had an account: no invitation email was sent'" class="relative z-[1] flex-none rounded-md border border-(--border) px-1.5 py-px text-(length:--fs-12) font-medium text-(--text-3)">Has an account</span>
                     }
                     @if (!r.member.active) {
-                      <span class="relative z-[1] flex-none rounded-full bg-(--surface-4) px-1.5 py-px text-(length:--fs-10) font-semibold text-(--text-3)">Removed</span>
+                      <span class="relative z-[1] flex-none rounded-md bg-(--surface-4) px-1.5 py-px text-(length:--fs-12) font-medium text-(--text-3)">Removed</span>
                     }
                   </div>
                   <span class="truncate text-(length:--fs-12) font-normal text-(--text-4)">{{ r.member.email }}</span>
@@ -186,7 +186,7 @@
 </div>
 
 <ng-template #sortBtn let-h>
-  <button type="button" (click)="sortBy(h.key)" class="flex h-10 max-w-full min-w-0 cursor-pointer items-center justify-start gap-1 border-0 bg-transparent p-0 text-(length:--fs-11) font-semibold tracking-[0.06em] whitespace-nowrap uppercase hover:text-(--text-2) focus-visible:shadow-(--focus-ring) focus-visible:outline-none" [class]="sortKey() === h.key ? 'text-(--text-2)' : 'text-(--text-muted)'">
+  <button type="button" (click)="sortBy(h.key)" class="flex h-10 max-w-full min-w-0 cursor-pointer items-center justify-start gap-1 border-0 bg-transparent p-0 text-(length:--fs-12) font-medium whitespace-nowrap hover:text-(--text-2) focus-visible:shadow-(--focus-ring) focus-visible:outline-none" [class]="sortKey() === h.key ? 'text-(--text-2)' : 'text-(--text-muted)'">
     <span>{{ h.label }}</span>
     @if (sortKey() === h.key) {
       @if (sortDir() === 'asc') {

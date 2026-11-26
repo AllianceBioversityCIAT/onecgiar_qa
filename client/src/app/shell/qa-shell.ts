@@ -11,6 +11,7 @@ import { UnsentQueue } from '../core/http/unsent-queue';
 import { NotificationsBell } from '../pages/workspace/notifications/notifications-bell';
 import { QaTokensLoader, QaUnsentCenter } from '../ui';
 import { ActiveCycle } from './active-cycle';
+import { QaCyclePanel } from './cycle-panel';
 import { WorkspaceLayout } from './workspace-layout';
 
 interface NavItem {
@@ -70,7 +71,7 @@ const ADMINISTRATION: readonly NavItem[] = [
  */
 @Component({
   selector: 'qa-shell',
-  imports: [NgOptimizedImage, NgTemplateOutlet, RouterLink, RouterLinkActive, RouterOutlet, NotificationsBell, QaUnsentCenter],
+  imports: [NgOptimizedImage, NgTemplateOutlet, RouterLink, RouterLinkActive, RouterOutlet, NotificationsBell, QaUnsentCenter, QaCyclePanel],
   templateUrl: './qa-shell.html',
   styleUrl: './qa-shell.css',
   providers: [ActiveCycle],
@@ -98,6 +99,8 @@ export class QaShell {
   protected readonly administration = computed(() =>
     ADMINISTRATION.filter((i) => this.access.canAny(i.permission)),
   );
+  /** The top-bar search opens "Results in QA", so it only shows to whoever can open that page. */
+  protected readonly canSearch = computed(() => this.access.canAny(Permission.READ));
 
   private readonly url = toSignal(
     this.router.events.pipe(
@@ -147,6 +150,21 @@ export class QaShell {
 
   protected forward(): void {
     this.location.forward();
+  }
+
+  /**
+   * Top-bar search: Enter opens "Results in QA" searched by code or title (its `?q=`). On that page the
+   * other filters and the timeline stay; anywhere else it opens the list with only the search.
+   */
+  protected searchResults(event: Event, box: HTMLInputElement): void {
+    event.preventDefault();
+    const q = box.value.trim().slice(0, 200);
+    const segments = this.router.parseUrl(this.router.url).root.children['primary']?.segments ?? [];
+    const onResults = segments.length === 1 && segments[0].path === 'results';
+    void this.router.navigate(['/results'], {
+      queryParams: { q: q || null },
+      queryParamsHandling: onResults ? 'merge' : undefined,
+    });
   }
 
   protected closeOverlays(): void {

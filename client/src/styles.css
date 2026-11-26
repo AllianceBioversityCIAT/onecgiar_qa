@@ -142,6 +142,22 @@
     animation-delay: calc(min(var(--qa-i, 0), 10) * 70ms);
   }
 
+  /* Status badge dot: a neutral badge carries its status colour only in this 6px dot (direction A, Juanpa 2026-11-25).
+     The colour comes from --qa-dot, set by the status class, e.g. [--qa-dot:var(--success)]. */
+  .qa-dot {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .qa-dot::before {
+    content: '';
+    flex: none;
+    width: 6px;
+    height: 6px;
+    border-radius: 9999px;
+    background: var(--qa-dot, currentColor);
+  }
+
   .qa-btn-busy::before {
     content: '';
     flex: none;

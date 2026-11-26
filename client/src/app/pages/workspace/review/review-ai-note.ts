@@ -6,15 +6,16 @@ import { AiVm } from './review-model';
 @Component({
   selector: 'qa-review-ai-note',
   imports: [QaButtonImports],
-  host: { class: 'flex flex-col gap-2 rounded-[8px] border border-(--ai-tint-3) bg-(--ai-tint) px-[14px] py-3' },
+  // Neutral like the AI suggestion chip: a small marked icon names the AI, not a purple box (Juanpa, 2026-11-25).
+  host: { class: 'flex flex-col gap-2 rounded-lg border border-(--border) bg-(--surface-2) px-[14px] py-3' },
   template: `
     <div class="flex flex-wrap items-center gap-2">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ai)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z" /></svg>
-      <span class="text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--ai) uppercase">AI match</span>
+      <span class="flex size-5 flex-none items-center justify-center rounded-md bg-(--ai-tint-2)" aria-hidden="true"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--ai)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z" /></svg></span>
+      <span class="text-(length:--fs-12) font-semibold text-(--text-2)">AI match</span>
       @if (ai().mismatch) {
-        <span class="rounded-full bg-(--st-editing-bg) px-2 py-0.5 text-(length:--fs-11) font-semibold text-(--st-editing-fg)">Possible mismatch</span>
+        <span class="inline-flex items-center gap-1.5 rounded-md bg-(--surface-5) px-2 py-0.5 text-(length:--fs-12) font-medium text-(--text-2) [--qa-dot:var(--warning)]"><span aria-hidden="true" class="size-1.5 flex-none rounded-full bg-(--qa-dot)"></span>Possible mismatch</span>
       } @else {
-        <span class="rounded-full bg-(--surface-3) px-2 py-0.5 text-(length:--fs-11) font-semibold text-(--text-3)">Looks consistent</span>
+        <span class="inline-flex items-center gap-1.5 rounded-md bg-(--surface-5) px-2 py-0.5 text-(length:--fs-12) font-medium text-(--text-2) [--qa-dot:var(--success)]"><span aria-hidden="true" class="size-1.5 flex-none rounded-full bg-(--qa-dot)"></span>Looks consistent</span>
       }
       <span class="min-w-0 flex-[1_1_0px]"></span>
       @if (!ai().mismatch) {
@@ -23,13 +24,13 @@ import { AiVm } from './review-model';
           [attr.aria-label]="ai().expanded ? 'Hide reasoning' : 'Show reasoning'"
           [title]="ai().expanded ? 'Hide reasoning' : 'Show reasoning'"
           [attr.aria-expanded]="ai().expanded"
-          class="flex size-5 flex-none items-center justify-center rounded-[6px] p-0 text-(--text-muted) hover:text-(--text-3) focus-visible:shadow-(--focus-ring) focus-visible:outline-none"
+          class="flex size-5 flex-none items-center justify-center rounded-md p-0 text-(--text-muted) hover:text-(--text-3) focus-visible:shadow-(--focus-ring) focus-visible:outline-none"
           (click)="toggle.emit()"
         >
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="transition-transform duration-150" [class.rotate-180]="ai().expanded" aria-hidden="true"><path d="M6 9l6 6 6-6" /></svg>
         </button>
       }
-      <button type="button" aria-label="Hide AI match" class="flex size-5 flex-none items-center justify-center rounded-[6px] p-0 text-(--text-muted) hover:text-(--text-3) focus-visible:shadow-(--focus-ring) focus-visible:outline-none" (click)="hide.emit()">
+      <button type="button" aria-label="Hide AI match" class="flex size-5 flex-none items-center justify-center rounded-md p-0 text-(--text-muted) hover:text-(--text-3) focus-visible:shadow-(--focus-ring) focus-visible:outline-none" (click)="hide.emit()">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12" /></svg>
       </button>
     </div>

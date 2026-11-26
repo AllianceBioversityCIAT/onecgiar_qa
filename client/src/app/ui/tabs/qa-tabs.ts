@@ -41,7 +41,7 @@ export class QaTabList {
   private readonly tabs = inject(QaTabs);
   protected readonly listClass = computed(() =>
     this.tabs.variant() === 'segmented'
-      ? 'box-border flex h-8 max-w-full gap-[2px] self-start overflow-x-auto rounded-[8px] bg-(--seg-track) p-[3px]'
+      ? 'box-border flex h-8 max-w-full gap-[2px] self-start overflow-x-auto rounded-lg bg-(--seg-track) p-[3px]'
       : 'flex min-h-10 items-center gap-6 overflow-x-auto overflow-y-hidden border-b border-(--border)',
   );
 }
@@ -65,7 +65,7 @@ export class QaTab {
     const common =
       'group flex flex-none cursor-pointer items-center gap-[7px] whitespace-nowrap outline-none focus-visible:shadow-(--focus-ring) disabled:cursor-not-allowed disabled:opacity-50';
     if (this.tabs.variant() === 'segmented') {
-      return `${common} h-[26px] rounded-[6px] border-0 px-[14px] text-(length:--fs-13) ${
+      return `${common} h-[26px] rounded-md border-0 px-[14px] text-(length:--fs-13) ${
         active
           ? 'bg-(--seg-active) font-semibold text-(--text) shadow-(--shadow-seg)'
           : 'bg-transparent font-medium text-(--text-4) hover:text-(--text-2)'

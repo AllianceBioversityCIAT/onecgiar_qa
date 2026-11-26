@@ -2,7 +2,7 @@ import { NgTemplateOutlet } from '@angular/common';
 import { Component, ElementRef, computed, effect, inject, signal, viewChild } from '@angular/core';
 import { HlmInputImports } from '@spartan/input';
 import { TableSort } from '../../../core/list/table-sort';
-import { QaButtonImports, QaMenuImports, QaMultiSelect, QaMultiSelectOption, QaReveal, QaSegmented, QaSegmentedOption } from '../../../ui';
+import { QaButtonImports, QaMenuImports, QaMultiSelect, QaMultiSelectOption, QaReveal, QaSegmented, QaSegmentedOption, QaStateCard } from '../../../ui';
 import { AssessorsSkeleton } from './assessors-skeleton';
 import { AssessorDrawer, DrawerSession } from './assessor-drawer';
 import { AssessorsStore } from './assessors-store';
@@ -40,7 +40,7 @@ const reviewedOf = (p: TeamMember) => p.prog.reduce((a, e) => a + e.reviewed, 0)
 @Component({
   selector: 'qa-assessors-view',
   templateUrl: './assessors-view.html',
-  imports: [NgTemplateOutlet, QaButtonImports, QaReveal, QaSegmented, AssessorsSkeleton, HlmInputImports, QaMenuImports, QaMultiSelect, AssessorDrawer, AssessorRoleCell, AssessorTypesCell],
+  imports: [NgTemplateOutlet, QaButtonImports, QaStateCard, QaReveal, QaSegmented, AssessorsSkeleton, HlmInputImports, QaMenuImports, QaMultiSelect, AssessorDrawer, AssessorRoleCell, AssessorTypesCell],
   providers: [AssessorsStore],
 })
 export class AssessorsView {

@@ -6,7 +6,7 @@ import { filter } from 'rxjs';
 import { HlmInput } from '@spartan/input';
 import { QA_STATUSES, QaStatus } from '../../../core/api/assessment.models';
 import { TableSort } from '../../../core/list/table-sort';
-import { QaButtonImports, QaMultiSelect, QaScopeCardImports, QaSelectImports } from '../../../ui';
+import { QaButtonImports, QaMultiSelect, QaScopeCardImports, QaSelectImports, QaStateCard } from '../../../ui';
 import { ResultsSkeleton } from './results-skeleton';
 import { ResultsFilters, ResultsStore } from './results-store';
 import { ResultsTable, SortDir, SortKey } from './results-table';
@@ -64,7 +64,7 @@ export function readFilters(params: ParamMap): ResultsFilters {
 @Component({
   selector: 'qa-results-view',
   templateUrl: './results-view.html',
-  imports: [NgTemplateOutlet, QaButtonImports, HlmInput, RouterLink, QaMultiSelect, QaScopeCardImports, QaSelectImports, ResultsTable, ResultsSkeleton],
+  imports: [NgTemplateOutlet, QaButtonImports, HlmInput, RouterLink, QaMultiSelect, QaScopeCardImports, QaSelectImports, QaStateCard, ResultsTable, ResultsSkeleton],
   providers: [ResultsStore],
 })
 export class ResultsView {

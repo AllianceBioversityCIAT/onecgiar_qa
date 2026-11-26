@@ -68,12 +68,15 @@ function firstLoads(steps: StepDraftRow[]): StepDraftRow[] {
       @if (open()) {
         @let d = draft();
         @if (feedbackMessage(); as message) {
-          <div role="alert" class="rounded-[8px] bg-(--danger-bg) px-3 py-2 text-(length:--fs-13) leading-[1.5] text-(--danger)">{{ message }}</div>
+          <div role="alert" class="rounded-lg bg-(--danger-bg) px-3 py-2 text-(length:--fs-13) leading-[1.5] text-(--danger)">{{ message }}</div>
         }
         @if (!isOfficialEdit()) {
+          <!-- "Batch" section: name, then programs and result types side by side, as the other panels (Juanpa, 2026-11-25). -->
+          <section class="flex flex-col gap-4" aria-labelledby="cycle-tl-sec-batch">
+          <h3 id="cycle-tl-sec-batch" class="m-0 text-(length:--fs-14) font-semibold text-(--text)">Batch</h3>
           <div class="flex flex-col items-stretch gap-[6px]">
             <div class="flex items-center gap-1">
-              <label for="cycle-tl-name" class="text-(length:--fs-13) font-semibold text-(--text-2)">Name</label>
+              <label for="cycle-tl-name" class="text-(length:--fs-13) font-medium text-(--text-2)">Name</label>
               <span aria-hidden="true" class="text-(length:--fs-13) font-semibold text-(--danger-strong)">*</span>
             </div>
             <input
@@ -85,7 +88,7 @@ function firstLoads(steps: StepDraftRow[]): StepDraftRow[] {
               [attr.data-error]="!!nameError()"
               [attr.aria-invalid]="nameError() ? true : null"
               [attr.aria-describedby]="nameError() ? 'cycle-tl-name-err' : null"
-              class="h-9 w-full rounded-[8px] border-(--border) bg-(--field-bg) px-3 py-0 text-(length:--fs-14) text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-14) dark:bg-(--field-bg)"
+              class="h-9 w-full rounded-lg border-(--border) bg-(--field-bg) px-3 py-0 text-(length:--fs-14) text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-14) dark:bg-(--field-bg)"
             />
             @if (nameError()) {
               <span id="cycle-tl-name-err" class="text-(length:--fs-13) text-(--danger)">{{ nameError() }}</span>
@@ -93,19 +96,22 @@ function firstLoads(steps: StepDraftRow[]): StepDraftRow[] {
           </div>
           @if (scopeSet()) {
             <!-- Step 1 has started: the scope is set, shown as text with the way forward. -->
-            <div class="flex flex-col items-start gap-[6px]">
-              <span class="text-(length:--fs-13) font-semibold text-(--text-2)">Science programs</span>
+            <div class="grid grid-cols-2 gap-4 max-sm:grid-cols-1">
+            <div class="flex min-w-0 flex-col items-start gap-[6px]">
+              <span class="text-(length:--fs-13) font-medium text-(--text-2)">Science programs</span>
               <span class="text-(length:--fs-14) text-(--text)">{{ programsText() }}</span>
             </div>
-            <div class="flex flex-col items-start gap-[6px]">
-              <span class="text-(length:--fs-13) font-semibold text-(--text-2)">Result types</span>
+            <div class="flex min-w-0 flex-col items-start gap-[6px]">
+              <span class="text-(length:--fs-13) font-medium text-(--text-2)">Result types</span>
               <span class="text-(length:--fs-14) text-(--text)">{{ d.types.length ? d.types.join(', ') : 'All result types' }}</span>
-              <span class="text-(length:--fs-13) leading-[1.5] font-normal text-pretty text-(--text-4)">Set when step 1 opened on {{ d.steps[0]?.start }} at {{ d.steps[0]?.startTime }} (Rome time). To cover other programs or result types, create a new complementary batch.</span>
             </div>
+            </div>
+            <span class="-mt-2 text-(length:--fs-12) leading-[1.5] font-normal text-pretty text-(--text-muted)">Set when step 1 opened on {{ d.steps[0]?.start }} at {{ d.steps[0]?.startTime }} (Rome time). To cover other programs or result types, create a new complementary batch.</span>
           } @else {
-          <div class="flex flex-col items-start gap-[6px]">
+          <div class="grid grid-cols-2 gap-4 max-sm:grid-cols-1">
+          <div class="flex min-w-0 flex-col items-stretch gap-[6px]">
             <div class="flex items-center gap-1">
-              <label for="cycle-tl-programs" class="text-(length:--fs-13) font-semibold text-(--text-2)">Science programs</label>
+              <label for="cycle-tl-programs" class="text-(length:--fs-13) font-medium text-(--text-2)">Science programs</label>
               @if (!isMain()) {
                 <span aria-hidden="true" class="text-(length:--fs-13) font-semibold text-(--danger-strong)">*</span>
                 <button type="button" qaTooltip="Only results from these programs enter this timeline. Everyone else stays on the main batch calendar." aria-label="More about Science programs" class="flex size-4 flex-none cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-0 text-(--text-muted) outline-none hover:text-(--primary) focus-visible:shadow-(--focus-ring)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01" /></svg></button>
@@ -113,6 +119,7 @@ function firstLoads(steps: StepDraftRow[]): StepDraftRow[] {
             </div>
             <qa-multi-select
               triggerId="cycle-tl-programs"
+              class="w-full"
               [value]="d.programs"
               (valueChange)="patch({ programs: $event })"
               [options]="programOptions()"
@@ -131,31 +138,34 @@ function firstLoads(steps: StepDraftRow[]): StepDraftRow[] {
               <span class="text-(length:--fs-13) text-(--danger)">{{ programsError() }}</span>
             }
           </div>
-          <div class="flex flex-col items-start gap-[6px]">
-            <label for="cycle-tl-types" class="text-(length:--fs-13) font-semibold text-(--text-2)">Result types</label>
-            <qa-multi-select triggerId="cycle-tl-types" [value]="d.types" (valueChange)="patch({ types: $event })" [options]="typeOptions()" label="Result types" placeholder="All result types" searchPlaceholder="Search result types" appearance="field" summaryMax="99" panelWidth="300px" listMaxHeight="260px" />
+          <div class="flex min-w-0 flex-col items-stretch gap-[6px]">
+            <label for="cycle-tl-types" class="text-(length:--fs-13) font-medium text-(--text-2)">Result types</label>
+            <qa-multi-select triggerId="cycle-tl-types" class="w-full" [value]="d.types" (valueChange)="patch({ types: $event })" [options]="typeOptions()" label="Result types" placeholder="All result types" searchPlaceholder="Search result types" appearance="field" summaryMax="99" panelWidth="300px" listMaxHeight="260px" />
             @if (serverError('resultTypeKeys'); as m) {
               <span class="text-(length:--fs-13) text-(--danger)">{{ m }}</span>
             }
           </div>
+          </div>
           }
+          </section>
         }
 
-        <div class="flex flex-col items-stretch gap-[6px] @container">
-          <div class="flex flex-wrap items-baseline justify-between gap-x-3">
-            <span id="cycle-tl-steps" class="text-(length:--fs-13) font-semibold text-(--text-2)">Steps</span>
-            <span class="text-(length:--fs-12) font-normal text-(--text-4)">Rome time (CET / CEST), 24-hour clock</span>
+        <div class="flex flex-col items-stretch gap-[6px] @container" [class]="isOfficialEdit() ? '' : 'border-t border-(--border-soft) pt-5'">
+          <!-- Section title with its one line of help under it, as in the Step panel (Juanpa, 2026-11-25). -->
+          <div class="mb-1.5 flex flex-col gap-0.5">
+            <span id="cycle-tl-steps" class="text-(length:--fs-14) font-semibold text-(--text)">Steps</span>
+            <span class="text-(length:--fs-12) leading-[1.5] font-normal text-pretty text-(--text-muted)">Rome time (CET / CEST), 24-hour clock</span>
           </div>
           <!-- Wide drawer: table-like grid with a sticky header. Narrow (< 48rem): each step stacks as a card row with inline labels. -->
-          <div class="rounded-[8px] border border-(--border)">
-            <div aria-hidden="true" class="sticky top-0 z-10 hidden min-h-9 grid-cols-[24px_minmax(0,1fr)_200px_200px_44px_22px] items-center gap-3 rounded-t-[8px] border-b border-(--surface-4) bg-(--surface-3) px-[14px] text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase @3xl:grid">
+          <div class="rounded-lg border border-(--border)">
+            <div aria-hidden="true" class="sticky top-0 z-10 hidden min-h-9 grid-cols-[24px_minmax(0,1fr)_200px_200px_44px_22px] items-center gap-3 rounded-t-[8px] border-b border-(--surface-4) bg-(--surface-3) px-[14px] text-(length:--fs-12) font-medium text-(--text-muted) @3xl:grid">
               <span></span><span>Step name</span><span>Opens</span><span>Closes</span><span class="text-center">Load</span><span></span>
             </div>
             @for (rf of tlForm.steps; track $index; let i = $index, last = $last) {
               @let row = rf().value();
               <!-- Round label where a round starts, named as on the Cycle card's round band (Juanpa, 2026-11-05). It follows the Loads results switches live. -->
               @if (i === 0 || rounds()[i] !== rounds()[i - 1]) {
-                <div class="px-[14px] pt-3 pb-1 text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--text-muted) uppercase">QA round {{ rounds()[i] }}</div>
+                <div class="px-[14px] pt-3 pb-1 text-(length:--fs-12) font-medium text-(--text-muted)">QA round {{ rounds()[i] }}</div>
               }
               <div [class]="last ? '' : 'border-b border-(--surface-4)'">
                 @if (confirmRow() === i) {
@@ -168,33 +178,38 @@ function firstLoads(steps: StepDraftRow[]): StepDraftRow[] {
                   <div class="grid grid-cols-[24px_minmax(0,1fr)_minmax(0,1fr)_40px] items-center gap-x-3 gap-y-2 px-[14px] py-3 @3xl:min-h-[52px] @3xl:grid-cols-[24px_minmax(0,1fr)_200px_200px_44px_22px] @3xl:gap-y-0 @3xl:py-0">
                     <span class="font-(family-name:--qa-mono) text-(length:--fs-12) font-semibold text-(--text-muted)">{{ i + 1 }}</span>
                     <span class="col-span-2 min-w-0 @3xl:col-span-1">
-                      <input hlmInput type="text" [formField]="rf.name" [attr.aria-label]="'Step ' + (i + 1) + ' name'" [title]="row.name" placeholder="QA platform open for assessors" [attr.data-error]="tried() && !row.name.trim()" class="h-10 min-w-0 rounded-[8px] border-(--border) bg-(--field-bg) px-[10px] py-0 text-(length:--fs-13) text-ellipsis text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) @3xl:h-8 dark:bg-(--field-bg)" />
+                      <input hlmInput type="text" [formField]="rf.name" [attr.aria-label]="'Step ' + (i + 1) + ' name'" [title]="row.name" placeholder="QA platform open for assessors" [attr.data-error]="tried() && !row.name.trim()" class="h-10 min-w-0 rounded-lg border-(--border) bg-(--field-bg) px-[10px] py-0 text-(length:--fs-13) text-ellipsis text-(--text) shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) @3xl:h-8 dark:bg-(--field-bg)" />
                     </span>
                     <span class="col-span-2 col-start-2 flex min-w-0 flex-col gap-1 @3xl:col-span-1 @3xl:col-start-auto">
-                      <span aria-hidden="true" class="text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase @3xl:hidden">Opens</span>
+                      <span aria-hidden="true" class="text-(length:--fs-12) font-medium text-(--text-muted) @3xl:hidden">Opens</span>
                       @if (i < closedCount() || i === activeIndex()) {
-                        <span class="flex min-h-10 items-center font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text-3) tabular-nums @3xl:min-h-8">{{ row.start }}, {{ row.startTime }}</span>
+                        <!-- A fixed date says why on hover or focus (Juanpa, 2026-11-25). -->
+                        <span class="flex min-h-10 items-center gap-1.5 text-(length:--fs-13) text-(--text-3) tabular-nums @3xl:min-h-8">{{ row.start }}, {{ row.startTime }}
+                          <button type="button" [qaTooltip]="i < closedCount() ? 'This step has closed: its dates stay as the record of the cycle.' : 'This step is open, so its opening date and time cannot change. You can still move its closing date.'" [attr.aria-label]="'Why step ' + (i + 1) + ' opening date is fixed'" class="flex size-4 flex-none cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-0 text-(--text-muted) outline-none hover:text-(--primary) focus-visible:shadow-(--focus-ring)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01" /></svg></button>
+                        </span>
                       } @else {
                       <span class="flex min-w-0 gap-1.5">
                       <span class="relative flex min-w-0 flex-1">
-                        <input hlmInput type="text" [formField]="rf.start" [attr.aria-label]="'Step ' + (i + 1) + ' opens'" placeholder="Select date" [attr.data-error]="bad(i, 'start')" [attr.aria-invalid]="bad(i, 'start') || null" class="h-10 w-full min-w-0 rounded-[8px] border-(--border) bg-(--field-bg) py-0 pr-9 pl-[10px] font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) @3xl:h-8 dark:bg-(--field-bg)" />
+                        <input hlmInput type="text" [formField]="rf.start" [attr.aria-label]="'Step ' + (i + 1) + ' opens'" placeholder="Select date" [attr.data-error]="bad(i, 'start')" [attr.aria-invalid]="bad(i, 'start') || null" class="h-10 w-full min-w-0 rounded-lg border-(--border) bg-(--field-bg) py-0 pr-9 pl-[10px] font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) @3xl:h-8 dark:bg-(--field-bg)" />
                         <qa-date-picker [value]="rf.start().value()" (valueChange)="rf.start().value.set($event)" [label]="'Pick step ' + (i + 1) + ' opening date'" class="absolute top-1/2 right-1 -translate-y-1/2" />
                       </span>
-                      <input hlmInput qaTimeMask type="text" inputmode="numeric" [formField]="rf.startTime" [attr.aria-label]="'Step ' + (i + 1) + ' opening time, 24-hour, Rome'" placeholder="00:00" (blur)="tidyTime(i, 'startTime')" [attr.data-error]="bad(i, 'startTime')" [attr.aria-invalid]="bad(i, 'startTime') || null" class="h-10 w-[60px] flex-none rounded-[8px] border-(--border) bg-(--field-bg) px-[10px] py-0 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) @3xl:h-8 dark:bg-(--field-bg)" />
+                      <input hlmInput qaTimeMask type="text" inputmode="numeric" [formField]="rf.startTime" [attr.aria-label]="'Step ' + (i + 1) + ' opening time, 24-hour, Rome'" placeholder="00:00" (blur)="tidyTime(i, 'startTime')" [attr.data-error]="bad(i, 'startTime')" [attr.aria-invalid]="bad(i, 'startTime') || null" class="h-10 w-[60px] flex-none rounded-lg border-(--border) bg-(--field-bg) px-[10px] py-0 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) @3xl:h-8 dark:bg-(--field-bg)" />
                       </span>
                       }
                     </span>
                     <span class="col-span-2 col-start-2 flex min-w-0 flex-col gap-1 @3xl:col-span-1 @3xl:col-start-auto">
-                      <span aria-hidden="true" class="text-(length:--fs-11) font-semibold tracking-[0.06em] text-(--text-muted) uppercase @3xl:hidden">Closes</span>
+                      <span aria-hidden="true" class="text-(length:--fs-12) font-medium text-(--text-muted) @3xl:hidden">Closes</span>
                       @if (i < closedCount()) {
-                        <span class="flex min-h-10 items-center font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text-3) tabular-nums @3xl:min-h-8">{{ row.end ? row.end + ', ' + row.endTime : '—' }}</span>
+                        <span class="flex min-h-10 items-center gap-1.5 text-(length:--fs-13) text-(--text-3) tabular-nums @3xl:min-h-8">{{ row.end ? row.end + ', ' + row.endTime : '—' }}
+                          <button type="button" [qaTooltip]="'This step has closed: its dates stay as the record of the cycle.'" [attr.aria-label]="'Why step ' + (i + 1) + ' closing date is fixed'" class="flex size-4 flex-none cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-0 text-(--text-muted) outline-none hover:text-(--primary) focus-visible:shadow-(--focus-ring)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01" /></svg></button>
+                        </span>
                       } @else {
                       <span class="flex min-w-0 gap-1.5">
                       <span class="relative flex min-w-0 flex-1">
-                        <input hlmInput type="text" [formField]="rf.end" [attr.aria-label]="'Step ' + (i + 1) + ' closes'" (blur)="fillNextOpening(i)" [placeholder]="last && !live() ? 'Optional' : 'Select date'" [attr.data-error]="bad(i, 'end')" [attr.aria-invalid]="bad(i, 'end') || null" class="h-10 w-full min-w-0 rounded-[8px] border-(--border) bg-(--field-bg) py-0 pr-9 pl-[10px] font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) @3xl:h-8 dark:bg-(--field-bg)" />
+                        <input hlmInput type="text" [formField]="rf.end" [attr.aria-label]="'Step ' + (i + 1) + ' closes'" (blur)="fillNextOpening(i)" [placeholder]="last && !live() ? 'Optional' : 'Select date'" [attr.data-error]="bad(i, 'end')" [attr.aria-invalid]="bad(i, 'end') || null" class="h-10 w-full min-w-0 rounded-lg border-(--border) bg-(--field-bg) py-0 pr-9 pl-[10px] font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) @3xl:h-8 dark:bg-(--field-bg)" />
                         <qa-date-picker [value]="rf.end().value()" (valueChange)="rf.end().value.set($event); fillNextOpening(i)" [label]="'Pick step ' + (i + 1) + ' closing date'" class="absolute top-1/2 right-1 -translate-y-1/2" />
                       </span>
-                      <input hlmInput qaTimeMask type="text" inputmode="numeric" [formField]="rf.endTime" [attr.aria-label]="'Step ' + (i + 1) + ' closing time, 24-hour, Rome'" placeholder="23:59" (blur)="tidyTime(i, 'endTime')" [attr.data-error]="bad(i, 'endTime')" [attr.aria-invalid]="bad(i, 'endTime') || null" class="h-10 w-[60px] flex-none rounded-[8px] border-(--border) bg-(--field-bg) px-[10px] py-0 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) @3xl:h-8 dark:bg-(--field-bg)" />
+                      <input hlmInput qaTimeMask type="text" inputmode="numeric" [formField]="rf.endTime" [attr.aria-label]="'Step ' + (i + 1) + ' closing time, 24-hour, Rome'" placeholder="23:59" (blur)="tidyTime(i, 'endTime')" [attr.data-error]="bad(i, 'endTime')" [attr.aria-invalid]="bad(i, 'endTime') || null" class="h-10 w-[60px] flex-none rounded-lg border-(--border) bg-(--field-bg) px-[10px] py-0 font-(family-name:--qa-mono) text-(length:--fs-13) text-(--text) tabular-nums shadow-none placeholder:text-(--text-muted) focus-visible:border-(--primary) focus-visible:ring-0 data-[error=true]:border-(--danger) md:text-(length:--fs-13) @3xl:h-8 dark:bg-(--field-bg)" />
                       </span>
                       }
                     </span>
@@ -208,7 +223,7 @@ function firstLoads(steps: StepDraftRow[]): StepDraftRow[] {
                     </span>
                     <span class="col-start-4 row-start-1 flex justify-end @3xl:col-start-auto @3xl:row-start-auto @3xl:block">
                       @if (i >= closedCount() && !fixedSteps()) {
-                      <button type="button" (click)="confirmRow.set(i)" [attr.aria-label]="'Remove step ' + (i + 1)" class="flex size-10 cursor-pointer items-center justify-center rounded-[6px] border-0 bg-transparent p-0 text-(--text-3) outline-none hover:text-(--danger) focus-visible:shadow-(--focus-ring) @3xl:size-[22px]"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12" /></svg></button>
+                      <button type="button" (click)="confirmRow.set(i)" [attr.aria-label]="'Remove step ' + (i + 1)" class="flex size-10 cursor-pointer items-center justify-center rounded-md border-0 bg-transparent p-0 text-(--text-3) outline-none hover:text-(--danger) focus-visible:shadow-(--focus-ring) @3xl:size-[22px]"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12" /></svg></button>
                       }
                     </span>
                   </div>
@@ -234,9 +249,9 @@ function firstLoads(steps: StepDraftRow[]): StepDraftRow[] {
           @if (stepsError()) {
             <span role="alert" class="text-(length:--fs-13) text-(--danger)">{{ stepsError() }}</span>
           }
-          <span class="text-(length:--fs-13) leading-[1.5] font-normal text-pretty text-(--text-4)">Loading is manual: use Load results when the step opens. Mark the steps where you will load results; step 1 always does, and each later one starts the next QA round.</span>
+          <span class="text-(length:--fs-12) leading-[1.5] font-normal text-pretty text-(--text-muted)">Loading is manual: use Load results when the step opens. Mark the steps where you will load results; step 1 always does, and each later one starts the next QA round.</span>
           @if (closedCount()) {
-            <span class="text-(length:--fs-13) leading-[1.5] font-normal text-pretty text-(--text-4)">Closed steps keep their dates as the record of the cycle.</span>
+            <span class="text-(length:--fs-12) leading-[1.5] font-normal text-pretty text-(--text-muted)">Closed steps keep their dates as the record of the cycle.</span>
           }
         </div>
 
@@ -250,7 +265,7 @@ function firstLoads(steps: StepDraftRow[]): StepDraftRow[] {
           </div>
         }
         @if (isNew() && !live()) {
-          <button type="button" role="checkbox" [attr.aria-checked]="d.runNow" (click)="patch({ runNow: !d.runNow })" class="flex w-full cursor-pointer items-start gap-[10px] rounded-[8px] border-0 bg-(--surface-3) p-[14px] text-left outline-none focus-visible:shadow-(--focus-ring)">
+          <button type="button" role="checkbox" [attr.aria-checked]="d.runNow" (click)="patch({ runNow: !d.runNow })" class="flex w-full cursor-pointer items-start gap-[10px] rounded-lg border-0 bg-(--surface-3) p-[14px] text-left outline-none focus-visible:shadow-(--focus-ring)">
             <span class="mt-[2px] flex size-4 flex-none items-center justify-center rounded-[4px] border-[1.5px]" [class]="d.runNow ? 'border-(--primary) bg-(--primary)' : 'border-(--border-strong) bg-transparent'">
               @if (d.runNow) {
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5" /></svg>

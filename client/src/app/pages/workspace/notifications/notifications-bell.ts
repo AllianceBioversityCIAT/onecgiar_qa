@@ -25,9 +25,9 @@ import { NotificationsStore } from './notifications-store';
         routerLinkActive
         ariaCurrentWhenActive="page"
         [attr.aria-label]="label()"
-        class="group relative flex size-10 flex-none items-center justify-center gap-2 rounded-lg text-(length:--fs-14) font-medium whitespace-nowrap text-(--text-2) hover:bg-(--surface-4) focus-visible:shadow-(--focus-ring) focus-visible:outline-none aria-[current=page]:bg-(--tint-2) aria-[current=page]:text-(--accent) sm:size-9 md:w-auto md:px-2.5"
+        class="group relative flex size-10 flex-none items-center justify-center gap-2 rounded-lg text-(length:--fs-14) font-medium whitespace-nowrap text-(--text-2) hover:bg-(--surface-4) focus-visible:shadow-(--focus-ring) focus-visible:outline-none aria-[current=page]:bg-(--surface) aria-[current=page]:text-(--text) aria-[current=page]:shadow-(--shadow-seg) aria-[current=page]:ring-1 aria-[current=page]:ring-(--border) sm:size-9 md:w-auto md:px-2.5"
       >
-        <svg class="flex-none text-(--text-3) group-aria-[current=page]:text-(--accent)" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.94 1.94 0 0 0 3.4 0" /></svg>
+        <svg class="flex-none text-(--text-3) group-aria-[current=page]:text-(--text)" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.94 1.94 0 0 0 3.4 0" /></svg>
         <span aria-hidden="true" class="hidden md:inline">Notifications</span>
         @if (unread() > 0) {
           <span

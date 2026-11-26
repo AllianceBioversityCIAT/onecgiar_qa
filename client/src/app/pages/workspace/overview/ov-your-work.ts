@@ -36,7 +36,7 @@ export interface YourWorkVm {
   host: { class: 'block @container' },
   template: `
     @let d = data();
-    <section aria-labelledby="overview-work-title" class="flex flex-col gap-5 rounded-[12px] border border-(--border) bg-(--surface) p-5">
+    <section aria-labelledby="overview-work-title" class="flex flex-col gap-5 rounded-xl border border-(--border) bg-(--surface) p-5 shadow-(--shadow-card)">
       <div class="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
         <div class="flex min-w-0 flex-col gap-1">
           <h2 id="overview-work-title" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">Your work</h2>
@@ -65,7 +65,7 @@ export interface YourWorkVm {
               <a
                 [routerLink]="l.path"
                 [queryParams]="l.query ?? null"
-                class="group flex min-h-11 items-center gap-3 rounded-[8px] px-2 py-[7px] no-underline hover:bg-(--surface-3) focus-visible:shadow-(--focus-ring) focus-visible:outline-none"
+                class="group flex min-h-11 items-center gap-3 rounded-lg px-2 py-[7px] no-underline hover:bg-(--surface-3) focus-visible:shadow-(--focus-ring) focus-visible:outline-none"
               >
                 <span class="min-w-0 flex-1 text-(length:--fs-14) font-medium text-(--text-2)">{{ r.label }}</span>
                 <span class="flex-none text-(length:--fs-16) font-bold tabular-nums text-(--text)">{{ r.count }}</span>

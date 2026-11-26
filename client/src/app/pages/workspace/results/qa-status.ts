@@ -16,16 +16,20 @@ export const STATUS_LABELS: Readonly<Record<QaStatus, string>> = {
   auto_validated: 'Auto-validated',
 };
 
-/** Pill colors, existing status tokens only. */
+/**
+ * Badge classes: one neutral badge for every status, the colour only in its dot (qa-dot, styles.css), so a table full
+ * of statuses stays calm and the colour still tells them apart (direction A, Juanpa 2026-11-25).
+ */
+const BADGE = 'qa-dot gap-1.5 bg-(--surface-5) text-(--text-2)';
 export const STATUS_CLASSES: Readonly<Record<QaStatus, string>> = {
-  pending: 'bg-(--surface-3) text-(--text-muted)',
-  returned_to_program: 'bg-(--st-pending-bg) text-(--st-pending-fg)',
-  clarification_requested: 'bg-(--st-indigo-bg) text-(--st-indigo-fg)',
-  pending_tpb_review: 'bg-(--st-qa-bg) text-(--st-qa-fg)',
-  pending_ppu: 'bg-(--st-qa-bg) text-(--st-qa-fg)',
-  unresolved: 'bg-(--st-rejected-bg) text-(--st-rejected-fg)',
-  quality_assessed: 'bg-(--st-approved-bg) text-(--st-approved-fg)',
-  auto_validated: 'bg-(--surface-3) text-(--text-4)',
+  pending: `${BADGE} [--qa-dot:var(--text-muted)]`,
+  returned_to_program: `${BADGE} [--qa-dot:var(--warning)]`,
+  clarification_requested: `${BADGE} [--qa-dot:var(--st-indigo-fg)]`,
+  pending_tpb_review: `${BADGE} [--qa-dot:var(--st-qa-fg)]`,
+  pending_ppu: `${BADGE} [--qa-dot:var(--st-qa-fg)]`,
+  unresolved: `${BADGE} [--qa-dot:var(--danger)]`,
+  quality_assessed: `${BADGE} [--qa-dot:var(--success)]`,
+  auto_validated: `${BADGE} text-(--text-4) [--qa-dot:var(--border-strong)]`,
 };
 
 /** Label and pill class of a status; an unknown value (a newer server) shows as sent, in the neutral pill. */

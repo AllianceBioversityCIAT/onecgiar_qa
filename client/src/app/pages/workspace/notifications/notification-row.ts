@@ -15,14 +15,16 @@ export const ROW_META = 'mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text
 /** Pill and icon colours by type, and the icon's paths (24 viewBox). Needs-action types are coloured; updates are grey. */
 interface TypeLook {
   readonly tone: string;
+  /** Dot colour of the type badge (neutral badge, colour only in the dot, like every status). */
+  readonly dot: string;
   readonly paths: readonly string[];
 }
 
 const CIRCLE = 'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z';
 
 const LOOKS: Readonly<Record<NotificationType, TypeLook>> = {
-  'Step complete': { tone: 'bg-(--st-approved-bg) text-(--st-approved-fg)', paths: [CIRCLE, 'm8.5 12.5 2.5 2.5 4.5-5'] },
-  'Slow program': { tone: 'bg-(--st-editing-bg) text-(--st-editing-fg)', paths: [CIRCLE, 'M12 7.5V12l3 2'] },
+  'Step complete': { tone: 'bg-(--st-approved-bg) text-(--st-approved-fg)', dot: 'var(--success)', paths: [CIRCLE, 'm8.5 12.5 2.5 2.5 4.5-5'] },
+  'Slow program': { tone: 'bg-(--st-editing-bg) text-(--st-editing-fg)', dot: 'var(--warning)', paths: [CIRCLE, 'M12 7.5V12l3 2'] },
 };
 
 /**
@@ -58,8 +60,8 @@ const LOOKS: Readonly<Record<NotificationType, TypeLook>> = {
           >@for (p of n.sentence; track $index) {@if (p.strong) {<strong class="font-semibold text-(--text)">{{ p.text }}</strong>} @else {<span>{{ p.text }}</span>}}</span
         >
         <span data-meta class="{{ metaBox }} text-(--text-4)">
-          <span data-type class="inline-flex h-5 items-center rounded-full px-2 text-(length:--fs-11) font-semibold {{ look().tone }}">{{ n.type }}</span>
-          <span data-batch class="inline-flex h-5 items-center rounded-full border border-(--border) px-2 text-(length:--fs-11) font-medium text-(--text-3)">{{ batch() }}</span>
+          <span data-type class="qa-dot inline-flex h-5 items-center gap-1.5 rounded-md bg-(--surface-5) px-2 text-(length:--fs-12) font-medium text-(--text-2)" [style.--qa-dot]="look().dot">{{ n.type }}</span>
+          <span data-batch class="inline-flex h-5 items-center rounded-md border border-(--border) px-1.5 text-(length:--fs-12) font-medium text-(--text-3)">{{ batch() }}</span>
           @if (context()) {
             <span data-context>{{ context() }}</span>
             <span aria-hidden="true">·</span>

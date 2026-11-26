@@ -311,7 +311,9 @@ describe('UI kit', () => {
 
   it('badge and progress render', async () => {
     await setup();
-    expect($('#badge')!.className).toContain('bg-(--st-editing-bg)');
+    // Neutral badge, the status colour in its dot (direction A, 2026-11-25).
+    expect($('#badge')!.className).toContain('qa-dot');
+    expect($('#badge')!.className).toContain('[--qa-dot:var(--warning)]');
     const bar = $('#progress')!;
     expect(bar.getAttribute('role')).toBe('progressbar');
     expect(bar.getAttribute('aria-valuenow')).toBe('3');

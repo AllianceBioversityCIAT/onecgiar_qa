@@ -113,7 +113,7 @@ export type QaMultiSelectAppearance = 'filter' | 'field';
             @for (option of filtered(); track option.value; let i = $index) {
               @let on = isSelected(option.value);
               @if (option.group && option.group !== filtered()[i - 1]?.group) {
-                <div role="presentation" class="flex-none px-2 pt-2 pb-1 text-(length:--fs-10) font-semibold tracking-[0.08em] text-(--text-4) uppercase">
+                <div role="presentation" class="flex-none px-2 pt-2 pb-1 text-(length:--fs-12) font-medium text-(--text-4)">
                   {{ option.group }}
                 </div>
               }

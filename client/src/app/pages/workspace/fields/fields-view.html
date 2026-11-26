@@ -2,32 +2,36 @@
 
 <!-- View header -->
 <div class="flex flex-wrap items-start gap-4 px-8 pt-8 max-lg:px-6 max-md:px-4">
-  <div class="flex min-w-[min(100%,16rem)] flex-1 flex-col gap-1">
-    <h1 class="m-0 text-(length:--fs-26) leading-[1.2] font-bold tracking-[-0.02em] text-balance text-(--text)">Fields in QA</h1>
-    <p class="m-0 text-(length:--fs-14) font-normal text-balance text-(--text-3)">Every reporting field is listed. Hidden fields never reach an assessor.</p>
-  </div>
+  <!-- The result type being configured sets the whole table, so its picker sits next to the title: "Fields
+       [Innovation development ⌄]", same as Results and Overview (Juanpa, 2026-11-25). Its cycle opens the subtitle. -->
+  <qa-scope-title
+    class="min-w-[min(100%,16rem)] flex-1"
+    heading="Fields"
+    [subtitle]="(scopeMeta() ? scopeMeta() + ' · ' : '') + 'Hidden fields never reach an assessor.'"
+  >
+    @if (store.state() === 'ready') {
+      <qa-select
+        qaScopePicker
+        [value]="resultType()"
+        (valueChange)="selectType($event)"
+        [options]="typeOptions()"
+        label="Configuring"
+        appearance="scope"
+        panelWidth="300px"
+        class="min-w-0"
+      />
+    } @else if (store.state() === 'loading') {
+      <qa-skeleton qaScopePicker aria-hidden="true" class="h-9 w-56 max-w-full rounded-lg" />
+    }
+  </qa-scope-title>
 </div>
 
 <div data-screen-label="Fields" class="flex flex-col items-stretch gap-5 px-8 pt-6 pb-8 max-lg:px-6 max-md:px-4">
-  <!-- Scope band, same as Results and Overview (Juanpa, 2026-11-23): the result type being configured leads it (it sets
-       the whole table), the cycle is its fact (or the first control of the filter row when there are several), and the
-       state chips that depend on it sit inside (counts computed from the draft). #summaryGrid also measures the content width. -->
+  <!-- Toolbar under the title, same as Results and Overview (Juanpa, 2026-11-25): the cycle (when there are several)
+       and the state chips that depend on the result type (counts computed from the draft). #summaryGrid also measures
+       the content width. -->
   <div #summaryGrid class="flex flex-col">
-    <qa-scope-card class="-mx-8 -mt-6 px-8 max-lg:-mx-6 max-lg:px-6 max-md:-mx-4 max-md:px-4" regionLabel="Result type being configured" [meta]="scopeMeta()">
-      @if (store.state() === 'ready') {
-        <qa-select
-          qaScopePicker
-          [value]="resultType()"
-          (valueChange)="selectType($event)"
-          [options]="typeOptions()"
-          label="Configuring"
-          appearance="scope"
-          panelWidth="300px"
-          class="min-w-0 self-start"
-        />
-      } @else if (store.state() === 'loading') {
-        <qa-skeleton qaScopePicker aria-hidden="true" class="h-[52px] w-[22rem] max-w-full rounded-[10px]" />
-      }
+    <qa-scope-card regionLabel="Filters">
     @if (store.state() === 'ready') {
     <!-- With several cycles, the cycle picker opens the filter row (Juanpa, 2026-11-23: not alone at the right). -->
     <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -51,11 +55,11 @@
           type="button"
           [attr.aria-pressed]="on"
           (click)="setStateFilter(chip.value)"
-          class="inline-flex min-h-[30px] items-center gap-[7px] rounded-full px-3 text-(length:--fs-13) font-medium whitespace-nowrap outline-none focus-visible:shadow-(--focus-ring) max-sm:min-h-10"
-          [class]="on ? 'bg-(--tint-2) text-(--accent)' : 'bg-(--surface-3) text-(--text-3) hover:bg-(--surface-4)'"
+          class="inline-flex min-h-[30px] items-center gap-[7px] rounded-lg px-3 text-(length:--fs-13) font-medium whitespace-nowrap outline-none focus-visible:shadow-(--focus-ring) max-sm:min-h-10"
+          [class]="on ? 'bg-(--surface) text-(--text) shadow-(--shadow-seg) ring-1 ring-(--border)' : 'bg-(--surface-4) text-(--text-3) hover:bg-(--surface-6)'"
         >
           <span>{{ chip.label }}</span>
-          <span class="font-(family-name:--qa-mono) text-(length:--fs-12) font-semibold tabular-nums" [class]="on ? 'text-(--accent)' : 'text-(--text-muted)'">{{ chip.count }}</span>
+          <span class="font-(family-name:--qa-mono) text-(length:--fs-12) font-semibold tabular-nums" [class]="on ? 'text-(--text-3)' : 'text-(--text-muted)'">{{ chip.count }}</span>
         </button>
       }
       <button
@@ -63,20 +67,20 @@
         [attr.aria-pressed]="coreOnly()"
         (click)="toggleCoreOnly()"
         title="Core and AI are properties of assessed fields, not states of their own."
-        class="inline-flex min-h-[30px] items-center gap-[7px] rounded-full px-3 text-(length:--fs-13) font-medium whitespace-nowrap outline-none focus-visible:shadow-(--focus-ring) max-sm:min-h-10"
-        [class]="coreOnly() ? 'bg-(--tint-2) text-(--accent)' : 'bg-(--surface-3) text-(--text-3) hover:bg-(--surface-4)'"
+        class="inline-flex min-h-[30px] items-center gap-[7px] rounded-lg px-3 text-(length:--fs-13) font-medium whitespace-nowrap outline-none focus-visible:shadow-(--focus-ring) max-sm:min-h-10"
+        [class]="coreOnly() ? 'bg-(--surface) text-(--text) shadow-(--shadow-seg) ring-1 ring-(--border)' : 'bg-(--surface-4) text-(--text-3) hover:bg-(--surface-6)'"
       >
         <span>Core only</span>
-        <span class="font-(family-name:--qa-mono) text-(length:--fs-12) font-semibold tabular-nums" [class]="coreOnly() ? 'text-(--accent)' : 'text-(--text-muted)'">{{ coreCount() }}</span>
+        <span class="font-(family-name:--qa-mono) text-(length:--fs-12) font-semibold tabular-nums" [class]="coreOnly() ? 'text-(--text-3)' : 'text-(--text-muted)'">{{ coreCount() }}</span>
       </button>
     </div>
     </div>
     } @else if (store.state() === 'loading') {
     <div aria-hidden="true" class="flex flex-wrap items-center gap-2">
       @for (w of chipWidths; track $index) {
-        <qa-skeleton class="h-[30px] rounded-full" [class]="w" />
+        <qa-skeleton class="h-[30px] rounded-lg" [class]="w" />
       }
-      <qa-skeleton class="h-[30px] w-[86px] rounded-full" />
+      <qa-skeleton class="h-[30px] w-[86px] rounded-lg" />
     </div>
     }
     </qa-scope-card>
@@ -87,16 +91,17 @@
       <qa-fields-skeleton [compact]="compact()" />
     }
     @case ('no-cycle') {
-      <p class="m-0 text-(length:--fs-14) text-(--text-3)">There is no open cycle. Create or activate one in Cycle to configure its fields.</p>
+      <qa-state-card heading="No open cycle" message="There is no open cycle. Create or activate one in Cycle to configure its fields.">
+        <a hlmBtn qaBtn tone="secondary" size="sm" routerLink="/cycle">Go to Cycle</a>
+      </qa-state-card>
     }
     @case ('no-catalog') {
-      <p class="m-0 text-(length:--fs-14) text-(--text-3)">No Reporting catalog exists for this cycle's year.</p>
+      <qa-state-card heading="No Reporting catalog" message="No Reporting catalog exists for this cycle's year." />
     }
     @case ('error') {
-      <div role="alert" class="flex flex-wrap items-center gap-2">
-        <p class="m-0 text-(length:--fs-14) text-(--text-3)">{{ store.loadError() || 'The fields could not be loaded.' }}</p>
+      <qa-state-card alert heading="We couldn't load the fields" [message]="store.loadError() || 'The fields could not be loaded.'">
         <button hlmBtn qaBtn tone="secondary" size="sm" type="button" (click)="retry()">Try again</button>
-      </div>
+      </qa-state-card>
     }
     @case ('ready') {
       @if (readOnly()) {
@@ -106,7 +111,7 @@
         <p class="m-0 text-(length:--fs-14) text-(--text-3)">No fields are assessed for this result type yet. Choose how each field is used in QA below.</p>
       }
       <!-- Field matrix. No own overflow: the sticky header rows stick to the view's scroll container. -->
-      <div class="relative overflow-visible rounded-xl border border-(--border) bg-(--surface)">
+      <div class="relative overflow-visible rounded-xl border border-(--border) bg-(--surface) shadow-(--shadow-card)">
         <span #stickSentinel aria-hidden="true" class="pointer-events-none absolute top-0 left-0 h-px w-px"></span>
         @if (!compact()) {
           <qa-fields-column-header [stuck]="headerStuck()" />
@@ -140,7 +145,7 @@
       </div>
       @if (notInCatalog().length > 0) {
         <section aria-labelledby="fields-not-in-catalog" class="flex flex-col gap-2">
-          <h2 id="fields-not-in-catalog" class="m-0 text-(length:--fs-13) font-semibold tracking-[0.06em] text-(--text-3) uppercase">No longer in Reporting</h2>
+          <h2 id="fields-not-in-catalog" class="m-0 text-(length:--fs-13) font-medium text-(--text-3)">No longer in Reporting</h2>
           <p class="m-0 text-(length:--fs-13) text-(--text-3)">Reporting removed these fields. Their setting is kept here for reference and is not published.</p>
           <ul class="m-0 flex list-none flex-col p-0">
             @for (f of notInCatalog(); track f.key) {

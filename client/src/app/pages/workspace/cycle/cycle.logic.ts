@@ -294,11 +294,12 @@ const AUDIENCE_ROLE: Partial<Record<NonNullable<CycleStep['audienceKey']>, { rol
   ppu: { role: 'PPU', plural: 'PPU people' },
 };
 
+// Neutral badge with a coloured dot, as the result statuses (direction A, Juanpa 2026-11-25).
 const STATUS_CLASS: Record<string, string> = {
-  Live: 'bg-(--st-indigo-bg) text-(--st-indigo-fg)',
-  Scheduled: 'bg-(--st-submitted-bg) text-(--st-submitted-fg)',
-  'Waiting for results': 'bg-(--st-editing-bg) text-(--st-editing-fg)',
-  Closed: 'bg-(--surface-3) text-(--text-muted)',
+  Live: 'inline-flex items-center qa-dot gap-1.5 bg-(--surface-5) text-(--text-2) [--qa-dot:var(--success)]',
+  Scheduled: 'inline-flex items-center qa-dot gap-1.5 bg-(--surface-5) text-(--text-2) [--qa-dot:var(--st-submitted-fg)]',
+  'Waiting for results': 'inline-flex items-center qa-dot gap-1.5 bg-(--surface-5) text-(--text-2) [--qa-dot:var(--warning)]',
+  Closed: 'inline-flex items-center qa-dot gap-1.5 bg-(--surface-5) text-(--text-muted) [--qa-dot:var(--border-strong)]',
 };
 
 /**

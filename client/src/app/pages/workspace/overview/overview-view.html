@@ -4,12 +4,33 @@
 <!-- Page header -->
 <div class="flex scroll-mt-6 flex-wrap items-start gap-x-4 gap-y-2 px-4 pt-8 sm:px-6 lg:px-8">
   <!-- At least 320px for the greeting: on phones "Viewing as" wraps under it. -->
-  <div class="flex min-w-[min(100%,320px)] flex-[1_1_320px] flex-col gap-1">
-    <h1 class="m-0 text-(length:--fs-26) font-bold leading-[1.2] tracking-[-0.02em] text-(--text)">{{ greeting() }}</h1>
-    <!-- A warm line that follows the greeting and covers the whole page. No status here: each timeline's status lives in
-         "Progress by timeline" and the sidebar's cycle card (Juanpa, 2026-11-11). -->
-    <p class="m-0 text-(length:--fs-14) font-normal text-(--text-3)">{{ subtitle() }}</p>
-  </div>
+  @if (role() === 'admin') {
+    <!-- The admin's page is scoped by timeline, so it is part of the title, with its facts as the subtitle: same as
+         Results and Fields (Juanpa, 2026-11-25). -->
+    <qa-scope-title class="min-w-[min(100%,320px)] flex-[1_1_320px]" heading="Overview" [subtitle]="scopeMeta()">
+      <qa-select
+        qaScopePicker
+        [value]="timeline()"
+        (valueChange)="timeline.set($event ?? 'all')"
+        [options]="timelineOptions"
+        label="Timeline"
+        appearance="scope"
+        searchable
+        searchPlaceholder="Search timelines"
+        panelWidth="340px"
+        listMaxHeight="320px"
+        class="min-w-0"
+      />
+    </qa-scope-title>
+  } @else {
+    <div class="flex min-w-[min(100%,320px)] flex-[1_1_320px] flex-col gap-1">
+      <!-- Every page is named by what it is, for every role; the generic greeting read as a template (Juanpa, 2026-11-25). -->
+      <h1 class="m-0 text-(length:--fs-26) font-bold leading-[1.2] tracking-[-0.02em] text-(--text)">Overview</h1>
+      <!-- A warm line that follows the greeting and covers the whole page. No status here: each timeline's status lives in
+           "Progress by timeline" and the sidebar's cycle card (Juanpa, 2026-11-11). -->
+      <p class="m-0 text-(length:--fs-14) font-normal text-(--text-3)">{{ subtitle() }}</p>
+    </div>
+  }
   <!-- "Viewing as": only for someone with several roles, among the roles they hold. -->
   @if (roleOptions().length > 1) {
     <qa-select
@@ -79,22 +100,9 @@
 <!-- Body -->
 <div class="flex flex-col items-stretch gap-6 px-4 pt-6 pb-8 sm:px-6 lg:px-8">
   <!-- Filters for the whole page (agreed with María Julia and Ángel, 2026-10-27): every block below counts only what they keep.
-       The timeline leads a context card, with program and type as menus inside it, under a hairline: exactly as in
-       Results (Juanpa, 2026-11-23). It scrolls away with the page (docs/ux-ui/design.md § 6, "Filter bar"). -->
-  <qa-scope-card class="-mx-4 -mt-6 px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8" regionLabel="Timeline" [meta]="scopeMeta()" [count]="scopeCount()" countLabel="results in QA">
-    <qa-select
-      qaScopePicker
-      [value]="timeline()"
-      (valueChange)="timeline.set($event ?? 'all')"
-      [options]="timelineOptions"
-      label="Timeline"
-      appearance="scope"
-      searchable
-      searchPlaceholder="Search timelines"
-      panelWidth="340px"
-      listMaxHeight="320px"
-      class="min-w-0 self-start"
-    />
+       The timeline is in the title; program and type are the toolbar under it, as in Results (Juanpa, 2026-11-25).
+       It scrolls away with the page (docs/ux-ui/design.md § 6, "Filter bar"). -->
+  <qa-scope-card regionLabel="Filters">
     <div class="flex flex-wrap items-center gap-2 lg:gap-3">
       <qa-multi-select [(value)]="programs" [options]="programOptions" label="Science program" [searchable]="false" panelWidth="320px" listMaxHeight="none" />
       <qa-multi-select [(value)]="types" [options]="typeOptions" label="Result type" [searchable]="false" panelWidth="320px" listMaxHeight="none" />
@@ -103,7 +111,7 @@
     @if (applied().length) {
       <div class="flex flex-wrap items-center gap-2">
         @for (f of applied(); track f.key) {
-          <span class="inline-flex h-7 max-w-[min(380px,100%)] items-center gap-1.5 rounded-full bg-(--tint) pr-1.5 pl-2.5 text-(length:--fs-12) font-medium text-(--accent)">
+          <span class="inline-flex h-7 max-w-[min(380px,100%)] items-center gap-1.5 rounded-md bg-(--tint) pr-1.5 pl-2.5 text-(length:--fs-12) font-medium text-(--accent)">
             <span class="flex-none font-semibold">{{ f.label }}</span>
             <span class="min-w-0 truncate">{{ f.values }}</span>
             <button type="button" (click)="clearFilter(f.key)" [attr.aria-label]="'Remove ' + f.label + ' filter'" class="flex size-[18px] flex-none items-center justify-center rounded-full p-0 text-(--accent) outline-none hover:bg-(--tint-3) focus-visible:shadow-(--focus-ring)">
