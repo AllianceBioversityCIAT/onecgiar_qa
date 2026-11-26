@@ -11,6 +11,7 @@ import { UnsentQueue } from '../core/http/unsent-queue';
 import { NotificationsBell } from '../pages/workspace/notifications/notifications-bell';
 import { QaTokensLoader, QaUnsentCenter } from '../ui';
 import { ActiveCycle } from './active-cycle';
+import { QaCyclePanel } from './cycle-panel';
 import { WorkspaceLayout } from './workspace-layout';
 
 interface NavItem {
@@ -70,7 +71,7 @@ const ADMINISTRATION: readonly NavItem[] = [
  */
 @Component({
   selector: 'qa-shell',
-  imports: [NgOptimizedImage, NgTemplateOutlet, RouterLink, RouterLinkActive, RouterOutlet, NotificationsBell, QaUnsentCenter],
+  imports: [NgOptimizedImage, NgTemplateOutlet, RouterLink, RouterLinkActive, RouterOutlet, NotificationsBell, QaUnsentCenter, QaCyclePanel],
   templateUrl: './qa-shell.html',
   styleUrl: './qa-shell.css',
   providers: [ActiveCycle],

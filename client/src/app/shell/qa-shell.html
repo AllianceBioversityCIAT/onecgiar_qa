@@ -1,4 +1,4 @@
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400..800&family=JetBrains+Mono:wght@400..700&display=swap" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400..800&display=swap" />
 
 <ng-template #navLinks let-items>
   @for (item of items; track item.link) {
@@ -31,24 +31,17 @@
 <aside
   id="qa-sidebar"
   aria-label="Main navigation"
-  class="fixed inset-y-0 left-0 z-50 flex h-dvh w-[260px] flex-none flex-col border-r border-(--border) bg-(--nav-bg) transition-[width,translate] duration-200 lg:static lg:translate-x-0"
+  class="fixed inset-y-0 left-0 z-50 flex h-dvh w-[260px] flex-none flex-col border-r border-(--nav-divider) bg-(--nav-bg) transition-[width,translate] duration-200 lg:static lg:translate-x-0"
   [class.-translate-x-full]="!mobileNavOpen()"
   [class.lg:w-16]="collapsed()"
 >
-  <div class="flex min-h-[57px] items-center gap-2.5 px-3 py-4">
-    <span class="flex h-5 min-w-0 flex-1 items-center overflow-hidden px-1" [class.lg:hidden]="collapsed()">
-      <img ngSrc="logo-prms-qa.png" width="174" height="20" priority alt="PRMS quality assurance" class="block h-5 w-auto max-w-none" />
+  <!-- The logo has the row to itself and is bigger (Juanpa, 2026-11-25: it looked squeezed next to the collapse button,
+       which now lives in the top bar). Collapsed, the image is clipped so only the PRMS mark shows.
+       On phones it stays 20 px tall: the close button shares the row. Room above and below so it does not touch the edge. -->
+  <div class="flex min-h-[57px] items-center gap-2.5 px-5 pt-6 pb-5" [class.lg:justify-center]="collapsed()" [class.lg:px-0]="collapsed()">
+    <span class="flex h-5 min-w-0 flex-1 items-center overflow-hidden lg:h-6" [class.lg:w-7]="collapsed()" [class.lg:flex-none]="collapsed()">
+      <img ngSrc="logo-prms-qa.svg" width="213" height="24" priority alt="PRMS quality assurance" class="block h-5 w-auto max-w-none lg:h-6" />
     </span>
-    <button
-      type="button"
-      class="mx-auto hidden size-7 flex-none items-center justify-center rounded-md text-(--nav-fg-3) hover:bg-(--nav-2) lg:flex"
-      [attr.aria-label]="collapsed() ? 'Expand sidebar' : 'Collapse sidebar'"
-      [attr.title]="collapsed() ? 'Expand sidebar' : 'Collapse sidebar'"
-      [attr.aria-expanded]="!collapsed()"
-      (click)="toggleMenu()"
-    >
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3" /><path d="M9 3v18" /></svg>
-    </button>
     <button
       type="button"
       aria-label="Close menu"
@@ -60,24 +53,6 @@
   </div>
 
   <nav class="flex-1 overflow-y-auto px-3 pt-1 pb-4 [scrollbar-color:var(--border-strong)_transparent] [scrollbar-width:thin]">
-    <!-- Active cycle: plain information at the top of the nav, no box, shadow or hover, so it never reads as something to
-         click or as the selected item (Juanpa, 2026-11-25: as a white card it looked selectable). A line closes it.
-         Information only, not a link (Juanpa, 2026-10-29): Cycle already has its own item in the menu.
-         Real data (shell/active-cycle.ts): admins only; nothing while loading or without an active cycle. -->
-    @if (activeCycle.card(); as c) {
-      <section aria-label="Active cycle" class="mb-3 flex flex-col gap-1 border-b border-(--nav-divider) px-1 pt-1 pb-4" [class.lg:hidden]="collapsed()">
-        <!-- Two lines (Juanpa, 2026-11-25): the name with its status beside it, then where the main batch is. The time of
-             day is left out (everything before the first comma): it is in Cycle, and here it pushed the line onto two rows.
-             TODO(yeck): a short line field in active-cycle.ts would be cleaner than cutting the text here. -->
-        <span class="flex items-center gap-2">
-          <span class="truncate text-(length:--fs-15) font-semibold text-(--nav-fg)">{{ c.name }}</span>
-          <span class="flex flex-none items-center gap-1.5 text-(length:--fs-12) text-(--nav-fg-3)">
-            <span aria-hidden="true" class="size-1.5 flex-none rounded-full" [class]="c.status === 'Active' ? 'bg-(--success)' : 'bg-(--nav-fg-3)'"></span>{{ c.status }}
-          </span>
-        </span>
-        <span class="truncate text-(length:--fs-12) tabular-nums text-(--nav-fg-3)" [title]="'Main batch · ' + c.line">Main batch · {{ c.line.split(',')[0] }}</span>
-      </section>
-    }
 
     <div class="px-1 py-2 text-(length:--fs-12) font-medium text-(--nav-eyebrow)" [class.lg:sr-only]="collapsed()">Assessment</div>
     <div class="flex flex-col gap-0.5">
@@ -92,6 +67,15 @@
     </div>
     }
   </nav>
+
+  <!-- Active cycle at the bottom of the sidebar (Juanpa, 2026-11-25): name and status, the main batch with one bar
+       segment per step, and when the step closes (shell/cycle-panel.ts). Information only, not a link (2026-10-29).
+       Real data (shell/active-cycle.ts): admins only; nothing while loading or without an active cycle. -->
+  @if (activeCycle.card(); as c) {
+    <section aria-label="Active cycle" class="flex-none px-3 pt-2 pb-4" [class.lg:hidden]="collapsed()">
+      <qa-cycle-panel [card]="c" />
+    </section>
+  }
 </aside>
 
 <div class="flex h-dvh min-w-0 flex-1 flex-col">
@@ -106,6 +90,18 @@
         (click)="mobileNavOpen.set(true)"
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
+      </button>
+      <!-- Collapse / expand the sidebar (desktop). It was in the sidebar header, next to the logo. -->
+      <button
+        type="button"
+        class="hidden size-8 flex-none items-center justify-center rounded-lg text-(--text-3) hover:bg-(--surface-4) lg:flex"
+        aria-controls="qa-sidebar"
+        [attr.aria-label]="collapsed() ? 'Expand sidebar' : 'Collapse sidebar'"
+        [attr.title]="collapsed() ? 'Expand sidebar' : 'Collapse sidebar'"
+        [attr.aria-expanded]="!collapsed()"
+        (click)="toggleMenu()"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3" /><path d="M9 3v18" /></svg>
       </button>
       <button type="button" aria-label="Back" class="hidden size-8 flex-none items-center justify-center rounded-lg text-(--text-3) hover:bg-(--surface-4) sm:flex" (click)="back()">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
