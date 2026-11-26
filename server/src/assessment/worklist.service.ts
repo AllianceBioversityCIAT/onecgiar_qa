@@ -126,6 +126,8 @@ const FINISHED_STATUSES: readonly QaStatus[] = [
   'pending_tpb_review',
   // P2-3916: the TPB's review has ended too.
   'pending_ppu',
+  // P2-3917: so has an Unresolved one's (only the PPU's work is left).
+  'unresolved',
 ];
 
 /**
@@ -136,7 +138,15 @@ const TPB_PENDING_STATUSES: readonly QaStatus[] = ['pending_tpb_review'];
 const TPB_FINISHED_STATUSES: readonly QaStatus[] = [
   'quality_assessed',
   'pending_ppu',
+  'unresolved',
 ];
+
+/**
+ * P2-3917 (FR-10): a PPU's counters. Its work is Pending PPU and Unresolved;
+ * it has finished a result once it ends Quality Assessed.
+ */
+const PPU_PENDING_STATUSES: readonly QaStatus[] = ['pending_ppu', 'unresolved'];
+const PPU_FINISHED_STATUSES: readonly QaStatus[] = ['quality_assessed'];
 
 @Injectable()
 export class WorklistService {
@@ -288,6 +298,8 @@ export class WorklistService {
       ...currentStepPositionsOf(timeline.steps),
       clarificationWindowOpen:
         audienceStepState('programs', timing) === 'in_progress',
+      // P2-3917 (DD-P5): Pending PPU reads Unresolved once step 5 is closed.
+      ppuStepClosed: audienceStepState('ppu', timing) === 'closed',
       // FR-4 as amended by F-010: listed with no status filter; a status filter
       // that does not name it leaves it out like any other status.
       hideAutoValidated:
@@ -324,6 +336,11 @@ export class WorklistService {
       !admin &&
       access.reviewerRows.length > 0 &&
       access.reviewerRows.every((row) => row.role === RoleCode.TPB);
+    // P2-3917: likewise for a PPU.
+    const ppuOnly =
+      !admin &&
+      access.reviewerRows.length > 0 &&
+      access.reviewerRows.every((row) => row.role === RoleCode.PPU);
     const last = page[page.length - 1];
     const programById = new Map(programs.map((p) => [p.id, p]));
     const typeByKey = new Map(resultTypes.map((t) => [t.key, t]));
@@ -346,8 +363,20 @@ export class WorklistService {
             })
           : null,
       counters: {
-        pending: sum(tpbOnly ? TPB_PENDING_STATUSES : ['pending']),
-        finished: sum(tpbOnly ? TPB_FINISHED_STATUSES : FINISHED_STATUSES),
+        pending: sum(
+          ppuOnly
+            ? PPU_PENDING_STATUSES
+            : tpbOnly
+              ? TPB_PENDING_STATUSES
+              : ['pending'],
+        ),
+        finished: sum(
+          ppuOnly
+            ? PPU_FINISHED_STATUSES
+            : tpbOnly
+              ? TPB_FINISHED_STATUSES
+              : FINISHED_STATUSES,
+        ),
         total: groups.reduce((total, group) => total + group.count, 0),
         autoValidated: sum(['auto_validated']),
       },
@@ -441,6 +470,7 @@ export class WorklistService {
         ended: record.ended,
         endReason: record.endReason,
         leadEscalated: record.leadEscalated,
+        tpbEscalated: record.tpbEscalated,
       },
       timing,
     );

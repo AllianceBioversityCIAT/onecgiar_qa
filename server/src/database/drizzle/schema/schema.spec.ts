@@ -306,8 +306,24 @@ describe('committed migrations', () => {
     .filter((f) => f.endsWith('.sql'))
     .sort();
 
-  it('are exactly fifteen SQL files', () => {
-    expect(files).toHaveLength(15);
+  it('are exactly sixteen SQL files', () => {
+    expect(files).toHaveLength(16);
+  });
+
+  // P2-3917 AC6 (DD-P6): 0015 adds one table, keyed once per (membership, field).
+  it('0015 creates reporting_field_changes, unique per membership and field, tied to the membership', () => {
+    const last = readFileSync(
+      `${migrationsDir}0015_reporting_field_changes.sql`,
+      'utf8',
+    );
+    expect(last).toContain('CREATE TABLE `reporting_field_changes`');
+    expect(last).toContain(
+      'CONSTRAINT `uq_reporting_field_changes_membership_field` UNIQUE(`timeline_result_id`,`field_key`)',
+    );
+    expect(last).toContain(
+      'FOREIGN KEY (`timeline_result_id`) REFERENCES `timeline_results`(`id`)',
+    );
+    expect(last).not.toMatch(/\b(ALTER TABLE `(?!reporting_field_changes)|DROP)\b/);
   });
 
   const sql = readFileSync(`${migrationsDir}${files[0]}`, 'utf8');

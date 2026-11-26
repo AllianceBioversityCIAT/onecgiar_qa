@@ -216,3 +216,57 @@ export function tpbUndecidedFields(items: readonly TpbItem[]): string[] {
     ),
   ].sort();
 }
+
+// ---- Step 5: the PPU (escalation/round-2-ppu) --------------------------------
+
+export type PpuChoice = 'ppu_done';
+
+/** The one PPU decision (P2-3917 AC4). */
+export const PPU_CHOICES: readonly PpuChoice[] = ['ppu_done'];
+
+/**
+ * FR-3: what a PPU may decide on a comment; empty = not decidable. Only a
+ * case (`tpb_sided_assessor`: the TPB sided with the assessor) that is not
+ * deleted, on an actionable (core) field, takes `ppu_done`.
+ */
+export function isPpuDecidable(
+  comment: { state: CommentState; deleted: boolean },
+  field: ConfiguredField,
+  role: string | null,
+): readonly PpuChoice[] {
+  if (role !== RoleCode.PPU) return [];
+  if (comment.deleted || !isActionable(field)) return [];
+  return comment.state === 'tpb_sided_assessor' ? PPU_CHOICES : [];
+}
+
+/** One live PPU case of a field, with the PPU's decision on it (`null` = not Done). */
+export interface PpuCase {
+  commentId: number;
+  fieldKey: string;
+  decision: string | null;
+}
+
+/**
+ * FR-6: the step-5 green of a field from its cases: green once every case on
+ * it is Done. `null` when the field has no case: its green is the step-4 one.
+ */
+export function ppuFieldGreen(cases: readonly PpuCase[]): boolean | null {
+  if (cases.length === 0) return null;
+  return cases.every((item) => item.decision === 'ppu_done');
+}
+
+/** FR-6: the cases not Done yet; empty = no PPU case is pending. */
+export function ppuOpenCases(cases: readonly PpuCase[]): PpuCase[] {
+  return cases.filter((item) => item.decision !== 'ppu_done');
+}
+
+/**
+ * FR-6 (AC7): the result ends Quality Assessed when no case is open and every
+ * core field is effectively green. Never by itself: only after a Done.
+ */
+export function ppuEnds(
+  cases: readonly PpuCase[],
+  coreGreens: readonly boolean[],
+): boolean {
+  return ppuOpenCases(cases).length === 0 && coreGreens.every(Boolean);
+}
