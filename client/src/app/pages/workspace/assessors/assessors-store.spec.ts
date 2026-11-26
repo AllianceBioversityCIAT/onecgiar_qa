@@ -31,8 +31,8 @@ const input = (over: Partial<PersonInput> = {}): PersonInput => ({
   email: 'ada@cgiar.org',
   nick: 'Assessor AL',
   role: 'Assessor',
-  lead: false,
-  types: ['Knowledge product'],
+  assessTypes: ['Knowledge product'],
+  leadTypes: [],
   programs: [],
   blocked: [],
   ...over,
@@ -145,7 +145,7 @@ describe('AssessorsStore', () => {
 
   it('edit saves the whole person in ONE PUT; a refusal changes nothing on the row', async () => {
     users['replace'].mockReturnValueOnce(throwError(() => new ApiError({ status: 409, code: 'USERS_ROLE_CONFLICT', message: 'Conflict.' })));
-    const outcome = await store.edit('7', input({ nick: 'New', types: ['Policy change'], programs: ['SP01'] }));
+    const outcome = await store.edit('7', input({ nick: 'New', assessTypes: ['Policy change'], programs: ['SP01'] }));
     expect(users['replace']).toHaveBeenCalledOnce();
     expect(users['replace'].mock.calls[0][1]).toEqual({
       nickname: 'New',
@@ -154,14 +154,14 @@ describe('AssessorsStore', () => {
       exclusions: [],
     });
     for (const k of ['edit', 'setRoles', 'setPrograms', 'addExclusion', 'removeExclusion']) expect(users[k]).not.toHaveBeenCalled();
-    expect(outcome).toEqual({ ok: false, message: 'Conflict.', field: 'role' });
+    expect(outcome).toEqual({ ok: false, message: 'Conflict.', field: 'types' });
     expect(store.team()[0].nick).toBe('Assessor AL');
   });
 
   it('only the nickname of a Lead assessor with other roles changes: the server grants go back untouched', async () => {
     users['listAll'].mockReturnValueOnce(of([u({ roles: [{ role: 'LEAD_ASSESSOR', resultTypes: 'all' }, { role: 'TPB' }] })]));
     await store.load();
-    await store.edit('7', input({ role: 'Lead assessor', lead: false, types: [], nick: 'New' }));
+    await store.edit('7', input({ role: 'Lead assessor', assessTypes: [], leadTypes: ['Knowledge product', 'Policy change'], nick: 'New' }));
     expect(users['replace'].mock.calls[0][1].roles).toEqual([{ role: 'LEAD_ASSESSOR', resultTypes: 'all' }, { role: 'TPB' }]);
   });
 
@@ -183,9 +183,10 @@ describe('AssessorsStore', () => {
   });
 
   it('an assessor without result types is refused (it would revoke every grant)', async () => {
-    expect(await store.invite(input({ types: [] }))).toMatchObject({ ok: false, field: 'types' });
-    expect(await store.edit('7', input({ types: [] }))).toMatchObject({ ok: false, field: 'types' });
-    await store.setTypes('7', []);
+    expect(await store.invite(input({ assessTypes: [] }))).toMatchObject({ ok: false, field: 'types' });
+    expect(await store.edit('7', input({ assessTypes: [] }))).toMatchObject({ ok: false, field: 'types' });
+    expect(await store.invite(input({ role: 'Lead assessor', assessTypes: [] }))).toMatchObject({ ok: false, field: 'types' });
+    await store.setTypes('7', [], []);
     expect(users['setRoles']).not.toHaveBeenCalled();
     expect(users['replace']).not.toHaveBeenCalled();
   });
@@ -208,9 +209,9 @@ describe('AssessorsStore', () => {
         };
       }),
     );
-    const first = store.setTypes('7', ['Knowledge product', 'Policy change']);
+    const first = store.setTypes('7', ['Knowledge product', 'Policy change'], []);
     expect(store.isBusy('7')).toBe(true);
-    await store.setTypes('7', ['Knowledge product']);
+    await store.setTypes('7', ['Knowledge product'], []);
     expect(users['setRoles']).toHaveBeenCalledOnce();
     release();
     await first;
@@ -244,7 +245,7 @@ describe('AssessorsStore', () => {
     users['replace'].mockReturnValueOnce(
       throwError(() => new ApiError({ status: 409, code: 'USERS_LAST_ADMIN', message: 'QA needs at least one admin.' })),
     );
-    expect(await store.edit('7', input({ role: 'Assessor', types: ['Knowledge product'] }))).toEqual({
+    expect(await store.edit('7', input({ role: 'Assessor', assessTypes: ['Knowledge product'] }))).toEqual({
       ok: false,
       message: 'QA needs at least one admin.',
       field: 'role',
@@ -263,6 +264,58 @@ describe('AssessorsStore', () => {
     );
     await store.resendInvitation('7');
     expect(toasts['error']).toHaveBeenCalledWith('They already signed in.');
+  });
+
+  it('P2-4107: invite as Assessor on some types and Lead on others sends both grants', async () => {
+    await store.invite(input({ email: 'bo@x.org', assessTypes: ['Knowledge product'], leadTypes: ['Policy change'] }));
+    expect(users['create'].mock.calls[0][0].roles).toEqual([
+      { role: 'ASSESSOR', resultTypes: ['kp'] },
+      { role: 'LEAD_ASSESSOR', resultTypes: ['pc'] },
+    ]);
+  });
+
+  it('P2-4107: the same type in both roles is refused on the types field before any call', async () => {
+    const both = input({ assessTypes: ['Knowledge product', 'Policy change'], leadTypes: ['Policy change'] });
+    expect(await store.invite(both)).toMatchObject({ ok: false, field: 'types' });
+    expect(await store.edit('7', both)).toMatchObject({ ok: false, field: 'types' });
+    expect(users['create']).not.toHaveBeenCalled();
+    expect(users['replace']).not.toHaveBeenCalled();
+  });
+
+  it('P2-4107: "Select all" on the lead side sends Lead on "all"', async () => {
+    await store.edit('7', input({ role: 'Lead assessor', assessTypes: [], leadTypes: ['Knowledge product', 'Policy change'] }));
+    expect(users['replace'].mock.calls[0][1].roles).toEqual([{ role: 'LEAD_ASSESSOR', resultTypes: 'all' }]);
+  });
+
+  it('P2-4107: editing a mixed user (Assessor on KP, Lead on PC) and only the nickname keeps both grants', async () => {
+    const mixed = [{ role: 'ASSESSOR', resultTypes: ['kp'] }, { role: 'LEAD_ASSESSOR', resultTypes: ['pc'] }];
+    users['listAll'].mockReturnValueOnce(of([u({ roles: mixed })]));
+    await store.load();
+    const m = store.team()[0];
+    expect(m).toMatchObject({ role: 'Assessor', assessTypes: ['Knowledge product'], leadTypes: ['Policy change'] });
+    await store.edit('7', input({ nick: 'New', role: m.role, assessTypes: m.assessTypes, leadTypes: m.leadTypes }));
+    expect(users['replace'].mock.calls[0][1].roles).toEqual(mixed);
+  });
+
+  it('P2-4107: changing the role to Lead assessor from the list keeps their types (never "all")', async () => {
+    users['listAll'].mockReturnValueOnce(of([u({ roles: [{ role: 'ASSESSOR', resultTypes: ['kp'] }] })]));
+    await store.load();
+    await store.setRole('7', 'Lead assessor');
+    expect(users['setRoles'].mock.calls[0][1]).toEqual([{ role: 'LEAD_ASSESSOR', resultTypes: ['kp'] }]);
+  });
+
+  it('P2-4107: Lead assessor without result types from the list sends nothing (the drawer opens instead)', async () => {
+    users['listAll'].mockReturnValueOnce(of([u({ roles: [{ role: 'TPB' }] })]));
+    await store.load();
+    await store.setRole('7', 'Lead assessor');
+    expect(users['setRoles']).not.toHaveBeenCalled();
+  });
+
+  it('P2-4107: the server refusing an overlap (409 ROLE_CONFLICT) lands on the result types field', async () => {
+    users['replace'].mockReturnValueOnce(
+      throwError(() => new ApiError({ status: 409, code: 'USERS_ROLE_CONFLICT', message: 'Not both on one type.' })),
+    );
+    expect(await store.edit('7', input({ leadTypes: ['Policy change'] }))).toEqual({ ok: false, message: 'Not both on one type.', field: 'types' });
   });
 
   it('nothing changed: no call at all', async () => {

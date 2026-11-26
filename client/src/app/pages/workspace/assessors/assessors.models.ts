@@ -34,12 +34,16 @@ export interface TeamMember {
   readonly lastName: string;
   readonly email: string;
   readonly role: TeamRole;
-  /** Result type names this person assesses (only meaningful for the Assessor role). */
+  /** Every result type this person covers, as Assessor or as Lead assessor (union of the two below). */
   readonly types: readonly string[];
+  /** Result types they hold the ASSESSOR grant on (P2-4107: per role, never shared with leadTypes). */
+  readonly assessTypes: readonly string[];
+  /** Result types they hold the LEAD_ASSESSOR grant on. */
+  readonly leadTypes: readonly string[];
   readonly prog: readonly TypeProgress[];
   /** Science program codes they are limited to; empty = all programs. */
   readonly programs: readonly string[];
-  /** Leads the assessment of their result types (LEAD_ASSESSOR grant). */
+  /** Holds a LEAD_ASSESSOR grant on at least one result type (the "Lead" chip and filter). */
   readonly lead: boolean;
   readonly blocked: readonly BlockedProgram[];
   readonly act: TeamActivity;
@@ -51,7 +55,7 @@ export interface TeamMember {
   /** Resend is allowed (active custom account, invitation sent, never signed in). */
   readonly canResend: boolean;
   readonly active: boolean;
-  /** The API holds grants this one-role screen cannot show exactly: saving roles replaces them. */
+  /** The API holds grants this screen cannot show exactly (e.g. QA lead + PPU): saving roles replaces them. */
   readonly otherRoles: boolean;
   /** The API holds no grant at all: shown as "No role" (the form still edits it as an Assessor). */
   readonly noRole: boolean;
@@ -71,6 +75,13 @@ export const ROLE_OPTIONS: readonly RoleOption[] = [
   { role: 'PPU', description: 'Closes results at the end of the cycle' },
   { role: 'QA lead', description: 'Administers the platform' },
 ];
+
+/** Roles granted per result type (Assessor, Lead assessor); the others are global. */
+export const TYPE_ROLES: readonly TeamRole[] = ['Assessor', 'Lead assessor'];
+
+export function isTypeRole(role: TeamRole): boolean {
+  return TYPE_ROLES.includes(role);
+}
 
 export const ACTIVITY_LABELS: Readonly<Record<TeamActivity, string>> = {
   week: 'Active this week',
