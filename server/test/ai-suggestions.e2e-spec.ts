@@ -273,7 +273,8 @@ describe('AI suggestions (e2e)', () => {
       );
     });
 
-    it('a TPB whose role row is not enabled yet gets the assessment 404 (FR-5 takes effect when it is)', async () => {
+    // P2-3916 enabled the TPB row; it covers round-2 results the Lead escalated only (the TPB view is in assessment-round-two-tpb.e2e-spec.ts).
+    it('a TPB on a round-1 result gets the assessment 404 (its row is round 2, step 4)', async () => {
       a.world.timelineUsers.push({
         timelineId: 1,
         userId: a.users.tpb.id,

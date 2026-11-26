@@ -497,15 +497,15 @@ describe('FR-1 the admin answer comes from the caller', () => {
 });
 
 describe('FR-1 A role with no active row', () => {
-  // The Lead row is enabled (P2-3912); TPB and PPU stay designed only (FR-16).
-  const tpbOnly = user([grant('TPB', null)], [SP01]);
-  const access = accessOf(tpbOnly, ['TPB']);
+  // The Lead (P2-3912) and TPB (P2-3916) rows are enabled; PPU stays designed only (FR-16).
+  const ppuOnly = user([grant('PPU', null)], [SP01]);
+  const access = accessOf(ppuOnly, ['PPU']);
 
   it('has no row and says its disabled role has no worklist yet', () => {
     expect(access).toEqual({
       reviewerRows: [],
       admin: false,
-      disabledRoles: ['TPB'],
+      disabledRoles: ['PPU'],
     });
   });
 
@@ -514,7 +514,7 @@ describe('FR-1 A role with no active row', () => {
     expect(listedFor(access, membership({ round: 2 }))).toBe(false);
   });
 
-  it.each(['TPB', 'PPU'] as const)(
+  it.each(['PPU'] as const)(
     'a %s assignment is declared and disabled',
     (role) => {
       const subject = user([grant(role, null)]);
@@ -528,9 +528,9 @@ describe('FR-1 A role with no active row', () => {
 
   it('a disabled role without a live grant is not reported', () => {
     const subject = user([
-      grant('TPB', null, { revokedAt: new Date('2026-11-10T00:00:00Z') }),
+      grant('PPU', null, { revokedAt: new Date('2026-11-10T00:00:00Z') }),
     ]);
-    expect(accessOf(subject, ['TPB']).disabledRoles).toEqual([]);
+    expect(accessOf(subject, ['PPU']).disabledRoles).toEqual([]);
   });
 });
 
@@ -775,7 +775,7 @@ describe('FR-1 Lead sees only round-2 memberships in their scope', () => {
 
 describe('admin/acts-as-reviewer: a QA Admin acting as a reviewer role', () => {
   const admin = user([grant('ADMIN', null)]);
-  const adminAs = (role: 'ASSESSOR' | 'LEAD_ASSESSOR' | 'TPB') =>
+  const adminAs = (role: 'ASSESSOR' | 'LEAD_ASSESSOR' | 'PPU') =>
     resolveAccess(
       admin,
       [],
@@ -882,10 +882,10 @@ describe('admin/acts-as-reviewer: a QA Admin acting as a reviewer role', () => {
     );
     expect(asReviewer).toEqual(accessOf(assessorA, ['ASSESSOR']));
     expect(actsAsAdmin(asReviewer)).toBe(false);
-    // TPB has a declared, disabled row: no acting row, the Admin stays read-only.
-    const tpb = adminAs('TPB');
-    expect(tpb.reviewerRows).toEqual([]);
-    expect(writeDecision(tpb, membership(), timing(STEP1_OPEN))).toEqual({
+    // PPU has a declared, disabled row: no acting row, the Admin stays read-only.
+    const ppu = adminAs('PPU');
+    expect(ppu.reviewerRows).toEqual([]);
+    expect(writeDecision(ppu, membership(), timing(STEP1_OPEN))).toEqual({
       writable: false,
       reason: 'admin_read_only',
     });

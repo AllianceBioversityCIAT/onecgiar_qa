@@ -13,6 +13,10 @@ import { runRealLoad, type RealLoad } from './real-load-writer.js';
 
 /** A clock inside step 3 (the Lead's step). */
 export const IN_LEAD_STEP = new Date('2026-11-25T10:00:00Z');
+/** A clock inside step 4 (the TPB's step, P2-3916). */
+export const IN_TPB_STEP = new Date('2026-11-30T10:00:00Z');
+/** A clock after step 4 closed. */
+export const AFTER_TPB_STEP = new Date('2026-12-05T10:00:00Z');
 
 const minute = (value: string) => value as never;
 export const roundTwoSteps = () => [
@@ -214,4 +218,124 @@ export function plantProgramResponse(
     programId: 1,
     createdAt: new Date(`2026-11-${day}T09:00:00Z`),
   });
+}
+
+/** Step 4, the TPB's (P2-3916): 28 Nov - 2 Dec 2026. */
+export const tpbStep = () => ({
+  position: 4,
+  name: 'Step 4',
+  audience: 'tpb' as const,
+  opensAt: minute('2026-11-28T09:00'),
+  closesAt: minute('2026-12-02T17:30'),
+});
+
+/** One comment the Lead escalated, as its end left it (`escalated`, with the Lead's `escalate` decision). */
+export interface EscalatedComment {
+  id: number;
+  fieldKey: string;
+  /** `lead`: the Lead's own round-2 comment on its step-3 assessment; default a round-1 comment. */
+  origin?: 'round_one' | 'lead';
+  reason?: string;
+}
+
+/**
+ * The TPB's world (P2-3916): the round-2 world with step 4, the TPB (`tpb`, a global
+ * role, all programs) assigned, and the Lead's step-3
+ * assessment ended `escalated` on `escalated`, as the Lead's end leaves it
+ * (DD-7: the comments in `escalated`, the Lead's `escalate` decisions kept).
+ * `sidedProgram` are round-1 comments the Lead closed (`lead_sided_program`);
+ * `leadGreens` the Lead's own green marks.
+ */
+export async function seedTpbWorld(
+  a: AssessmentApp,
+  options: {
+    core: readonly string[];
+    roundOneGreens?: readonly string[];
+    escalated: readonly EscalatedComment[];
+    sidedProgram?: readonly { id: number; fieldKey: string }[];
+    leadGreens?: readonly string[];
+    changedFields?: string[] | null;
+  },
+): Promise<RoundTwoResult & { leadAssessmentId: number }> {
+  const built = await seedRoundTwoWorld(a, {
+    core: options.core,
+    changedFields: options.changedFields ?? null,
+    roundOneGreens: options.roundOneGreens ?? [],
+  });
+  a.world.timelines[0]!.steps = [...roundTwoSteps(), tpbStep()];
+  a.world.timelineUsers.push({
+    timelineId: 1,
+    userId: a.users.tpb.id,
+    roleCode: 'TPB',
+  });
+  await a.programScope(a.users.tpb.id, []);
+  const leadAssessmentId = 900 + built.roundTwoId;
+  // The `users` rows the reads join for nicknames (the Lead ended step 3).
+  for (const u of [a.users.lead, a.users.tpb]) {
+    if (!a.world.users.some((x) => x.id === u.id)) {
+      a.world.users.push({ id: u.id, nickname: u.nickname });
+    }
+  }
+  a.world.assessments.push({
+    id: leadAssessmentId,
+    membershipId: built.roundTwoId,
+    stepPosition: 3,
+    status: 'escalated',
+    roleCode: 'LEAD_ASSESSOR',
+    finishedBy: a.users.lead.id,
+    finishedAt: new Date('2026-11-26T10:00:00Z'),
+  });
+  for (const item of options.escalated) {
+    if (item.origin === 'lead') {
+      a.world.comments.push({
+        id: item.id,
+        assessmentId: leadAssessmentId,
+        authorId: a.users.lead.id,
+        state: 'escalated',
+        fieldKey: item.fieldKey,
+        body: `Lead comment ${item.id}`,
+        stepPosition: 3,
+        round: 2,
+        createdAt: new Date('2026-11-25T09:00:00Z'),
+        valueCopy: { value: 'Re-submitted value' },
+      });
+    } else {
+      plantRoundOneComment(a, built.roundOneId, item.id, {
+        state: 'escalated',
+        fieldKey: item.fieldKey,
+      });
+    }
+    a.world.commentDecisions.push({
+      commentId: item.id,
+      assessmentId: leadAssessmentId,
+      roleCode: 'LEAD_ASSESSOR',
+      decision: 'escalate',
+      body: item.reason ?? `Escalated ${item.id}`,
+      decidedAt: new Date('2026-11-25T12:00:00Z'),
+      decidedBy: a.users.lead.id,
+    });
+  }
+  for (const item of options.sidedProgram ?? []) {
+    plantRoundOneComment(a, built.roundOneId, item.id, {
+      state: 'lead_sided_program',
+      fieldKey: item.fieldKey,
+    });
+    a.world.commentDecisions.push({
+      commentId: item.id,
+      assessmentId: leadAssessmentId,
+      roleCode: 'LEAD_ASSESSOR',
+      decision: 'agree_program',
+      body: `Sided ${item.id}`,
+      decidedAt: new Date('2026-11-25T12:00:00Z'),
+      decidedBy: a.users.lead.id,
+    });
+  }
+  a.world.validations.push(
+    ...(options.leadGreens ?? []).map((fieldKey) => ({
+      assessmentId: leadAssessmentId,
+      fieldKey,
+      validated: true,
+    })),
+  );
+  return { ...built, leadAssessmentId };
 }

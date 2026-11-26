@@ -195,7 +195,7 @@ describe('a QA Admin acting as a reviewer role (e2e)', () => {
     });
 
     it('a role with no enabled row, or an unknown value, is 400 VALIDATION_FAILED on the header', async () => {
-      for (const value of ['TPB', 'nope']) {
+      for (const value of ['PPU', 'nope']) {
         const res = await a.send('get', resultPath('', code), {
           token: admin(),
           headers: as(value),

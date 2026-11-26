@@ -57,19 +57,20 @@ describe('role-step table (design 7.1)', () => {
     ).toEqual([
       ['ASSESSOR', 'ASSESSOR_ACCESS', 'assessors', 1, true, 'write'],
       ['LEAD_ASSESSOR', 'LEAD_ACCESS', 'lead_assessors', 2, true, 'write'],
-      ['TPB', 'TPB_ACCESS', 'tpb', 2, false, 'write'],
+      ['TPB', 'TPB_ACCESS', 'tpb', 2, true, 'write'],
       ['PPU', 'PPU_ACCESS', 'ppu', 2, false, 'write'],
       ['ADMIN', 'ADMIN_ACCESS', null, null, true, 'read'],
     ]);
   });
 
-  // FR-1 / FR-16: the Lead row is the only one this spec enables; TPB and PPU stay designed only.
-  it('enables ASSESSOR and LEAD_ASSESSOR as writers, and leaves TPB and PPU disabled', () => {
+  // FR-1 / FR-16: P2-3912 enabled the Lead row and P2-3916 the TPB row; PPU stays designed only.
+  it('enables ASSESSOR, LEAD_ASSESSOR and TPB as writers, and leaves PPU disabled', () => {
     expect(enabledReviewerRows().map((row) => row.role)).toEqual([
       'ASSESSOR',
       'LEAD_ASSESSOR',
+      'TPB',
     ]);
-    expect(findRoleStep('TPB')!.enabled).toBe(false);
+    expect(findRoleStep('TPB')!.enabled).toBe(true);
     expect(findRoleStep('PPU')!.enabled).toBe(false);
   });
 

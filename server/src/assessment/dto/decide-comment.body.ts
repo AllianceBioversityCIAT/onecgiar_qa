@@ -4,8 +4,14 @@ import { Transform } from 'class-transformer';
 import { IsIn, IsNotEmpty, IsString, ValidateBy } from 'class-validator';
 import { COMMENT_BODY_MAX } from './create-comment.body.js';
 
-/** The decisions a Lead sets on a round-1 comment (round-2 FR-8). TPB and PPU values are not accepted here. */
+/** The decisions a Lead sets on a round-1 comment (round-2 FR-8). */
 export const LEAD_DECISIONS = ['agree_program', 'escalate'] as const;
+
+/** The decisions a TPB sets on an escalated comment (P2-3916 AC5). */
+export const TPB_DECISIONS = ['tpb_agree_program', 'tpb_agree_assessor'] as const;
+
+/** Every value the route accepts. Which one the caller may set is its role's (the service, 409 `ASSESSMENT_DECISION_INVALID`). PPU values are not accepted here. */
+export const DECISION_VALUES = [...LEAD_DECISIONS, ...TPB_DECISIONS] as const;
 
 const trimmed = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' ? value.trim() : value;
@@ -18,13 +24,13 @@ const trimmed = ({ value }: { value: unknown }): unknown =>
 export class DecideCommentBody {
   @ApiProperty({
     type: String,
-    enum: LEAD_DECISIONS,
+    enum: DECISION_VALUES,
     example: 'agree_program',
     description:
-      '`agree_program` turns the field green; `escalate` keeps it grey and refuses its validation',
+      'Lead Assessor: `agree_program` turns the field green; `escalate` keeps it grey and refuses its validation. Third-Party Broker (escalated comments only): `tpb_agree_program` validates the field once every escalated comment on it sides with the program; `tpb_agree_assessor` keeps it grey and opens a PPU case at the end. A value of another role is 409 `ASSESSMENT_DECISION_INVALID`',
   })
-  @IsIn(LEAD_DECISIONS)
-  decision!: (typeof LEAD_DECISIONS)[number];
+  @IsIn(DECISION_VALUES)
+  decision!: (typeof DECISION_VALUES)[number];
 
   @ApiProperty({
     type: String,
