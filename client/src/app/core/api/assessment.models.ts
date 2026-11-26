@@ -140,6 +140,11 @@ export interface WorklistCounters {
   readonly total: number;
   /** How many of `total` are Auto-validated KPs (not in `pending` nor `finished`). Absent on an older server. */
   readonly autoValidated?: number;
+  /**
+   * The memberships of `total` by QA status, every status present (0 when none); the filters, the search and the page
+   * do not change it (front contract § 9.2). Absent on an older server.
+   */
+  readonly byStatus?: Readonly<Record<QaStatus, number>>;
 }
 
 export interface Worklist {
@@ -334,6 +339,12 @@ export interface AssessmentView {
     readonly timeline: { readonly id: number; readonly name: string };
     readonly step: { readonly position: number; readonly name: string } | null;
     readonly status: QaStatus;
+    /**
+     * The reviewer role the view was built for (front contract § 9.1, DD-T11): the role whose step the result is at,
+     * among the caller's roles (an Admin: the acting role when it fits the round). `null` = no role (an Admin without
+     * Act as, or an acting role outside the round): read only. Absent on an older server.
+     */
+    readonly reviewerRole?: ActingRole | null;
   };
   readonly sections: readonly AssessmentSection[];
   /** Snapshot keys missing from the catalog, read only. */
