@@ -9,6 +9,7 @@ import {
   type NestInterceptor,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import type { Request, Response } from 'express';
 import {
   catchError,
@@ -44,6 +45,9 @@ import {
 } from './idempotency.store.js';
 
 export const IDEMPOTENCY_REPLAY_READER = Symbol('IDEMPOTENCY_REPLAY_READER');
+
+/** Route metadata set by `@Idempotent({ required: true })` (P2-4128). */
+export const IDEMPOTENCY_KEY_REQUIRED = 'idempotency:key-required';
 
 /**
  * Port for the crash window of FR-2: a key left `executed` without a stored
@@ -100,6 +104,19 @@ function keyProblem(raw: unknown): FieldErrorCode | undefined {
   return KEY_PATTERN.test(raw) ? undefined : 'INVALID';
 }
 
+/** FR-6: the 400 that names the header. */
+const keyRefusal = (code: FieldErrorCode) =>
+  new BadRequestException({
+    ...errorBody('VALIDATION_FAILED'),
+    fields: [
+      {
+        field: KEY_FIELD,
+        code,
+        message: FIELD_ERRORS[code](MAX_KEY_LENGTH),
+      },
+    ],
+  });
+
 /**
  * DD-5: a deterministic refusal (4xx) is remembered; 5xx and anything unknown
  * is not. A lost fence is a 409 too, but it means another request owns the
@@ -118,7 +135,9 @@ const isRefusal = (error: unknown): error is HttpException =>
  * the handler's raw value and raw errors, and the filter renders a replayed
  * refusal from `{ code, fields }` and the status alone (P-3, P-4).
  *
- * - No header: untouched (FR-1).
+ * - No header: untouched (FR-1), unless the route requires it
+ *   (`@Idempotent({ required: true })`, P2-4128): then 400 `VALIDATION_FAILED`
+ *   on `Idempotency-Key`, before any store call, so nothing runs or is reserved.
  * - Reserve in its own short write, outside any business transaction. Any
  *   failure of the store, the purge or the replay reader answers 503 and the
  *   handler does not run: never a write without the guarantee (NFR-4).
@@ -135,6 +154,7 @@ export class IdempotencyInterceptor implements NestInterceptor {
     @Inject(IDEMPOTENCY_CLOCK) private readonly clock: IdempotencyClock,
     @Inject(IDEMPOTENCY_REPLAY_READER)
     private readonly reader: IdempotencyReplayReader,
+    @Inject(Reflector) private readonly reflector: Reflector,
   ) {}
 
   async intercept(
@@ -146,21 +166,13 @@ export class IdempotencyInterceptor implements NestInterceptor {
     const response = http.getResponse<Response>();
 
     const raw = request.headers[KEY_HEADER];
-    if (raw === undefined) return next.handle();
+    if (raw === undefined) {
+      if (this.keyRequired(context)) throw keyRefusal('REQUIRED');
+      return next.handle();
+    }
 
     const problem = keyProblem(raw);
-    if (problem !== undefined) {
-      throw new BadRequestException({
-        ...errorBody('VALIDATION_FAILED'),
-        fields: [
-          {
-            field: KEY_FIELD,
-            code: problem,
-            message: FIELD_ERRORS[problem](MAX_KEY_LENGTH),
-          },
-        ],
-      });
-    }
+    if (problem !== undefined) throw keyRefusal(problem);
     const key = raw as string;
 
     // A keyed route is authenticated (P-1); without an admin there is no
@@ -199,6 +211,16 @@ export class IdempotencyInterceptor implements NestInterceptor {
         });
         return this.run(next, claim.reservation, response, facts);
     }
+  }
+
+  /** P2-4128: the route asked for `@Idempotent({ required: true })`. */
+  private keyRequired(context: ExecutionContext): boolean {
+    return (
+      this.reflector.get<boolean | undefined>(
+        IDEMPOTENCY_KEY_REQUIRED,
+        context.getHandler(),
+      ) === true
+    );
   }
 
   /** Reserve, or read what the key already holds (design 7, Reserve). */
