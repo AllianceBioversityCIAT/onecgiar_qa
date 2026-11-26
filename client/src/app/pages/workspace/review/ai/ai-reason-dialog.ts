@@ -27,7 +27,7 @@ import { AI_REASON_MAX, reasonError } from './ai-reason';
       [subtitle]="subtitle()"
       width="480px"
     >
-      <label for="ai-reason" class="text-(length:--fs-13) font-semibold text-(--text-2)"
+      <label for="ai-reason" class="text-(length:--fs-13) font-medium text-(--text-2)"
         >Reason (one line)</label
       >
       <input

@@ -110,9 +110,10 @@
     }
 
     @if (aiCount() > 0) {
-      <button type="button" class="flex items-center gap-2 rounded-lg bg-(--ai-tint) px-2.5 py-2 text-left hover:bg-(--ai-tint-2) focus-visible:shadow-(--focus-ring) focus-visible:outline-none" [class.min-h-10]="narrow()" (click)="aiGo.emit()">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--ai)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z" /></svg>
-        <span class="text-(length:--fs-12) font-medium text-(--ai)"><span class="font-(family-name:--qa-mono) font-bold tabular-nums">{{ aiCount() }}</span> {{ aiCount() === 1 ? 'field flagged by AI' : 'fields flagged by AI' }}</span>
+      <!-- The app's AI button (purple text, tint on hover), as on the AI card; no purple box (Juanpa, 2026-11-25). -->
+      <button hlmBtn qaBtn tone="ai" size="sm" flush="start" type="button" class="justify-start" [class.min-h-10]="narrow()" (click)="aiGo.emit()">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z" /></svg>
+        <span><span class="font-semibold tabular-nums">{{ aiCount() }}</span> {{ aiCount() === 1 ? 'field flagged by AI' : 'fields flagged by AI' }}</span>
       </button>
     }
 

@@ -14,7 +14,7 @@ import { QaLoadingImports, skeletonRows } from '../../../ui';
           <qa-skeleton class="h-2.5 w-20" />
           <qa-skeleton class="h-6 w-28" />
           <qa-skeleton class="h-3 w-36" />
-          <qa-skeleton class="h-5 w-24 rounded-full" />
+          <qa-skeleton class="h-5 w-24 rounded-md" />
           <div class="mt-4 flex flex-col gap-2 max-md:hidden">
             @for (i of sections; track i) {
               <qa-skeleton class="h-9 w-full rounded-lg" />

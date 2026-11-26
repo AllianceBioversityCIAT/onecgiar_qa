@@ -7,14 +7,10 @@
   }
   @case ('error') {
     <div class="flex min-h-[50dvh] items-center px-6 py-10 sm:px-10">
-      <div role="alert" class="flex max-w-[460px] flex-col items-start gap-3">
-        <h1 class="m-0 text-(length:--fs-18) font-bold text-(--text)">We could not open this result</h1>
-        <p class="m-0 text-(length:--fs-14) leading-[1.55] text-pretty text-(--text-3)">{{ store.error()?.message }}</p>
-        <div class="flex items-center gap-3">
-          <button hlmBtn qaBtn tone="primary" size="sm" type="button" (click)="retry()">Try again</button>
-          <a hlmBtn qaBtn tone="link" size="sm" routerLink="/results">Back to results</a>
-        </div>
-      </div>
+      <qa-state-card alert class="w-full max-w-[520px]" heading="We could not open this result" [message]="store.error()?.message ?? null">
+        <button hlmBtn qaBtn tone="secondary" size="sm" type="button" (click)="retry()">Try again</button>
+        <a hlmBtn qaBtn tone="link" size="sm" routerLink="/results">Back to results</a>
+      </qa-state-card>
     </div>
   }
   @default {
@@ -78,8 +74,11 @@
                     <span class="text-(length:--fs-13) font-semibold whitespace-nowrap text-(--text-2)" [title]="h.programName" data-testid="review-header-program"><span class="sr-only">Science Program </span>{{ h.programCode }}</span>
                     <span class="text-(--text-muted)" aria-hidden="true">·</span>
                     <span class="text-(length:--fs-13) font-normal text-(--text-3)">{{ h.type }}</span>
-                    <span class="inline-flex items-center gap-[5px] rounded-md px-2.5 py-[3px] text-(length:--fs-12) font-medium whitespace-nowrap" [class]="h.statusClass">{{ h.status }}</span>
-                    <qa-review-code-info [details]="h.details" />
+                    <!-- Status and its info button stay together, so the icon never wraps alone onto a line (phones). -->
+                    <span class="inline-flex items-center gap-2">
+                      <span class="inline-flex items-center gap-[5px] rounded-md px-2.5 py-[3px] text-(length:--fs-12) font-medium whitespace-nowrap" [class]="h.statusClass">{{ h.status }}</span>
+                      <qa-review-code-info [details]="h.details" />
+                    </span>
                   </div>
                   <p class="m-0 mt-1 text-(length:--fs-12) leading-[1.45] font-normal text-pretty wrap-anywhere text-(--text-4)" [title]="h.timeline + ' · ' + h.step" data-testid="review-header-context">{{ h.timeline }} · {{ h.step }}</p>
                 </div>

@@ -13,9 +13,9 @@ import { AiVm } from './review-model';
       <span class="flex size-5 flex-none items-center justify-center rounded-md bg-(--ai-tint-2)" aria-hidden="true"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--ai)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z" /></svg></span>
       <span class="text-(length:--fs-12) font-semibold text-(--text-2)">AI match</span>
       @if (ai().mismatch) {
-        <span class="rounded-md bg-(--st-editing-bg) px-2 py-0.5 text-(length:--fs-12) font-medium text-(--st-editing-fg)">Possible mismatch</span>
+        <span class="inline-flex items-center gap-1.5 rounded-md bg-(--surface-5) px-2 py-0.5 text-(length:--fs-12) font-medium text-(--text-2) [--qa-dot:var(--warning)]"><span aria-hidden="true" class="size-1.5 flex-none rounded-full bg-(--qa-dot)"></span>Possible mismatch</span>
       } @else {
-        <span class="rounded-md bg-(--surface-3) px-2 py-0.5 text-(length:--fs-12) font-medium text-(--text-3)">Looks consistent</span>
+        <span class="inline-flex items-center gap-1.5 rounded-md bg-(--surface-5) px-2 py-0.5 text-(length:--fs-12) font-medium text-(--text-2) [--qa-dot:var(--success)]"><span aria-hidden="true" class="size-1.5 flex-none rounded-full bg-(--qa-dot)"></span>Looks consistent</span>
       }
       <span class="min-w-0 flex-[1_1_0px]"></span>
       @if (!ai().mismatch) {
