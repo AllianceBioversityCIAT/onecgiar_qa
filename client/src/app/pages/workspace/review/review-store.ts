@@ -23,7 +23,7 @@ import { AuthSession } from '../../../core/auth/auth-session';
 import { ApiError, toApiError } from '../../../core/http/api-envelope';
 import { Toasts } from '../../../core/http/toasts';
 import { reloadAfterReplay } from '../../../core/http/write-events';
-import { toReviewVm } from './review.mapper';
+import { ReviewerMode, reviewerModeOf, toReviewVm } from './review.mapper';
 
 export type ReviewLoadState = 'loading' | 'ready' | 'error';
 
@@ -110,6 +110,19 @@ const DECISION_REFUSALS: Readonly<Record<string, { readonly message: string; rea
   [ASSESSMENT_ERROR.READ_ONLY]: { message: 'You can only read this review.', reread: true },
 };
 
+/** TPB / PPU wording where the Lead's would be wrong (P2-3916 § 6, P2-3917 § 6); any other code reads as for the Lead. */
+const JUDGE_REFUSALS: Readonly<Record<'tpb' | 'ppu', Readonly<Record<string, { readonly message: string; readonly reread: boolean }>>>> = {
+  tpb: {
+    [ASSESSMENT_ERROR.STEP_CLOSED]: { message: 'The TPB step is closed, so decisions can no longer change.', reread: true },
+    [ASSESSMENT_ERROR.NOT_FOUND]: { message: 'This comment is no longer on this result. The page now shows it as it is.', reread: true },
+  },
+  ppu: {
+    [ASSESSMENT_ERROR.FINISHED]: { message: 'This result is already closed. The page now shows its final state.', reread: true },
+    [ASSESSMENT_ERROR.DECISION_INVALID]: { message: 'This comment is not an open case any more. The page now shows it as it is.', reread: true },
+    [ASSESSMENT_ERROR.NOT_FOUND]: { message: 'This comment is no longer on this result. The page now shows it as it is.', reread: true },
+  },
+};
+
 /** What a refused delete says next to its control, by `error.code` (round-2 contract § 4.4, § 7). The view is read again. */
 const DELETE_REFUSALS: Readonly<Record<string, string>> = {
   [ASSESSMENT_ERROR.COMMENT_NOT_DELETABLE]:
@@ -163,7 +176,7 @@ export class ReviewStore implements OnDestroy {
   /** The page's view models, rebuilt from the API answer only (never by hand). */
   readonly vm = computed(() => {
     const view = this.view();
-    return view ? toReviewVm(view, true, this.me(), this.leadCaller()) : null;
+    return view ? toReviewVm(view, true, this.me(), this.mode()) : null;
   });
 
   /** Field keys with a green/grey write on its way (`ALL_FIELDS` for Check all / Uncheck all). */
@@ -213,15 +226,19 @@ export class ReviewStore implements OnDestroy {
    * the Lead role for this result type. The view does not name a non-admin caller's reviewer role (contract § 2), and a
    * TPB also writes on a round-2 view, so the assignment tells them apart. Drives the delete and the quick comments.
    */
-  readonly leadCaller = computed(() => {
+  readonly leadCaller = computed(() => this.mode() === 'lead');
+  /**
+   * Who reads the page (`reviewerModeOf`): the Admin's acting role; else, on a round-2 view, the thread (a PPU's items
+   * carry `tpbDecision`, a TPB's carry `round` / `leadDecision`); else the caller's Lead assignment for the type.
+   */
+  readonly mode = computed<ReviewerMode>(() => {
     const view = this.view();
-    const acting = this.actingRole();
-    if (acting) return acting === 'LEAD_ASSESSOR';
-    if (view?.round !== 2) return false;
+    if (!view) return 'assessor';
     const type = view.header.resultType.key;
-    return (this.session.user()?.assignments ?? []).some(
+    const holdsLead = (this.session.user()?.assignments ?? []).some(
       (a) => a.role === 'LEAD_ASSESSOR' && (a.resultTypeKey === undefined || a.resultTypeKey === 'all' || a.resultTypeKey === type),
     );
+    return reviewerModeOf(view, this.actingRole(), holdsLead);
   });
 
   /** Only the newest load writes its answer (a quick switch of result never shows an older one). */
@@ -533,11 +550,12 @@ export class ReviewStore implements OnDestroy {
    */
   async decide(commentId: number, decision: DecisionKind, body: string): Promise<DecisionOutcome> {
     const text = body.trim();
-    if (!text) return this.decisionRefused(commentId, DECISION_EMPTY);
+    // A PPU's Done takes an optional comment (P2-3917 § 5): none = no `body`. Every other decision needs one.
+    if (!text && decision !== 'ppu_done') return this.decisionRefused(commentId, DECISION_EMPTY);
     const length = [...text].length;
     if (length > MAX_DECISION)
       return this.decisionRefused(commentId, `Keep the comment within 2,000 characters (it has ${length.toLocaleString('en-US')}).`);
-    return this.writeDecision(commentId, 'decide', (at) => this.api.decide(at.timelineId, at.resultCode, commentId, decision, text));
+    return this.writeDecision(commentId, 'decide', (at) => this.api.decide(at.timelineId, at.resultCode, commentId, decision, text || null));
   }
 
   /** Clears the Lead's decision on a comment (no decision = nothing changes). The view is read again after. */
@@ -567,7 +585,7 @@ export class ReviewStore implements OnDestroy {
       const e = toApiError(error);
       if (!this.still(at)) return { ok: false, message: e.message };
       if (e.status === 400 || e.status === 413 || e.status === 422) return this.decisionRefused(commentId, e.fields[0]?.message ?? e.message);
-      const known = DECISION_REFUSALS[e.code];
+      const known = (this.mode() === 'tpb' || this.mode() === 'ppu' ? JUDGE_REFUSALS[this.mode() as 'tpb' | 'ppu'][e.code] : undefined) ?? DECISION_REFUSALS[e.code];
       // The answer never arrived (status 0): the server may have done it, so the page reads what it holds.
       if (known?.reread || e.status === 0) await this.reload();
       return this.decisionRefused(commentId, known?.message ?? e.message);
@@ -782,7 +800,10 @@ export class ReviewStore implements OnDestroy {
    * caller's reviewer role (only `actingRole`, for an Admin), so the Lead is told by its assignment.
    */
   private quickRole(): QuickCommentRole {
-    return this.actingRole() ?? (this.leadCaller() ? LEAD_ROLE : WRITER_ROLE);
+    const acting = this.actingRole();
+    if (acting) return acting;
+    const mode = this.mode();
+    return mode === 'tpb' ? 'TPB' : mode === 'ppu' ? 'PPU' : mode === 'lead' ? LEAD_ROLE : WRITER_ROLE;
   }
 
   private target(): Target | null {
@@ -823,9 +844,17 @@ export class ReviewStore implements OnDestroy {
       if (reread) await this.reload();
       return;
     }
+    // Read before the reload: a TPB's `escalated` is Pending PPU, a PPU's last Done closes the result (P2-3916 / P2-3917).
+    const mode = this.mode();
     await this.reload();
     if (this.state() !== 'ready') return;
-    this.toasts.success(ENDED_MESSAGES[summary.status]);
+    this.toasts.success(
+      mode === 'tpb' && summary.status === 'escalated'
+        ? 'Assessment finished: Pending PPU.'
+        : mode === 'ppu' && summary.status === 'quality_assessed'
+          ? 'Every case is done: the result is now Quality Assessed.'
+          : ENDED_MESSAGES[summary.status],
+    );
   }
 
   private patchComments(fieldKey: string, change: (list: readonly AssessmentComment[]) => readonly AssessmentComment[]): void {
