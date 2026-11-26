@@ -52,6 +52,7 @@ A round-2 result the Lead has not escalated is the scope 404 for a TPB: it is no
 | `assessment` | `null` until the TPB's first write, then the TPB's own step-4 row (`status`, `assessedBy`, `finishedAt`) |
 | `writable` / `readOnlyReason` | `true` / `null` in step 4 before the end. Then `finished` after Finish, or `step_upcoming` / `step_closed` |
 | `header.status` | `pending_tpb_review` while the TPB works (before and after its first write), then `quality_assessed` or `pending_ppu` |
+| `header.reviewerRole` | `TPB` (section 9.1). A person who also holds an earlier role gets `TPB` once the result reached this step |
 | field `actionable` | Core fields: `true`. A TPB still writes no check or comment on them (section 2) |
 | field `effectiveValidated` | The TPB's own mark, else the Lead's mark, else the round-1 green carried. Draw the check from it, read-only |
 | field `carried` | Nothing is stored in step 3 or step 4 and the round-1 green is carried |
@@ -158,3 +159,69 @@ The worklist `status` filter accepts all three. The program (SP view) never sees
 - [ ] Finish reads `status: 'escalated'` as Pending PPU, and shows `error.fields` on `ASSESSMENT_CORE_UNDECIDED`.
 - [ ] The worklist shows `pending_ppu` and `unresolved` (P2-3917) and counts both as finished for the TPB.
 - [ ] "Act as" offers `TPB` when `actingRoles` lists it. The header `X-Acting-Role: TPB` goes on the view and every write.
+- [ ] The screen mode comes from `header.reviewerRole` (section 9.1); the worklist chips from `counters.byStatus`; `ASSESSMENT_FIELD_ESCALATED` shows `error.fields`.
+
+## 9. Contract adjustments (2026-11-26, for the round-2 front)
+
+Three additive members. Nothing existing changed shape; no migration.
+
+### 9.1 `header.reviewerRole` (DD-T11)
+
+The reviewer role the view was built for. Draw the screen mode from it (Lead, TPB, PPU), never from the order of the user's roles.
+
+| Caller | `header.reviewerRole` |
+|---|---|
+| Admin with `X-Acting-Role` | That role when it fits the result's round, else `null` (read-only) |
+| Admin without `X-Acting-Role` | `null` |
+| A reviewer | The role whose step the result is at, among the roles the person holds: `pending` → `LEAD_ASSESSOR`, `pending_tpb_review` → `TPB`, `pending_ppu` / `unresolved` → `PPU`. A person without that role gets the furthest one they hold (a Lead + TPB on a `pending_ppu` result reads `TPB`). A result that ended reads the role of the step that ended it |
+
+`assessment`, `writable`, `decidable` and `choices` follow the same role, and so do the decisions and the finish: a Lead who is also TPB decides and finishes as the TPB once the result is `pending_tpb_review`. A non-admin's `X-Acting-Role` is ignored.
+
+```json
+"header": {
+  "resultCode": 4021,
+  "title": "Policy brief on seed systems",
+  "program": { "id": 1, "code": "SP01", "name": "Breeding for Tomorrow" },
+  "resultType": { "key": "policy_change", "label": "Policy change" },
+  "timeline": { "id": 1, "name": "Official" },
+  "step": { "position": 4, "name": "TPB review" },
+  "status": "pending_tpb_review",
+  "reviewerRole": "TPB"
+}
+```
+
+### 9.2 `counters.byStatus` (worklist)
+
+`GET /timelines/:t/worklist` → `data.counters.byStatus`: the memberships of `total` by QA status. Every status is present (0 when none). Same scope as `total`: the filters, the search and the page do not change it, and `pending_tpb_review`, `pending_ppu`, `unresolved` and `auto_validated` are counted. `pending`, `finished`, `total` and `autoValidated` are unchanged.
+
+```json
+"counters": {
+  "pending": 3,
+  "finished": 5,
+  "total": 10,
+  "autoValidated": 2,
+  "byStatus": {
+    "pending": 3,
+    "returned_to_program": 0,
+    "clarification_requested": 1,
+    "pending_tpb_review": 2,
+    "pending_ppu": 1,
+    "unresolved": 0,
+    "quality_assessed": 1,
+    "auto_validated": 2
+  }
+}
+```
+
+### 9.3 `ASSESSMENT_FIELD_ESCALATED` with `fields`
+
+The Lead's refusal (409) now names the fields, like `ASSESSMENT_CORE_COMMENT_UNDECIDED`: `error.fields` holds the escalated field keys, sorted. On a validation they are the escalated fields the request named (with Check all, every escalated core field). On an `agree_program`, it is the comment's field, escalated by another comment.
+
+```json
+{
+  "status": 409,
+  "code": "ASSESSMENT_FIELD_ESCALATED",
+  "message": "This field is escalated and cannot be validated. Remove the escalation first.",
+  "fields": ["general.title", "toc.outcomes"]
+}
+```

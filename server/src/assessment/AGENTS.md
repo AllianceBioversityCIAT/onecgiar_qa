@@ -110,6 +110,16 @@ In step 5 the PPU closes the TPB's cases (comments the TPB decided `tpb_agree_as
 | Counters | PPU-only callers: `pending_ppu` and `unresolved` pending, `quality_assessed` finished |
 | Tests | `round-two-ppu-rules.spec.ts`, `scope-ppu.spec.ts`, `assessment-view-ppu.spec.ts`, `assessment.store-ppu.spec.ts`; e2e `assessment-round-two-ppu.e2e-spec.ts` (fixture `seedPpuWorld`), `-ppu-reporting` (AC6), `-ppu-flow` (Lead → TPB → PPU over HTTP, and Unresolved then Done) |
 
+## Round 2: contract adjustments for the front (2026-11-26, spec `escalation/round-2-tpb` DD-T11)
+
+| Topic | Rule |
+|---|---|
+| Effective role | `effectiveRow(access, facts)` (`scope.ts`) is THE reviewer role of a caller on a membership. A `byAdmin` row: itself when its round fits, else none. Otherwise the covering row of the furthest step (role-step order); TPB covers only after the Lead escalated and PPU only after the TPB escalated, so `pending` → Lead, `pending_tpb_review` → TPB, `pending_ppu` / `unresolved` → PPU. `open()` takes its role from it (`header.reviewerRole`, `ownAssessment`, the TPB / PPU branches) and `writeDecision` writes only with it (no fallback to another covering row), so decisions, clears and finish (`decision.row.role`) match the view. Never pick a role with `reviewerRows[0]` or `find` by round |
+| `header.reviewerRole` | The effective role, `null` for ADMIN without `X-Acting-Role` (or a role that does not fit the round) |
+| `counters.byStatus` | Every QA status → count, from the same `countByStatus` read as `total` (filters ignored, Auto-validated included). A `null` status group counts in `total` only. Built from `emptyByStatus()` |
+| `ASSESSMENT_FIELD_ESCALATED` | Carries `fields` (sorted escalated keys the request named; the comment's field on an agree). The global filter forwards them as `error.fields` |
+| Not changed | The AI route still picks its audience from the role list (`aiAudienceOf`), not from `effectiveRow`: a Lead who is also TPB gets the Lead's AI mode on a `pending_tpb_review` result |
+
 ## The QA Admin acting as a reviewer (spec `admin/acts-as-reviewer`, 2026-11-23)
 
 A QA Admin is transversal: with the `X-Acting-Role` header it works on any result **as** `ASSESSOR`, `LEAD_ASSESSOR`, `TPB` or `PPU` (the enabled reviewer rows). Contract: step-1 `front-contract.md` § 2.1. Migration `0014_admin_acts_as_reviewer` (down script in `drizzle/rollback/`).
