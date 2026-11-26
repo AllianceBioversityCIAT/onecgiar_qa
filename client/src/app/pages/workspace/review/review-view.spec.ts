@@ -24,7 +24,7 @@ import { Toasts } from '../../../core/http/toasts';
 import { WorkspaceLayout } from '../../../shell/workspace-layout';
 import { clarificationThread, comment, field, viewFixture } from './review.api-fixture';
 import { ReviewView } from './review-view';
-import { decisionResultFixture, endedRoundTwo, roundTwoViewFixture, withField, withThread } from './review.round2-fixture';
+import { decisionResultFixture, endedRoundTwo, roundTwoViewFixture, threadItem, withField, withThread } from './review.round2-fixture';
 import { QA_GUIDANCE } from './qa-guidance';
 
 /** The signed-in assessor: the author of the fixture's comments. */
@@ -1239,6 +1239,73 @@ describe('ReviewView on the assessment API', () => {
       await settle();
       expect(document.body.textContent).toContain('Finish as Quality Assessed?');
       expect(api.setValidations).not.toHaveBeenCalled();
+    });
+
+    it('Approve on a ToC core field refused with ASSESSMENT_CORE_COMMENT_UNDECIDED: the reason shows on its card, no toast', async () => {
+      const toc = viewFixture().sections.find((s) => s.key === 'theory_of_change')!;
+      api.view.mockReturnValue(
+        of(
+          roundTwoViewFixture({
+            sections: [
+              ...roundTwoViewFixture().sections,
+              {
+                ...toc,
+                fields: toc.fields.map((f) =>
+                  f.key === 'toc.entries'
+                    ? { ...f, actionable: true, effectiveValidated: false, carried: false, updated: false, thread: [threadItem({ commentId: 61 })] }
+                    : { ...f, actionable: false, thread: [] },
+                ),
+              },
+            ],
+          }),
+        ),
+      );
+      api.setValidations.mockReturnValueOnce(refusal(409, 'ASSESSMENT_CORE_COMMENT_UNDECIDED', 'raw', ['toc.entries']));
+      const el = await open();
+      byName(el, 'Next →')!.click();
+      await settle();
+      const tocCard = el.querySelector('[id="review-field-toc.entries"]')!;
+      buttons(tocCard).find((b) => (b.getAttribute('aria-label') ?? '').startsWith('Approve'))!.click();
+      await settle();
+      expect(text(tocCard)).toContain('Decide the round-1 comments on this field first');
+      expect(toasts.error).not.toHaveBeenCalled();
+    });
+
+    it('a ToC core field shows its round-1 thread and the decisions on its first card', async () => {
+      const toc = viewFixture().sections.find((s) => s.key === 'theory_of_change')!;
+      api.view.mockReturnValue(
+        of(
+          roundTwoViewFixture({
+            sections: [
+              ...roundTwoViewFixture().sections,
+              {
+                ...toc,
+                fields: toc.fields.map((f) =>
+                  f.key === 'toc.entries'
+                    ? { ...f, actionable: true, effectiveValidated: false, carried: false, updated: false, thread: [threadItem({ commentId: 61, body: 'The KPI is not the right one.' })] }
+                    : { ...f, actionable: false, thread: [] },
+                ),
+              },
+            ],
+          }),
+        ),
+      );
+      const el = await open();
+      byName(el, 'Next →')!.click();
+      await settle();
+      const tocCard = el.querySelector('[id="review-field-toc.entries"]')!;
+      const t = tocCard.querySelector('[data-testid="lead-thread"]')!;
+      expect(t).not.toBeNull();
+      expect(text(t)).toContain('The KPI is not the right one.');
+      byName(t, 'Escalate to TPB')!.click();
+      harness.detectChanges();
+      const box = document.querySelector<HTMLTextAreaElement>('#lead-decision-61')!;
+      box.value = 'TPB should check the KPI.';
+      box.dispatchEvent(new Event('input'));
+      harness.detectChanges();
+      byName(t, 'Save decision')!.click();
+      await settle();
+      expect(api.decide).toHaveBeenCalledWith(29, 9890, 61, 'escalate', 'TPB should check the KPI.');
     });
 
     describe('Finish for the Lead (tramo 5)', () => {

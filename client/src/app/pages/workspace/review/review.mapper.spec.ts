@@ -811,6 +811,48 @@ describe('review.mapper (API assessment view → Review view models)', () => {
       expect(toReviewVm(stripped).sections[0].fields.every((f) => f.leadOwn.length === 0)).toBe(true);
     });
 
+    describe('the round-1 thread on a ToC core field (open item of tramo 3)', () => {
+      /** Round 2 with the step-1 fixture's ToC section: toc.entries core and actionable, with one round-1 comment. */
+      const tocRoundTwo = (thread = [threadItemOf({ commentId: 61 })], comments: AssessmentView['sections'][number]['fields'][number]['comments'] = []): AssessmentView => {
+        const toc = viewFixture().sections.find((s) => s.key === 'theory_of_change')!;
+        return roundTwoViewFixture({
+          sections: [
+            ...roundTwoViewFixture().sections,
+            {
+              ...toc,
+              fields: toc.fields.map((f) =>
+                f.key === 'toc.entries'
+                  ? { ...f, actionable: true, effectiveValidated: false, carried: false, updated: false, thread, comments }
+                  : { ...f, actionable: false, thread: [] },
+              ),
+            },
+          ],
+        });
+      };
+      const tocCards = (v: AssessmentView, writes = true) => toReviewVm(v, writes).sections.find((s) => s.isToc)!.toc!.groups.flatMap((g) => g.items);
+
+      it("the field's first card carries the round-1 thread with its choices, open while it waits; its other cards none", () => {
+        const cards = tocCards(tocRoundTwo());
+        const first = cards.find((c) => c.id === 'toc.entries')!;
+        expect(first.leadThread?.map((t) => t.commentId)).toEqual([61]);
+        expect(first.leadThread?.[0].choices.map((c) => c.kind)).toEqual(['agree_program', 'escalate']);
+        expect(first.threadOpen).toBe(true);
+        expect(cards.filter((c) => c.id !== 'toc.entries').every((c) => !c.leadThread?.length)).toBe(true);
+      });
+
+      it("the Lead's own round-2 comment on a ToC core field shows there too, to escalate", () => {
+        const own = comment({ id: 8301, fieldKey: 'toc.entries', author: { id: 14, nickname: 'lea' }, stepPosition: 3, round: 2, decision: null, decidable: true, choices: ['escalate'] });
+        const first = tocCards(tocRoundTwo([], [own])).find((c) => c.id === 'toc.entries')!;
+        expect(first.leadOwn?.map((t) => [t.commentId, t.choices.map((c) => c.kind)])).toEqual([[8301, ['escalate']]]);
+      });
+
+      it('a page with no writes shows the thread with no control; round 1 ToC cards carry no thread', () => {
+        const first = tocCards(tocRoundTwo(), false).find((c) => c.id === 'toc.entries')!;
+        expect(first.leadThread?.[0].choices).toEqual([]);
+        expect(toReviewVm(viewFixture()).sections.find((s) => s.isToc)!.toc!.groups.flatMap((g) => g.items).every((c) => !c.leadThread?.length)).toBe(true);
+      });
+    });
+
     describe("the Lead's own comment and the delete (tramo 4, contract § 3.2, § 4.4)", () => {
       const LEAD = 14;
       const description = (v: AssessmentView = roundTwoViewFixture(), writes = true) =>

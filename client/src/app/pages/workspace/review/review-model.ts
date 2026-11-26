@@ -182,6 +182,10 @@ export interface TocCardVm extends CardStatusVm {
    * general note about contributions instead.
    */
   readonly tip?: string;
+  /** Round 2 (Lead): on the field's first card only, its round-1 thread and the Lead's own comments (as `FieldVm`). */
+  readonly leadThread?: readonly ThreadItemVm[];
+  readonly leadOwn?: readonly ThreadItemVm[];
+  readonly threadOpen?: boolean;
 }
 
 export interface TocGroupVm {

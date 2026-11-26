@@ -3,6 +3,7 @@ import { QaTooltipImports } from '../../../ui';
 import { ReviewAiNote } from './review-ai-note';
 import { ReviewCardActions } from './review-card-actions';
 import { ReviewInstructionNote } from './review-instruction-note';
+import { ReviewLeadThread } from './review-lead-thread';
 import { CardAction, TocCardVm, TocGroupVm } from './review-model';
 import { ReviewStateChips } from './review-state-chips';
 import { TOC_TIP } from './review.mock';
@@ -15,7 +16,7 @@ export interface TocCardAction {
 /** "Theory of change" section: contributions grouped by science program (or the ToC mapping card). */
 @Component({
   selector: 'qa-review-toc-section',
-  imports: [QaTooltipImports, ReviewAiNote, ReviewCardActions, ReviewInstructionNote, ReviewStateChips],
+  imports: [QaTooltipImports, ReviewAiNote, ReviewCardActions, ReviewInstructionNote, ReviewLeadThread, ReviewStateChips],
   templateUrl: './review-toc-section.html',
   host: { class: 'contents' },
 })
@@ -31,6 +32,8 @@ export class ReviewTocSection {
   readonly requiredReview = input(true);
   /** Field keys with a green/grey write on its way (`*` = all of them). */
   readonly busyKeys = input<ReadonlySet<string>>(new Set());
+  /** Why the last green write on a field was refused, by field key (shown on the field's first card). */
+  readonly errors = input<ReadonlyMap<string, string>>(new Map());
   readonly act = output<TocCardAction>();
 
   protected readonly tip = TOC_TIP;

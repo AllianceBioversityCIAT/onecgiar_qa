@@ -566,14 +566,18 @@ function answerCard(f: AssessmentField, status: CardStatusVm): TocCardVm {
  * contribution, `contributors.science_programs` one group per contributing program. A field's mark and buttons sit
  * on its first card (`id` = the field key); its other cards read `key#n`.
  */
-export function toTocVm(fields: readonly AssessmentField[], writable: boolean): TocVm {
+export function toTocVm(fields: readonly AssessmentField[], writable: boolean, lead?: (f: AssessmentField) => LeadContext): TocVm {
   const main: TocCardVm[] = [];
   const programGroups: TocGroupVm[] = [];
   let count = 0;
   for (const f of fields) {
+    // Round 2 (Lead): the field's round-1 thread and own comments go on its first card, as on a field card.
+    const context = lead?.(f) ?? NO_LEAD;
+    const leadThread = toThreadVm(f, context);
+    const thread = { leadThread, leadOwn: toOwnVm(f, context), threadOpen: leadThread.some((t) => t.pending) };
     const status = (i: number) =>
       i === 0
-        ? cardStatus(f, writable)
+        ? { ...cardStatus(f, writable), ...thread }
         : { ...cardStatus(f, false, `${f.key}#${i}`), states: [], actions: null };
     const listed =
       !f.notApplicable && Array.isArray(f.value) && f.value.every(isObject)
@@ -742,7 +746,7 @@ export function toReviewVm(view: AssessmentView, writes = true, me: number | nul
       name: s.label,
       isToc,
       fields: isToc ? [] : fields.map((f) => toFieldVm(f, canAct, lead(f))),
-      toc: isToc ? toTocVm(fields, canAct) : null,
+      toc: isToc ? toTocVm(fields, canAct, lead) : null,
       open: fields.filter((f) => isAssessed(f) && !resolved(f)).length,
     };
   });
