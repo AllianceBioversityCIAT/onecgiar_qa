@@ -48,7 +48,8 @@ export const ROLE_STEPS: readonly RoleStepRow[] = [
     permission: Permission.TPB_ACCESS,
     audience: 'tpb',
     round: 2,
-    enabled: false,
+    // P2-3916: the TPB decides the Lead's escalations in step 4 (escalation/round-2-tpb).
+    enabled: true,
     access: 'write',
   },
   {
@@ -74,7 +75,7 @@ export function findRoleStep(role: string): RoleStepRow | undefined {
   return ROLE_STEPS.find((row) => row.role === role);
 }
 
-/** The rows that give a worklist with write rights today: ASSESSOR and LEAD_ASSESSOR; TPB and PPU stay designed only (round-2 FR-16). */
+/** The rows that give a worklist with write rights today: ASSESSOR, LEAD_ASSESSOR and TPB (P2-3916); PPU stays designed only (round-2 FR-16). */
 export function enabledReviewerRows(): readonly RoleStepRow[] {
   return ROLE_STEPS.filter((row) => row.enabled && row.access === 'write');
 }

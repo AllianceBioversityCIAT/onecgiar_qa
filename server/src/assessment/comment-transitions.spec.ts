@@ -46,6 +46,9 @@ describe('comment transitions (FR-19, design 7.7, P2-3911)', () => {
     ...LEAD_FROM.map((from): Move => [from, 'lead_sided_program', 'lead']),
     // Round 2 (T-9): the Lead's escalate moves the comment when the review ends `escalated`.
     ...LEAD_FROM.map((from): Move => [from, 'escalated', 'lead']),
+    // Round 2, step 4 (P2-3916): the TPB's decisions move an escalated comment when its review ends.
+    ['escalated', 'tpb_sided_program', 'tpb'],
+    ['escalated', 'tpb_sided_assessor', 'tpb'],
   ])('allows %s -> %s by %s', (from, to, by) => {
     expect(isTransitionAllowed(from, to, by)).toBe(true);
   });
@@ -85,6 +88,13 @@ describe('comment transitions (FR-19, design 7.7, P2-3911)', () => {
     ['escalated', 'escalated', 'lead'],
     [null, 'escalated', 'lead'],
     ['disagreed', 'escalated', 'author'],
+    // The TPB decides escalated comments only, and only it writes its states.
+    ['disagreed', 'tpb_sided_program', 'tpb'],
+    ['lead_sided_program', 'tpb_sided_assessor', 'tpb'],
+    ['open', 'tpb_sided_assessor', 'tpb'],
+    ['escalated', 'tpb_sided_program', 'lead'],
+    ['escalated', 'tpb_sided_assessor', 'program'],
+    ['escalated', 'lead_sided_program', 'tpb'],
   ])('refuses %s -> %s by %s', (from, to, by) => {
     expect(findTransition(from, to, by)).toBeUndefined();
     expect(isTransitionAllowed(from, to, by)).toBe(false);
@@ -97,9 +107,14 @@ describe('comment transitions (FR-19, design 7.7, P2-3911)', () => {
     }
   });
 
-  it('has exactly the 29 reachable moves: 3 by the author, 20 by the program, 6 by the Lead', () => {
+  it('has exactly the 31 reachable moves: 3 by the author, 20 by the program, 6 by the Lead, 2 by the TPB', () => {
     const reachable = COMMENT_TRANSITIONS.filter((row) => row.reachable);
-    expect(reachable).toHaveLength(29);
+    expect(reachable).toHaveLength(31);
+    expect(
+      reachable
+        .filter((row) => row.by === 'tpb')
+        .map((row) => `${row.from}->${row.to}`),
+    ).toEqual(['escalated->tpb_sided_program', 'escalated->tpb_sided_assessor']);
     expect(
       reachable
         .filter((row) => row.by === 'author')
