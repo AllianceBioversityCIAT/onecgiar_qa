@@ -35,13 +35,26 @@
   [class.-translate-x-full]="!mobileNavOpen()"
   [class.lg:w-16]="collapsed()"
 >
-  <!-- The logo has the row to itself and is bigger (Juanpa, 2026-11-25: it looked squeezed next to the collapse button,
-       which now lives in the top bar). Collapsed, the image is clipped so only the PRMS mark shows.
-       On phones it stays 20 px tall: the close button shares the row. Room above and below so it does not touch the edge. -->
-  <div class="flex min-h-[57px] items-center gap-2.5 px-5 pt-6 pb-5" [class.lg:justify-center]="collapsed()" [class.lg:px-0]="collapsed()">
-    <span class="flex h-5 min-w-0 flex-1 items-center overflow-hidden lg:h-6" [class.lg:w-7]="collapsed()" [class.lg:flex-none]="collapsed()">
-      <img ngSrc="logo-prms-qa.svg" width="213" height="24" priority alt="PRMS quality assurance" class="block h-5 w-auto max-w-none lg:h-6" />
+  <!-- Stacked logo, 36 px tall, with the collapse button beside it (Juanpa, 2026-11-26: the two-line logo stays big and
+       lets the button come back to the sidebar). The button's right edge lines up with the menu items (12 px), which
+       leaves more air between it and the logo. Collapsed, the image is clipped so only the PRMS mark shows, with the
+       button under it. Room above and below so it does not touch the edge. -->
+  <div class="flex items-center gap-2 pt-6 pr-3 pb-5 pl-5" [class.lg:flex-col]="collapsed()" [class.lg:gap-3]="collapsed()" [class.lg:px-0]="collapsed()">
+    <span class="flex h-9 min-w-0 flex-1 items-center overflow-hidden" [class.lg:w-11]="collapsed()" [class.lg:flex-none]="collapsed()">
+      <img ngSrc="logo-prms-qa.svg" width="176" height="36" priority alt="PRMS quality assurance" class="block h-9 w-auto max-w-none" />
     </span>
+    <!-- Collapse / expand the sidebar (desktop). -->
+    <button
+      type="button"
+      class="hidden size-8 flex-none items-center justify-center rounded-lg text-(--nav-fg-3) hover:bg-(--nav-2) lg:flex"
+      aria-controls="qa-sidebar"
+      [attr.aria-label]="collapsed() ? 'Expand sidebar' : 'Collapse sidebar'"
+      [attr.title]="collapsed() ? 'Expand sidebar' : 'Collapse sidebar'"
+      [attr.aria-expanded]="!collapsed()"
+      (click)="toggleMenu()"
+    >
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3" /><path d="M9 3v18" /></svg>
+    </button>
     <button
       type="button"
       aria-label="Close menu"
@@ -90,18 +103,6 @@
         (click)="mobileNavOpen.set(true)"
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
-      </button>
-      <!-- Collapse / expand the sidebar (desktop). It was in the sidebar header, next to the logo. -->
-      <button
-        type="button"
-        class="hidden size-8 flex-none items-center justify-center rounded-lg text-(--text-3) hover:bg-(--surface-4) lg:flex"
-        aria-controls="qa-sidebar"
-        [attr.aria-label]="collapsed() ? 'Expand sidebar' : 'Collapse sidebar'"
-        [attr.title]="collapsed() ? 'Expand sidebar' : 'Collapse sidebar'"
-        [attr.aria-expanded]="!collapsed()"
-        (click)="toggleMenu()"
-      >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3" /><path d="M9 3v18" /></svg>
       </button>
       <button type="button" aria-label="Back" class="hidden size-8 flex-none items-center justify-center rounded-lg text-(--text-3) hover:bg-(--surface-4) sm:flex" (click)="back()">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M12 19l-7-7 7-7" /></svg>
