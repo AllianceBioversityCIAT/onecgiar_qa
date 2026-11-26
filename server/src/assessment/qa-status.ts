@@ -1,5 +1,6 @@
 // @akili-spec assessment/step-1-assessment
 import { sql, type SQL, type SQLWrapper } from 'drizzle-orm';
+import type { StepAudience } from '../admin-config/timelines/default-steps.js';
 import type { ResultAssessmentStatus } from '../database/drizzle/schema/result-assessments.js';
 import type {
   TimelineResultEndReason,
@@ -49,11 +50,29 @@ export interface StatusRule {
   readonly assessmentStatus?: readonly (ResultAssessmentStatus | null)[];
   /** Whether any comment thread of the assessment is `clarification_requested`. */
   readonly clarificationThread?: boolean;
+  /**
+   * The audience of the step the current assessment belongs to (escalation/round-2-tpb DD-T3).
+   * A row that names it never matches an input without it (`undefined` or `null`).
+   */
+  readonly currentStep?: readonly StepAudience[];
 }
 
 /** FR-5, row by row, in the order of the requirement's table. */
 export const STATUS_RULES: readonly StatusRule[] = [
   { status: 'auto_validated', membershipStatus: ['auto_validated'] },
+  // P2-3916 (DD-T3): the TPB's step-4 assessment. While it is open the result is
+  // still Pending for TPB review; ended `escalated` it waits for the PPU. These
+  // come first: the generic `pending` and `pending_tpb_review` rows would catch them.
+  {
+    status: 'pending_tpb_review',
+    currentStep: ['tpb'],
+    assessmentStatus: ['pending'],
+  },
+  {
+    status: 'pending_ppu',
+    currentStep: ['tpb'],
+    assessmentStatus: ['escalated'],
+  },
   {
     status: 'pending',
     membershipStatus: ['pending'],
@@ -78,12 +97,14 @@ export const STATUS_RULES: readonly StatusRule[] = [
   { status: 'quality_assessed', assessmentStatus: ['quality_assessed'] },
 ];
 
-/** What the status reads: the same four inputs in TS and in SQL (design 7.2). */
+/** What the status reads: the same inputs in TS and in SQL (design 7.2). */
 export interface StatusInputs {
   membershipStatus: TimelineResultStatus;
   endReason: TimelineResultEndReason | null;
   assessmentStatus: ResultAssessmentStatus | null;
   hasClarificationThread: boolean;
+  /** The audience of the current assessment's step (DD-T3); left out by readers that never see a round-2 step (the SP view). */
+  currentStep?: StepAudience | null;
 }
 
 function holds<T>(allowed: readonly T[] | undefined, value: T): boolean {
@@ -101,7 +122,10 @@ export function statusOf(inputs: StatusInputs): QaStatus | null {
       holds(row.endReason, inputs.endReason) &&
       holds(row.assessmentStatus, inputs.assessmentStatus) &&
       (row.clarificationThread === undefined ||
-        row.clarificationThread === inputs.hasClarificationThread),
+        row.clarificationThread === inputs.hasClarificationThread) &&
+      (row.currentStep === undefined ||
+        (inputs.currentStep != null &&
+          row.currentStep.includes(inputs.currentStep))),
   );
   return rule?.status ?? null;
 }
@@ -116,6 +140,8 @@ export interface StatusSqlColumns {
   endReason: SQLWrapper;
   assessmentStatus: SQLWrapper;
   hasClarificationThread: SQLWrapper;
+  /** The audience of the current assessment's step, or NULL (DD-T3). Left out: no row that names a step matches. */
+  currentStep?: SQLWrapper;
 }
 
 // The literals come from the closed constants above, never from a request, so
@@ -164,6 +190,13 @@ function ruleCondition(rule: StatusRule, columns: StatusSqlColumns): SQL {
   if (rule.clarificationThread !== undefined) {
     conditions.push(
       sql`${columns.hasClarificationThread} = ${sql.raw(rule.clarificationThread ? '1' : '0')}`,
+    );
+  }
+  if (rule.currentStep) {
+    conditions.push(
+      columns.currentStep === undefined
+        ? sql.raw('1 = 0')
+        : listCondition(columns.currentStep, rule.currentStep),
     );
   }
   return conditions.length === 0
