@@ -8,7 +8,7 @@ Parameters:
   ProjectName:
     Type: String
     Default: onecgiar-qa-frontend
-    Description: Base name for resources and value of the Project tag.
+    Description: Base name for resources; the Project tag is <ProjectName>-<Environment> (cost tracking).
 
   Environment:
     Type: String
@@ -54,7 +54,7 @@ Resources:
           }
       Tags:
         - Key: Project
-          Value: !Ref ProjectName
+          Value: !Sub '${ProjectName}-${Environment}'
         - Key: Environment
           Value: !Ref Environment
         - Key: Name

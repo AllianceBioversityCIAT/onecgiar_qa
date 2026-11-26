@@ -1,0 +1,213 @@
+# OneCGIAR QA PROD: CI on GitHub Actions, CD on Jenkins (CD-only job qa-application-2026-prod-cd).
+#
+#   push to main -> checks (server lint/tests, client tests)
+#                -> publish frontend image (PROD config from Secrets Manager, client/Dockerfile.prod, ECR by digest)
+#                -> Jenkins qa-application-2026-prod-cd:
+#                     backend  = server script /opt/scripts/upQa2026.sh (checkout, migrations, build, PM2 qa-api)
+#                     frontend = CloudFormation stack client/infrastructure/template.yaml with the image digest
+#                                (Lambda + Function URL + CloudFront; created on the first run, updated afterwards)
+#
+# Same checks as qa-staging-ci.yml, plus publish-frontend (the frontend image). Jenkins never
+# lints, tests, builds or pushes images.
+#
+# GitHub Environments:
+#   qa-prod-ci  publish-frontend only (OIDC). Deployment branches: main only, admins cannot bypass.
+#               Variables: CICD_BOUND_REF (refs/heads/main), QA_AWS_REGION, QA_ECR_CLIENT_REPOSITORY.
+#               Secrets: QA_BUILD_ROLE_ARN, QA_FRONTEND_CONFIG_SECRET_ID (identifiers, secret only to be masked).
+#   qa-prod     Jenkins hand-over only (exists). Uses JENKINS_USERNAME / JENKINS_API_TOKEN.
+#   The build role (qa-prod-github-ci) trusts only qa-prod-ci and refs/heads/main.
+#
+# Secret handling: as qa-dev-cicd.yml (OIDC with output-env-credentials: false; npm/docker through without-oidc.sh;
+# environment files written by write-frontend-config.sh, mode 0600, removed by an `if: always()` step).
+#
+# Slack (one message per event): started / failed (GitHub Actions, before Jenkins); succeeded / failed (Jenkins).
+#
+# Action pinning (same SHAs as qa-dev-cicd.yml):
+#   actions/checkout                       v7.0.1  3d3c42e5aac5ba805825da76410c181273ba90b1
+#   actions/setup-node                     v7.0.0  820762786026740c76f36085b0efc47a31fe5020
+#   aws-actions/configure-aws-credentials  v6.3.0  e1253824e5c10ff9df46874f81ed3ec929e19cfd
+name: qa-prod-cicd
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: qa-prod-cicd-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CI: 'true'
+  COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+
+jobs:
+  # ---------------------------------------------------------------- start notification
+  notify-start:
+    name: notify start (Slack)
+    permissions: {}
+    uses: ./.github/workflows/slack-notify.reusable.yml
+    with:
+      status: started
+      title: OneCGIAR QA NEW ENVIRONMENT
+      project: OneCGIAR QA
+      environment-label: PROD
+    secrets:
+      SLACK_NOTIFICATIONS_WEBHOOK_URL: ${{ secrets.SLACK_NOTIFICATIONS_WEBHOOK_URL }}
+
+  # ---------------------------------------------------------------- checks (no secrets, no AWS)
+  server-checks:
+    name: server checks (lint, tests)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - name: Install dependencies (lockfile)
+        run: corepack pnpm install --frozen-lockfile
+      - name: Lint
+        run: corepack pnpm lint
+      - name: Unit tests
+        run: corepack pnpm test --reporter=dot --maxWorkers=2
+      - name: e2e tests
+        run: corepack pnpm test:e2e --reporter=dot --maxWorkers=2
+
+  client-checks:
+    name: client checks (tests)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - name: Install dependencies (lockfile)
+        run: npm ci --no-audit --no-fund
+      - name: Unit tests
+        run: npx ng test --watch=false
+
+  # ---------------------------------------------------------------- publish the frontend image
+  # Only when every check passed. The image carries the PROD environment.ts (build time, it ships to the browser).
+  publish-frontend:
+    name: publish frontend image (Lambda)
+    needs: [server-checks, client-checks]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: qa-prod-ci
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      frontend-digest: ${{ steps.push-frontend.outputs.digest }}
+    steps:
+      - name: Enforce bound ref
+        env:
+          BOUND_REF: ${{ vars.CICD_BOUND_REF }}
+          CURRENT_REF: ${{ github.ref }}
+        run: |
+          if [ -z "${BOUND_REF:-}" ] || [ "$CURRENT_REF" != "$BOUND_REF" ]; then echo "::error::ref is not the bound ref (fail closed)"; exit 1; fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Assume the build role through OIDC (credentials not exported to the job)
+        id: aws-config
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ secrets.QA_BUILD_ROLE_ARN }}
+          aws-region: ${{ vars.QA_AWS_REGION }}
+          role-session-name: qa-prod-ci-${{ github.run_id }}
+          mask-aws-account-id: true
+          output-env-credentials: false
+          output-credentials: true
+      - name: Frontend configuration from Secrets Manager
+        env:
+          AWS_ACCESS_KEY_ID: ${{ steps.aws-config.outputs.aws-access-key-id }}
+          AWS_SECRET_ACCESS_KEY: ${{ steps.aws-config.outputs.aws-secret-access-key }}
+          AWS_SESSION_TOKEN: ${{ steps.aws-config.outputs.aws-session-token }}
+          AWS_REGION: ${{ vars.QA_AWS_REGION }}
+          SECRET_ID: ${{ secrets.QA_FRONTEND_CONFIG_SECRET_ID }}
+        run: bash .github/scripts/write-frontend-config.sh
+      - name: Build client image (client/Dockerfile.prod, production configuration)
+        env:
+          TAG: local/frontend:${{ github.run_id }}-${{ github.run_attempt }}
+        run: bash .github/scripts/without-oidc.sh docker build --file client/Dockerfile.prod --tag "$TAG" -- client
+      - name: Remove the frontend configuration and the cache that holds copies of it
+        if: always()
+        run: bash .github/scripts/remove-frontend-config.sh
+      - name: Assume the build role through OIDC for the push (credentials not exported to the job)
+        id: aws
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ secrets.QA_BUILD_ROLE_ARN }}
+          aws-region: ${{ vars.QA_AWS_REGION }}
+          role-session-name: qa-prod-ci-${{ github.run_id }}
+          mask-aws-account-id: true
+          output-env-credentials: false
+          output-credentials: true
+      - name: Push client image and capture its digest
+        id: push-frontend
+        env:
+          AWS_ACCESS_KEY_ID: ${{ steps.aws.outputs.aws-access-key-id }}
+          AWS_SECRET_ACCESS_KEY: ${{ steps.aws.outputs.aws-secret-access-key }}
+          AWS_SESSION_TOKEN: ${{ steps.aws.outputs.aws-session-token }}
+          AWS_REGION: ${{ vars.QA_AWS_REGION }}
+          REPOSITORY: ${{ vars.QA_ECR_CLIENT_REPOSITORY }}
+          LOCAL: local/frontend:${{ github.run_id }}-${{ github.run_attempt }}
+          TAG: gha-${{ github.run_id }}-${{ github.run_attempt }}
+        run: bash .github/scripts/push-image.sh
+
+  # ---------------------------------------------------------------- CD hand-over to Jenkins
+  deploy:
+    name: deploy (Jenkins qa-application-2026-prod-cd)
+    needs: publish-frontend
+    if: needs.publish-frontend.result == 'success' && needs.publish-frontend.outputs.frontend-digest != ''
+    permissions: {}
+    uses: ./.github/workflows/jenkins-cd.reusable.yml
+    with:
+      jenkins-job: qa-application-2026-prod-cd
+      environment: qa-prod
+      dry-run: false
+      artifacts: frontend=${{ needs.publish-frontend.outputs.frontend-digest }}
+    secrets:
+      JENKINS_USERNAME: ${{ secrets.JENKINS_USERNAME }}
+      JENKINS_API_TOKEN: ${{ secrets.JENKINS_API_TOKEN }}
+
+  # ---------------------------------------------------------------- CI failure notification
+  notify-ci-failure:
+    name: notify CI failure (Slack)
+    needs: [server-checks, client-checks, publish-frontend, deploy]
+    if: ${{ always() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
+    permissions: {}
+    uses: ./.github/workflows/slack-notify.reusable.yml
+    with:
+      status: failed
+      title: OneCGIAR QA NEW ENVIRONMENT
+      project: OneCGIAR QA
+      environment-label: PROD
+      detail: >-
+        server-checks=${{ needs.server-checks.result }},
+        client-checks=${{ needs.client-checks.result }},
+        publish-frontend=${{ needs.publish-frontend.result }},
+        jenkins-hand-over=${{ needs.deploy.result }}
+    secrets:
+      SLACK_NOTIFICATIONS_WEBHOOK_URL: ${{ secrets.SLACK_NOTIFICATIONS_WEBHOOK_URL }}
