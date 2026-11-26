@@ -60,6 +60,7 @@ import type {
   NewReleaseRow,
   QuickCommentRecord,
   RoundOneThreadRow,
+  EscalationThreadRow,
   SavedQuickComment,
   ValidationRecord,
   ValidationWrite,
@@ -866,9 +867,34 @@ export class InMemoryAssessmentStore implements AssessmentStore {
     roleCode: string,
   ): Promise<RoundOneThreadRow[]> {
     this.world.statements += 1;
-    const rows: RoundOneThreadRow[] = [];
+    return Promise.resolve(
+      this.threadRows([assessmentId], roleCode, null).map(
+        ({ round: _r, leadDecision: _d, leadDecisionBody: _b, leadDecidedAt: _a, ...row }) => row,
+      ),
+    );
+  }
+
+  /** P2-3916 (DD-T5): the TPB's thread, one counted statement (`buildEscalationThreadQuery`). */
+  findEscalationThread(
+    assessmentIds: readonly number[],
+    roleCode: string,
+    contextRoleCode: string,
+  ): Promise<EscalationThreadRow[]> {
+    if (assessmentIds.length === 0) return Promise.resolve([]);
+    this.world.statements += 1;
+    return Promise.resolve(
+      this.threadRows(assessmentIds, roleCode, contextRoleCode),
+    );
+  }
+
+  private threadRows(
+    assessmentIds: readonly number[],
+    roleCode: string,
+    contextRoleCode: string | null,
+  ): EscalationThreadRow[] {
+    const rows: EscalationThreadRow[] = [];
     this.world.comments.forEach((c, index) => {
-      if (c.assessmentId !== assessmentId) return;
+      if (!assessmentIds.includes(c.assessmentId)) return;
       if (c.state === 'withdrawn' || (c.deletedAt ?? null) !== null) return;
       const record = commentRecordOf(this.world, c, index);
       const own = this.world.spResponses
@@ -881,6 +907,12 @@ export class InMemoryAssessmentStore implements AssessmentStore {
       const decision = this.world.commentDecisions.find(
         (d) => d.commentId === record.id && d.roleCode === roleCode,
       );
+      const context =
+        contextRoleCode === null
+          ? undefined
+          : this.world.commentDecisions.find(
+              (d) => d.commentId === record.id && d.roleCode === contextRoleCode,
+            );
       const base = {
         commentId: record.id,
         fieldKey: record.fieldKey,
@@ -898,6 +930,13 @@ export class InMemoryAssessmentStore implements AssessmentStore {
           decision === undefined
             ? null
             : (decision.decidedAt ?? record.createdAt),
+        round: record.round,
+        leadDecision: context?.decision ?? null,
+        leadDecisionBody: context?.body ?? null,
+        leadDecidedAt:
+          context === undefined
+            ? null
+            : (context.decidedAt ?? record.createdAt),
       };
       const lines = shown.length === 0 ? [undefined] : shown;
       for (const response of lines) {
@@ -926,7 +965,7 @@ export class InMemoryAssessmentStore implements AssessmentStore {
         x.commentId - y.commentId ||
         (x.responseId ?? 0) - (y.responseId ?? 0),
     );
-    return Promise.resolve(rows);
+    return rows;
   }
 
   listQuickComments(roleCode: string): Promise<QuickCommentRecord[]> {
