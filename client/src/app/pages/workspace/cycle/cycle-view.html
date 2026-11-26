@@ -33,11 +33,9 @@
     <qa-cycle-skeleton />
   }
   @case ('error') {
-    <section role="alert" class="flex flex-col items-start gap-1 rounded-xl border border-(--border) bg-(--surface) px-5 py-6 shadow-(--shadow-card)">
-      <h2 class="m-0 text-(length:--fs-16) font-bold text-(--text)">We couldn't load the cycle</h2>
-      <p class="m-0 text-(length:--fs-14) text-(--text-3)">{{ store.loadError() }}</p>
-      <button hlmBtn qaBtn tone="secondary" type="button" (click)="store.load()" class="mt-3">Try again</button>
-    </section>
+    <qa-state-card alert heading="We couldn't load the cycle" [message]="store.loadError()">
+      <button hlmBtn qaBtn tone="secondary" size="sm" type="button" (click)="store.load()">Try again</button>
+    </qa-state-card>
   }
   @case ('no-cycle') {
     <section class="flex flex-col items-start gap-1 rounded-xl border border-(--border) bg-(--surface) px-5 py-6 shadow-(--shadow-card)">

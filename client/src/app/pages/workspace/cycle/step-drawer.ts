@@ -205,14 +205,14 @@ interface StepDraft {
         @if (!live()) {
         @if (d.batch && !first()) {
           <div class="flex flex-col items-start gap-[6px]">
-            <span id="cycle-step-reopen" class="text-(length:--fs-13) font-semibold text-(--text-2)">Fields reopened in this step</span>
+            <span id="cycle-step-reopen" class="text-(length:--fs-13) font-medium text-(--text-2)">Fields reopened in this step</span>
             <qa-segmented [value]="d.reopen" (valueChange)="patch({ reopen: $event === 'all' ? 'all' : 'comments' })" [options]="reopenOptions" size="compact" aria-labelledby="cycle-step-reopen" />
           </div>
         }
 
         <div class="flex flex-col items-stretch gap-[6px]">
           <div class="flex items-center gap-1">
-            <span class="text-(length:--fs-13) font-semibold text-(--text-2)">Extended access</span>
+            <span class="text-(length:--fs-13) font-medium text-(--text-2)">Extended access</span>
             <button type="button" qaTooltip="Give specific programs more time to correct their results after this step closes for everyone else." aria-label="More about Extended access" class="flex size-4 flex-none cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-0 text-(--text-muted) outline-none hover:text-(--primary) focus-visible:shadow-(--focus-ring)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01" /></svg></button>
           </div>
           <div class="flex flex-col rounded-lg border border-(--border)">

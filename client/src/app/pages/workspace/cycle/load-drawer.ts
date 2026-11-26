@@ -36,7 +36,7 @@ export interface LoadDrawerNames {
       @if (open()) {
         <div class="flex flex-col items-start gap-[6px]">
           <div class="flex items-center gap-1">
-            <span class="text-(length:--fs-13) font-semibold text-(--text-2)">Timeline</span>
+            <span class="text-(length:--fs-13) font-medium text-(--text-2)">Timeline</span>
             @if (fromStep()) {
               <span class="ml-1 rounded-md border border-(--border) px-1.5 py-px text-(length:--fs-12) font-medium whitespace-nowrap text-(--text-3)">From step {{ fromStepNumber() }}</span>
             }

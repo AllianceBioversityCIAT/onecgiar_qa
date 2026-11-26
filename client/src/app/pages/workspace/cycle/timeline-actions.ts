@@ -11,7 +11,9 @@ import { MenuAction, TimelineVM } from './cycle.logic';
 @Component({
   selector: 'qa-cycle-timeline-actions',
   imports: [QaButtonImports, QaMenuImports],
-  host: { class: 'flex flex-none flex-wrap items-center gap-2 max-sm:w-full' },
+  // Full width on phones only when it holds a button besides "…" (they share the row); the menu alone stays beside the
+  // title instead of taking a row of its own (final review, 2026-11-25).
+  host: { class: 'flex flex-none flex-wrap items-center gap-2 max-sm:has-[[hlmBtn]]:w-full' },
   template: `
     @let t = timeline();
     @if (t.needsPeople && t.canAssign && !stepsShown()) {
