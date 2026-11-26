@@ -27,4 +27,11 @@ T-1 → T-2 → T-3 → T-4 → T-5 → T-6 → T-7 → T-8
 
 | Task | Status |
 |---|---|
-| T-1 … T-8 | [ ] |
+| T-1 rules, transitions, status rows | [x] `1dfdc0f` |
+| T-2 scope, TPB row, membership read | [x] `65c6082` |
+| T-3 escalation thread read | [x] `dd039ed` |
+| T-4 view | [x] `c0f59f8` |
+| T-5, T-6, T-7 decide, finish, end, refusals, Admin, quick comments | [x] `da3716f`, `e679ac8` (AI read), `61d32a2` (counters, DD-T10) |
+| T-8 flow e2e, guide, front contract | [x] this commit |
+
+Gate at the push: `pnpm lint`, `pnpm build`, `pnpm test`, `pnpm test:e2e` (results in the delivery note).

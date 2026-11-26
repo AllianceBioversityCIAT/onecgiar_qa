@@ -10,7 +10,7 @@
 |---|---|
 | Type / Deliverable | Change / software |
 | Source | Jira P2-3916 (AC1 … AC12), read 2026-11-26 |
-| Decisions | Back lead, 2026-11-26: the TPB ends only with Finish (OQ-1); the worklist lists what reached step 4 (OQ-2). § 8 |
+| Decisions | Back lead, 2026-11-26: the TPB ends only with Finish (OQ-1); the worklist lists what reached step 4 (OQ-2). § 8. Found while building: OQ-3 (§ 8) |
 | Extends | `escalation/round-2` (FR-1 … FR-17, DD-1 … DD-11; design § 12) · `admin/acts-as-reviewer` |
 
 ## 2. Executive Summary
@@ -58,7 +58,7 @@ In step 4 the TPB receives the results a Lead Assessor ended **Pending for TPB r
 
 | Role | Scope | Needs |
 |---|---|---|
-| TPB | Timelines they are assigned to, the result types of their live TPB grants, their program scope | Decide each escalated comment with its full context; finish once |
+| TPB | Timelines they are assigned to, every result type (global role), their program scope | Decide each escalated comment with its full context; finish once |
 | LEAD_ASSESSOR | Unchanged | Their read-only view keeps showing their own step-3 review after the TPB starts |
 | ADMIN | Every timeline | Reads the step-4 statuses; acts as TPB with `X-Acting-Role: TPB` |
 | PROGRAM | Their program | Unchanged: never sees the review outcome (round-2 DD-11) |
@@ -79,7 +79,7 @@ The TPB's view SHALL keep the step-1 structure: the Reporting sections and field
 
 ### FR-2: Scope and window (AC2)
 
-The system SHALL list, for a TPB, only the round-2 memberships whose Lead (step-3) assessment ended `escalated`. These must be in timelines the TPB is assigned to, within the result types of their live TPB grants and their program scope. Writes SHALL be allowed only while the timeline's `tpb` step is `in_progress`.
+The system SHALL list, for a TPB, only the round-2 memberships whose Lead (step-3) assessment ended `escalated`. These must be in timelines the TPB is assigned to and within their program scope. TPB is a **global** role: its grant takes no result type, so it covers every result type (DD-T9). Writes SHALL be allowed only while the timeline's `tpb` step is `in_progress`. The worklist counters count `pending_tpb_review` as the TPB's pending work, and `quality_assessed` / `pending_ppu` as finished.
 
 #### Scenario: Escalated result listed and writable in step 4
 
@@ -197,7 +197,7 @@ A TPB SHALL read and save the TPB role's quick comment list on the existing rout
 
 ### FR-11: TPB writes only decisions
 
-A TPB's validation, comment or delete SHALL be refused with 403 `ASSESSMENT_READ_ONLY`, and nothing written.
+A TPB's validation, comment, delete or AI usage event SHALL be refused with 403 `ASSESSMENT_READ_ONLY`, and nothing written.
 
 ### FR-12: Admin as TPB
 
@@ -234,6 +234,7 @@ Every TPB write SHALL leave the round-2 audit rows: `decision_set`, `decision_cl
 |---|---|---|
 | OQ-1 | The Lead auto-ends when all core fields turn green. Does the TPB? | No. The TPB ends only with Finish (AC9). "Automatically" in AC10 means no extra manual step after Finish |
 | OQ-2 | Does the worklist list only Pending for TPB review? | It lists what reached step 4. Finished results stay visible read-only; outside step 4 they are read-only, like the Lead's |
+| OQ-3 | AC2 says "within their result types", but the role catalog makes TPB **global** (`users/permissions.ts`: `scopeType: 'global'`; a grant takes no result type) | Built as: every result type, the user's program scope applies (DD-T9). **Open for the back lead to confirm** |
 
 ## 9. Requirement ID Index
 

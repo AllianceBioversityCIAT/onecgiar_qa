@@ -105,6 +105,8 @@ eff3(key) = stored3(key) ?? carried(key)
 | DD-T6 | A TPB writes no validation, comment or delete (403 `ASSESSMENT_READ_ONLY`). The green is a by-product of the decision | Let the TPB tick fields | The AC asks for decisions only; a tick would bypass the reason | FR-11 |
 | DD-T7 | A role reads **its own step's** assessment in the view when it is not the current one: the Lead after the TPB starts, and the TPB before its first write | Every role reads the current step (round-2 DD-3) | Otherwise the Lead's view would show the TPB's (empty) step-4 row and lose its own comments. The status still reads the current step (DD-3 unchanged) | FR-13 |
 | DD-T8 | The field green needs **every** escalated item on it to side with the program | Any one agree | Mirrors the Lead's "agree greens unless another comment on it is undecided" | FR-6 |
+| DD-T9 | A **global** role's reviewer row (TPB) covers every result type; the user's program scope still applies | Read the grant's result types (there are none: `role-assignments.repository.ts` refuses a type on a global grant) | Without it a TPB covers nothing. AC2's "their result types" reads as "all" (OQ-3, open) | FR-2 |
+| DD-T10 | The worklist counters follow the caller: TPB-only callers count `pending_tpb_review` as pending; `pending_ppu` is finished for everyone | One role-blind counter | Otherwise the TPB's whole queue reads "finished" (the Lead's FR-14 rule) | FR-2 |
 
 ## 8. Premise Ledger
 
@@ -116,7 +118,8 @@ eff3(key) = stored3(key) ?? carried(key)
 | P-4 | The release ack ends `qaed` in any round | round-2 P-6 (`ingestion/loads.store.ts:800-801`) | A TPB Quality Assessed never settles |
 | P-5 | The AI rules already map a TPB caller to `{ kind: 'tpb' }` | `ai-suggestions-rules.ts:40` | FR-4's AI part needs a rules change |
 | P-6 | Quick comments read the role-step rows | round-2 P-11 | FR-10 needs a change |
-| P-7 | The test world already has a TPB user (`sub-tpb`, grant `TPB`, all types) | `test/support/assessment-app.ts:197` | Tests add one |
+| P-7 | The test world already has a TPB user (`sub-tpb`, a global TPB grant) | `test/support/assessment-app.ts:197` | Tests add one |
+| P-8 | TPB is a global role: its grant carries no result type | `users/permissions.ts` (`RoleCode.TPB`, `scopeType: 'global'`); `role-assignments.repository.ts:183-187` refuses a scope value | DD-T9 is not needed |
 
 ## 9. Verification outside the suites
 
