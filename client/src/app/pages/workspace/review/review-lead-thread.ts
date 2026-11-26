@@ -3,6 +3,7 @@ import { Component, computed, inject, input, linkedSignal, signal } from '@angul
 import { FormField, form } from '@angular/forms/signals';
 import { LeadDecisionKind } from '../../../core/api/assessment.models';
 import { QaButtonImports } from '../../../ui';
+import { ReviewDeleteComment } from './review-delete-comment';
 import { ThreadItemVm } from './review-model';
 import { ReviewStore } from './review-store';
 
@@ -23,7 +24,7 @@ interface Editing {
  */
 @Component({
   selector: 'qa-review-lead-thread',
-  imports: [FormField, QaButtonImports],
+  imports: [FormField, QaButtonImports, ReviewDeleteComment],
   templateUrl: './review-lead-thread.html',
   host: { class: 'block' },
 })
@@ -33,6 +34,10 @@ export class ReviewLeadThread {
   readonly items = input.required<readonly ThreadItemVm[]>();
   /** The field's label, for accessible names. */
   readonly fieldLabel = input('');
+  /** The block's heading: the round-1 thread, or the Lead's own round-2 comments (tramo 4). */
+  readonly title = input('Round 1 comments');
+  /** `data-testid` of the block (`lead-thread` / `lead-own`). */
+  readonly testId = input('lead-thread');
   /** Open by default while a comment waits for a decision. Once open it stays open (deciding never folds it away). */
   readonly open = input(false);
 

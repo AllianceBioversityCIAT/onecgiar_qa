@@ -47,6 +47,7 @@ export interface ReviewCommentVm extends FieldComment {
   readonly authorId: number;
   readonly open: boolean;
   readonly canWithdraw: boolean;
+  readonly canDelete: boolean;
 }
 
 /** Who reads the thread: the caller's user id, and whether their step still lets them take a comment back. */
@@ -55,6 +56,8 @@ export interface ThreadReader {
   readonly canWithdraw: boolean;
   /** False once the server said the programs step is closed: the clarification form is not offered (P2-3911). */
   readonly canClarify?: boolean;
+  /** Round 2 (Lead): another reviewer's open comment may be deleted (`deleteOpen`). */
+  readonly canDelete?: boolean;
 }
 
 const NO_READER: ThreadReader = { me: null, canWithdraw: false };
@@ -63,8 +66,17 @@ const NO_READER: ThreadReader = { me: null, canWithdraw: false };
  * A comment can be taken back while the caller writes on the assessment, and also after it ended (the server allows
  * it while step 1 or 2 is open, FR-13). Any other read-only reason (admin, step closed, no step) offers nothing.
  */
-export function withdrawOpen(view: Pick<AssessmentView, 'writable' | 'readOnlyReason'>): boolean {
-  return view.writable || view.readOnlyReason === 'finished';
+export function withdrawOpen(view: Pick<AssessmentView, 'writable' | 'readOnlyReason'> & Pick<Partial<AssessmentView>, 'round'>): boolean {
+  // Round 2: after the Lead's end the server refuses it (an escalated comment is no longer open; contract § 4.5).
+  return view.writable || (view.readOnlyReason === 'finished' && view.round !== 2);
+}
+
+/**
+ * Round 2 (Lead): another reviewer's comment can be deleted while the Lead writes on the review (contract § 4.4). The
+ * server also refuses the Lead's own comment and one the program answered; the comment-level rule is the mapper's.
+ */
+export function deleteOpen(view: Pick<AssessmentView, 'writable'> & Pick<Partial<AssessmentView>, 'round'>): boolean {
+  return view.round === 2 && view.writable;
 }
 
 export interface TocVm {
@@ -371,6 +383,10 @@ function cardStatus(f: AssessmentField, writable: boolean, id: string = f.key): 
 export interface LeadContext {
   readonly decide: boolean;
   readonly othersGreen: boolean;
+  /** The page offers the delete of another reviewer's comment (`deleteOpen` and writes on). */
+  readonly remove?: boolean;
+  /** The caller's user id: one's own comment is withdrawn, never deleted. */
+  readonly me?: number | null;
 }
 const NO_LEAD: LeadContext = { decide: false, othersGreen: false };
 
@@ -419,11 +435,41 @@ function toThreadVm(f: AssessmentField, lead: LeadContext): ThreadItemVm[] {
         : null,
       choices,
       pending: t.decidable && !t.decision,
+      own: false,
+      // Contract § 4.4: not one the program answered, never one's own.
+      canDelete: lead.remove === true && !t.response && t.author.id !== (lead.me ?? null),
       // Announced only, the server decides: agree greens the field once nothing else on it holds it grey.
       agreeEnds:
         lead.othersGreen && !ownEscalate && choices.some((c) => c.kind === 'agree_program') && all.every((o, j) => j === i || !holdsGrey(o)),
     };
   });
+}
+
+/**
+ * The Lead's own live round-2 comments of an actionable field (contract § 3.2): the comments that carry the own-comment
+ * keys (`decidable` present), withdrawn ones left out. Only "Escalate to TPB" (exactly `choices`); no program response.
+ */
+function toOwnVm(f: AssessmentField, lead: LeadContext): ThreadItemVm[] {
+  if (!isAssessed(f)) return [];
+  return f.comments
+    .filter((c) => c.decidable !== undefined && c.state !== 'withdrawn')
+    .map((c) => ({
+      commentId: c.id,
+      who: reviewerLabel(c.author),
+      date: romeDay(c.createdAt),
+      text: c.body,
+      valueThen: null,
+      response: null,
+      clarifications: [],
+      decision: c.decision
+        ? { kind: c.decision.decision, label: DECISION_LABELS[c.decision.decision].taken, text: c.decision.body ?? '', date: romeDay(c.decision.decidedAt) }
+        : null,
+      choices: lead.decide && c.decidable ? (c.choices ?? []).map((kind) => ({ kind, label: DECISION_LABELS[kind].offer })) : [],
+      pending: false,
+      agreeEnds: false,
+      own: true,
+      canDelete: false,
+    }));
 }
 
 export function toFieldVm(f: AssessmentField, writable: boolean, lead: LeadContext = NO_LEAD): FieldVm {
@@ -443,6 +489,7 @@ export function toFieldVm(f: AssessmentField, writable: boolean, lead: LeadConte
     carried: isCarried(f),
     updated: f.updated === true,
     leadThread,
+    leadOwn: toOwnVm(f, lead),
     threadOpen: leadThread.some((t) => t.pending),
   };
 }
@@ -659,7 +706,7 @@ function finishOutcome(view: AssessmentView, assessed: readonly AssessmentField[
  * `writes` off = the page shows what the API says but offers no write button (validate, comment, finish), even to
  * a caller who may write. The banner and `writable` still say what the API said.
  */
-export function toReviewVm(view: AssessmentView, writes = true): ReviewVm {
+export function toReviewVm(view: AssessmentView, writes = true, me: number | null = null): ReviewVm {
   const writable = view.writable;
   // Nothing is assessed on an auto-validated result, whatever the caller may write elsewhere.
   const auto = isAutoValidated(view);
@@ -669,7 +716,8 @@ export function toReviewVm(view: AssessmentView, writes = true): ReviewVm {
     auto ? fields.map(asContext) : roundTwo ? fields.map(leadContext) : fields;
   const assessed = view.sections.flatMap((s) => fieldsOf(s.fields)).filter(isAssessed);
   const greyCores = assessed.filter((f) => f.core && !isGreen(f)).map((f) => f.key);
-  const lead = (f: AssessmentField): LeadContext => ({ decide: writes && !auto, othersGreen: greyCores.every((k) => k === f.key) });
+  const remove = canAct && deleteOpen(view);
+  const lead = (f: AssessmentField): LeadContext => ({ decide: writes && !auto, othersGreen: greyCores.every((k) => k === f.key), remove, me });
   const sections: ReviewSectionVm[] = view.sections.map((s) => {
     const isToc = s.key === TOC_SECTION_KEY;
     const fields = fieldsOf(s.fields);
@@ -743,6 +791,8 @@ export function toCommentVm(
     authorId: c.author.id,
     open: c.state === 'open',
     canWithdraw: reader.canWithdraw && c.state === 'open' && reader.me !== null && c.author.id === reader.me,
+    // Round 2 (Lead): another reviewer's open comment (contract § 4.4); the program never sees round-2 comments.
+    canDelete: reader.canDelete === true && c.state === 'open' && reader.me !== null && c.author.id !== reader.me,
     who: reviewerLabel(c.author),
     role: 'Assessor',
     date: romeStamp(c.createdAt),

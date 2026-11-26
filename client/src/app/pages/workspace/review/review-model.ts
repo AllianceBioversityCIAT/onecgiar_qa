@@ -108,6 +108,8 @@ export interface FieldVm extends CardStatusVm {
    * Empty in round 1 and on any field that is not actionable.
    */
   readonly leadThread: readonly ThreadItemVm[];
+  /** Round 2 (Lead): the Lead's own live round-2 comments on the field, with their escalate control (contract § 3.2). */
+  readonly leadOwn: readonly ThreadItemVm[];
   /** Round 2 (Lead): the thread opens by default while one of its comments still waits for the Lead's decision. */
   readonly threadOpen: boolean;
 }
@@ -157,6 +159,10 @@ export interface ThreadItemVm {
    * Announced only: the server decides.
    */
   readonly agreeEnds: boolean;
+  /** The Lead's own round-2 comment (contract § 3.2): no program response, only "Escalate to TPB". */
+  readonly own: boolean;
+  /** The Lead may delete it (another reviewer's comment the program never answered, while the Lead writes). */
+  readonly canDelete: boolean;
 }
 
 export interface TocLinkVm {
@@ -366,6 +372,7 @@ export function buildFieldVm(
     carried: false,
     updated: false,
     leadThread: [],
+    leadOwn: [],
     threadOpen: false,
   };
 }

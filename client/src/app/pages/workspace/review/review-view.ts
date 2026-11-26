@@ -20,7 +20,7 @@ import { ALL_FIELDS, ReviewStore } from './review-store';
 import { AiReasonDialog } from './ai/ai-reason-dialog';
 import { AiReasonAsk, REVIEW_AI_PROVIDERS, ReviewAiHook } from './ai/review-ai-hook';
 import { ReviewTocSection, TocCardAction } from './review-toc-section';
-import { PendingAnswer, coreUncommentedMessage, findField, pendingAnswers, pendingAnswersBanner, returnsOnAnyComment, toDrawerVm, withPendingAnswers, withdrawOpen } from './review.mapper';
+import { PendingAnswer, coreUncommentedMessage, deleteOpen, findField, pendingAnswers, pendingAnswersBanner, returnsOnAnyComment, toDrawerVm, withPendingAnswers, withdrawOpen } from './review.mapper';
 import { QA_GUIDANCE } from './qa-guidance';
 
 /** The review area stacks its navigator on top below this width (container). */
@@ -172,7 +172,12 @@ export class ReviewView {
     const found = view && key ? findField(view, key) : null;
     if (!view || !found) return null;
     const mode = found.field.mode === 'assessed' ? this.drawerMode() : 'read';
-    return toDrawerVm(found, mode, { me: this.store.me(), canWithdraw: withdrawOpen(view), canClarify: !this.store.clarifyClosed() }, this.store.threads());
+    return toDrawerVm(
+      found,
+      mode,
+      { me: this.store.me(), canWithdraw: withdrawOpen(view), canClarify: !this.store.clarifyClosed(), canDelete: deleteOpen(view) },
+      this.store.threads(),
+    );
   });
   protected readonly quickComments = computed(() => this.store.quickComments().map((q) => ({ id: q.id, text: q.body })));
   /** Add was tried with an empty box. */

@@ -3,7 +3,7 @@ import { AssessmentField, AssessmentView } from '../../../core/api/assessment.mo
 import { FieldVm } from './review-model';
 import { clarificationThread, comment, field, programResponse, viewFixture } from './review.api-fixture';
 import { roundTwoViewFixture, threadItem as threadItemOf, withThread } from './review.round2-fixture';
-import { coreUncommentedMessage, findField, formatValue, pendingAnswers, pendingAnswersBanner, readOnlyBanner, returnsOnAnyComment, toCommentVm, toDrawerVm, toFieldVm, toReviewVm, withPendingAnswers, withdrawOpen } from './review.mapper';
+import { coreUncommentedMessage, deleteOpen, findField, formatValue, pendingAnswers, pendingAnswersBanner, readOnlyBanner, returnsOnAnyComment, toCommentVm, toDrawerVm, toFieldVm, toReviewVm, withPendingAnswers, withdrawOpen } from './review.mapper';
 
 const byLabel = (fields: readonly FieldVm[], label: string): FieldVm =>
   fields.find((f) => f.label === label)!;
@@ -743,7 +743,7 @@ describe('review.mapper (API assessment view → Review view models)', () => {
       expect(toReviewVm(v).finishTo).toBe('Quality Assessed');
     });
 
-    it("the Lead's own-comment keys (decision, decidable, choices) do not change the cards", () => {
+    it("the Lead's own-comment keys (decision, decidable, choices) change only the own-comment block of the card (tramo 4)", () => {
       const bare = roundTwoViewFixture();
       const stripped: AssessmentView = {
         ...bare,
@@ -752,7 +752,99 @@ describe('review.mapper (API assessment view → Review view models)', () => {
           fields: s.fields.map((f) => ({ ...f, comments: f.comments.map(({ decision: _d, decidable: _x, choices: _c, ...c }) => c) })),
         })),
       };
-      expect(toReviewVm(bare)).toEqual(toReviewVm(stripped));
+      const withoutOwn = (vm: ReturnType<typeof toReviewVm>) => ({
+        ...vm,
+        sections: vm.sections.map((s) => ({ ...s, fields: s.fields.map(({ leadOwn: _o, ...f }) => f) })),
+      });
+      expect(withoutOwn(toReviewVm(bare))).toEqual(withoutOwn(toReviewVm(stripped)));
+      expect(toReviewVm(stripped).sections[0].fields.every((f) => f.leadOwn.length === 0)).toBe(true);
+    });
+
+    describe("the Lead's own comment and the delete (tramo 4, contract § 3.2, § 4.4)", () => {
+      const LEAD = 14;
+      const description = (v: AssessmentView = roundTwoViewFixture(), writes = true) =>
+        byLabel(toReviewVm(v, writes, LEAD).sections[0].fields, 'Description of Result');
+      const escalation = { decision: 'escalate' as const, body: 'Mine to escalate.', decidedAt: '2026-11-25T11:00:00.000Z' };
+      const ownWith = (over: Partial<AssessmentView['sections'][number]['fields'][number]['comments'][number]>, view?: AssessmentView) =>
+        withField('general.description', (f) => ({ ...f, comments: f.comments.map((c) => (c.id === 8101 ? { ...c, ...over } : c)) }), view);
+
+      it('the own round-2 comment is listed on its own, offering only "Escalate to TPB" (exactly its choices)', () => {
+        const f = description();
+        expect(f.leadOwn).toEqual([
+          expect.objectContaining({
+            commentId: 8101,
+            own: true,
+            who: 'lea',
+            text: 'The core field is still wrong.',
+            response: null,
+            decision: null,
+            choices: [{ kind: 'escalate', label: 'Escalate to TPB' }],
+            pending: false,
+            agreeEnds: false,
+            canDelete: false,
+          }),
+        ]);
+        // It is not one of the round-1 comments.
+        expect(f.leadThread.map((t) => t.commentId)).toEqual([41]);
+      });
+
+      it('after a reload the escalate shows from the comment itself, with Change / Clear still offered', () => {
+        const f = description(ownWith({ decision: escalation }));
+        expect(f.leadOwn[0].decision).toEqual({ kind: 'escalate', label: 'Escalated to TPB', text: 'Mine to escalate.', date: '25 Nov 2026' });
+        expect(f.leadOwn[0].choices).toHaveLength(1);
+      });
+
+      it('not decidable (ended, read only) or a page with no writes: the decision is kept, no control', () => {
+        expect(description(ownWith({ decision: escalation, decidable: false, choices: [] })).leadOwn[0].choices).toEqual([]);
+        expect(description(roundTwoViewFixture(), false).leadOwn[0].choices).toEqual([]);
+      });
+
+      it('a withdrawn own comment, and any comment without the own-comment keys, is not listed', () => {
+        expect(description(ownWith({ state: 'withdrawn', decision: null, decidable: false, choices: [] })).leadOwn).toEqual([]);
+        const other = withField('general.description', (f) => ({
+          ...f,
+          comments: [comment({ id: 8200, fieldKey: 'general.description', author: { id: 15, nickname: 'leo' }, stepPosition: 3, round: 2 })],
+        }));
+        expect(description(other).leadOwn).toEqual([]);
+      });
+
+      it('a round-1 comment the program never answered can be deleted while the Lead writes; an answered one cannot', () => {
+        expect(description().leadThread[0].canDelete).toBe(false); // answered (Disagreed)
+        const unanswered = withThread({ state: 'open', response: undefined });
+        expect(description(unanswered).leadThread[0].canDelete).toBe(true);
+        expect(description(unanswered, false).leadThread[0].canDelete).toBe(false);
+        const ended = withThread({ state: 'open', response: undefined }, [], roundTwoViewFixture({ writable: false, readOnlyReason: 'finished' }));
+        expect(description(ended).leadThread[0].canDelete).toBe(false);
+        // Never one's own.
+        expect(description(withThread({ state: 'open', response: undefined, author: { id: LEAD, nickname: 'lea' } })).leadThread[0].canDelete).toBe(false);
+      });
+
+      it("in the drawer: another Lead's open round-2 comment can be deleted, one's own is withdrawn instead", () => {
+        const view = withField('general.description', (f) => ({
+          ...f,
+          comments: [...f.comments, comment({ id: 8200, fieldKey: 'general.description', author: { id: 15, nickname: 'leo' }, stepPosition: 3, round: 2 })],
+        }));
+        const found = findField(view, 'general.description')!;
+        const reader = { me: LEAD, canWithdraw: withdrawOpen(view), canDelete: deleteOpen(view) };
+        const drawer = toDrawerVm(found, 'comment', reader);
+        const byId = (id: number) => drawer.comments.find((c) => (c as { id?: number }).id === id) as { canDelete?: boolean; canWithdraw?: boolean };
+        expect(byId(8200).canDelete).toBe(true);
+        expect(byId(8200).canWithdraw).toBe(false);
+        expect(byId(8101).canDelete).toBe(false);
+        expect(byId(8101).canWithdraw).toBe(true);
+      });
+
+      it('deleteOpen: only a writable round-2 view; round 1 and a finished round 2 delete nothing', () => {
+        expect(deleteOpen(roundTwoViewFixture())).toBe(true);
+        expect(deleteOpen(roundTwoViewFixture({ writable: false, readOnlyReason: 'finished' }))).toBe(false);
+        expect(deleteOpen(viewFixture())).toBe(false);
+      });
+
+      it('round 2 withdraws only while the Lead writes (after the end the server refuses it); round 1 keeps its rule', () => {
+        expect(withdrawOpen(roundTwoViewFixture({ writable: false, readOnlyReason: 'finished' }))).toBe(false);
+        expect(withdrawOpen(roundTwoViewFixture())).toBe(true);
+        expect(withdrawOpen(viewFixture({ writable: false, readOnlyReason: 'finished' }))).toBe(true);
+      });
     });
 
     describe('the round-1 thread in the card (tramo 3)', () => {
@@ -778,6 +870,8 @@ describe('review.mapper (API assessment view → Review view models)', () => {
             ],
             pending: true,
             agreeEnds: true,
+            own: false,
+            canDelete: false,
           },
         ]);
       });

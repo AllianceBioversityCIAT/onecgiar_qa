@@ -69,6 +69,9 @@ class FakeApi {
   clearDecision = vi.fn<(timelineId: number, code: number, commentId: number) => Observable<DecisionResult>>(() =>
     of(decisionResultFixture({ decision: null, validations: [] })),
   );
+  deleteComment = vi.fn<(commentId: number) => Observable<AssessmentComment>>((id) =>
+    of(comment({ id, deletedAt: '2026-11-25T11:30:00.000Z', deletedBy: 14 })),
+  );
 }
 
 describe('ReviewStore actions (T-20)', () => {
@@ -455,6 +458,13 @@ describe('ReviewStore actions (T-20)', () => {
       expect(toasts.error).not.toHaveBeenCalled();
     });
   });
+  it('round 1: a comment added or withdrawn is painted from its answer, with no second read of the view', async () => {
+    api.view.mockClear();
+    await store.addComment('general.title', 'A comment.');
+    await store.withdrawComment(50);
+    expect(api.view).not.toHaveBeenCalled();
+  });
+
   describe('round 2: the Lead decides the round-1 comments (P2-3912, round-2 contract § 4.1)', () => {
     const item = (id: number) => field('general.description').thread!.find((t) => t.commentId === id)!;
     const agreed = withThread(
@@ -679,8 +689,111 @@ describe('ReviewStore actions (T-20)', () => {
     it('opening another result drops the errors of the one left behind', async () => {
       api.decide.mockReturnValueOnce(refusal(409, 'ASSESSMENT_DECISION_INVALID', 'raw'));
       await store.decide(41, 'escalate', 'Escalate it.');
+      api.deleteComment.mockReturnValueOnce(refusal(409, 'ASSESSMENT_COMMENT_NOT_DELETABLE', 'raw'));
+      await store.deleteComment(41);
       await store.load('9891', '29');
       expect(store.decisionErrors().size).toBe(0);
+      expect(store.deleteErrors().size).toBe(0);
+    });
+
+    describe("the Lead's own comment and the delete (tramo 4, contract § 3.2, § 4.4, § 4.5)", () => {
+      const own = () => field('general.description').comments.find((c) => c.id === 8101)!;
+
+      it("escalating its own comment paints the decision on the comment itself before the re-read lands", async () => {
+        api.view.mockReturnValue(new Subject<AssessmentView>());
+        api.decide.mockReturnValueOnce(
+          of(decisionResultFixture({ validations: [], decision: { decision: 'escalate', body: 'Mine.', decidedAt: '2026-11-25T11:00:00.000Z' } })),
+        );
+        const outcome = store.decide(8101, 'escalate', 'Mine.');
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(api.decide).toHaveBeenCalledWith(29, 9890, 8101, 'escalate', 'Mine.');
+        expect(own().decision?.decision).toBe('escalate');
+        void outcome;
+      });
+
+      it('a comment added in round 2 reads the view again: its decidable / choices come only from the view', async () => {
+        await store.addComment('general.title', 'The title is wrong.');
+        expect(api.view).toHaveBeenCalledTimes(1);
+      });
+
+      it('withdrawing its own comment in round 2 reads the view again (a decision on it is dropped)', async () => {
+        await store.withdrawComment(8101);
+        expect(api.view).toHaveBeenCalledTimes(1);
+      });
+
+      it('delete: POST once, busy on that comment, then the view is read again', async () => {
+        const slow = new Subject<AssessmentComment>();
+        api.deleteComment.mockReturnValueOnce(slow);
+        const deleted = store.deleteComment(41);
+        expect(store.deleting()).toBe(41);
+        // A second tap, on it or on another comment, sends nothing while the first is on its way.
+        expect(await store.deleteComment(41)).toEqual({ ok: false, message: '' });
+        expect(await store.deleteComment(8101)).toEqual({ ok: false, message: '' });
+        slow.next(comment({ id: 41 }));
+        slow.complete();
+        expect(await deleted).toEqual({ ok: true });
+        expect(api.deleteComment).toHaveBeenCalledTimes(1);
+        expect(api.deleteComment).toHaveBeenCalledWith(41);
+        expect(api.view).toHaveBeenCalledTimes(1);
+        expect(store.deleting()).toBeNull();
+      });
+
+      it('no delete while a decision is on its way, and no decision while a delete is', async () => {
+        const slow = new Subject<DecisionResult>();
+        api.decide.mockReturnValueOnce(slow);
+        const deciding = store.decide(41, 'escalate', 'Escalate it.');
+        expect(await store.deleteComment(41)).toEqual({ ok: false, message: '' });
+        slow.next(decisionResultFixture());
+        slow.complete();
+        await deciding;
+        const slowDelete = new Subject<AssessmentComment>();
+        api.deleteComment.mockReturnValueOnce(slowDelete);
+        const deleting = store.deleteComment(41);
+        expect(await store.decide(41, 'escalate', 'Again.')).toEqual({ ok: false, message: '' });
+        expect(await store.finish()).toEqual({ ok: false, message: '' });
+        expect(await store.setValidated('general.description', false)).toBe(false);
+        slowDelete.next(comment({ id: 41 }));
+        slowDelete.complete();
+        await deleting;
+        expect(api.decide).toHaveBeenCalledTimes(1);
+        expect(api.finish).not.toHaveBeenCalled();
+      });
+
+      it('a delete that ends the review: the re-read shows the end and a toast says so', async () => {
+        api.view.mockReturnValueOnce(of(endedRoundTwo('quality_assessed')));
+        await store.deleteComment(41);
+        expect(store.view()!.writable).toBe(false);
+        expect(toasts.success).toHaveBeenCalledWith('Assessment finished: Quality Assessed.');
+      });
+
+      it('409 ASSESSMENT_COMMENT_NOT_DELETABLE: a message by code next to the control, and the view is read again', async () => {
+        api.deleteComment.mockReturnValueOnce(refusal(409, 'ASSESSMENT_COMMENT_NOT_DELETABLE', 'raw server text'));
+        const outcome = await store.deleteComment(41);
+        expect(outcome.ok).toBe(false);
+        expect(store.deleteErrors().get(41)).toBe(
+          'This comment can no longer be deleted: the program already answered it, or it was withdrawn or deleted. The page now shows it as it is.',
+        );
+        expect(api.view).toHaveBeenCalledTimes(1);
+        expect(toasts.error).not.toHaveBeenCalled();
+        // The next try on that comment starts clean.
+        await store.deleteComment(41);
+        expect(store.deleteErrors().has(41)).toBe(false);
+      });
+
+      it('409 ASSESSMENT_FINISHED on a delete: someone ended it first; read again and said next to the control', async () => {
+        api.deleteComment.mockReturnValueOnce(refusal(409, 'ASSESSMENT_FINISHED', 'raw'));
+        await store.deleteComment(41);
+        expect(store.deleteErrors().get(41)).toBe('This review has already finished. The page now shows its final state.');
+        expect(api.view).toHaveBeenCalledTimes(1);
+      });
+
+      it('a delete whose answer never arrived reads the page again (the server may have done it)', async () => {
+        api.deleteComment.mockReturnValueOnce(refusal(0, 'NETWORK', 'Could not reach the server.'));
+        await store.deleteComment(41);
+        expect(api.view).toHaveBeenCalledTimes(1);
+        expect(store.deleteErrors().get(41)).toBe('Could not reach the server.');
+      });
     });
   });
 });

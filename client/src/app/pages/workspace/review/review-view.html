@@ -130,6 +130,10 @@
                         @if (f.leadThread.length) {
                           <qa-review-lead-thread [items]="f.leadThread" [fieldLabel]="f.label" [open]="f.threadOpen" />
                         }
+                        @if (f.leadOwn.length) {
+                          <!-- Round 2 (tramo 4): the Lead's own comments, to escalate. TODO(design): Juanpa -->
+                          <qa-review-lead-thread [items]="f.leadOwn" [fieldLabel]="f.label" [open]="true" title="Your comments in this round" testId="lead-own" />
+                        }
                       </qa-review-field-card>
                     } @empty {
                       <p class="m-0 text-(length:--fs-13) text-(--text-4)">No fields in this section.</p>

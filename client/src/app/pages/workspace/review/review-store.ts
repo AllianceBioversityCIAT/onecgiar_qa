@@ -104,6 +104,16 @@ const DECISION_REFUSALS: Readonly<Record<string, { readonly message: string; rea
   [ASSESSMENT_ERROR.READ_ONLY]: { message: 'You can only read this review.', reread: true },
 };
 
+/** What a refused delete says next to its control, by `error.code` (round-2 contract § 4.4, § 7). The view is read again. */
+const DELETE_REFUSALS: Readonly<Record<string, string>> = {
+  [ASSESSMENT_ERROR.COMMENT_NOT_DELETABLE]:
+    'This comment can no longer be deleted: the program already answered it, or it was withdrawn or deleted. The page now shows it as it is.',
+  [ASSESSMENT_ERROR.FINISHED]: 'This review has already finished. The page now shows its final state.',
+  [ASSESSMENT_ERROR.STEP_CLOSED]: 'The Lead assessors step is closed, so comments can no longer be deleted.',
+  [ASSESSMENT_ERROR.READ_ONLY]: 'You can only read this review.',
+  [ASSESSMENT_ERROR.NOT_FOUND]: 'This comment is no longer on this result. The page now shows it as it is.',
+};
+
 /** Why a green write on one field was refused in round 2, by code: shown next to the field, not in a toast. */
 const FIELD_REFUSALS: Readonly<Record<string, string>> = {
   [ASSESSMENT_ERROR.CORE_COMMENT_UNDECIDED]: 'Decide the round-1 comments on this field first: agree with the program or escalate them.',
@@ -144,7 +154,7 @@ export class ReviewStore implements OnDestroy {
   /** The page's view models, rebuilt from the API answer only (never by hand). */
   readonly vm = computed(() => {
     const view = this.view();
-    return view ? toReviewVm(view) : null;
+    return view ? toReviewVm(view, true, this.me()) : null;
   });
 
   /** Field keys with a green/grey write on its way (`ALL_FIELDS` for Check all / Uncheck all). */
@@ -157,6 +167,10 @@ export class ReviewStore implements OnDestroy {
   readonly deciding = signal<DecidingState | null>(null);
   /** Round 2 (Lead): why the last decision on a comment was refused, by comment id (shown next to its control). */
   readonly decisionErrors = signal<ReadonlyMap<number, string>>(new Map());
+  /** Round 2 (Lead): id of the comment being deleted (one delete at a time), or null. */
+  readonly deleting = signal<number | null>(null);
+  /** Round 2 (Lead): why the last delete of a comment was refused, by comment id (shown next to its control). */
+  readonly deleteErrors = signal<ReadonlyMap<number, string>>(new Map());
   /** Why a green write on a field was refused, by field key (shown next to its Approve), e.g. an undecided comment. */
   readonly fieldErrors = signal<ReadonlyMap<string, string>>(new Map());
   /**
@@ -212,6 +226,8 @@ export class ReviewStore implements OnDestroy {
     this.validating.set(new Set());
     this.deciding.set(null);
     this.decisionErrors.set(new Map());
+    this.deleting.set(null);
+    this.deleteErrors.set(new Map());
     this.fieldErrors.set(new Map());
     this.overlapped = false;
     this.state.set('loading');
@@ -268,7 +284,7 @@ export class ReviewStore implements OnDestroy {
     const at = this.target();
     const busy = this.validating();
     // Not while a finish is on its way: its end and this answer could land in either order.
-    if (!at || this.finishing() || this.deciding() || busy.has(busyKey) || busy.has(ALL_FIELDS) || (busyKey === ALL_FIELDS && busy.size > 0)) return false;
+    if (!at || this.finishing() || this.deciding() || this.deleting() !== null || busy.has(busyKey) || busy.has(ALL_FIELDS) || (busyKey === ALL_FIELDS && busy.size > 0)) return false;
     if (busy.size > 0) this.overlapped = true;
     this.dropFieldErrors(busyKey === ALL_FIELDS ? null : busyKey);
     this.validating.update((set) => new Set(set).add(busyKey));
@@ -310,7 +326,11 @@ export class ReviewStore implements OnDestroy {
     try {
       const saved = await firstValueFrom(this.api.addComment(at.timelineId, at.resultCode, fieldKey, text));
       // A retry answered with the first comment again (same id) is still one comment.
-      if (this.still(at)) this.patchComments(fieldKey, (list) => [...list.filter((c) => c.id !== saved.id), saved]);
+      if (this.still(at)) {
+        this.patchComments(fieldKey, (list) => [...list.filter((c) => c.id !== saved.id), saved]);
+        // Round 2: the Lead's own comment takes `decidable` / `choices` from the view only (contract § 3.2).
+        if (this.view()?.round === 2) void this.reload();
+      }
       return { ok: true, comment: saved };
     } catch (error) {
       const e = toApiError(error);
@@ -331,7 +351,11 @@ export class ReviewStore implements OnDestroy {
     this.withdrawing.set(commentId);
     try {
       const saved = await firstValueFrom(this.api.withdrawComment(commentId));
-      if (this.still(at)) this.patchComments(saved.fieldKey, (list) => list.map((c) => (c.id === saved.id ? saved : c)));
+      if (this.still(at)) {
+        this.patchComments(saved.fieldKey, (list) => list.map((c) => (c.id === saved.id ? saved : c)));
+        // Round 2: a decision on the withdrawn comment is dropped, and the other comments' choices may change (§ 3.1).
+        if (this.view()?.round === 2) void this.reload();
+      }
       return { ok: true };
     } catch (error) {
       const e = toApiError(error);
@@ -404,7 +428,7 @@ export class ReviewStore implements OnDestroy {
   async finish(): Promise<FinishOutcome> {
     const at = this.target();
     // Not while a green/grey write is on its way: its answer could repaint a pending state over the end.
-    if (!at || this.finishing() || this.deciding() || this.validating().size > 0) return { ok: false, message: '' };
+    if (!at || this.finishing() || this.deciding() || this.deleting() !== null || this.validating().size > 0) return { ok: false, message: '' };
     this.finishing.set(true);
     try {
       const summary = await firstValueFrom(this.api.finish(at.timelineId, at.resultCode));
@@ -453,7 +477,7 @@ export class ReviewStore implements OnDestroy {
     send: (at: Target) => Observable<DecisionResult>,
   ): Promise<DecisionOutcome> {
     const at = this.target();
-    if (!at || this.deciding() || this.finishing() || this.validating().size > 0) return { ok: false, message: '' };
+    if (!at || this.deciding() || this.deleting() !== null || this.finishing() || this.validating().size > 0) return { ok: false, message: '' };
     this.deciding.set({ commentId, action });
     this.dropDecisionError(commentId);
     try {
@@ -491,13 +515,17 @@ export class ReviewStore implements OnDestroy {
     });
   }
 
-  /** The field whose round-1 thread holds the comment, or null. */
+  /** The field whose round-1 thread, or whose own round-2 comments, hold the comment; or null. */
   private threadFieldOf(commentId: number): string | null {
-    for (const s of this.view()?.sections ?? []) for (const f of s.fields) if (f.thread?.some((t) => t.commentId === commentId)) return f.key;
+    for (const s of this.view()?.sections ?? [])
+      for (const f of s.fields) if (f.thread?.some((t) => t.commentId === commentId) || f.comments.some((c) => c.id === commentId)) return f.key;
     return null;
   }
 
-  /** The decision as the server stored it, on its thread item, before the re-read lands. */
+  /**
+   * The decision as the server stored it, before the re-read lands: on its round-1 thread item (absent = none), or on
+   * the Lead's own round-2 comment (`null` = none, contract § 3.2).
+   */
   private paintDecision(commentId: number, result: DecisionResult): void {
     this.view.update(
       (view) =>
@@ -505,21 +533,66 @@ export class ReviewStore implements OnDestroy {
           ...view,
           sections: view.sections.map((s) => ({
             ...s,
-            fields: s.fields.map((f) =>
-              f.thread?.some((t) => t.commentId === commentId)
-                ? {
-                    ...f,
-                    thread: f.thread.map((t) => {
-                      if (t.commentId !== commentId) return t;
-                      const { decision: _old, ...rest } = t;
-                      return result.decision ? { ...rest, decision: result.decision } : rest;
-                    }),
-                  }
-                : f,
-            ),
+            fields: s.fields.map((f) => {
+              if (f.thread?.some((t) => t.commentId === commentId))
+                return {
+                  ...f,
+                  thread: f.thread.map((t) => {
+                    if (t.commentId !== commentId) return t;
+                    const { decision: _old, ...rest } = t;
+                    return result.decision ? { ...rest, decision: result.decision } : rest;
+                  }),
+                };
+              if (f.comments.some((c) => c.id === commentId && c.decidable !== undefined))
+                return { ...f, comments: f.comments.map((c) => (c.id === commentId ? { ...c, decision: result.decision } : c)) };
+              return f;
+            }),
           })),
         },
     );
+  }
+
+  // ---------- Round 2: the Lead deletes another reviewer's comment (round-2 contract § 4.4) ----------
+
+  /**
+   * The Lead deletes a round-1 comment of this result, or another Lead's round-2 comment (the page asked for a
+   * confirmation first). One write at a time. The answer does not say whether the review ended, so the view is
+   * always read again; an end it shows is said in a toast. A refusal is said next to the control, by code.
+   */
+  async deleteComment(commentId: number): Promise<DecisionOutcome> {
+    const at = this.target();
+    if (!at || this.deleting() !== null || this.deciding() || this.finishing() || this.validating().size > 0) return { ok: false, message: '' };
+    this.deleting.set(commentId);
+    this.dropDeleteError(commentId);
+    try {
+      await firstValueFrom(this.api.deleteComment(commentId));
+      if (!this.still(at)) return { ok: true };
+      const before = this.view()?.assessment?.status ?? 'pending';
+      await this.reload();
+      const after = this.view()?.assessment?.status ?? 'pending';
+      if (this.state() === 'ready' && before === 'pending' && after !== 'pending') this.toasts.success(ENDED_MESSAGES[after]);
+      return { ok: true };
+    } catch (error) {
+      const e = toApiError(error);
+      if (!this.still(at)) return { ok: false, message: e.message };
+      const known = DELETE_REFUSALS[e.code];
+      // Every refusal by code means the comment or the review moved; no answer at all may mean it was deleted.
+      if (known || e.status === 0) await this.reload();
+      const message = known ?? e.message;
+      this.deleteErrors.update((map) => new Map(map).set(commentId, message));
+      return { ok: false, message };
+    } finally {
+      this.deleting.set(null);
+    }
+  }
+
+  private dropDeleteError(commentId: number): void {
+    if (!this.deleteErrors().has(commentId)) return;
+    this.deleteErrors.update((map) => {
+      const next = new Map(map);
+      next.delete(commentId);
+      return next;
+    });
   }
 
   /**

@@ -71,6 +71,9 @@ class FakeApi {
   clearDecision = vi.fn<(timelineId: number, code: number, commentId: number) => Observable<DecisionResult>>(() =>
     of(decisionResultFixture({ decision: null, validations: [] })),
   );
+  deleteComment = vi.fn<(commentId: number) => Observable<AssessmentComment>>((id) =>
+    of(comment({ id, deletedAt: '2026-11-25T11:30:00.000Z', deletedBy: 14 })),
+  );
 }
 
 /** The AI side of the page (P2-3918): no suggestion unless a test gives one, and its events never reach the network. */
@@ -1228,6 +1231,129 @@ describe('ReviewView on the assessment API', () => {
       await settle();
       expect(document.body.textContent).toContain('Finish as Quality Assessed?');
       expect(api.setValidations).not.toHaveBeenCalled();
+    });
+
+    describe("the Lead's own comment and the delete (tramo 4)", () => {
+      /** The signed-in Lead (author of the fixture's own round-2 comment 8101). */
+      const LEAD = 14;
+      const ownBlock = (el: Element) => card(el, 'Description of Result').querySelector('[data-testid="lead-own"]') as HTMLElement | null;
+      const inBlock = (block: Element | null, name: string) =>
+        block ? buttons(block).find((b) => (b.getAttribute('aria-label') ?? text(b)) === name) : undefined;
+      const unanswered = () => withThread({ state: 'open', response: undefined });
+
+      beforeEach(() => {
+        TestBed.overrideProvider(AuthSession, { useValue: { user: signal({ id: LEAD }) } });
+      });
+
+      it("the Lead's own comment sits in the card with only \"Escalate to TPB\"; Save sends the decision on that comment", async () => {
+        const el = await open();
+        const block = ownBlock(el)!;
+        expect(block).not.toBeNull();
+        expect(text(block)).toContain('The core field is still wrong.');
+        expect(inBlock(block, 'Agree with the program')).toBeUndefined();
+        inBlock(block, 'Escalate to TPB')!.click();
+        harness.detectChanges();
+        const box = document.querySelector<HTMLTextAreaElement>('#lead-decision-8101')!;
+        box.value = 'Escalating my own finding.';
+        box.dispatchEvent(new Event('input'));
+        harness.detectChanges();
+        inBlock(ownBlock(el), 'Save decision')!.click();
+        await settle();
+        expect(api.decide).toHaveBeenCalledWith(29, 9890, 8101, 'escalate', 'Escalating my own finding.');
+      });
+
+      it('after a reload the own escalate reads "Escalated to TPB", with Change and Clear', async () => {
+        api.view.mockReturnValue(
+          of(
+            withField('general.description', (f) => ({
+              ...f,
+              comments: f.comments.map((c) => ({ ...c, decision: { decision: 'escalate' as const, body: 'Mine.', decidedAt: '2026-11-25T11:00:00.000Z' } })),
+            })),
+          ),
+        );
+        const el = await open();
+        expect(text(ownBlock(el)!.querySelector('[data-testid="lead-decision"]')!)).toContain('Escalated to TPB');
+        expect(inBlock(ownBlock(el), 'Clear')).toBeDefined();
+      });
+
+      it('Delete on a round-1 comment the program never answered asks first; Cancel sends nothing', async () => {
+        api.view.mockReturnValue(of(unanswered()));
+        const el = await open();
+        const t = card(el, 'Description of Result').querySelector('[data-testid="lead-thread"]')!;
+        expect(byName(t, 'Delete the comment by mchen')).toBeDefined();
+        byName(t, 'Delete the comment by mchen')!.click();
+        harness.detectChanges();
+        expect(text(t)).toContain('Delete this comment by mchen?');
+        byName(t, 'Cancel')!.click();
+        harness.detectChanges();
+        expect(api.deleteComment).not.toHaveBeenCalled();
+        expect(text(t)).not.toContain('Delete this comment by mchen?');
+      });
+
+      it('confirming sends one POST (it spins, a second tap does nothing), then the view is read again', async () => {
+        api.view.mockReturnValue(of(unanswered()));
+        const slow = new Subject<AssessmentComment>();
+        api.deleteComment.mockReturnValueOnce(slow);
+        const el = await open();
+        const t = () => card(el, 'Description of Result').querySelector('[data-testid="lead-thread"]')!;
+        byName(t(), 'Delete the comment by mchen')!.click();
+        harness.detectChanges();
+        const confirm = byName(t(), 'Delete comment')!;
+        confirm.click();
+        harness.detectChanges();
+        expect(confirm.getAttribute('aria-busy')).toBe('true');
+        confirm.click();
+        api.view.mockReturnValue(of(withField('general.description', (f) => ({ ...f, thread: [] }))));
+        slow.next(comment({ id: 41 }));
+        slow.complete();
+        await settle();
+        await settle();
+        expect(api.deleteComment).toHaveBeenCalledTimes(1);
+        expect(api.deleteComment).toHaveBeenCalledWith(41);
+        expect(api.view).toHaveBeenCalledTimes(2);
+        expect(card(el, 'Description of Result').querySelector('[data-testid="lead-thread"]')).toBeNull();
+      });
+
+      it('a refused delete says why next to the control, by code, not in a toast', async () => {
+        api.view.mockReturnValue(of(unanswered()));
+        api.deleteComment.mockReturnValueOnce(refusal(409, 'ASSESSMENT_COMMENT_NOT_DELETABLE', 'raw server text'));
+        const el = await open();
+        const t = () => card(el, 'Description of Result').querySelector('[data-testid="lead-thread"]')!;
+        byName(t(), 'Delete the comment by mchen')!.click();
+        harness.detectChanges();
+        byName(t(), 'Delete comment')!.click();
+        await settle();
+        expect(text(t().querySelector('[role="alert"]')!)).toContain('This comment can no longer be deleted');
+        expect(toasts.error).not.toHaveBeenCalled();
+      });
+
+      it('an answered round-1 comment offers no Delete', async () => {
+        const el = await open();
+        const t = card(el, 'Description of Result').querySelector('[data-testid="lead-thread"]')!;
+        expect(byName(t, 'Delete the comment by mchen')).toBeUndefined();
+      });
+
+      it("in the drawer another Lead's comment offers Delete with its confirmation; one's own offers Withdraw", async () => {
+        api.view.mockReturnValue(
+          of(
+            withField('general.description', (f) => ({
+              ...f,
+              comments: [...f.comments, comment({ id: 8200, fieldKey: 'general.description', author: { id: 15, nickname: 'leo' }, body: 'Another Lead.', stepPosition: 3, round: 2 })],
+            })),
+          ),
+        );
+        const el = await open();
+        buttons(card(el, 'Description of Result')).find((b) => text(b).startsWith('View comments'))!.click();
+        await settle();
+        expect(anywhere('Delete the comment by leo')).toBeDefined();
+        expect(anywhere('Delete the comment by lea')).toBeUndefined();
+        expect([...document.querySelectorAll('button')].some((b) => text(b) === 'Withdraw comment')).toBe(true);
+        anywhere('Delete the comment by leo')!.click();
+        harness.detectChanges();
+        anywhere('Delete comment')!.click();
+        await settle();
+        expect(api.deleteComment).toHaveBeenCalledWith(8200);
+      });
     });
   });
 

@@ -77,6 +77,8 @@ export interface FieldComment {
   readonly answer?: boolean;
   /** The caller wrote it and can still take it back (FR-13). */
   readonly canWithdraw?: boolean;
+  /** Round 2 (Lead): another reviewer's comment the caller may delete (contract § 4.4). */
+  readonly canDelete?: boolean;
   /** Id of the comment in the API (the mockup's comments had none). */
   readonly id?: number;
   /** API comments: "Step 1", the step the comment was written in (P2-3910 AC14). */
