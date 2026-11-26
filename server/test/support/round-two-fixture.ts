@@ -17,6 +17,10 @@ export const IN_LEAD_STEP = new Date('2026-11-25T10:00:00Z');
 export const IN_TPB_STEP = new Date('2026-11-30T10:00:00Z');
 /** A clock after step 4 closed. */
 export const AFTER_TPB_STEP = new Date('2026-12-05T10:00:00Z');
+/** A clock inside step 5 (the PPU's step, P2-3917): 3-6 Dec 2026. */
+export const IN_PPU_STEP = new Date('2026-12-04T10:00:00Z');
+/** A clock after step 5 closed: Pending PPU reads Unresolved. */
+export const AFTER_PPU_STEP = new Date('2026-12-10T10:00:00Z');
 
 const minute = (value: string) => value as never;
 export const roundTwoSteps = () => [
@@ -338,4 +342,88 @@ export async function seedTpbWorld(
     })),
   );
   return { ...built, leadAssessmentId };
+}
+
+/** Step 5, the PPU's (P2-3917): 3 - 6 Dec 2026. */
+export const ppuStep = () => ({
+  position: 5,
+  name: 'Step 5',
+  audience: 'ppu' as const,
+  opensAt: minute('2026-12-03T09:00'),
+  closesAt: minute('2026-12-06T17:30'),
+});
+
+/** One comment the TPB decided, as its end left it. */
+export interface TpbDecided extends EscalatedComment {
+  /** `assessor` (default): a PPU case (`tpb_sided_assessor`); `program`: closed (`tpb_sided_program`). */
+  sided?: 'assessor' | 'program';
+  tpbReason?: string;
+}
+
+/**
+ * The PPU's world (P2-3917): the TPB's world with step 5, the PPU (`ppu`, a
+ * global role, all programs) assigned, and the TPB's step-4 assessment ended
+ * `escalated` (Pending PPU) as its end leaves it (DD-7: the comments in
+ * `tpb_sided_*`, the TPB's decisions kept). `tpbGreens` are the TPB's own marks.
+ */
+export async function seedPpuWorld(
+  a: AssessmentApp,
+  options: {
+    core: readonly string[];
+    roundOneGreens?: readonly string[];
+    decided: readonly TpbDecided[];
+    leadGreens?: readonly string[];
+    tpbGreens?: readonly string[];
+    changedFields?: string[] | null;
+  },
+): Promise<RoundTwoResult & { leadAssessmentId: number; tpbAssessmentId: number }> {
+  const built = await seedTpbWorld(a, {
+    core: options.core,
+    roundOneGreens: options.roundOneGreens,
+    escalated: options.decided,
+    leadGreens: options.leadGreens,
+    changedFields: options.changedFields,
+  });
+  a.world.timelines[0]!.steps = [...roundTwoSteps(), tpbStep(), ppuStep()];
+  a.world.timelineUsers.push({
+    timelineId: 1,
+    userId: a.users.ppu.id,
+    roleCode: 'PPU',
+  });
+  await a.programScope(a.users.ppu.id, []);
+  if (!a.world.users.some((x) => x.id === a.users.ppu.id)) {
+    a.world.users.push({ id: a.users.ppu.id, nickname: a.users.ppu.nickname });
+  }
+  const tpbAssessmentId = 950 + built.roundTwoId;
+  a.world.assessments.push({
+    id: tpbAssessmentId,
+    membershipId: built.roundTwoId,
+    stepPosition: 4,
+    status: 'escalated',
+    roleCode: 'TPB',
+    finishedBy: a.users.tpb.id,
+    finishedAt: new Date('2026-12-01T10:00:00Z'),
+  });
+  for (const item of options.decided) {
+    const assessor = (item.sided ?? 'assessor') === 'assessor';
+    const comment = a.world.comments.find((c) => c.id === item.id)!;
+    comment.state = assessor ? 'tpb_sided_assessor' : 'tpb_sided_program';
+    a.world.commentDecisions.push({
+      commentId: item.id,
+      assessmentId: tpbAssessmentId,
+      roleCode: 'TPB',
+      decision: assessor ? 'tpb_agree_assessor' : 'tpb_agree_program',
+      body: item.tpbReason ?? `TPB on ${item.id}`,
+      decidedAt: new Date('2026-11-30T12:00:00Z'),
+      decidedBy: a.users.tpb.id,
+    });
+  }
+  a.world.validations.push(
+    ...(options.tpbGreens ?? []).map((fieldKey) => ({
+      assessmentId: tpbAssessmentId,
+      fieldKey,
+      validated: true,
+    })),
+  );
+  return { ...built, tpbAssessmentId };
 }

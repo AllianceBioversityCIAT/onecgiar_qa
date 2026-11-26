@@ -58,6 +58,9 @@ const row = (
   leadDecision: null,
   leadDecisionBody: null,
   leadDecidedAt: null,
+  tpbDecision: null,
+  tpbDecisionBody: null,
+  tpbDecidedAt: null,
   ...over,
 });
 

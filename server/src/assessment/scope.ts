@@ -194,6 +194,12 @@ export interface MembershipFacts {
    * is `false`, so a TPB row covers nothing.
    */
   leadEscalated?: boolean;
+  /**
+   * P2-3917 (DD-P4): the membership's TPB (step-4) assessment ended
+   * `escalated`, so it reached step 5. Only the PPU row reads it; left out it
+   * is `false`, so a PPU row covers nothing.
+   */
+  tpbEscalated?: boolean;
 }
 
 /**
@@ -204,6 +210,7 @@ export interface MembershipFacts {
 export function rowCovers(row: ReviewerRow, facts: MembershipFacts): boolean {
   if (row.round !== facts.round) return false;
   if (row.role === RoleCode.TPB && facts.leadEscalated !== true) return false;
+  if (row.role === RoleCode.PPU && facts.tpbEscalated !== true) return false;
   const typeCovered =
     row.resultTypes === 'all' || row.resultTypes.includes(facts.resultType);
   if (!typeCovered) return false;
@@ -329,7 +336,12 @@ export function writeDecision(
     const roleStep = findRoleStep(row.role);
     const state = roleStep ? roleStepState(roleStep, timing) : null;
     if (state === null) continue;
-    if (state.state === 'in_progress' || row.byAdmin === true) {
+    // DD-P1: a role with no date window (the PPU) writes whatever the state of its step.
+    if (
+      state.state === 'in_progress' ||
+      row.byAdmin === true ||
+      roleStep?.dateBound === false
+    ) {
       return { writable: true, row, stepPosition: state.position };
     }
     refusal = stepRefusal(state.state);

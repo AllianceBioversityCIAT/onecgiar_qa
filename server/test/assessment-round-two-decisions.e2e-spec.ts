@@ -296,7 +296,8 @@ describe('Round-2 decisions of the Lead (e2e)', () => {
       'a text over 2,000 characters',
       { decision: 'escalate', body: 'x'.repeat(2001) },
     ],
-    ['an unknown decision', { decision: 'ppu_done', body: 'Reason' }],
+    // `ppu_done` is a known value since P2-3917 (a Lead sending it gets 409 ASSESSMENT_DECISION_INVALID).
+    ['an unknown decision', { decision: 'not_a_decision', body: 'Reason' }],
     ['no decision', { body: 'Reason' }],
   ])(
     '400 VALIDATION_FAILED for %s, with nothing stored',
