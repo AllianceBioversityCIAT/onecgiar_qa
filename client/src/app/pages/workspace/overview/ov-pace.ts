@@ -46,7 +46,7 @@ function yTicks(v: number): number[] {
   imports: [QaSelectImports],
   host: { class: 'block @container' },
   template: `
-    <section aria-labelledby="overview-pace-title" class="flex h-full flex-col rounded-[12px] border border-(--border) bg-(--surface) p-5">
+    <section aria-labelledby="overview-pace-title" class="flex h-full flex-col rounded-xl border border-(--border) bg-(--surface) p-5 shadow-(--shadow-card)">
       <!-- Header: title and what it shows on the left; the block's own filter and its status on the right. -->
       <div class="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
         <div class="flex min-w-0 flex-col gap-0.5">
@@ -72,7 +72,7 @@ function yTicks(v: number): number[] {
             />
           }
           @if (view(); as v) {
-            <span class="rounded-full px-2.5 py-0.5 text-(length:--fs-12) font-semibold" [class]="v.behind ? 'bg-(--st-editing-bg) text-(--st-editing-fg)' : 'bg-(--st-approved-bg) text-(--st-approved-fg)'">
+            <span class="rounded-md px-2 py-0.5 text-(length:--fs-12) font-medium" [class]="v.behind ? 'qa-dot gap-1.5 bg-(--surface-5) text-(--text-2) [--qa-dot:var(--warning)]' : 'qa-dot gap-1.5 bg-(--surface-5) text-(--text-2) [--qa-dot:var(--success)]'">
               {{ v.behind ? 'Behind pace' : 'On pace' }}
             </span>
           }
@@ -88,7 +88,7 @@ function yTicks(v: number): number[] {
         <div class="mt-5 flex flex-col gap-6">
           <dl class="m-0 grid grid-cols-2 gap-2 @lg:grid-cols-4">
             @for (k of v.kpis; track k.label) {
-              <div class="flex flex-col-reverse gap-0.5 rounded-[10px] border border-(--surface-4) bg-(--surface-2) px-3 py-2.5">
+              <div class="flex flex-col-reverse gap-0.5 rounded-lg border border-(--border) px-3 py-2.5">
                 <dt class="text-(length:--fs-12) text-(--text-3)">{{ k.label }}</dt>
                 <dd class="m-0 text-(length:--fs-20) font-bold tabular-nums tracking-[-0.01em] text-(--text)">{{ k.value }}</dd>
               </div>

@@ -379,6 +379,16 @@ describe('Round 2 scope of the Lead (e2e)', () => {
         finished: 2,
         total: 2,
         autoValidated: 0,
+        byStatus: {
+          pending: 0,
+          returned_to_program: 1,
+          clarification_requested: 0,
+          pending_tpb_review: 1,
+          pending_ppu: 0,
+          unresolved: 0,
+          quality_assessed: 0,
+          auto_validated: 0,
+        },
       });
 
       const all = await a.send('get', '/timelines/1/worklist', {

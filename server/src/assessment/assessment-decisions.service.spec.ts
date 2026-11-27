@@ -475,7 +475,7 @@ describe('FR-8 Escalate', () => {
 
     expect(await refusal(validate(true, [CORE[0]!]))).toMatchObject({
       status: 409,
-      body: { code: 'ASSESSMENT_FIELD_ESCALATED' },
+      body: { code: 'ASSESSMENT_FIELD_ESCALATED', fields: [CORE[0]] },
     });
     expect(JSON.stringify([world.validations, world.audits])).toBe(before);
   });
@@ -490,7 +490,7 @@ describe('FR-8 Escalate', () => {
       ),
     ).toMatchObject({
       status: 409,
-      body: { code: 'ASSESSMENT_FIELD_ESCALATED' },
+      body: { code: 'ASSESSMENT_FIELD_ESCALATED', fields: [CORE[0]] },
     });
     expect(stored(world)).toEqual([]);
     await service.validate(
@@ -548,7 +548,7 @@ describe('FR-8 Escalate', () => {
     await decide(7001, 'escalate');
     expect(await refusal(decide(7002, 'agree_program'))).toMatchObject({
       status: 409,
-      body: { code: 'ASSESSMENT_FIELD_ESCALATED' },
+      body: { code: 'ASSESSMENT_FIELD_ESCALATED', fields: [CORE[0]] },
     });
     expect(world.commentDecisions).toHaveLength(1);
 
@@ -1192,7 +1192,7 @@ describe('FR-8 none (undecided): a core field with an undecided round-1 comment 
 
     expect(refused).toMatchObject({
       status: 409,
-      body: { code: 'ASSESSMENT_FIELD_ESCALATED' },
+      body: { code: 'ASSESSMENT_FIELD_ESCALATED', fields: [CORE[0]] },
     });
     expect(stored(world)).toEqual([]);
   });

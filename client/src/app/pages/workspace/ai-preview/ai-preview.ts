@@ -65,7 +65,7 @@ const FIELD_NAMES: Readonly<Record<string, string>> = {
         <qa-loading label="Loading the AI suggestions">
           <div class="flex max-w-[760px] flex-col gap-4">
             @for (i of rows; track i) {
-              <qa-skeleton class="h-24 w-full rounded-[8px]" />
+              <qa-skeleton class="h-24 w-full rounded-lg" />
             }
           </div>
         </qa-loading>

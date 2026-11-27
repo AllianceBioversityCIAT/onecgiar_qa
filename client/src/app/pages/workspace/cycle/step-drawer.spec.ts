@@ -89,7 +89,7 @@ describe('StepDrawer', () => {
     await type(fixture, field('input[aria-labelledby="cycle-step-closes"]'), '12 Nov 2030');
     await type(fixture, closesTime, '17:30');
     expect(opensTime.value).toBe('09:30');
-    expect(document.body.textContent).toContain('Rome time (CET), 24-hour clock.');
+    expect(document.body.textContent).toContain('Rome time (CET), 24-hour clock');
 
     [...document.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.trim() === 'Add step')!.click();
     await settle(fixture);

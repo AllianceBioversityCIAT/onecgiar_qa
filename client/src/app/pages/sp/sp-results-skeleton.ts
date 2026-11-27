@@ -22,7 +22,7 @@ import { QaLoadingImports, skeletonRows } from '../../ui';
           </div>
           <qa-skeleton class="hidden h-3 w-10 sm:block" />
           <qa-skeleton class="hidden h-3 w-12 sm:block" />
-          <qa-skeleton class="h-5 w-24 rounded-full" />
+          <qa-skeleton class="h-5 w-24 rounded-md" />
         </div>
       }
     </qa-loading>

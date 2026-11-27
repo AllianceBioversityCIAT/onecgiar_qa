@@ -70,6 +70,7 @@ function authConfigValue(): ConfigType<typeof authConfig> {
       clientSecret: 'test-secret',
       hostedUiUrl: 'https://qa-test.auth.us-east-1.amazoncognito.com',
       userPoolUrl: 'https://cognito-idp.test.invalid/',
+      ssoProvider: 'CGIAR-AzureAD',
     },
     allowedOrigins: ['http://localhost:4200'],
   };

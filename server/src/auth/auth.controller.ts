@@ -260,9 +260,9 @@ export class AuthController {
   }
 
   @ApiOperation({
-    summary: 'SSO step 1: the Cognito Hosted UI URL for CGIAR-AzureAD',
+    summary: 'SSO step 1: the Cognito Hosted UI URL for the SSO provider',
     description:
-      'Public. Redirect the browser to `url`; after the Microsoft login the Hosted UI returns to `redirectUri?code=…`, then call `POST /auth/callback`.',
+      "Public. Redirect the browser to `url`; after the provider's login the Hosted UI returns to `redirectUri?code=…`, then call `POST /auth/callback`. The provider is the environment's `COGNITO_SSO_PROVIDER` (default `CGIAR-AzureAD`).",
   })
   @ApiOkEnvelope({
     type: 'object',

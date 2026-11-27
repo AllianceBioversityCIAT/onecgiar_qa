@@ -19,10 +19,10 @@ export const READ_ONLY = 'read_only';
   host: { class: 'block' },
   template: `
     <div
-      class="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-[8px] border border-(--border) bg-(--surface) px-[14px] py-2.5"
+      class="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-(--border) pb-3"
       data-testid="admin-role-picker"
     >
-      <span [id]="labelId" class="text-(length:--fs-13) font-semibold text-(--text)">Act as</span>
+      <span [id]="labelId" class="text-(length:--fs-12) font-medium text-(--text-3)">Act as</span>
       <qa-segmented
         size="compact"
         [options]="options()"

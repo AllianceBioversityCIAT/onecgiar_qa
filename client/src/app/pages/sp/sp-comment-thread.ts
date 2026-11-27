@@ -27,12 +27,12 @@ import { SpResponseForm } from './sp-response-form';
   selector: 'qa-sp-comment-thread',
   imports: [QaBadge, QaButtonImports, SpFieldValue, SpResponseForm],
   host: {
-    class: 'flex flex-col gap-3 rounded-[10px] border border-(--border) bg-(--surface) px-4 py-3.5',
+    class: 'flex flex-col gap-3 rounded-lg border border-(--border-soft) bg-(--surface-2) px-4 py-3.5',
   },
   template: `
     @let c = comment();
     <div class="flex flex-wrap items-center gap-2">
-      <span class="text-(length:--fs-12) font-semibold tracking-[0.04em] text-(--text-3) uppercase"
+      <span class="text-(length:--fs-12) font-medium text-(--text-3)"
         >QA comment</span
       >
       <span class="text-(length:--fs-12) text-(--text-4)">{{ at(c.createdAt) }}</span>

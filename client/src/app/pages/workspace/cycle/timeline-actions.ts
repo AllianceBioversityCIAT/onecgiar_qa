@@ -11,7 +11,9 @@ import { MenuAction, TimelineVM } from './cycle.logic';
 @Component({
   selector: 'qa-cycle-timeline-actions',
   imports: [QaButtonImports, QaMenuImports],
-  host: { class: 'flex flex-none flex-wrap items-center gap-2 max-sm:w-full' },
+  // Full width on phones only when it holds a button besides "…" (they share the row); the menu alone stays beside the
+  // title instead of taking a row of its own (final review, 2026-11-25).
+  host: { class: 'flex flex-none flex-wrap items-center gap-2 max-sm:has-[[hlmBtn]]:w-full' },
   template: `
     @let t = timeline();
     @if (t.needsPeople && t.canAssign && !stepsShown()) {
@@ -30,7 +32,7 @@ import { MenuAction, TimelineVM } from './cycle.logic';
       [qaMenuTrigger]="actions"
       qaMenuAlign="end"
       [attr.aria-label]="'Actions for ' + t.name"
-      class="flex size-8 flex-none cursor-pointer items-center justify-center rounded-[8px] border border-(--border) bg-(--surface) p-0 outline-none hover:border-(--border-strong) focus-visible:shadow-(--focus-ring) max-sm:size-10"
+      class="flex size-8 flex-none cursor-pointer items-center justify-center rounded-lg border border-(--border) bg-(--surface) p-0 outline-none hover:border-(--border-strong) focus-visible:shadow-(--focus-ring) max-sm:size-10"
     >
       <svg width="16" height="16" viewBox="0 0 24 24" fill="var(--text-3)" aria-hidden="true"><path d="M5 10.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm7 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm7 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z" /></svg>
     </button>

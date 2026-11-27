@@ -162,6 +162,7 @@ describe('GET assessment view (e2e)', () => {
         timeline: { id: 1, name: 'Official' },
         step: { position: 1, name: 'Step 1' },
         status: 'pending',
+        reviewerRole: 'ASSESSOR',
       });
       expect(res.body.data.sections.map((s: { key: string }) => s.key)).toEqual(
         [

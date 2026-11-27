@@ -11,7 +11,7 @@ Timeline sync: the ADMIN brings the eligible results of Reporting into one timel
 | Path | Role |
 |---|---|
 | `ingestion.module.ts` | Wires the module (see *Bindings* below) |
-| `loads.controller.ts` | 6 routes (`GET .../loads/preview`, `POST .../loads` `@Idempotent()` 202, `GET .../loads`, `GET .../loads/:loadId`, and the AI run of a load: `GET` / `POST .../loads/:loadId/ai-jobs`). `ADMIN_ACCESS` at class level; `preview` is declared before `:loadId` so the literal wins |
+| `loads.controller.ts` | 6 routes (`GET .../loads/preview`, `POST .../loads` `@Idempotent({ required: true })` 202 (P2-4128: without `Idempotency-Key` it is 400 `VALIDATION_FAILED` on the header and nothing is written), `GET .../loads`, `GET .../loads/:loadId`, and the AI run of a load: `GET` / `POST .../loads/:loadId/ai-jobs`). `ADMIN_ACCESS` at class level; `preview` is declared before `:loadId` so the literal wins |
 | `ai-enqueue.service.ts` | Spec assessment/ai-suggestions FR-2, FR-3: the AI jobs of a recorded lot, the run status, the re-enqueue (see *AI jobs*) |
 | `loads.service.ts` | `preview`, `start`, `list`, `get`; one `ingestion` log line per request; the `LOAD_RUNNER` port the start fires after the commit |
 | `load-runner.ts` | The run: lots of 50, 3 attempts with 1 s then 4 s waits (±20 %), heartbeat every 60 s, catalog-version check with one forced refresh, the KP release port (`KP_RELEASE_ENABLED = true`) |
@@ -67,4 +67,4 @@ G-1 (lease revival), G-2 (lost commit acknowledgement on a lot) and G-3 (heartbe
 - Pure rules: `load-rules.spec.ts`, `kp-classifier.spec.ts`.
 - Services and units of work over in-memory stores and a fake feed: `loads.service.spec.ts`, `load-runner.spec.ts`, `loads.unit-of-work.spec.ts`.
 - Adapters: `reporting-results-feed.client.spec.ts` (fixtures), `dynamo-snapshot-store.spec.ts`; `dynamo-snapshot-store.dynamo-local.spec.ts` needs DynamoDB Local (`DYNAMODB_ENDPOINT`).
-- HTTP and privacy suites: `server/test/ingestion-loads.e2e-spec.ts` (routes, guards, idempotent start, OpenAPI) and `server/test/ingestion-loads-privacy.e2e-spec.ts`.
+- HTTP and privacy suites: `server/test/ingestion-loads.e2e-spec.ts` (routes, guards, idempotent start with the required key, OpenAPI; its `send` gives a load start a fresh `Idempotency-Key` unless the test passes `key: null`) and `server/test/ingestion-loads-privacy.e2e-spec.ts`.

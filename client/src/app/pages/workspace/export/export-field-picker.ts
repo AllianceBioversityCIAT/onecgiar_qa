@@ -35,7 +35,7 @@ export interface ExportFieldGroup {
         </button>
       </div>
 
-      <div class="flex flex-col rounded-[10px] border border-(--border)">
+      <div class="flex flex-col rounded-lg border border-(--border)">
         @for (group of groups(); track group.id) {
           @let state = groupState(group);
           <div class="flex flex-col gap-1 border-b border-(--border) px-3 py-2.5 last:border-b-0">

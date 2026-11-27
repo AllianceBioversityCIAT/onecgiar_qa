@@ -190,10 +190,12 @@ export function toErrorBody(
     error.fields = body.fields as ApiErrorBody['fields'];
   }
   // The finish refusals name the core fields to comment on or decide: keys only (FR-15, round-2 FR-11).
+  // ASSESSMENT_FIELD_ESCALATED names the escalated fields the request touched.
   if (
     (code === 'ASSESSMENT_CORE_UNCOMMENTED' ||
       code === 'ASSESSMENT_CORE_UNDECIDED' ||
-      code === 'ASSESSMENT_CORE_COMMENT_UNDECIDED') &&
+      code === 'ASSESSMENT_CORE_COMMENT_UNDECIDED' ||
+      code === 'ASSESSMENT_FIELD_ESCALATED') &&
     typeof body === 'object' &&
     Array.isArray(body.fields) &&
     body.fields.every((field) => typeof field === 'string')

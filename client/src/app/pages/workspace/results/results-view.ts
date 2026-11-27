@@ -6,11 +6,14 @@ import { filter } from 'rxjs';
 import { HlmInput } from '@spartan/input';
 import { QA_STATUSES, QaStatus } from '../../../core/api/assessment.models';
 import { TableSort } from '../../../core/list/table-sort';
-import { QaButtonImports, QaMultiSelect, QaScopeCardImports, QaSelectImports } from '../../../ui';
+import { QaButtonImports, QaMultiSelect, QaScopeCardImports, QaSelectImports, QaStateCard } from '../../../ui';
 import { ResultsSkeleton } from './results-skeleton';
 import { ResultsFilters, ResultsStore } from './results-store';
 import { ResultsTable, SortDir, SortKey } from './results-table';
 import { STATUS_LABELS, readOnlyText, timelineOptions, toRowVm } from './results.mapper';
+
+/** The round-2 statuses the counter line names, in workflow order. */
+const ROUND_TWO_COUNTED: readonly QaStatus[] = ['pending_tpb_review', 'pending_ppu', 'unresolved'];
 
 /** Milliseconds the search box waits after the last key before asking the server. */
 const SEARCH_DEBOUNCE_MS = 300;
@@ -64,7 +67,7 @@ export function readFilters(params: ParamMap): ResultsFilters {
 @Component({
   selector: 'qa-results-view',
   templateUrl: './results-view.html',
-  imports: [NgTemplateOutlet, QaButtonImports, HlmInput, RouterLink, QaMultiSelect, QaScopeCardImports, QaSelectImports, ResultsTable, ResultsSkeleton],
+  imports: [NgTemplateOutlet, QaButtonImports, HlmInput, RouterLink, QaMultiSelect, QaScopeCardImports, QaSelectImports, QaStateCard, ResultsTable, ResultsSkeleton],
   providers: [ResultsStore],
 })
 export class ResultsView {
@@ -128,6 +131,20 @@ export class ResultsView {
     if (!option) return null;
     const kind = option.group === 'Main batch' ? 'Main batch' : 'Complementary batch';
     return [kind, option.description].filter(Boolean).join(' · ');
+  });
+
+  /**
+   * Round 2 (front contract § 9.2): how many results wait for the TPB, the PPU or ended Unresolved, from the server's
+   * unfiltered `counters.byStatus`; a status at 0 says nothing. Empty on an older server (no `byStatus`).
+   */
+  protected readonly roundTwoCounts = computed(() => {
+    const byStatus = this.store.counters().byStatus;
+    if (!byStatus) return [];
+    return ROUND_TWO_COUNTED.filter((s) => (byStatus[s] ?? 0) > 0).map((s) => ({
+      key: s,
+      count: byStatus[s],
+      label: STATUS_LABELS[s].charAt(0).toLowerCase() + STATUS_LABELS[s].slice(1),
+    }));
   });
 
   /** Big number at the right of the context card, once the timeline answered. */

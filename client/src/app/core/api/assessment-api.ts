@@ -9,6 +9,9 @@ import {
   AssessmentRelease,
   AssessmentView,
   CommentThread,
+  DecisionBody,
+  DecisionKind,
+  DecisionResult,
   QuickComment,
   QuickCommentRole,
   ReleaseRetryResult,
@@ -30,9 +33,12 @@ import {
  * - validations: setting a field to the state it already has changes nothing, so a replay is safe;
  * - comment create: the server honors `Idempotency-Key` (the interceptor sends one per submit);
  * - quick comment save: the same text answers 200 with the existing entry.
- * Finish, withdraw, the clarification answer and the release retry stay out (`NO_QUEUE`): a lost answer may mean it already
- * happened (a replay would be 409 `ASSESSMENT_FINISHED` / `ASSESSMENT_COMMENT_NOT_OPEN`), so the page
- * reloads and shows the real state instead.
+ * - a decision and its clear (round 2: Lead, TPB, PPU): a PUT / DELETE on one path, the same call twice gives the same state
+ *   (clearing where there is none succeeds and changes nothing), and a later write of the timeline waits behind it.
+ * Finish, withdraw, the clarification answer, the release retry and deleting a comment stay
+ * out (`NO_QUEUE`): a lost answer may mean it already happened (a replay would be 409 `ASSESSMENT_FINISHED` /
+ * `ASSESSMENT_COMMENT_NOT_OPEN` / `ASSESSMENT_COMMENT_NOT_DELETABLE`), so the page reloads and shows the real state
+ * instead.
  */
 @Service()
 export class AssessmentApi {
@@ -141,6 +147,53 @@ export class AssessmentApi {
       .pipe(unwrap<ValidationSummary>());
   }
 
+  // ── Round 2: the decisions (Lead, TPB, PPU) and the Lead's deletes (round-2 contract § 4) ──
+
+  /**
+   * A reviewer's decision on a comment (Lead, TPB, or a PPU's Done); a second PUT replaces it. Queued for replay like the validations: the route
+   * reads no `Idempotency-Key`, but the same body twice gives the same state, so a replay is safe. The answer may end the review (`status`); it
+   * carries no `effectiveValidated`, so re-read the view when every field matters.
+   */
+  decide(
+    timelineId: number,
+    resultCode: number,
+    commentId: number,
+    decision: DecisionKind,
+    body: string | null,
+  ): Observable<DecisionResult> {
+    // A PPU's Done may carry no comment: `body` is then left out (a blank string is a 400).
+    const sent: DecisionBody = body === null ? { decision } : { decision, body };
+    return this.http
+      .put<ApiEnvelope<DecisionResult>>(this.decisionUrl(timelineId, resultCode, commentId), sent, {
+        context: this.silent(`Decide a comment of ${resultCode}`),
+      })
+      .pipe(unwrap<DecisionResult>());
+  }
+
+  /**
+   * Clears the Lead's decision (`decision: null`). Queued like `decide`: clearing where there is none succeeds and
+   * changes nothing, and a later decision waits behind the stored clear, so a replay cannot undo it.
+   */
+  clearDecision(timelineId: number, resultCode: number, commentId: number): Observable<DecisionResult> {
+    return this.http
+      .delete<ApiEnvelope<DecisionResult>>(this.decisionUrl(timelineId, resultCode, commentId), {
+        context: this.silent(`Clear a decision of ${resultCode}`),
+      })
+      .pipe(unwrap<DecisionResult>());
+  }
+
+  /**
+   * The Lead deletes another reviewer's comment (round 2). The answer does not say whether the review ended: re-read
+   * the view. Never queued, like withdraw: a second delete is 409 `ASSESSMENT_COMMENT_NOT_DELETABLE`.
+   */
+  deleteComment(commentId: number): Observable<AssessmentComment> {
+    return this.http
+      .post<ApiEnvelope<AssessmentComment>>(`${this.base}/assessment-comments/${commentId}/delete`, null, {
+        context: this.silent('Delete a comment').set(NO_QUEUE, true),
+      })
+      .pipe(unwrap<AssessmentComment>());
+  }
+
   // ── Quick comments ──
 
   /** Newest first, shared by everyone with a live grant of the role. */
@@ -181,6 +234,10 @@ export class AssessmentApi {
 
   private assessmentUrl(timelineId: number, resultCode: number): string {
     return `${this.base}/timelines/${timelineId}/results/${resultCode}/assessment`;
+  }
+
+  private decisionUrl(timelineId: number, resultCode: number, commentId: number): string {
+    return `${this.assessmentUrl(timelineId, resultCode)}/decisions/${commentId}`;
   }
 
   private silent(label: string): HttpContext {

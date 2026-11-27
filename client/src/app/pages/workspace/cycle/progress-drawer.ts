@@ -24,7 +24,7 @@ export interface StepProgress {
           <span class="text-(length:--fs-13) text-(--text-3)">reviewed in this step</span>
           <qa-progress [value]="p.pct" [max]="100" aria-label="Reviewed in this step" class="mt-2 h-2!" />
         </div>
-        <h3 class="m-0 text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--text-muted) uppercase">By science program</h3>
+        <h3 class="m-0 text-(length:--fs-12) font-medium text-(--text-muted)">By science program</h3>
         <!-- The mockup uses the same per-program sample rows for every step. -->
         <ul class="m-0 -mt-[14px] flex list-none flex-col p-0">
           @for (row of rows; track row.code; let last = $last) {

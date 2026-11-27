@@ -1,4 +1,5 @@
 // View models and pure helpers for the Review page. One page for every reviewing role; only the buttons change.
+import type { DecisionKind } from '../../../core/api/assessment.models';
 import {
   AiMatch,
   FieldDef,
@@ -93,6 +94,91 @@ export interface FieldVm extends CardStatusVm {
   readonly before: string | null;
   readonly scale: readonly ScaleCell[] | null;
   readonly iaGroupStart: boolean;
+  /**
+   * Round 2 (Lead): the green is the one carried from round 1, because the Lead stored nothing. Always false in
+   * round 1. TODO(design): the card shows it today as a neutral state chip; Juanpa decides its final look.
+   */
+  readonly carried: boolean;
+  /**
+   * Round 2 (Lead): the field changed since round 1. Always false in round 1. TODO(design): shown today as an
+   * "Updated" state chip with an existing style; Juanpa decides its final look.
+   */
+  readonly updated: boolean;
+  /**
+   * Round 2 (Lead): the round-1 comments of a core field, with what the program answered and the Lead's decision.
+   * Empty in round 1 and on any field that is not actionable.
+   */
+  readonly leadThread: readonly ThreadItemVm[];
+  /** Round 2 (Lead): the Lead's own live round-2 comments on the field, with their escalate control (contract § 3.2). */
+  readonly leadOwn: readonly ThreadItemVm[];
+  /** Round 2 (Lead): the thread opens by default while one of its comments still waits for the Lead's decision. */
+  readonly threadOpen: boolean;
+}
+
+/** A decision the Lead may take on a comment ("Agree with the program", "Escalate to TPB"). */
+export interface DecisionChoiceVm {
+  readonly kind: DecisionKind;
+  readonly label: string;
+}
+
+/** An earlier step's decision shown as context on a thread item (TPB / PPU). */
+export interface DecisionNoteVm {
+  readonly label: string;
+  readonly text: string;
+  readonly date: string;
+}
+
+/** One round-1 comment as the Lead reads it in the card (round-2 contract § 3.1). */
+export interface ThreadItemVm {
+  readonly commentId: number;
+  /** The assessor, by nickname ("Admin · nickname" for an admin). */
+  readonly who: string;
+  readonly date: string;
+  readonly text: string;
+  /** The value when the assessor commented, only when it differs from the value now. */
+  readonly valueThen: string | null;
+  /** The program's latest response, or null when it never responded. */
+  readonly response: {
+    readonly who: string;
+    readonly label: string;
+    readonly date: string;
+    readonly text: string;
+  } | null;
+  /** Every clarification request with its answer, oldest first. */
+  readonly clarifications: readonly {
+    readonly question: string;
+    readonly askedOn: string;
+    readonly answer: string | null;
+    readonly answeredOn: string;
+  }[];
+  /** The Lead's current decision, or null. */
+  readonly decision: {
+    readonly kind: DecisionKind;
+    readonly label: string;
+    readonly text: string;
+    readonly date: string;
+  } | null;
+  /** Exactly the server's `choices` while the comment is decidable (and the page offers writes); `[]` otherwise. */
+  readonly choices: readonly DecisionChoiceVm[];
+  /** Still waits for the Lead: decidable, no decision yet. */
+  readonly pending: boolean;
+  /**
+   * An agree here would leave every core field green, so the review finishes in the same call (contract § 4.1).
+   * Announced only: the server decides.
+   */
+  readonly agreeEnds: boolean;
+  /** The Lead's own round-2 comment (contract § 3.2): no program response, only "Escalate to TPB". */
+  readonly own: boolean;
+  /** Who decides it on this page: the Lead (step 3), the TPB (step 4) or the PPU (step 5). Drives the editor's words. */
+  readonly mode: 'lead' | 'tpb' | 'ppu';
+  /** TPB and PPU: the Lead's ruling on the comment (its escalation and reason), or null. */
+  readonly lead: DecisionNoteVm | null;
+  /** PPU: the TPB's decision and its justification, or null. */
+  readonly tpb: DecisionNoteVm | null;
+  /** PPU: the comment of a Done is optional (Lead and TPB decisions need one). */
+  readonly noteOptional: boolean;
+  /** The Lead may delete it (another reviewer's comment the program never answered, while the Lead writes). */
+  readonly canDelete: boolean;
 }
 
 export interface TocLinkVm {
@@ -112,6 +198,10 @@ export interface TocCardVm extends CardStatusVm {
    * general note about contributions instead.
    */
   readonly tip?: string;
+  /** Round 2 (Lead): on the field's first card only, its round-1 thread and the Lead's own comments (as `FieldVm`). */
+  readonly leadThread?: readonly ThreadItemVm[];
+  readonly leadOwn?: readonly ThreadItemVm[];
+  readonly threadOpen?: boolean;
 }
 
 export interface TocGroupVm {
@@ -299,6 +389,11 @@ export function buildFieldVm(
     before: compare ? (d.before ?? null) : null,
     scale: d.score == null ? null : IA_SCALE.map((label, n) => ({ n, label, selected: n === d.score })),
     iaGroupStart: d.id === 'iagender',
+    carried: false,
+    updated: false,
+    leadThread: [],
+    leadOwn: [],
+    threadOpen: false,
   };
 }
 

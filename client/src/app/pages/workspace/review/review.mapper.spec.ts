@@ -2,7 +2,8 @@
 import { AssessmentField, AssessmentView } from '../../../core/api/assessment.models';
 import { FieldVm } from './review-model';
 import { clarificationThread, comment, field, programResponse, viewFixture } from './review.api-fixture';
-import { coreUncommentedMessage, findField, formatValue, pendingAnswers, pendingAnswersBanner, readOnlyBanner, returnsOnAnyComment, toCommentVm, toDrawerVm, toFieldVm, toReviewVm, withPendingAnswers, withdrawOpen } from './review.mapper';
+import { roundTwoViewFixture, threadItem as threadItemOf, withThread } from './review.round2-fixture';
+import { coreUncommentedMessage, coreUndecidedMessage, deleteOpen, findField, formatValue, pendingAnswers, pendingAnswersBanner, readOnlyBanner, returnsOnAnyComment, toCommentVm, toDrawerVm, toFieldVm, toReviewVm, withPendingAnswers, withdrawOpen } from './review.mapper';
 
 const byLabel = (fields: readonly FieldVm[], label: string): FieldVm =>
   fields.find((f) => f.label === label)!;
@@ -646,6 +647,463 @@ describe('review.mapper (API assessment view → Review view models)', () => {
       expect(returnsOnAnyComment(atStep(viewFixture(), 3))).toBe(false);
       expect(returnsOnAnyComment({ ...viewFixture(), header: { ...viewFixture().header, step: null } })).toBe(false);
       expect(returnsOnAnyComment(everyField(viewFixture(), (f) => ({ ...f, comments: f.comments.filter((c) => c.state === 'withdrawn') })))).toBe(false);
+    });
+  });
+
+  describe('round 2: the Lead reads a re-submitted result (P2-3912, round-2 contract § 3, § 4.3)', () => {
+    const general = (v: AssessmentView = roundTwoViewFixture()) => toReviewVm(v).sections[0].fields;
+    const withField = (key: string, change: (f: AssessmentField) => AssessmentField, v = roundTwoViewFixture()): AssessmentView => ({
+      ...v,
+      sections: v.sections.map((s) => ({ ...s, fields: s.fields.map((f) => (f.key === key ? change(f) : f)) })),
+    });
+
+    it('a field that is not actionable is context: no mark, no Core tag, no button, not counted', () => {
+      const regions = byLabel(general(), 'Regions');
+      expect(regions.isView).toBe(true);
+      expect(regions.states).toEqual([]);
+      expect(regions.actions).toBeNull();
+      expect(regions.isCore).toBe(false);
+      expect(toReviewVm(roundTwoViewFixture()).total).toBe(2);
+    });
+
+    it('a core field not actionable is context too, even with its core flag', () => {
+      const v = withField('general.title', (f) => ({ ...f, actionable: false }));
+      const title = byLabel(general(v), 'Title of Result');
+      expect([title.isView, title.isCore, title.actions]).toEqual([true, false, null]);
+    });
+
+    it('round 1: actionable false changes nothing (the round-2 rule only)', () => {
+      const plain = viewFixture();
+      const v: AssessmentView = { ...plain, sections: plain.sections.map((s) => ({ ...s, fields: s.fields.map((f) => ({ ...f, actionable: false })) })) };
+      expect(toReviewVm(v)).toEqual(toReviewVm(plain));
+    });
+
+    it('the check follows effectiveValidated: a carried green with validated false reads Validated, offers Undo', () => {
+      const title = byLabel(general(), 'Title of Result');
+      expect(title.states[0]).toEqual({ kind: 'ok', label: 'Validated', count: 0 });
+      expect(title.actions).toMatchObject({ approve: false, undo: 'approval' });
+    });
+
+    it('a stored green the Lead took back (effectiveValidated false over validated true) reads Not validated', () => {
+      const v = withField('general.title', (f) => ({ ...f, validated: true, effectiveValidated: false, carried: false }));
+      const title = byLabel(general(v), 'Title of Result');
+      expect(title.states[0].kind).toBe('not');
+      expect(title.actions).toMatchObject({ approve: true, undo: null });
+    });
+
+    it('counts, section open and resolved read the effective green', () => {
+      const vm = toReviewVm(roundTwoViewFixture());
+      // title: carried green (validated false); description: grey with the Lead's own open comment, not escalated, so
+      // still to do (tramo 5: in round 2 only green or escalated is done, contract § 4.3).
+      expect([vm.resolved, vm.total, vm.validated, vm.commented]).toEqual([1, 2, 1, 1]);
+      const noComment = withField('general.description', (f) => ({ ...f, comments: [] }));
+      const vm2 = toReviewVm(noComment);
+      expect(vm2.sections[0].open).toBe(1); // description only: the carried title is green
+      expect([vm2.resolved, vm2.validated]).toEqual([1, 1]);
+    });
+
+    it('the ToC "reviewed" count reads the effective green', () => {
+      const v: AssessmentView = {
+        ...roundTwoViewFixture(),
+        sections: [
+          {
+            key: 'theory_of_change',
+            label: 'Theory of Change',
+            fields: [field({ key: 'toc.entries', label: 'ToC contributions', core: true, value: 'x', validated: false, effectiveValidated: true, carried: true, actionable: true })],
+          },
+        ],
+      };
+      expect(toReviewVm(v).sections[0].toc?.reviewed).toBe(1);
+    });
+
+    it('exposes carried and updated on the field, with the hint and "Updated" as existing chips', () => {
+      const title = byLabel(general(), 'Title of Result');
+      const description = byLabel(general(), 'Description of Result');
+      expect([title.carried, title.updated]).toEqual([true, false]);
+      expect([description.carried, description.updated]).toEqual([false, true]);
+      expect(chipLabels(title)).toEqual(['Validated', 'Green in round 1, unchanged']);
+      expect(chipLabels(description)).toEqual(['Not validated', 'Updated', 'Commented']);
+      expect(description.states.find((c) => c.label === 'Updated')?.kind).toBe('changes');
+      expect(title.states.find((c) => c.label === 'Green in round 1, unchanged')?.kind).toBe('agreed');
+    });
+
+    it('carried is never shown on a field that is not green, nor on a context field', () => {
+      const grey = withField('general.title', (f) => ({ ...f, effectiveValidated: false }));
+      expect(byLabel(general(grey), 'Title of Result').carried).toBe(false);
+      const ctx = withField('general.title', (f) => ({ ...f, actionable: false }));
+      expect(byLabel(general(ctx), 'Title of Result').carried).toBe(false);
+    });
+
+    it('finish outcome: Pending for TPB review while a core field is effectively grey (and escalated)', () => {
+      const escalated = withThread({ decision: { decision: 'escalate', body: 'TPB.', decidedAt: '2026-11-25T11:00:00.000Z' } });
+      expect(toReviewVm(escalated).finishTo).toBe('Pending for TPB review');
+    });
+
+    describe('Finish for the Lead (tramo 5, contract § 4.3)', () => {
+      const escalate = { decision: 'escalate' as const, body: 'TPB.', decidedAt: '2026-11-25T11:00:00.000Z' };
+      const ownEscalated = withField('general.description', (f) => ({
+        ...f,
+        thread: [threadItemOf({ decision: { decision: 'agree_program', body: 'Ok.', decidedAt: '2026-11-25T11:00:00.000Z' } })],
+        comments: f.comments.map((c) => ({ ...c, decision: escalate })),
+      }));
+
+      it('a grey core field with no escalate blocks Finish (ASSESSMENT_CORE_UNDECIDED), even with the Lead\'s own comment on it', () => {
+        const vm = toReviewVm(roundTwoViewFixture());
+        expect(vm.finishBlockedBy).toEqual(['Description of Result']);
+        expect(vm.finishBlockedFields).toEqual([{ key: 'general.description', label: 'Description of Result' }]);
+        expect(vm.finishTo).toBe('');
+        // Not resolved yet: it counts as open in its section and in the footer.
+        expect(vm.resolved).toBe(1);
+        expect(vm.sections[0].open).toBe(1);
+      });
+
+      it('an escalate on a round-1 comment, or on the own comment, lets Finish go to Pending for TPB review', () => {
+        for (const v of [withThread({ decision: escalate }), ownEscalated]) {
+          const vm = toReviewVm(v);
+          expect(vm.finishBlockedBy).toEqual([]);
+          expect(vm.finishTo).toBe('Pending for TPB review');
+          expect(vm.resolved).toBe(2);
+          expect(vm.sections[0].open).toBe(0);
+        }
+      });
+
+      it('a withdrawn own comment carries no escalate', () => {
+        const withdrawn = withField('general.description', (f) => ({
+          ...f,
+          comments: f.comments.map((c) => ({ ...c, state: 'withdrawn' as const, decision: escalate })),
+        }));
+        expect(toReviewVm(withdrawn).finishBlockedBy).toEqual(['Description of Result']);
+      });
+
+      it('the message names what the Lead must do: validate or escalate', () => {
+        expect(coreUndecidedMessage(['Description of Result'])).toBe('Validate or escalate this core field first: Description of Result.');
+        expect(coreUndecidedMessage(['A', 'B'])).toBe('Validate or escalate these core fields first: A, B.');
+        expect(coreUndecidedMessage([])).toBe('');
+      });
+
+      it('round 1 keeps its rule and lists the blocked fields with their keys', () => {
+        const vm = toReviewVm(viewFixture());
+        expect(vm.finishBlockedBy).toEqual(['ToC contributions']);
+        expect(vm.finishBlockedFields).toEqual([{ key: 'toc.entries', label: 'ToC contributions' }]);
+      });
+    });
+
+    it('finish outcome: Quality Assessed when every core field is effectively green, comments or not', () => {
+      // The description keeps the Lead's own open comment: round 1 would return it, round 2 does not.
+      const v = withField('general.description', (f) => ({ ...f, effectiveValidated: true }));
+      expect(toReviewVm(v).finishTo).toBe('Quality Assessed');
+    });
+
+    it("the Lead's own-comment keys (decision, decidable, choices) change only the own-comment block of the card (tramo 4)", () => {
+      const bare = roundTwoViewFixture();
+      const stripped: AssessmentView = {
+        ...bare,
+        sections: bare.sections.map((s) => ({
+          ...s,
+          fields: s.fields.map((f) => ({ ...f, comments: f.comments.map(({ decision: _d, decidable: _x, choices: _c, ...c }) => c) })),
+        })),
+      };
+      const withoutOwn = (vm: ReturnType<typeof toReviewVm>) => ({
+        ...vm,
+        sections: vm.sections.map((s) => ({ ...s, fields: s.fields.map(({ leadOwn: _o, ...f }) => f) })),
+      });
+      expect(withoutOwn(toReviewVm(bare))).toEqual(withoutOwn(toReviewVm(stripped)));
+      expect(toReviewVm(stripped).sections[0].fields.every((f) => f.leadOwn.length === 0)).toBe(true);
+    });
+
+    describe('the round-1 thread on a ToC core field (open item of tramo 3)', () => {
+      /** Round 2 with the step-1 fixture's ToC section: toc.entries core and actionable, with one round-1 comment. */
+      const tocRoundTwo = (thread = [threadItemOf({ commentId: 61 })], comments: AssessmentView['sections'][number]['fields'][number]['comments'] = []): AssessmentView => {
+        const toc = viewFixture().sections.find((s) => s.key === 'theory_of_change')!;
+        return roundTwoViewFixture({
+          sections: [
+            ...roundTwoViewFixture().sections,
+            {
+              ...toc,
+              fields: toc.fields.map((f) =>
+                f.key === 'toc.entries'
+                  ? { ...f, actionable: true, effectiveValidated: false, carried: false, updated: false, thread, comments }
+                  : { ...f, actionable: false, thread: [] },
+              ),
+            },
+          ],
+        });
+      };
+      const tocCards = (v: AssessmentView, writes = true) => toReviewVm(v, writes).sections.find((s) => s.isToc)!.toc!.groups.flatMap((g) => g.items);
+
+      it("the field's first card carries the round-1 thread with its choices, open while it waits; its other cards none", () => {
+        const cards = tocCards(tocRoundTwo());
+        const first = cards.find((c) => c.id === 'toc.entries')!;
+        expect(first.leadThread?.map((t) => t.commentId)).toEqual([61]);
+        expect(first.leadThread?.[0].choices.map((c) => c.kind)).toEqual(['agree_program', 'escalate']);
+        expect(first.threadOpen).toBe(true);
+        expect(cards.filter((c) => c.id !== 'toc.entries').every((c) => !c.leadThread?.length)).toBe(true);
+      });
+
+      it("the Lead's own round-2 comment on a ToC core field shows there too, to escalate", () => {
+        const own = comment({ id: 8301, fieldKey: 'toc.entries', author: { id: 14, nickname: 'lea' }, stepPosition: 3, round: 2, decision: null, decidable: true, choices: ['escalate'] });
+        const first = tocCards(tocRoundTwo([], [own])).find((c) => c.id === 'toc.entries')!;
+        expect(first.leadOwn?.map((t) => [t.commentId, t.choices.map((c) => c.kind)])).toEqual([[8301, ['escalate']]]);
+      });
+
+      it('a page with no writes shows the thread with no control; round 1 ToC cards carry no thread', () => {
+        const first = tocCards(tocRoundTwo(), false).find((c) => c.id === 'toc.entries')!;
+        expect(first.leadThread?.[0].choices).toEqual([]);
+        expect(toReviewVm(viewFixture()).sections.find((s) => s.isToc)!.toc!.groups.flatMap((g) => g.items).every((c) => !c.leadThread?.length)).toBe(true);
+      });
+    });
+
+    describe("the Lead's own comment and the delete (tramo 4, contract § 3.2, § 4.4)", () => {
+      const LEAD = 14;
+      const description = (v: AssessmentView = roundTwoViewFixture(), writes = true) =>
+        byLabel(toReviewVm(v, writes, LEAD, true).sections[0].fields, 'Description of Result');
+      const escalation = { decision: 'escalate' as const, body: 'Mine to escalate.', decidedAt: '2026-11-25T11:00:00.000Z' };
+      const ownWith = (over: Partial<AssessmentView['sections'][number]['fields'][number]['comments'][number]>, view?: AssessmentView) =>
+        withField('general.description', (f) => ({ ...f, comments: f.comments.map((c) => (c.id === 8101 ? { ...c, ...over } : c)) }), view);
+
+      it('the own round-2 comment is listed on its own, offering only "Escalate to TPB" (exactly its choices)', () => {
+        const f = description();
+        expect(f.leadOwn).toEqual([
+          expect.objectContaining({
+            commentId: 8101,
+            own: true,
+            who: 'lea',
+            text: 'The core field is still wrong.',
+            response: null,
+            decision: null,
+            choices: [{ kind: 'escalate', label: 'Escalate to TPB' }],
+            pending: false,
+            agreeEnds: false,
+            canDelete: false,
+          }),
+        ]);
+        // It is not one of the round-1 comments.
+        expect(f.leadThread.map((t) => t.commentId)).toEqual([41]);
+      });
+
+      it('after a reload the escalate shows from the comment itself, with Change / Clear still offered', () => {
+        const f = description(ownWith({ decision: escalation }));
+        expect(f.leadOwn[0].decision).toEqual({ kind: 'escalate', label: 'Escalated to TPB', text: 'Mine to escalate.', date: '25 Nov 2026' });
+        expect(f.leadOwn[0].choices).toHaveLength(1);
+      });
+
+      it('not decidable (ended, read only) or a page with no writes: the decision is kept, no control', () => {
+        expect(description(ownWith({ decision: escalation, decidable: false, choices: [] })).leadOwn[0].choices).toEqual([]);
+        expect(description(roundTwoViewFixture(), false).leadOwn[0].choices).toEqual([]);
+      });
+
+      it('a withdrawn own comment, and any comment without the own-comment keys, is not listed', () => {
+        expect(description(ownWith({ state: 'withdrawn', decision: null, decidable: false, choices: [] })).leadOwn).toEqual([]);
+        const other = withField('general.description', (f) => ({
+          ...f,
+          comments: [comment({ id: 8200, fieldKey: 'general.description', author: { id: 15, nickname: 'leo' }, stepPosition: 3, round: 2 })],
+        }));
+        expect(description(other).leadOwn).toEqual([]);
+      });
+
+      it('a round-2 reader who is not the Lead (a TPB) gets no Delete on the thread', () => {
+        const unanswered = withThread({ state: 'open', response: undefined });
+        expect(byLabel(toReviewVm(unanswered, true, LEAD, false).sections[0].fields, 'Description of Result').leadThread[0].canDelete).toBe(false);
+      });
+
+      it('an escalated field offers no Approve (the server refuses its green, ASSESSMENT_FIELD_ESCALATED); clearing it brings Approve back', () => {
+        const escalated = description(withThread({ decision: escalation }));
+        expect(escalated.actions?.approve).toBe(false);
+        expect(escalated.actions?.secondary).toBe(true);
+        expect(description().actions?.approve).toBe(true);
+        expect(description(ownWith({ decision: escalation })).actions?.approve).toBe(false);
+      });
+
+      it('a round-1 comment the program never answered can be deleted while the Lead writes; an answered one cannot', () => {
+        expect(description().leadThread[0].canDelete).toBe(false); // answered (Disagreed)
+        const unanswered = withThread({ state: 'open', response: undefined });
+        expect(description(unanswered).leadThread[0].canDelete).toBe(true);
+        expect(description(unanswered, false).leadThread[0].canDelete).toBe(false);
+        const ended = withThread({ state: 'open', response: undefined }, [], roundTwoViewFixture({ writable: false, readOnlyReason: 'finished' }));
+        expect(description(ended).leadThread[0].canDelete).toBe(false);
+        // Never one's own.
+        expect(description(withThread({ state: 'open', response: undefined, author: { id: LEAD, nickname: 'lea' } })).leadThread[0].canDelete).toBe(false);
+      });
+
+      it("in the drawer: another Lead's open round-2 comment can be deleted, one's own is withdrawn instead", () => {
+        const view = withField('general.description', (f) => ({
+          ...f,
+          comments: [...f.comments, comment({ id: 8200, fieldKey: 'general.description', author: { id: 15, nickname: 'leo' }, stepPosition: 3, round: 2 })],
+        }));
+        const found = findField(view, 'general.description')!;
+        const reader = { me: LEAD, canWithdraw: withdrawOpen(view), canDelete: deleteOpen(view, true) };
+        const drawer = toDrawerVm(found, 'comment', reader);
+        const byId = (id: number) => drawer.comments.find((c) => (c as { id?: number }).id === id) as { canDelete?: boolean; canWithdraw?: boolean };
+        expect(byId(8200).canDelete).toBe(true);
+        expect(byId(8200).canWithdraw).toBe(false);
+        expect(byId(8101).canDelete).toBe(false);
+        expect(byId(8101).canWithdraw).toBe(true);
+      });
+
+      it('deleteOpen: only a writable round-2 view; round 1 and a finished round 2 delete nothing', () => {
+        expect(deleteOpen(roundTwoViewFixture(), true)).toBe(true);
+        expect(deleteOpen(roundTwoViewFixture({ writable: false, readOnlyReason: 'finished' }), true)).toBe(false);
+        expect(deleteOpen(viewFixture(), true)).toBe(false);
+        // A round-2 reader that is not the Lead (a TPB writes in step 4) deletes nothing (the server answers 403).
+        expect(deleteOpen(roundTwoViewFixture(), false)).toBe(false);
+      });
+
+      it('round 2 withdraws only while the Lead writes (after the end the server refuses it); round 1 keeps its rule', () => {
+        expect(withdrawOpen(roundTwoViewFixture({ writable: false, readOnlyReason: 'finished' }))).toBe(false);
+        expect(withdrawOpen(roundTwoViewFixture())).toBe(true);
+        expect(withdrawOpen(viewFixture({ writable: false, readOnlyReason: 'finished' }))).toBe(true);
+      });
+    });
+
+    describe('the round-1 thread in the card (tramo 3)', () => {
+      const description = (v: AssessmentView = roundTwoViewFixture(), writes = true) =>
+        byLabel(toReviewVm(v, writes).sections[0].fields, 'Description of Result');
+
+      it('maps each round-1 comment: author, date, text, the value then, the program response, and the choices', () => {
+        const f = description();
+        expect(f.threadOpen).toBe(true);
+        expect(f.leadThread).toEqual([
+          {
+            commentId: 41,
+            who: 'mchen',
+            date: '12 Nov 2026',
+            text: 'The description does not match the evidence.',
+            valueThen: 'Old description',
+            response: { who: 'Pepa Program', label: 'Disagreed', date: '18 Nov 2026', text: 'The evidence was updated in this submission.' },
+            clarifications: [],
+            decision: null,
+            choices: [
+              { kind: 'agree_program', label: 'Agree with the program' },
+              { kind: 'escalate', label: 'Escalate to TPB' },
+            ],
+            pending: true,
+            agreeEnds: true,
+            own: false,
+            mode: 'lead',
+            lead: null,
+            tpb: null,
+            noteOptional: false,
+            canDelete: false,
+          },
+        ]);
+      });
+
+      it('an admin author reads "Admin · nickname" (reviewerLabel)', () => {
+        const f = description(withThread({ author: { id: 2, nickname: 'ana', admin: true } }));
+        expect(f.leadThread[0].who).toBe('Admin · ana');
+      });
+
+      it('the value then is left out when it reads the same as now; clarifications are listed oldest first', () => {
+        const f = description(
+          withThread({
+            valueCopy: { value: 'New description' },
+            response: undefined,
+            clarifications: [
+              { requestId: 1, question: 'Which link?', requestedAt: '2026-11-14T10:00:00.000Z', answer: { body: 'The annex.', answeredAt: '2026-11-15T10:00:00.000Z' } },
+              { requestId: 2, question: 'And the date?', requestedAt: '2026-11-16T10:00:00.000Z', answer: null },
+            ],
+          }),
+        );
+        expect(f.leadThread[0].valueThen).toBeNull();
+        expect(f.leadThread[0].response).toBeNull();
+        expect(f.leadThread[0].clarifications).toEqual([
+          { question: 'Which link?', askedOn: '14 Nov 2026', answer: 'The annex.', answeredOn: '15 Nov 2026' },
+          { question: 'And the date?', askedOn: '16 Nov 2026', answer: null, answeredOn: '' },
+        ]);
+      });
+
+      it('a decided comment shows the decision; its choices stay (for Change and Clear) and it no longer waits', () => {
+        const f = description(withThread({ decision: { decision: 'escalate', body: 'TPB should look.', decidedAt: '2026-11-25T11:00:00.000Z' } }));
+        expect(f.leadThread[0].decision).toEqual({ kind: 'escalate', label: 'Escalated to TPB', text: 'TPB should look.', date: '25 Nov 2026' });
+        expect(f.leadThread[0].choices).toHaveLength(2);
+        expect(f.leadThread[0].pending).toBe(false);
+        expect(f.threadOpen).toBe(false);
+      });
+
+      it('offers exactly the server choices: only "Escalate to TPB" while another comment is escalated', () => {
+        const f = description(withThread({ choices: ['escalate'] }));
+        expect(f.leadThread[0].choices).toEqual([{ kind: 'escalate', label: 'Escalate to TPB' }]);
+      });
+
+      it('gated on decidable alone: not decidable (review ended, admin reading) = no control, decision kept', () => {
+        const ended = withThread(
+          { decidable: false, choices: [], decision: { decision: 'agree_program', body: null, decidedAt: '2026-11-25T11:00:00.000Z' } },
+          [],
+          roundTwoViewFixture({ writable: false, readOnlyReason: 'finished' }),
+        );
+        const f = description(ended);
+        expect(f.leadThread[0].choices).toEqual([]);
+        expect(f.leadThread[0].decision?.label).toBe('Agreed with the program');
+        expect(f.leadThread[0].decision?.text).toBe('');
+        expect(f.leadThread[0].pending).toBe(false);
+      });
+
+      it('decidable wins over writable: an admin acting as the Lead on a view the contract marks decidable gets the controls', () => {
+        const f = description(roundTwoViewFixture({ writable: false, readOnlyReason: 'step_closed' }));
+        expect(f.leadThread[0].choices).toHaveLength(2);
+      });
+
+      it('a page that offers no writes shows no control', () => {
+        expect(description(roundTwoViewFixture(), false).leadThread[0].choices).toEqual([]);
+      });
+
+      it('agreeEnds only when every other core field is green and nothing else on the field holds it grey', () => {
+        const undecided = threadItemOf({ commentId: 42 });
+        expect(description(withThread({}, [undecided])).leadThread[0].agreeEnds).toBe(false);
+        const escalated = threadItemOf({ commentId: 42, decision: { decision: 'escalate', body: 'x', decidedAt: '2026-11-25T11:00:00.000Z' } });
+        expect(description(withThread({}, [escalated])).leadThread[0].agreeEnds).toBe(false);
+        const agreedOther = threadItemOf({ commentId: 42, decision: { decision: 'agree_program', body: 'x', decidedAt: '2026-11-25T11:00:00.000Z' } });
+        expect(description(withThread({}, [agreedOther])).leadThread[0].agreeEnds).toBe(true);
+        const accepted = threadItemOf({ commentId: 42, state: 'accepted', decidable: false, choices: [] });
+        expect(description(withThread({}, [accepted])).leadThread[0].agreeEnds).toBe(true);
+        const greyTitle = withThread({}, [], withField('general.title', (t) => ({ ...t, effectiveValidated: false, carried: false })));
+        expect(description(greyTitle).leadThread[0].agreeEnds).toBe(false);
+      });
+
+      it('no thread on a context field, nor in round 1', () => {
+        const ctx = withField('general.description', (f) => ({ ...f, actionable: false }));
+        expect(description(ctx).leadThread).toEqual([]);
+        const r1 = toReviewVm({ ...viewFixture(), sections: viewFixture().sections.map((s) => ({ ...s, fields: s.fields.map((f) => ({ ...f, thread: [] })) })) });
+        expect(r1.sections.flatMap((s) => s.fields).every((f) => f.leadThread.length === 0 && !f.threadOpen)).toBe(true);
+      });
+    });
+
+    it('an escalated assessment and a lead_sided_program comment map without error (ended, read only)', () => {
+      const v = withField(
+        'general.description',
+        (f) => ({ ...f, comments: f.comments.map((c) => ({ ...c, state: 'lead_sided_program' as const })) }),
+        roundTwoViewFixture({
+          writable: false,
+          readOnlyReason: 'finished',
+          assessment: { status: 'escalated', assessedBy: { id: 14, nickname: 'lea' }, finishedAt: '2026-11-25T12:00:00.000Z' },
+          header: { ...roundTwoViewFixture().header, status: 'pending_tpb_review' },
+        }),
+      );
+      const vm = toReviewVm(v);
+      expect(vm.canFinish).toBe(false);
+      expect(vm.header.status).toBe('Pending for TPB review');
+      expect(vm.header.showAssessedBy).toBe(true);
+      expect(vm.banner).toBe('Finished by lea on 25 Nov 2026.');
+      expect(byLabel(vm.sections[0].fields, 'Description of Result').actions?.count).toBe(1);
+    });
+
+    it('round 1 unchanged: a round-1 view with every round-2 key at its round-1 value maps exactly as without them', () => {
+      const plain = viewFixture();
+      const explicit: AssessmentView = {
+        ...plain,
+        round: 1,
+        sections: plain.sections.map((s) => ({
+          ...s,
+          fields: s.fields.map((f) => ({ ...f, updated: false, actionable: f.mode === 'assessed', effectiveValidated: f.validated, carried: false, thread: [] })),
+        })),
+      };
+      const vm = toReviewVm(plain);
+      expect(toReviewVm(explicit)).toEqual(vm);
+      const all = vm.sections.flatMap((s) => s.fields);
+      expect(all.every((f) => !f.carried && !f.updated)).toBe(true);
+      // P2-4138: the fixture's ToC core field is grey with no comment, so Finish is refused (no outcome announced).
+      expect(vm.finishBlockedBy).toEqual(['ToC contributions']);
+      expect(vm.finishTo).toBe('');
     });
   });
 

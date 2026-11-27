@@ -190,6 +190,27 @@ export class WorklistCountersModel {
       'The Auto-validated memberships among `total` (not assessed: never pending nor finished). Filters and the page do not change it',
   })
   autoValidated!: number;
+
+  @ApiProperty({
+    type: 'object',
+    description:
+      'The memberships of `total` by QA status: every status is present, 0 when none. Same scope as `total`: filters and the page do not change it',
+    properties: Object.fromEntries(
+      QA_STATUSES.map((key) => [key, { type: 'number' }]),
+    ),
+    required: [...QA_STATUSES],
+    example: {
+      pending: 3,
+      returned_to_program: 0,
+      clarification_requested: 1,
+      pending_tpb_review: 2,
+      pending_ppu: 1,
+      unresolved: 0,
+      quality_assessed: 1,
+      auto_validated: 2,
+    },
+  })
+  byStatus!: Record<QaStatus, number>;
 }
 
 export class WorklistPageModel {

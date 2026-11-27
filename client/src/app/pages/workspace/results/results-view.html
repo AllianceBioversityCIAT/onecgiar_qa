@@ -1,22 +1,34 @@
 <!-- Results in QA on the worklist API (T-18). State: results-store.ts; mapping: results.mapper.ts. -->
 
 <!-- Page header -->
-<div class="flex flex-col gap-1 px-4 pt-6 sm:px-6 sm:pt-8 lg:px-8">
-  <h1 class="m-0 text-balance text-(length:--fs-26) leading-[1.2] font-bold tracking-[-0.02em] text-(--text)">Results in QA</h1>
-  <p class="m-0 text-pretty text-(length:--fs-14) text-(--text-3)">Everything under assessment in this cycle.</p>
-</div>
+<!-- The timeline sets what the whole page shows, so its picker sits next to the title: "Results [Annual report 2026 ⌄]",
+     with its facts as the subtitle (same in Overview and Fields; Juanpa, 2026-11-25). -->
+<qa-scope-title class="px-4 pt-6 sm:px-6 sm:pt-8 lg:px-8" heading="Results" [subtitle]="timelineMeta() ?? 'Everything under assessment in this cycle.'">
+  @if (store.state() !== 'loading' && store.timelines().length) {
+    <qa-select
+      qaScopePicker
+      [value]="timelineValue()"
+      (valueChange)="onTimeline($event)"
+      [options]="timelineOptions()"
+      label="Timeline"
+      appearance="scope"
+      searchable
+      searchPlaceholder="Search timelines"
+      panelWidth="340px"
+      listMaxHeight="none"
+      class="min-w-0"
+    />
+  }
+</qa-scope-title>
 
 <div class="flex flex-col items-stretch gap-5 px-4 pt-5 pb-8 sm:px-6 lg:px-8">
   <ng-template #loadError>
-    <div class="flex max-w-[420px] flex-col items-start gap-2" role="alert">
-      <p class="m-0 text-(length:--fs-14) text-(--text-2)">The results could not load. {{ store.error() }}</p>
-      <div class="flex flex-wrap items-center gap-3">
-        <button hlmBtn qaBtn tone="secondary" size="sm" type="button" (click)="store.load()">Try again</button>
-        @if (hasFilters()) {
-          <button hlmBtn qaBtn tone="link" size="sm" type="button" (click)="clearAll()">Clear filters</button>
-        }
-      </div>
-    </div>
+    <qa-state-card alert heading="We couldn't load the results" [message]="'The results could not load. ' + (store.error() ?? '')">
+      <button hlmBtn qaBtn tone="secondary" size="sm" type="button" (click)="store.load()">Try again</button>
+      @if (hasFilters()) {
+        <button hlmBtn qaBtn tone="link" size="sm" type="button" (click)="clearAll()">Clear filters</button>
+      }
+    </qa-state-card>
   </ng-template>
 
   @if (store.state() === 'loading') {
@@ -25,25 +37,11 @@
     @if (store.state() === 'error') {
       <ng-container [ngTemplateOutlet]="loadError" />
     } @else {
-      <p class="m-0 text-(length:--fs-14) text-(--text-3)">You are not assigned to any QA timeline yet.</p>
+      <qa-state-card heading="No timelines yet" message="You are not assigned to any QA timeline yet." />
     }
   } @else {
-    <!-- The timeline sets what the whole page shows, so it leads the grey scope band that closes the page header; the
-         search and menus that depend on it sit inside (same band in Overview and Fields; Juanpa, 2026-11-23). -->
-    <qa-scope-card class="-mx-4 -mt-5 px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8" regionLabel="Timeline" [meta]="timelineMeta()" [count]="totalText()" countLabel="results in this timeline">
-      <qa-select
-        qaScopePicker
-        [value]="timelineValue()"
-        (valueChange)="onTimeline($event)"
-        [options]="timelineOptions()"
-        label="Timeline"
-        appearance="scope"
-        searchable
-        searchPlaceholder="Search timelines"
-        panelWidth="340px"
-        listMaxHeight="none"
-        class="min-w-0 self-start"
-      />
+    <!-- The search and menus that depend on the timeline in the title, right on the table they filter. -->
+    <qa-scope-card regionLabel="Filters">
       @if (store.state() !== 'error' && !store.noActiveRole()) {
         <div class="flex flex-wrap items-center gap-2 lg:gap-3">
           <label class="box-border flex h-9 w-[320px] max-w-full flex-none cursor-text items-center gap-2 rounded-lg border border-(--border) bg-(--surface) px-3 focus-within:shadow-(--focus-ring) max-sm:h-10 max-sm:w-full">
@@ -58,7 +56,7 @@
         @if (applied().length) {
           <div class="flex flex-wrap items-center gap-2">
             @for (f of applied(); track f.key) {
-              <span class="inline-flex h-7 max-w-[min(380px,100%)] items-center gap-1.5 rounded-full bg-(--tint) pr-1.5 pl-2.5 text-(length:--fs-12) font-medium text-(--accent)">
+              <span class="inline-flex h-7 max-w-[min(380px,100%)] items-center gap-1.5 rounded-md bg-(--tint) pr-1.5 pl-2.5 text-(length:--fs-12) font-medium text-(--accent)">
                 <span class="flex-none font-semibold">{{ f.label }}</span>
                 <span class="min-w-0 truncate">{{ f.values }}</span>
                 <button type="button" (click)="clearFilter(f.key)" [attr.aria-label]="'Remove ' + f.label + ' filter'" class="flex size-[18px] flex-none items-center justify-center rounded-full p-0 text-(--accent) outline-none hover:bg-(--tint-3) focus-visible:shadow-(--focus-ring)">
@@ -84,20 +82,19 @@
       }
 
       @if (store.noActiveRole()) {
-        <p class="m-0 text-(length:--fs-14) text-(--text-3)">You are on this timeline, but none of your roles has results to assess in it.</p>
+        <qa-state-card heading="Nothing to assess here" message="You are on this timeline, but none of your roles has results to assess in it." />
       } @else if (store.counters().total === 0 && !hasFilters()) {
-        <div class="flex flex-col items-start gap-2">
-          <p class="m-0 text-(length:--fs-14) text-(--text-3)">No results have entered QA in this timeline yet.</p>
+        <qa-state-card heading="No results yet" message="No results have entered QA in this timeline yet.">
           @if (isAdmin()) {
-            <a hlmBtn qaBtn tone="link" size="sm" flush="start" routerLink="/cycle">Go to Cycle</a>
+            <a hlmBtn qaBtn tone="secondary" size="sm" routerLink="/cycle">Go to Cycle</a>
           }
-        </div>
+        </qa-state-card>
       } @else {
         <!-- Counters ignore the filters: they describe the whole timeline in the caller's scope. -->
         <p class="m-0 text-(length:--fs-13) text-(--text-3) tabular-nums" aria-live="polite">
           <span class="font-semibold text-(--text-2)">{{ store.counters().pending }}</span> pending ·
           <span class="font-semibold text-(--text-2)">{{ store.counters().finished }}</span> finished ·
-          <span class="font-semibold text-(--text-2)">{{ store.counters().total }}</span> in this timeline@if (store.counters().autoValidated; as auto) {, <span class="whitespace-nowrap">incl. <span class="font-semibold text-(--text-2)">{{ auto }}</span> auto-validated</span>}
+          <span class="font-semibold text-(--text-2)">{{ store.counters().total }}</span> in this timeline@if (store.counters().autoValidated; as auto) {, <span class="whitespace-nowrap">incl. <span class="font-semibold text-(--text-2)">{{ auto }}</span> auto-validated</span>}@for (c of roundTwoCounts(); track c.key) { · <span class="whitespace-nowrap"><span class="font-semibold text-(--text-2)">{{ c.count }}</span> {{ c.label }}</span>}
         </p>
 
         @if (rows().length) {

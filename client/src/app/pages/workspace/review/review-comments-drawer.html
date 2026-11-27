@@ -1,9 +1,14 @@
 <qa-drawer [(open)]="open" [closeGuard]="closeGuard" [title]="field()?.label ?? 'Comments'" [subtitle]="field()?.section ?? ''" width="480px">
   @if (field()?.highlighted) {
-    <span qaDrawerHeader="end" class="mt-0.5 rounded-full bg-(--st-rejected-bg) px-2 py-0.5 text-(length:--fs-11) font-semibold whitespace-nowrap text-(--st-rejected-fg)">Highlighted</span>
+    <!-- Same dot badge as "Highlighted" on the field card (review-state-chips), not a red pill. -->
+    <span qaDrawerHeader="end" class="mt-0.5 inline-flex items-center gap-1.5 rounded-md bg-(--surface-5) px-2 py-0.5 text-(length:--fs-12) font-medium whitespace-nowrap text-(--text-2) [--qa-dot:var(--danger)]"><span aria-hidden="true" class="size-1.5 flex-none rounded-full bg-(--qa-dot)"></span>Highlighted</span>
   }
   @if (open() && field(); as f) {
-    <div class="rounded-[8px] bg-(--surface-3) px-3 py-2.5 text-(length:--fs-14) leading-[1.55] wrap-anywhere whitespace-pre-line text-(--text)">{{ f.value }}</div>
+    <!-- Labelled parts in reading order: the value, the comments, then the new comment (Juanpa, 2026-11-25). -->
+    <div class="flex flex-col gap-1.5">
+      <span class="text-(length:--fs-12) font-medium text-(--text-3)">Current value</span>
+      <div class="rounded-lg bg-(--surface-5) px-3 py-2.5 text-(length:--fs-14) leading-[1.55] wrap-anywhere whitespace-pre-line text-(--text)">{{ f.value }}</div>
+    </div>
 
     @if (f.mode !== 'instruction' && f.instruction) {
       <qa-review-instruction-note [text]="f.instruction" />
@@ -16,6 +21,7 @@
       <div id="review-thread-error" role="alert" class="text-(length:--fs-13) leading-[1.5] text-(--danger)">{{ threadError() }}</div>
     }
     @if (f.comments.length) {
+      <span class="-mb-2 text-(length:--fs-12) font-medium text-(--text-3)">Comments <span class="tabular-nums text-(--text-muted)">{{ f.comments.length }}</span></span>
       <ol class="m-0 flex list-none flex-col gap-2.5 p-0" aria-label="Comments">
         @for (c of f.comments; track $index) {
           @if (c.system) {
@@ -28,7 +34,7 @@
             </li>
           } @else {
             <!-- The program's answers and the author's answer to a clarification sit under the comment they belong to. -->
-            <li class="flex flex-col gap-1.5 rounded-[8px] bg-(--surface-2) px-[14px] py-3" [class]="c.role === 'Assessor' && !c.answer ? '' : 'ml-5 border-l-2 border-(--border)'">
+            <li class="flex flex-col gap-1.5 rounded-lg bg-(--surface-2) px-[14px] py-3" [class]="c.role === 'Assessor' && !c.answer ? '' : 'ml-5 border-l-2 border-(--border)'">
               <div class="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
                 <span class="text-(length:--fs-12) font-semibold text-(--text-2)">{{ c.who }} · {{ c.answer ? 'Answer' : c.role }}</span>
                 @if (c.step) {
@@ -48,7 +54,7 @@
               @if (c.valueCopy !== undefined) {
                 <!-- P2-3910 AC14: the field value as the author saw it when writing (the server's copy). -->
                 <div class="flex flex-col gap-0.5 border-l-2 border-(--border-strong) pl-2.5" data-testid="comment-value-copy">
-                  <span class="text-(length:--fs-11) font-semibold tracking-[0.04em] text-(--text-4) uppercase">Value when commented</span>
+                  <span class="text-(length:--fs-12) font-medium text-(--text-4)">Value when commented</span>
                   <span class="line-clamp-4 text-(length:--fs-13) leading-[1.5] font-normal wrap-anywhere whitespace-pre-line text-(--text-3)" [title]="c.valueCopy">{{ c.valueCopy }}</span>
                   @if (c.valueTruncated) {
                     <span class="text-(length:--fs-11) font-normal text-(--text-4)">Shortened: the value was too long to keep in full.</span>
@@ -61,6 +67,10 @@
                   <button hlmBtn qaBtn tone="link" size="sm" flush="start" type="button" [attr.aria-label]="'Withdraw your comment of ' + c.date" [loading]="c.id !== undefined && withdrawingId() === c.id" (click)="c.id !== undefined ? withdrawId.emit(c.id) : withdraw.emit($index)">Withdraw comment</button>
                 </div>
               }
+              @if (c.canDelete && c.id !== undefined) {
+                <!-- Round 2 (Lead, tramo 4): another reviewer's comment. TODO(design): Juanpa -->
+                <qa-review-delete-comment [commentId]="c.id" [who]="c.who" />
+              }
             </li>
           }
         }
@@ -72,10 +82,10 @@
     @if (f.mode !== 'read') {
     <form id="review-comment-form" class="contents" novalidate (submit)="onSubmit($event)">
       @if (f.mode === 'instruction' || f.mode === 'note') {
-        <label for="review-comment-draft" class="-mb-2 text-(length:--fs-13) font-semibold text-(--text-2)">{{ f.mode === 'note' ? 'Note for the PPU' : 'Instruction for the third-party broker' }}</label>
+        <label for="review-comment-draft" class="-mb-2 text-(length:--fs-13) font-medium text-(--text-2)">{{ f.mode === 'note' ? 'Note for the PPU' : 'Instruction for the third-party broker' }}</label>
       } @else if (f.mode === 'clarify') {
         <div class="-mb-2 flex flex-col gap-0.5">
-          <label for="review-comment-draft" class="text-(length:--fs-13) font-semibold text-(--text-2)">Your answer to the program</label>
+          <label for="review-comment-draft" class="text-(length:--fs-13) font-medium text-(--text-2)">Your answer to the program</label>
           <span class="text-(length:--fs-12) leading-[1.45] font-normal text-(--text-4)">The program asked for a clarification on your comment. Once you answer, it can respond again.</span>
           @if (f.clarify?.question; as question) {
             <!-- Which request the answer goes to (a field can carry more than one). -->
@@ -83,8 +93,9 @@
           }
         </div>
       } @else {
+      <span class="-mb-2 border-t border-(--border-soft) pt-4 text-(length:--fs-12) font-medium text-(--text-3)">New comment</span>
       <div class="-mb-2 flex flex-wrap items-center gap-2">
-        <button type="button" [qaMenuTrigger]="quick" (qaMenuOpened)="onQuickOpened()" class="inline-flex min-h-[30px] items-center gap-[7px] rounded-[8px] border border-dashed border-(--border-strong) px-2.5 text-(length:--fs-13) font-medium text-(--text-3) hover:border-solid hover:border-(--accent) hover:text-(--accent) focus-visible:shadow-(--focus-ring) focus-visible:outline-none">
+        <button type="button" [qaMenuTrigger]="quick" (qaMenuOpened)="onQuickOpened()" class="inline-flex min-h-[30px] items-center gap-[7px] rounded-lg border border-(--border) bg-(--surface) px-2.5 text-(length:--fs-13) font-medium text-(--text-3) hover:border-solid hover:border-(--accent) hover:text-(--accent) focus-visible:shadow-(--focus-ring) focus-visible:outline-none">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2zM8 8h8M8 12h5" /></svg>
           Quick comment
         </button>
@@ -100,7 +111,7 @@
         [placeholder]="f.mode === 'instruction' ? 'What should the third-party broker check?' : f.mode === 'note' ? 'What should the PPU change in the Reporting Tool?' : f.mode === 'clarify' ? 'Write your answer' : 'Write a comment'"
         [attr.aria-invalid]="showError() || !!serverError()"
         [attr.aria-describedby]="showError() ? 'review-comment-error' : serverError() ? 'review-comment-server-error' : null"
-        class="box-border min-h-24 w-full resize-y rounded-[8px] border bg-(--field-bg) px-3 py-2.5 text-(length:--fs-14) leading-[1.55] text-(--text) outline-none placeholder:text-(--text-muted) focus:border-(--primary)"
+        class="box-border min-h-24 w-full resize-y rounded-lg border bg-(--field-bg) px-3 py-2.5 text-(length:--fs-14) leading-[1.55] text-(--text) outline-none placeholder:text-(--text-muted) focus:border-(--primary)"
         [class]="showError() || serverError() ? 'border-(--danger)' : 'border-(--border)'"
       ></textarea>
       @if (serverError()) {
@@ -149,7 +160,7 @@
       type="search"
       aria-label="Search comments"
       placeholder="Search comments"
-      class="box-border h-8 w-full flex-none rounded-[6px] border border-(--border) bg-(--field-bg) px-2.5 text-(length:--fs-13) text-(--text) outline-none placeholder:text-(--text-muted) focus:border-(--primary)"
+      class="box-border h-8 w-full flex-none rounded-md border border-(--border) bg-(--field-bg) px-2.5 text-(length:--fs-13) text-(--text) outline-none placeholder:text-(--text-muted) focus:border-(--primary)"
       [value]="query()"
       (input)="query.set($any($event.target).value)"
       (keydown)="onSearchKeydown($event)"

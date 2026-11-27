@@ -7,7 +7,7 @@ Environment validation and typed configuration. This is the **only** place in th
 | File | Role |
 |---|---|
 | `env.validation.ts` | `validateEnv` (wired in `AppModule` via `ConfigModule.forRoot({ validate })`): the app refuses to start naming every missing required variable; `parseAllowedOrigins`; https checks |
-| `auth.config.ts` | `authConfig` namespace: Cognito region, pool id, client id, client secret, Hosted UI URL, user-pool API URL (defaults to `https://cognito-idp.<region>.amazonaws.com/`), parsed `allowedOrigins` |
+| `auth.config.ts` | `authConfig` namespace: Cognito region, pool id, client id, client secret, Hosted UI URL, user-pool API URL (defaults to `https://cognito-idp.<region>.amazonaws.com/`), SSO provider `ssoProvider` (`COGNITO_SSO_PROVIDER`, default `DEFAULT_SSO_PROVIDER` = `CGIAR-AzureAD`), parsed `allowedOrigins` |
 | `mysql.config.ts` | `mysqlConfig`: `DATABASE_URL`, `DATABASE_POOL_SIZE` (default 10) |
 | `openapi.config.ts` | `openApiConfig`: `enabled` — `OPENAPI_ENABLED` if set, else on unless `NODE_ENV=production` |
 | `catalogs.config.ts` | `catalogsConfig`: `REPORTING_API_URL`, `CLARISA_API_URL` and the shared `CLARISA_API_KEY` (base URLs and key of the catalog sources) |
@@ -33,6 +33,7 @@ Environment validation and typed configuration. This is the **only** place in th
 | `COGNITO_ADMIN_ACCESS_KEY_ID`, `COGNITO_ADMIN_SECRET_ACCESS_KEY` | no — both or neither | **secret**: local development only (IAM user `qa-cognito-service`: `AdminGetUser`, `AdminCreateUser` on the pool). Absent in TEST/PROD, where the host's IAM role is used. One without the other fails startup |
 | `COGNITO_URL` | yes | Hosted UI domain, `https://` only |
 | `COGNITO_USER_POOL_URL` | no | user-pool API endpoint override, `https://` only |
+| `COGNITO_SSO_PROVIDER` | no — default `CGIAR-AzureAD` | Hosted UI identity provider sent as `identity_provider` by `GET /auth/provider-url`: the provider the app client enables (DEV, TEST: `CGIAR-AzureAD`; PROD: `CGIAR-Account`). When set: not empty, no whitespace, else startup fails |
 | `REPORTING_API_URL`, `CLARISA_API_URL` | yes | base URLs with the `/api` path, `https://` only |
 | `CLARISA_API_KEY` | yes | **secret**: local `.env` or the secret store only; sent as `x-api-key` to Reporting only |
 | `NOTIFICATION_API_URL` | no | Notification Microservice base URL, `https://` only, without `/send`; default `https://reports.prms.cgiar.org/api/email` |

@@ -10,7 +10,7 @@ import {
   isEdited,
   toSuggestionViews,
 } from './ai-suggestions-rules.js';
-import type { ReviewerRow, WorklistAccess } from './scope.js';
+import type { MembershipFacts, ReviewerRow, WorklistAccess } from './scope.js';
 
 const row = (role: RoleCode): ReviewerRow => ({
   role,
@@ -63,6 +63,50 @@ describe('aiAudienceOf (FR-5)', () => {
     expect(
       aiAudienceOf(access([], false, [RoleCode.TPB, RoleCode.LEAD_ASSESSOR])),
     ).toEqual({ kind: 'none' });
+  });
+});
+
+describe('aiAudienceOf on a membership (DD-T11: the effective role)', () => {
+  const round2 = (role: RoleCode): ReviewerRow => ({
+    ...row(role),
+    round: 2,
+  });
+  const leadAndTpb: WorklistAccess = {
+    reviewerRows: [round2(RoleCode.LEAD_ASSESSOR), round2(RoleCode.TPB)],
+    admin: false,
+    disabledRoles: [],
+  };
+  const facts = (leadEscalated: boolean): MembershipFacts => ({
+    resultType: 'policy_change',
+    programId: 1,
+    round: 2,
+    status: 'pending',
+    ended: false,
+    endReason: null,
+    leadEscalated,
+    tpbEscalated: false,
+  });
+
+  it('a Lead who is also TPB gets the TPB mode on pending_tpb_review and the Lead mode on pending, in either row order', () => {
+    for (const access of [
+      leadAndTpb,
+      { ...leadAndTpb, reviewerRows: [...leadAndTpb.reviewerRows].reverse() },
+    ]) {
+      expect(aiAudienceOf(access, facts(true))).toEqual({ kind: 'tpb' });
+      expect(aiAudienceOf(access, facts(false))).toEqual({
+        kind: 'reviewer',
+        roleCode: RoleCode.LEAD_ASSESSOR,
+      });
+    }
+  });
+
+  it('an ADMIN with no effective role reads in the admin mode', () => {
+    expect(
+      aiAudienceOf(
+        { reviewerRows: [], admin: true, disabledRoles: [] },
+        facts(true),
+      ),
+    ).toEqual({ kind: 'admin' });
   });
 });
 

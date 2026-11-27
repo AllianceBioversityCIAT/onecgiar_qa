@@ -27,10 +27,10 @@ import { TeamMember, fmt } from './assessors.models';
       >
         @for (t of chips(); track t) {
           @let led = member().leadTypes.includes(t);
-          <span [title]="led ? t + ' (lead assessor)' : t" class="max-w-full truncate rounded-full border px-2 py-0.5 text-(length:--fs-11)" [class]="led ? 'border-(--primary) bg-(--tint-2) font-semibold text-(--accent-strong)' : 'border-transparent bg-(--surface-3) font-medium text-(--text-3)'">@if (led) {<span class="sr-only">Lead assessor: </span><span aria-hidden="true">Lead · </span>}{{ t }}</span>
+          <span [title]="led ? t + ' (lead assessor)' : t" class="max-w-full truncate rounded-md border px-2 py-0.5 text-(length:--fs-12)" [class]="led ? 'border-(--primary) bg-(--tint-2) font-semibold text-(--accent-strong)' : 'border-transparent bg-(--surface-3) font-medium text-(--text-3)'">@if (led) {<span class="sr-only">Lead assessor: </span><span aria-hidden="true">Lead · </span>}{{ t }}</span>
         }
         @if (more()) {
-          <span class="flex-none rounded-full bg-(--surface-3) px-2 py-0.5 text-(length:--fs-11) font-medium whitespace-nowrap text-(--text-3)">+{{ more() }}</span>
+          <span class="flex-none rounded-md bg-(--surface-3) px-2 py-0.5 text-(length:--fs-12) font-medium whitespace-nowrap text-(--text-3)">+{{ more() }}</span>
         }
         @if (!member().types.length) {
           <span class="text-(length:--fs-13) font-normal text-(--text-muted)">Add result types</span>
@@ -72,7 +72,7 @@ import { TeamMember, fmt } from './assessors.models';
                 </span>
                 <span class="min-w-0 flex-1 truncate text-(length:--fs-13) text-(--text-2)">{{ o.label }}</span>
                 @if (o.lead) {
-                  <span class="flex-none rounded-full bg-(--tint-2) px-1.5 py-px text-(length:--fs-10) font-semibold text-(--accent)">Lead</span>
+                  <span class="flex-none rounded-md border border-(--border) px-1.5 py-px text-(length:--fs-12) font-medium text-(--text-3)">Lead</span>
                 }
               </button>
             } @empty {

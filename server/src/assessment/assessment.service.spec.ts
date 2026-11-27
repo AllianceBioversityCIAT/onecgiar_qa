@@ -232,6 +232,7 @@ describe('FR-8: the view of an assessment', () => {
       timeline: { id: 1, name: 'Official' },
       step: { position: 1, name: 'Step 1' },
       status: 'pending',
+      reviewerRole: 'ASSESSOR',
     });
     expect(view.sections.map((s) => s.key)).toEqual([
       'general_information',

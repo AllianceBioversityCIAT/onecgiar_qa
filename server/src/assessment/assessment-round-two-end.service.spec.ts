@@ -403,7 +403,7 @@ describe('FR-11 Escalated', () => {
 
     expect(await answer(s.validate(true, [CORE[0]!]))).toMatchObject({
       status: 409,
-      body: { code: 'ASSESSMENT_FIELD_ESCALATED' },
+      body: { code: 'ASSESSMENT_FIELD_ESCALATED', fields: [CORE[0]] },
     });
     const result = await s.finish();
 
