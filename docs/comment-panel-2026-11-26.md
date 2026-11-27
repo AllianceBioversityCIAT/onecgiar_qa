@@ -21,5 +21,21 @@ Juanpa found the "New comment" part of the field comment drawer confusing: the q
 - `ng build`: green (the existing `qa-tokens.css` budget warning, 31 bytes over, is not from this change).
 - Seen by Juanpa in his Chrome with real data: approved.
 
+## Second change: the AI suggestion in the panel
+Juanpa asked whether "Use as comment" should post the comment in one click. It stays as it is: the drawer opens with the
+AI text to edit, and nothing is saved, because the AI never comments on its own and the reviewer edits before saving
+(spec `assessment/ai-suggestions`, AC6 and AC7). The quick comments are also in that drawer.
+
+What changed instead:
+- "Current value" → "Reported value", the word the AI card uses.
+- When the field has an indicative AI suggestion, the drawer shows it as a second field under the reported one, with the
+  card's words: "Reported category" / "Suggested category", or "Reported value" / "Suggested by the AI" for use numbers.
+  Stacked rather than side by side, so long values read in full; plain grey labels, no AI purple (Juanpa).
+- Scored suggestions (green, amber, red) have no suggested value, so the drawer shows only the reported value.
+- Code: `review-view.ts` adds `drawerAi()` (the open field's `ai.chip(key).indicative`) and passes it to the drawer's new
+  `aiSuggestion` input. Nothing is removed and no API call is added.
+- Two new tests in `review-view.spec.ts`: no AI box for a scored suggestion, and the category pair for an indicative one.
+- Review specs: 12 files, 267 tests passed. `ng build` is green. Juanpa checked it in his Chrome with real data.
+
 ## Pending
 - Yeck's `qa-review-delete-comment` (Lead round 2, on staging-center) carries `TODO(design): Juanpa`.
