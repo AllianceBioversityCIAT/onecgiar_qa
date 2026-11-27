@@ -86,7 +86,7 @@ describe('AiChip', () => {
   it('copies to the comment through the page, never by itself', () => {
     const { fixture, el } = render(red);
     const button = [...el.querySelectorAll('button')].find((b) =>
-      b.textContent?.includes('Copy to comment'),
+      b.textContent?.includes('Use as comment'),
     );
     button!.click();
     expect(fixture.componentInstance.copied).toEqual(['general.gender_tag']);
@@ -94,7 +94,7 @@ describe('AiChip', () => {
 
   it('read-only (TPB, ADMIN) has no copy button and shows the reviewer mark', () => {
     const { el } = render(irl, true);
-    expect(el.textContent).not.toContain('Copy to comment');
+    expect(el.textContent).not.toContain('Use as comment');
     expect(el.querySelector('[data-testid="ai-mark"]')?.textContent).toBe('Copied by the reviewer');
   });
 
@@ -123,7 +123,7 @@ describe('AiChip', () => {
     });
     expect(el.textContent).toContain('Suggestion not available');
     expect(el.querySelector('[data-testid="ai-reason"]')?.textContent).toContain('private');
-    expect(el.textContent).not.toContain('Copy to comment');
+    expect(el.textContent).not.toContain('Use as comment');
   });
 
   it('says a pending suggestion is in progress', () => {

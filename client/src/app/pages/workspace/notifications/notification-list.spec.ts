@@ -96,17 +96,20 @@ describe('NotificationRow', () => {
     expect(root(renderRow(make({ id: 'x' }))).querySelector('[data-detail]')).toBeNull();
   });
 
-  it('colours the pill and the icon by type: green for a finished step, amber for a slow program', () => {
+  it('colours the icon by type and the badge dot: green for a finished step, amber for a slow program', () => {
     const tones: Record<string, string> = {
       'Step complete': '--st-approved-bg',
       'Slow program': '--st-editing-bg',
     };
+    // The type badge is neutral like every status in the app (2026-11-25): its colour is only in the dot.
+    const dots: Record<string, string> = { 'Step complete': 'var(--success)', 'Slow program': 'var(--warning)' };
     for (const n of ALL_TYPES) {
       const row = root(renderRow(n));
-      const pill = row.querySelector('[data-type]')!;
+      const pill = row.querySelector<HTMLElement>('[data-type]')!;
       const icon = row.querySelector('[data-row] span.size-8')!;
       const expected = tones[n.type] ?? '--surface-3';
-      expect(pill.className, `${n.type} pill`).toContain(expected);
+      expect(pill.className, `${n.type} pill`).toContain('qa-dot');
+      expect(pill.style.getPropertyValue('--qa-dot'), `${n.type} dot`).toBe(dots[n.type]);
       expect(icon.className, `${n.type} icon`).toContain(expected);
       expect(icon.querySelector('svg'), `${n.type} icon svg`).toBeTruthy();
     }

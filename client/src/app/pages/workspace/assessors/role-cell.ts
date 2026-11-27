@@ -26,7 +26,7 @@ import { ROLE_OPTIONS, TeamMember, TeamRole } from './assessors.models';
       >
         <span class="max-w-full min-w-0 truncate text-(length:--fs-13) font-medium text-(--text-2)">{{ member().noRole ? 'No role' : member().role }}</span>
         @if (member().lead && member().role !== 'Lead assessor') {
-          <span [title]="'Lead assessor on: ' + member().leadTypes.join(', ')" class="flex-none rounded-full bg-(--tint-2) px-1.5 py-px text-(length:--fs-10) font-semibold text-(--accent)">Lead</span>
+          <span [title]="'Lead assessor on: ' + member().leadTypes.join(', ')" class="flex-none rounded-md border border-(--border) px-1.5 py-px text-(length:--fs-12) font-medium text-(--text-3)">Lead</span>
         }
       </button>
       <ng-template brnPopoverContent>

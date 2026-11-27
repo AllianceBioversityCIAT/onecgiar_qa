@@ -1,31 +1,24 @@
 /* Design tokens come from ui/tokens/qa-tokens.css (class qa-tokens on the host). */
 :host {
-  --qa-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --qa-mono: 'Manrope', system-ui, sans-serif;
   display: flex;
   height: 100dvh;
   overflow: hidden;
-  background: var(--surface);
+  background: var(--bg);
   color: var(--text);
   font-family: 'Manrope', system-ui, sans-serif;
   line-height: normal;
   -webkit-font-smoothing: antialiased;
 }
 
-/* Active nav item: tint, 600 weight and a short centered marker on the left edge (as in Jira). */
+/* Active nav item: a soft brand tint with the text and icon in the brand colour, flat, no shadow and no side marker
+   (Juanpa, 2026-11-26: the white raised row read as a card, and a dark grey shade with black text looked heavy).
+   Hover stays neutral grey, so the selected row is the only coloured one. */
 .qa-nav-active {
-  background: var(--tint-2);
-  color: var(--accent);
+  background: var(--nav-active-bg);
+  color: var(--nav-text);
   font-weight: 600;
 }
-
-.qa-nav-active::before {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 0;
-  width: 2px;
-  height: 16px;
-  border-radius: 2px;
-  background: var(--primary);
-  transform: translateY(-50%);
+.qa-nav-active:hover {
+  background: var(--nav-active-bg);
 }

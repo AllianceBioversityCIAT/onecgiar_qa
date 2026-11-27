@@ -1,7 +1,8 @@
 import { Component, DestroyRef, ElementRef, afterNextRender, computed, effect, inject, linkedSignal, signal, viewChild } from '@angular/core';
 import { cycleShortName } from '../../../core/domain/cycle-label';
 import { FieldConfigField, FieldConfigResultType, PublishTimelines } from '../../../core/api/field-config.models';
-import { QaButtonImports, QaScopeCardImports, QaSelect, QaSelectOption, QaSkeleton } from '../../../ui';
+import { QaButtonImports, QaScopeCardImports, QaSelect, QaSelectOption, QaSkeleton, QaStateCard } from '../../../ui';
+import { RouterLink } from '@angular/router';
 import {
   FieldChangeGroupVm,
   FieldConfig,
@@ -29,7 +30,7 @@ const COMPACT_BELOW = 900;
 @Component({
   selector: 'qa-fields-view',
   templateUrl: './fields-view.html',
-  imports: [QaButtonImports, QaScopeCardImports, QaSelect, QaSkeleton, FieldsColumnHeader, FieldsSection, FieldsPublishConfirm, FieldsSkeleton],
+  imports: [QaButtonImports, QaScopeCardImports, QaSelect, QaSkeleton, QaStateCard, RouterLink, FieldsColumnHeader, FieldsSection, FieldsPublishConfirm, FieldsSkeleton],
   providers: [FieldsStore],
 })
 export class FieldsView {

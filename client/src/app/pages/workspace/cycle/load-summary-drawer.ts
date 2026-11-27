@@ -18,11 +18,11 @@ import { failureLabel, skipLabel } from './load.copy';
       @if (open() && load(); as l) {
         @let s = l.detail.summary;
         @if (l.detail.status === 'failed') {
-          <p role="alert" class="m-0 rounded-[8px] bg-(--st-editing-bg) px-[14px] py-3 text-(length:--fs-13) leading-[1.55] text-(--st-editing-fg)">{{ failure(l.detail.failureReason) }}</p>
+          <p role="alert" class="m-0 rounded-lg bg-(--st-editing-bg) px-[14px] py-3 text-(length:--fs-13) leading-[1.55] text-(--st-editing-fg)">{{ failure(l.detail.failureReason) }}</p>
         }
         <div class="grid gap-3 max-sm:grid-cols-1" [class]="totals().length === 3 ? 'grid-cols-3' : 'grid-cols-2'">
           @for (n of totals(); track n.label) {
-            <div [qaReveal]="$index" class="flex flex-col gap-1 rounded-[8px] bg-(--surface-3) px-[14px] py-3">
+            <div [qaReveal]="$index" class="flex flex-col gap-1 rounded-lg bg-(--surface-3) px-[14px] py-3">
               <span class="font-(family-name:--qa-mono) text-(length:--fs-26) font-bold text-(--text) tabular-nums">{{ fmt(n.value) }}</span>
               <span class="text-(length:--fs-13) text-(--text-3)">{{ n.label }}</span>
             </div>
@@ -37,7 +37,7 @@ import { failureLabel, skipLabel } from './load.copy';
         @if (s.byProgram.length) {
           <div class="grid gap-6 sm:grid-cols-2">
             <div>
-              <h3 class="m-0 mb-1 text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--text-muted) uppercase">Loaded by science program</h3>
+              <h3 class="m-0 mb-1 text-(length:--fs-12) font-medium text-(--text-muted)">Loaded by science program</h3>
               <ul class="m-0 flex list-none flex-col p-0">
                 @for (row of s.byProgram; track row.programId) {
                   <li [qaReveal]="$index" class="flex min-h-9 items-center justify-between gap-3 border-b border-(--surface-4)">
@@ -48,7 +48,7 @@ import { failureLabel, skipLabel } from './load.copy';
               </ul>
             </div>
             <div>
-              <h3 class="m-0 mb-1 text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--text-muted) uppercase">Loaded by result type</h3>
+              <h3 class="m-0 mb-1 text-(length:--fs-12) font-medium text-(--text-muted)">Loaded by result type</h3>
               <ul class="m-0 flex list-none flex-col p-0">
                 @for (row of s.byResultType; track row.key) {
                   <li [qaReveal]="$index" class="flex min-h-9 items-center justify-between gap-3 border-b border-(--surface-4)">
@@ -62,7 +62,7 @@ import { failureLabel, skipLabel } from './load.copy';
         }
         @if (s.skipped.length) {
           <div>
-            <h3 class="m-0 mb-1 text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--text-muted) uppercase">Skipped</h3>
+            <h3 class="m-0 mb-1 text-(length:--fs-12) font-medium text-(--text-muted)">Skipped</h3>
             <ul class="m-0 flex list-none flex-col p-0">
               @for (row of s.skipped; track row.reason) {
                 <li class="flex min-h-9 items-center justify-between gap-3 border-b border-(--surface-4)">

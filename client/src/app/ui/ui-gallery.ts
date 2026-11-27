@@ -38,7 +38,7 @@ const BTN_PRIMARY =
   ],
   host: { class: 'qa-tokens block min-h-dvh bg-(--bg) px-4 py-8 sm:px-8' },
   template: `
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400..800&family=JetBrains+Mono:wght@400..700&display=swap" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400..800&display=swap" />
     <div class="mx-auto flex max-w-[1040px] flex-col gap-6">
       <header class="flex flex-col gap-1">
         <h1 class="m-0 text-(length:--fs-26) leading-[1.2] font-bold tracking-[-0.02em] text-(--text)">UI kit</h1>
@@ -54,7 +54,7 @@ const BTN_PRIMARY =
         </div>
         <qa-drawer [(open)]="drawerNarrow" title="Edit assignment" subtitle="Changes apply to results not yet assessed." [closeGuard]="askBeforeClose">
           <span qaDrawerHeader aria-hidden="true" class="flex size-9 items-center justify-center rounded-full bg-(--tint-2) font-(family-name:--qa-mono) text-(length:--fs-13) font-semibold text-(--accent)">SR</span>
-          <span qaDrawerHeader="end" class="mt-0.5 rounded-full bg-(--st-rejected-bg) px-2 py-0.5 text-(length:--fs-11) font-semibold text-(--st-rejected-fg)">Highlighted</span>
+          <span qaDrawerHeader="end" class="mt-0.5 rounded-md bg-(--st-rejected-bg) px-2 py-0.5 text-(length:--fs-12) font-medium text-(--st-rejected-fg)">Highlighted</span>
           @if (drawerAsk()) {
             <p role="alert" class="m-0 text-(length:--fs-13) text-(--danger)">The switch is on: press Esc again to close anyway (closeGuard).</p>
           }

@@ -1,6 +1,6 @@
 import { Component, OnInit, afterNextRender, computed, inject, signal } from '@angular/core';
 import { Toasts } from '../../../core/http/toasts';
-import { QaButtonImports, QaReveal, QaTabsImports } from '../../../ui';
+import { QaButtonImports, QaReveal, QaTabsImports, QaStateCard } from '../../../ui';
 import { CycleSkeleton } from './cycle-skeleton';
 import { CycleStore, TimelineSaveOutcome } from './cycle-store';
 import { CycleLoads } from './cycle-loads';
@@ -37,7 +37,7 @@ const EMPTY_TIMELINE: Timeline = { id: '', name: '', kind: 'Sub-timeline', statu
  */
 @Component({
   selector: 'qa-cycle-view',
-  imports: [QaButtonImports, QaTabsImports, QaReveal, CycleSkeleton, TimelineSteps, TimelineActions, TimelineCard, TimelineDrawer, StepDrawer, ProgressDrawer, LoadDrawer, LoadSummaryDrawer, PeopleDrawer, ExportCommentsDrawer],
+  imports: [QaButtonImports, QaTabsImports, QaReveal, QaStateCard, CycleSkeleton, TimelineSteps, TimelineActions, TimelineCard, TimelineDrawer, StepDrawer, ProgressDrawer, LoadDrawer, LoadSummaryDrawer, PeopleDrawer, ExportCommentsDrawer],
   providers: [CycleStore, CycleLoads],
   templateUrl: './cycle-view.html',
 })

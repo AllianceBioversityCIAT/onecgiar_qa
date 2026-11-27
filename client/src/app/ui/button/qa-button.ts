@@ -5,13 +5,18 @@ import { HlmButton } from '@spartan/button';
 /**
  * One tone per intent. Pick by what the button does, not by how it should look:
  * - `primary`: the main action of a page, drawer or dialog. One per area ("Invite", "Load results", "Finish").
+ * - `tonal`: the main action of one item inside a page that already has its primary ("Approve" on a field, under
+ *   "Finish assessment"). Soft green: more weight than secondary, less than primary (Juanpa, 2026-11-25).
  * - `secondary`: supporting or exit actions ("Cancel", "Edit timeline", "Guidance"). With `aria-pressed` it works as a toggle.
  * - `danger`: confirms something that deletes or closes ("Remove", "Close timeline").
  * - `danger-quiet`: opens a destructive path without confirming it yet ("Discard all").
  * - `link`: goes somewhere or shows more ("Go to Assessors", "View all cycles", "+3 more").
- * - `ai`: acts on an AI suggestion, in the AI purple so people know where it comes from ("Use as comment").
+ * - `ai`: acts on an AI suggestion: a text button in the AI purple, the lightest weight, so the hint never outranks the
+ *   human actions ("Copy to comment", "Use as comment").
+ * - `ai-tonal`: the way into the AI (a panel button that opens or jumps to the AI suggestions): soft AI tint with AI
+ *   text, so the feature is easy to find without outranking the primary action (Juanpa, 2026-11-26).
  */
-export type QaButtonTone = 'primary' | 'secondary' | 'danger' | 'danger-quiet' | 'link' | 'ai';
+export type QaButtonTone = 'primary' | 'tonal' | 'secondary' | 'danger' | 'danger-quiet' | 'link' | 'ai' | 'ai-tonal';
 
 /** `md`: page headers, drawer and dialog footers. `sm`: inside cards, tables and toolbars. */
 export type QaButtonSize = 'md' | 'sm';
@@ -20,18 +25,20 @@ export type QaButtonSize = 'md' | 'sm';
 export type QaButtonFlush = 'start' | 'end';
 
 const BASE =
-  'h-auto rounded-[8px] gap-1.5 whitespace-nowrap no-underline shadow-none max-sm:min-h-10 ' +
+  'h-auto rounded-lg gap-1.5 whitespace-nowrap no-underline shadow-none max-sm:min-h-10 ' +
   'focus-visible:shadow-(--focus-ring) focus-visible:ring-0 focus-visible:outline-none';
 
 const TONES: Record<QaButtonTone, string> = {
   primary: 'border-transparent bg-(--primary) font-semibold text-(--surface) hover:bg-(--accent) hover:text-(--surface)',
+  tonal: 'border-transparent bg-(--tint-2) font-semibold text-(--accent) hover:bg-(--tint-3) hover:text-(--accent-strong)',
   secondary:
     'border-(--border) bg-(--surface) font-medium text-(--text-2) hover:border-(--border-strong) hover:bg-(--surface-2) hover:text-(--text) ' +
     'aria-pressed:border-(--tint-3) aria-pressed:bg-(--tint) aria-pressed:text-(--accent) aria-pressed:hover:bg-(--tint)',
   danger: 'border-transparent bg-(--danger) font-semibold text-(--surface) hover:bg-(--danger-strong) hover:text-(--surface)',
   'danger-quiet': 'border-(--border) bg-(--surface) font-medium text-(--danger) hover:border-(--danger) hover:bg-(--danger-bg) hover:text-(--danger)',
   link: 'border-transparent bg-transparent font-medium text-(--accent) hover:bg-(--tint) hover:text-(--accent)',
-  ai: 'border-(--ai-tint-3) bg-(--surface) font-semibold text-(--ai) hover:border-(--ai-tint-3) hover:bg-(--ai-tint-2) hover:text-(--ai)',
+  ai: 'border-transparent bg-transparent font-medium text-(--ai) hover:bg-(--ai-tint) hover:text-(--ai-hover)',
+  'ai-tonal': 'border-transparent bg-(--ai-tint-2) font-semibold text-(--ai) hover:bg-(--ai-tint-3) hover:text-(--ai-hover)',
 };
 
 const SIZES: Record<QaButtonSize, string> = {

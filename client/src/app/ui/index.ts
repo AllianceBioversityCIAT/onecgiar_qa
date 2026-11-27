@@ -19,3 +19,4 @@ export * from './pagination/qa-pagination';
 export * from './loading/qa-loading';
 export * from './scope-card/qa-scope-card';
 export * from './time-mask/qa-time-mask';
+export * from './state/qa-state-card';

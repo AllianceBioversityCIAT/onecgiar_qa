@@ -43,7 +43,7 @@ export interface QaSelectOption {
  * - `filter`: filter chip of the Results toolbar ("QA round" + count chip), as qa-multi-select.
  * - `inline`: picker inside a line of text, no box ("Viewing All timelines ⌄"); `label` is the muted lead-in.
  */
-/** `scope`: the big value-only picker inside `qa-scope-card` (timeline, result type). */
+/** `scope`: the page-title picker inside `qa-scope-title` ("Results [Annual report 2026 ⌄]"). */
 export type QaSelectAppearance = 'default' | 'field' | 'filter' | 'inline' | 'scope';
 
 /** Row marker: check at the end (default) or a radio at the start (single-choice filters). */
@@ -115,23 +115,19 @@ export class QaSelectFooter {}
           <svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flex-none"><path d="M6 9l6 6 6-6" /></svg>
         </button>
       } @else if (appearance() === 'scope') {
-        <!-- The lead control of qa-scope-card's row: taller and wider than the filters next to it, its label inside in the
-             accent colour, and an accent border, so it reads as what the filters depend on (Juanpa, 2026-11-23). -->
+        <!-- The scope next to the page title in qa-scope-title: "Results  [Annual report 2026 ⌄]". A small subtle grey
+             container, as tall as the filters (36px) but filled instead of outlined, so it reads as the page's selector and
+             not as part of the title. The label is only for screen readers (Juanpa, 2026-11-25). -->
         <button
           brnSelectTrigger
           [attr.aria-label]="label() + ': ' + display()"
-          class="flex h-[52px] w-[22rem] min-w-0 max-w-full cursor-pointer items-center gap-3 rounded-[10px] border border-(--border-accent) bg-(--field-bg) px-3.5 text-left shadow-[0_1px_2px_rgb(0_0_0/0.05)] outline-none hover:border-(--accent) focus-visible:shadow-(--focus-ring) disabled:cursor-not-allowed disabled:opacity-50"
+          class="flex h-9 min-w-0 max-w-full cursor-pointer items-center gap-2 rounded-lg border-0 bg-(--surface-4) px-3 text-left text-(length:--fs-15) font-semibold text-(--text) outline-none hover:bg-(--surface-6) focus-visible:shadow-(--focus-ring) aria-expanded:bg-(--surface-6) disabled:cursor-not-allowed disabled:opacity-50 max-sm:h-10"
         >
-          <span class="flex min-w-0 flex-1 flex-col gap-1">
-            <span class="text-(length:--fs-11) leading-none font-semibold tracking-[0.06em] text-(--accent) uppercase">{{ label() }}</span>
-            <span class="flex min-w-0 items-center gap-2">
-              <span class="min-w-0 truncate text-(length:--fs-16) leading-[1.2] font-bold text-(--text)">{{ display() }}</span>
-              @if (selected()?.tag; as tag) {
-                <span class="flex-none rounded-full bg-(--surface-3) px-1.5 py-px text-(length:--fs-10) font-semibold text-(--text-4)">{{ tag }}</span>
-              }
-            </span>
-          </span>
-          <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flex-none"><path d="M6 9l6 6 6-6" /></svg>
+          <span class="min-w-0 truncate">{{ display() }}</span>
+          @if (selected()?.tag; as tag) {
+            <span class="flex-none rounded-md bg-(--surface) px-1.5 py-px text-(length:--fs-12) font-medium text-(--text-4)">{{ tag }}</span>
+          }
+          <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flex-none"><path d="M6 9l6 6 6-6" /></svg>
         </button>
       } @else if (appearance() === 'inline') {
         <span class="flex min-w-0 items-center gap-1.5 text-(length:--fs-14) text-(--text-3)">
@@ -143,7 +139,7 @@ export class QaSelectFooter {}
           >
             <span class="min-w-0 truncate">{{ display() }}</span>
             @if (selected()?.tag; as tag) {
-              <span class="flex-none rounded-full bg-(--surface-3) px-1.5 py-px text-(length:--fs-10) font-semibold text-(--text-4)">{{ tag }}</span>
+              <span class="flex-none rounded-md bg-(--surface-3) px-1.5 py-px text-(length:--fs-12) font-medium text-(--text-4)">{{ tag }}</span>
             }
             <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="flex-none"><path d="M6 9l6 6 6-6" /></svg>
           </button>
@@ -158,7 +154,7 @@ export class QaSelectFooter {}
         >
           <span class="min-w-0 truncate">{{ display() }}</span>
           @if (selected()?.tag; as tag) {
-            <span class="flex-none rounded-full bg-(--surface-3) px-1.5 py-px text-(length:--fs-10) font-semibold text-(--text-4)">{{ tag }}</span>
+            <span class="flex-none rounded-md bg-(--surface-3) px-1.5 py-px text-(length:--fs-12) font-medium text-(--text-4)">{{ tag }}</span>
           }
           <svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="ml-auto flex-none"><path d="M6 9l6 6 6-6" /></svg>
         </button>
@@ -192,7 +188,7 @@ export class QaSelectFooter {}
                 @let option = row.option;
                 @let on = option.value === value();
                 @if (row.heading) {
-                  <div role="presentation" class="flex-none px-2 pt-2 pb-1 text-(length:--fs-10) font-semibold tracking-[0.08em] text-(--text-4) uppercase">
+                  <div role="presentation" class="flex-none px-2 pt-2 pb-1 text-(length:--fs-12) font-medium text-(--text-4)">
                     {{ row.heading }}
                   </div>
                 }

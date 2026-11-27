@@ -144,10 +144,14 @@ export class AssessmentFieldNotCoreError extends ConflictException {
   }
 }
 
-/** Round 2: a field carrying an `escalate` decision cannot be validated (declared here, thrown by the decision task). */
+/**
+ * Round 2: a field carrying an `escalate` decision cannot be validated, and an
+ * agree cannot green a field another comment escalated. `fields` are the
+ * escalated keys the request named, sorted; the global filter forwards them as `error.fields`.
+ */
 export class AssessmentFieldEscalatedError extends ConflictException {
-  constructor() {
-    super(errorBody('ASSESSMENT_FIELD_ESCALATED'));
+  constructor(readonly fields: string[]) {
+    super({ ...errorBody('ASSESSMENT_FIELD_ESCALATED'), fields });
   }
 }
 

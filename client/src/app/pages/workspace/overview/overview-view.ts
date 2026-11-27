@@ -61,14 +61,14 @@ const ROUNDS: readonly {
     id: 'r1', title: 'Round 1', who: 'Assessors and science programs',
     steps: [
       { n: 1, status: [
-        { key: 'pending', label: 'Pending', color: 'bg-(--text-muted)', stage: 'r1-pending' },
-        { key: 'review', label: 'In review', color: 'bg-(--st-indigo-fg)/35', stage: 'r1-review' },
-        { key: 'one', label: 'Assessed by 1 assessor', color: 'bg-(--st-indigo-fg)/65', stage: 'r1-one' },
-        { key: 'two', label: 'Assessed by 2 assessors', color: 'bg-(--st-indigo-fg)', stage: null },
+        { key: 'pending', label: 'Pending', color: 'bg-(--surface-6)', stage: 'r1-pending' },
+        { key: 'review', label: 'In review', color: 'bg-(--chart-1)', stage: 'r1-review' },
+        { key: 'one', label: 'Assessed by 1 assessor', color: 'bg-(--chart-2)', stage: 'r1-one' },
+        { key: 'two', label: 'Assessed by 2 assessors', color: 'bg-(--chart-3)', stage: null },
       ] },
       { n: 2, status: [
-        { key: 'reply', label: 'Pending reply', color: 'bg-(--text-muted)', stage: null },
-        { key: 'replied', label: 'Comments replied', color: 'bg-(--st-indigo-fg)', stage: null },
+        { key: 'reply', label: 'Pending reply', color: 'bg-(--surface-6)', stage: null },
+        { key: 'replied', label: 'Comments replied', color: 'bg-(--chart-3)', stage: null },
       ] },
     ],
   },
@@ -76,12 +76,12 @@ const ROUNDS: readonly {
     id: 'r2', title: 'Round 2', who: 'Lead assessors and third-party brokers',
     steps: [
       { n: 3, status: [
-        { key: 'lead-pending', label: 'Pending lead assessor review', color: 'bg-(--text-muted)', stage: null },
-        { key: 'lead-done', label: 'Assessed by lead assessor', color: 'bg-(--st-submitted-fg)/60', stage: null },
+        { key: 'lead-pending', label: 'Pending lead assessor review', color: 'bg-(--surface-6)', stage: null },
+        { key: 'lead-done', label: 'Assessed by lead assessor', color: 'bg-(--chart-2)', stage: null },
       ] },
       { n: 4, status: [
-        { key: 'tpb-pending', label: 'Pending third-party review', color: 'bg-(--text-muted)', stage: null },
-        { key: 'tpb-done', label: 'Assessed by third party', color: 'bg-(--st-submitted-fg)', stage: null },
+        { key: 'tpb-pending', label: 'Pending third-party review', color: 'bg-(--surface-6)', stage: null },
+        { key: 'tpb-done', label: 'Assessed by third party', color: 'bg-(--chart-3)', stage: null },
       ] },
     ],
   },

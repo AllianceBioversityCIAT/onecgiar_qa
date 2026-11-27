@@ -51,13 +51,13 @@ export type AiChipVm =
       readonly suggestionId: string;
       readonly signal: AiSignal;
       /**
-       * Green "Looks consistent", amber "Check", red "Review"; indicative "AI suggestion (indicative)".
+       * Green "Looks consistent", amber "Check", red "Review"; indicative "Indicative".
        * Never "Incorrect": the decision is the reviewer's.
        */
       readonly label: string;
       /** Indicative fields (result category, use numbers): what the AI suggests, beside what was reported. */
       readonly indicative: AiIndicativeVm | null;
-      /** Indicative: "Indicative · no evidence quote"; null for scored fields. */
+      /** Indicative: the plain-words note at the bottom of the chip; null for scored fields. */
       readonly meta: string | null;
       /** IRL / IUL: "Evidence explicitly supports level X" (only with a verified quote); null for the Impact Area tags. */
       readonly headline: string | null;
@@ -80,13 +80,14 @@ export const AI_SIGNAL_LABELS: Readonly<Record<AiSignal, string>> = {
   green: 'Looks consistent',
   amber: 'Check',
   red: 'Review',
-  indicative: 'AI suggestion (indicative)',
+  // The chip already says "AI suggestion" in its header: the badge only adds the kind (Juanpa, 2026-11-25).
+  indicative: 'Indicative',
 };
 
 export const AI_NO_USE_NUMBERS = 'The evidence reports no use numbers.';
 export const AI_USE_NUMBERS_COVERS = 'This suggestion covers actors, organizations and measures.';
 /** Meta line of every indicative chip (back lead's wording). */
-export const AI_INDICATIVE_META = 'Indicative · no evidence quote';
+export const AI_INDICATIVE_META = 'Only a suggestion';
 
 const USE_GROUP_LABELS: Readonly<Record<string, string>> = {
   actors: 'Actors',

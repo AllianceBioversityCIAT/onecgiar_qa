@@ -240,3 +240,27 @@ describe('validateEnv: RELEASE_SWEEP_INTERVAL_MS (P2-3910)', () => {
     ).toThrow('RELEASE_SWEEP_INTERVAL_MS');
   });
 });
+
+describe('validateEnv: COGNITO_SSO_PROVIDER (optional)', () => {
+  it.each(['CGIAR-AzureAD', 'CGIAR-Account'])('accepts %s', (value) => {
+    expect(() =>
+      validateEnv({ ...VALID, COGNITO_SSO_PROVIDER: value }),
+    ).not.toThrow();
+  });
+
+  it('accepts it unset (the default CGIAR-AzureAD applies)', () => {
+    expect(() => validateEnv({ ...VALID })).not.toThrow();
+  });
+
+  it.each([
+    ['empty', ''],
+    ['a space inside', 'CGIAR Account'],
+    ['a leading space', ' CGIAR-Account'],
+    ['a trailing newline', 'CGIAR-Account\n'],
+    ['only spaces', '   '],
+  ])('rejects %s, naming the variable', (_name, value) => {
+    expect(() =>
+      validateEnv({ ...VALID, COGNITO_SSO_PROVIDER: value }),
+    ).toThrow('COGNITO_SSO_PROVIDER');
+  });
+});

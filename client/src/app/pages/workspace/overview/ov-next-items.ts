@@ -20,7 +20,7 @@ export interface NextItemsVm {
   host: { class: 'block' },
   template: `
     @let d = data();
-    <section aria-labelledby="overview-next-title" class="flex h-full flex-col rounded-[12px] border border-(--border) bg-(--surface) pt-5">
+    <section aria-labelledby="overview-next-title" class="flex h-full flex-col rounded-xl border border-(--border) bg-(--surface) pt-5 shadow-(--shadow-card)">
       <div class="flex flex-col gap-0.5 px-5 pb-3">
         <h3 id="overview-next-title" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">{{ d.title }}</h3>
         <p class="m-0 text-(length:--fs-13) text-(--text-3)">{{ d.subtitle }}</p>
@@ -42,22 +42,16 @@ export interface NextItemsVm {
               <span class="text-(length:--fs-13) text-(--text-2)"><span class="font-semibold">{{ it.field }}</span><span class="text-(--text-3)"> · {{ d.noteLabel }}: {{ it.note }}</span></span>
               @switch (it.reporting) {
                 @case ('updated') {
-                  <span class="inline-flex items-center gap-[5px]">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--st-approved-fg)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M20 6L9 17l-5-5" /></svg>
-                    <span class="text-(length:--fs-11) font-semibold text-(--st-approved-fg)">Updated in the Reporting Tool</span>
-                  </span>
+                  <span class="inline-flex items-center gap-1.5 self-start rounded-md bg-(--surface-5) px-2 py-0.5 text-(length:--fs-12) font-medium text-(--text-2)"><span aria-hidden="true" class="size-1.5 flex-none rounded-full bg-(--success)"></span>Updated in the Reporting Tool</span>
                 }
                 @case ('not-updated') {
-                  <span class="inline-flex items-center gap-[5px]">
-                    <span class="box-border size-[11px] flex-none rounded-full border-[1.5px] border-(--border-strong)" aria-hidden="true"></span>
-                    <span class="text-(length:--fs-11) font-semibold text-(--text-3)">Not updated in the Reporting Tool yet</span>
-                  </span>
+                  <span class="inline-flex items-center gap-1.5 self-start rounded-md bg-(--surface-5) px-2 py-0.5 text-(length:--fs-12) font-medium text-(--text-2)"><span aria-hidden="true" class="size-1.5 flex-none rounded-full bg-(--border-strong)"></span>Not updated in the Reporting Tool yet</span>
                 }
               }
             </a>
             @if (it.reporting === 'updated') {
               <div class="flex-none px-5 pb-3.5 sm:py-3.5 sm:pl-0">
-                <button hlmBtn qaBtn tone="secondary" size="sm" type="button" (click)="done.emit(it)">
+                <button hlmBtn qaBtn tone="tonal" size="sm" type="button" (click)="done.emit(it)">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M20 6L9 17l-5-5" /></svg>Mark when done<span class="sr-only">: {{ it.code }} {{ it.field }}</span>
                 </button>
               </div>

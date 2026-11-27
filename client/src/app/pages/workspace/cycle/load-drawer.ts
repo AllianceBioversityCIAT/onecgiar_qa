@@ -36,9 +36,9 @@ export interface LoadDrawerNames {
       @if (open()) {
         <div class="flex flex-col items-start gap-[6px]">
           <div class="flex items-center gap-1">
-            <span class="text-(length:--fs-13) font-semibold text-(--text-2)">Timeline</span>
+            <span class="text-(length:--fs-13) font-medium text-(--text-2)">Timeline</span>
             @if (fromStep()) {
-              <span class="ml-1 rounded-full bg-(--tint-2) px-1.5 py-px text-(length:--fs-10) font-semibold whitespace-nowrap text-(--accent)">From step {{ fromStepNumber() }}</span>
+              <span class="ml-1 rounded-md border border-(--border) px-1.5 py-px text-(length:--fs-12) font-medium whitespace-nowrap text-(--text-3)">From step {{ fromStepNumber() }}</span>
             }
           </div>
           @if (options().length) {
@@ -55,9 +55,9 @@ export interface LoadDrawerNames {
             <dd class="m-0 text-(--text)">{{ t.types.length ? t.types.join(', ') : 'All result types' }}</dd>
           </dl>
         }
-        <div class="flex items-start gap-[10px] rounded-[8px] bg-(--st-submitted-bg) px-[14px] py-3">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--st-submitted-fg)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="mt-[2px] flex-none" aria-hidden="true"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01" /></svg>
-          <span class="text-(length:--fs-13) leading-[1.55] font-normal text-pretty text-(--st-submitted-fg)">Only submitted, pooled-funding (W1/W2) results of this cycle within the timeline's scope come in. A result can be in one timeline only. Only one load runs at a time in the cycle.</span>
+        <div class="flex items-start gap-[10px] rounded-lg bg-(--surface-5) px-[14px] py-3">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="mt-[2px] flex-none" aria-hidden="true"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01" /></svg>
+          <span class="text-(length:--fs-13) leading-[1.55] font-normal text-pretty text-(--text-2)">Only submitted, pooled-funding (W1/W2) results of this cycle within the timeline's scope come in. A result can be in one timeline only. Only one load runs at a time in the cycle.</span>
         </div>
 
         @if (selected()) {
@@ -69,7 +69,7 @@ export interface LoadDrawerNames {
               }
             </qa-loading>
           } @else if (previewError(); as err) {
-            <div role="alert" class="flex flex-wrap items-center gap-3 rounded-[8px] bg-(--st-editing-bg) px-[14px] py-3 text-(length:--fs-13) text-(--st-editing-fg)">
+            <div role="alert" class="flex flex-wrap items-center gap-3 rounded-lg bg-(--st-editing-bg) px-[14px] py-3 text-(length:--fs-13) text-(--st-editing-fg)">
               <span class="min-w-0 flex-1">
                 {{ err.retry ? 'We could not get the preview. ' : '' }}{{ err.message }}
                 @if (err.reference) {
@@ -97,12 +97,12 @@ export interface LoadDrawerNames {
               </p>
               }
               @if (p.window === 'closed') {
-                <p role="status" class="m-0 rounded-[8px] bg-(--st-editing-bg) px-3 py-2 text-(length:--fs-13) text-(--st-editing-fg)">{{ windowClosed }}</p>
+                <p role="status" class="m-0 rounded-lg bg-(--st-editing-bg) px-3 py-2 text-(length:--fs-13) text-(--st-editing-fg)">{{ windowClosed }}</p>
               }
               @if (p.toLoad.byProgram.length) {
                 <div class="grid gap-6 sm:grid-cols-2">
                   <div>
-                    <h3 class="m-0 mb-1 text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--text-muted) uppercase">By science program</h3>
+                    <h3 class="m-0 mb-1 text-(length:--fs-12) font-medium text-(--text-muted)">By science program</h3>
                     <ul class="m-0 flex list-none flex-col p-0">
                       @for (row of p.toLoad.byProgram; track row.programId) {
                         <li [qaReveal]="$index" class="flex min-h-9 items-center justify-between gap-3 border-b border-(--surface-4)">
@@ -113,7 +113,7 @@ export interface LoadDrawerNames {
                     </ul>
                   </div>
                   <div>
-                    <h3 class="m-0 mb-1 text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--text-muted) uppercase">By result type</h3>
+                    <h3 class="m-0 mb-1 text-(length:--fs-12) font-medium text-(--text-muted)">By result type</h3>
                     <ul class="m-0 flex list-none flex-col p-0">
                       @for (row of p.toLoad.byResultType; track row.key) {
                         <li [qaReveal]="$index" class="flex min-h-9 items-center justify-between gap-3 border-b border-(--surface-4)">
@@ -132,7 +132,7 @@ export interface LoadDrawerNames {
                 <details class="group">
                   <summary class="flex min-h-9 cursor-pointer list-none items-center gap-2 rounded-md outline-none focus-visible:shadow-(--focus-ring) [&::-webkit-details-marker]:hidden">
                     <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" class="flex-none transition-transform group-open:rotate-90"><path d="M9 6l6 6-6 6" /></svg>
-                    <h3 class="m-0 text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--text-muted) uppercase">Will be skipped</h3>
+                    <h3 class="m-0 text-(length:--fs-12) font-medium text-(--text-muted)">Will be skipped</h3>
                     <span class="ml-auto font-(family-name:--qa-mono) text-(length:--fs-13) font-semibold text-(--text-2) tabular-nums">{{ fmt(skippedTotal(p.skipped)) }}</span>
                   </summary>
                   <ul class="m-0 flex list-none flex-col p-0">
@@ -160,7 +160,7 @@ export interface LoadDrawerNames {
           }
         }
         @if (error()) {
-          <p role="alert" class="m-0 rounded-[8px] bg-(--st-editing-bg) px-3 py-2 text-(length:--fs-13) text-(--st-editing-fg)">{{ error() }}</p>
+          <p role="alert" class="m-0 rounded-lg bg-(--st-editing-bg) px-3 py-2 text-(length:--fs-13) text-(--st-editing-fg)">{{ error() }}</p>
         }
       }
       <div qaDrawerFooter class="contents">

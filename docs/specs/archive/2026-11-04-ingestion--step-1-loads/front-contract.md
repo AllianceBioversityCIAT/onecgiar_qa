@@ -5,7 +5,7 @@ For the front lead (P2-3905 front side). The server side is built and documented
 ## 1. Quick path
 
 1. `GET /timelines/:id/loads/preview` when the admin opens the load screen. If `window` is `closed`, disable the start.
-2. `POST /timelines/:id/loads` (body `{}`, one `Idempotency-Key` per click intent) answers **202** `{ id, status: "running" }` at once. The run continues on the server.
+2. `POST /timelines/:id/loads` (body `{}`, one `Idempotency-Key` per click intent, **required**) answers **202** `{ id, status: "running" }` at once. The run continues on the server.
 3. Poll `GET /timelines/:id/loads` every **2 seconds** while the newest load is `running`. Stop on `completed` or `failed`.
 4. On `completed` or `failed`, read `GET /timelines/:id/loads/:loadId` once for the `summary`.
 
@@ -16,7 +16,7 @@ All four routes are ADMIN only. Any other role gets 403 `AUTH_PERMISSION_DENIED`
 | Method | Path | Request | Success | Codes (besides the shared ones, section 7) |
 |---|---|---|---|---|
 | GET | `/timelines/:id/loads/preview` | none | 200 `LoadPreview` | 404 `TIMELINES_NOT_FOUND`; 409 `LOADS_CATALOG_MISSING`; 503 `SERVICE_UNAVAILABLE` |
-| POST | `/timelines/:id/loads` | `{}`; any key is 400 `VALIDATION_FAILED` | **202** `{ id, status: "running" }` | 404 `TIMELINES_NOT_FOUND`; 409 `LOADS_CATALOG_MISSING`, `CYCLES_CLOSED`, `LOADS_WINDOW_CLOSED`, `LOADS_ALREADY_RUNNING`; 503 `SERVICE_UNAVAILABLE`; the idempotency codes (section 6) |
+| POST | `/timelines/:id/loads` | `{}`; any key is 400 `VALIDATION_FAILED`. `Idempotency-Key` required | **202** `{ id, status: "running" }` | 404 `TIMELINES_NOT_FOUND`; 409 `LOADS_CATALOG_MISSING`, `CYCLES_CLOSED`, `LOADS_WINDOW_CLOSED`, `LOADS_ALREADY_RUNNING`; 503 `SERVICE_UNAVAILABLE`; the idempotency codes (section 6) |
 | GET | `/timelines/:id/loads` | none | 200 `LoadItem[]`, newest first | 404 `TIMELINES_NOT_FOUND` |
 | GET | `/timelines/:id/loads/:loadId` | none | 200 `LoadDetail` (a `LoadItem` plus `summary`) | 404 `TIMELINES_NOT_FOUND`, `LOADS_NOT_FOUND` |
 
@@ -92,7 +92,7 @@ Show one generic message per value; the admin cannot fix any of them except by r
 
 ## 6. The start
 
-`POST /timelines/:id/loads`, `Idempotency-Key` as in the shared contract: a repeat of the same key returns the **same load id** and starts no second load (`Idempotency-Replayed: true`). The idempotency codes are 409 `IDEMPOTENCY_IN_PROGRESS` and 422 `IDEMPOTENCY_KEY_REUSED`.
+`POST /timelines/:id/loads`, `Idempotency-Key` as in the shared contract, with one difference: on this route the header is **required** (P2-4128, back lead, 2026-11-26). Without it the answer is 400 `VALIDATION_FAILED` with `fields: [{ field: "Idempotency-Key", code: "REQUIRED" }]` and nothing is written: no load, no key reserved. A 401 or 403 still comes first. On every other keyed route the header stays optional. A repeat of the same key returns the **same load id** and starts no second load (`Idempotency-Replayed: true`). The idempotency codes are 409 `IDEMPOTENCY_IN_PROGRESS` and 422 `IDEMPOTENCY_KEY_REUSED`.
 
 - The server first makes one cheap call to Reporting. If Reporting is unreachable or answers 401, the start is 503 `SERVICE_UNAVAILABLE` and **nothing was written**: safe to retry with the same key. This check comes before the refusals below, so a closed window with Reporting down reads 503.
 - Then, in order: a closed cycle is 409 `CYCLES_CLOSED`, a passed window is 409 `LOADS_WINDOW_CLOSED`, a live load in the cycle is 409 `LOADS_ALREADY_RUNNING`.

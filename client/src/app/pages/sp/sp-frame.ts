@@ -22,7 +22,7 @@ import { SpFrameSkeleton } from './sp-frame-skeleton';
     @switch (session.status()) {
       @case ('expired') {
         <main class="mx-auto flex min-h-dvh max-w-[560px] flex-col items-start justify-center gap-3 px-4 py-10 sm:px-6">
-          <p class="m-0 text-(length:--fs-12) font-semibold tracking-[0.08em] text-(--text-4) uppercase">Quality Assurance</p>
+          <p class="m-0 text-(length:--fs-12) font-medium text-(--text-4)">Quality Assurance</p>
           <h1 class="m-0 text-balance text-(length:--fs-22) leading-[1.25] font-bold text-(--text)" role="alert">
             Your Quality Assurance link has expired.
           </h1>
@@ -31,7 +31,7 @@ import { SpFrameSkeleton } from './sp-frame-skeleton';
       }
       @case ('failed') {
         <main class="mx-auto flex min-h-dvh max-w-[560px] flex-col items-start justify-center gap-3 px-4 py-10 sm:px-6">
-          <p class="m-0 text-(length:--fs-12) font-semibold tracking-[0.08em] text-(--text-4) uppercase">Quality Assurance</p>
+          <p class="m-0 text-(length:--fs-12) font-medium text-(--text-4)">Quality Assurance</p>
           <h1 class="m-0 text-(length:--fs-22) leading-[1.25] font-bold text-(--text)">We could not open Quality Assurance.</h1>
           <p class="m-0 text-pretty text-(length:--fs-14) text-(--text-3)" role="alert">{{ session.startError()?.message }}</p>
           <button hlmBtn qaBtn tone="primary" type="button" [loading]="retrying()" (click)="retryStart()">Try again</button>
@@ -41,7 +41,7 @@ import { SpFrameSkeleton } from './sp-frame-skeleton';
         <header class="border-b border-(--border) bg-(--surface)">
           <div class="mx-auto flex max-w-[1280px] flex-wrap items-center gap-x-6 gap-y-3 px-4 py-3 sm:px-6 lg:px-8">
             <div class="flex min-w-0 flex-col">
-              <span class="text-(length:--fs-11) font-semibold tracking-[0.08em] text-(--text-4) uppercase">Quality Assurance</span>
+              <span class="text-(length:--fs-12) font-medium text-(--text-4)">Quality Assurance</span>
               @if (!ctx.isAdmin()) {
                 <span class="min-w-0 truncate text-(length:--fs-15) font-semibold text-(--text)" data-testid="sp-program">
                   @if (ctx.program(); as p) {

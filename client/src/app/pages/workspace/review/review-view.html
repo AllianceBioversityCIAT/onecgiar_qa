@@ -7,14 +7,10 @@
   }
   @case ('error') {
     <div class="flex min-h-[50dvh] items-center px-6 py-10 sm:px-10">
-      <div role="alert" class="flex max-w-[460px] flex-col items-start gap-3">
-        <h1 class="m-0 text-(length:--fs-18) font-bold text-(--text)">We could not open this result</h1>
-        <p class="m-0 text-(length:--fs-14) leading-[1.55] text-pretty text-(--text-3)">{{ store.error()?.message }}</p>
-        <div class="flex items-center gap-3">
-          <button hlmBtn qaBtn tone="primary" size="sm" type="button" (click)="retry()">Try again</button>
-          <a hlmBtn qaBtn tone="link" size="sm" routerLink="/results">Back to results</a>
-        </div>
-      </div>
+      <qa-state-card alert class="w-full max-w-[520px]" heading="We could not open this result" [message]="store.error()?.message ?? null">
+        <button hlmBtn qaBtn tone="secondary" size="sm" type="button" (click)="retry()">Try again</button>
+        <a hlmBtn qaBtn tone="link" size="sm" routerLink="/results">Back to results</a>
+      </qa-state-card>
     </div>
   }
   @default {
@@ -42,7 +38,8 @@
             <div #scroller class="flex-1 bg-(--surface-3) py-8 max-[1100px]:px-6 max-sm:px-4 max-sm:py-5" [class]="narrow() || compact() ? 'px-10' : 'min-h-0 overflow-x-hidden overflow-y-auto ' + (layout.navigatorCollapsed() ? 'px-12' : 'px-10')">
               @let h = page.header;
               @if (store.actingRoles().length) {
-                <!-- admin/acts-as-reviewer: the Admin picks the role it acts as on this result (top of the page). -->
+                <!-- admin/acts-as-reviewer: the Admin picks the role it acts as on this result (top of the page). A quiet tool row, not a
+                     card: it is an admin preview, so it must not outrank the result title (Juanpa, 2026-11-25). -->
                 <qa-admin-role-picker
                   class="mb-4"
                   [roles]="store.actingRoles()"
@@ -53,7 +50,7 @@
               }
               @if (clarifyBanner(); as ask) {
                 <!-- P2-3911: the caller owes the program an answer; it says so instead of "read only" and takes them there. -->
-                <div role="status" class="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-[8px] border border-(--st-editing-bg) bg-(--st-editing-bg) px-[14px] py-3 text-(length:--fs-13) leading-[1.5] text-(--text)" data-testid="review-clarification-pending">
+                <div role="status" class="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-(--st-editing-bg) bg-(--st-editing-bg) px-[14px] py-3 text-(length:--fs-13) leading-[1.5] text-(--text)" data-testid="review-clarification-pending">
                   <span class="flex min-w-0 flex-[1_1_240px] items-start gap-2">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="mt-0.5 flex-none text-(--st-editing-fg)" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
                     <span class="min-w-0 text-pretty wrap-anywhere">{{ ask }}</span>
@@ -61,7 +58,7 @@
                   <button hlmBtn qaBtn tone="primary" size="sm" type="button" aria-haspopup="dialog" class="flex-none max-sm:w-full" (click)="answerFirst()">Answer clarification</button>
                 </div>
               } @else if (page.banner) {
-                <div role="status" class="mb-4 flex items-start gap-2 rounded-[8px] border border-(--border) bg-(--surface) px-[14px] py-3 text-(length:--fs-13) leading-[1.5] text-(--text-2)" data-testid="review-read-only">
+                <div role="status" class="mb-4 flex items-start gap-2 rounded-lg border border-(--border) bg-(--surface) px-[14px] py-3 text-(length:--fs-13) leading-[1.5] text-(--text-2)" data-testid="review-read-only">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="mt-0.5 flex-none text-(--text-4)" aria-hidden="true"><path d="M5 11h14v10H5zM8 11V7a4 4 0 0 1 8 0v4" /></svg>
                   <span>{{ page.banner }}</span>
                 </div>
@@ -77,13 +74,16 @@
                     <span class="text-(length:--fs-13) font-semibold whitespace-nowrap text-(--text-2)" [title]="h.programName" data-testid="review-header-program"><span class="sr-only">Science Program </span>{{ h.programCode }}</span>
                     <span class="text-(--text-muted)" aria-hidden="true">·</span>
                     <span class="text-(length:--fs-13) font-normal text-(--text-3)">{{ h.type }}</span>
-                    <span class="inline-flex items-center gap-[5px] rounded-full px-2.5 py-[3px] text-(length:--fs-11) font-semibold whitespace-nowrap" [class]="h.statusClass">{{ h.status }}</span>
-                    <qa-review-code-info [details]="h.details" />
+                    <!-- Status and its info button stay together, so the icon never wraps alone onto a line (phones). -->
+                    <span class="inline-flex items-center gap-2">
+                      <span class="inline-flex items-center gap-[5px] rounded-md px-2.5 py-[3px] text-(length:--fs-12) font-medium whitespace-nowrap" [class]="h.statusClass">{{ h.status }}</span>
+                      <qa-review-code-info [details]="h.details" />
+                    </span>
                   </div>
                   <p class="m-0 mt-1 text-(length:--fs-12) leading-[1.45] font-normal text-pretty wrap-anywhere text-(--text-4)" [title]="h.timeline + ' · ' + h.step" data-testid="review-header-context">{{ h.timeline }} · {{ h.step }}</p>
                 </div>
-                @if (page.canFinish && page.total > 0) {
-                  <!-- Every Assessed field of the result in one request (FR-10). -->
+                @if (page.canValidate && page.total > 0) {
+                  <!-- Every Assessed field of the result in one request (FR-10). Never for the TPB nor the PPU. -->
                   <div class="flex flex-none items-center gap-2">
                     <button hlmBtn qaBtn tone="secondary" size="sm" type="button" [loading]="validating().has(allKey)" [disabled]="validating().size > 0" (click)="toggleAll()">{{ allGreen() ? 'Uncheck all' : 'Check all' }}</button>
                   </div>
@@ -99,7 +99,7 @@
 
               <!-- Section card -->
               @if (current(); as sec) {
-                <section class="flex flex-col items-stretch gap-2.5 rounded-[12px] border border-(--border) bg-(--surface) p-6 max-sm:rounded-none max-sm:border-0 max-sm:bg-transparent max-sm:p-0" aria-labelledby="review-section-title">
+                <section class="flex flex-col items-stretch gap-0 rounded-xl border border-(--border) bg-(--surface) p-6 max-sm:p-4 shadow-(--shadow-card)" aria-labelledby="review-section-title">
                   @if (sec.toc; as toc) {
                     <qa-review-toc-section
                       [groups]="toc.groups"
@@ -109,6 +109,8 @@
                       [title]="sec.name"
                       [requiredReview]="toc.assessed > 0"
                       [busyKeys]="validating()"
+                      [errors]="store.fieldErrors()"
+                      [threadTitle]="page.threadTitle"
                       (act)="onTocCard($event)"
                     />
                   } @else {
@@ -117,15 +119,26 @@
                     </div>
                     @for (f of sec.fields; track f.id) {
                       <qa-review-field-card
+                        [attr.id]="'review-field-' + f.id"
+                        tabindex="-1"
                         [field]="f"
                         [qaReveal]="$index"
                         [busy]="validating().has(f.id) || validating().has(allKey) || (reasonBusy() && reasonAsk()?.fieldKey === f.id)"
                         [aiChip]="ai.chip(f.id)"
-                        [aiReadOnly]="ai.readOnly()"
+                        [aiReadOnly]="ai.readOnlyFor(f.id)"
                         (act)="onCard(f.id, $event)"
                         (aiShown)="ai.shown(f.id)"
                         (aiCopy)="onAiCopy(f.id)"
-                      />
+                        [error]="store.fieldErrors().get(f.id) ?? ''"
+                      >
+                        @if (f.leadThread.length) {
+                          <qa-review-lead-thread [items]="f.leadThread" [fieldLabel]="f.label" [open]="f.threadOpen" [title]="page.threadTitle" />
+                        }
+                        @if (f.leadOwn.length) {
+                          <!-- Round 2 (tramo 4): the Lead's own comments, to escalate. TODO(design): Juanpa -->
+                          <qa-review-lead-thread [items]="f.leadOwn" [fieldLabel]="f.label" [open]="true" title="Your comments in this round" testId="lead-own" />
+                        }
+                      </qa-review-field-card>
                     } @empty {
                       <p class="m-0 text-(length:--fs-13) text-(--text-4)">No fields in this section.</p>
                     }
@@ -137,7 +150,7 @@
 
               @if (narrow() || compact()) {
                 <div class="mt-4 flex flex-col gap-3">
-                  <div class="rounded-[8px] border border-(--border) bg-(--surface) px-[14px] py-3 text-(length:--fs-13) leading-[1.55] font-normal text-pretty text-(--text-2)">{{ h.instructions }}</div>
+                  <div class="rounded-lg border border-(--border) bg-(--surface) px-[14px] py-3 text-(length:--fs-13) leading-[1.55] font-normal text-pretty text-(--text-2)">{{ h.instructions }}</div>
                   <a hlmBtn qaBtn tone="secondary" size="sm" class="self-start" [href]="guidance.url" target="_blank" rel="noopener">
                     <span>{{ guidance.label }}</span>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-4)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3" /></svg>
@@ -153,7 +166,7 @@
               [mode]="footerMode()"
               [sectionNum]="idx() + 1"
               [sectionTotal]="sections().length || 1"
-              [openCount]="page.canFinish ? openCount() : 0"
+              [openCount]="page.tracksOpen ? openCount() : 0"
               [canFinish]="page.canFinish"
               [warnCount]="openCount()"
               [warnText]="warnText()"
@@ -164,6 +177,8 @@
               [finishing]="store.finishing()"
               [finishError]="finishError()"
               [finishBlocked]="finishBlocked()"
+              [blockedFields]="blockedFields()"
+              (goField)="goField($event)"
               (back)="goSection(idx() - 1)"
               (next)="goSection(idx() + 1)"
               (finish)="finish()"
@@ -184,7 +199,7 @@
               <button
                 type="button"
                 [attr.aria-current]="s.active ? 'step' : null"
-                class="flex min-h-11 items-center gap-2.5 rounded-[8px] px-2.5 text-left text-(length:--fs-14) focus-visible:shadow-(--focus-ring) focus-visible:outline-none"
+                class="flex min-h-11 items-center gap-2.5 rounded-lg px-2.5 text-left text-(length:--fs-14) focus-visible:shadow-(--focus-ring) focus-visible:outline-none"
                 [class]="s.active ? 'bg-(--tint-2) font-semibold text-(--accent)' : 'font-medium text-(--text-2) hover:bg-(--surface-3)'"
                 (click)="goSection(i)"
               >

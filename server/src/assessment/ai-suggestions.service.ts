@@ -35,7 +35,7 @@ import {
   AssessmentNotFoundError,
   AssessmentReadOnlyError,
 } from './assessment.errors.js';
-import { AssessmentService } from './assessment.service.js';
+import { AssessmentService, membershipFacts } from './assessment.service.js';
 import { ASSESSMENT_STORE, type AssessmentStore } from './assessment.store.js';
 import type { AiSuggestionEventBody } from './dto/ai-suggestion-event.body.js';
 
@@ -71,7 +71,10 @@ export class AiSuggestionsService {
       timelineId,
       resultCode,
     );
-    const audience = aiAudienceOf(context.access);
+    const audience = aiAudienceOf(
+      context.access,
+      membershipFacts(context.membership),
+    );
     if (audience.kind === 'forbidden') throw new AiSuggestionsForbiddenError();
     if (audience.kind === 'none') throw new AssessmentNotFoundError();
     // FR-1: an auto-validated or not-in-QA membership got no job.
@@ -110,7 +113,10 @@ export class AiSuggestionsService {
       timelineId,
       resultCode,
     );
-    const audience = aiAudienceOf(context.access);
+    const audience = aiAudienceOf(
+      context.access,
+      membershipFacts(context.membership),
+    );
     if (audience.kind === 'forbidden') throw new AiSuggestionsForbiddenError();
     if (audience.kind === 'none') throw new AssessmentNotFoundError();
     // A TPB or an ADMIN reads; only a reviewer's use measures the AI.

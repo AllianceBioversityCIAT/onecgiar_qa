@@ -105,8 +105,8 @@ const ApiAcceptedEnvelope = (
  * The loads API (step-1 design 6; FR-1, FR-2, FR-10, FR-12, FR-13; timeline-sync design 6).
  * `ADMIN_ACCESS` on the whole class: the global `PermissionGuard` refuses
  * everyone else before any handler, pipe or lookup runs, so Reporting is never
- * called for another role. The start is idempotent per `Idempotency-Key` and
- * answers 202 as soon as the load is committed, without waiting for the run.
+ * called for another role. The start requires an `Idempotency-Key` (P2-4128),
+ * is idempotent per key and answers 202 as soon as the load is committed, without waiting for the run.
  */
 @ApiTags('loads')
 @ApiBearerAuth(ACCESS_TOKEN_SCHEME)
@@ -158,7 +158,7 @@ export class LoadsController {
   @ApiOperation({
     summary: 'Start a timeline sync',
     description:
-      'Allowed while the cycle is not closed and the last step of the timeline has not closed (its closing minute is still open); before step 1 opens it is accepted as round 1. Records the load as `running`, with the round and step position in force, and answers 202 with its id; the run continues in the background and is read with the two GET routes. One load runs per cycle. Reporting must answer a first check, otherwise 503 and nothing is written. Idempotent per `Idempotency-Key`: a repeat returns the same load id and starts no second load.',
+      'Allowed while the cycle is not closed and the last step of the timeline has not closed (its closing minute is still open); before step 1 opens it is accepted as round 1. Records the load as `running`, with the round and step position in force, and answers 202 with its id; the run continues in the background and is read with the two GET routes. One load runs per cycle. Reporting must answer a first check, otherwise 503 and nothing is written. `Idempotency-Key` is required: without it the answer is 400 `VALIDATION_FAILED` on `Idempotency-Key` and nothing is written. A repeat with the same key returns the same load id and starts no second load.',
   })
   @ApiAcceptedEnvelope(StartedLoadModel, IDEMPOTENCY_REPLAYED_HEADERS)
   @ApiErrorResponses(
@@ -175,7 +175,8 @@ export class LoadsController {
       503: ['SERVICE_UNAVAILABLE'],
     }),
   )
-  @Idempotent()
+  // P2-4128: the header is required here (back lead, 2026-11-26).
+  @Idempotent({ required: true })
   @HttpCode(202)
   @Post('timelines/:id/loads')
   start(

@@ -15,9 +15,9 @@ export interface TypeProgressVm {
 
 /** Same colors as the rounds in the hero: indigo for Round 1, blue for Round 2, green for the final state. */
 const BUCKETS = [
-  { key: 'r1', label: 'In Round 1', cls: 'bg-(--st-indigo-fg)/65' },
-  { key: 'r2', label: 'In Round 2', cls: 'bg-(--st-submitted-fg)' },
-  { key: 'qa', label: 'Quality assessed', cls: 'bg-(--st-approved-fg)' },
+  { key: 'r1', label: 'In Round 1', cls: 'bg-(--chart-1)' },
+  { key: 'r2', label: 'In Round 2', cls: 'bg-(--chart-2)' },
+  { key: 'qa', label: 'Quality assessed', cls: 'bg-(--chart-3)' },
 ] as const;
 
 /** "Progress by result type": one 100% bar per type, so types of any size compare at a glance. */
@@ -26,7 +26,7 @@ const BUCKETS = [
   imports: [RouterLink],
   host: { class: 'block @container' },
   template: `
-    <section aria-labelledby="overview-types-title" class="flex h-full flex-col rounded-[12px] border border-(--border) bg-(--surface) pt-5">
+    <section aria-labelledby="overview-types-title" class="flex h-full flex-col rounded-xl border border-(--border) bg-(--surface) pt-5 shadow-(--shadow-card)">
       <div class="flex flex-col gap-0.5 px-5 pb-3">
         <h3 id="overview-types-title" class="m-0 text-(length:--fs-16) font-bold tracking-[-0.01em] text-(--text)">Progress by result type</h3>
         <p class="m-0 text-(length:--fs-13) text-(--text-3)">Where each result type is in QA, least advanced first. Click a row to open its results.</p>

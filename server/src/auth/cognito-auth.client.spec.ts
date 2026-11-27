@@ -30,6 +30,7 @@ const config = {
     clientSecret: CLIENT_SECRET,
     hostedUiUrl: HOSTED_UI,
     userPoolUrl: POOL_URL,
+    ssoProvider: 'CGIAR-AzureAD',
   },
   allowedOrigins: ['http://localhost:4200'],
 } as ConfigType<typeof authConfig>;
@@ -222,6 +223,38 @@ describe('CognitoAuthClient — Hosted UI', () => {
       identity_provider: 'CGIAR-AzureAD',
     });
     expect(url.toString()).not.toContain(CLIENT_SECRET);
+  });
+
+  describe('the SSO provider comes from authConfig (COGNITO_SSO_PROVIDER)', () => {
+    let saved: string | undefined;
+    beforeEach(() => {
+      saved = process.env.COGNITO_SSO_PROVIDER;
+      delete process.env.COGNITO_SSO_PROVIDER;
+      vi.stubEnv('COGNITO_REGION', 'us-east-1');
+      vi.stubEnv('COGNITO_CLIENT_ID', CLIENT_ID);
+      vi.stubEnv('COGNITO_URL', HOSTED_UI);
+      vi.stubEnv('ALLOWED_ORIGINS', 'http://localhost:4200');
+    });
+    afterEach(() => {
+      vi.unstubAllEnvs();
+      if (saved === undefined) delete process.env.COGNITO_SSO_PROVIDER;
+      else process.env.COGNITO_SSO_PROVIDER = saved;
+    });
+    const providerOf = async () =>
+      new URL(
+        await new CognitoAuthClient(authConfig()).providerUrl(
+          'http://localhost:4200/auth/callback',
+        ),
+      ).searchParams.get('identity_provider');
+
+    it('without the variable the authorize URL names CGIAR-AzureAD (DEV and TEST unchanged)', async () => {
+      expect(await providerOf()).toBe('CGIAR-AzureAD');
+    });
+
+    it('with COGNITO_SSO_PROVIDER=CGIAR-Account it names CGIAR-Account (PROD)', async () => {
+      vi.stubEnv('COGNITO_SSO_PROVIDER', 'CGIAR-Account');
+      expect(await providerOf()).toBe('CGIAR-Account');
+    });
   });
 
   it('exchanges the code at /oauth2/token with HTTP Basic client auth', async () => {

@@ -33,8 +33,28 @@ export class ReviewAiHook {
   private readonly review = inject(ReviewStore);
   private readonly ai = inject(AiSuggestionsStore);
 
-  /** TPB and ADMIN read the suggestion; only a writable page offers "Copy to comment". */
-  readonly readOnly = computed(() => !(this.review.view()?.writable ?? false));
+  /**
+   * TPB and ADMIN read the suggestion; only a writable page offers "Copy to comment". The TPB writes on its page but
+   * never comments (P2-3916 § 4: AI usage events are 403 for it), so its page is read only here too.
+   */
+  readonly readOnly = computed(() => !(this.review.view()?.writable ?? false) || this.judge());
+
+  /** P2-3916 / P2-3917: the TPB reads the suggestion only; the PPU has none (403 `AI_SUGGESTIONS_FORBIDDEN`). */
+  private readonly judge = computed(() => this.review.mode() === 'tpb' || this.review.mode() === 'ppu');
+  private readonly noAi = computed(() => this.review.mode() === 'ppu');
+
+  /**
+   * Read only for one field: the page's rule, and in round 2 a field that is not actionable (not core) is context for
+   * the Lead, which can neither comment nor validate it (`ASSESSMENT_FIELD_NOT_CORE`), so no "Copy to comment".
+   */
+  readOnlyFor(fieldKey: string): boolean {
+    return this.readOnly() || !this.actionable(fieldKey);
+  }
+
+  /** Round 2: only an `actionable` field takes a write (contract § 3). Round 1: every field as sent. */
+  private actionable(fieldKey: string): boolean {
+    return this.review.view()?.round !== 2 || this.fields().get(fieldKey)?.actionable !== false;
+  }
 
   private readonly fields = computed<ReadonlyMap<string, AssessmentField>>(() => {
     const view = this.review.view();
@@ -62,6 +82,8 @@ export class ReviewAiHook {
       const timelineId = this.review.timelineId();
       if (view === null || timelineId === null) return;
       const resultCode = view.header.resultCode;
+      // The PPU has no AI suggestion: the route answers 403, so it is not asked.
+      if (this.noAi()) return;
       untracked(() => {
         if (!this.ai.isLoaded(timelineId, resultCode)) this.reasonGiven.clear();
         void this.ai.load(timelineId, resultCode);
@@ -71,10 +93,13 @@ export class ReviewAiHook {
 
   /** The chip of a field card (`FieldVm.id` is the field key), or null when the AI does not cover it. */
   chip(fieldKey: string): AiChipVm | null {
+    if (this.noAi()) return null;
     return this.chips().get(fieldKey) ?? null;
   }
 
+  /** `shown` is a usage event: never for the TPB or the PPU (403). */
   shown(fieldKey: string): void {
+    if (this.judge()) return;
     this.ai.markShown(fieldKey);
   }
 
@@ -97,7 +122,8 @@ export class ReviewAiHook {
     if (this.readOnly()) return null;
     for (const field of this.fields().values()) {
       if (key !== ALL && field.key !== key) continue;
-      if (field.mode !== 'assessed' || field.validated || this.reasonGiven.has(field.key)) continue;
+      // Already green (round 2: a carried green counts, `effectiveValidated`): nothing to validate, nothing to ask.
+      if (field.mode !== 'assessed' || !this.actionable(field.key) || (field.effectiveValidated ?? field.validated) || this.reasonGiven.has(field.key)) continue;
       const reportedLevel = levelOf(field.value);
       const ai = this.ai.availableView(field.key);
       if (!needsReason(field.key, reportedLevel, ai) || ai?.valueKind !== 'level') continue;

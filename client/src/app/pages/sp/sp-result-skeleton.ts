@@ -11,7 +11,7 @@ import { QaLoadingImports, skeletonRows } from '../../ui';
       <div class="flex flex-col gap-3 rounded-xl border border-(--border) bg-(--surface) px-5 py-4">
         <div class="flex items-center gap-3">
           <qa-skeleton class="h-3.5 w-16" />
-          <qa-skeleton class="h-5 w-28 rounded-full" />
+          <qa-skeleton class="h-5 w-28 rounded-md" />
         </div>
         <qa-skeleton class="h-6 w-[70%]" />
         <qa-skeleton class="h-3 w-80 max-w-full" />
@@ -26,7 +26,7 @@ import { QaLoadingImports, skeletonRows } from '../../ui';
         <div class="flex flex-col gap-3">
           <qa-skeleton class="h-5 w-48" />
           @for (i of cards; track i) {
-            <div class="flex flex-col gap-2 rounded-[10px] border border-(--border) bg-(--surface) px-4 py-3.5">
+            <div class="flex flex-col gap-2 rounded-lg border border-(--border) bg-(--surface) px-4 py-3.5">
               <qa-skeleton class="h-3 w-32" />
               <qa-skeleton class="h-3.5 w-[80%]" />
             </div>

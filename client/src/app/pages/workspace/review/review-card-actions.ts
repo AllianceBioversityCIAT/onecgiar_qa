@@ -14,10 +14,10 @@ import { CardAction, FieldActions } from './review-model';
   template: `
     @let a = actions();
     @if (a.approve) {
-      <button hlmBtn qaBtn tone="primary" size="sm" type="button" [attr.aria-label]="'Approve ' + label()" [loading]="busy()" (click)="act.emit('approve')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M20 6L9 17l-5-5" /></svg>Approve</button>
+      <button hlmBtn qaBtn tone="tonal" size="sm" type="button" [attr.aria-label]="'Approve ' + label()" [loading]="busy()" (click)="act.emit('approve')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M20 6L9 17l-5-5" /></svg>Approve</button>
     }
     @if (a.highlight === 'mark') {
-      <button hlmBtn qaBtn tone="primary" size="sm" type="button" aria-haspopup="dialog" (click)="act.emit('highlight')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1zM4 22v-7" /></svg>Mark as highlight<span class="sr-only">: {{ label() }}</span></button>
+      <button hlmBtn qaBtn tone="tonal" size="sm" type="button" aria-haspopup="dialog" (click)="act.emit('highlight')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1zM4 22v-7" /></svg>Mark as highlight<span class="sr-only">: {{ label() }}</span></button>
     }
     @if (a.highlight === 'edit') {
       <button hlmBtn qaBtn tone="secondary" size="sm" type="button" aria-haspopup="dialog" (click)="act.emit('highlight')">Edit instruction<span class="sr-only"> for {{ label() }}</span></button>
@@ -31,7 +31,7 @@ import { CardAction, FieldActions } from './review-model';
       <button hlmBtn qaBtn tone="secondary" size="sm" type="button" aria-haspopup="dialog" (click)="act.emit('edit-note')">Edit note<span class="sr-only"> for the PPU on {{ label() }}</span></button>
     }
     @if (a.markDone) {
-      <button hlmBtn qaBtn tone="primary" size="sm" type="button" (click)="act.emit('done')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M20 6L9 17l-5-5" /></svg>Mark when done<span class="sr-only">: {{ label() }}</span></button>
+      <button hlmBtn qaBtn tone="tonal" size="sm" type="button" (click)="act.emit('done')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M20 6L9 17l-5-5" /></svg>Mark when done<span class="sr-only">: {{ label() }}</span></button>
     }
     @if (a.undo; as undo) {
       <button hlmBtn qaBtn tone="secondary" size="sm" type="button" [attr.aria-label]="undoLabel(undo) + label()" [loading]="busy()" (click)="act.emit('undo')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="flex-none" aria-hidden="true"><path d="M9 14L4 9l5-5M4 9h11a5 5 0 0 1 0 10h-3" /></svg>Undo</button>

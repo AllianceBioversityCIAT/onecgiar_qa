@@ -128,6 +128,21 @@ describe('SpResultsPage', () => {
       expect(under.className).toContain('xl:hidden');
     });
 
+    it('on phones the Actions column hides, so "Export comments" moves under the status and still exports', async () => {
+      expect(header('Actions').className).toContain('max-md:hidden');
+      const cells = table().querySelectorAll('tbody tr')[0].querySelectorAll('td');
+      const phone = cells[1].querySelector<HTMLButtonElement>('[data-testid="sp-row-export-phone"]')!;
+      expect(phone).not.toBeNull();
+      expect(phone.parentElement?.className).toContain('md:hidden');
+      expect(phone.parentElement?.className).toContain('z-10');
+      expect(phone.getAttribute('aria-label')).toBe('Export comments of result 123');
+      phone.click();
+      await settle();
+      expect(downloads.map((d) => d.resultCode)).toEqual([123]);
+      downloads[0].done();
+      await settle();
+    });
+
     it('below xl the headers may take two lines; every other column stays', () => {
       for (const label of ['Code', 'Title', 'Assessor comments', 'Answered by SP', 'QA status', 'Actions']) {
         expect(header(label).className).toContain('xl:whitespace-nowrap');
