@@ -172,6 +172,12 @@ export class ReviewView {
     const mode = found.field.mode === 'assessed' ? this.drawerMode() : 'read';
     return toDrawerVm(found, mode, { me: this.store.me(), canWithdraw: withdrawOpen(view), canClarify: !this.store.clarifyClosed() }, this.store.threads());
   });
+  /** What the AI suggests for the open field (indicative fields only: category, use numbers), shown beside the reported value in the drawer. */
+  protected readonly drawerAi = computed(() => {
+    const key = this.drawerKey();
+    const chip = key ? this.ai.chip(key) : null;
+    return chip?.kind === 'available' ? chip.indicative : null;
+  });
   protected readonly quickComments = computed(() => this.store.quickComments().map((q) => ({ id: q.id, text: q.body })));
   /** Add was tried with an empty box. */
   private readonly addTried = signal(false);

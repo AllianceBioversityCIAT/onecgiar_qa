@@ -2,6 +2,7 @@ import { Component, DestroyRef, ElementRef, computed, effect, inject, input, mod
 import { FieldTree, FormField } from '@angular/forms/signals';
 import { UnsavedChanges } from '../../../core/forms/unsaved-changes';
 import { QaButtonImports, QaDrawerCloseGuard, QaDrawerImports, QaMenuImports } from '../../../ui';
+import { AiIndicativeVm, formatNumber } from './ai/ai-chip.vm';
 import { ReviewInstructionNote } from './review-instruction-note';
 import { FieldComment } from './review.mock';
 
@@ -54,6 +55,17 @@ export interface QuickCommentVm {
 export class ReviewCommentsDrawer {
   readonly open = model(false);
   readonly field = input<CommentsDrawerVm | null>(null);
+  /** What the AI suggests for this field (category or use numbers), shown beside the reported value; null when it has none. */
+  readonly aiSuggestion = input<AiIndicativeVm | null>(null);
+  protected readonly aiCategory = computed(() => {
+    const s = this.aiSuggestion();
+    return s?.kind === 'category' ? s : null;
+  });
+  protected readonly aiUseNumbers = computed(() => {
+    const s = this.aiSuggestion();
+    return s?.kind === 'use_numbers' ? s : null;
+  });
+  protected readonly fmt = formatNumber;
   /** Signal Forms field bound to the textarea (owned by the view). */
   readonly text = input.required<FieldTree<string>>();
   /** Show the empty-comment error (after an Add attempt). */

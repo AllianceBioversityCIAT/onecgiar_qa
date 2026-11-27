@@ -5,10 +5,46 @@
   }
   @if (open() && field(); as f) {
     <!-- Labelled parts in reading order: the value, the comments, then the new comment (Juanpa, 2026-11-25). -->
-    <div class="flex flex-col gap-1.5">
-      <span class="text-(length:--fs-13) font-medium text-(--text-2)">Current value</span>
-      <div class="rounded-lg bg-(--surface-5) px-3 py-2.5 text-(length:--fs-14) leading-[1.55] wrap-anywhere whitespace-pre-line text-(--text)">{{ f.value }}</div>
-    </div>
+    <!-- "Reported", as on the AI card. With an AI suggestion, the AI's value is a second field under the reported one, with the
+         card's words: stacked, so long values read in full, and plain labels, no AI purple (Juanpa, 2026-11-26). -->
+    @if (aiCategory(); as ai) {
+      <div class="flex flex-col gap-4" data-testid="drawer-ai-category">
+        <section class="flex flex-col gap-1.5" aria-label="Reported">
+          <h3 class="m-0 text-(length:--fs-13) font-medium text-(--text-2)">Reported category</h3>
+          <p class="m-0 rounded-lg bg-(--surface-5) px-3 py-2.5 text-(length:--fs-14) leading-[1.55] wrap-anywhere text-(--text)">{{ ai.reported ?? f.value }}</p>
+        </section>
+        <section class="flex flex-col gap-1.5" aria-label="Suggested by the AI">
+          <h3 class="m-0 text-(length:--fs-13) font-medium text-(--text-2)">Suggested category</h3>
+          <p class="m-0 rounded-lg bg-(--surface-5) px-3 py-2.5 text-(length:--fs-14) leading-[1.55] wrap-anywhere text-(--text)">{{ ai.suggested }}</p>
+        </section>
+      </div>
+    } @else if (aiUseNumbers(); as ai) {
+      <div class="flex flex-col gap-4" data-testid="drawer-ai-use-numbers">
+        <section class="flex flex-col gap-1.5" aria-label="Reported">
+          <h3 class="m-0 text-(length:--fs-13) font-medium text-(--text-2)">Reported value</h3>
+          <p class="m-0 rounded-lg bg-(--surface-5) px-3 py-2.5 text-(length:--fs-14) leading-[1.55] wrap-anywhere whitespace-pre-line text-(--text)">{{ f.value }}</p>
+        </section>
+        <section class="flex flex-col gap-1.5" aria-label="Suggested by the AI">
+          <h3 class="m-0 text-(length:--fs-13) font-medium text-(--text-2)">Suggested by the AI</h3>
+          <div class="rounded-lg bg-(--surface-5) px-3 py-2.5">
+            @if (ai.suggested.length === 0) {
+              <p class="m-0 text-(length:--fs-14) text-(--text-2)">The evidence reports no use numbers.</p>
+            } @else {
+              <ul class="m-0 flex list-none flex-col gap-1.5 p-0 text-(length:--fs-14)">
+                @for (row of ai.suggested; track $index) {
+                  <li class="text-(--text-2)"><span class="font-semibold text-(--text)">{{ fmt(row.quantity) }}</span> {{ row.type }} <span class="text-(--text-3)">({{ row.group }})</span></li>
+                }
+              </ul>
+            }
+          </div>
+        </section>
+      </div>
+    } @else {
+      <div class="flex flex-col gap-1.5">
+        <span class="text-(length:--fs-13) font-medium text-(--text-2)">Reported value</span>
+        <div class="rounded-lg bg-(--surface-5) px-3 py-2.5 text-(length:--fs-14) leading-[1.55] wrap-anywhere whitespace-pre-line text-(--text)">{{ f.value }}</div>
+      </div>
+    }
 
     @if (f.mode !== 'instruction' && f.instruction) {
       <qa-review-instruction-note [text]="f.instruction" />

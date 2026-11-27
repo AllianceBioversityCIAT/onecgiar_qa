@@ -588,6 +588,24 @@ describe('ReviewView on the assessment API', () => {
         expect(savedEvents()).toEqual([]);
       });
 
+      it('the drawer shows the reported value, and no AI box, for a scored suggestion', async () => {
+        const el = await open();
+        await copy(el);
+        expect(document.body.textContent).toContain('Reported value');
+        expect(document.querySelector('[data-testid="drawer-ai-category"]')).toBeNull();
+      });
+
+      it('the drawer shows the AI category under the reported one, with the AI card words', async () => {
+        ai.list.mockReturnValue(of([{ ...suggestion, signal: 'indicative', valueKind: 'category', suggestedValue: 'Innovation' }]));
+        const el = await open();
+        await copy(el);
+        const box = document.querySelector('[data-testid="drawer-ai-category"]')!;
+        expect(text(box.querySelector('[aria-label="Reported"]')!)).toContain('Reported category');
+        const suggested = box.querySelector('[aria-label="Suggested by the AI"]')!;
+        expect(text(suggested.querySelector('h3')!)).toBe('Suggested category');
+        expect(text(suggested.querySelector('p')!)).toBe('Innovation');
+      });
+
       it('saving that comment tells the AI side which comment it became (the id the server gave)', async () => {
         const el = await open();
         await copy(el);

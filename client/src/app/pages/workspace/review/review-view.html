@@ -203,6 +203,7 @@
 <qa-review-comments-drawer
   [(open)]="drawerOpen"
   [field]="drawerField()"
+  [aiSuggestion]="drawerAi()"
   [text]="commentForm.text"
   [showError]="showCommentError()"
   [serverError]="commentError()"
