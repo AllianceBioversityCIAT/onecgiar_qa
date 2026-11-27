@@ -143,7 +143,7 @@ export class UsersAdminController {
   @ApiOperation({
     summary: 'Create a user',
     description:
-      'A `custom` user also gets a Cognito account and an invitation email (`invitation: sent`, or `existing_account` when the email already had one). An `sso` user is linked at the first sign-in.',
+      'A `custom` user also gets a Cognito account and an invitation email (`invitation: sent`, or `existing_account` when the email already had one). An `sso` user is linked at the first sign-in. An email that belongs to a guest (signed in once with SSO, no role, created by no one; hidden from the team list) is not a conflict when `accountType` is `sso`: that user is completed with the nickname, the roles, the scope and the exclusions (a name already set by the identity provider is kept) and the answer is 201 with its id. Any other existing email is 409 `USERS_EMAIL_TAKEN`.',
   })
   @ApiOkEnvelope(UserDetailModel, {
     status: 201,

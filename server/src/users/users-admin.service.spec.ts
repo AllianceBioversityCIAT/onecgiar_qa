@@ -605,6 +605,154 @@ describe('UsersAdminService.create (FR-2)', () => {
   });
 });
 
+describe('create over a guest: the guest is adopted, not refused', () => {
+  /** A person who signed in once with SSO and got no role: what admission leaves behind. */
+  const seedGuest = (
+    w: AdminWorld,
+    over: Partial<Parameters<AdminWorld['seedUser']>[0]> = {},
+  ) =>
+    w.seedUser({
+      email: 'new.user@cgiar.org',
+      authSource: 'sso',
+      firstName: 'Nia',
+      lastName: 'Okoro-SSO',
+      lastLoginAt: new Date('2026-11-20T10:00:00Z'),
+      ...over,
+    });
+
+  it('completes the existing row with the nickname, the roles and the creator: one row, no Cognito, the cache invalidated', async () => {
+    const { w, admin, ctx } = await setup();
+    const guest = await seedGuest(w);
+
+    const result = await w.service.create(
+      ctx,
+      command({ roles: [{ role: 'ADMIN' }] }),
+    );
+
+    expect(result).toEqual({ userId: guest.id, invitation: 'none' });
+    expect(
+      w.db.users.filter((u) => u.email === 'new.user@cgiar.org'),
+    ).toHaveLength(1);
+    expect(rowOf(w, 'new.user@cgiar.org')).toMatchObject({
+      id: guest.id,
+      nickname: 'Nia O',
+      // The identity provider owns a name it already set: the sent one is not written.
+      firstName: 'Nia',
+      lastName: 'Okoro-SSO',
+      authSource: 'sso',
+      isActive: true,
+      createdBy: admin.id,
+    });
+    expect(activeGrants(w, guest.id)).toEqual(['ADMIN:']);
+    expect(
+      auditOf(w)
+        .filter((e) => e.userId === guest.id)
+        .map((e) => [e.action, e.changes]),
+    ).toEqual([
+      [
+        'update',
+        {
+          createdBy: { before: null, after: admin.id },
+          nickname: { before: null, after: 'Nia O' },
+        },
+      ],
+      ['role_grant', { role: { before: null, after: 'ADMIN' } }],
+    ]);
+    expect(w.cognito.getUser).not.toHaveBeenCalled();
+    expect(w.cognito.createUser).not.toHaveBeenCalled();
+    expect(w.cache.invalidate).toHaveBeenCalledWith(guest.id);
+  });
+
+  it('fills a name the identity provider left empty with the sent one', async () => {
+    const { w, ctx } = await setup();
+    const guest = await w.seedUser({
+      email: 'new.user@cgiar.org',
+      authSource: 'sso',
+      lastLoginAt: new Date('2026-11-20T10:00:00Z'),
+    });
+
+    await w.service.create(ctx, command());
+
+    expect(rowOf(w, 'new.user@cgiar.org')).toMatchObject({
+      id: guest.id,
+      firstName: 'Nia',
+      lastName: 'Okoro',
+    });
+  });
+
+  it('accepts the nickname the guest already has', async () => {
+    const { w, ctx } = await setup();
+    const guest = await seedGuest(w, { nickname: 'Nia O' });
+
+    await w.service.create(ctx, command({ roles: [{ role: 'ADMIN' }] }));
+
+    expect(rowOf(w, 'new.user@cgiar.org')!.nickname).toBe('Nia O');
+    expect(activeGrants(w, guest.id)).toEqual(['ADMIN:']);
+  });
+
+  it.each([
+    ['a user an admin created (team, even with no role)', { createdBy: 1 }, {}],
+    ['a user holding a role', { roles: [['ADMIN']] as Array<[string]> }, {}],
+    ['a deactivated guest', { isActive: false }, {}],
+    ['a custom user', { authSource: 'custom' as const }, {}],
+    ['an SSO guest asked for as custom', {}, { accountType: 'custom' }],
+  ])(
+    'still answers 409 USERS_EMAIL_TAKEN for %s, writing nothing',
+    async (_case, seed, over) => {
+      const { w, ctx } = await setup();
+      await seedGuest(w, seed);
+      const before = w.snapshot();
+
+      const error = await failureOf(w.service.create(ctx, command(over)));
+
+      expect(error.getStatus()).toBe(409);
+      expect(bodyOf(error).code).toBe('USERS_EMAIL_TAKEN');
+      expect(w.cognito.getUser).not.toHaveBeenCalled();
+      expectUntouched(w, before);
+    },
+  );
+
+  it('answers 409 USERS_NICKNAME_TAKEN when another user holds the nickname, writing nothing', async () => {
+    const { w, ctx } = await setup();
+    await seedGuest(w);
+    await w.seedUser({ email: 'other@cgiar.org', nickname: 'Nia O' });
+    const before = w.snapshot();
+
+    const error = await failureOf(w.service.create(ctx, command()));
+
+    expect(bodyOf(error).code).toBe('USERS_NICKNAME_TAKEN');
+    expectUntouched(w, before);
+  });
+
+  it('a role granted to the guest after the first read wins: 409 USERS_EMAIL_TAKEN under the lock, nothing of ours written', async () => {
+    const { w, ctx } = await setup();
+    const guest = await seedGuest(w);
+    const outer = (w.service as unknown as { users: UsersRepository }).users;
+    const read = outer.findByNickname.bind(outer);
+    vi.spyOn(outer, 'findByNickname').mockImplementationOnce(async (n) => {
+      // Another admin grants a role between our first read and our transaction.
+      await w.db.stores.assignments.insert({
+        userId: guest.id,
+        roleId: w.db.roles.find((r) => r.code === 'ADMIN')!.id,
+        createdBy: null,
+      });
+      return read(n);
+    });
+
+    const error = await failureOf(
+      w.service.create(ctx, command({ roles: [{ role: 'ADMIN' }] })),
+    );
+
+    expect(bodyOf(error).code).toBe('USERS_EMAIL_TAKEN');
+    expect(rowOf(w, 'new.user@cgiar.org')).toMatchObject({
+      createdBy: null,
+      nickname: null,
+    });
+    expect(w.db.audit.filter((e) => e.userId === guest.id)).toEqual([]);
+    expect(w.cache.invalidate).not.toHaveBeenCalled();
+  });
+});
+
 describe('create: one exclusion per program (design 6)', () => {
   it('refuses a program listed twice in exclusions as VALIDATION_FAILED on the repeated entry, writing nothing', async () => {
     const { w, ctx } = await setup();

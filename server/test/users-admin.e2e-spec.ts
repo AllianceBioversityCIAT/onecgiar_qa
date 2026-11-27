@@ -687,6 +687,38 @@ describe('Users admin routes (e2e)', () => {
       );
     });
 
+    it('adopts a guest (signed in once with SSO, no role): 201 on the same row, then listed in the team and no longer a guest', async () => {
+      const guest = w.roleUsers.GUEST;
+
+      const res = await asAdmin('post', '/users', {
+        ...body,
+        email: 'SUB-GUEST@cgiar.org',
+        nickname: 'Admin G',
+        accountType: 'sso',
+        roles: [{ role: 'ADMIN' }],
+        programs: 'all',
+        exclusions: [],
+      }).expect(201);
+
+      expect(res.body.data).toMatchObject({
+        id: guest.id,
+        email: 'sub-guest@cgiar.org',
+        nickname: 'Admin G',
+        accountType: 'sso',
+        roles: [{ role: 'ADMIN' }],
+      });
+      expect(
+        w.db.users.filter((u) => u.email === 'sub-guest@cgiar.org'),
+      ).toHaveLength(1);
+      const ids = async (population: string) =>
+        (
+          await asAdmin('get', `/users?population=${population}`).expect(200)
+        ).body.data.map((u: { id: number }) => u.id);
+      expect(await ids('team')).toContain(guest.id);
+      expect(await ids('guests')).not.toContain(guest.id);
+      expect(w.cognito.createUser).not.toHaveBeenCalled();
+    });
+
     it('answers 503 and stores nothing when Cognito is unavailable', async () => {
       w.cognito.getUser.mockRejectedValueOnce(new CognitoUnavailableError());
       const before = w.snapshot();

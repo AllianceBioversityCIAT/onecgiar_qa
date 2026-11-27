@@ -130,6 +130,8 @@ export interface SeedUser {
   lastLoginAt?: Date | null;
   isActive?: boolean;
   invitation?: User['invitation'];
+  /** The admin who created the user; default null (a guest, unless it holds a role). */
+  createdBy?: number | null;
   /** `[role, resultTypeKey?]`; `'*'` is "all result types". */
   roles?: Array<[string, string?]>;
   /**
@@ -238,6 +240,7 @@ export function adminWorld() {
       lastName: seed.lastName ?? null,
       lastLoginAt: seed.lastLoginAt ?? null,
       invitation: seed.invitation ?? 'none',
+      createdBy: seed.createdBy ?? null,
     });
     if (seed.isActive === false) {
       await users.update(created.id, { isActive: false });
