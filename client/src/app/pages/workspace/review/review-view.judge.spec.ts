@@ -27,6 +27,9 @@ class FakeApi {
   clearDecision = vi.fn<(t: number, c: number, id: number) => Observable<DecisionResult>>(() => of(judgeDecisionResult({ decision: null })));
   finish = vi.fn<(t: number, c: number) => Observable<ValidationSummary>>(() => of({ status: 'escalated', assessedBy: null, finishedAt: null, validations: [] }));
   quickComments = vi.fn<(role: string) => Observable<readonly QuickComment[]>>(() => of([]));
+  saveQuickComment = vi.fn<(role: string, body: string) => Observable<QuickComment>>((_role, body) =>
+    of({ id: 900, body, createdAt: '2026-11-27T10:00:00.000Z' }),
+  );
   programResponses = vi.fn<(t: number, c: number) => Observable<readonly CommentThread[]>>(() => of([]));
   setValidations = vi.fn();
   addComment = vi.fn();
@@ -170,6 +173,38 @@ describe('ReviewView for the TPB and the PPU (P2-3916, P2-3917)', () => {
       expect(byName(card(el, 'Description of Result'), 'Copy to comment')).toBeUndefined();
       expect(ai.sendEvent).not.toHaveBeenCalled();
     });
+
+    it('P2-3916: the TPB\'s editor offers the TPB quick comments; one picked fills the box and goes with the decision', async () => {
+      api.quickComments.mockReturnValue(of([{ id: 7, body: 'The evidence supports the assessor.', createdAt: '2026-11-27T09:00:00.000Z' }]));
+      const el = await open();
+      byName(thread(el), 'Agree with the assessor')!.click();
+      await settle();
+      expect(api.quickComments).toHaveBeenCalledWith('TPB');
+      byName(thread(el), 'Quick comment')!.click();
+      await settle();
+      const item = [...document.querySelectorAll('button')].find((b) => text(b) === 'The evidence supports the assessor.');
+      expect(item).toBeDefined();
+      item!.click();
+      await settle();
+      expect(document.querySelector<HTMLTextAreaElement>('#lead-decision-41')!.value).toBe('The evidence supports the assessor.');
+      byName(thread(el), 'Save decision')!.click();
+      await settle();
+      expect(api.decide).toHaveBeenCalledWith(29, 9890, 41, 'tpb_agree_assessor', 'The evidence supports the assessor.');
+    });
+
+    it('P2-3916: "Save as quick comment" saves the TPB\'s reason to the TPB list (and only once)', async () => {
+      const el = await open();
+      byName(thread(el), 'Agree with the program')!.click();
+      await settle();
+      expect((byName(thread(el), 'Save as quick comment') as HTMLButtonElement).disabled).toBe(true);
+      write(41, '  The program answered every point.  ');
+      byName(thread(el), 'Save as quick comment')!.click();
+      await settle();
+      expect(api.saveQuickComment).toHaveBeenCalledTimes(1);
+      expect(api.saveQuickComment).toHaveBeenCalledWith('TPB', 'The program answered every point.');
+      expect(byName(thread(el), 'Saved as quick comment')).toBeDefined();
+      expect(api.decide).not.toHaveBeenCalled();
+    });
   });
 
   describe('the PPU (step 5)', () => {
@@ -209,6 +244,14 @@ describe('ReviewView for the TPB and the PPU (P2-3916, P2-3917)', () => {
       byName(thread(el), 'Undo')!.click();
       await settle();
       expect(api.clearDecision).toHaveBeenCalledWith(29, 9890, 41);
+    });
+
+    it('the PPU\'s note offers no quick comments (P2-3917 does not ask for them)', async () => {
+      const el = await open();
+      byName(thread(el), 'Mark as done')!.click();
+      await settle();
+      expect(byName(thread(el), 'Quick comment')).toBeUndefined();
+      expect(byName(thread(el), 'Save as quick comment')).toBeUndefined();
     });
   });
 });
