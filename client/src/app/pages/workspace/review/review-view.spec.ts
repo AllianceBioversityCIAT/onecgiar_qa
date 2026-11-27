@@ -490,11 +490,11 @@ describe('ReviewView on the assessment API', () => {
         expect(api.addComment).not.toHaveBeenCalled();
       });
 
-      it('"Save as quick comment" saves what is in the box for the role', async () => {
+      it('"Save text as quick comment" saves what is in the box for the role', async () => {
         const el = await open();
         await openThread(el, 'Add comment for Title of Result');
         type('Name the partner.');
-        anywhere('Save as quick comment')!.click();
+        anywhere('Save text as quick comment')!.click();
         await settle();
         expect(api.saveQuickComment).toHaveBeenCalledWith('ASSESSOR', 'Name the partner.');
         expect(toasts.success).toHaveBeenCalledWith('Saved as a quick comment.');
@@ -544,11 +544,11 @@ describe('ReviewView on the assessment API', () => {
         const el = await open();
         await openThread(el, 'Add comment for Title of Result');
         type('Name the partner.');
-        anywhere('Save as quick comment')!.click();
+        anywhere('Save text as quick comment')!.click();
         await settle();
         expect(anywhere('Saved as quick comment')).toBeDefined();
         type('Name the partner and the country.');
-        expect(anywhere('Save as quick comment')).toBeDefined();
+        expect(anywhere('Save text as quick comment')).toBeDefined();
       });
 
       it('a view-only field never gets the comment form', async () => {
