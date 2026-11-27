@@ -41,7 +41,11 @@ import {
   NicknameTakenError,
   type FieldIssue,
 } from './users.errors.js';
-import { normalizeEmail, UsersRepository } from './users.repository.js';
+import {
+  normalizeEmail,
+  UsersRepository,
+  type UserPatch,
+} from './users.repository.js';
 
 /** Who acts, and under which request: every audit event and log line carries both (FR-13). */
 export interface AdminContext {
@@ -205,6 +209,20 @@ function grantChanges(
   };
 }
 
+/**
+ * A guest a create may adopt, judged on the row alone: an active SSO user that
+ * no one created (it signed in once with SSO), asked for as `sso`. The caller
+ * also checks, under the row lock, that it holds no active role.
+ */
+function isAdoptableGuestRow(user: User, accountType: AccountType): boolean {
+  return (
+    accountType === 'sso' &&
+    user.authSource === 'sso' &&
+    user.isActive &&
+    user.createdBy === null
+  );
+}
+
 const isPositiveId = (value: unknown): value is number =>
   typeof value === 'number' &&
   Number.isInteger(value) &&
@@ -248,8 +266,16 @@ export class UsersAdminService {
       async () => {
         const input = await this.validateCreate(command);
 
-        if (await this.users.findByEmail(input.email))
-          throw new EmailTakenError();
+        const existing = await this.users.findByEmail(input.email);
+        if (existing) {
+          // A guest (signed in once with SSO, no role, created by no one) is
+          // adopted instead of refused: the team list hides guests, so a 409
+          // left the admin no way to give them access.
+          if (!isAdoptableGuestRow(existing, input.accountType)) {
+            throw new EmailTakenError();
+          }
+          return this.adoptGuest(ctx, existing, input);
+        }
         if (await this.users.findByNickname(input.nickname)) {
           throw new NicknameTakenError();
         }
@@ -303,6 +329,66 @@ export class UsersAdminService {
       },
       (result) => result.userId,
     );
+  }
+
+  /**
+   * Create over a guest: the existing row becomes a team member in ONE
+   * transaction, under the target lock, through the helpers the edit routes
+   * use. The guest test is repeated under the lock: a concurrent grant or
+   * adoption wins and this one is a 409 `USERS_EMAIL_TAKEN`, nothing written.
+   * The identity provider owns the names after the first sign-in, so a sent
+   * name only fills an empty one. The email, the account type and the
+   * activation status are never changed here.
+   */
+  private async adoptGuest(
+    ctx: AdminContext,
+    guest: User,
+    input: ValidCreate,
+  ): Promise<CreatedUser> {
+    const holder = await this.users.findByNickname(input.nickname);
+    if (holder && holder.id !== guest.id) throw new NicknameTakenError();
+
+    await this.mutate(ctx, guest.id, async (repos, target) => {
+      const held = await repos.assignments.findActiveByUserId(target.id);
+      if (!isAdoptableGuestRow(target, input.accountType) || held.length > 0) {
+        throw new EmailTakenError();
+      }
+
+      const values: UserPatch = { createdBy: ctx.actorId };
+      const changes: UserAuditChanges = {
+        createdBy: { before: null, after: ctx.actorId },
+      };
+      if (target.nickname !== input.nickname) {
+        values.nickname = input.nickname;
+        changes.nickname = { before: target.nickname, after: input.nickname };
+      }
+      for (const field of ['firstName', 'lastName'] as const) {
+        if (target[field] !== null) continue;
+        values[field] = input[field];
+        changes[field] = { before: null, after: input[field] };
+      }
+      try {
+        await repos.users.update(target.id, values);
+      } catch (error) {
+        // The email is not written, so the only unique key left is the nickname.
+        if (error instanceof DuplicateUserError) throw new NicknameTakenError();
+        throw error;
+      }
+      await this.audit(repos, ctx, target.id, 'update', changes);
+      await this.applyRoles(repos, ctx, target, input.grants);
+      await this.applyPrograms(repos, ctx, target, input.programs);
+      await this.reconcileExclusions(repos, ctx, target, input.exclusions);
+      return true;
+    });
+    // After the commit: the email never decides the outcome.
+    await this.announce({
+      kind: 'granted',
+      email: guest.email,
+      firstName: guest.firstName ?? input.firstName,
+      grants: input.grants,
+      signIn: 'sso',
+    });
+    return { userId: guest.id, invitation: guest.invitation };
   }
 
   // -------------------------------------------------------------------------

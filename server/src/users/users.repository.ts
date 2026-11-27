@@ -41,6 +41,7 @@ export type UserPatch = Partial<
     | 'isActive'
     | 'invitation'
     | 'invitedAt'
+    | 'createdBy'
   >
 >;
 
