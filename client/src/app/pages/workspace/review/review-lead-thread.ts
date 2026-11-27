@@ -1,8 +1,8 @@
 // @akili-spec escalation/round-2
-import { Component, computed, inject, input, linkedSignal, signal } from '@angular/core';
+import { Component, ElementRef, computed, inject, input, linkedSignal, signal, viewChild } from '@angular/core';
 import { FormField, form } from '@angular/forms/signals';
 import { DecisionKind } from '../../../core/api/assessment.models';
-import { QaButtonImports } from '../../../ui';
+import { QaButtonImports, QaMenuImports } from '../../../ui';
 import { ReviewDeleteComment } from './review-delete-comment';
 import { ThreadItemVm } from './review-model';
 import { ReviewStore } from './review-store';
@@ -31,12 +31,15 @@ interface Editing {
  * Controls follow the view model only (`choices`, which the mapper takes from the server's `decidable` / `choices`);
  * every write and its refusal live in `ReviewStore`. This component holds only the open editor and its text.
  *
+ * The TPB's editor also offers the TPB role's quick comments and saves new ones to that list (P2-3916). The Lead's and
+ * the PPU's stories do not ask for them, so their editors do not show them.
+ *
  * TODO(design): Juanpa — provisional look. It reuses the card's existing tokens and the drawer's thread styles; no
  * mockup exists yet. Restyle freely in `review-lead-thread.html`; the logic does not depend on the markup.
  */
 @Component({
   selector: 'qa-review-lead-thread',
-  imports: [FormField, QaButtonImports, ReviewDeleteComment],
+  imports: [FormField, QaButtonImports, QaMenuImports, ReviewDeleteComment],
   templateUrl: './review-lead-thread.html',
   host: { class: 'block' },
 })
@@ -77,7 +80,49 @@ export class ReviewLeadThread {
   /** Any decision of the page is on its way: the other controls wait (the store refuses a second write anyway). */
   protected readonly anyBusy = computed(() => this.store.deciding() !== null);
 
+  // ---------- Quick comments of the TPB (P2-3916) ----------
+
+  /** Only the TPB's story asks for quick comments in the decision editor. */
+  protected offersQuick(item: ThreadItemVm): boolean {
+    return item.mode === 'tpb';
+  }
+
+  protected readonly savingQuick = this.store.savingQuick;
+  protected readonly query = signal('');
+  protected readonly matches = computed(() => {
+    const q = this.query().trim().toLowerCase();
+    return this.store.quickComments().filter((c) => !q || c.body.toLowerCase().includes(q));
+  });
+  protected readonly hasQuickList = computed(() => this.store.quickComments().length > 0);
+  /** The last text this block saved as a quick comment; the link says "Saved" until the text changes. */
+  private readonly quickSavedText = signal<string | null>(null);
+  protected readonly quickSaved = computed(() => {
+    const text = this.draft().text.trim();
+    return !!text && (this.quickSavedText() === text || this.store.quickComments().some((q) => q.body === text));
+  });
+  private readonly search = viewChild<ElementRef<HTMLInputElement>>('qcSearch');
+
+  protected pickQuick(text: string): void {
+    this.draft.update(({ text: cur }) => ({ text: cur.trim() ? cur.replace(/\s+$/, '') + '\n' + text : text }));
+  }
+
+  protected async saveQuick(): Promise<void> {
+    const text = this.draft().text.trim();
+    if (await this.store.saveQuickComment(text)) this.quickSavedText.set(text);
+  }
+
+  protected onQuickOpened(): void {
+    this.query.set('');
+    setTimeout(() => this.search()?.nativeElement.focus());
+  }
+
+  /** Keep typing in the search box from triggering the menu's typeahead / item navigation. */
+  protected onSearchKeydown(event: KeyboardEvent): void {
+    if (event.key !== 'Escape' && event.key !== 'Tab' && event.key !== 'ArrowDown') event.stopPropagation();
+  }
+
   protected start(item: ThreadItemVm, kind: DecisionKind): void {
+    if (this.offersQuick(item)) void this.store.loadQuickComments();
     this.editing.set({ commentId: item.commentId, kind });
     // Changing to the same kind keeps the text the Lead wrote; another kind starts empty.
     this.draft.set({ text: item.decision?.kind === kind ? item.decision.text : '' });
